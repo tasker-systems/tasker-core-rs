@@ -27,3 +27,6 @@ target
 
 # don't store the mcp file
 .mcp.json
+
+# don't store env files
+.env

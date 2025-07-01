@@ -2,10 +2,10 @@
 name = "tasker-core-rs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Pete Taylor <pete@example.com>"]
+authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 description = "High-performance Rust core for workflow orchestration, designed to complement the Rails Tasker engine"
 license = "MIT"
-repository = "https://github.com/yourusername/tasker-core-rs"
+repository = "https://github.com/tasker-systems/tasker-core-rs"
 keywords = ["workflow", "orchestration", "task", "async", "performance"]
 categories = ["concurrency", "database", "web-programming"]
 readme = "README.md"
@@ -38,8 +38,8 @@ anyhow = "1.0"
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-opentelemetry = "0.21"
-opentelemetry-otlp = "0.14"
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
 
 # Concurrency and state management
 parking_lot = "0.12"
