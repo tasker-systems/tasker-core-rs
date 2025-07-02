@@ -55,18 +55,16 @@ impl TaskNamespaceBuilder {
 /// Builder pattern for creating test NamedSteps
 pub struct NamedStepBuilder {
     name: Option<String>,
-    version: Option<i32>,
+    dependent_system_id: Option<i32>,
     description: Option<String>,
-    handler_class: Option<String>,
 }
 
 impl NamedStepBuilder {
     pub fn new() -> Self {
         Self {
             name: None,
-            version: None,
+            dependent_system_id: None,
             description: None,
-            handler_class: None,
         }
     }
 
@@ -75,8 +73,8 @@ impl NamedStepBuilder {
         self
     }
 
-    pub fn with_version(mut self, version: i32) -> Self {
-        self.version = Some(version);
+    pub fn with_dependent_system_id(mut self, id: i32) -> Self {
+        self.dependent_system_id = Some(id);
         self
     }
 
@@ -85,28 +83,31 @@ impl NamedStepBuilder {
         self
     }
 
-    pub fn with_handler_class(mut self, handler_class: &str) -> Self {
-        self.handler_class = Some(handler_class.to_string());
-        self
-    }
-
     pub async fn build(self, pool: &PgPool) -> NamedStep {
+        // Get or create a default dependent system
+        let dependent_system = DependentSystem::find_or_create_by_name(pool, "test_system")
+            .await
+            .expect("Failed to get test system");
+        
         let new_step = NewNamedStep {
+            dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
             name: self.name.unwrap_or_else(|| unique_name("step")),
-            version: self.version.or(Some(1)),
             description: self.description,
-            handler_class: self.handler_class.unwrap_or_else(|| "TestStepHandler".to_string()),
         };
         NamedStep::create(pool, new_step).await
             .expect("Failed to create test NamedStep")
     }
 
     pub async fn build_in_tx(self, pool: &PgPool) -> NamedStep {
+        // Get or create a default dependent system
+        let dependent_system = DependentSystem::find_or_create_by_name(pool, "test_system")
+            .await
+            .expect("Failed to get test system");
+        
         let new_step = NewNamedStep {
+            dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
             name: self.name.unwrap_or_else(|| unique_name("step")),
-            version: self.version.or(Some(1)),
             description: self.description,
-            handler_class: self.handler_class.unwrap_or_else(|| "TestStepHandler".to_string()),
         };
         NamedStep::create(pool, new_step).await
             .expect("Failed to create test NamedStep")
@@ -160,9 +161,10 @@ impl NamedTaskBuilder {
 
         let new_task = NewNamedTask {
             name: self.name.unwrap_or_else(|| unique_name("task")),
-            version: self.version.or(Some(1)),
+            version: self.version.or(Some("1.0.0".to_string())),
             description: self.description,
-            task_namespace_id: namespace.task_namespace_id,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: self.configuration,
         };
         NamedTask::create(pool, new_task).await
             .expect("Failed to create test NamedTask")
@@ -177,9 +179,10 @@ impl NamedTaskBuilder {
 
         let new_task = NewNamedTask {
             name: self.name.unwrap_or_else(|| unique_name("task")),
-            version: self.version.or(Some(1)),
+            version: self.version.or(Some("1.0.0".to_string())),
             description: self.description,
-            task_namespace_id: namespace.task_namespace_id,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: self.configuration,
         };
         NamedTask::create(pool, new_task).await
             .expect("Failed to create test NamedTask")
@@ -217,9 +220,17 @@ impl TaskBuilder {
             NamedTaskBuilder::new().build(pool).await
         };
 
+        let context = self.context.unwrap_or_else(|| serde_json::json!({}));
         let new_task = NewTask {
-            context: self.context.unwrap_or_else(|| serde_json::json!({})),
-            named_task_id: named_task.named_task_id,
+            named_task_id: named_task.named_task_id as i32,
+            requested_at: None,
+            initiator: None,
+            source_system: None,
+            reason: None,
+            bypass_steps: None,
+            tags: None,
+            context: Some(context.clone()),
+            identity_hash: Task::generate_identity_hash(named_task.named_task_id as i32, &Some(context)),
         };
         Task::create(pool, new_task).await
             .expect("Failed to create test Task")
@@ -232,9 +243,17 @@ impl TaskBuilder {
             NamedTaskBuilder::new().build(pool).await
         };
 
+        let context = self.context.unwrap_or_else(|| serde_json::json!({}));
         let new_task = NewTask {
-            context: self.context.unwrap_or_else(|| serde_json::json!({})),
-            named_task_id: named_task.named_task_id,
+            named_task_id: named_task.named_task_id as i32,
+            requested_at: None,
+            initiator: None,
+            source_system: None,
+            reason: None,
+            bypass_steps: None,
+            tags: None,
+            context: Some(context.clone()),
+            identity_hash: Task::generate_identity_hash(named_task.named_task_id as i32, &Some(context)),
         };
         Task::create(pool, new_task).await
             .expect("Failed to create test Task")
@@ -293,10 +312,12 @@ impl WorkflowStepBuilder {
         };
 
         let new_step = NewWorkflowStep {
-            context: self.context.unwrap_or_else(|| serde_json::json!({})),
-            max_retries: self.max_retries,
             task_id: task.task_id,
             named_step_id: named_step.named_step_id,
+            retryable: Some(true),
+            retry_limit: self.max_retries,
+            inputs: self.context,
+            skippable: Some(false),
         };
         WorkflowStep::create(pool, new_step).await
             .expect("Failed to create test WorkflowStep")
@@ -316,10 +337,12 @@ impl WorkflowStepBuilder {
         };
 
         let new_step = NewWorkflowStep {
-            context: self.context.unwrap_or_else(|| serde_json::json!({})),
-            max_retries: self.max_retries,
             task_id: task.task_id,
             named_step_id: named_step.named_step_id,
+            retryable: Some(true),
+            retry_limit: self.max_retries,
+            inputs: self.context,
+            skippable: Some(false),
         };
         WorkflowStep::create(pool, new_step).await
             .expect("Failed to create test WorkflowStep")

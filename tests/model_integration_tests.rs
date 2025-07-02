@@ -115,7 +115,7 @@ async fn test_complete_workflow_creation() {
         ).await?;
 
         // Test delegation-ready queries
-        let task_for_orchestration = Task::find_for_orchestration(pool, task.task_id)
+        let task_for_orchestration = task.for_orchestration(pool)
             .await?
             .expect("Task for orchestration should exist");
 
@@ -213,29 +213,30 @@ async fn test_state_transitions_and_audit_trails() {
         ).await?;
 
         // Test most recent transition
-        let most_recent = TaskTransition::get_most_recent(pool, task.task_id).await?.unwrap();
+        let most_recent = TaskTransition::get_current(pool, task.task_id).await?.unwrap();
         assert_eq!(most_recent.to_state, "complete");
         assert_eq!(most_recent.from_state, Some("running".to_string()));
         assert!(most_recent.most_recent);
 
         // Test transition history
-        let history = TaskTransition::get_history(pool, task.task_id).await?;
+        let history = TaskTransition::get_history(pool, task.task_id, Some(10), None).await?;
         assert_eq!(history.len(), 2);
         assert!(history[0].sort_key > history[1].sort_key); // Ordered by sort_key DESC
 
         // Test workflow step transitions
-        WorkflowStep::update_state(pool, workflow_step.workflow_step_id, "running").await?;
+        // WorkflowStep doesn't have update_state method - use mark_in_process instead
+        workflow_step.mark_in_process(pool).await?;
         let _step_transition = WorkflowStepTransition::create(
             pool,
             NewWorkflowStepTransition {
                 to_state: "running".to_string(),
                 from_state: Some("created".to_string()),
-                metadata: json!({"step_context": "execution_started"}),
+                metadata: Some(json!({"step_context": "execution_started"})),
                 workflow_step_id: workflow_step.workflow_step_id,
             },
         ).await?;
 
-        let step_most_recent = WorkflowStepTransition::get_most_recent(pool, workflow_step.workflow_step_id).await?.unwrap();
+        let step_most_recent = WorkflowStepTransition::get_current(pool, workflow_step.workflow_step_id).await?.unwrap();
         assert_eq!(step_most_recent.to_state, "running");
         assert!(step_most_recent.most_recent);
 
@@ -267,6 +268,7 @@ async fn test_dag_cycle_detection() {
             NewWorkflowStepEdge {
                 from_step_id: step1.workflow_step_id,
                 to_step_id: step2.workflow_step_id,
+                name: "provides".to_string(),
             },
         ).await?;
 
@@ -275,6 +277,7 @@ async fn test_dag_cycle_detection() {
             NewWorkflowStepEdge {
                 from_step_id: step2.workflow_step_id,
                 to_step_id: step3.workflow_step_id,
+                name: "provides".to_string(),
             },
         ).await?;
 
@@ -342,7 +345,7 @@ async fn test_delegation_serialization() {
             .await;
 
         // Get task for orchestration (delegation-ready)
-        let task_for_orchestration = Task::find_for_orchestration(pool, task.task_id)
+        let task_for_orchestration = task.for_orchestration(pool)
             .await?
             .expect("Task should exist");
 
