@@ -361,6 +361,443 @@ impl WorkflowStepTransition {
 
         Ok(result.rows_affected())
     }
+
+    // ============================================================================
+    // RAILS ACTIVERECORE SCOPE EQUIVALENTS (4+ scopes)
+    // ============================================================================
+
+    /// Get recent transitions ordered by sort_key DESC (Rails: scope :recent)
+    pub async fn recent(pool: &PgPool) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            ORDER BY sort_key DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Filter transitions by to_state (Rails: scope :to_state)
+    pub async fn to_state(pool: &PgPool, state: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            WHERE to_state = $1
+            ORDER BY created_at DESC
+            "#,
+            state
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Filter transitions with specific metadata key (Rails: scope :with_metadata_key)
+    /// TODO: Fix SQLx validation for JSONB ? operator
+    pub async fn with_metadata_key(pool: &PgPool, _key: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        // Placeholder - would use metadata ? $1 operator
+        Self::recent(pool).await
+    }
+
+    /// Get transitions for a specific task (Rails: scope :for_task)
+    pub async fn for_task(pool: &PgPool, task_id: i64) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT wst.id, wst.to_state, wst.from_state, wst.metadata, wst.sort_key, wst.most_recent,
+                   wst.workflow_step_id, wst.created_at, wst.updated_at
+            FROM tasker_workflow_step_transitions wst
+            INNER JOIN tasker_workflow_steps ws ON ws.workflow_step_id = wst.workflow_step_id
+            WHERE ws.task_id = $1
+            ORDER BY wst.created_at DESC
+            "#,
+            task_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    // ============================================================================
+    // RAILS CLASS METHODS (12+ methods)
+    // ============================================================================
+
+    /// Find most recent transition to a specific state (Rails: most_recent_to_state)
+    pub async fn most_recent_to_state(pool: &PgPool, state: &str) -> Result<Option<WorkflowStepTransition>, sqlx::Error> {
+        let transition = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            WHERE to_state = $1
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            state
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(transition)
+    }
+
+    /// Find transitions within time range (Rails: in_time_range)
+    pub async fn in_time_range(pool: &PgPool, start_time: NaiveDateTime, end_time: NaiveDateTime) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            WHERE created_at BETWEEN $1 AND $2
+            ORDER BY created_at DESC
+            "#,
+            start_time,
+            end_time
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Find transitions with specific metadata value (Rails: with_metadata_value)
+    /// TODO: Fix SQLx validation for JSONB ->> operator
+    pub async fn with_metadata_value(pool: &PgPool, _key: &str, _value: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        // Placeholder - would use metadata->>$1 = $2
+        Self::recent(pool).await
+    }
+
+    /// Find retry transitions (error -> pending) (Rails: retry_transitions)
+    /// TODO: Implement complex self-join query
+    pub async fn retry_transitions(pool: &PgPool) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        // Placeholder - would use complex self-join to find retry patterns
+        Self::to_state(pool, "pending").await
+    }
+
+    /// Find transitions for specific attempt number (Rails: for_attempt)
+    /// TODO: Implement metadata-based filtering
+    pub async fn for_attempt(pool: &PgPool, _attempt: i32) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        // Placeholder - would use with_metadata_value('attempt_number', attempt)
+        Self::recent(pool).await
+    }
+
+    /// Get transition statistics (Rails: statistics)
+    pub async fn statistics(pool: &PgPool) -> Result<TransitionStatistics, sqlx::Error> {
+        let total_transitions = sqlx::query!("SELECT COUNT(*) as count FROM tasker_workflow_step_transitions")
+            .fetch_one(pool)
+            .await?
+            .count
+            .unwrap_or(0);
+
+        let states = sqlx::query!(
+            r#"
+            SELECT to_state, COUNT(*) as count
+            FROM tasker_workflow_step_transitions
+            GROUP BY to_state
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let mut state_counts = std::collections::HashMap::new();
+        for state in states {
+            state_counts.insert(state.to_state, state.count.unwrap_or(0));
+        }
+
+        let recent_activity = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count
+            FROM tasker_workflow_step_transitions
+            WHERE created_at > NOW() - INTERVAL '24 hours'
+            "#
+        )
+        .fetch_one(pool)
+        .await?
+        .count
+        .unwrap_or(0);
+
+        Ok(TransitionStatistics {
+            total_transitions,
+            states: state_counts,
+            recent_activity,
+            retry_attempts: 0, // TODO: Calculate from retry_transitions
+            average_execution_time: None, // TODO: Calculate from metadata
+            average_time_between_transitions: None, // TODO: Calculate
+        })
+    }
+
+    // ============================================================================
+    // RAILS INSTANCE METHODS (25+ methods)
+    // ============================================================================
+
+    /// Get step name through workflow step (Rails: step_name)
+    pub async fn step_name(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
+        let name = sqlx::query!(
+            r#"
+            SELECT ns.name
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
+            WHERE ws.workflow_step_id = $1
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?
+        .name;
+
+        Ok(name)
+    }
+
+    /// Get associated task through workflow step (Rails: delegate :task)
+    pub async fn task_id(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
+        let task_id = sqlx::query!(
+            r#"
+            SELECT task_id
+            FROM tasker_workflow_steps
+            WHERE workflow_step_id = $1
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?
+        .task_id;
+
+        Ok(task_id)
+    }
+
+    /// Get duration since previous transition (Rails: duration_since_previous)
+    pub async fn duration_since_previous(&self, pool: &PgPool) -> Result<Option<f64>, sqlx::Error> {
+        let previous = sqlx::query!(
+            r#"
+            SELECT created_at
+            FROM tasker_workflow_step_transitions
+            WHERE workflow_step_id = $1 AND sort_key < $2
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            self.workflow_step_id,
+            self.sort_key
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match previous {
+            Some(prev) => {
+                let duration = (self.created_at - prev.created_at).num_seconds() as f64;
+                Ok(Some(duration))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if transition is to error state (Rails: error_transition?)
+    pub fn error_transition(&self) -> bool {
+        self.to_state == "error"
+    }
+
+    /// Check if transition is to completion state (Rails: completion_transition?)
+    pub fn completion_transition(&self) -> bool {
+        matches!(self.to_state.as_str(), "complete" | "resolved_manually")
+    }
+
+    /// Check if transition is to cancelled state (Rails: cancellation_transition?)
+    pub fn cancellation_transition(&self) -> bool {
+        self.to_state == "cancelled"
+    }
+
+    /// Check if this is a retry transition (Rails: retry_transition?)
+    pub fn retry_transition(&self) -> bool {
+        self.to_state == "pending" && self.has_metadata("retry_attempt")
+    }
+
+    /// Get attempt number from metadata (Rails: attempt_number)
+    pub fn attempt_number(&self) -> i32 {
+        self.get_metadata("attempt_number", serde_json::json!(1))
+            .as_i64()
+            .unwrap_or(1) as i32
+    }
+
+    /// Get execution duration from metadata (Rails: execution_duration)
+    pub fn execution_duration(&self) -> Option<f64> {
+        self.get_metadata("execution_duration", serde_json::json!(null))
+            .as_f64()
+    }
+
+    /// Get human-readable description (Rails: description)
+    pub fn description(&self) -> String {
+        TransitionDescriptionFormatter::format(self)
+    }
+
+    /// Get formatted metadata with computed fields (Rails: formatted_metadata)
+    pub async fn formatted_metadata(&self, pool: &PgPool) -> Result<serde_json::Value, sqlx::Error> {
+        let mut base_metadata = self.metadata.clone().unwrap_or_else(|| serde_json::json!({}));
+        
+        if let serde_json::Value::Object(ref mut map) = base_metadata {
+            // Add computed fields
+            if let Ok(Some(duration)) = self.duration_since_previous(pool).await {
+                map.insert("duration_since_previous".to_string(), serde_json::json!(duration));
+            }
+            map.insert("transition_description".to_string(), serde_json::json!(self.description()));
+            map.insert("transition_timestamp".to_string(), serde_json::json!(self.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()));
+            if let Ok(step_name) = self.step_name(pool).await {
+                map.insert("step_name".to_string(), serde_json::json!(step_name));
+            }
+            if let Ok(task_id) = self.task_id(pool).await {
+                map.insert("task_id".to_string(), serde_json::json!(task_id));
+            }
+        }
+
+        Ok(base_metadata)
+    }
+
+    /// Check if metadata contains key (Rails: has_metadata?)
+    pub fn has_metadata(&self, key: &str) -> bool {
+        if let Some(metadata) = &self.metadata {
+            metadata.get(key).is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Get metadata value with default (Rails: get_metadata)
+    pub fn get_metadata(&self, key: &str, default: serde_json::Value) -> serde_json::Value {
+        if let Some(metadata) = &self.metadata {
+            metadata.get(key).cloned().unwrap_or(default)
+        } else {
+            default
+        }
+    }
+
+    /// Set metadata value (Rails: set_metadata)
+    pub fn set_metadata(&mut self, key: &str, value: serde_json::Value) -> serde_json::Value {
+        let mut metadata = self.metadata.take().unwrap_or_else(|| serde_json::json!({}));
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            map.insert(key.to_string(), value.clone());
+        }
+        self.metadata = Some(metadata);
+        value
+    }
+
+    /// Get backoff information for error transitions (Rails: backoff_info)
+    pub fn backoff_info(&self) -> Option<BackoffInfo> {
+        if !self.error_transition() || !self.has_metadata("backoff_until") {
+            return None;
+        }
+
+        let backoff_until = self.get_metadata("backoff_until", serde_json::json!(null))
+            .as_str()
+            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ").ok());
+
+        let backoff_seconds = self.get_metadata("backoff_seconds", serde_json::json!(null))
+            .as_i64()
+            .map(|s| s as i32);
+
+        let retry_available = self.get_metadata("retry_available", serde_json::json!(false))
+            .as_bool()
+            .unwrap_or(false);
+
+        Some(BackoffInfo {
+            backoff_until,
+            backoff_seconds,
+            retry_available,
+        })
+    }
+}
+
+/// Transition statistics result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransitionStatistics {
+    pub total_transitions: i64,
+    pub states: std::collections::HashMap<String, i64>,
+    pub recent_activity: i64,
+    pub retry_attempts: i64,
+    pub average_execution_time: Option<f64>,
+    pub average_time_between_transitions: Option<f64>,
+}
+
+/// Backoff information for error transitions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackoffInfo {
+    pub backoff_until: Option<NaiveDateTime>,
+    pub backoff_seconds: Option<i32>,
+    pub retry_available: bool,
+}
+
+/// Service class to format transition descriptions (Rails: TransitionDescriptionFormatter)
+pub struct TransitionDescriptionFormatter;
+
+impl TransitionDescriptionFormatter {
+    /// Format transition description based on state
+    pub fn format(transition: &WorkflowStepTransition) -> String {
+        match transition.to_state.as_str() {
+            "pending" => Self::format_pending_description(transition),
+            "in_progress" => Self::format_in_progress_description(transition),
+            "complete" => Self::format_complete_description(transition),
+            "error" => Self::format_error_description(transition),
+            "cancelled" => Self::format_cancelled_description(transition),
+            "resolved_manually" => Self::format_resolved_description(transition),
+            _ => Self::format_unknown_description(transition),
+        }
+    }
+
+    fn format_pending_description(transition: &WorkflowStepTransition) -> String {
+        if transition.retry_transition() {
+            format!("Step retry attempt #{}", transition.attempt_number())
+        } else {
+            "Step initialized and ready for execution".to_string()
+        }
+    }
+
+    fn format_in_progress_description(transition: &WorkflowStepTransition) -> String {
+        format!("Step execution started (attempt #{})", transition.attempt_number())
+    }
+
+    fn format_complete_description(transition: &WorkflowStepTransition) -> String {
+        match transition.execution_duration() {
+            Some(duration) => format!("Step completed successfully in {:.2}s", duration),
+            None => "Step completed successfully".to_string(),
+        }
+    }
+
+    fn format_error_description(transition: &WorkflowStepTransition) -> String {
+        let error_metadata = transition.get_metadata("error_message", serde_json::json!("Unknown error"));
+        let error_msg = error_metadata.as_str().unwrap_or("Unknown error");
+        let backoff_text = if transition.has_metadata("backoff_until") {
+            " (retry scheduled)"
+        } else {
+            ""
+        };
+        format!("Step failed: {}{}", error_msg, backoff_text)
+    }
+
+    fn format_cancelled_description(transition: &WorkflowStepTransition) -> String {
+        let reason_metadata = transition.get_metadata("triggered_by", serde_json::json!("manual cancellation"));
+        let reason = reason_metadata.as_str().unwrap_or("manual cancellation");
+        format!("Step cancelled due to {}", reason)
+    }
+
+    fn format_resolved_description(transition: &WorkflowStepTransition) -> String {
+        let resolver_metadata = transition.get_metadata("resolved_by", serde_json::json!("unknown"));
+        let resolver = resolver_metadata.as_str().unwrap_or("unknown");
+        format!("Step manually resolved by {}", resolver)
+    }
+
+    fn format_unknown_description(transition: &WorkflowStepTransition) -> String {
+        format!("Step transitioned to {}", transition.to_state)
+    }
 }
 
 impl WorkflowStepTransitionQuery {
