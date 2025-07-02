@@ -9,6 +9,12 @@ pub mod task_transition;
 pub mod named_tasks_named_step;
 pub mod dependent_system;
 pub mod step_dag_relationship;
+pub mod annotation_type;
+pub mod task_annotation;
+pub mod dependent_system_object_map;
+pub mod step_readiness_status;
+pub mod task_execution_context;
+pub mod task_diagram;
 pub mod transitions; // Deprecated - kept for backwards compatibility
 
 // Re-export core models for easy access
@@ -23,3 +29,9 @@ pub use task_transition::{TaskTransition, NewTaskTransition};
 pub use named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep, StepTemplate};
 pub use dependent_system::{DependentSystem, NewDependentSystem};
 pub use step_dag_relationship::{StepDagRelationship, StepDagRelationshipQuery};
+pub use annotation_type::{AnnotationType, NewAnnotationType, AnnotationTypeWithStats};
+pub use task_annotation::{TaskAnnotation, NewTaskAnnotation, TaskAnnotationWithType, AnnotationTypeCount};
+pub use dependent_system_object_map::{DependentSystemObjectMap, NewDependentSystemObjectMap, DependentSystemObjectMapWithSystems, MappingStats};
+pub use step_readiness_status::{StepReadinessStatus, NewStepReadinessStatus, StepReadinessWithStep, StepReadinessResult};
+pub use task_execution_context::{TaskExecutionContext, NewTaskExecutionContext, TaskExecutionContextWithTask, WorkflowSummary};
+pub use task_diagram::{TaskDiagram, NewTaskDiagram, TaskDiagramWithTask, DiagramNode, DiagramEdge, Flowchart, DiagramStats};

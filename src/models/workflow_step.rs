@@ -101,6 +101,11 @@ impl WorkflowStep {
         Ok(steps)
     }
 
+    /// Alias for list_by_task - get workflow steps for a task (Rails scope: for_task)
+    pub async fn for_task(pool: &PgPool, task_id: i64) -> Result<Vec<WorkflowStep>, sqlx::Error> {
+        Self::list_by_task(pool, task_id).await
+    }
+
     /// List workflow steps by named step ID
     pub async fn list_by_named_step(pool: &PgPool, named_step_id: i32) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
