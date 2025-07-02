@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker_dependent_systems\n            SET name = COALESCE($2, name),\n                description = COALESCE($3, description),\n                updated_at = NOW()\n            WHERE dependent_system_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7411e1d57490ae2cf9e0d7ab9ecf942604ad3747e48d2518bd19072d43842c37"
+}

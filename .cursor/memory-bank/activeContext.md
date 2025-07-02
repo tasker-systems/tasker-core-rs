@@ -122,52 +122,105 @@ The database models exist but represent only 3 of 18+ Rails models that need com
 - ❌ **AnnotationType**: Not implemented - requires 669B Rails equivalent
 - ❌ **TaskExecutionContext**: Not implemented - requires 967B Rails equivalent
 
-## Next Steps (Revised Comprehensive Scope)
+## Phased Migration Strategy
 
-### 1. Complete Existing Model Fixes (Immediate)
-```rust
-// Fix WorkflowStepEdge - add missing fields
-pub struct WorkflowStepEdge {
-    pub id: i64,                    // PRIMARY KEY
-    pub from_step_id: i64,
-    pub to_step_id: i64,
-    pub name: String,               // Edge name/label
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-}
+### Phase 1: Complete Model Migration (Current Branch: `making-models`)
 
-// Fix WorkflowStep - align with 17KB Rails model
-// Add: retryable, in_process, processed, skippable booleans
-// Rename: context→inputs, output→results, retry_count→attempts
-// Add: processed_at, last_attempted_at, backoff_request_seconds
-```
+#### Sprint 1.1: Fix Existing Models (Week 1)
+- **WorkflowStep**: Add retryable, in_process, processed, skippable booleans; rename context→inputs, output→results
+- **WorkflowStepEdge**: Add name field and proper timestamps
+- **NamedTask**: Fix version column type, add missing fields
+- **NamedStep**: Complete implementation with all Rails fields
 
-### 2. Implement Large Rails Models (Priority)
-- **WorkflowStepTransition** (15KB, 435 lines) - Step state change audit
-- **TaskDiagram** (10KB, 333 lines) - Workflow visualization
-- **TaskTransition** (7.3KB, 236 lines) - Task state change audit
-- **NamedTasksNamedStep** (2.7KB, 83 lines) - Task-step relationships
-- **DependentSystemObjectMap** (2.7KB, 65 lines) - System object mappings
+#### Sprint 1.2: State Transition Models (Week 1)
+- **WorkflowStepTransition** (15KB) - Polymorphic audit trail for step state changes
+- **TaskTransition** (7.3KB) - Audit trail for task state changes
 
-### 3. Implement Core Constants and Configuration (Critical)
-- **Constants System** - Migrate `constants.rb` (16KB, 418 lines)
-- **Configuration Management** - Migrate `configuration.rb` (12KB, 326 lines)
-- **Cache Strategy** - Migrate `cache_strategy.rb` (17KB, 470 lines)
-- **Type System** - Migrate `types.rb` and `types/` directory
+#### Sprint 1.3: Remaining Models (Week 2)
+- **TaskDiagram** (10KB) - Workflow visualization with SVG/JSON
+- **NamedTasksNamedStep** - Join table for task-step relationships
+- **StepDagRelationship** - DAG structure representation
+- **DependentSystem**, **DependentSystemObjectMap** - External system tracking
+- **StepReadinessStatus** - Step readiness calculations
+- **TaskAnnotation**, **AnnotationType** - Metadata system
+- **TaskExecutionContext** - Execution tracking
 
-### 4. Begin Core Logic Migration
-- **Task Builder** - Migrate `task_builder.rb` (15KB, 433 lines)
-- **Handler Factory** - Migrate `handler_factory.rb` (12KB, 323 lines)
-- **State Machine** - Migrate `state_machine.rb` and `state_machine/` directory
-- **Event System** - Migrate `events.rb` and `events/` directory (pub/sub model)
+#### Sprint 1.4: ActiveRecord Scopes & Testing (Week 3)
+- Implement all ActiveRecord scopes with high-performance Rust equivalents
+- Unit tests for each model
+- Integration tests for associations
+- Property-based tests for DAG operations
+- Performance benchmarks
+
+### Phase 2: State Machines (New Branch: `state-machines`)
+
+#### Core Components (1-2 weeks)
+1. **Task State Machine**
+   - States: draft, planned, launched, running, paused, cancelled, completed, failed
+   - Transitions with guards and callbacks
+   - Audit trail integration
+
+2. **Step State Machine**
+   - States: pending, ready, running, completed, failed, skipped
+   - Retry logic and backoff calculations
+   - State transition validations
+
+3. **Infrastructure**
+   - Generic state machine trait
+   - Transition logging
+   - Event emission
+   - Atomic updates
+
+### Phase 3: Complex Data Setup (New Branch: `complex-data-setup`)
+
+#### Factory System (1 week)
+1. **Workflow Factory**
+   - Complex DAG generation
+   - Multi-step workflows with dependencies
+   - Circular dependency detection
+
+2. **Test Data Builders**
+   - Builder pattern for all models
+   - Scenario generators (parallel, sequential, fan-out/fan-in)
+   - Property-based test data
+
+3. **Validation Suite**
+   - DAG integrity verification
+   - State consistency checks
+   - Edge case testing
+
+### Phase 4: Orchestration Fundamentals (New Branch: `orchestration-fundamentals`)
+
+#### Core Orchestration (2-3 weeks)
+1. **Viable Step Discovery**
+   - High-performance dependency resolution
+   - Ready step identification
+   - Batch processing
+
+2. **Task Coordinator**
+   - Main orchestration loop
+   - Step execution delegation
+   - Task finalization
+
+3. **Step Executor**
+   - Step handler foundation
+   - Retry and backoff management
+   - Output processing
+
+4. **Event System**
+   - 56+ lifecycle events
+   - Publisher/subscriber pattern
+   - Cross-language routing
 
 ## Active Decisions & Considerations
 
 ### Migration Strategy
-- **Phase-by-Phase**: Complete all models before core logic implementation
+- **Phase-by-Phase**: Complete model layer → state machines → test infrastructure → orchestration
+- **Branch Strategy**: Separate branches for each phase (making-models, state-machines, complex-data-setup, orchestration-fundamentals)
 - **Rails Compatibility**: Maintain exact ActiveRecord scope equivalents
 - **Performance Focus**: 10-100x improvement targets for all migrated components
 - **Incremental Testing**: Validate each component against Rails equivalent
+- **Commit Points**: Merge each phase upon completion before starting next
 
 ### Step Handler Foundation Strategy
 - **Rust Core**: Implements complete step handler foundation with all lifecycle logic

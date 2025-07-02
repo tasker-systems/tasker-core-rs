@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT to_step_id\n            FROM tasker_workflow_step_edges\n            WHERE from_step_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_step_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "94120e8aa156ccc3d4b147bc9dcc0fe95b7fae243c361567ac0b200fc91d6ad7"
+}

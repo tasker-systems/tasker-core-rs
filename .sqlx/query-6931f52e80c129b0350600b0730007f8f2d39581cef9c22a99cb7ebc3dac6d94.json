@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, named_task_id, named_step_id, skippable, default_retryable, \n                   default_retry_limit, created_at, updated_at\n            FROM tasker_named_tasks_named_steps\n            WHERE named_task_id = $1 AND named_step_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "skippable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "default_retryable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "default_retry_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6931f52e80c129b0350600b0730007f8f2d39581cef9c22a99cb7ebc3dac6d94"
+}

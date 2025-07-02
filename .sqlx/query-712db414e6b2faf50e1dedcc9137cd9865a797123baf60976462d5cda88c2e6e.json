@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker_workflow_steps \n            SET in_process = false,\n                processed = false,\n                processed_at = NULL,\n                results = NULL,\n                backoff_request_seconds = NULL,\n                updated_at = NOW()\n            WHERE workflow_step_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "712db414e6b2faf50e1dedcc9137cd9865a797123baf60976462d5cda88c2e6e"
+}

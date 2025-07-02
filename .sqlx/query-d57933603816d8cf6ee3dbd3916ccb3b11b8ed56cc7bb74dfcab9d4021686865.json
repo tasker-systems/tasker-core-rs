@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_key\n            FROM tasker_workflow_step_transitions \n            WHERE workflow_step_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "next_key",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d57933603816d8cf6ee3dbd3916ccb3b11b8ed56cc7bb74dfcab9d4021686865"
+}

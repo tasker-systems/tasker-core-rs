@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tasker_workflow_step_transitions \n            (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent)\n            VALUES ($1, $2, $3, $4, $5, true)\n            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, \n                      workflow_step_id, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "from_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "sort_key",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "most_recent",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "workflow_step_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a693d3718d09024b4fc266bc0546e639a58ba1b62893f9f5f14563ae8427f928"
+}

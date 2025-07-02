@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO tasker_named_steps (name, dependent_system_id)\n                VALUES ($1, $2)\n                RETURNING named_step_id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "named_step_id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fa37557cb3e239bff557dd9629c2b42c54a92019e933f4197822668b438206a5"
+}

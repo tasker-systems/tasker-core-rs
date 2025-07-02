@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tasker_workflow_step_transitions \n            SET most_recent = false \n            WHERE workflow_step_id = $1 AND sort_key < $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e530219b9b6b8cfd014bd50b1b9cee7694a135dbec83cf4f61b58300a21a258a"
+}

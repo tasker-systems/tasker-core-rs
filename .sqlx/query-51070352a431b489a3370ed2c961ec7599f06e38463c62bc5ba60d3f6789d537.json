@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT to_state \n            FROM tasker_task_transitions \n            WHERE task_id = $1 AND most_recent = true\n            ORDER BY sort_key DESC \n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "51070352a431b489a3370ed2c961ec7599f06e38463c62bc5ba60d3f6789d537"
+}

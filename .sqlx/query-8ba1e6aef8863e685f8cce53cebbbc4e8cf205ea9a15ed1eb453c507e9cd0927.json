@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ntns.id, ntns.named_task_id, ntns.named_step_id, ntns.skippable, \n                   ntns.default_retryable, ntns.default_retry_limit, ntns.created_at, ntns.updated_at\n            FROM tasker_named_tasks_named_steps ntns\n            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ntns.named_step_id\n            WHERE ntns.named_task_id = $1 AND ns.name = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "named_step_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "skippable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "default_retryable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "default_retry_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8ba1e6aef8863e685f8cce53cebbbc4e8cf205ea9a15ed1eb453c507e9cd0927"
+}

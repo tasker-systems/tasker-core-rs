@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT dependent_system_object_map_id\n            FROM tasker_dependent_system_object_maps\n            WHERE dependent_system_one_id = $1 OR dependent_system_two_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dependent_system_object_map_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5b558092278792bc845d3e0dd15fdb8cc6fd466b2bdb8c46c02eadb6d15adcc"
+}

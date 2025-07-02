@@ -24,30 +24,62 @@
 - **Structured Errors**: ✅ Complete with thiserror integration
 - **Result Types**: ✅ Consistent error handling throughout codebase
 
-## What's Left to Build (Comprehensive Scope)
+## Phased Implementation Plan
 
-### ❌ Database Models (Critical - 15+ models remaining)
-**Rails Reference**: `/Users/petetaylor/projects/tasker/app/models/tasker/` (18 models total)
+### Phase 1: Model Migration (Current - `making-models` branch)
+**Timeline**: 2-3 weeks
 
-- **WorkflowStep Model**: ❌ Schema misalignment (485 lines) - needs 17KB Rails equivalent
-- **WorkflowStepTransition Model**: ❌ Not implemented - needs 15KB Rails equivalent
-- **TaskTransition Model**: ❌ Not implemented - needs 7.3KB Rails equivalent
-- **TaskDiagram Model**: ❌ Not implemented - needs 10KB Rails equivalent
-- **WorkflowStepEdge Model**: ❌ Missing fields (202 lines) - needs 3.3KB Rails equivalent
-- **NamedTask Model**: ❌ Type mismatch (405 lines) - needs 3.5KB Rails equivalent
-- **NamedTasksNamedStep Model**: ❌ Not implemented - needs 2.7KB Rails equivalent
-- **NamedStep Model**: ❌ Incomplete (273 lines) - needs 1.4KB Rails equivalent
-- **StepDagRelationship Model**: ❌ Not implemented - needs 1.9KB Rails equivalent
-- **DependentSystem Model**: ❌ Not implemented - needs 738B Rails equivalent
-- **DependentSystemObjectMap Model**: ❌ Not implemented - needs 2.7KB Rails equivalent
-- **StepReadinessStatus Model**: ❌ Not implemented - needs 2.1KB Rails equivalent
-- **TaskAnnotation Model**: ❌ Not implemented - needs 1.1KB Rails equivalent
-- **AnnotationType Model**: ❌ Not implemented - needs 669B Rails equivalent
-- **TaskExecutionContext Model**: ❌ Not implemented - needs 967B Rails equivalent
-- **ApplicationRecord Patterns**: ❌ Not implemented - needs 2.8KB Rails equivalent
-- **Diagram Subdirectory Models**: ❌ Not implemented - additional models
+#### Models to Fix (Week 1)
+- **WorkflowStep Model**: ❌ Schema misalignment - add retryable, in_process, processed, skippable fields
+- **WorkflowStepEdge Model**: ❌ Missing name field and proper timestamps
+- **NamedTask Model**: ❌ Version type mismatch, needs proper fields
+- **NamedStep Model**: ❌ Incomplete implementation
 
-**Critical Requirement**: All ActiveRecord scopes, validations, associations, and business logic methods must be fully migrated.
+#### State Transition Models (Week 1)
+- **WorkflowStepTransition Model**: ❌ Not implemented - polymorphic audit trail (15KB)
+- **TaskTransition Model**: ❌ Not implemented - task state changes (7.3KB)
+
+#### Remaining Models (Week 2)
+- **TaskDiagram Model**: ❌ Not implemented - workflow visualization (10KB)
+- **NamedTasksNamedStep Model**: ❌ Not implemented - join table (2.7KB)
+- **StepDagRelationship Model**: ❌ Not implemented - DAG structure (1.9KB)
+- **DependentSystem Model**: ❌ Not implemented - external systems (738B)
+- **DependentSystemObjectMap Model**: ❌ Not implemented - system mappings (2.7KB)
+- **StepReadinessStatus Model**: ❌ Not implemented - readiness tracking (2.1KB)
+- **TaskAnnotation Model**: ❌ Not implemented - metadata (1.1KB)
+- **AnnotationType Model**: ❌ Not implemented - annotation types (669B)
+- **TaskExecutionContext Model**: ❌ Not implemented - execution tracking (967B)
+
+#### ActiveRecord Scopes & Testing (Week 3)
+- ❌ Implement all ActiveRecord scopes for each model
+- ❌ Unit tests for all models
+- ❌ Integration tests for associations
+- ❌ Property-based tests for DAG operations
+- ❌ Performance benchmarks
+
+### Phase 2: State Machines (`state-machines` branch)
+**Timeline**: 1-2 weeks
+- ❌ Task state machine (draft, planned, launched, running, paused, cancelled, completed, failed)
+- ❌ Step state machine (pending, ready, running, completed, failed, skipped)
+- ❌ State machine infrastructure and transition logic
+- ❌ Integration with audit trail models
+- ❌ Comprehensive state machine tests
+
+### Phase 3: Complex Data Setup (`complex-data-setup` branch)
+**Timeline**: 1 week
+- ❌ Workflow factory for complex DAG generation
+- ❌ Test data builders using builder pattern
+- ❌ Scenario generators (parallel, sequential, fan-out/fan-in)
+- ❌ DAG integrity validation
+- ❌ Property-based test data generation
+
+### Phase 4: Orchestration Fundamentals (`orchestration-fundamentals` branch)
+**Timeline**: 2-3 weeks
+- ❌ Viable step discovery algorithm
+- ❌ Task coordinator with orchestration loop
+- ❌ Step executor with retry/backoff logic
+- ❌ Event system foundation (56+ lifecycle events)
+- ❌ Publisher/subscriber pattern implementation
 
 ### ❌ Core Tasker Logic (Critical - Heart of the System)
 **Rails Reference**: `/Users/petetaylor/projects/tasker/lib/tasker/` (25+ files + subdirectories)

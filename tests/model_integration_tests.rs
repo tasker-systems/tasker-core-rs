@@ -6,7 +6,8 @@ use tasker_core::models::{
     task::{Task, TaskForOrchestration},
     workflow_step::WorkflowStep,
     workflow_step_edge::{WorkflowStepEdge, NewWorkflowStepEdge},
-    transitions::{TaskTransition, NewTaskTransition, WorkflowStepTransition, NewWorkflowStepTransition},
+    task_transition::{TaskTransition, NewTaskTransition},
+    workflow_step_transition::{WorkflowStepTransition, NewWorkflowStepTransition},
 };
 use serde_json::json;
 

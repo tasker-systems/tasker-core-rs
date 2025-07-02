@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM tasker_task_transitions\n            WHERE task_id = $1 \n              AND sort_key < (\n                SELECT sort_key \n                FROM tasker_task_transitions\n                WHERE task_id = $1\n                ORDER BY sort_key DESC\n                LIMIT 1 OFFSET $2\n              )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a681b812c81b41355f141e27401d8fdb5098758a858ea5ce79baf29fd6e6c793"
+}

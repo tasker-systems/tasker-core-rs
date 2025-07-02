@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE ancestors AS (\n                -- Base case: direct parents\n                SELECT unnest(ARRAY(SELECT jsonb_array_elements_text(parent_step_ids)::bigint)) as step_id\n                FROM tasker_step_dag_relationships\n                WHERE workflow_step_id = $1\n                \n                UNION ALL\n                \n                -- Recursive case: parents of parents\n                SELECT unnest(ARRAY(SELECT jsonb_array_elements_text(sdr.parent_step_ids)::bigint)) as step_id\n                FROM ancestors a\n                JOIN tasker_step_dag_relationships sdr ON sdr.workflow_step_id = a.step_id\n                WHERE sdr.parent_step_ids IS NOT NULL AND sdr.parent_step_ids != '[]'::jsonb\n            )\n            SELECT DISTINCT step_id FROM ancestors\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "step_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7689d4b0c8d12225f8852f830882b7a1cf61d0e7923e44d458f65ecc4be36ed7"
+}

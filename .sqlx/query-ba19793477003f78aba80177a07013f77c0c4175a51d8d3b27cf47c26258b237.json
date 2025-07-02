@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM tasker_task_namespaces\n            WHERE task_namespace_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba19793477003f78aba80177a07013f77c0c4175a51d8d3b27cf47c26258b237"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ws.workflow_step_id\n            FROM tasker_workflow_steps ws\n            WHERE ws.task_id = $1\n              AND NOT EXISTS (\n                SELECT 1\n                FROM tasker_workflow_step_edges wse\n                WHERE wse.to_step_id = ws.workflow_step_id\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workflow_step_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f2738af472d4c1b3950660cd534707965ea6b253b1377e5c89b46ee0acc4d764"
+}

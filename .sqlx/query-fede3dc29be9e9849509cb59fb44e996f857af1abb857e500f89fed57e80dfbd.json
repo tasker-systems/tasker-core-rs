@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT to_state\n            FROM tasker_workflow_step_transitions\n            WHERE workflow_step_id = $1 AND most_recent = true\n            ORDER BY sort_key DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_state",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fede3dc29be9e9849509cb59fb44e996f857af1abb857e500f89fed57e80dfbd"
+}

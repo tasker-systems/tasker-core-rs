@@ -6,8 +6,10 @@ use sqlx::{FromRow, PgPool};
 /// Maps to `tasker_workflow_step_edges` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStepEdge {
+    pub id: i64,
     pub from_step_id: i64,
     pub to_step_id: i64,
+    pub name: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -17,6 +19,7 @@ pub struct WorkflowStepEdge {
 pub struct NewWorkflowStepEdge {
     pub from_step_id: i64,
     pub to_step_id: i64,
+    pub name: String,
 }
 
 impl WorkflowStepEdge {
@@ -25,12 +28,13 @@ impl WorkflowStepEdge {
         let edge = sqlx::query_as!(
             WorkflowStepEdge,
             r#"
-            INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id)
-            VALUES ($1, $2)
-            RETURNING from_step_id, to_step_id, created_at, updated_at
+            INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id, name)
+            VALUES ($1, $2, $3)
+            RETURNING id, from_step_id, to_step_id, name, created_at, updated_at
             "#,
             new_edge.from_step_id,
-            new_edge.to_step_id
+            new_edge.to_step_id,
+            new_edge.name
         )
         .fetch_one(pool)
         .await?;
@@ -81,7 +85,7 @@ impl WorkflowStepEdge {
         let edges = sqlx::query_as!(
             WorkflowStepEdge,
             r#"
-            SELECT wse.from_step_id, wse.to_step_id, wse.created_at, wse.updated_at
+            SELECT wse.id, wse.from_step_id, wse.to_step_id, wse.name, wse.created_at, wse.updated_at
             FROM tasker_workflow_step_edges wse
             INNER JOIN tasker_workflow_steps ws_from ON wse.from_step_id = ws_from.workflow_step_id
             INNER JOIN tasker_workflow_steps ws_to ON wse.to_step_id = ws_to.workflow_step_id

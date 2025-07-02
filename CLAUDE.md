@@ -219,3 +219,9 @@ This implementation prioritizes:
 ## Integration Notes
 
 This Rust core serves as the foundational step handler that frameworks extend. The Rails engine provides the web interface and developer ergonomics, while this Rust core handles all performance and safety-critical workflow orchestration logic. The same foundation works across Rails, Python FastAPI, and Node.js Express applications.
+
+## Project Scope
+- Project will implement a comprehensive high-performance Rust core for the Tasker workflow orchestration engine
+- Complete migration of all Rails models, logic, and business rules
+- Provide a universal step handler foundation for multiple language frameworks
+- Achieve significant performance improvements over existing Ruby implementation

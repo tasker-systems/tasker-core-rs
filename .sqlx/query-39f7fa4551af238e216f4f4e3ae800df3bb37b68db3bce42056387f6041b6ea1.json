@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,\n                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at\n            FROM tasker_tasks\n            WHERE named_task_id = $1\n            ORDER BY created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "complete",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "requested_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "initiator",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_system",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "bypass_steps",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "tags",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "context",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "identity_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "39f7fa4551af238e216f4f4e3ae800df3bb37b68db3bce42056387f6041b6ea1"
+}
