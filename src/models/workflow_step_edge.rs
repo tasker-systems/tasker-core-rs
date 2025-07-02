@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -8,8 +8,8 @@ use sqlx::{FromRow, PgPool};
 pub struct WorkflowStepEdge {
     pub from_step_id: i64,
     pub to_step_id: i64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New WorkflowStepEdge for creation

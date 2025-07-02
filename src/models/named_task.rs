@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -8,45 +8,62 @@ use sqlx::{FromRow, PgPool};
 pub struct NamedTask {
     pub named_task_id: i32,
     pub name: String,
-    pub version: i32,
+    pub version: String, // Version is a string in the Rails schema
     pub description: Option<String>,
-    pub task_namespace_id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub task_namespace_id: i64, // This is bigint in Rails schema
+    pub configuration: Option<serde_json::Value>, // Added configuration field
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New NamedTask for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewNamedTask {
     pub name: String,
-    pub version: Option<i32>, // Defaults to 1 if not provided
+    pub version: Option<String>, // Defaults to "0.1.0" if not provided
     pub description: Option<String>,
-    pub task_namespace_id: i32,
+    pub task_namespace_id: i64,
+    pub configuration: Option<serde_json::Value>,
 }
 
 /// NamedTask with associated steps for delegation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NamedTaskWithSteps {
     pub named_task: NamedTask,
-    pub step_names: Vec<String>,
+    pub step_associations: Vec<NamedTaskStepAssociation>,
+}
+
+/// Association between named tasks and named steps
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NamedTaskStepAssociation {
+    pub id: i32,
+    pub named_task_id: i32,
+    pub named_step_id: i32,
+    pub skippable: bool,
+    pub default_retryable: bool,
+    pub default_retry_limit: i32,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 impl NamedTask {
     /// Create a new named task
     pub async fn create(pool: &PgPool, new_task: NewNamedTask) -> Result<NamedTask, sqlx::Error> {
-        let version = new_task.version.unwrap_or(1);
+        let version = new_task.version.unwrap_or_else(|| "0.1.0".to_string());
+        let configuration = new_task.configuration.unwrap_or_else(|| serde_json::json!({}));
         
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_id)
-            VALUES ($1, $2, $3, $4)
-            RETURNING named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_id, configuration)
+            VALUES ($1, $2, $3, $4::bigint, $5)
+            RETURNING named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             "#,
             new_task.name,
             version,
             new_task.description,
-            new_task.task_namespace_id
+            new_task.task_namespace_id,
+            configuration
         )
         .fetch_one(pool)
         .await?;
@@ -59,7 +76,7 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             FROM tasker_named_tasks
             WHERE named_task_id = $1
             "#,
@@ -75,15 +92,15 @@ impl NamedTask {
     pub async fn find_by_name_version_namespace(
         pool: &PgPool,
         name: &str,
-        version: i32,
-        namespace_id: i32,
+        version: &str,
+        namespace_id: i64,
     ) -> Result<Option<NamedTask>, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND version = $2 AND task_namespace_id = $3
+            WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint
             "#,
             name,
             version,
@@ -99,15 +116,15 @@ impl NamedTask {
     pub async fn find_latest_by_name_namespace(
         pool: &PgPool,
         name: &str,
-        namespace_id: i32,
+        namespace_id: i64,
     ) -> Result<Option<NamedTask>, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND task_namespace_id = $2
-            ORDER BY version DESC
+            WHERE name = $1 AND task_namespace_id = $2::bigint
+            ORDER BY created_at DESC
             LIMIT 1
             "#,
             name,
@@ -119,19 +136,19 @@ impl NamedTask {
         Ok(task)
     }
 
-    /// List all versions of a named task in a namespace
-    pub async fn list_versions(
+    /// List all versions of a named task by name and namespace
+    pub async fn list_versions_by_name_namespace(
         pool: &PgPool,
         name: &str,
-        namespace_id: i32,
+        namespace_id: i64,
     ) -> Result<Vec<NamedTask>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND task_namespace_id = $2
-            ORDER BY version DESC
+            WHERE name = $1 AND task_namespace_id = $2::bigint
+            ORDER BY created_at DESC
             "#,
             name,
             namespace_id
@@ -142,16 +159,18 @@ impl NamedTask {
         Ok(tasks)
     }
 
-    /// List all named tasks in a namespace (latest versions)
-    pub async fn list_by_namespace(pool: &PgPool, namespace_id: i32) -> Result<Vec<NamedTask>, sqlx::Error> {
+    /// List all tasks in a namespace
+    pub async fn list_by_namespace(
+        pool: &PgPool,
+        namespace_id: i64,
+    ) -> Result<Vec<NamedTask>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT DISTINCT ON (name) 
-                named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE task_namespace_id = $1
-            ORDER BY name, version DESC
+            WHERE task_namespace_id = $1::bigint
+            ORDER BY name, created_at DESC
             "#,
             namespace_id
         )
@@ -161,82 +180,26 @@ impl NamedTask {
         Ok(tasks)
     }
 
-    /// Get associated step names for delegation
-    pub async fn get_step_names(pool: &PgPool, named_task_id: i32) -> Result<Vec<String>, sqlx::Error> {
-        let step_names = sqlx::query!(
+    /// List all tasks with their latest versions in a namespace
+    pub async fn list_latest_by_namespace(
+        pool: &PgPool,
+        namespace_id: i64,
+    ) -> Result<Vec<NamedTask>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            NamedTask,
             r#"
-            SELECT ns.name
-            FROM tasker_named_steps ns
-            INNER JOIN tasker_named_tasks_named_steps nts ON ns.named_step_id = nts.named_step_id
-            WHERE nts.named_task_id = $1
-            ORDER BY ns.name
+            SELECT DISTINCT ON (name) 
+                named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            FROM tasker_named_tasks
+            WHERE task_namespace_id = $1::bigint
+            ORDER BY name, created_at DESC
             "#,
-            named_task_id
+            namespace_id
         )
         .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| row.name)
-        .collect();
-
-        Ok(step_names)
-    }
-
-    /// Get named task with its associated steps
-    pub async fn find_with_steps(
-        pool: &PgPool,
-        named_task_id: i32,
-    ) -> Result<Option<NamedTaskWithSteps>, sqlx::Error> {
-        if let Some(named_task) = Self::find_by_id(pool, named_task_id).await? {
-            let step_names = Self::get_step_names(pool, named_task_id).await?;
-            Ok(Some(NamedTaskWithSteps {
-                named_task,
-                step_names,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Associate a step with this named task
-    pub async fn add_step(
-        pool: &PgPool,
-        named_task_id: i32,
-        named_step_id: i32,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            INSERT INTO tasker_named_tasks_named_steps (named_task_id, named_step_id)
-            VALUES ($1, $2)
-            ON CONFLICT (named_task_id, named_step_id) DO NOTHING
-            "#,
-            named_task_id,
-            named_step_id
-        )
-        .execute(pool)
         .await?;
 
-        Ok(())
-    }
-
-    /// Remove a step from this named task
-    pub async fn remove_step(
-        pool: &PgPool,
-        named_task_id: i32,
-        named_step_id: i32,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND named_step_id = $2
-            "#,
-            named_task_id,
-            named_step_id
-        )
-        .execute(pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
+        Ok(tasks)
     }
 
     /// Update a named task
@@ -244,6 +207,7 @@ impl NamedTask {
         pool: &PgPool,
         id: i32,
         description: Option<String>,
+        configuration: Option<serde_json::Value>,
     ) -> Result<NamedTask, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
@@ -251,12 +215,14 @@ impl NamedTask {
             UPDATE tasker_named_tasks
             SET 
                 description = COALESCE($2, description),
+                configuration = COALESCE($3, configuration),
                 updated_at = NOW()
             WHERE named_task_id = $1
-            RETURNING named_task_id, name, version, description, task_namespace_id, created_at, updated_at
+            RETURNING named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             "#,
             id,
-            description
+            description,
+            configuration
         )
         .fetch_one(pool)
         .await?;
@@ -279,12 +245,12 @@ impl NamedTask {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Check if name/version/namespace combination is unique
+    /// Check if name/version combination is unique within namespace
     pub async fn is_version_unique(
         pool: &PgPool,
         name: &str,
-        version: i32,
-        namespace_id: i32,
+        version: &str,
+        namespace_id: i64,
         exclude_id: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
         let count = if let Some(id) = exclude_id {
@@ -292,7 +258,7 @@ impl NamedTask {
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_tasks
-                WHERE name = $1 AND version = $2 AND task_namespace_id = $3 AND named_task_id != $4
+                WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint AND named_task_id != $4
                 "#,
                 name,
                 version,
@@ -307,7 +273,7 @@ impl NamedTask {
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_tasks
-                WHERE name = $1 AND version = $2 AND task_namespace_id = $3
+                WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint
                 "#,
                 name,
                 version,
@@ -321,31 +287,59 @@ impl NamedTask {
         Ok(count.unwrap_or(0) == 0)
     }
 
-    /// Get the next available version number for a task name in namespace
-    pub async fn next_version(
-        pool: &PgPool,
-        name: &str,
-        namespace_id: i32,
-    ) -> Result<i32, sqlx::Error> {
-        let max_version = sqlx::query!(
-            r#"
-            SELECT COALESCE(MAX(version), 0) as max_version
-            FROM tasker_named_tasks
-            WHERE name = $1 AND task_namespace_id = $2
-            "#,
-            name,
-            namespace_id
-        )
-        .fetch_one(pool)
-        .await?
-        .max_version;
-
-        Ok(max_version.unwrap_or(0) + 1)
-    }
-
     /// Get task identifier for delegation
     pub fn get_task_identifier(&self) -> String {
-        format!("{}:v{}", self.name, self.version)
+        format!("{}:{}", self.name, self.version)
+    }
+
+    /// Get associated step definitions
+    pub async fn get_step_associations(
+        &self,
+        pool: &PgPool,
+    ) -> Result<Vec<NamedTaskStepAssociation>, sqlx::Error> {
+        let associations = sqlx::query_as!(
+            NamedTaskStepAssociation,
+            r#"
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at
+            FROM tasker_named_tasks_named_steps
+            WHERE named_task_id = $1
+            ORDER BY id
+            "#,
+            self.named_task_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(associations)
+    }
+
+    /// Add step association
+    pub async fn add_step_association(
+        &self,
+        pool: &PgPool,
+        named_step_id: i32,
+        skippable: Option<bool>,
+        default_retryable: Option<bool>,
+        default_retry_limit: Option<i32>,
+    ) -> Result<NamedTaskStepAssociation, sqlx::Error> {
+        let association = sqlx::query_as!(
+            NamedTaskStepAssociation,
+            r#"
+            INSERT INTO tasker_named_tasks_named_steps 
+            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at
+            "#,
+            self.named_task_id,
+            named_step_id,
+            skippable.unwrap_or(false),
+            default_retryable.unwrap_or(true),
+            default_retry_limit.unwrap_or(3)
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(association)
     }
 }
 
@@ -353,68 +347,58 @@ impl NamedTask {
 mod tests {
     use super::*;
     use crate::database::DatabaseConnection;
-    use crate::models::task_namespace::{TaskNamespace, NewTaskNamespace};
-    use crate::models::named_step::{NamedStep, NewNamedStep};
 
     #[tokio::test]
     async fn test_named_task_crud() {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
-        // Create a test namespace first
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        let new_namespace = NewTaskNamespace {
-            name: format!("test_namespace_for_task_{}", timestamp),
-            description: Some("Test namespace".to_string()),
-        };
-        let namespace = TaskNamespace::create(pool, new_namespace).await.expect("Failed to create namespace");
-
-        // Create a test step
-        let new_step = NewNamedStep {
-            name: format!("test_step_for_task_{}", timestamp),
-            version: Some(1),
-            description: Some("Test step".to_string()),
-            handler_class: "TestHandler".to_string(),
-        };
-        let step = NamedStep::create(pool, new_step).await.expect("Failed to create step");
-
-        // Test named task creation
+        // Test creation
         let new_task = NewNamedTask {
-            name: format!("test_task_{}", timestamp),
-            version: Some(1),
+            name: "test_task".to_string(),
+            version: Some("1.0.0".to_string()),
             description: Some("Test task description".to_string()),
-            task_namespace_id: namespace.task_namespace_id,
+            task_namespace_id: 1,
+            configuration: Some(serde_json::json!({"timeout": 300})),
         };
 
         let created = NamedTask::create(pool, new_task).await.expect("Failed to create task");
-        assert!(created.name.starts_with("test_task_"));
-        assert_eq!(created.version, 1);
-        assert_eq!(created.task_namespace_id, namespace.task_namespace_id);
+        assert_eq!(created.name, "test_task");
+        assert_eq!(created.version, "1.0.0");
 
-        // Test adding step to task
-        NamedTask::add_step(pool, created.named_task_id, step.named_step_id)
+        // Test find by ID
+        let found = NamedTask::find_by_id(pool, created.named_task_id)
             .await
-            .expect("Failed to add step to task");
+            .expect("Failed to find task")
+            .expect("Task not found");
+        assert_eq!(found.named_task_id, created.named_task_id);
 
-        // Test finding with steps
-        let task_with_steps = NamedTask::find_with_steps(pool, created.named_task_id)
+        // Test find by name/version/namespace
+        let found_by_nvn = NamedTask::find_by_name_version_namespace(pool, "test_task", "1.0.0", 1)
             .await
-            .expect("Failed to find task with steps")
-            .expect("Task with steps not found");
-        
-        assert_eq!(task_with_steps.step_names.len(), 1);
-        assert!(task_with_steps.step_names[0].starts_with("test_step_for_task_"));
+            .expect("Failed to find task by nvn")
+            .expect("Task not found by nvn");
+        assert_eq!(found_by_nvn.named_task_id, created.named_task_id);
+
+        // Test version uniqueness
+        let is_unique = NamedTask::is_version_unique(pool, "test_task", "2.0.0", 1, None)
+            .await
+            .expect("Failed to check uniqueness");
+        assert!(is_unique);
+
+        let is_not_unique = NamedTask::is_version_unique(pool, "test_task", "1.0.0", 1, None)
+            .await
+            .expect("Failed to check uniqueness");
+        assert!(!is_not_unique);
 
         // Test delegation methods
-        assert!(created.get_task_identifier().starts_with("test_task_") && created.get_task_identifier().ends_with(":v1"));
+        assert_eq!(created.get_task_identifier(), "test_task:1.0.0");
 
-        // Cleanup - remove step association first
-        NamedTask::remove_step(pool, created.named_task_id, step.named_step_id)
+        // Test deletion
+        let deleted = NamedTask::delete(pool, created.named_task_id)
             .await
-            .expect("Failed to remove step from task");
-        NamedTask::delete(pool, created.named_task_id).await.expect("Failed to delete task");
-        NamedStep::delete(pool, step.named_step_id).await.expect("Failed to delete step");
-        TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
+            .expect("Failed to delete task");
+        assert!(deleted);
 
         db.close().await;
     }

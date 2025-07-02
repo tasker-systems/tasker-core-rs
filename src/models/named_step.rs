@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -7,39 +7,34 @@ use sqlx::{FromRow, PgPool};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedStep {
     pub named_step_id: i32,
+    pub dependent_system_id: i32,
     pub name: String,
-    pub version: i32,
     pub description: Option<String>,
-    pub handler_class: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New NamedStep for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewNamedStep {
+    pub dependent_system_id: i32,
     pub name: String,
-    pub version: Option<i32>, // Defaults to 1 if not provided
     pub description: Option<String>,
-    pub handler_class: String,
 }
 
 impl NamedStep {
     /// Create a new named step
     pub async fn create(pool: &PgPool, new_step: NewNamedStep) -> Result<NamedStep, sqlx::Error> {
-        let version = new_step.version.unwrap_or(1);
-        
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (name, version, description, handler_class)
-            VALUES ($1, $2, $3, $4)
-            RETURNING named_step_id, name, version, description, handler_class, created_at, updated_at
+            INSERT INTO tasker_named_steps (dependent_system_id, name, description)
+            VALUES ($1, $2, $3)
+            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
             "#,
+            new_step.dependent_system_id,
             new_step.name,
-            version,
-            new_step.description,
-            new_step.handler_class
+            new_step.description
         )
         .fetch_one(pool)
         .await?;
@@ -52,7 +47,7 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, name, version, description, handler_class, created_at, updated_at
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
             FROM tasker_named_steps
             WHERE named_step_id = $1
             "#,
@@ -64,38 +59,17 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// Find a named step by name and version
-    pub async fn find_by_name_and_version(
+    /// Find a named step by name
+    pub async fn find_by_name(
         pool: &PgPool,
         name: &str,
-        version: i32,
     ) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, name, version, description, handler_class, created_at, updated_at
-            FROM tasker_named_steps
-            WHERE name = $1 AND version = $2
-            "#,
-            name,
-            version
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(step)
-    }
-
-    /// Find the latest version of a named step by name
-    pub async fn find_latest_by_name(pool: &PgPool, name: &str) -> Result<Option<NamedStep>, sqlx::Error> {
-        let step = sqlx::query_as!(
-            NamedStep,
-            r#"
-            SELECT named_step_id, name, version, description, handler_class, created_at, updated_at
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
             FROM tasker_named_steps
             WHERE name = $1
-            ORDER BY version DESC
-            LIMIT 1
             "#,
             name
         )
@@ -105,17 +79,17 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// List all versions of a named step
-    pub async fn list_versions(pool: &PgPool, name: &str) -> Result<Vec<NamedStep>, sqlx::Error> {
+    /// Find all named steps by dependent system
+    pub async fn find_by_dependent_system(pool: &PgPool, system_id: i32) -> Result<Vec<NamedStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, name, version, description, handler_class, created_at, updated_at
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
             FROM tasker_named_steps
-            WHERE name = $1
-            ORDER BY version DESC
+            WHERE dependent_system_id = $1
+            ORDER BY name
             "#,
-            name
+            system_id
         )
         .fetch_all(pool)
         .await?;
@@ -123,15 +97,14 @@ impl NamedStep {
         Ok(steps)
     }
 
-    /// List all named steps with their latest versions
-    pub async fn list_all_latest(pool: &PgPool) -> Result<Vec<NamedStep>, sqlx::Error> {
+    /// List all named steps
+    pub async fn list_all(pool: &PgPool) -> Result<Vec<NamedStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT DISTINCT ON (name) 
-                named_step_id, name, version, description, handler_class, created_at, updated_at
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
             FROM tasker_named_steps
-            ORDER BY name, version DESC
+            ORDER BY name
             "#
         )
         .fetch_all(pool)
@@ -144,23 +117,25 @@ impl NamedStep {
     pub async fn update(
         pool: &PgPool,
         id: i32,
-        description: Option<String>,
-        handler_class: Option<String>,
+        name: Option<&str>,
+        description: Option<&str>,
+        dependent_system_id: Option<i32>,
     ) -> Result<NamedStep, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
             UPDATE tasker_named_steps
-            SET 
-                description = COALESCE($2, description),
-                handler_class = COALESCE($3, handler_class),
+            SET name = COALESCE($2, name),
+                description = COALESCE($3, description),
+                dependent_system_id = COALESCE($4, dependent_system_id),
                 updated_at = NOW()
             WHERE named_step_id = $1
-            RETURNING named_step_id, name, version, description, handler_class, created_at, updated_at
+            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
             "#,
             id,
+            name,
             description,
-            handler_class
+            dependent_system_id
         )
         .fetch_one(pool)
         .await?;
@@ -183,11 +158,10 @@ impl NamedStep {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Check if name/version combination is unique
-    pub async fn is_version_unique(
+    /// Check if name is unique (since there's no version)
+    pub async fn is_name_unique(
         pool: &PgPool,
         name: &str,
-        version: i32,
         exclude_id: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
         let count = if let Some(id) = exclude_id {
@@ -195,10 +169,9 @@ impl NamedStep {
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_steps
-                WHERE name = $1 AND version = $2 AND named_step_id != $3
+                WHERE name = $1 AND named_step_id != $2
                 "#,
                 name,
-                version,
                 id
             )
             .fetch_one(pool)
@@ -209,10 +182,9 @@ impl NamedStep {
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_steps
-                WHERE name = $1 AND version = $2
+                WHERE name = $1
                 "#,
-                name,
-                version
+                name
             )
             .fetch_one(pool)
             .await?
@@ -222,31 +194,9 @@ impl NamedStep {
         Ok(count.unwrap_or(0) == 0)
     }
 
-    /// Get the next available version number for a step name
-    pub async fn next_version(pool: &PgPool, name: &str) -> Result<i32, sqlx::Error> {
-        let max_version = sqlx::query!(
-            r#"
-            SELECT COALESCE(MAX(version), 0) as max_version
-            FROM tasker_named_steps
-            WHERE name = $1
-            "#,
-            name
-        )
-        .fetch_one(pool)
-        .await?
-        .max_version;
-
-        Ok(max_version.unwrap_or(0) + 1)
-    }
-
-    /// Get handler class for step execution delegation
-    pub fn get_handler_class(&self) -> &str {
-        &self.handler_class
-    }
-
     /// Get step identifier for delegation
     pub fn get_step_identifier(&self) -> String {
-        format!("{}:v{}", self.name, self.version)
+        format!("{}:{}", self.name, self.dependent_system_id)
     }
 }
 
@@ -262,16 +212,14 @@ mod tests {
 
         // Test creation
         let new_step = NewNamedStep {
+            dependent_system_id: 1,
             name: "test_step".to_string(),
-            version: Some(1),
             description: Some("Test step description".to_string()),
-            handler_class: "TestStepHandler".to_string(),
         };
 
         let created = NamedStep::create(pool, new_step).await.expect("Failed to create step");
         assert_eq!(created.name, "test_step");
-        assert_eq!(created.version, 1);
-        assert_eq!(created.handler_class, "TestStepHandler");
+        assert_eq!(created.dependent_system_id, 1);
 
         // Test find by ID
         let found = NamedStep::find_by_id(pool, created.named_step_id)
@@ -280,45 +228,39 @@ mod tests {
             .expect("Step not found");
         assert_eq!(found.named_step_id, created.named_step_id);
 
-        // Test find by name and version
-        let found_by_name = NamedStep::find_by_name_and_version(pool, "test_step", 1)
+        // Test find by name
+        let found_by_name = NamedStep::find_by_name(pool, "test_step")
             .await
             .expect("Failed to find step by name")
             .expect("Step not found by name");
         assert_eq!(found_by_name.named_step_id, created.named_step_id);
 
-        // Test version uniqueness
-        let is_unique = NamedStep::is_version_unique(pool, "test_step", 2, None)
+        // Test name uniqueness
+        let is_unique = NamedStep::is_name_unique(pool, "test_step_unique", None)
             .await
             .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = NamedStep::is_version_unique(pool, "test_step", 1, None)
+        let is_not_unique = NamedStep::is_name_unique(pool, "test_step", None)
             .await
             .expect("Failed to check uniqueness");
         assert!(!is_not_unique);
-
-        // Test next version
-        let next_version = NamedStep::next_version(pool, "test_step")
-            .await
-            .expect("Failed to get next version");
-        assert_eq!(next_version, 2);
 
         // Test update
         let updated = NamedStep::update(
             pool,
             created.named_step_id,
-            Some("Updated description".to_string()),
-            Some("UpdatedStepHandler".to_string()),
+            Some("updated_test_step"),
+            Some("Updated description"),
+            None,
         )
         .await
         .expect("Failed to update step");
+        assert_eq!(updated.name, "updated_test_step");
         assert_eq!(updated.description, Some("Updated description".to_string()));
-        assert_eq!(updated.handler_class, "UpdatedStepHandler");
 
         // Test delegation methods
-        assert_eq!(updated.get_handler_class(), "UpdatedStepHandler");
-        assert_eq!(updated.get_step_identifier(), "test_step:v1");
+        assert_eq!(updated.get_step_identifier(), "updated_test_step:1");
 
         // Test deletion
         let deleted = NamedStep::delete(pool, created.named_step_id)

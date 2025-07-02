@@ -1,26 +1,39 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use crate::query_builder::TaskScopes;
 
 /// Task represents actual task instances with delegation metadata
-/// Maps to `tasker_tasks` table
+/// Maps to `tasker_tasks` table matching Rails schema exactly
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Task {
     pub task_id: i64,
-    pub state: String,
-    pub context: serde_json::Value,
-    pub most_recent_error_message: Option<String>,
-    pub most_recent_error_backtrace: Option<String>,
     pub named_task_id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub complete: bool,
+    pub requested_at: NaiveDateTime,
+    pub initiator: Option<String>,
+    pub source_system: Option<String>,
+    pub reason: Option<String>,
+    pub bypass_steps: Option<serde_json::Value>,
+    pub tags: Option<serde_json::Value>,
+    pub context: Option<serde_json::Value>,
+    pub identity_hash: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New Task for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewTask {
-    pub context: serde_json::Value,
     pub named_task_id: i32,
+    pub requested_at: Option<NaiveDateTime>, // Defaults to NOW() if not provided
+    pub initiator: Option<String>,
+    pub source_system: Option<String>,
+    pub reason: Option<String>,
+    pub bypass_steps: Option<serde_json::Value>,
+    pub tags: Option<serde_json::Value>,
+    pub context: Option<serde_json::Value>,
+    pub identity_hash: String,
 }
 
 /// Task with delegation metadata for orchestration
@@ -28,22 +41,35 @@ pub struct NewTask {
 pub struct TaskForOrchestration {
     pub task: Task,
     pub task_name: String,
-    pub task_version: i32,
+    pub task_version: String,
     pub namespace_name: String,
 }
 
 impl Task {
     /// Create a new task
     pub async fn create(pool: &PgPool, new_task: NewTask) -> Result<Task, sqlx::Error> {
+        let requested_at = new_task.requested_at.unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        
         let task = sqlx::query_as!(
             Task,
             r#"
-            INSERT INTO tasker_tasks (context, named_task_id)
-            VALUES ($1, $2)
-            RETURNING task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
+            INSERT INTO tasker_tasks (
+                named_task_id, complete, requested_at, initiator, source_system, 
+                reason, bypass_steps, tags, context, identity_hash
+            )
+            VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
+                      reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
             "#,
+            new_task.named_task_id,
+            requested_at,
+            new_task.initiator,
+            new_task.source_system,
+            new_task.reason,
+            new_task.bypass_steps,
+            new_task.tags,
             new_task.context,
-            new_task.named_task_id
+            new_task.identity_hash
         )
         .fetch_one(pool)
         .await?;
@@ -56,7 +82,8 @@ impl Task {
         let task = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
+            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
             FROM tasker_tasks
             WHERE task_id = $1
             "#,
@@ -68,71 +95,31 @@ impl Task {
         Ok(task)
     }
 
-    /// Find task with orchestration metadata for delegation
-    pub async fn find_for_orchestration(pool: &PgPool, task_id: i64) -> Result<Option<TaskForOrchestration>, sqlx::Error> {
-        let result = sqlx::query!(
+    /// Find a task by identity hash
+    pub async fn find_by_identity_hash(pool: &PgPool, hash: &str) -> Result<Option<Task>, sqlx::Error> {
+        let task = sqlx::query_as!(
+            Task,
             r#"
-            SELECT 
-                t.task_id, t.state, t.context, t.most_recent_error_message, t.most_recent_error_backtrace, t.named_task_id, t.created_at, t.updated_at,
-                nt.name as task_name, nt.version as task_version,
-                tn.name as namespace_name
-            FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON t.named_task_id = nt.named_task_id
-            INNER JOIN tasker_task_namespaces tn ON nt.task_namespace_id = tn.task_namespace_id
-            WHERE t.task_id = $1
+            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+            FROM tasker_tasks
+            WHERE identity_hash = $1
             "#,
-            task_id
+            hash
         )
         .fetch_optional(pool)
         .await?;
 
-        if let Some(row) = result {
-            let task = Task {
-                task_id: row.task_id,
-                state: row.state,
-                context: row.context,
-                most_recent_error_message: row.most_recent_error_message,
-                most_recent_error_backtrace: row.most_recent_error_backtrace,
-                named_task_id: row.named_task_id,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            };
-
-            Ok(Some(TaskForOrchestration {
-                task,
-                task_name: row.task_name,
-                task_version: row.task_version,
-                namespace_name: row.namespace_name,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(task)
     }
 
-    /// List tasks by state
-    pub async fn list_by_state(pool: &PgPool, state: &str) -> Result<Vec<Task>, sqlx::Error> {
-        let tasks = sqlx::query_as!(
-            Task,
-            r#"
-            SELECT task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
-            FROM tasker_tasks
-            WHERE state = $1
-            ORDER BY created_at ASC
-            "#,
-            state
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(tasks)
-    }
-
-    /// List tasks by named task
+    /// List tasks by named task ID
     pub async fn list_by_named_task(pool: &PgPool, named_task_id: i32) -> Result<Vec<Task>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
+            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
             FROM tasker_tasks
             WHERE named_task_id = $1
             ORDER BY created_at DESC
@@ -145,82 +132,83 @@ impl Task {
         Ok(tasks)
     }
 
-    /// Update task state
-    pub async fn update_state(
-        pool: &PgPool,
-        task_id: i64,
-        new_state: &str,
-    ) -> Result<Task, sqlx::Error> {
-        let task = sqlx::query_as!(
+    /// List incomplete tasks
+    pub async fn list_incomplete(pool: &PgPool) -> Result<Vec<Task>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
             Task,
             r#"
-            UPDATE tasker_tasks
-            SET 
-                state = $2,
-                updated_at = NOW()
-            WHERE task_id = $1
-            RETURNING task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
-            "#,
-            task_id,
-            new_state
+            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+            FROM tasker_tasks
+            WHERE complete = false
+            ORDER BY requested_at ASC
+            "#
         )
-        .fetch_one(pool)
+        .fetch_all(pool)
         .await?;
 
-        Ok(task)
+        Ok(tasks)
+    }
+
+    /// Mark task as complete
+    pub async fn mark_complete(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE tasker_tasks 
+            SET complete = true, updated_at = NOW()
+            WHERE task_id = $1
+            "#,
+            self.task_id
+        )
+        .execute(pool)
+        .await?;
+
+        self.complete = true;
+        Ok(())
     }
 
     /// Update task context
     pub async fn update_context(
-        pool: &PgPool,
-        task_id: i64,
-        context: serde_json::Value,
-    ) -> Result<Task, sqlx::Error> {
-        let task = sqlx::query_as!(
-            Task,
+        &mut self, 
+        pool: &PgPool, 
+        context: serde_json::Value
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
             r#"
-            UPDATE tasker_tasks
-            SET 
-                context = $2,
-                updated_at = NOW()
+            UPDATE tasker_tasks 
+            SET context = $2, updated_at = NOW()
             WHERE task_id = $1
-            RETURNING task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
             "#,
-            task_id,
+            self.task_id,
             context
         )
-        .fetch_one(pool)
+        .execute(pool)
         .await?;
 
-        Ok(task)
+        self.context = Some(context);
+        Ok(())
     }
 
-    /// Update task error information
-    pub async fn update_error(
-        pool: &PgPool,
-        task_id: i64,
-        error_message: Option<String>,
-        error_backtrace: Option<String>,
-    ) -> Result<Task, sqlx::Error> {
-        let task = sqlx::query_as!(
-            Task,
+    /// Update task tags
+    pub async fn update_tags(
+        &mut self, 
+        pool: &PgPool, 
+        tags: serde_json::Value
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
             r#"
-            UPDATE tasker_tasks
-            SET 
-                most_recent_error_message = $2,
-                most_recent_error_backtrace = $3,
-                updated_at = NOW()
+            UPDATE tasker_tasks 
+            SET tags = $2, updated_at = NOW()
             WHERE task_id = $1
-            RETURNING task_id, state, context, most_recent_error_message, most_recent_error_backtrace, named_task_id, created_at, updated_at
             "#,
-            task_id,
-            error_message,
-            error_backtrace
+            self.task_id,
+            tags
         )
-        .fetch_one(pool)
+        .execute(pool)
         .await?;
 
-        Ok(task)
+        self.tags = Some(tags);
+        Ok(())
     }
 
     /// Delete a task
@@ -238,28 +226,156 @@ impl Task {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Get task identifier for delegation
-    pub fn get_task_identifier(&self) -> String {
-        format!("task:{}", self.task_id)
+    /// Get current state from transitions (since state is managed separately)
+    pub async fn get_current_state(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"
+            SELECT to_state
+            FROM tasker_task_transitions
+            WHERE task_id = $1 AND most_recent = true
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            self.task_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row.map(|r| r.to_state))
     }
 
-    /// Check if task is in a final state
-    pub fn is_final_state(&self) -> bool {
-        matches!(self.state.as_str(), "complete" | "error" | "cancelled")
+    /// Check if task has any workflow steps
+    pub async fn has_workflow_steps(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let count = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count
+            FROM tasker_workflow_steps
+            WHERE task_id = $1
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?
+        .count;
+
+        Ok(count.unwrap_or(0) > 0)
     }
 
-    /// Check if task is in an active state
-    pub fn is_active_state(&self) -> bool {
-        matches!(self.state.as_str(), "created" | "running" | "pending")
+    /// Get delegation metadata for orchestration
+    pub async fn for_orchestration(&self, pool: &PgPool) -> Result<TaskForOrchestration, sqlx::Error> {
+        let task_metadata = sqlx::query!(
+            r#"
+            SELECT nt.name as task_name, nt.version as task_version, tn.name as namespace_name
+            FROM tasker_tasks t
+            INNER JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
+            WHERE t.task_id = $1
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(TaskForOrchestration {
+            task: self.clone(),
+            task_name: task_metadata.task_name,
+            task_version: task_metadata.task_version,
+            namespace_name: task_metadata.namespace_name,
+        })
     }
 
-    /// Get task context value by key
-    pub fn get_context_value(&self, key: &str) -> Option<&serde_json::Value> {
-        self.context.get(key)
+    /// Generate a unique identity hash for deduplication
+    pub fn generate_identity_hash(named_task_id: i32, context: &Option<serde_json::Value>) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        named_task_id.hash(&mut hasher);
+        if let Some(ctx) = context {
+            ctx.to_string().hash(&mut hasher);
+        }
+        format!("{:x}", hasher.finish())
     }
 
-    /// Check if task has error information
-    pub fn has_error(&self) -> bool {
-        self.most_recent_error_message.is_some()
+    /// Apply query builder scopes
+    pub fn scopes() -> TaskScopes {
+        TaskScopes::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::DatabaseConnection;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_task_crud() {
+        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let pool = db.pool();
+
+        // Test creation
+        let new_task = NewTask {
+            named_task_id: 1,
+            requested_at: None, // Will default to now
+            initiator: Some("test_user".to_string()),
+            source_system: Some("test_system".to_string()),
+            reason: Some("Testing task creation".to_string()),
+            bypass_steps: None,
+            tags: Some(json!({"priority": "high", "team": "engineering"})),
+            context: Some(json!({"input_data": "test_value"})),
+            identity_hash: Task::generate_identity_hash(1, &Some(json!({"input_data": "test_value"}))),
+        };
+
+        let created = Task::create(pool, new_task).await.expect("Failed to create task");
+        assert_eq!(created.named_task_id, 1);
+        assert!(!created.complete);
+        assert_eq!(created.initiator, Some("test_user".to_string()));
+
+        // Test find by ID
+        let found = Task::find_by_id(pool, created.task_id)
+            .await
+            .expect("Failed to find task")
+            .expect("Task not found");
+        assert_eq!(found.task_id, created.task_id);
+
+        // Test find by identity hash
+        let found_by_hash = Task::find_by_identity_hash(pool, &created.identity_hash)
+            .await
+            .expect("Failed to find task by hash")
+            .expect("Task not found by hash");
+        assert_eq!(found_by_hash.task_id, created.task_id);
+
+        // Test mark complete
+        let mut task_to_complete = found.clone();
+        task_to_complete.mark_complete(pool).await.expect("Failed to mark complete");
+        assert!(task_to_complete.complete);
+
+        // Test context update
+        let new_context = json!({"updated": true, "processed": "2024-01-01"});
+        task_to_complete.update_context(pool, new_context.clone()).await.expect("Failed to update context");
+        assert_eq!(task_to_complete.context, Some(new_context));
+
+        // Test deletion
+        let deleted = Task::delete(pool, created.task_id)
+            .await
+            .expect("Failed to delete task");
+        assert!(deleted);
+
+        db.close().await;
+    }
+
+    #[test]
+    fn test_identity_hash_generation() {
+        let context = Some(json!({"key": "value"}));
+        let hash1 = Task::generate_identity_hash(1, &context);
+        let hash2 = Task::generate_identity_hash(1, &context);
+        let hash3 = Task::generate_identity_hash(2, &context);
+
+        // Same inputs should produce same hash
+        assert_eq!(hash1, hash2);
+        
+        // Different inputs should produce different hash
+        assert_ne!(hash1, hash3);
     }
 }

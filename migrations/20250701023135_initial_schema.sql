@@ -6,8 +6,8 @@ CREATE TABLE tasker_task_namespaces (
     task_namespace_id SERIAL PRIMARY KEY,
     name VARCHAR(64) NOT NULL UNIQUE,
     description VARCHAR(255),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Named Tasks - Task templates/definitions
@@ -17,8 +17,8 @@ CREATE TABLE tasker_named_tasks (
     version INTEGER NOT NULL DEFAULT 1,
     description VARCHAR(255),
     task_namespace_id INTEGER NOT NULL REFERENCES tasker_task_namespaces(task_namespace_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(name, version, task_namespace_id)
 );
 
@@ -29,8 +29,8 @@ CREATE TABLE tasker_named_steps (
     version INTEGER NOT NULL DEFAULT 1,
     description VARCHAR(255),
     handler_class VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(name, version)
 );
 
@@ -38,8 +38,8 @@ CREATE TABLE tasker_named_steps (
 CREATE TABLE tasker_named_tasks_named_steps (
     named_task_id INTEGER NOT NULL REFERENCES tasker_named_tasks(named_task_id),
     named_step_id INTEGER NOT NULL REFERENCES tasker_named_steps(named_step_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     PRIMARY KEY (named_task_id, named_step_id)
 );
 
@@ -51,8 +51,8 @@ CREATE TABLE tasker_tasks (
     most_recent_error_message TEXT,
     most_recent_error_backtrace TEXT,
     named_task_id INTEGER NOT NULL REFERENCES tasker_named_tasks(named_task_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Workflow Steps - Individual step instances
@@ -63,21 +63,21 @@ CREATE TABLE tasker_workflow_steps (
     output JSONB NOT NULL DEFAULT '{}',
     retry_count INTEGER NOT NULL DEFAULT 0,
     max_retries INTEGER NOT NULL DEFAULT 3,
-    next_retry_at TIMESTAMPTZ,
+    next_retry_at TIMESTAMP WITHOUT TIME ZONE,
     most_recent_error_message TEXT,
     most_recent_error_backtrace TEXT,
     task_id BIGINT NOT NULL REFERENCES tasker_tasks(task_id),
     named_step_id INTEGER NOT NULL REFERENCES tasker_named_steps(named_step_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Workflow Step Edges - Dependency relationships (DAG)
 CREATE TABLE tasker_workflow_step_edges (
     from_step_id BIGINT NOT NULL REFERENCES tasker_workflow_steps(workflow_step_id),
     to_step_id BIGINT NOT NULL REFERENCES tasker_workflow_steps(workflow_step_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     PRIMARY KEY (from_step_id, to_step_id)
 );
 
@@ -90,8 +90,8 @@ CREATE TABLE tasker_task_transitions (
     sort_key INTEGER NOT NULL,
     most_recent BOOLEAN NOT NULL DEFAULT true,
     task_id BIGINT NOT NULL REFERENCES tasker_tasks(task_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Workflow Step Transitions - Step state change audit trail
@@ -103,8 +103,8 @@ CREATE TABLE tasker_workflow_step_transitions (
     sort_key INTEGER NOT NULL,
     most_recent BOOLEAN NOT NULL DEFAULT true,
     workflow_step_id BIGINT NOT NULL REFERENCES tasker_workflow_steps(workflow_step_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Indexes for performance

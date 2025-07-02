@@ -3,24 +3,37 @@
 ## Project Documentation Index
 
 ### **📋 Planning & Status**
+- **[PROJECT_MEMORY.md](PROJECT_MEMORY.md)** - ⭐ **Current progress tracking and next steps**
 - **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current project status and accomplishments
-- **[DEVELOPMENT_PLAN_REVISED.md](DEVELOPMENT_PLAN_REVISED.md)** - ⭐ **Updated development plan with delegation-based architecture**
+- **[DEVELOPMENT_PLAN_REVISED.md](DEVELOPMENT_PLAN_REVISED.md)** - Updated development plan with delegation-based architecture
 - **[ORCHESTRATION_ANALYSIS.md](ORCHESTRATION_ANALYSIS.md)** - Deep analysis of Rails orchestration patterns and implications
 
 ### **🏗️ Architecture Documentation**
 - **[../CLAUDE.md](../CLAUDE.md)** - Project context and high-level architecture overview
 - **[ORCHESTRATION_ANALYSIS.md](ORCHESTRATION_ANALYSIS.md)** - Control flow analysis and delegation patterns
+- **[SCHEMA_ANALYSIS.md](SCHEMA_ANALYSIS.md)** - Detailed SQL vs Rust model comparison
+
+### **🧪 Testing & Analysis**
+- **[TESTING_STRATEGY.md](TESTING_STRATEGY.md)** - Comprehensive testing approach with property-based testing
 
 ### **📊 Status Overview**
 
-**Current Phase**: Planning Complete → Ready for Phase 1 Implementation
+**Current Phase**: Model Schema Alignment (Phase 1)
+
+**Recent Progress**: 
+- ✅ Schema analysis complete - major field mismatches identified
+- ✅ Rails models analysis complete - complex scopes documented  
+- ✅ SQL function wrappers analyzed - 8 major functions identified
+- ✅ Configuration system designed - 120+ options across 9 sections
+
+**Current Focus**: Updating Rust models to match PostgreSQL schema exactly
 
 **Architecture**: Delegation-Based Orchestration Core
 - Rust handles performance-critical orchestration decisions
 - Framework manages queuing, step execution, and business logic
 - Seamless handoff patterns maintain compatibility
 
-**Next Steps**: Begin Phase 1 - Foundation Layer with FFI-aware database models
+**Next Steps**: Begin immediate model updates with WorkflowStepEdge, Task, WorkflowStep
 
 ---
 

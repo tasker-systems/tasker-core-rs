@@ -7,9 +7,12 @@ pub mod events;
 pub mod registry;
 pub mod database;
 pub mod ffi;
+pub mod query_builder;
 
 pub use config::TaskerConfig;
 pub use error::{TaskerError, Result};
+pub use query_builder::{QueryBuilder, TaskScopes, WorkflowStepScopes, NamedTaskScopes, WorkflowStepEdgeScopes, ScopeHelpers};
+pub use database::{SqlFunctionExecutor, FunctionRegistry, AnalyticsMetrics, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext, SlowestStepAnalysis, SlowestTaskAnalysis, DependencyLevel};
 
 #[cfg(test)]
 mod tests {

@@ -46,12 +46,19 @@ parking_lot = "0.12"
 dashmap = "6.0"
 crossbeam = "0.8"
 
+# State machine
+smlang = "0.7"
+
 # Configuration
 config = "0.14"
 
 # FFI support
 magnus = { version = "0.7", optional = true }
 pyo3 = { version = "0.22", optional = true, features = ["extension-module"] }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true }
 
 # Development and testing
 criterion = { version = "0.5", optional = true }
@@ -69,6 +76,7 @@ default = ["postgres"]
 postgres = ["sqlx/postgres"]
 ruby-ffi = ["magnus"]
 python-ffi = ["pyo3"]
+wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 benchmarks = ["criterion"]
 
 [[bench]]

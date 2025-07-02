@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -13,8 +13,8 @@ pub struct TaskTransition {
     pub sort_key: i32,
     pub most_recent: bool,
     pub task_id: i64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// WorkflowStepTransition represents step state change audit trail
@@ -28,8 +28,8 @@ pub struct WorkflowStepTransition {
     pub sort_key: i32,
     pub most_recent: bool,
     pub workflow_step_id: i64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New TaskTransition for creation
