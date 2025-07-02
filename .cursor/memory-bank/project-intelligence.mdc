@@ -1,0 +1,307 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Project Intelligence: Tasker Core Rust
+
+## Key Insights & Patterns
+
+### Architecture Foundation (Critical Understanding)
+- **Step Handler Foundation**: Rust core IS the step handler base class, not just a coordinator
+- **Framework Subclassing**: Rails/Python/Node.js extend Rust step handler with `process()` and `process_results()` hooks
+- **Universal Pattern**: Same orchestration core works across all frameworks via FFI subclassing
+- **Queue Abstraction**: Rust makes re-enqueue decisions, frameworks handle actual queuing via dependency injection
+
+### Comprehensive Migration Scope (Major Discovery)
+- **Rails Models**: 18+ models in `/Users/petetaylor/projects/tasker/app/models/tasker/` need complete migration
+- **Core Logic**: 25+ files + 12+ subdirectories in `/Users/petetaylor/projects/tasker/lib/tasker/` need implementation
+- **ActiveRecord Scopes**: All complex Rails scopes need high-performance Rust equivalents
+- **Business Logic**: All model methods and computed properties need migration
+- **Event System**: 56+ lifecycle events with pub/sub model need implementation
+
+### Critical Files for Migration Priority
+1. **`constants.rb`** (16KB, 418 lines) - System constants and enums - **ESSENTIAL**
+2. **`configuration.rb`** (12KB, 326 lines) - Configuration management - **ESSENTIAL**
+3. **`cache_strategy.rb`** (17KB, 470 lines) - Advanced caching and performance
+4. **`task_builder.rb`** (15KB, 433 lines) - Task construction and validation
+5. **`handler_factory.rb`** (12KB, 323 lines) - Step handler creation
+6. **`events/` directory** - Full lifecycle event system and pub/sub model - **CRITICAL**
+
+### Model Migration Patterns
+- **Exact Schema Match**: All Rust models must match PostgreSQL schema exactly
+- **ActiveRecord Scopes**: Need high-performance Rust equivalents using SQLx
+- **Complex Associations**: Maintain all foreign key relationships and joins
+- **Business Logic**: All model methods and computed properties need migration
+- **Validation Rules**: All ActiveRecord validations need Rust equivalents
+
+### Performance Targets (Comprehensive)
+- **10-100x faster** step handler lifecycle vs Ruby implementation
+- **10-100x faster** model queries vs ActiveRecord scopes
+- **10-100x faster** dependency resolution vs PostgreSQL functions
+- **<1ms overhead** per step handler lifecycle
+- **>10k events/sec** cross-language event processing
+- **Universal performance** - same metrics across Rails, Python, Node.js
+
+## Development Patterns
+
+### Rails Reference Integration
+```bash
+# Reference Rails models
+ls /Users/petetaylor/projects/tasker/app/models/tasker/
+
+# Reference core logic
+ls /Users/petetaylor/projects/tasker/lib/tasker/
+
+# Schema source
+cat /Users/petetaylor/projects/tasker/spec/dummy/db/structure.sql
+```
+
+### Model Migration Strategy
+```rust
+// Pattern: Exact PostgreSQL schema match
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ModelName {
+    pub id: i64,                    // Always match PostgreSQL exactly
+    pub field_name: String,         // Use exact field names from schema
+    pub nullable_field: Option<String>, // Proper Option<T> for nullable
+    pub created_at: NaiveDateTime,  // Use NaiveDateTime for timestamps
+    pub updated_at: NaiveDateTime,
+}
+
+// Pattern: ActiveRecord scope equivalents
+impl ModelName {
+    pub async fn scope_name(pool: &PgPool) -> Result<Vec<Self>> {
+        sqlx::query_as!(Self, "SELECT * FROM table_name WHERE condition")
+            .fetch_all(pool)
+            .await
+    }
+}
+```
+
+### Step Handler Foundation Pattern
+```rust
+// Universal step handler base that frameworks subclass
+pub trait StepHandlerFoundation {
+    // Complete lifecycle management in Rust
+    async fn handle(&mut self) -> Result<StepResult> {
+        self.pre_process().await?;
+        let result = self.process().await?;
+        self.process_results(&result).await?;
+        self.finalize().await
+    }
+
+    // Framework-specific hooks (implemented via FFI)
+    async fn process(&mut self) -> Result<ProcessResult>;
+    async fn process_results(&mut self, result: &ProcessResult) -> Result<()>;
+}
+```
+
+### Core Logic Migration Pattern
+```rust
+// Pattern: Direct Rails logic translation
+// From: /Users/petetaylor/projects/tasker/lib/tasker/constants.rb
+pub mod constants {
+    // Migrate all Ruby constants to Rust enums/constants
+    pub enum TaskState {
+        Pending,
+        Running,
+        Complete,
+        Failed,
+    }
+}
+
+// From: /Users/petetaylor/projects/tasker/lib/tasker/configuration.rb
+pub struct TaskerConfiguration {
+    // Migrate all Rails configuration patterns
+}
+```
+
+### Event System Pattern
+```rust
+// Pattern: 56+ lifecycle events with pub/sub
+pub enum LifecycleEvent {
+    TaskCreated(TaskId),
+    StepStarted(StepId),
+    StepCompleted(StepId, StepResult),
+    // ... 53+ more event types
+}
+
+pub trait EventPublisher {
+    async fn publish(&self, event: LifecycleEvent) -> Result<()>;
+}
+
+pub trait EventSubscriber {
+    async fn handle_event(&mut self, event: &LifecycleEvent) -> Result<()>;
+}
+```
+
+## Testing Strategies
+
+### Model Testing Pattern
+```rust
+#[sqlx::test]
+async fn test_model_crud_operations(pool: PgPool) -> Result<()> {
+    // Transactional test with automatic rollback
+    let model = ModelName::create(&pool, data).await?;
+    assert_eq!(model.field, expected_value);
+    Ok(())
+}
+
+#[test]
+fn test_active_record_scope_equivalent() {
+    // Property-based testing for complex scopes
+}
+```
+
+### Step Handler Testing Pattern
+```rust
+#[tokio::test]
+async fn test_step_handler_lifecycle() {
+    // Test complete step handler foundation
+    let mut handler = MockStepHandler::new();
+    let result = handler.handle().await?;
+    assert!(result.is_success());
+}
+```
+
+## Common Commands
+
+### Development Workflow
+```bash
+# Build with all features
+cargo build --all-features
+
+# Test with database integration
+cargo test --features database-tests
+
+# Run specific model tests
+cargo test models::task::tests
+
+# Benchmark performance
+cargo bench --bench orchestration_benchmarks
+
+# Check Rails schema compatibility
+sqlx migrate run
+```
+
+### Rails Integration Commands
+```bash
+# Compare with Rails implementation
+cd /Users/petetaylor/projects/tasker
+rails console
+
+# Check model scopes
+Task.some_complex_scope.to_sql
+
+# Validate configuration
+Tasker.configuration.inspect
+```
+
+### FFI Development
+```bash
+# Ruby FFI testing
+cd ruby-bindings && ruby test_step_handler.rb
+
+# Python FFI testing
+cd python-bindings && python test_step_handler.py
+
+# Build shared library
+cargo build --release --lib
+```
+
+## Gotchas & Pitfalls
+
+### Schema Alignment Issues
+- **Field Names**: Must match PostgreSQL exactly (not Rails conventions)
+- **Nullable Fields**: Use `Option<T>` for all nullable database columns
+- **Timestamps**: Use `NaiveDateTime`, not `DateTime<Utc>` for PostgreSQL
+- **Primary Keys**: Always include `id: i64` field for tables with primary keys
+
+### ActiveRecord Scope Migration
+- **Complex Joins**: Rails scopes with joins need careful SQLx translation
+- **Dynamic Queries**: Rails scope chaining needs Rust query builder equivalent
+- **Performance**: Rust versions should be 10-100x faster than ActiveRecord
+- **Compatibility**: Results must match Rails scope behavior exactly
+
+### Step Handler Foundation
+- **FFI Complexity**: Multi-language subclassing is complex - start with Ruby first
+- **Queue Abstraction**: Dependency injection pattern must work across frameworks
+- **Error Handling**: Errors must cross language boundaries safely
+- **Performance**: <1ms overhead requirement is strict - profile everything
+
+### Core Logic Migration
+- **Constants**: Ruby constants need careful translation to Rust enums
+- **Configuration**: Rails configuration patterns are complex - validate thoroughly
+- **Event System**: 56+ events need exact lifecycle compatibility
+- **Cache Strategy**: 17KB cache logic is performance-critical
+
+### Testing Challenges
+- **Database Tests**: Use `#[sqlx::test]` for proper transactional isolation
+- **Property Testing**: Complex DAG operations need property-based testing
+- **FFI Testing**: Multi-language testing is complex - use mocks initially
+- **Performance Testing**: Benchmarking must validate 10-100x improvement claims
+
+## Migration Phases
+
+### Phase 1: Complete Model Layer (8-12 weeks)
+- Fix existing 4 models (WorkflowStep, WorkflowStepEdge, NamedTask, NamedStep)
+- Implement 14+ remaining Rails models with full functionality
+- Migrate all ActiveRecord scopes to high-performance Rust equivalents
+- Comprehensive test coverage for all models
+
+### Phase 2: Core Logic Foundation (16-24 weeks)
+- Implement constants system (`constants.rb` - 16KB)
+- Implement configuration management (`configuration.rb` - 12KB)
+- Implement cache strategy (`cache_strategy.rb` - 17KB)
+- Implement all 25+ core logic files and 12+ subdirectories
+
+### Phase 3: Step Handler Foundation (8-12 weeks)
+- Design and implement universal step handler base class
+- Create multi-language FFI subclassing (Ruby, Python, Node.js)
+- Implement queue abstraction with dependency injection
+- Build event system with 56+ lifecycle events
+
+### Phase 4: Multi-Framework Integration (8-12 weeks)
+- Complete Ruby FFI with step handler subclassing
+- Implement Python FFI with step handler subclassing
+- Design Node.js FFI with step handler subclassing
+- Comprehensive testing and performance validation
+
+## Success Metrics
+
+### Model Performance
+- All 18+ models implemented with exact Rails functionality
+- All ActiveRecord scopes migrated with 10-100x performance improvement
+- Comprehensive test coverage including property-based tests
+
+### Core Logic Performance
+- All 25+ core files migrated with equivalent functionality
+- All 12+ subdirectory logic systems implemented
+- Constants and configuration systems fully functional
+
+### Universal Foundation
+- Step handler foundation working across Rails, Python, Node.js
+- Queue abstraction supporting Sidekiq, Celery, Bull
+- Event system with 56+ lifecycle events and pub/sub model
+- Complete feature parity with Rails Tasker engine
+
+## Project Evolution
+
+### Original Scope (Underestimated)
+- 7 models + basic orchestration coordinator
+- Delegation-based architecture
+- Limited Rails integration
+
+### Actual Scope (Comprehensive)
+- 18+ models + complete Tasker core logic migration
+- Step handler foundation architecture
+- Universal foundation across Rails, Python, Node.js
+- 25+ core files + 12+ subdirectory logic systems
+- 56+ lifecycle events with pub/sub model
+
+### Impact Assessment
+- **10x larger scope** than initially understood
+- **Systematic migration approach** required
+- **Phase-by-phase implementation** essential
+- **Performance validation** critical for success

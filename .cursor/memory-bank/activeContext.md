@@ -3,12 +3,18 @@
 ## Current Work Focus
 
 ### Branch: `making-models`
-Currently working on **Phase 1: Foundation Layer** with focus on database model schema alignment.
+Currently working on **Phase 1: Foundation Layer** with focus on database model schema alignment, but scope has expanded significantly to include comprehensive Rails migration.
 
-### Immediate Priority: Schema Alignment
-The database models exist but have significant mismatches with the PostgreSQL schema that need to be fixed before proceeding with orchestration logic.
+### Immediate Priority: Comprehensive Model Migration
+The database models exist but represent only 3 of 18+ Rails models that need complete migration. Additionally, the entire core Tasker logic system needs implementation.
 
 ## Recent Changes & Discoveries
+
+### Scope Expansion (Critical)
+- **Model Count**: Discovered 18+ models in `/Users/petetaylor/projects/tasker/app/models/tasker/`
+- **Core Logic**: Entire `/Users/petetaylor/projects/tasker/lib/tasker/` directory (25+ files + 12+ subdirectories)
+- **ActiveRecord Scopes**: All complex scopes need high-performance Rust equivalents
+- **Business Logic**: All model methods and computed properties need migration
 
 ### Architecture Evolution
 - **Major Shift**: Moved from monolithic replacement to **step handler foundation architecture**
@@ -39,44 +45,88 @@ The database models exist but have significant mismatches with the PostgreSQL sc
                    └─────────────────────────────────────┘
 ```
 
-### Schema Analysis Completed
-Comprehensive analysis in `docs/SCHEMA_ANALYSIS.md` revealed critical mismatches:
+### Comprehensive Migration Requirements
 
-#### Task Model Issues
-- Missing fields: `complete`, `requested_at`, `initiator`, `source_system`, `reason`, `bypass_steps`, `tags`, `identity_hash`
-- Extra fields: `state`, `most_recent_error_message`, `most_recent_error_backtrace`
-- Field naming: Rust uses different names than SQL schema
+#### Rails Models (18+ models to migrate)
+**Location**: `/Users/petetaylor/projects/tasker/app/models/tasker/`
 
-#### WorkflowStep Model Issues
-- Missing fields: `retryable`, `in_process`, `processed`, `processed_at`, `last_attempted_at`, `backoff_request_seconds`, `skippable`
-- Naming differences: `context` vs `inputs`, `output` vs `results`, `retry_count` vs `attempts`
+**Large/Complex Models** (10KB+ each):
+- `task.rb` (16KB, 425 lines) - Core task model with complex scopes
+- `workflow_step.rb` (17KB, 462 lines) - Step execution and state management
+- `workflow_step_transition.rb` (15KB, 435 lines) - Step state transitions
+- `task_diagram.rb` (10KB, 333 lines) - Workflow visualization
 
-#### WorkflowStepEdge Model Issues
-- Missing primary key: `id` field
-- Missing edge metadata: `name` field
+**Medium Models** (3-8KB each):
+- `task_transition.rb` (7.3KB, 236 lines) - Task state transitions
+- `named_task.rb` (3.5KB, 122 lines) - Task templates
+- `workflow_step_edge.rb` (3.3KB, 95 lines) - DAG relationships
+- `named_tasks_named_step.rb` (2.7KB, 83 lines) - Task-step relationships
+- `dependent_system_object_map.rb` (2.7KB, 65 lines) - System mappings
 
-### Current Model Status
+**Supporting Models** (1-2KB each):
+- `step_dag_relationship.rb` (1.9KB, 66 lines) - DAG structure
+- `named_step.rb` (1.4KB, 42 lines) - Step definitions
+- `task_namespace.rb` (1.1KB, 42 lines) - Organizational hierarchy
+- `task_annotation.rb` (1.1KB, 37 lines) - Task metadata
+- Plus 5+ additional models and diagram subdirectory
+
+#### Core Tasker Logic (25+ files + 12+ subdirectories)
+**Location**: `/Users/petetaylor/projects/tasker/lib/tasker/`
+
+**Critical Files** (12KB+ each):
+- `constants.rb` (16KB, 418 lines) - **ESSENTIAL** - System constants and enums
+- `configuration.rb` (12KB, 326 lines) - **ESSENTIAL** - Configuration management
+- `cache_strategy.rb` (17KB, 470 lines) - Caching and performance optimization
+- `task_builder.rb` (15KB, 433 lines) - Task construction and validation
+- `handler_factory.rb` (12KB, 323 lines) - Step handler creation and management
+
+**Core Logic Files** (2-8KB each):
+- `state_machine.rb` (2.8KB, 84 lines) - State machine foundations
+- `orchestration.rb` (1.9KB, 46 lines) - Core orchestration logic
+- `events.rb` (1.2KB, 38 lines) - Event system foundation
+- `telemetry.rb` (2.6KB, 60 lines) - Observability and metrics
+- `errors.rb` (3.1KB, 91 lines) - Error handling
+- Plus 15+ additional core files
+
+**Comprehensive Subdirectories**:
+- `state_machine/` - Complete state machine implementations
+- `orchestration/` - Core orchestration algorithms
+- `step_handler/` - Step handler foundation and implementations
+- `task_handler/` - Task handler implementations
+- `events/` - **CRITICAL** - Full lifecycle event system and pub/sub model
+- `registry/` - Component registration and discovery
+- `functions/` - SQL function replacements
+- `types/` - Type system and validations
+- `telemetry/` - Observability and monitoring
+- `authorization/` - Security and access control
+- `authentication/` - Authentication systems
+- `health/` - Health checks and diagnostics
+
+### Current Model Status (3 of 18+ complete)
 - ✅ **Task**: Schema aligned (381 lines) - matches PostgreSQL exactly
-- ❌ **WorkflowStep**: Needs alignment (485 lines)
-- ❌ **WorkflowStepEdge**: Missing fields (202 lines)
-- ❌ **NamedTask**: Version type mismatch (405 lines)
-- ❌ **NamedStep**: Incomplete implementation (273 lines)
-- ✅ **TaskNamespace**: Properly implemented (239 lines)
-- ✅ **Transitions**: State audit trail complete (231 lines)
+- ❌ **WorkflowStep**: Needs alignment (485 lines) - requires 17KB Rails equivalent
+- ❌ **WorkflowStepEdge**: Missing fields (202 lines) - requires 3.3KB Rails equivalent
+- ❌ **NamedTask**: Version type mismatch (405 lines) - requires 3.5KB Rails equivalent
+- ❌ **NamedStep**: Incomplete implementation (273 lines) - requires 1.4KB Rails equivalent
+- ✅ **TaskNamespace**: Properly implemented (239 lines) - matches 1.1KB Rails equivalent
+- ✅ **Transitions**: State audit trail complete (231 lines) - partial Rails equivalent
+- ❌ **WorkflowStepTransition**: Not implemented - requires 15KB Rails equivalent
+- ❌ **TaskTransition**: Not implemented - requires 7.3KB Rails equivalent
+- ❌ **TaskDiagram**: Not implemented - requires 10KB Rails equivalent
+- ❌ **NamedTasksNamedStep**: Not implemented - requires 2.7KB Rails equivalent
+- ❌ **StepDagRelationship**: Not implemented - requires 1.9KB Rails equivalent
+- ❌ **DependentSystem**: Not implemented - requires 738B Rails equivalent
+- ❌ **DependentSystemObjectMap**: Not implemented - requires 2.7KB Rails equivalent
+- ❌ **StepReadinessStatus**: Not implemented - requires 2.1KB Rails equivalent
+- ❌ **TaskAnnotation**: Not implemented - requires 1.1KB Rails equivalent
+- ❌ **AnnotationType**: Not implemented - requires 669B Rails equivalent
+- ❌ **TaskExecutionContext**: Not implemented - requires 967B Rails equivalent
 
-## Next Steps (Immediate)
+## Next Steps (Revised Comprehensive Scope)
 
-### 1. Fix WorkflowStepEdge Model (Highest Priority)
+### 1. Complete Existing Model Fixes (Immediate)
 ```rust
-// Current (missing fields)
-pub struct WorkflowStepEdge {
-    pub from_step_id: i64,
-    pub to_step_id: i64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-// Needs to become
+// Fix WorkflowStepEdge - add missing fields
 pub struct WorkflowStepEdge {
     pub id: i64,                    // PRIMARY KEY
     pub from_step_id: i64,
@@ -85,22 +135,39 @@ pub struct WorkflowStepEdge {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
+
+// Fix WorkflowStep - align with 17KB Rails model
+// Add: retryable, in_process, processed, skippable booleans
+// Rename: context→inputs, output→results, retry_count→attempts
+// Add: processed_at, last_attempted_at, backoff_request_seconds
 ```
 
-### 2. Fix WorkflowStep Model
-Align field names and add missing boolean flags:
-- Add `retryable`, `in_process`, `processed`, `skippable` boolean fields
-- Rename `context` → `inputs`, `output` → `results`, `retry_count` → `attempts`
-- Add `processed_at`, `last_attempted_at` timestamp fields
-- Add `backoff_request_seconds` integer field
+### 2. Implement Large Rails Models (Priority)
+- **WorkflowStepTransition** (15KB, 435 lines) - Step state change audit
+- **TaskDiagram** (10KB, 333 lines) - Workflow visualization
+- **TaskTransition** (7.3KB, 236 lines) - Task state change audit
+- **NamedTasksNamedStep** (2.7KB, 83 lines) - Task-step relationships
+- **DependentSystemObjectMap** (2.7KB, 65 lines) - System object mappings
 
-### 3. Fix NamedTask Version Field
-Change `version: i32` to `version: String` to match PostgreSQL `character varying(16)`
+### 3. Implement Core Constants and Configuration (Critical)
+- **Constants System** - Migrate `constants.rb` (16KB, 418 lines)
+- **Configuration Management** - Migrate `configuration.rb` (12KB, 326 lines)
+- **Cache Strategy** - Migrate `cache_strategy.rb` (17KB, 470 lines)
+- **Type System** - Migrate `types.rb` and `types/` directory
 
-### 4. Complete NamedStep Model
-Add missing `dependent_system_id` field and proper foreign key relationships
+### 4. Begin Core Logic Migration
+- **Task Builder** - Migrate `task_builder.rb` (15KB, 433 lines)
+- **Handler Factory** - Migrate `handler_factory.rb` (12KB, 323 lines)
+- **State Machine** - Migrate `state_machine.rb` and `state_machine/` directory
+- **Event System** - Migrate `events.rb` and `events/` directory (pub/sub model)
 
 ## Active Decisions & Considerations
+
+### Migration Strategy
+- **Phase-by-Phase**: Complete all models before core logic implementation
+- **Rails Compatibility**: Maintain exact ActiveRecord scope equivalents
+- **Performance Focus**: 10-100x improvement targets for all migrated components
+- **Incremental Testing**: Validate each component against Rails equivalent
 
 ### Step Handler Foundation Strategy
 - **Rust Core**: Implements complete step handler foundation with all lifecycle logic
@@ -108,37 +175,44 @@ Add missing `dependent_system_id` field and proper foreign key relationships
 - **Queue Abstraction**: Rust decides re-enqueue, framework handles actual queuing via dependency injection
 - **Universal Pattern**: Same core works across Rails, Python, Node.js with wrapper code
 
-### Schema Alignment Strategy
-- **Exact Match**: Rust models must match PostgreSQL schema exactly
-- **No Computed Fields**: Remove computed fields like `state` that should be derived
-- **Proper Types**: Use `NaiveDateTime` for PostgreSQL timestamps, `String` for varchar fields
-- **Nullable Fields**: Proper `Option<T>` for nullable database columns
+### ActiveRecord Scope Migration
+- **High-Performance Equivalents**: All complex Rails scopes need Rust implementations
+- **Query Optimization**: Leverage SQLx compile-time verification for performance
+- **Scope Composition**: Maintain Rails-like scope chaining patterns
+- **Association Handling**: Proper foreign key relationships and joins
 
-### FFI Integration Strategy
-- **Step Handler Base**: Rust step handler exposed via FFI with subclass hooks
-- **Framework Wrappers**: Rails/Python/Node classes extend Rust step handler
-- **Queue Injection**: Framework-specific queue implementations injected into Rust core
-- **Universal API**: Same step handler interface across all language bindings
-
-### Testing Strategy During Alignment
-- **Transactional Tests**: Use `#[sqlx::test]` for database test isolation
-- **Schema Validation**: Test that Rust models serialize/deserialize correctly with database
-- **Step Handler Testing**: Test subclass pattern with mock framework implementations
-- **Property Testing**: Validate DAG operations during model changes
+### Core Logic Implementation Priority
+1. **Constants and Configuration** - Foundation for all other systems
+2. **Event System and Pub/Sub** - Critical for lifecycle management
+3. **State Machines** - Core workflow state management
+4. **Cache Strategy** - Performance optimization layer
+5. **Task and Handler Factories** - Component creation and management
 
 ## Current Challenges
 
-### 1. Step Handler Architecture Implementation
-Need to design the FFI interface that allows frameworks to subclass the Rust step handler while maintaining performance and safety.
+### 1. Massive Scope Expansion
+- **18+ Models**: Complete Rails model layer migration required
+- **25+ Core Files**: Entire Tasker logic system needs implementation
+- **12+ Subdirectories**: Comprehensive logic systems in each subdirectory
+- **ActiveRecord Scopes**: Complex query logic needs high-performance equivalents
 
-### 2. Queue Abstraction Design
-Must create dependency injection pattern for queue systems that works across different frameworks and queue backends.
+### 2. Rails Logic Complexity
+- **Configuration System**: 12KB configuration management with complex validation
+- **Constants System**: 16KB system constants and enums
+- **Cache Strategy**: 17KB advanced caching with multiple strategies
+- **Event System**: 56+ lifecycle events with pub/sub model
 
-### 3. Schema Complexity
-The PostgreSQL schema has evolved significantly from initial Rust models. Need careful analysis of each field to ensure proper mapping.
+### 3. Step Handler Foundation Design
+- **Multi-Language FFI**: Subclassing across Ruby, Python, Node.js
+- **Queue Abstraction**: Dependency injection for Sidekiq, Celery, Bull
+- **Universal API**: Same interface across all frameworks
+- **Performance Requirements**: <1ms overhead for step handler lifecycle
 
-### 4. Universal Framework Support
-Need to design step handler foundation that works seamlessly across Rails, Python FastAPI, Node.js Express with consistent behavior.
+### 4. Performance Validation
+- **Benchmarking Infrastructure**: Need comprehensive performance testing
+- **Rails Comparison**: Validate 10-100x improvement claims
+- **Memory Efficiency**: Optimize for long-running processes
+- **Concurrent Safety**: Thread-safe operations across all components
 
 ## Environment Status
 
@@ -162,39 +236,45 @@ Need to design step handler foundation that works seamlessly across Rails, Pytho
 
 ### Reference Implementation
 - **Location**: `/Users/petetaylor/projects/tasker/`
+- **Models**: `/app/models/tasker/` (18+ models)
+- **Core Logic**: `/lib/tasker/` (25+ files + 12+ subdirectories)
 - **Schema Source**: `spec/dummy/db/structure.sql`
-- **Step Handler Reference**: `lib/tasker/step_handler.rb` and related files
-- **Core Logic**: `lib/tasker/orchestration/`
+- **Step Handler Reference**: `lib/tasker/step_handler.rb`
 
 ### Integration Points
 - **Database**: Shared PostgreSQL schema and tables
+- **Model Compatibility**: All Rails model functionality preserved
 - **Step Handler Pattern**: Rails step handlers will subclass Rust foundation
 - **Queue Systems**: Rails queue implementation injected into Rust core
 - **Events**: Compatible event system (56+ lifecycle events)
+- **Configuration**: Rails-compatible configuration patterns
 
-## Success Metrics for Current Phase
+## Success Metrics for Comprehensive Migration
 
-### Model Alignment (Phase 1)
-- [ ] All models match PostgreSQL schema exactly
-- [ ] Full CRUD operations working for all models
+### Model Migration (Phase 1)
+- [ ] All 18+ models match PostgreSQL schema exactly
+- [ ] All ActiveRecord scopes migrated with 10-100x performance improvement
+- [ ] All model associations, validations, and business logic working
 - [ ] Comprehensive test coverage with transactional tests
-- [ ] FFI serialization formats validated with snapshot tests
-- [ ] Property-based tests for DAG operations passing
+- [ ] Property-based tests for complex model interactions
 
-### Step Handler Foundation Design
-- [ ] Rust step handler base class designed with FFI interface
-- [ ] Subclass pattern working with `process()` and `process_results()` hooks
-- [ ] Queue abstraction pattern designed for dependency injection
-- [ ] Framework wrapper proof-of-concept working
+### Core Logic Migration (Phase 2)
+- [ ] Constants system (`constants.rb` - 16KB) fully implemented
+- [ ] Configuration management (`configuration.rb` - 12KB) working
+- [ ] Cache strategy (`cache_strategy.rb` - 17KB) providing performance gains
+- [ ] All 25+ core logic files migrated with equivalent functionality
+- [ ] All 12+ subdirectory logic systems implemented
 
-### Performance Baseline
-- [ ] Benchmarking infrastructure established
-- [ ] Baseline measurements for step handler performance
-- [ ] Memory usage profiling for long-running operations
-- [ ] Concurrent operation safety validated
+### Step Handler Foundation (Phase 3)
+- [ ] Universal step handler working across Rails, Python, Node.js
+- [ ] Queue abstraction supporting Sidekiq, Celery, Bull
+- [ ] Event system with 56+ lifecycle events and pub/sub model
+- [ ] 10-100x performance improvement in step handler lifecycle
+- [ ] Production-ready error handling and observability
 
-### Integration Readiness
+### Integration Readiness (Phase 4)
 - [ ] Ruby FFI interface for step handler subclassing working
-- [ ] Queue injection pattern tested with Sidekiq
-- [ ] Event system compatibility validated
-- [ ] Configuration system Rails-compatible
+- [ ] Python FFI interface for step handler subclassing working
+- [ ] Node.js FFI interface for step handler subclassing working
+- [ ] Universal foundation validated across all frameworks
+- [ ] Complete feature parity with Rails Tasker engine
