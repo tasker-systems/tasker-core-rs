@@ -206,7 +206,7 @@ BEGIN
             COALESCE(ws.attempts, 0) as attempts,
             COALESCE(ws.retry_limit, 3) as retry_limit,
             NULL::timestamp as next_retry_at, -- Not available in current schema
-            ns.name,
+            ns.name::text,
             COALESCE(parent_counts.total_parents, 0) as total_parents,
             COALESCE(completed_parent_counts.completed_parents, 0) as completed_parents,
             CASE 

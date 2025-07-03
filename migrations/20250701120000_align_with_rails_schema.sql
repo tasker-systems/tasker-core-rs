@@ -109,6 +109,9 @@ INSERT INTO tasker_dependent_systems (dependent_system_id, name, description)
 VALUES (1, 'default', 'Default dependent system') 
 ON CONFLICT DO NOTHING;
 
+-- Update the sequence to start after our manual insert
+SELECT setval('tasker_dependent_systems_dependent_system_id_seq', COALESCE(MAX(dependent_system_id), 1)) FROM tasker_dependent_systems;
+
 -- Update named_steps to reference the default dependent system
 UPDATE tasker_named_steps SET dependent_system_id = 1 WHERE dependent_system_id IS NULL;
 

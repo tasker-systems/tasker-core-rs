@@ -29,15 +29,13 @@ pub fn handler_class_strategy() -> impl Strategy<Value = String> {
 /// Strategy for generating NewNamedStep instances
 pub fn new_named_step_strategy() -> impl Strategy<Value = NewNamedStep> {
     (
+        1i32..10,  // dependent_system_id
         namespace_name_strategy(),
-        prop::option::of(1i32..10),
         description_strategy(),
-        handler_class_strategy(),
-    ).prop_map(|(name, version, description, handler_class)| NewNamedStep {
+    ).prop_map(|(dependent_system_id, name, description)| NewNamedStep {
+        dependent_system_id,
         name,
-        version,
         description,
-        handler_class,
     })
 }
 

@@ -175,14 +175,15 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
-        // Test creation
+        // Test creation with unique name
+        let unique_name = format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let new_namespace = NewTaskNamespace {
-            name: "test_namespace".to_string(),
+            name: unique_name.clone(),
             description: Some("Test namespace description".to_string()),
         };
 
         let created = TaskNamespace::create(pool, new_namespace).await.expect("Failed to create namespace");
-        assert_eq!(created.name, "test_namespace");
+        assert_eq!(created.name, unique_name);
         assert_eq!(created.description, Some("Test namespace description".to_string()));
 
         // Test find by ID
@@ -193,22 +194,23 @@ mod tests {
         assert_eq!(found.task_namespace_id, created.task_namespace_id);
 
         // Test find by name
-        let found_by_name = TaskNamespace::find_by_name(pool, "test_namespace")
+        let found_by_name = TaskNamespace::find_by_name(pool, &unique_name)
             .await
             .expect("Failed to find namespace by name")
             .expect("Namespace not found by name");
         assert_eq!(found_by_name.task_namespace_id, created.task_namespace_id);
 
         // Test update
+        let updated_name = format!("updated_test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let updated = TaskNamespace::update(
             pool,
             created.task_namespace_id,
-            Some("updated_test_namespace".to_string()),
+            Some(updated_name.clone()),
             Some("Updated description".to_string()),
         )
         .await
         .expect("Failed to update namespace");
-        assert_eq!(updated.name, "updated_test_namespace");
+        assert_eq!(updated.name, updated_name);
         assert_eq!(updated.description, Some("Updated description".to_string()));
 
         // Test uniqueness check
@@ -217,7 +219,7 @@ mod tests {
             .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = TaskNamespace::is_name_unique(pool, "updated_test_namespace", None)
+        let is_not_unique = TaskNamespace::is_name_unique(pool, &updated_name, None)
             .await
             .expect("Failed to check uniqueness");
         assert!(!is_not_unique);

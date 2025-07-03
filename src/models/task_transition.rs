@@ -398,6 +398,303 @@ impl TaskTransition {
 
         Ok(summary)
     }
+
+    // ============================================================================
+    // RAILS ACTIVERECORE SCOPE EQUIVALENTS (3+ scopes)
+    // ============================================================================
+
+    /// Get recent transitions ordered by sort_key DESC (Rails: scope :recent)
+    pub async fn recent(pool: &PgPool) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            ORDER BY sort_key DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Filter transitions by to_state (Rails: scope :to_state)
+    pub async fn to_state(pool: &PgPool, state: &str) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE to_state = $1
+            ORDER BY created_at DESC
+            "#,
+            state
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Filter transitions with specific metadata key (Rails: scope :with_metadata_key)
+    pub async fn with_metadata_key(pool: &PgPool, key: &str) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE metadata ? $1
+            ORDER BY created_at DESC
+            "#,
+            key
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    // ============================================================================
+    // RAILS CLASS METHODS (5+ methods)
+    // ============================================================================
+
+    /// Find most recent transition to a specific state (Rails: most_recent_to_state)
+    pub async fn most_recent_to_state(pool: &PgPool, state: &str) -> Result<Option<TaskTransition>, sqlx::Error> {
+        let transition = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE to_state = $1
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            state
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(transition)
+    }
+
+    /// Find transitions within time range (Rails: in_time_range)
+    pub async fn in_time_range(pool: &PgPool, start_time: chrono::NaiveDateTime, end_time: chrono::NaiveDateTime) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE created_at BETWEEN $1 AND $2
+            ORDER BY created_at DESC
+            "#,
+            start_time,
+            end_time
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Find transitions with specific metadata value (Rails: with_metadata_value)
+    pub async fn with_metadata_value(pool: &PgPool, key: &str, value: &str) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   task_id, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE metadata ->> $1 = $2
+            ORDER BY created_at DESC
+            "#,
+            key,
+            value
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+
+    /// Get transition statistics (Rails: statistics)
+    pub async fn statistics(pool: &PgPool) -> Result<TransitionStatistics, sqlx::Error> {
+        let total_transitions = sqlx::query!("SELECT COUNT(*) as count FROM tasker_task_transitions")
+            .fetch_one(pool)
+            .await?
+            .count
+            .unwrap_or(0);
+
+        let states = sqlx::query!(
+            r#"
+            SELECT to_state, COUNT(*) as count
+            FROM tasker_task_transitions
+            GROUP BY to_state
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let mut state_counts = std::collections::HashMap::new();
+        for state in states {
+            state_counts.insert(state.to_state, state.count.unwrap_or(0));
+        }
+
+        let recent_activity = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count
+            FROM tasker_task_transitions
+            WHERE created_at > NOW() - INTERVAL '24 hours'
+            "#
+        )
+        .fetch_one(pool)
+        .await?
+        .count
+        .unwrap_or(0);
+
+        Ok(TransitionStatistics {
+            total_transitions,
+            states: state_counts,
+            recent_activity,
+            average_time_between_transitions: Self::average_time_between_transitions(pool).await.ok(),
+        })
+    }
+
+    /// Calculate average time between transitions (Rails: average_time_between_transitions)
+    pub async fn average_time_between_transitions(pool: &PgPool) -> Result<f64, sqlx::Error> {
+        let transitions = sqlx::query!(
+            "SELECT created_at FROM tasker_task_transitions ORDER BY created_at"
+        )
+        .fetch_all(pool)
+        .await?;
+
+        if transitions.len() < 2 {
+            return Ok(0.0);
+        }
+
+        let mut total_time = 0.0;
+        for i in 1..transitions.len() {
+            let duration = (transitions[i].created_at - transitions[i - 1].created_at).num_seconds() as f64;
+            total_time += duration;
+        }
+
+        Ok(total_time / (transitions.len() - 1) as f64)
+    }
+
+    // ============================================================================
+    // RAILS INSTANCE METHODS (9+ methods)
+    // ============================================================================
+
+    /// Get duration since previous transition (Rails: duration_since_previous)
+    pub async fn duration_since_previous(&self, pool: &PgPool) -> Result<Option<f64>, sqlx::Error> {
+        let previous = sqlx::query!(
+            r#"
+            SELECT created_at
+            FROM tasker_task_transitions
+            WHERE task_id = $1 AND sort_key < $2
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            self.task_id,
+            self.sort_key
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match previous {
+            Some(prev) => {
+                let duration = (self.created_at - prev.created_at).num_seconds() as f64;
+                Ok(Some(duration))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if transition is to error state (Rails: error_transition?)
+    pub fn error_transition(&self) -> bool {
+        self.to_state == "error"
+    }
+
+    /// Check if transition is to completion state (Rails: completion_transition?)
+    pub fn completion_transition(&self) -> bool {
+        matches!(self.to_state.as_str(), "complete" | "resolved_manually")
+    }
+
+    /// Check if transition is to cancelled state (Rails: cancellation_transition?)
+    pub fn cancellation_transition(&self) -> bool {
+        self.to_state == "cancelled"
+    }
+
+    /// Get human-readable description (Rails: description)
+    pub fn description(&self) -> String {
+        match self.to_state.as_str() {
+            "pending" => "Task initialized and ready for processing".to_string(),
+            "in_progress" => "Task execution started".to_string(),
+            "complete" => "Task completed successfully".to_string(),
+            "error" => "Task encountered an error".to_string(),
+            "cancelled" => "Task was cancelled".to_string(),
+            "resolved_manually" => "Task was manually resolved".to_string(),
+            _ => format!("Task transitioned to {}", self.to_state),
+        }
+    }
+
+    /// Get formatted metadata with computed fields (Rails: formatted_metadata)
+    pub async fn formatted_metadata(&self, pool: &PgPool) -> Result<serde_json::Value, sqlx::Error> {
+        let mut base_metadata = self.metadata.clone().unwrap_or_else(|| serde_json::json!({}));
+        
+        if let serde_json::Value::Object(ref mut map) = base_metadata {
+            // Add computed fields
+            if let Ok(Some(duration)) = self.duration_since_previous(pool).await {
+                map.insert("duration_since_previous".to_string(), serde_json::json!(duration));
+            }
+            map.insert("transition_description".to_string(), serde_json::json!(self.description()));
+            map.insert("transition_timestamp".to_string(), serde_json::json!(self.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()));
+        }
+
+        Ok(base_metadata)
+    }
+
+    /// Check if metadata contains key (Rails: has_metadata?)
+    pub fn has_metadata(&self, key: &str) -> bool {
+        if let Some(metadata) = &self.metadata {
+            metadata.get(key).is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Get metadata value with default (Rails: get_metadata)
+    pub fn get_metadata(&self, key: &str, default: serde_json::Value) -> serde_json::Value {
+        if let Some(metadata) = &self.metadata {
+            metadata.get(key).cloned().unwrap_or(default)
+        } else {
+            default
+        }
+    }
+
+    /// Set metadata value (Rails: set_metadata)
+    pub fn set_metadata(&mut self, key: &str, value: serde_json::Value) -> serde_json::Value {
+        let mut metadata = self.metadata.take().unwrap_or_else(|| serde_json::json!({}));
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            map.insert(key.to_string(), value.clone());
+        }
+        self.metadata = Some(metadata);
+        value
+    }
+}
+
+/// Transition statistics result (Rails: statistics method return type)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransitionStatistics {
+    pub total_transitions: i64,
+    pub states: std::collections::HashMap<String, i64>,
+    pub recent_activity: i64,
+    pub average_time_between_transitions: Option<f64>,
 }
 
 impl TaskTransitionQuery {
@@ -492,8 +789,33 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
-        // Assume we have a task with id 1
-        let task_id = 1;
+        // Create test dependencies - Task
+        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: None,
+        }).await.expect("Failed to create named task");
+
+        let task = crate::models::task::Task::create(pool, crate::models::task::NewTask {
+            named_task_id: named_task.named_task_id as i32,
+            requested_at: None,
+            initiator: None,
+            source_system: None,
+            reason: None,
+            bypass_steps: None,
+            tags: None,
+            context: Some(serde_json::json!({"test": "context"})),
+            identity_hash: "test_hash".to_string(),
+        }).await.expect("Failed to create task");
+
+        let task_id = task.task_id;
 
         // Test creation
         let new_transition = NewTaskTransition {
@@ -570,6 +892,12 @@ mod tests {
             .await
             .expect("Failed to get state summary");
         assert!(!summary.is_empty());
+
+        // Cleanup - delete in reverse dependency order (transitions first, then task)
+        sqlx::query!("DELETE FROM tasker_task_transitions WHERE task_id = $1", task.task_id).execute(pool).await.expect("Failed to delete transitions");
+        crate::models::task::Task::delete(pool, task.task_id).await.expect("Failed to delete task");
+        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
 
         db.close().await;
     }

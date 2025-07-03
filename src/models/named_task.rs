@@ -353,17 +353,23 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
+        // Create a namespace first
+        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create namespace");
+
         // Test creation
         let new_task = NewNamedTask {
-            name: "test_task".to_string(),
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             version: Some("1.0.0".to_string()),
             description: Some("Test task description".to_string()),
-            task_namespace_id: 1,
+            task_namespace_id: namespace.task_namespace_id as i64,
             configuration: Some(serde_json::json!({"timeout": 300})),
         };
 
         let created = NamedTask::create(pool, new_task).await.expect("Failed to create task");
-        assert_eq!(created.name, "test_task");
+        assert!(created.name.starts_with("test_task_"));
         assert_eq!(created.version, "1.0.0");
 
         // Test find by ID
@@ -374,31 +380,36 @@ mod tests {
         assert_eq!(found.named_task_id, created.named_task_id);
 
         // Test find by name/version/namespace
-        let found_by_nvn = NamedTask::find_by_name_version_namespace(pool, "test_task", "1.0.0", 1)
+        let found_by_nvn = NamedTask::find_by_name_version_namespace(pool, &created.name, "1.0.0", namespace.task_namespace_id as i64)
             .await
             .expect("Failed to find task by nvn")
             .expect("Task not found by nvn");
         assert_eq!(found_by_nvn.named_task_id, created.named_task_id);
 
         // Test version uniqueness
-        let is_unique = NamedTask::is_version_unique(pool, "test_task", "2.0.0", 1, None)
+        let is_unique = NamedTask::is_version_unique(pool, &created.name, "2.0.0", namespace.task_namespace_id as i64, None)
             .await
             .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = NamedTask::is_version_unique(pool, "test_task", "1.0.0", 1, None)
+        let is_not_unique = NamedTask::is_version_unique(pool, &created.name, "1.0.0", namespace.task_namespace_id as i64, None)
             .await
             .expect("Failed to check uniqueness");
         assert!(!is_not_unique);
 
         // Test delegation methods
-        assert_eq!(created.get_task_identifier(), "test_task:1.0.0");
+        assert_eq!(created.get_task_identifier(), format!("{}:1.0.0", created.name));
 
         // Test deletion
         let deleted = NamedTask::delete(pool, created.named_task_id)
             .await
             .expect("Failed to delete task");
         assert!(deleted);
+        
+        // Delete namespace
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
+            .await
+            .expect("Failed to delete namespace");
 
         db.close().await;
     }

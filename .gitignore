@@ -30,3 +30,7 @@ target
 
 # don't store env files
 .env
+.env.test
+.env.dev
+
+# let's not store our sqlx cache

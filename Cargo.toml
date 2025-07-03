@@ -72,6 +72,9 @@ proptest = "1.0"
 insta = { version = "1.34", features = ["serde", "json"] }
 mockall = "0.12"
 fastrand = "2.0"
+factori = "1.0"
+dotenv = "0.15"
+url = "2.0"
 
 [features]
 default = ["postgres"]

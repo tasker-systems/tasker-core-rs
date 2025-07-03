@@ -5,6 +5,7 @@ use tasker_core::models::{
     task::{Task, NewTask},
     workflow_step::{WorkflowStep, NewWorkflowStep},
     workflow_step_edge::{WorkflowStepEdge, NewWorkflowStepEdge},
+    dependent_system::{DependentSystem, NewDependentSystem},
 };
 use sqlx::PgPool;
 use super::unique_name;
@@ -85,9 +86,14 @@ impl NamedStepBuilder {
 
     pub async fn build(self, pool: &PgPool) -> NamedStep {
         // Get or create a default dependent system
-        let dependent_system = DependentSystem::find_or_create_by_name(pool, "test_system")
-            .await
-            .expect("Failed to get test system");
+        let system_name = unique_name("test_system");
+        let dependent_system = match DependentSystem::find_by_name(pool, &system_name).await.expect("Failed to query system") {
+            Some(system) => system,
+            None => DependentSystem::create(pool, NewDependentSystem {
+                name: system_name,
+                description: Some("Test system for builders".to_string()),
+            }).await.expect("Failed to create test system"),
+        };
         
         let new_step = NewNamedStep {
             dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
@@ -100,9 +106,14 @@ impl NamedStepBuilder {
 
     pub async fn build_in_tx(self, pool: &PgPool) -> NamedStep {
         // Get or create a default dependent system
-        let dependent_system = DependentSystem::find_or_create_by_name(pool, "test_system")
-            .await
-            .expect("Failed to get test system");
+        let system_name = unique_name("test_system");
+        let dependent_system = match DependentSystem::find_by_name(pool, &system_name).await.expect("Failed to query system") {
+            Some(system) => system,
+            None => DependentSystem::create(pool, NewDependentSystem {
+                name: system_name,
+                description: Some("Test system for builders".to_string()),
+            }).await.expect("Failed to create test system"),
+        };
         
         let new_step = NewNamedStep {
             dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
@@ -117,9 +128,10 @@ impl NamedStepBuilder {
 /// Builder pattern for creating test NamedTasks
 pub struct NamedTaskBuilder {
     name: Option<String>,
-    version: Option<i32>,
+    version: Option<String>,
     description: Option<String>,
     namespace: Option<TaskNamespace>,
+    configuration: Option<serde_json::Value>,
 }
 
 impl NamedTaskBuilder {
@@ -129,6 +141,7 @@ impl NamedTaskBuilder {
             version: None,
             description: None,
             namespace: None,
+            configuration: None,
         }
     }
 
@@ -137,8 +150,8 @@ impl NamedTaskBuilder {
         self
     }
 
-    pub fn with_version(mut self, version: i32) -> Self {
-        self.version = Some(version);
+    pub fn with_version(mut self, version: &str) -> Self {
+        self.version = Some(version.to_string());
         self
     }
 
@@ -149,6 +162,11 @@ impl NamedTaskBuilder {
 
     pub fn with_namespace(mut self, namespace: TaskNamespace) -> Self {
         self.namespace = Some(namespace);
+        self
+    }
+
+    pub fn with_configuration(mut self, configuration: serde_json::Value) -> Self {
+        self.configuration = Some(configuration);
         self
     }
 
@@ -426,6 +444,7 @@ impl WorkflowScenarioBuilder {
                 NewWorkflowStepEdge {
                     from_step_id: workflow_steps[*from_idx].workflow_step_id,
                     to_step_id: workflow_steps[*to_idx].workflow_step_id,
+                    name: format!("edge_{}_{}", from_idx, to_idx),
                 },
             ).await.expect("Failed to create workflow edge");
             workflow_edges.push(edge);

@@ -406,12 +406,12 @@ mod tests {
 
         // Create test dependencies
         let namespace = TaskNamespace::create(pool, NewTaskNamespace {
-            name: "test_namespace".to_string(),
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             description: None,
         }).await.expect("Failed to create namespace");
 
         let named_task = NamedTask::create(pool, NewNamedTask {
-            name: "test_task".to_string(),
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             version: Some("1.0.0".to_string()),
             description: None,
             task_namespace_id: namespace.task_namespace_id as i64,
@@ -426,7 +426,7 @@ mod tests {
             reason: None,
             bypass_steps: None,
             tags: None,
-            context: None,
+            context: Some(serde_json::json!({})),
             identity_hash: "test_hash".to_string(),
         }).await.expect("Failed to create task");
 

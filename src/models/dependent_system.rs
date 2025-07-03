@@ -80,13 +80,20 @@ impl DependentSystem {
             return Ok(existing);
         }
 
-        // Create new system if not found
+        // Create new system if not found - handle race condition with error catch
         let new_system = NewDependentSystem {
             name: name.to_string(),
             description: None,
         };
 
-        Self::create(pool, new_system).await
+        match Self::create(pool, new_system).await {
+            Ok(system) => Ok(system),
+            Err(sqlx::Error::Database(ref db_err)) if db_err.code().as_deref() == Some("23505") => {
+                // Unique constraint violation - try to find it again
+                Self::find_by_name(pool, name).await?.ok_or(sqlx::Error::RowNotFound)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Find or create by name with description
@@ -100,13 +107,20 @@ impl DependentSystem {
             return Ok(existing);
         }
 
-        // Create new system if not found
+        // Create new system if not found - handle race condition with error catch
         let new_system = NewDependentSystem {
             name: name.to_string(),
             description,
         };
 
-        Self::create(pool, new_system).await
+        match Self::create(pool, new_system).await {
+            Ok(system) => Ok(system),
+            Err(sqlx::Error::Database(ref db_err)) if db_err.code().as_deref() == Some("23505") => {
+                // Unique constraint violation - try to find it again
+                Self::find_by_name(pool, name).await?.ok_or(sqlx::Error::RowNotFound)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// List all dependent systems
@@ -324,14 +338,14 @@ mod tests {
 
         // Test creation
         let new_system = NewDependentSystem {
-            name: "test_system".to_string(),
+            name: format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             description: Some("Test system description".to_string()),
         };
 
         let created = DependentSystem::create(pool, new_system)
             .await
             .expect("Failed to create dependent system");
-        assert_eq!(created.name, "test_system");
+        assert!(created.name.starts_with("test_system_"));
         assert_eq!(created.description, Some("Test system description".to_string()));
 
         // Test find by ID
@@ -342,24 +356,25 @@ mod tests {
         assert_eq!(found.dependent_system_id, created.dependent_system_id);
 
         // Test find by name
-        let found_by_name = DependentSystem::find_by_name(pool, "test_system")
+        let found_by_name = DependentSystem::find_by_name(pool, &created.name)
             .await
             .expect("Failed to find system by name")
             .expect("System not found by name");
         assert_eq!(found_by_name.dependent_system_id, created.dependent_system_id);
 
         // Test find_or_create_by_name (should find existing)
-        let found_or_created = DependentSystem::find_or_create_by_name(pool, "test_system")
+        let found_or_created = DependentSystem::find_or_create_by_name(pool, &created.name)
             .await
             .expect("Failed to find or create system");
         assert_eq!(found_or_created.dependent_system_id, created.dependent_system_id);
 
         // Test find_or_create_by_name (should create new)
-        let new_system2 = DependentSystem::find_or_create_by_name(pool, "test_system_2")
+        let new_system_name = format!("test_system_2_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let new_system2 = DependentSystem::find_or_create_by_name(pool, &new_system_name)
             .await
             .expect("Failed to create new system");
         assert_ne!(new_system2.dependent_system_id, created.dependent_system_id);
-        assert_eq!(new_system2.name, "test_system_2");
+        assert_eq!(new_system2.name, new_system_name);
 
         // Test name uniqueness
         let is_unique = DependentSystem::is_name_unique(pool, "test_system_unique", None)
@@ -367,7 +382,7 @@ mod tests {
             .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = DependentSystem::is_name_unique(pool, "test_system", None)
+        let is_not_unique = DependentSystem::is_name_unique(pool, &created.name, None)
             .await
             .expect("Failed to check uniqueness");
         assert!(!is_not_unique);

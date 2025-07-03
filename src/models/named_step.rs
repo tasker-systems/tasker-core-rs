@@ -211,14 +211,15 @@ mod tests {
         let pool = db.pool();
 
         // Test creation
+        let step_name = format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let new_step = NewNamedStep {
             dependent_system_id: 1,
-            name: "test_step".to_string(),
+            name: step_name.clone(),
             description: Some("Test step description".to_string()),
         };
 
         let created = NamedStep::create(pool, new_step).await.expect("Failed to create step");
-        assert_eq!(created.name, "test_step");
+        assert_eq!(created.name, step_name);
         assert_eq!(created.dependent_system_id, 1);
 
         // Test find by ID
@@ -229,7 +230,7 @@ mod tests {
         assert_eq!(found.named_step_id, created.named_step_id);
 
         // Test find by name
-        let found_by_name = NamedStep::find_by_name(pool, "test_step")
+        let found_by_name = NamedStep::find_by_name(pool, &step_name)
             .await
             .expect("Failed to find step by name")
             .expect("Step not found by name");
@@ -241,7 +242,7 @@ mod tests {
             .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = NamedStep::is_name_unique(pool, "test_step", None)
+        let is_not_unique = NamedStep::is_name_unique(pool, &step_name, None)
             .await
             .expect("Failed to check uniqueness");
         assert!(!is_not_unique);

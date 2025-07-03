@@ -331,9 +331,23 @@ impl Task {
     }
 
     /// Find tasks created since a specific time (Rails: scope :created_since)
-    /// TODO: Implement time-based filtering
-    pub async fn created_since(pool: &PgPool, _since_time: DateTime<Utc>) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+    pub async fn created_since(pool: &PgPool, since_time: DateTime<Utc>) -> Result<Vec<Task>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT task_id, named_task_id, complete, requested_at, initiator, 
+                   source_system, reason, bypass_steps, tags, context, 
+                   identity_hash, created_at, updated_at
+            FROM tasker_tasks
+            WHERE created_at >= $1
+            ORDER BY created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks completed since a specific time (Rails: scope :completed_since)
@@ -355,21 +369,67 @@ impl Task {
     }
 
     /// Find tasks in a specific namespace (Rails: scope :in_namespace)
-    /// TODO: Implement namespace-based filtering
-    pub async fn in_namespace(pool: &PgPool, _namespace_name: &str) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+    pub async fn in_namespace(pool: &PgPool, namespace_name: &str) -> Result<Vec<Task>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+                   t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
+            WHERE tn.name = $1
+            ORDER BY t.created_at DESC
+            "#,
+            namespace_name
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks with a specific task name (Rails: scope :with_task_name)
-    /// TODO: Implement task name filtering
-    pub async fn with_task_name(pool: &PgPool, _task_name: &str) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+    pub async fn with_task_name(pool: &PgPool, task_name: &str) -> Result<Vec<Task>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+                   t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            WHERE nt.name = $1
+            ORDER BY t.created_at DESC
+            "#,
+            task_name
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks with a specific version (Rails: scope :with_version)
-    /// TODO: Implement version filtering
-    pub async fn with_version(pool: &PgPool, _version: &str) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+    pub async fn with_version(pool: &PgPool, version: &str) -> Result<Vec<Task>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+                   t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            WHERE nt.version = $1
+            ORDER BY t.created_at DESC
+            "#,
+            version
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     // ============================================================================
@@ -655,21 +715,35 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
+        // Create test dependencies
+        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: None,
+        }).await.expect("Failed to create named task");
+
         // Test creation
         let new_task = NewTask {
-            named_task_id: 1,
+            named_task_id: named_task.named_task_id as i32,
             requested_at: None, // Will default to now
             initiator: Some("test_user".to_string()),
-            source_system: Some("test_system".to_string()),
+            source_system: Some(format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0))),
             reason: Some("Testing task creation".to_string()),
             bypass_steps: None,
             tags: Some(json!({"priority": "high", "team": "engineering"})),
             context: Some(json!({"input_data": "test_value"})),
-            identity_hash: Task::generate_identity_hash(1, &Some(json!({"input_data": "test_value"}))),
+            identity_hash: Task::generate_identity_hash(named_task.named_task_id as i32, &Some(json!({"input_data": "test_value"}))),
         };
 
         let created = Task::create(pool, new_task).await.expect("Failed to create task");
-        assert_eq!(created.named_task_id, 1);
+        assert_eq!(created.named_task_id, named_task.named_task_id as i32);
         assert!(!created.complete);
         assert_eq!(created.initiator, Some("test_user".to_string()));
 
@@ -702,6 +776,10 @@ mod tests {
             .await
             .expect("Failed to delete task");
         assert!(deleted);
+
+        // Cleanup test dependencies
+        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
 
         db.close().await;
     }

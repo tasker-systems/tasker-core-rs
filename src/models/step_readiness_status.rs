@@ -425,14 +425,13 @@ impl StepReadinessStatus {
     /// Bulk update readiness statuses using SQL function
     pub async fn bulk_update_for_task(pool: &PgPool, task_id: i64) -> Result<Vec<StepReadinessResult>, sqlx::Error> {
         // This calls the get_step_readiness_status SQL function to calculate and update statuses
-        let results = sqlx::query_as!(
-            StepReadinessResult,
+        let results = sqlx::query_as::<_, StepReadinessResult>(
             r#"
             SELECT 
                 workflow_step_id,
                 task_id,
                 named_step_id,
-                name,
+                name::text,
                 current_state,
                 dependencies_satisfied,
                 retry_eligible,
@@ -446,9 +445,9 @@ impl StepReadinessStatus {
                 backoff_request_seconds,
                 last_attempted_at
             FROM get_step_readiness_status($1)
-            "#,
-            task_id
+            "#
         )
+        .bind(task_id)
         .fetch_all(pool)
         .await?;
 
@@ -594,12 +593,12 @@ mod tests {
 
         // Create test dependencies
         let namespace = TaskNamespace::create(pool, NewTaskNamespace {
-            name: "test_namespace".to_string(),
+            name: format!("test_namespace_{}_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0), fastrand::u32(..)),
             description: None,
         }).await.expect("Failed to create namespace");
 
         let named_task = NamedTask::create(pool, NewNamedTask {
-            name: "test_task".to_string(),
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             version: Some("1.0.0".to_string()),
             description: None,
             task_namespace_id: namespace.task_namespace_id as i64,
@@ -614,7 +613,7 @@ mod tests {
             reason: None,
             bypass_steps: None,
             tags: None,
-            context: None,
+            context: Some(serde_json::json!({})),
             identity_hash: "test_hash".to_string(),
         }).await.expect("Failed to create task");
 
@@ -622,7 +621,7 @@ mod tests {
 
         let named_step = NamedStep::create(pool, NewNamedStep {
             dependent_system_id: system.dependent_system_id,
-            name: "test_step".to_string(),
+            name: format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
             description: Some("Test step".to_string()),
         }).await.expect("Failed to create named step");
 

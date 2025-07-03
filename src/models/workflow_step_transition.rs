@@ -403,10 +403,22 @@ impl WorkflowStepTransition {
     }
 
     /// Filter transitions with specific metadata key (Rails: scope :with_metadata_key)
-    /// TODO: Fix SQLx validation for JSONB ? operator
-    pub async fn with_metadata_key(pool: &PgPool, _key: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
-        // Placeholder - would use metadata ? $1 operator
-        Self::recent(pool).await
+    pub async fn with_metadata_key(pool: &PgPool, key: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            WHERE metadata ? $1
+            ORDER BY created_at DESC
+            "#,
+            key
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
     }
 
     /// Get transitions for a specific task (Rails: scope :for_task)
@@ -474,10 +486,23 @@ impl WorkflowStepTransition {
     }
 
     /// Find transitions with specific metadata value (Rails: with_metadata_value)
-    /// TODO: Fix SQLx validation for JSONB ->> operator
-    pub async fn with_metadata_value(pool: &PgPool, _key: &str, _value: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
-        // Placeholder - would use metadata->>$1 = $2
-        Self::recent(pool).await
+    pub async fn with_metadata_value(pool: &PgPool, key: &str, value: &str) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_id, created_at, updated_at
+            FROM tasker_workflow_step_transitions
+            WHERE metadata ->> $1 = $2
+            ORDER BY created_at DESC
+            "#,
+            key,
+            value
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
     }
 
     /// Find retry transitions (error -> pending) (Rails: retry_transitions)
@@ -892,8 +917,51 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
-        // Assume we have a workflow step with id 1
-        let workflow_step_id = 1;
+        // Create test dependencies - WorkflowStep
+        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: None,
+        }).await.expect("Failed to create named task");
+
+        let task = crate::models::task::Task::create(pool, crate::models::task::NewTask {
+            named_task_id: named_task.named_task_id as i32,
+            requested_at: None,
+            initiator: None,
+            source_system: None,
+            reason: None,
+            bypass_steps: None,
+            tags: None,
+            context: Some(serde_json::json!({"test": "context"})),
+            identity_hash: "test_hash".to_string(),
+        }).await.expect("Failed to create task");
+
+        let system_name = format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let system = crate::models::dependent_system::DependentSystem::find_or_create_by_name(pool, &system_name).await.expect("Failed to get system");
+        
+        let named_step = crate::models::named_step::NamedStep::create(pool, crate::models::named_step::NewNamedStep {
+            dependent_system_id: system.dependent_system_id,
+            name: format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: Some("Test step".to_string()),
+        }).await.expect("Failed to create named step");
+
+        let workflow_step = crate::models::workflow_step::WorkflowStep::create(pool, crate::models::workflow_step::NewWorkflowStep {
+            task_id: task.task_id,
+            named_step_id: named_step.named_step_id,
+            retryable: Some(true),
+            retry_limit: Some(3),
+            inputs: None,
+            skippable: Some(false),
+        }).await.expect("Failed to create workflow step");
+
+        let workflow_step_id = workflow_step.workflow_step_id;
 
         // Test creation
         let new_transition = NewWorkflowStepTransition {
@@ -964,6 +1032,14 @@ mod tests {
         .await
         .expect("Failed to check transition");
         assert!(can_transition);
+
+        // Cleanup - delete in reverse dependency order (transitions first)
+        sqlx::query!("DELETE FROM tasker_workflow_step_transitions WHERE workflow_step_id = $1", workflow_step.workflow_step_id).execute(pool).await.expect("Failed to delete transitions");
+        crate::models::workflow_step::WorkflowStep::delete(pool, workflow_step.workflow_step_id).await.expect("Failed to delete workflow step");
+        crate::models::named_step::NamedStep::delete(pool, named_step.named_step_id).await.expect("Failed to delete named step");
+        crate::models::task::Task::delete(pool, task.task_id).await.expect("Failed to delete task");
+        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
 
         db.close().await;
     }

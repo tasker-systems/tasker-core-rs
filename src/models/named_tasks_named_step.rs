@@ -482,31 +482,56 @@ mod tests {
         let db = DatabaseConnection::new().await.expect("Failed to connect to database");
         let pool = db.pool();
 
+        // Create test dependencies
+        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
+            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
+            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            task_namespace_id: namespace.task_namespace_id as i64,
+            configuration: None,
+        }).await.expect("Failed to create named task");
+
+        let dependent_system = crate::models::dependent_system::DependentSystem::create(pool, crate::models::dependent_system::NewDependentSystem {
+            name: format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create dependent system");
+
+        let named_step = crate::models::named_step::NamedStep::create(pool, crate::models::named_step::NewNamedStep {
+            dependent_system_id: dependent_system.dependent_system_id,
+            name: format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            description: None,
+        }).await.expect("Failed to create named step");
+
         // Test find_or_create
-        let association1 = NamedTasksNamedStep::find_or_create(pool, 1, 1, None)
+        let association1 = NamedTasksNamedStep::find_or_create(pool, named_task.named_task_id, named_step.named_step_id, None)
             .await
             .expect("Failed to create association");
-        assert_eq!(association1.named_task_id, 1);
-        assert_eq!(association1.named_step_id, 1);
+        assert_eq!(association1.named_task_id, named_task.named_task_id);
+        assert_eq!(association1.named_step_id, named_step.named_step_id);
         assert!(!association1.skippable); // Default value
         assert!(association1.default_retryable); // Default value
         assert_eq!(association1.default_retry_limit, 3); // Default value
 
         // Test find_or_create again (should find existing)
-        let association2 = NamedTasksNamedStep::find_or_create(pool, 1, 1, None)
+        let association2 = NamedTasksNamedStep::find_or_create(pool, named_task.named_task_id, named_step.named_step_id, None)
             .await
             .expect("Failed to find existing association");
         assert_eq!(association1.id, association2.id);
 
         // Test find_by_task_and_step
-        let found = NamedTasksNamedStep::find_by_task_and_step(pool, 1, 1)
+        let found = NamedTasksNamedStep::find_by_task_and_step(pool, named_task.named_task_id, named_step.named_step_id)
             .await
             .expect("Failed to find association")
             .expect("Association not found");
         assert_eq!(found.id, association1.id);
 
         // Test named_steps_for_named_task
-        let associations = NamedTasksNamedStep::named_steps_for_named_task(pool, 1)
+        let associations = NamedTasksNamedStep::named_steps_for_named_task(pool, named_task.named_task_id)
             .await
             .expect("Failed to get associations for task");
         assert!(!associations.is_empty());
@@ -526,6 +551,12 @@ mod tests {
             .expect("Failed to delete association");
         assert!(deleted);
 
+        // Cleanup test dependencies
+        crate::models::named_step::NamedStep::delete(pool, named_step.named_step_id).await.expect("Failed to delete named step");
+        crate::models::dependent_system::DependentSystem::delete(pool, dependent_system.dependent_system_id).await.expect("Failed to delete dependent system");
+        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
+
         db.close().await;
     }
 
@@ -539,16 +570,18 @@ mod tests {
 
     #[test]
     fn test_step_template_structure() {
+        let step_name = format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let system_name = format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let template = StepTemplate {
-            name: "test_step".to_string(),
-            dependent_system: "test_system".to_string(),
+            name: step_name.clone(),
+            dependent_system: system_name.clone(),
             default_retry_limit: 5,
             default_retryable: false,
             skippable: true,
         };
 
-        assert_eq!(template.name, "test_step");
-        assert_eq!(template.dependent_system, "test_system");
+        assert_eq!(template.name, step_name);
+        assert_eq!(template.dependent_system, system_name);
         assert_eq!(template.default_retry_limit, 5);
         assert!(!template.default_retryable);
         assert!(template.skippable);
