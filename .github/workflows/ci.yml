@@ -18,6 +18,24 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-22.04
 
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,6 +49,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: quality
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -99,42 +133,20 @@ jobs:
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: test-${{ matrix.rust-version }}-${{ matrix.os }}
+          key: test-${{ matrix.rust-version }}
 
-      - name: Install PostgreSQL client (Ubuntu)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Install PostgreSQL client
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Install PostgreSQL client (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install postgresql
-
-      - name: Install PostgreSQL client (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install postgresql --params '/Password:test_password' --no-progress
-          echo "C:\Program Files\PostgreSQL\16\bin" >> $GITHUB_PATH
-
-      - name: Set up database (Ubuntu/macOS)
-        if: matrix.os != 'windows-latest'
+      - name: Set up database
         run: |
           # Wait for PostgreSQL to be ready
           until pg_isready -h localhost -p 5432 -U tasker_core_test; do
             echo "Waiting for PostgreSQL..."
             sleep 2
           done
-
-      - name: Set up database (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          # Use different approach for Windows
-          $env:PGPASSWORD = "test_password"
-          do {
-            Start-Sleep -Seconds 2
-            $result = & pg_isready -h localhost -p 5432 -U tasker_core_test 2>$null
-          } while ($LASTEXITCODE -ne 0)
 
       - name: Install SQLx CLI
         run: cargo install sqlx-cli --no-default-features --features rustls,postgres
@@ -158,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.rust-version }}-ubuntu
+          name: test-results-${{ matrix.rust-version }}
           path: target/debug/deps/
 
 
