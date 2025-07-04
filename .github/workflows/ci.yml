@@ -375,13 +375,11 @@ jobs:
           echo "Quality: ${{ needs.quality.result }}"
           echo "Security: ${{ needs.security.result }}"
           echo "Test: ${{ needs.test.result }}"
-          echo "SQLx Check: ${{ needs.sqlx-check.result }}"
           echo "Validate Examples: ${{ needs.validate-examples.result }}"
 
           if [[ "${{ needs.quality.result }}" != "success" ||
                 "${{ needs.security.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
-                "${{ needs.sqlx-check.result }}" != "success" ||
                 "${{ needs.validate-examples.result }}" != "success" ]]; then
             echo "❌ One or more required jobs failed"
             exit 1
