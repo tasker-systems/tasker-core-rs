@@ -222,7 +222,7 @@ impl NamedStep {
         limit: Option<i32>,
     ) -> Result<Vec<NamedStep>, sqlx::Error> {
         let limit_val = limit.unwrap_or(20);
-        let search_pattern = format!("%{}%", pattern);
+        let search_pattern = format!("%{pattern}%");
 
         let steps = sqlx::query_as!(
             NamedStep,

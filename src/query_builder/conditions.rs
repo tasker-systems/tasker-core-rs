@@ -79,7 +79,7 @@ impl Condition {
                     .map(format_value)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{} IN ({})", field, value_list)
+                format!("{field} IN ({value_list})")
             }
             Condition::NotIn { field, values } => {
                 let value_list = values
@@ -87,7 +87,7 @@ impl Condition {
                     .map(format_value)
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{} NOT IN ({})", field, value_list)
+                format!("{field} NOT IN ({value_list})")
             }
             Condition::Between { field, start, end } => {
                 format!(
@@ -98,16 +98,16 @@ impl Condition {
                 )
             }
             Condition::IsNull { field } => {
-                format!("{} IS NULL", field)
+                format!("{field} IS NULL")
             }
             Condition::IsNotNull { field } => {
-                format!("{} IS NOT NULL", field)
+                format!("{field} IS NOT NULL")
             }
             Condition::Exists { subquery } => {
-                format!("EXISTS ({})", subquery)
+                format!("EXISTS ({subquery})")
             }
             Condition::NotExists { subquery } => {
-                format!("NOT EXISTS ({})", subquery)
+                format!("NOT EXISTS ({subquery})")
             }
             Condition::JsonPath {
                 field,

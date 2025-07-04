@@ -40,7 +40,7 @@ impl StepStateMachine {
             .await?
         {
             Some(state_str) => state_str.parse().map_err(|_| {
-                StateMachineError::Internal(format!("Invalid state in database: {}", state_str))
+                StateMachineError::Internal(format!("Invalid state in database: {state_str}"))
             }),
             None => Ok(WorkflowStepState::default()), // No transitions yet, return default state
         }
@@ -107,7 +107,7 @@ impl StepStateMachine {
             (from_state, _) => {
                 return Err(StateMachineError::InvalidTransition {
                     from: Some(from_state.to_string()),
-                    to: format!("{:?}", event),
+                    to: format!("{event:?}"),
                 })
             }
         };

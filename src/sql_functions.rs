@@ -31,11 +31,10 @@
 //! - **Minimal memory usage** with streaming results
 //! - **Concurrent execution** with proper locking strategies
 
-/// # Task Execution Context Functions
+/// Task execution context and status computation.
 ///
 /// These functions provide real-time task execution status and statistics.
 pub mod task_execution {
-    //! Task execution context and status computation.
 
     /// Get execution context for a single task.
     ///
@@ -176,11 +175,10 @@ pub mod task_execution {
     pub fn get_task_execution_contexts_batch() {}
 }
 
-/// # Step Readiness Analysis Functions
+/// Step dependency analysis and readiness computation.
 ///
 /// Functions for analyzing step dependencies and execution readiness.
 pub mod step_readiness {
-    //! Step dependency analysis and readiness computation.
 
     /// Analyze step dependencies and readiness for execution.
     ///
@@ -234,11 +232,10 @@ pub mod step_readiness {
     pub fn get_step_readiness_status() {}
 }
 
-/// # Analytics and Monitoring Functions
+/// System analytics and performance monitoring functions.
 ///
 /// Functions for system-wide analytics, performance monitoring, and health analysis.
 pub mod analytics {
-    //! System analytics and performance monitoring functions.
 
     /// Get comprehensive system analytics and performance metrics.
     ///
@@ -389,11 +386,10 @@ pub mod analytics {
     pub fn get_max_connections_v01() {}
 }
 
-/// # SQL Views Documentation
+/// SQL view definitions and usage.
 ///
 /// Documentation for SQL views used in the system.
 pub mod views {
-    //! SQL view definitions and usage.
 
     /// Step DAG (Directed Acyclic Graph) relationship analysis view.
     ///
@@ -435,11 +431,10 @@ pub mod views {
     pub fn tasker_step_dag_relationships() {}
 }
 
-/// # Integration Examples
+/// Integration examples and common patterns.
 ///
 /// Real-world examples of how to use these functions together.
 pub mod examples {
-    //! Integration examples and common patterns.
 
     /// Example: Complete task monitoring dashboard
     ///

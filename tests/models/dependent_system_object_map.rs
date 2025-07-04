@@ -90,7 +90,7 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
         system_two.dependent_system_id,
     )
     .await?;
-    assert!(mappings_count.len() > 0);
+    assert!(!mappings_count.is_empty());
 
     // No cleanup needed - SQLx will roll back the test transaction automatically!
     Ok(())
@@ -108,16 +108,16 @@ async fn test_mapping_stats(pool: PgPool) -> sqlx::Result<()> {
         let mapping_ab = NewDependentSystemObjectMap {
             dependent_system_one_id: system_a.dependent_system_id,
             dependent_system_two_id: system_b.dependent_system_id,
-            remote_id_one: format!("a_{}", i),
-            remote_id_two: format!("b_{}", i),
+            remote_id_one: format!("a_{i}"),
+            remote_id_two: format!("b_{i}"),
         };
         DependentSystemObjectMap::create(&pool, mapping_ab).await?;
 
         let mapping_ac = NewDependentSystemObjectMap {
             dependent_system_one_id: system_a.dependent_system_id,
             dependent_system_two_id: system_c.dependent_system_id,
-            remote_id_one: format!("a_{}", i),
-            remote_id_two: format!("c_{}", i),
+            remote_id_one: format!("a_{i}"),
+            remote_id_two: format!("c_{i}"),
         };
         DependentSystemObjectMap::create(&pool, mapping_ac).await?;
     }

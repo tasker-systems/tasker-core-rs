@@ -4,6 +4,12 @@ use chrono::{DateTime, Utc};
 /// Task-specific query scopes that mirror Rails ActiveRecord scopes
 pub struct TaskScopes;
 
+impl Default for TaskScopes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskScopes {
     /// Create a new TaskScopes instance
     pub fn new() -> Self {
@@ -545,8 +551,7 @@ impl WorkflowStepEdgeScopes {
             .where_clause(WhereClause::simple("e2.to_step_id", "!=", serde_json::Value::Number(serde_json::Number::from(step_id))))
             .group_by(&["e2.to_step_id"])
             .having_clause(WhereClause::raw(&format!(
-                "COUNT(e2.from_step_id) = (SELECT COUNT(*) FROM tasker_workflow_step_edges WHERE to_step_id = {})",
-                step_id
+                "COUNT(e2.from_step_id) = (SELECT COUNT(*) FROM tasker_workflow_step_edges WHERE to_step_id = {step_id})"
             )))
     }
 

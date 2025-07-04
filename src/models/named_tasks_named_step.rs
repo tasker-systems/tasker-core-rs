@@ -416,8 +416,8 @@ mod tests {
             .await
             .expect("Failed to create association");
         assert_eq!(association.named_task_id, named_task.named_task_id);
-        assert_eq!(association.skippable, true);
-        assert_eq!(association.default_retryable, false);
+        assert!(association.skippable);
+        assert!(!association.default_retryable);
         assert_eq!(association.default_retry_limit, 5);
 
         // Test find by ID
@@ -539,8 +539,8 @@ mod tests {
         let association = NamedTasksNamedStep::create(pool, new_association)
             .await
             .expect("Failed to create association with defaults");
-        assert_eq!(association.skippable, false);
-        assert_eq!(association.default_retryable, true);
+        assert!(!association.skippable);
+        assert!(association.default_retryable);
         assert_eq!(association.default_retry_limit, 3);
 
         // Cleanup

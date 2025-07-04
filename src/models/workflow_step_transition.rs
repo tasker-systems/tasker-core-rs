@@ -970,7 +970,7 @@ impl TransitionDescriptionFormatter {
 
     fn format_complete_description(transition: &WorkflowStepTransition) -> String {
         match transition.execution_duration() {
-            Some(duration) => format!("Step completed successfully in {:.2}s", duration),
+            Some(duration) => format!("Step completed successfully in {duration:.2}s"),
             None => "Step completed successfully".to_string(),
         }
     }
@@ -984,21 +984,21 @@ impl TransitionDescriptionFormatter {
         } else {
             ""
         };
-        format!("Step failed: {}{}", error_msg, backoff_text)
+        format!("Step failed: {error_msg}{backoff_text}")
     }
 
     fn format_cancelled_description(transition: &WorkflowStepTransition) -> String {
         let reason_metadata =
             transition.get_metadata("triggered_by", serde_json::json!("manual cancellation"));
         let reason = reason_metadata.as_str().unwrap_or("manual cancellation");
-        format!("Step cancelled due to {}", reason)
+        format!("Step cancelled due to {reason}")
     }
 
     fn format_resolved_description(transition: &WorkflowStepTransition) -> String {
         let resolver_metadata =
             transition.get_metadata("resolved_by", serde_json::json!("unknown"));
         let resolver = resolver_metadata.as_str().unwrap_or("unknown");
-        format!("Step manually resolved by {}", resolver)
+        format!("Step manually resolved by {resolver}")
     }
 
     fn format_unknown_description(transition: &WorkflowStepTransition) -> String {
@@ -1048,13 +1048,13 @@ impl WorkflowStepTransitionQuery {
 
         if let Some(workflow_step_id) = self.workflow_step_id {
             param_count += 1;
-            query.push_str(&format!(" AND workflow_step_id = ${}", param_count));
+            query.push_str(&format!(" AND workflow_step_id = ${param_count}"));
             params.push(workflow_step_id.to_string());
         }
 
         if let Some(state) = self.state {
             param_count += 1;
-            query.push_str(&format!(" AND to_state = ${}", param_count));
+            query.push_str(&format!(" AND to_state = ${param_count}"));
             params.push(state);
         }
 
@@ -1066,13 +1066,13 @@ impl WorkflowStepTransitionQuery {
 
         if let Some(limit) = self.limit {
             param_count += 1;
-            query.push_str(&format!(" LIMIT ${}", param_count));
+            query.push_str(&format!(" LIMIT ${param_count}"));
             params.push(limit.to_string());
         }
 
         if let Some(offset) = self.offset {
             param_count += 1;
-            query.push_str(&format!(" OFFSET ${}", param_count));
+            query.push_str(&format!(" OFFSET ${param_count}"));
             params.push(offset.to_string());
         }
 

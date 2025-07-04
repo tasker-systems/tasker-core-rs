@@ -946,13 +946,13 @@ impl TaskTransitionQuery {
 
         if let Some(task_id) = self.task_id {
             param_count += 1;
-            query.push_str(&format!(" AND task_id = ${}", param_count));
+            query.push_str(&format!(" AND task_id = ${param_count}"));
             params.push(task_id.to_string());
         }
 
         if let Some(state) = self.state {
             param_count += 1;
-            query.push_str(&format!(" AND to_state = ${}", param_count));
+            query.push_str(&format!(" AND to_state = ${param_count}"));
             params.push(state);
         }
 
@@ -964,13 +964,13 @@ impl TaskTransitionQuery {
 
         if let Some(limit) = self.limit {
             param_count += 1;
-            query.push_str(&format!(" LIMIT ${}", param_count));
+            query.push_str(&format!(" LIMIT ${param_count}"));
             params.push(limit.to_string());
         }
 
         if let Some(offset) = self.offset {
             param_count += 1;
-            query.push_str(&format!(" OFFSET ${}", param_count));
+            query.push_str(&format!(" OFFSET ${param_count}"));
             params.push(offset.to_string());
         }
 

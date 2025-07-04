@@ -25,17 +25,16 @@ async fn test_database_schema_exists(pool: PgPool) -> sqlx::Result<()> {
 
     for table in tables {
         let query = format!(
-            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public'",
-            table
+            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = '{table}' AND table_schema = 'public'"
         );
 
         let row = sqlx::query(&query)
             .fetch_one(&pool)
             .await
-            .expect(&format!("Failed to query for table {}", table));
+            .unwrap_or_else(|_| panic!("Failed to query for table {table}"));
 
         let count: i64 = row.get("count");
-        assert_eq!(count, 1, "Table {} does not exist", table);
+        assert_eq!(count, 1, "Table {table} does not exist");
     }
 
     Ok(())

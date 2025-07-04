@@ -213,7 +213,7 @@ impl SlowestSteps {
         let seconds = self.duration_as_seconds();
 
         if seconds < 60.0 {
-            format!("{:.1}s", seconds)
+            format!("{seconds:.1}s")
         } else if seconds < 3600.0 {
             format!("{:.1}m", seconds / 60.0)
         } else {
@@ -242,7 +242,7 @@ mod tests {
             }
             Err(e) => {
                 // Expected for now - SQL function may have schema mismatches without proper test data
-                println!("Expected SQL function error (no test data): {}", e);
+                println!("Expected SQL function error (no test data): {e}");
             }
         }
 
@@ -267,7 +267,7 @@ mod tests {
         match SlowestSteps::get_with_filters(pool, filter).await {
             Ok(_steps) => { /* Function works */ }
             Err(e) => {
-                println!("Expected SQL function error: {}", e);
+                println!("Expected SQL function error: {e}");
             }
         }
 
@@ -287,7 +287,7 @@ mod tests {
         match SlowestSteps::get_since(pool, since, Some(3)).await {
             Ok(_steps) => { /* Function works */ }
             Err(e) => {
-                println!("Expected SQL function error: {}", e);
+                println!("Expected SQL function error: {e}");
             }
         }
 

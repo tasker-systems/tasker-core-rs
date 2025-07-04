@@ -257,18 +257,17 @@ impl TaskDiagram {
             r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>{}</title>
+    <title>{page_title}</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
     <script>mermaid.initialize({{startOnLoad: true}});</script>
 </head>
 <body>
-    <h1>{}</h1>
+    <h1>{page_title}</h1>
     <div class="mermaid">
-{}
+{mermaid}
     </div>
 </body>
-</html>"#,
-            page_title, page_title, mermaid
+</html>"#
         )
     }
 

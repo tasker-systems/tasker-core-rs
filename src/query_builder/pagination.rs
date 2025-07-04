@@ -48,11 +48,11 @@ impl Pagination {
         let mut sql = String::new();
 
         if let Some(limit) = self.limit {
-            sql.push_str(&format!(" LIMIT {}", limit));
+            sql.push_str(&format!(" LIMIT {limit}"));
         }
 
         if let Some(offset) = self.offset {
-            sql.push_str(&format!(" OFFSET {}", offset));
+            sql.push_str(&format!(" OFFSET {offset}"));
         }
 
         sql
@@ -61,7 +61,7 @@ impl Pagination {
     /// Calculate total pages given a total count
     pub fn total_pages(&self, total_count: u32) -> u32 {
         if let Some(limit) = self.limit {
-            (total_count + limit - 1) / limit // Ceiling division
+            total_count.div_ceil(limit) // Ceiling division
         } else {
             1
         }
@@ -87,7 +87,7 @@ impl Pagination {
 
     /// Check if there's a previous page
     pub fn has_previous_page(&self) -> bool {
-        self.offset.map_or(false, |offset| offset > 0)
+        self.offset.is_some_and(|offset| offset > 0)
     }
 }
 

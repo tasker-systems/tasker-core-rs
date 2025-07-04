@@ -71,7 +71,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         .execute(&mut *tx)
         .await
         .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to insert transition: {}", e),
+            reason: format!("Failed to insert transition: {e}"),
         })?;
 
         // Update most_recent flags for previous transitions
@@ -87,7 +87,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         .execute(&mut *tx)
         .await
         .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to update most_recent flags: {}", e),
+            reason: format!("Failed to update most_recent flags: {e}"),
         })?;
 
         tx.commit().await?;
@@ -173,7 +173,7 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         .execute(&mut *tx)
         .await
         .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to insert transition: {}", e),
+            reason: format!("Failed to insert transition: {e}"),
         })?;
 
         // Update most_recent flags for previous transitions
@@ -189,7 +189,7 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         .execute(&mut *tx)
         .await
         .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to update most_recent flags: {}", e),
+            reason: format!("Failed to update most_recent flags: {e}"),
         })?;
 
         tx.commit().await?;

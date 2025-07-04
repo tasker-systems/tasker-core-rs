@@ -367,7 +367,7 @@ impl WorkflowScenarioBuilder {
                 NewWorkflowStepEdge {
                     from_step_id: workflow_steps[*from_idx].workflow_step_id,
                     to_step_id: workflow_steps[*to_idx].workflow_step_id,
-                    name: format!("edge_{}_{}", from_idx, to_idx),
+                    name: format!("edge_{from_idx}_{to_idx}"),
                 },
             )
             .await

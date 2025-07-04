@@ -1,5 +1,5 @@
 use tasker_core::{
-    AnalyticsMetrics, FunctionRegistry, SqlFunctionExecutor, StepReadinessStatus,
+    AnalyticsMetrics, StepReadinessStatus,
     SystemHealthCounts, TaskExecutionContext,
 };
 

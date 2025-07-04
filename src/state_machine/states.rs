@@ -63,7 +63,7 @@ impl std::str::FromStr for TaskState {
             "error" => Ok(Self::Error),
             "cancelled" => Ok(Self::Cancelled),
             "resolved_manually" => Ok(Self::ResolvedManually),
-            _ => Err(format!("Invalid task state: {}", s)),
+            _ => Err(format!("Invalid task state: {s}")),
         }
     }
 }
@@ -135,7 +135,7 @@ impl std::str::FromStr for WorkflowStepState {
             "error" => Ok(Self::Error),
             "cancelled" => Ok(Self::Cancelled),
             "resolved_manually" => Ok(Self::ResolvedManually),
-            _ => Err(format!("Invalid workflow step state: {}", s)),
+            _ => Err(format!("Invalid workflow step state: {s}")),
         }
     }
 }

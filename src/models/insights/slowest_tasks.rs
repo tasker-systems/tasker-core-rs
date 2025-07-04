@@ -233,7 +233,7 @@ impl SlowestTasks {
         let seconds = self.duration_as_seconds();
 
         if seconds < 60.0 {
-            format!("{:.1}s", seconds)
+            format!("{seconds:.1}s")
         } else if seconds < 3600.0 {
             format!("{:.1}m", seconds / 60.0)
         } else if seconds < 86400.0 {
@@ -293,7 +293,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                println!("Expected SQL function error (no test data): {}", e);
+                println!("Expected SQL function error (no test data): {e}");
             }
         }
 
@@ -323,7 +323,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                println!("Expected SQL function error: {}", e);
+                println!("Expected SQL function error: {e}");
             }
         }
 
@@ -348,7 +348,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                println!("Expected SQL function error: {}", e);
+                println!("Expected SQL function error: {e}");
             }
         }
 

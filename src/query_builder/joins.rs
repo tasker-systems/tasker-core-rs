@@ -95,7 +95,7 @@ impl Join {
         let mut sql = format!("{} {}", self.join_type.to_sql(), self.table);
 
         if let Some(ref condition) = self.on_condition {
-            sql.push_str(&format!(" ON {}", condition));
+            sql.push_str(&format!(" ON {condition}"));
         } else if let Some(ref columns) = self.using_columns {
             sql.push_str(&format!(" USING ({})", columns.join(", ")));
         }

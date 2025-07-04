@@ -126,8 +126,7 @@ impl DatabaseMigrations {
             std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "Timeout waiting for schema initialization",
-            )
-            .into(),
+            ),
         ))
     }
 
@@ -187,8 +186,8 @@ impl DatabaseMigrations {
 
         let mut migrations = BTreeMap::new();
 
-        for entry in fs::read_dir(migrations_dir).map_err(|e| sqlx::Error::Io(e.into()))? {
-            let entry = entry.map_err(|e| sqlx::Error::Io(e.into()))?;
+        for entry in fs::read_dir(migrations_dir).map_err(sqlx::Error::Io)? {
+            let entry = entry.map_err(sqlx::Error::Io)?;
             let path = entry.path();
 
             if path.is_file() && path.extension().map(|s| s == "sql").unwrap_or(false) {
@@ -227,8 +226,8 @@ impl DatabaseMigrations {
         }
 
         // Extract name part (remove leading underscore)
-        let name = if name_part.starts_with('_') {
-            name_part[1..].replace('_', " ")
+        let name = if let Some(stripped) = name_part.strip_prefix('_') {
+            stripped.replace('_', " ")
         } else {
             name_part.replace('_', " ")
         };
@@ -279,13 +278,12 @@ impl DatabaseMigrations {
     async fn run_migration(pool: &PgPool, migration_path: &str) -> Result<(), sqlx::Error> {
         if !Path::new(migration_path).exists() {
             eprintln!(
-                "Warning: Migration file {} not found, skipping",
-                migration_path
+                "Warning: Migration file {migration_path} not found, skipping"
             );
             return Ok(());
         }
 
-        let sql = std::fs::read_to_string(migration_path).map_err(|e| sqlx::Error::Io(e.into()))?;
+        let sql = std::fs::read_to_string(migration_path).map_err(sqlx::Error::Io)?;
 
         // Execute the migration SQL
         sqlx::raw_sql(&sql).execute(pool).await?;

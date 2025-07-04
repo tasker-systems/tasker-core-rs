@@ -108,7 +108,7 @@ impl QueryBuilder {
 
     /// Add ORDER BY clause
     pub fn order_by(mut self, field: &str, direction: &str) -> Self {
-        self.order_by.push(format!("{} {}", field, direction));
+        self.order_by.push(format!("{field} {direction}"));
         self
     }
 
@@ -150,7 +150,7 @@ impl QueryBuilder {
 
     /// Add WITH clause for CTEs (Common Table Expressions)
     pub fn with_cte(mut self, name: &str, query: &str) -> Self {
-        self.with_clauses.push(format!("{} AS ({})", name, query));
+        self.with_clauses.push(format!("{name} AS ({query})"));
         self
     }
 
@@ -161,7 +161,7 @@ impl QueryBuilder {
         base_query: &str,
         recursive_query: &str,
     ) -> Self {
-        let cte = format!("{} AS ({} UNION ALL {})", name, base_query, recursive_query);
+        let cte = format!("{name} AS ({base_query} UNION ALL {recursive_query})");
         self.with_clauses.push(cte);
         self
     }
