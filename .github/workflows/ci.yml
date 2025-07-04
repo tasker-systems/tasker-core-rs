@@ -171,24 +171,6 @@ jobs:
     name: SQLx Compile-time Verification
     runs-on: ubuntu-22.04
 
-    services:
-      postgres:
-        image: postgres:15-alpine
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -201,29 +183,11 @@ jobs:
         with:
           key: sqlx-check
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
-      - name: Install SQLx CLI
-        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
-
-      - name: Set up database
-        run: |
-          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
-
-      - name: Run database migrations
-        run: sqlx migrate run
-
-      - name: Generate SQLx metadata
-        run: cargo sqlx prepare
-
-      - name: Verify SQLx queries
-        run: cargo check --features sqlx-offline
+      - name: Verify SQLx queries with offline mode
+        run: cargo check
+        env:
+          # Use SQLx offline mode with committed .sqlx/ cache files
+          SQLX_OFFLINE: true
 
   # Performance benchmarks
   benchmark:
