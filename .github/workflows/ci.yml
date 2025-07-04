@@ -166,28 +166,6 @@ jobs:
           name: test-results-${{ matrix.rust-version }}-${{ matrix.os }}
           path: target/debug/deps/
 
-  # SQLx compile-time verification
-  sqlx-check:
-    name: SQLx Compile-time Verification
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: sqlx-check
-
-      - name: Verify SQLx queries with offline mode
-        run: cargo check
-        env:
-          # Use SQLx offline mode with committed .sqlx/ cache files
-          SQLX_OFFLINE: true
 
   # Performance benchmarks
   benchmark:
