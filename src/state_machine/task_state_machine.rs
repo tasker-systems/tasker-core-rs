@@ -1,17 +1,17 @@
-use sqlx::PgPool;
-use crate::models::Task;
-use crate::events::publisher::EventPublisher;
 use super::{
-    states::TaskState,
-    events::TaskEvent,
-    guards::{AllStepsCompleteGuard, TaskNotInProgressGuard, TaskCanBeResetGuard, StateGuard},
     actions::{
-        PublishTransitionEventAction, UpdateTaskCompletionAction, ErrorStateCleanupAction,
-        StateAction,
+        ErrorStateCleanupAction, PublishTransitionEventAction, StateAction,
+        UpdateTaskCompletionAction,
     },
-    persistence::{TaskTransitionPersistence, TransitionPersistence},
     errors::{StateMachineError, StateMachineResult},
+    events::TaskEvent,
+    guards::{AllStepsCompleteGuard, StateGuard, TaskCanBeResetGuard, TaskNotInProgressGuard},
+    persistence::{TaskTransitionPersistence, TransitionPersistence},
+    states::TaskState,
 };
+use crate::events::publisher::EventPublisher;
+use crate::models::Task;
+use sqlx::PgPool;
 
 /// Thread-safe task state machine for lifecycle management
 pub struct TaskStateMachine {
@@ -34,12 +34,14 @@ impl TaskStateMachine {
 
     /// Get the current state of the task
     pub async fn current_state(&self) -> StateMachineResult<TaskState> {
-        match self.persistence.resolve_current_state(self.task.task_id, &self.pool).await? {
-            Some(state_str) => {
-                state_str.parse().map_err(|_| StateMachineError::Internal(
-                    format!("Invalid state in database: {}", state_str)
-                ))
-            }
+        match self
+            .persistence
+            .resolve_current_state(self.task.task_id, &self.pool)
+            .await?
+        {
+            Some(state_str) => state_str.parse().map_err(|_| {
+                StateMachineError::Internal(format!("Invalid state in database: {}", state_str))
+            }),
             None => Ok(TaskState::default()), // No transitions yet, return default state
         }
     }
@@ -50,7 +52,8 @@ impl TaskStateMachine {
         let target_state = self.determine_target_state(current_state, &event)?;
 
         // Check guards
-        self.check_guards(current_state, target_state, &event).await?;
+        self.check_guards(current_state, target_state, &event)
+            .await?;
 
         // Persist the transition
         let event_str = serde_json::to_string(&event)?;
@@ -66,13 +69,18 @@ impl TaskStateMachine {
             .await?;
 
         // Execute actions
-        self.execute_actions(current_state, target_state, &event_str).await?;
+        self.execute_actions(current_state, target_state, &event_str)
+            .await?;
 
         Ok(target_state)
     }
 
     /// Determine the target state based on current state and event
-    fn determine_target_state(&self, current_state: TaskState, event: &TaskEvent) -> StateMachineResult<TaskState> {
+    fn determine_target_state(
+        &self,
+        current_state: TaskState,
+        event: &TaskEvent,
+    ) -> StateMachineResult<TaskState> {
         let target = match (current_state, event) {
             // Start transitions
             (TaskState::Pending, TaskEvent::Start) => TaskState::InProgress,
@@ -146,7 +154,9 @@ impl TaskStateMachine {
         event: &str,
     ) -> StateMachineResult<()> {
         let actions: Vec<Box<dyn StateAction<Task> + Send + Sync>> = vec![
-            Box::new(PublishTransitionEventAction::new(self.event_publisher.clone())),
+            Box::new(PublishTransitionEventAction::new(
+                self.event_publisher.clone(),
+            )),
             Box::new(UpdateTaskCompletionAction),
             Box::new(ErrorStateCleanupAction),
         ];
@@ -199,19 +209,22 @@ mod tests {
     fn test_state_transitions() {
         // Test valid transitions
         let sm = create_test_state_machine();
-        
+
         assert_eq!(
-            sm.determine_target_state(TaskState::Pending, &TaskEvent::Start).unwrap(),
+            sm.determine_target_state(TaskState::Pending, &TaskEvent::Start)
+                .unwrap(),
             TaskState::InProgress
         );
-        
+
         assert_eq!(
-            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Complete).unwrap(),
+            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Complete)
+                .unwrap(),
             TaskState::Complete
         );
-        
+
         assert_eq!(
-            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Fail("error".to_string())).unwrap(),
+            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Fail("error".to_string()))
+                .unwrap(),
             TaskState::Error
         );
     }
@@ -220,18 +233,22 @@ mod tests {
     #[ignore = "State machine tests deferred as architectural dependency"]
     fn test_invalid_transitions() {
         let sm = create_test_state_machine();
-        
+
         // Cannot start from complete state
-        assert!(sm.determine_target_state(TaskState::Complete, &TaskEvent::Start).is_err());
-        
+        assert!(sm
+            .determine_target_state(TaskState::Complete, &TaskEvent::Start)
+            .is_err());
+
         // Cannot complete from pending state
-        assert!(sm.determine_target_state(TaskState::Pending, &TaskEvent::Complete).is_err());
+        assert!(sm
+            .determine_target_state(TaskState::Pending, &TaskEvent::Complete)
+            .is_err());
     }
 
     fn create_test_state_machine() -> TaskStateMachine {
         use crate::models::Task;
         use chrono::Utc;
-        
+
         let task = Task {
             task_id: 1,
             named_task_id: 1,

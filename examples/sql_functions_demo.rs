@@ -1,7 +1,10 @@
-use tasker_core::{FunctionRegistry, SqlFunctionExecutor, AnalyticsMetrics, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext};
+use tasker_core::{
+    AnalyticsMetrics, FunctionRegistry, SqlFunctionExecutor, StepReadinessStatus,
+    SystemHealthCounts, TaskExecutionContext,
+};
 
 /// Demonstrates the high-performance SQL function wrapper system
-/// 
+///
 /// This example shows how the Rust SQL function wrappers provide equivalent functionality
 /// to Rails function-based operations with significant performance improvements.
 #[tokio::main]
@@ -19,7 +22,9 @@ async fn main() {
     println!("2. Dependency Level Analysis:");
     println!("   // High-performance DAG traversal");
     println!("   let levels = functions.dependency_levels().calculate_dependency_levels(task_id).await?;");
-    println!("   let level_map = functions.dependency_levels().dependency_levels_hash(task_id).await?;");
+    println!(
+        "   let level_map = functions.dependency_levels().dependency_levels_hash(task_id).await?;"
+    );
     println!("   // Returns: HashMap<workflow_step_id, dependency_level>\n");
 
     println!("3. Step Readiness Analysis:");
@@ -50,11 +55,20 @@ async fn main() {
         last_attempted_at: None,
     };
 
-    println!("   Step: {} (ID: {})", example_step.name, example_step.workflow_step_id);
+    println!(
+        "   Step: {} (ID: {})",
+        example_step.name, example_step.workflow_step_id
+    );
     println!("   Ready for execution: {}", example_step.can_execute_now());
-    println!("   Dependencies satisfied: {}/{}", example_step.completed_parents, example_step.total_parents);
+    println!(
+        "   Dependencies satisfied: {}/{}",
+        example_step.completed_parents, example_step.total_parents
+    );
     println!("   Blocking reason: {:?}", example_step.blocking_reason());
-    println!("   Effective backoff: {} seconds", example_step.effective_backoff_seconds());
+    println!(
+        "   Effective backoff: {} seconds",
+        example_step.effective_backoff_seconds()
+    );
     println!();
 
     println!("5. System Health Monitoring:");
@@ -78,13 +92,22 @@ async fn main() {
     };
 
     println!("   Total Tasks: {}", health.total_tasks);
-    println!("   Success Rate: {:.1}%", (health.complete_tasks as f64 / health.total_tasks as f64) * 100.0);
-    println!("   Error Rate: {:.1}%", (health.error_tasks as f64 / health.total_tasks as f64) * 100.0);
+    println!(
+        "   Success Rate: {:.1}%",
+        (health.complete_tasks as f64 / health.total_tasks as f64) * 100.0
+    );
+    println!(
+        "   Error Rate: {:.1}%",
+        (health.error_tasks as f64 / health.total_tasks as f64) * 100.0
+    );
     println!("   Health Score: {:.3}", health.health_score());
     println!("   Under Heavy Load: {}", health.is_under_heavy_load());
-    println!("   Connection Usage: {}/{} ({:.1}%)", 
-             health.active_connections, health.max_connections,
-             (health.active_connections as f64 / health.max_connections as f64) * 100.0);
+    println!(
+        "   Connection Usage: {}/{} ({:.1}%)",
+        health.active_connections,
+        health.max_connections,
+        (health.active_connections as f64 / health.max_connections as f64) * 100.0
+    );
     println!();
 
     println!("6. Task Execution Context:");
@@ -105,12 +128,18 @@ async fn main() {
     };
 
     println!("   Task ID: {}", context.task_id);
-    println!("   Progress: {:.1}% ({}/{} steps)", context.completion_percentage, context.completed_steps, context.total_steps);
+    println!(
+        "   Progress: {:.1}% ({}/{} steps)",
+        context.completion_percentage, context.completed_steps, context.total_steps
+    );
     println!("   Can proceed: {}", context.can_proceed());
     println!("   Is complete: {}", context.is_complete());
     println!("   Is blocked: {}", context.is_blocked());
     println!("   Ready steps: {}", context.ready_steps);
-    println!("   Estimated duration: {} minutes", context.estimated_duration_seconds.unwrap_or(0) / 60);
+    println!(
+        "   Estimated duration: {} minutes",
+        context.estimated_duration_seconds.unwrap_or(0) / 60
+    );
     println!("   Recommended action: {}", context.recommended_action);
     println!("   Priority steps: {:?}", context.get_priority_steps());
     println!();
@@ -128,8 +157,12 @@ async fn main() {
 
     println!("8. Performance Analysis:");
     println!("   // Identify bottlenecks and optimization opportunities");
-    println!("   let slow_steps = functions.performance().get_slowest_steps(Some(10), Some(5)).await?;");
-    println!("   let slow_tasks = functions.performance().get_slowest_tasks(Some(10), Some(3)).await?;");
+    println!(
+        "   let slow_steps = functions.performance().get_slowest_steps(Some(10), Some(5)).await?;"
+    );
+    println!(
+        "   let slow_tasks = functions.performance().get_slowest_tasks(Some(10), Some(3)).await?;"
+    );
     println!("   // Returns detailed performance metrics with timing analysis");
     println!();
 

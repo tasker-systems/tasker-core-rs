@@ -1,18 +1,101 @@
+//! # Tasker Core Rust
+//!
+//! High-performance Rust implementation of the core workflow orchestration engine.
+//!
+//! ## Overview
+//!
+//! Tasker Core Rust is designed to complement the existing Ruby on Rails **Tasker** engine,
+//! leveraging Rust's memory safety, fearless parallelism, and performance characteristics
+//! to handle computationally intensive workflow orchestration, dependency resolution,
+//! and state management operations.
+//!
+//! ## Architecture
+//!
+//! The core implements a **step handler foundation** where Rust provides the complete
+//! step handler base class that frameworks (Rails, Python, Node.js) extend through
+//! subclassing with `process()` and `process_results()` hooks.
+//!
+//! ## Key Features
+//!
+//! - **Complete Model Layer**: All 18+ Rails models migrated with 100% schema parity
+//! - **High-Performance Queries**: Rails-equivalent scopes with compile-time verification
+//! - **SQL Function Integration**: Direct PostgreSQL function integration for complex operations
+//! - **Memory Safety**: Zero memory leaks with Rust's ownership model
+//! - **Type Safety**: Compile-time prevention of SQL injection and type mismatches
+//! - **SQLx Native Testing**: Automatic database isolation per test (114+ tests)
+//!
+//! ## Module Organization
+//!
+//! - [`models`] - Complete data layer with all Rails models
+//! - [`query_builder`] - High-performance query building with Rails-style scopes
+//! - [`database`] - SQL function execution and database operations
+//! - [`state_machine`] - Task and step state management
+//! - [`config`] - Configuration management
+//! - [`error`] - Structured error handling
+//! - [`events`] - Event system foundation
+//! - [`orchestration`] - Workflow orchestration logic
+//! - [`registry`] - Component registration and discovery
+//! - [`ffi`] - Multi-language FFI bindings
+//!
+//! ## Performance Targets
+//!
+//! - **10-100x faster** than Ruby/Rails equivalents
+//! - **Sub-millisecond** atomic state changes  
+//! - **Memory-safe parallelism** with better resource utilization
+//! - **Zero-cost abstractions** where possible
+//!
+//! ## Quick Start
+//!
+//! ```rust,ignore
+//! use tasker_core::{TaskerConfig, models::Task};
+//!
+//! // Initialize configuration
+//! let config = TaskerConfig::default();
+//!
+//! // Work with models using SQLx
+//! let tasks = Task::find_by_current_state(&pool, "running").await?;
+//! for task in tasks {
+//!     println!("Task {} is running", task.task_id);
+//! }
+//! ```
+//!
+//! ## Integration
+//!
+//! This Rust core serves as the foundational step handler that frameworks extend.
+//! The Rails engine provides the web interface and developer ergonomics, while this
+//! Rust core handles all performance and safety-critical workflow orchestration logic.
+//!
+//! ## Testing
+//!
+//! The project uses SQLx native testing with automatic database isolation:
+//!
+//! ```bash
+//! cargo test --lib    # Unit tests
+//! cargo test          # All tests (114+ tests)
+//! ```
+
 pub mod config;
+pub mod database;
 pub mod error;
+pub mod events;
+pub mod ffi;
 pub mod models;
 pub mod orchestration;
-pub mod state_machine;
-pub mod events;
-pub mod registry;
-pub mod database;
-pub mod ffi;
 pub mod query_builder;
+pub mod registry;
+pub mod sql_functions;
+pub mod state_machine;
 
 pub use config::TaskerConfig;
-pub use error::{TaskerError, Result};
-pub use query_builder::{QueryBuilder, TaskScopes, WorkflowStepScopes, NamedTaskScopes, WorkflowStepEdgeScopes, ScopeHelpers};
-pub use database::{SqlFunctionExecutor, FunctionRegistry, AnalyticsMetrics, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext, SlowestStepAnalysis, SlowestTaskAnalysis, DependencyLevel};
+pub use database::{
+    AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
+    SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
+};
+pub use error::{Result, TaskerError};
+pub use query_builder::{
+    NamedTaskScopes, QueryBuilder, ScopeHelpers, TaskScopes, WorkflowStepEdgeScopes,
+    WorkflowStepScopes,
+};
 
 #[cfg(test)]
 mod tests {

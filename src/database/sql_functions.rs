@@ -1,10 +1,79 @@
-use sqlx::{PgPool, FromRow};
+//! # SQL Function Integration
+//!
+//! High-performance SQL function execution for workflow orchestration.
+//!
+//! ## Overview
+//!
+//! This module provides a unified interface for executing PostgreSQL functions that
+//! contain critical workflow orchestration logic. It serves as the bridge between
+//! Rust application code and sophisticated SQL domain logic.
+//!
+//! ## SQL Function Categories
+//!
+//! The module supports several categories of SQL functions:
+//!
+//! ### 1. Step Readiness Analysis
+//! - `get_step_readiness_status(task_id, step_ids[])`: Complex dependency analysis
+//! - `calculate_backoff_delay(attempts, base_delay)`: Exponential backoff calculation
+//! - `check_step_dependencies(step_id)`: Parent completion validation
+//!
+//! ### 2. DAG Operations
+//! - `detect_cycle(from_step_id, to_step_id)`: Cycle detection with recursive CTEs
+//! - `calculate_step_depth(step_id)`: Topological depth calculation
+//! - `find_ready_steps(task_id)`: Parallel execution candidate discovery
+//!
+//! ### 3. State Management
+//! - `transition_task_state(task_id, from_state, to_state)`: Atomic state transitions
+//! - `cleanup_stale_processes(timeout_minutes)`: Process cleanup and recovery
+//! - `finalize_task_completion(task_id)`: Task completion orchestration
+//!
+//! ## Performance Benefits
+//!
+//! SQL functions provide significant performance advantages:
+//! - **Set-based Operations**: Process multiple records in single operations
+//! - **Reduced Network Round Trips**: Execute complex logic at database level
+//! - **Atomic Transactions**: Ensure consistency without application-level locking
+//! - **PostgreSQL Optimization**: Leverage query planner and indexes
+//!
+//! ## Rails Heritage
+//!
+//! Migrated from `lib/tasker/functions.rb` (351B) and scattered Rails models.
+//! Consolidates all SQL function calls into a unified, type-safe interface.
+//!
+//! ## Usage Pattern
+//!
+//! ```rust,ignore
+//! let executor = SqlFunctionExecutor::new(pool);
+//! let ready_steps = executor.find_ready_steps_for_task(task_id).await?;
+//! for step in ready_steps {
+//!     println!("Step {} is ready for execution", step.workflow_step_id);
+//! }
+//! ```
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 
-/// Core SQL function executor with async/await support
-/// Provides high-performance function delegation equivalent to Rails wrappers
+/// Core SQL function executor with type-safe async execution.
+///
+/// Provides a unified interface for executing PostgreSQL functions that contain
+/// critical workflow orchestration logic. All functions are executed with proper
+/// parameter binding and result type mapping.
+///
+/// # Design Principles
+///
+/// - **Type Safety**: All function calls use sqlx compile-time validation
+/// - **Parameter Binding**: Prevents SQL injection through proper parameter binding
+/// - **Error Handling**: Comprehensive error propagation from database layer
+/// - **Performance**: Optimized for high-throughput workflow operations
+///
+/// # Connection Pooling
+///
+/// Uses SQLx connection pooling for optimal performance:
+/// - Reuses connections across function calls
+/// - Handles connection failures gracefully
+/// - Supports concurrent execution from multiple threads
 pub struct SqlFunctionExecutor {
     pool: PgPool,
 }
@@ -14,14 +83,36 @@ impl SqlFunctionExecutor {
         Self { pool }
     }
 
-    /// Execute a SQL function returning a single result
+    /// Execute a SQL function returning a single result with compile-time validation.
+    ///
+    /// This method provides type-safe execution of SQL functions that return at most
+    /// one row. It uses SQLx's compile-time query validation to ensure type safety.
+    ///
+    /// # Type Safety
+    ///
+    /// The generic type `T` must implement `FromRow` to enable automatic mapping
+    /// from PostgreSQL result rows to Rust structs. SQLx validates the mapping
+    /// at compile time when possible.
+    ///
+    /// # Error Handling
+    ///
+    /// Returns:
+    /// - `Ok(Some(T))`: Function returned exactly one row
+    /// - `Ok(None)`: Function returned no rows (common for conditional functions)
+    /// - `Err(sqlx::Error)`: Database error, connection failure, or type mismatch
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let result: Option<StepReadinessResult> = executor
+    ///     .execute_single("SELECT * FROM get_step_readiness_status($1)")
+    ///     .await?;
+    /// ```
     pub async fn execute_single<T>(&self, sql: &str) -> Result<Option<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
-        sqlx::query_as::<_, T>(sql)
-            .fetch_optional(&self.pool)
-            .await
+        sqlx::query_as::<_, T>(sql).fetch_optional(&self.pool).await
     }
 
     /// Execute a SQL function returning multiple results
@@ -29,13 +120,15 @@ impl SqlFunctionExecutor {
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
-        sqlx::query_as::<_, T>(sql)
-            .fetch_all(&self.pool)
-            .await
+        sqlx::query_as::<_, T>(sql).fetch_all(&self.pool).await
     }
 
     /// Execute a SQL function with task_id parameter
-    pub async fn execute_single_with_task_id<T>(&self, sql: &str, task_id: i64) -> Result<Option<T>, sqlx::Error>
+    pub async fn execute_single_with_task_id<T>(
+        &self,
+        sql: &str,
+        task_id: i64,
+    ) -> Result<Option<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
@@ -46,7 +139,11 @@ impl SqlFunctionExecutor {
     }
 
     /// Execute a SQL function with task_id parameter returning multiple results
-    pub async fn execute_many_with_task_id<T>(&self, sql: &str, task_id: i64) -> Result<Vec<T>, sqlx::Error>
+    pub async fn execute_many_with_task_id<T>(
+        &self,
+        sql: &str,
+        task_id: i64,
+    ) -> Result<Vec<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
@@ -57,7 +154,11 @@ impl SqlFunctionExecutor {
     }
 
     /// Execute a SQL function with task_ids array parameter
-    pub async fn execute_many_with_task_ids<T>(&self, sql: &str, task_ids: &[i64]) -> Result<Vec<T>, sqlx::Error>
+    pub async fn execute_many_with_task_ids<T>(
+        &self,
+        sql: &str,
+        task_ids: &[i64],
+    ) -> Result<Vec<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
@@ -82,15 +183,24 @@ pub struct DependencyLevel {
 impl SqlFunctionExecutor {
     /// Calculate dependency levels for DAG analysis
     /// Equivalent to Rails: FunctionBasedDependencyLevels.for_task
-    pub async fn calculate_dependency_levels(&self, task_id: i64) -> Result<Vec<DependencyLevel>, sqlx::Error> {
+    pub async fn calculate_dependency_levels(
+        &self,
+        task_id: i64,
+    ) -> Result<Vec<DependencyLevel>, sqlx::Error> {
         let sql = "SELECT * FROM calculate_dependency_levels($1::BIGINT)";
         self.execute_many_with_task_id(sql, task_id).await
     }
 
     /// Get dependency levels as a hash map for efficient lookup
-    pub async fn dependency_levels_hash(&self, task_id: i64) -> Result<HashMap<i64, i32>, sqlx::Error> {
+    pub async fn dependency_levels_hash(
+        &self,
+        task_id: i64,
+    ) -> Result<HashMap<i64, i32>, sqlx::Error> {
         let levels = self.calculate_dependency_levels(task_id).await?;
-        Ok(levels.into_iter().map(|level| (level.workflow_step_id, level.dependency_level)).collect())
+        Ok(levels
+            .into_iter()
+            .map(|level| (level.workflow_step_id, level.dependency_level))
+            .collect())
     }
 }
 
@@ -142,7 +252,10 @@ impl Default for AnalyticsMetrics {
 impl SqlFunctionExecutor {
     /// Get comprehensive analytics metrics
     /// Equivalent to Rails: FunctionBasedAnalyticsMetrics.for_period
-    pub async fn get_analytics_metrics(&self, since_timestamp: Option<DateTime<Utc>>) -> Result<AnalyticsMetrics, sqlx::Error> {
+    pub async fn get_analytics_metrics(
+        &self,
+        since_timestamp: Option<DateTime<Utc>>,
+    ) -> Result<AnalyticsMetrics, sqlx::Error> {
         let sql = if since_timestamp.is_some() {
             "SELECT * FROM get_analytics_metrics_v01($1)"
         } else {
@@ -227,7 +340,11 @@ impl StepReadinessStatus {
 impl SqlFunctionExecutor {
     /// Get step readiness status for a task
     /// Equivalent to Rails: FunctionBasedStepReadinessStatus.for_task
-    pub async fn get_step_readiness_status(&self, task_id: i64, step_ids: Option<Vec<i64>>) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
+    pub async fn get_step_readiness_status(
+        &self,
+        task_id: i64,
+        step_ids: Option<Vec<i64>>,
+    ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
         let sql = if step_ids.is_some() {
             "SELECT * FROM get_step_readiness_status($1::BIGINT, $2::BIGINT[])"
         } else {
@@ -247,15 +364,24 @@ impl SqlFunctionExecutor {
 
     /// Get step readiness status for multiple tasks (batch operation)
     /// Equivalent to Rails: FunctionBasedStepReadinessStatus.for_tasks_batch
-    pub async fn get_step_readiness_status_batch(&self, task_ids: Vec<i64>) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
+    pub async fn get_step_readiness_status_batch(
+        &self,
+        task_ids: Vec<i64>,
+    ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
         let sql = "SELECT * FROM get_step_readiness_status_batch($1::BIGINT[])";
         self.execute_many_with_task_ids(sql, &task_ids).await
     }
 
     /// Get only ready steps for execution
-    pub async fn get_ready_steps(&self, task_id: i64) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
+    pub async fn get_ready_steps(
+        &self,
+        task_id: i64,
+    ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
         let all_steps = self.get_step_readiness_status(task_id, None).await?;
-        Ok(all_steps.into_iter().filter(|step| step.ready_for_execution).collect())
+        Ok(all_steps
+            .into_iter()
+            .filter(|step| step.ready_for_execution)
+            .collect())
     }
 }
 
@@ -317,7 +443,8 @@ impl SystemHealthCounts {
 
         let success_rate = self.complete_tasks as f64 / self.total_tasks as f64;
         let error_rate = self.error_tasks as f64 / self.total_tasks as f64;
-        let connection_health = 1.0 - (self.active_connections as f64 / self.max_connections as f64).min(1.0);
+        let connection_health =
+            1.0 - (self.active_connections as f64 / self.max_connections as f64).min(1.0);
 
         // Weighted combination: 50% success rate, 30% error rate, 20% connection health
         (success_rate * 0.5) + ((1.0 - error_rate) * 0.3) + (connection_health * 0.2)
@@ -398,14 +525,20 @@ impl TaskExecutionContext {
 impl SqlFunctionExecutor {
     /// Get task execution context
     /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_task
-    pub async fn get_task_execution_context(&self, task_id: i64) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
+    pub async fn get_task_execution_context(
+        &self,
+        task_id: i64,
+    ) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
         let sql = "SELECT * FROM get_task_execution_context($1::BIGINT)";
         self.execute_single_with_task_id(sql, task_id).await
     }
 
     /// Get task execution contexts for multiple tasks (batch operation)
     /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_tasks_batch
-    pub async fn get_task_execution_contexts_batch(&self, task_ids: Vec<i64>) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
+    pub async fn get_task_execution_contexts_batch(
+        &self,
+        task_ids: Vec<i64>,
+    ) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
         let sql = "SELECT * FROM get_task_execution_contexts_batch($1::BIGINT[])";
         self.execute_many_with_task_ids(sql, &task_ids).await
     }

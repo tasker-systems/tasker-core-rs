@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use sqlx::PgPool;
-use serde_json::Value;
-use chrono::Utc;
 use super::errors::{PersistenceError, PersistenceResult};
+use async_trait::async_trait;
+use chrono::Utc;
+use serde_json::Value;
+use sqlx::PgPool;
 
 /// Trait for persisting state transitions
 #[async_trait]
@@ -19,7 +19,11 @@ pub trait TransitionPersistence<T> {
     ) -> PersistenceResult<()>;
 
     /// Resolve the current state from persisted transitions
-    async fn resolve_current_state(&self, entity_id: i64, pool: &PgPool) -> PersistenceResult<Option<String>>;
+    async fn resolve_current_state(
+        &self,
+        entity_id: i64,
+        pool: &PgPool,
+    ) -> PersistenceResult<Option<String>>;
 
     /// Get the next sort key for ordering transitions
     async fn get_next_sort_key(&self, entity_id: i64, pool: &PgPool) -> PersistenceResult<i32>;
@@ -40,7 +44,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         pool: &PgPool,
     ) -> PersistenceResult<()> {
         let sort_key = self.get_next_sort_key(task.task_id, pool).await?;
-        
+
         let transition_metadata = metadata.unwrap_or_else(|| {
             serde_json::json!({
                 "event": event,
@@ -66,8 +70,8 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed { 
-            reason: format!("Failed to insert transition: {}", e)
+        .map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Failed to insert transition: {}", e),
         })?;
 
         // Update most_recent flags for previous transitions
@@ -82,15 +86,19 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed { 
-            reason: format!("Failed to update most_recent flags: {}", e)
+        .map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Failed to update most_recent flags: {}", e),
         })?;
 
         tx.commit().await?;
         Ok(())
     }
 
-    async fn resolve_current_state(&self, task_id: i64, pool: &PgPool) -> PersistenceResult<Option<String>> {
+    async fn resolve_current_state(
+        &self,
+        task_id: i64,
+        pool: &PgPool,
+    ) -> PersistenceResult<Option<String>> {
         let row = sqlx::query!(
             r#"
             SELECT to_state 
@@ -138,7 +146,7 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         pool: &PgPool,
     ) -> PersistenceResult<()> {
         let sort_key = self.get_next_sort_key(step.workflow_step_id, pool).await?;
-        
+
         let transition_metadata = metadata.unwrap_or_else(|| {
             serde_json::json!({
                 "event": event,
@@ -164,8 +172,8 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed { 
-            reason: format!("Failed to insert transition: {}", e)
+        .map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Failed to insert transition: {}", e),
         })?;
 
         // Update most_recent flags for previous transitions
@@ -180,15 +188,19 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed { 
-            reason: format!("Failed to update most_recent flags: {}", e)
+        .map_err(|e| PersistenceError::TransitionSaveFailed {
+            reason: format!("Failed to update most_recent flags: {}", e),
         })?;
 
         tx.commit().await?;
         Ok(())
     }
 
-    async fn resolve_current_state(&self, step_id: i64, pool: &PgPool) -> PersistenceResult<Option<String>> {
+    async fn resolve_current_state(
+        &self,
+        step_id: i64,
+        pool: &PgPool,
+    ) -> PersistenceResult<Option<String>> {
         let row = sqlx::query!(
             r#"
             SELECT to_state 
@@ -230,20 +242,22 @@ pub async fn idempotent_transition<T>(
     event: &str,
     metadata: Option<Value>,
     pool: &PgPool,
-) -> PersistenceResult<bool> 
+) -> PersistenceResult<bool>
 where
     T: Send + Sync,
 {
     // Check current state
     let current_state = persistence.resolve_current_state(entity_id, pool).await?;
-    
+
     // If already in target state, no transition needed
     if current_state.as_ref() == Some(&target_state) {
         return Ok(false); // No transition occurred
     }
 
     // Perform the transition
-    persistence.persist_transition(entity, current_state, target_state, event, metadata, pool).await?;
+    persistence
+        .persist_transition(entity, current_state, target_state, event, metadata, pool)
+        .await?;
     Ok(true) // Transition occurred
 }
 
@@ -255,7 +269,7 @@ pub async fn resolve_state_with_retry<T>(
     max_retries: u32,
 ) -> PersistenceResult<Option<String>> {
     let mut retries = 0;
-    
+
     loop {
         match persistence.resolve_current_state(entity_id, pool).await {
             Ok(state) => return Ok(state),
@@ -267,7 +281,7 @@ pub async fn resolve_state_with_retry<T>(
                     error = %e,
                     "Retrying state resolution"
                 );
-                
+
                 // Exponential backoff
                 let delay = std::time::Duration::from_millis(100 * (1 << retries));
                 tokio::time::sleep(delay).await;
@@ -287,7 +301,7 @@ mod tests {
             "event": "start",
             "timestamp": Utc::now(),
         });
-        
+
         assert_eq!(metadata["event"], "start");
         assert!(metadata["timestamp"].is_string());
     }

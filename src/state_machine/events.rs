@@ -95,7 +95,10 @@ impl StepEvent {
 
     /// Check if this event represents a terminal transition
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Complete(_) | Self::Cancel | Self::ResolveManually)
+        matches!(
+            self,
+            Self::Complete(_) | Self::Cancel | Self::ResolveManually
+        )
     }
 
     /// Check if this event can be applied from error state
@@ -172,7 +175,7 @@ mod tests {
         let task_event = TaskEvent::fail_with_error("Network timeout");
         let json = serde_json::to_string(&task_event).unwrap();
         let parsed: TaskEvent = serde_json::from_str(&json).unwrap();
-        
+
         match parsed {
             TaskEvent::Fail(msg) => assert_eq!(msg, "Network timeout"),
             _ => panic!("Expected Fail event"),
@@ -181,7 +184,7 @@ mod tests {
         let step_event = StepEvent::complete_with_results(json!({"count": 5}));
         let json = serde_json::to_string(&step_event).unwrap();
         let parsed: StepEvent = serde_json::from_str(&json).unwrap();
-        
+
         match parsed {
             StepEvent::Complete(Some(results)) => {
                 assert_eq!(results["count"], 5);

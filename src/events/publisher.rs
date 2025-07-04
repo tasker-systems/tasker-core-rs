@@ -23,14 +23,20 @@ impl EventPublisher {
     }
 
     /// Publish an event with the given name and context
-    pub async fn publish(&self, event_name: impl Into<String>, context: Value) -> Result<(), PublishError> {
+    pub async fn publish(
+        &self,
+        event_name: impl Into<String>,
+        context: Value,
+    ) -> Result<(), PublishError> {
         let event = PublishedEvent {
             name: event_name.into(),
             context,
             published_at: chrono::Utc::now(),
         };
 
-        self.sender.send(event).map_err(|_| PublishError::ChannelClosed)?;
+        self.sender
+            .send(event)
+            .map_err(|_| PublishError::ChannelClosed)?;
         Ok(())
     }
 

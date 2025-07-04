@@ -2,16 +2,19 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
-/// NamedTasksNamedStep represents the join table between NamedTask and NamedStep
-/// Maps to `tasker_named_tasks_named_steps` table - critical for task-step relationships (2.8KB Rails model)
+/// NamedTasksNamedStep represents the association between NamedTask and NamedStep with configuration
+/// Maps to `tasker_named_tasks_named_steps` table - junction table with step configuration
+///
+/// This table defines which steps belong to which tasks and includes configuration
+/// for how those steps should behave (skippable, retry settings, etc.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedTasksNamedStep {
-    pub id: i32,
+    pub id: i32, // Primary key
     pub named_task_id: i32,
     pub named_step_id: i32,
-    pub skippable: bool,
-    pub default_retryable: bool,
-    pub default_retry_limit: i32,
+    pub skippable: bool,          // Whether this step can be skipped
+    pub default_retryable: bool,  // Default retry behavior for this step
+    pub default_retry_limit: i32, // Default retry limit for this step
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -21,48 +24,39 @@ pub struct NamedTasksNamedStep {
 pub struct NewNamedTasksNamedStep {
     pub named_task_id: i32,
     pub named_step_id: i32,
-    pub skippable: Option<bool>,
-    pub default_retryable: Option<bool>,
-    pub default_retry_limit: Option<i32>,
+    pub skippable: Option<bool>,          // Defaults to false
+    pub default_retryable: Option<bool>,  // Defaults to true
+    pub default_retry_limit: Option<i32>, // Defaults to 3
 }
 
-/// Template structure for associate_named_step_with_named_task method
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepTemplate {
-    pub name: String,
-    pub dependent_system: String,
-    pub default_retry_limit: i32,
-    pub default_retryable: bool,
+/// NamedTasksNamedStep with related step and task details
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct NamedTasksNamedStepWithDetails {
+    pub id: i32,
+    pub named_task_id: i32,
+    pub named_step_id: i32,
     pub skippable: bool,
-}
-
-/// Association options for find_or_create
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssociationOptions {
-    pub default_retry_limit: i32,
     pub default_retryable: bool,
-    pub skippable: bool,
-}
-
-impl Default for AssociationOptions {
-    fn default() -> Self {
-        Self {
-            default_retry_limit: 3,
-            default_retryable: true,
-            skippable: false,
-        }
-    }
+    pub default_retry_limit: i32,
+    pub task_name: String,
+    pub step_name: String,
+    pub step_system_name: String, // Name of the dependent system instead
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 impl NamedTasksNamedStep {
     /// Create a new named task-step association
-    pub async fn create(pool: &PgPool, new_association: NewNamedTasksNamedStep) -> Result<NamedTasksNamedStep, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_association: NewNamedTasksNamedStep,
+    ) -> Result<NamedTasksNamedStep, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
             INSERT INTO tasker_named_tasks_named_steps 
-            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit)
-            VALUES ($1, $2, $3, $4, $5)
+            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
             RETURNING id, named_task_id, named_step_id, skippable, default_retryable, 
                       default_retry_limit, created_at, updated_at
             "#,
@@ -78,12 +72,15 @@ impl NamedTasksNamedStep {
         Ok(association)
     }
 
-    /// Find an association by ID
-    pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
+    /// Find association by ID
+    pub async fn find_by_id(
+        pool: &PgPool,
+        id: i32,
+    ) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable, 
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE id = $1
@@ -96,32 +93,7 @@ impl NamedTasksNamedStep {
         Ok(association)
     }
 
-    /// Find or create an association (Rails find_or_create method)
-    pub async fn find_or_create(
-        pool: &PgPool,
-        named_task_id: i32,
-        named_step_id: i32,
-        options: Option<AssociationOptions>,
-    ) -> Result<NamedTasksNamedStep, sqlx::Error> {
-        // First try to find existing association
-        if let Some(existing) = Self::find_by_task_and_step(pool, named_task_id, named_step_id).await? {
-            return Ok(existing);
-        }
-
-        // Create new association if not found
-        let opts = options.unwrap_or_default();
-        let new_association = NewNamedTasksNamedStep {
-            named_task_id,
-            named_step_id,
-            skippable: Some(opts.skippable),
-            default_retryable: Some(opts.default_retryable),
-            default_retry_limit: Some(opts.default_retry_limit),
-        };
-
-        Self::create(pool, new_association).await
-    }
-
-    /// Find association by named_task_id and named_step_id
+    /// Find association by task and step IDs (uses unique constraint)
     pub async fn find_by_task_and_step(
         pool: &PgPool,
         named_task_id: i32,
@@ -130,7 +102,7 @@ impl NamedTasksNamedStep {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable, 
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_id = $1 AND named_step_id = $2
@@ -144,16 +116,19 @@ impl NamedTasksNamedStep {
         Ok(association)
     }
 
-    /// Get all named steps for a named task (Rails scope equivalent)
-    pub async fn named_steps_for_named_task(pool: &PgPool, named_task_id: i32) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
+    /// Find all steps for a specific task
+    pub async fn find_by_task(
+        pool: &PgPool,
+        named_task_id: i32,
+    ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT ntns.id, ntns.named_task_id, ntns.named_step_id, ntns.skippable, 
-                   ntns.default_retryable, ntns.default_retry_limit, ntns.created_at, ntns.updated_at
-            FROM tasker_named_tasks_named_steps ntns
-            WHERE ntns.named_task_id = $1
-            ORDER BY ntns.id
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+                   default_retry_limit, created_at, updated_at
+            FROM tasker_named_tasks_named_steps
+            WHERE named_task_id = $1
+            ORDER BY id
             "#,
             named_task_id
         )
@@ -163,200 +138,102 @@ impl NamedTasksNamedStep {
         Ok(associations)
     }
 
-    /// Get named task-step associations with step names
-    pub async fn get_with_step_details(pool: &PgPool, named_task_id: i32) -> Result<Vec<(NamedTasksNamedStep, String)>, sqlx::Error> {
-        let results = sqlx::query!(
-            r#"
-            SELECT ntns.id, ntns.named_task_id, ntns.named_step_id, ntns.skippable, 
-                   ntns.default_retryable, ntns.default_retry_limit, ntns.created_at, ntns.updated_at,
-                   ns.name as step_name
-            FROM tasker_named_tasks_named_steps ntns
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ntns.named_step_id
-            WHERE ntns.named_task_id = $1
-            ORDER BY ntns.id
-            "#,
-            named_task_id
-        )
-        .fetch_all(pool)
-        .await?;
-
-        let associations = results
-            .into_iter()
-            .map(|row| {
-                let association = NamedTasksNamedStep {
-                    id: row.id,
-                    named_task_id: row.named_task_id,
-                    named_step_id: row.named_step_id,
-                    skippable: row.skippable,
-                    default_retryable: row.default_retryable,
-                    default_retry_limit: row.default_retry_limit,
-                    created_at: row.created_at,
-                    updated_at: row.updated_at,
-                };
-                (association, row.step_name)
-            })
-            .collect();
-
-        Ok(associations)
-    }
-
-    /// Complex Rails method: associate_named_step_with_named_task
-    /// This handles the complex logic from the Rails model with dependent system creation
-    pub async fn associate_named_step_with_named_task(
+    /// Find all tasks for a specific step  
+    pub async fn find_by_step(
         pool: &PgPool,
-        named_task_id: i32,
-        template: &StepTemplate,
-    ) -> Result<NamedTasksNamedStep, sqlx::Error> {
-        // Start a transaction to ensure atomicity
-        let mut tx = pool.begin().await?;
-
-        // First check if association already exists by step name
-        let existing = sqlx::query_as!(
+        named_step_id: i32,
+    ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
+        let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT ntns.id, ntns.named_task_id, ntns.named_step_id, ntns.skippable, 
-                   ntns.default_retryable, ntns.default_retry_limit, ntns.created_at, ntns.updated_at
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+                   default_retry_limit, created_at, updated_at
+            FROM tasker_named_tasks_named_steps
+            WHERE named_step_id = $1
+            ORDER BY id
+            "#,
+            named_step_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(associations)
+    }
+
+    /// Find associations with task and step details
+    pub async fn find_with_details(
+        pool: &PgPool,
+        limit: Option<i32>,
+    ) -> Result<Vec<NamedTasksNamedStepWithDetails>, sqlx::Error> {
+        let limit_clause = limit.unwrap_or(100);
+
+        let associations = sqlx::query_as!(
+            NamedTasksNamedStepWithDetails,
+            r#"
+            SELECT 
+                ntns.id,
+                ntns.named_task_id,
+                ntns.named_step_id,
+                ntns.skippable,
+                ntns.default_retryable,
+                ntns.default_retry_limit,
+                nt.name as task_name,
+                ns.name as step_name,
+                ds.name as step_system_name,
+                ntns.created_at,
+                ntns.updated_at
             FROM tasker_named_tasks_named_steps ntns
+            INNER JOIN tasker_named_tasks nt ON nt.named_task_id = ntns.named_task_id
             INNER JOIN tasker_named_steps ns ON ns.named_step_id = ntns.named_step_id
-            WHERE ntns.named_task_id = $1 AND ns.name = $2
+            INNER JOIN tasker_dependent_systems ds ON ds.dependent_system_id = ns.dependent_system_id
+            ORDER BY ntns.id
+            LIMIT $1
             "#,
-            named_task_id,
-            template.name
+            limit_clause as i64
         )
-        .fetch_optional(&mut *tx)
+        .fetch_all(pool)
         .await?;
 
-        if let Some(existing_association) = existing {
-            tx.commit().await?;
-            return Ok(existing_association);
-        }
+        Ok(associations)
+    }
 
-        // Find or create dependent system
-        let existing_system = sqlx::query!(
-            r#"
-            SELECT dependent_system_id
-            FROM tasker_dependent_systems 
-            WHERE name = $1
-            "#,
-            template.dependent_system
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let dependent_system_id = if let Some(system) = existing_system {
-            system.dependent_system_id
-        } else {
-            let new_system = sqlx::query!(
-                r#"
-                INSERT INTO tasker_dependent_systems (name)
-                VALUES ($1)
-                RETURNING dependent_system_id
-                "#,
-                template.dependent_system
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            new_system.dependent_system_id
-        };
-
-        // Find or create named step
-        let existing_step = sqlx::query!(
-            r#"
-            SELECT named_step_id
-            FROM tasker_named_steps 
-            WHERE name = $1 AND dependent_system_id = $2
-            "#,
-            template.name,
-            dependent_system_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let named_step_id = if let Some(step) = existing_step {
-            step.named_step_id
-        } else {
-            let new_step = sqlx::query!(
-                r#"
-                INSERT INTO tasker_named_steps (name, dependent_system_id)
-                VALUES ($1, $2)
-                RETURNING named_step_id
-                "#,
-                template.name,
-                dependent_system_id
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            new_step.named_step_id
-        };
-
-        // Create the association
+    /// Update association configuration
+    pub async fn update(
+        pool: &PgPool,
+        id: i32,
+        new_association: NewNamedTasksNamedStep,
+    ) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            INSERT INTO tasker_named_tasks_named_steps 
-            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, 
-                      default_retry_limit, created_at, updated_at
-            "#,
-            named_task_id,
-            named_step_id,
-            template.skippable,
-            template.default_retryable,
-            template.default_retry_limit
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(association)
-    }
-
-    /// Update an association
-    pub async fn update(
-        &mut self,
-        pool: &PgPool,
-        skippable: Option<bool>,
-        default_retryable: Option<bool>,
-        default_retry_limit: Option<i32>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"
-            UPDATE tasker_named_tasks_named_steps
-            SET skippable = COALESCE($2, skippable),
-                default_retryable = COALESCE($3, default_retryable),
-                default_retry_limit = COALESCE($4, default_retry_limit),
+            UPDATE tasker_named_tasks_named_steps 
+            SET named_task_id = $2,
+                named_step_id = $3,
+                skippable = $4,
+                default_retryable = $5,
+                default_retry_limit = $6,
                 updated_at = NOW()
             WHERE id = $1
+            RETURNING id, named_task_id, named_step_id, skippable, default_retryable,
+                      default_retry_limit, created_at, updated_at
             "#,
-            self.id,
-            skippable,
-            default_retryable,
-            default_retry_limit
+            id,
+            new_association.named_task_id,
+            new_association.named_step_id,
+            new_association.skippable.unwrap_or(false),
+            new_association.default_retryable.unwrap_or(true),
+            new_association.default_retry_limit.unwrap_or(3)
         )
-        .execute(pool)
+        .fetch_optional(pool)
         .await?;
 
-        if let Some(val) = skippable {
-            self.skippable = val;
-        }
-        if let Some(val) = default_retryable {
-            self.default_retryable = val;
-        }
-        if let Some(val) = default_retry_limit {
-            self.default_retry_limit = val;
-        }
-
-        Ok(())
+        Ok(association)
     }
 
     /// Delete an association
     pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_named_tasks_named_steps
-            WHERE id = $1
-            "#,
+            "DELETE FROM tasker_named_tasks_named_steps WHERE id = $1",
             id
         )
         .execute(pool)
@@ -365,70 +242,46 @@ impl NamedTasksNamedStep {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Delete association by task and step
-    pub async fn delete_by_task_and_step(
+    /// Create or find existing association (idempotent)
+    pub async fn find_or_create(
         pool: &PgPool,
-        named_task_id: i32,
-        named_step_id: i32,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND named_step_id = $2
-            "#,
-            named_task_id,
-            named_step_id
+        new_association: NewNamedTasksNamedStep,
+    ) -> Result<NamedTasksNamedStep, sqlx::Error> {
+        // Try to find existing association first
+        if let Some(existing) = Self::find_by_task_and_step(
+            pool,
+            new_association.named_task_id,
+            new_association.named_step_id,
         )
-        .execute(pool)
-        .await?;
+        .await?
+        {
+            return Ok(existing);
+        }
 
-        Ok(result.rows_affected() > 0)
+        // Create new association if not found
+        Self::create(pool, new_association).await
     }
 
-    /// Get task name (Rails delegation method)
-    pub async fn get_task_name(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            SELECT nt.name
-            FROM tasker_named_tasks nt
-            WHERE nt.named_task_id = $1
-            "#,
-            self.named_task_id
-        )
-        .fetch_optional(pool)
-        .await?;
+    /// List all associations with pagination
+    pub async fn list_all(
+        pool: &PgPool,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
+        let offset_val = offset.unwrap_or(0);
+        let limit_val = limit.unwrap_or(50);
 
-        Ok(result.map(|row| row.name))
-    }
-
-    /// Get step name (Rails delegation method)
-    pub async fn get_step_name(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            SELECT ns.name
-            FROM tasker_named_steps ns
-            WHERE ns.named_step_id = $1
-            "#,
-            self.named_step_id
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(result.map(|row| row.name))
-    }
-
-    /// Get all associations for a named step
-    pub async fn list_by_named_step(pool: &PgPool, named_step_id: i32) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable, 
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_step_id = $1
-            ORDER BY named_task_id
+            ORDER BY id
+            LIMIT $1 OFFSET $2
             "#,
-            named_step_id
+            limit_val as i64,
+            offset_val as i64
         )
         .fetch_all(pool)
         .await?;
@@ -436,39 +289,48 @@ impl NamedTasksNamedStep {
         Ok(associations)
     }
 
-    /// Count associations for a named task
-    pub async fn count_for_task(pool: &PgPool, named_task_id: i32) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query!(
+    /// Find skippable associations for a task
+    pub async fn find_skippable_by_task(
+        pool: &PgPool,
+        named_task_id: i32,
+    ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
+        let associations = sqlx::query_as!(
+            NamedTasksNamedStep,
             r#"
-            SELECT COUNT(*) as count
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+                   default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1
+            WHERE named_task_id = $1 AND skippable = true
+            ORDER BY id
             "#,
             named_task_id
         )
-        .fetch_one(pool)
-        .await?
-        .count.unwrap_or(0);
+        .fetch_all(pool)
+        .await?;
 
-        Ok(count)
+        Ok(associations)
     }
 
-    /// Check if an association exists
-    pub async fn exists(pool: &PgPool, named_task_id: i32, named_step_id: i32) -> Result<bool, sqlx::Error> {
-        let count = sqlx::query!(
+    /// Find non-retryable associations for a task  
+    pub async fn find_non_retryable_by_task(
+        pool: &PgPool,
+        named_task_id: i32,
+    ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
+        let associations = sqlx::query_as!(
+            NamedTasksNamedStep,
             r#"
-            SELECT COUNT(*) as count
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+                   default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND named_step_id = $2
+            WHERE named_task_id = $1 AND default_retryable = false
+            ORDER BY id
             "#,
-            named_task_id,
-            named_step_id
+            named_task_id
         )
-        .fetch_one(pool)
-        .await?
-        .count.unwrap_or(0);
+        .fetch_all(pool)
+        .await?;
 
-        Ok(count > 0)
+        Ok(associations)
     }
 }
 
@@ -479,111 +341,211 @@ mod tests {
 
     #[tokio::test]
     async fn test_named_tasks_named_step_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Create test dependencies
-        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
-            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create namespace");
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
 
-        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
-            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            version: Some("1.0.0".to_string()),
-            description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
-            configuration: None,
-        }).await.expect("Failed to create named task");
+        let named_task = crate::models::named_task::NamedTask::create(
+            pool,
+            crate::models::named_task::NewNamedTask {
+                name: format!(
+                    "test_task_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                task_namespace_id: namespace.task_namespace_id as i64,
+                configuration: None,
+            },
+        )
+        .await
+        .expect("Failed to create named task");
 
-        let dependent_system = crate::models::dependent_system::DependentSystem::create(pool, crate::models::dependent_system::NewDependentSystem {
-            name: format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create dependent system");
+        let dependent_system = crate::models::dependent_system::DependentSystem::create(
+            pool,
+            crate::models::dependent_system::NewDependentSystem {
+                name: format!(
+                    "test_system_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create dependent system");
 
-        let named_step = crate::models::named_step::NamedStep::create(pool, crate::models::named_step::NewNamedStep {
-            dependent_system_id: dependent_system.dependent_system_id,
-            name: format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create named step");
+        let named_step = crate::models::named_step::NamedStep::create(
+            pool,
+            crate::models::named_step::NewNamedStep {
+                name: format!(
+                    "test_step_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+                dependent_system_id: dependent_system.dependent_system_id,
+            },
+        )
+        .await
+        .expect("Failed to create named step");
 
-        // Test find_or_create
-        let association1 = NamedTasksNamedStep::find_or_create(pool, named_task.named_task_id, named_step.named_step_id, None)
+        // Test creation with custom configuration
+        let new_association = NewNamedTasksNamedStep {
+            named_task_id: named_task.named_task_id,
+            named_step_id: named_step.named_step_id,
+            skippable: Some(true),
+            default_retryable: Some(false),
+            default_retry_limit: Some(5),
+        };
+
+        let association = NamedTasksNamedStep::create(pool, new_association.clone())
             .await
             .expect("Failed to create association");
-        assert_eq!(association1.named_task_id, named_task.named_task_id);
-        assert_eq!(association1.named_step_id, named_step.named_step_id);
-        assert!(!association1.skippable); // Default value
-        assert!(association1.default_retryable); // Default value
-        assert_eq!(association1.default_retry_limit, 3); // Default value
-
-        // Test find_or_create again (should find existing)
-        let association2 = NamedTasksNamedStep::find_or_create(pool, named_task.named_task_id, named_step.named_step_id, None)
-            .await
-            .expect("Failed to find existing association");
-        assert_eq!(association1.id, association2.id);
-
-        // Test find_by_task_and_step
-        let found = NamedTasksNamedStep::find_by_task_and_step(pool, named_task.named_task_id, named_step.named_step_id)
-            .await
-            .expect("Failed to find association")
-            .expect("Association not found");
-        assert_eq!(found.id, association1.id);
-
-        // Test named_steps_for_named_task
-        let associations = NamedTasksNamedStep::named_steps_for_named_task(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to get associations for task");
-        assert!(!associations.is_empty());
-
-        // Test update
-        let mut association = association1.clone();
-        association.update(pool, Some(true), Some(false), Some(5))
-            .await
-            .expect("Failed to update association");
-        assert!(association.skippable);
-        assert!(!association.default_retryable);
+        assert_eq!(association.named_task_id, named_task.named_task_id);
+        assert_eq!(association.skippable, true);
+        assert_eq!(association.default_retryable, false);
         assert_eq!(association.default_retry_limit, 5);
 
-        // Test deletion
-        let deleted = NamedTasksNamedStep::delete(pool, association1.id)
+        // Test find by ID
+        let found = NamedTasksNamedStep::find_by_id(pool, association.id)
+            .await
+            .expect("Failed to find association");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().named_step_id, named_step.named_step_id);
+
+        // Test find by task and step
+        let found_specific = NamedTasksNamedStep::find_by_task_and_step(
+            pool,
+            named_task.named_task_id,
+            named_step.named_step_id,
+        )
+        .await
+        .expect("Failed to find specific association");
+        assert!(found_specific.is_some());
+
+        // Test find_or_create (should find existing)
+        let found_or_created = NamedTasksNamedStep::find_or_create(pool, new_association)
+            .await
+            .expect("Failed to find or create");
+        assert_eq!(found_or_created.id, association.id);
+
+        // Test finding skippable associations
+        let skippable = NamedTasksNamedStep::find_skippable_by_task(pool, named_task.named_task_id)
+            .await
+            .expect("Failed to find skippable");
+        assert!(!skippable.is_empty());
+
+        // Test finding non-retryable associations
+        let non_retryable =
+            NamedTasksNamedStep::find_non_retryable_by_task(pool, named_task.named_task_id)
+                .await
+                .expect("Failed to find non-retryable");
+        assert!(!non_retryable.is_empty());
+
+        // Cleanup
+        let deleted = NamedTasksNamedStep::delete(pool, association.id)
             .await
             .expect("Failed to delete association");
         assert!(deleted);
-
-        // Cleanup test dependencies
-        crate::models::named_step::NamedStep::delete(pool, named_step.named_step_id).await.expect("Failed to delete named step");
-        crate::models::dependent_system::DependentSystem::delete(pool, dependent_system.dependent_system_id).await.expect("Failed to delete dependent system");
-        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
-        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
-
-        db.close().await;
     }
 
-    #[test]
-    fn test_association_options_default() {
-        let opts = AssociationOptions::default();
-        assert_eq!(opts.default_retry_limit, 3);
-        assert!(opts.default_retryable);
-        assert!(!opts.skippable);
-    }
+    #[tokio::test]
+    async fn test_default_values() {
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
+        let pool = db.pool();
 
-    #[test]
-    fn test_step_template_structure() {
-        let step_name = format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-        let system_name = format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-        let template = StepTemplate {
-            name: step_name.clone(),
-            dependent_system: system_name.clone(),
-            default_retry_limit: 5,
-            default_retryable: false,
-            skippable: true,
+        // Create test dependencies with minimal data
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(
+            pool,
+            crate::models::named_task::NewNamedTask {
+                name: format!(
+                    "test_task_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                task_namespace_id: namespace.task_namespace_id as i64,
+                configuration: None,
+            },
+        )
+        .await
+        .expect("Failed to create named task");
+
+        let dependent_system = crate::models::dependent_system::DependentSystem::create(
+            pool,
+            crate::models::dependent_system::NewDependentSystem {
+                name: format!(
+                    "test_system_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create dependent system");
+
+        let named_step = crate::models::named_step::NamedStep::create(
+            pool,
+            crate::models::named_step::NewNamedStep {
+                name: format!(
+                    "test_step_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+                dependent_system_id: dependent_system.dependent_system_id,
+            },
+        )
+        .await
+        .expect("Failed to create named step");
+
+        // Test creation with default values
+        let new_association = NewNamedTasksNamedStep {
+            named_task_id: named_task.named_task_id,
+            named_step_id: named_step.named_step_id,
+            skippable: None,           // Should default to false
+            default_retryable: None,   // Should default to true
+            default_retry_limit: None, // Should default to 3
         };
 
-        assert_eq!(template.name, step_name);
-        assert_eq!(template.dependent_system, system_name);
-        assert_eq!(template.default_retry_limit, 5);
-        assert!(!template.default_retryable);
-        assert!(template.skippable);
+        let association = NamedTasksNamedStep::create(pool, new_association)
+            .await
+            .expect("Failed to create association with defaults");
+        assert_eq!(association.skippable, false);
+        assert_eq!(association.default_retryable, true);
+        assert_eq!(association.default_retry_limit, 3);
+
+        // Cleanup
+        NamedTasksNamedStep::delete(pool, association.id)
+            .await
+            .expect("Failed to delete association");
     }
 }

@@ -1,17 +1,17 @@
-use sqlx::PgPool;
-use crate::models::WorkflowStep;
-use crate::events::publisher::EventPublisher;
 use super::{
-    states::WorkflowStepState,
-    events::StepEvent,
-    guards::{StepDependenciesMetGuard, StepNotInProgressGuard, StepCanBeRetriedGuard, StateGuard},
     actions::{
-        PublishTransitionEventAction, UpdateStepResultsAction, TriggerStepDiscoveryAction,
-        ErrorStateCleanupAction, StateAction,
+        ErrorStateCleanupAction, PublishTransitionEventAction, StateAction,
+        TriggerStepDiscoveryAction, UpdateStepResultsAction,
     },
-    persistence::{StepTransitionPersistence, TransitionPersistence},
     errors::{StateMachineError, StateMachineResult},
+    events::StepEvent,
+    guards::{StateGuard, StepCanBeRetriedGuard, StepDependenciesMetGuard, StepNotInProgressGuard},
+    persistence::{StepTransitionPersistence, TransitionPersistence},
+    states::WorkflowStepState,
 };
+use crate::events::publisher::EventPublisher;
+use crate::models::WorkflowStep;
+use sqlx::PgPool;
 
 /// Thread-safe workflow step state machine for individual step management
 pub struct StepStateMachine {
@@ -34,12 +34,14 @@ impl StepStateMachine {
 
     /// Get the current state of the step
     pub async fn current_state(&self) -> StateMachineResult<WorkflowStepState> {
-        match self.persistence.resolve_current_state(self.step.workflow_step_id, &self.pool).await? {
-            Some(state_str) => {
-                state_str.parse().map_err(|_| StateMachineError::Internal(
-                    format!("Invalid state in database: {}", state_str)
-                ))
-            }
+        match self
+            .persistence
+            .resolve_current_state(self.step.workflow_step_id, &self.pool)
+            .await?
+        {
+            Some(state_str) => state_str.parse().map_err(|_| {
+                StateMachineError::Internal(format!("Invalid state in database: {}", state_str))
+            }),
             None => Ok(WorkflowStepState::default()), // No transitions yet, return default state
         }
     }
@@ -50,7 +52,8 @@ impl StepStateMachine {
         let target_state = self.determine_target_state(current_state, &event)?;
 
         // Check guards
-        self.check_guards(current_state, target_state, &event).await?;
+        self.check_guards(current_state, target_state, &event)
+            .await?;
 
         // Persist the transition
         let event_str = serde_json::to_string(&event)?;
@@ -66,13 +69,18 @@ impl StepStateMachine {
             .await?;
 
         // Execute actions
-        self.execute_actions(current_state, target_state, &event_str).await?;
+        self.execute_actions(current_state, target_state, &event_str)
+            .await?;
 
         Ok(target_state)
     }
 
     /// Determine the target state based on current state and event
-    fn determine_target_state(&self, current_state: WorkflowStepState, event: &StepEvent) -> StateMachineResult<WorkflowStepState> {
+    fn determine_target_state(
+        &self,
+        current_state: WorkflowStepState,
+        event: &StepEvent,
+    ) -> StateMachineResult<WorkflowStepState> {
         let target = match (current_state, event) {
             // Start transitions
             (WorkflowStepState::Pending, StepEvent::Start) => WorkflowStepState::InProgress,
@@ -145,9 +153,13 @@ impl StepStateMachine {
         event: &str,
     ) -> StateMachineResult<()> {
         let actions: Vec<Box<dyn StateAction<WorkflowStep> + Send + Sync>> = vec![
-            Box::new(PublishTransitionEventAction::new(self.event_publisher.clone())),
+            Box::new(PublishTransitionEventAction::new(
+                self.event_publisher.clone(),
+            )),
             Box::new(UpdateStepResultsAction),
-            Box::new(TriggerStepDiscoveryAction::new(self.event_publisher.clone())),
+            Box::new(TriggerStepDiscoveryAction::new(
+                self.event_publisher.clone(),
+            )),
             Box::new(ErrorStateCleanupAction),
         ];
 
@@ -232,24 +244,31 @@ mod tests {
     fn test_step_state_transitions() {
         // Test valid transitions
         let sm = create_test_step_state_machine();
-        
+
         assert_eq!(
-            sm.determine_target_state(WorkflowStepState::Pending, &StepEvent::Start).unwrap(),
+            sm.determine_target_state(WorkflowStepState::Pending, &StepEvent::Start)
+                .unwrap(),
             WorkflowStepState::InProgress
         );
-        
+
         assert_eq!(
-            sm.determine_target_state(WorkflowStepState::InProgress, &StepEvent::Complete(None)).unwrap(),
+            sm.determine_target_state(WorkflowStepState::InProgress, &StepEvent::Complete(None))
+                .unwrap(),
             WorkflowStepState::Complete
         );
-        
+
         assert_eq!(
-            sm.determine_target_state(WorkflowStepState::InProgress, &StepEvent::Fail("error".to_string())).unwrap(),
+            sm.determine_target_state(
+                WorkflowStepState::InProgress,
+                &StepEvent::Fail("error".to_string())
+            )
+            .unwrap(),
             WorkflowStepState::Error
         );
 
         assert_eq!(
-            sm.determine_target_state(WorkflowStepState::Error, &StepEvent::Retry).unwrap(),
+            sm.determine_target_state(WorkflowStepState::Error, &StepEvent::Retry)
+                .unwrap(),
             WorkflowStepState::Pending
         );
     }
@@ -258,12 +277,16 @@ mod tests {
     #[ignore = "State machine tests deferred as architectural dependency"]
     fn test_step_invalid_transitions() {
         let sm = create_test_step_state_machine();
-        
+
         // Cannot start from complete state
-        assert!(sm.determine_target_state(WorkflowStepState::Complete, &StepEvent::Start).is_err());
-        
+        assert!(sm
+            .determine_target_state(WorkflowStepState::Complete, &StepEvent::Start)
+            .is_err());
+
         // Cannot retry from pending state
-        assert!(sm.determine_target_state(WorkflowStepState::Pending, &StepEvent::Retry).is_err());
+        assert!(sm
+            .determine_target_state(WorkflowStepState::Pending, &StepEvent::Retry)
+            .is_err());
     }
 
     #[test]
@@ -271,12 +294,13 @@ mod tests {
     fn test_step_completion_with_results() {
         let sm = create_test_step_state_machine();
         let results = json!({"processed": 42, "status": "success"});
-        
+
         assert_eq!(
             sm.determine_target_state(
-                WorkflowStepState::InProgress, 
+                WorkflowStepState::InProgress,
                 &StepEvent::Complete(Some(results))
-            ).unwrap(),
+            )
+            .unwrap(),
             WorkflowStepState::Complete
         );
     }
@@ -284,7 +308,7 @@ mod tests {
     fn create_test_step_state_machine() -> StepStateMachine {
         use crate::models::WorkflowStep;
         use chrono::Utc;
-        
+
         let step = WorkflowStep {
             workflow_step_id: 1,
             task_id: 1,

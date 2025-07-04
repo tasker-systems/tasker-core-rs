@@ -1,0 +1,48 @@
+version: 2
+
+updates:
+  # Rust dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "petetaylor"
+    assignees:
+      - "petetaylor"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      sqlx:
+        patterns:
+          - "sqlx*"
+      serde:
+        patterns:
+          - "serde*"
+      tokio:
+        patterns:
+          - "tokio*"
+      development-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "petetaylor"
+    assignees:
+      - "petetaylor"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

@@ -22,7 +22,10 @@ pub enum TaskState {
 impl TaskState {
     /// Check if this is a terminal state (no further transitions allowed)
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Complete | Self::Cancelled | Self::ResolvedManually)
+        matches!(
+            self,
+            Self::Complete | Self::Cancelled | Self::ResolvedManually
+        )
     }
 
     /// Check if this is an error state that may allow recovery
@@ -86,7 +89,10 @@ pub enum WorkflowStepState {
 impl WorkflowStepState {
     /// Check if this is a terminal state (no further transitions allowed)
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Complete | Self::Cancelled | Self::ResolvedManually)
+        matches!(
+            self,
+            Self::Complete | Self::Cancelled | Self::ResolvedManually
+        )
     }
 
     /// Check if this is an error state that may allow recovery
@@ -175,10 +181,16 @@ mod tests {
     #[test]
     fn test_state_string_conversion() {
         assert_eq!(TaskState::InProgress.to_string(), "in_progress");
-        assert_eq!("complete".parse::<TaskState>().unwrap(), TaskState::Complete);
-        
+        assert_eq!(
+            "complete".parse::<TaskState>().unwrap(),
+            TaskState::Complete
+        );
+
         assert_eq!(WorkflowStepState::Error.to_string(), "error");
-        assert_eq!("resolved_manually".parse::<WorkflowStepState>().unwrap(), WorkflowStepState::ResolvedManually);
+        assert_eq!(
+            "resolved_manually".parse::<WorkflowStepState>().unwrap(),
+            WorkflowStepState::ResolvedManually
+        );
     }
 
     #[test]
@@ -186,7 +198,7 @@ mod tests {
         let task_state = TaskState::InProgress;
         let json = serde_json::to_string(&task_state).unwrap();
         assert_eq!(json, "\"in_progress\"");
-        
+
         let parsed: TaskState = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, task_state);
     }

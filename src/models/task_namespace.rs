@@ -22,12 +22,15 @@ pub struct NewTaskNamespace {
 
 impl TaskNamespace {
     /// Create a new task namespace
-    pub async fn create(pool: &PgPool, new_namespace: NewTaskNamespace) -> Result<TaskNamespace, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_namespace: NewTaskNamespace,
+    ) -> Result<TaskNamespace, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            INSERT INTO tasker_task_namespaces (name, description)
-            VALUES ($1, $2)
+            INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
+            VALUES ($1, $2, NOW(), NOW())
             RETURNING task_namespace_id, name, description, created_at, updated_at
             "#,
             new_namespace.name,
@@ -57,7 +60,10 @@ impl TaskNamespace {
     }
 
     /// Find a task namespace by name
-    pub async fn find_by_name(pool: &PgPool, name: &str) -> Result<Option<TaskNamespace>, sqlx::Error> {
+    pub async fn find_by_name(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<Option<TaskNamespace>, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
@@ -133,7 +139,11 @@ impl TaskNamespace {
     }
 
     /// Check if namespace name is unique (for validation)
-    pub async fn is_name_unique(pool: &PgPool, name: &str, exclude_id: Option<i32>) -> Result<bool, sqlx::Error> {
+    pub async fn is_name_unique(
+        pool: &PgPool,
+        name: &str,
+        exclude_id: Option<i32>,
+    ) -> Result<bool, sqlx::Error> {
         let count = if let Some(id) = exclude_id {
             sqlx::query!(
                 r#"
@@ -172,19 +182,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_namespace_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Test creation with unique name
-        let unique_name = format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let unique_name = format!(
+            "test_namespace_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
         let new_namespace = NewTaskNamespace {
             name: unique_name.clone(),
             description: Some("Test namespace description".to_string()),
         };
 
-        let created = TaskNamespace::create(pool, new_namespace).await.expect("Failed to create namespace");
+        let created = TaskNamespace::create(pool, new_namespace)
+            .await
+            .expect("Failed to create namespace");
         assert_eq!(created.name, unique_name);
-        assert_eq!(created.description, Some("Test namespace description".to_string()));
+        assert_eq!(
+            created.description,
+            Some("Test namespace description".to_string())
+        );
 
         // Test find by ID
         let found = TaskNamespace::find_by_id(pool, created.task_namespace_id)
@@ -201,7 +221,10 @@ mod tests {
         assert_eq!(found_by_name.task_namespace_id, created.task_namespace_id);
 
         // Test update
-        let updated_name = format!("updated_test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let updated_name = format!(
+            "updated_test_namespace_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
         let updated = TaskNamespace::update(
             pool,
             created.task_namespace_id,

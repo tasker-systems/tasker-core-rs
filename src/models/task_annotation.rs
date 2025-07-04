@@ -1,17 +1,18 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool};
 
-/// TaskAnnotation represents annotations applied to tasks
-/// Maps to `tasker_task_annotations` table - task metadata and notes (1.1KB Rails model)
+/// TaskAnnotation represents metadata annotations attached to tasks
+/// Maps to `tasker_task_annotations` table - task metadata storage
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct TaskAnnotation {
-    pub task_annotation_id: i64,
+    pub task_annotation_id: i64, // bigint in actual schema
     pub task_id: i64,
     pub annotation_type_id: i32,
-    pub content: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub annotation: JsonValue, // jsonb field in actual schema
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New TaskAnnotation for creation
@@ -19,7 +20,7 @@ pub struct TaskAnnotation {
 pub struct NewTaskAnnotation {
     pub task_id: i64,
     pub annotation_type_id: i32,
-    pub content: Option<String>,
+    pub annotation: JsonValue,
 }
 
 /// TaskAnnotation with annotation type details
@@ -28,34 +29,37 @@ pub struct TaskAnnotationWithType {
     pub task_annotation_id: i64,
     pub task_id: i64,
     pub annotation_type_id: i32,
-    pub content: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub type_name: String,
-    pub type_description: Option<String>,
+    pub annotation: JsonValue,
+    pub annotation_type_name: String,
+    pub annotation_type_description: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
-/// Annotation type count summary
+/// Annotation type usage count
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AnnotationTypeCount {
     pub annotation_type_id: i32,
-    pub type_name: String,
-    pub annotation_count: Option<i64>,
+    pub annotation_type_name: String,
+    pub usage_count: i64,
 }
 
 impl TaskAnnotation {
     /// Create a new task annotation
-    pub async fn create(pool: &PgPool, new_annotation: NewTaskAnnotation) -> Result<TaskAnnotation, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_annotation: NewTaskAnnotation,
+    ) -> Result<TaskAnnotation, sqlx::Error> {
         let annotation = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            INSERT INTO tasker_task_annotations (task_id, annotation_type_id, content)
-            VALUES ($1, $2, $3)
-            RETURNING task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
+            INSERT INTO tasker_task_annotations (task_id, annotation_type_id, annotation, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
+            RETURNING task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             "#,
             new_annotation.task_id,
             new_annotation.annotation_type_id,
-            new_annotation.content
+            new_annotation.annotation
         )
         .fetch_one(pool)
         .await?;
@@ -63,12 +67,12 @@ impl TaskAnnotation {
         Ok(annotation)
     }
 
-    /// Find a task annotation by ID
+    /// Find annotation by ID
     pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<TaskAnnotation>, sqlx::Error> {
         let annotation = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             FROM tasker_task_annotations
             WHERE task_annotation_id = $1
             "#,
@@ -80,12 +84,15 @@ impl TaskAnnotation {
         Ok(annotation)
     }
 
-    /// Get annotations for a specific task (Rails scope: for_task)
-    pub async fn for_task(pool: &PgPool, task_id: i64) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
+    /// Find all annotations for a specific task
+    pub async fn find_by_task(
+        pool: &PgPool,
+        task_id: i64,
+    ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
         let annotations = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             FROM tasker_task_annotations
             WHERE task_id = $1
             ORDER BY created_at DESC
@@ -98,12 +105,15 @@ impl TaskAnnotation {
         Ok(annotations)
     }
 
-    /// Get annotations by type (Rails scope: by_type)
-    pub async fn by_type(pool: &PgPool, annotation_type_id: i32) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
+    /// Find annotations by type
+    pub async fn find_by_type(
+        pool: &PgPool,
+        annotation_type_id: i32,
+    ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
         let annotations = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             FROM tasker_task_annotations
             WHERE annotation_type_id = $1
             ORDER BY created_at DESC
@@ -116,111 +126,22 @@ impl TaskAnnotation {
         Ok(annotations)
     }
 
-    /// Get annotations with type information (Rails includes: annotation_type)
-    pub async fn with_types(pool: &PgPool) -> Result<Vec<TaskAnnotationWithType>, sqlx::Error> {
-        let annotations = sqlx::query_as!(
-            TaskAnnotationWithType,
-            r#"
-            SELECT 
-                ta.task_annotation_id,
-                ta.task_id,
-                ta.annotation_type_id,
-                ta.content,
-                ta.created_at,
-                ta.updated_at,
-                at.name as type_name,
-                at.description as type_description
-            FROM tasker_task_annotations ta
-            JOIN tasker_annotation_types at ON at.annotation_type_id = ta.annotation_type_id
-            ORDER BY ta.created_at DESC
-            "#
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(annotations)
-    }
-
-    /// Get annotations for task with type information (Rails scope: for_task_with_types)
-    pub async fn for_task_with_types(pool: &PgPool, task_id: i64) -> Result<Vec<TaskAnnotationWithType>, sqlx::Error> {
-        let annotations = sqlx::query_as!(
-            TaskAnnotationWithType,
-            r#"
-            SELECT 
-                ta.task_annotation_id,
-                ta.task_id,
-                ta.annotation_type_id,
-                ta.content,
-                ta.created_at,
-                ta.updated_at,
-                at.name as type_name,
-                at.description as type_description
-            FROM tasker_task_annotations ta
-            JOIN tasker_annotation_types at ON at.annotation_type_id = ta.annotation_type_id
-            WHERE ta.task_id = $1
-            ORDER BY ta.created_at DESC
-            "#,
-            task_id
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(annotations)
-    }
-
-    /// Search annotations by content (Rails scope: search_content)
-    pub async fn search_content(pool: &PgPool, search_term: &str) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
-        let annotations = sqlx::query_as!(
-            TaskAnnotation,
-            r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
-            FROM tasker_task_annotations
-            WHERE content ILIKE $1
-            ORDER BY created_at DESC
-            "#,
-            format!("%{}%", search_term)
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(annotations)
-    }
-
-    /// Get recent annotations (Rails scope: recent)
-    pub async fn recent(pool: &PgPool, limit: Option<i64>) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
-        let limit = limit.unwrap_or(50);
-        let annotations = sqlx::query_as!(
-            TaskAnnotation,
-            r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
-            FROM tasker_task_annotations
-            ORDER BY created_at DESC
-            LIMIT $1
-            "#,
-            limit
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(annotations)
-    }
-
-    /// Get annotations created in date range (Rails scope: created_between)
-    pub async fn created_between(
+    /// Find annotations by task and type
+    pub async fn find_by_task_and_type(
         pool: &PgPool,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        task_id: i64,
+        annotation_type_id: i32,
     ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
         let annotations = sqlx::query_as!(
             TaskAnnotation,
             r#"
-            SELECT task_annotation_id, task_id, annotation_type_id, content, created_at, updated_at
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             FROM tasker_task_annotations
-            WHERE created_at BETWEEN $1 AND $2
+            WHERE task_id = $1 AND annotation_type_id = $2
             ORDER BY created_at DESC
             "#,
-            start_date,
-            end_date
+            task_id,
+            annotation_type_id
         )
         .fetch_all(pool)
         .await?;
@@ -228,67 +149,177 @@ impl TaskAnnotation {
         Ok(annotations)
     }
 
-    /// Get annotation type usage statistics (Rails scope: type_counts)
-    pub async fn get_type_counts(pool: &PgPool) -> Result<Vec<AnnotationTypeCount>, sqlx::Error> {
-        let counts = sqlx::query_as!(
+    /// Search annotations by JSON path expression
+    pub async fn search_by_json_path(
+        pool: &PgPool,
+        json_path: &str,
+        value: &JsonValue,
+        limit: Option<i32>,
+    ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
+        let limit_val = limit.unwrap_or(50);
+
+        let annotations = sqlx::query_as!(
+            TaskAnnotation,
+            r#"
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
+            FROM tasker_task_annotations
+            WHERE annotation #> $1::text[] = $2
+            ORDER BY created_at DESC
+            LIMIT $3
+            "#,
+            &[json_path.to_string()],
+            value,
+            limit_val as i64
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(annotations)
+    }
+
+    /// Search annotations containing specific JSON data
+    pub async fn search_containing_json(
+        pool: &PgPool,
+        search_json: &JsonValue,
+        limit: Option<i32>,
+    ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
+        let limit_val = limit.unwrap_or(50);
+
+        let annotations = sqlx::query_as!(
+            TaskAnnotation,
+            r#"
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
+            FROM tasker_task_annotations
+            WHERE annotation @> $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            "#,
+            search_json,
+            limit_val as i64
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(annotations)
+    }
+
+    /// Get annotations with annotation type details
+    pub async fn find_with_types(
+        pool: &PgPool,
+        task_id: Option<i64>,
+        limit: Option<i32>,
+    ) -> Result<Vec<TaskAnnotationWithType>, sqlx::Error> {
+        let limit_val = limit.unwrap_or(100);
+
+        let annotations = match task_id {
+            Some(task_id) => {
+                sqlx::query_as!(
+                    TaskAnnotationWithType,
+                    r#"
+                    SELECT 
+                        ta.task_annotation_id,
+                        ta.task_id,
+                        ta.annotation_type_id,
+                        ta.annotation,
+                        at.name as annotation_type_name,
+                        at.description as annotation_type_description,
+                        ta.created_at,
+                        ta.updated_at
+                    FROM tasker_task_annotations ta
+                    INNER JOIN tasker_annotation_types at ON at.annotation_type_id = ta.annotation_type_id
+                    WHERE ta.task_id = $1
+                    ORDER BY ta.created_at DESC
+                    LIMIT $2
+                    "#,
+                    task_id,
+                    limit_val as i64
+                )
+                .fetch_all(pool)
+                .await?
+            },
+            None => {
+                sqlx::query_as!(
+                    TaskAnnotationWithType,
+                    r#"
+                    SELECT 
+                        ta.task_annotation_id,
+                        ta.task_id,
+                        ta.annotation_type_id,
+                        ta.annotation,
+                        at.name as annotation_type_name,
+                        at.description as annotation_type_description,
+                        ta.created_at,
+                        ta.updated_at
+                    FROM tasker_task_annotations ta
+                    INNER JOIN tasker_annotation_types at ON at.annotation_type_id = ta.annotation_type_id
+                    ORDER BY ta.created_at DESC
+                    LIMIT $1
+                    "#,
+                    limit_val as i64
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+
+        Ok(annotations)
+    }
+
+    /// Get annotation type usage statistics
+    pub async fn get_type_usage_stats(
+        pool: &PgPool,
+    ) -> Result<Vec<AnnotationTypeCount>, sqlx::Error> {
+        let stats = sqlx::query_as!(
             AnnotationTypeCount,
             r#"
             SELECT 
                 at.annotation_type_id,
-                at.name as type_name,
-                COUNT(ta.task_annotation_id) as annotation_count
+                at.name as annotation_type_name,
+                COUNT(ta.task_annotation_id)::bigint as "usage_count!: i64"
             FROM tasker_annotation_types at
             LEFT JOIN tasker_task_annotations ta ON ta.annotation_type_id = at.annotation_type_id
             GROUP BY at.annotation_type_id, at.name
-            ORDER BY annotation_count DESC, at.name
+            ORDER BY COUNT(ta.task_annotation_id) DESC, at.name
             "#
         )
         .fetch_all(pool)
         .await?;
 
-        Ok(counts)
+        Ok(stats)
     }
 
-    /// Update a task annotation
+    /// Update annotation content
     pub async fn update(
-        &mut self,
         pool: &PgPool,
-        annotation_type_id: Option<i32>,
-        content: Option<String>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        id: i64,
+        new_annotation: NewTaskAnnotation,
+    ) -> Result<Option<TaskAnnotation>, sqlx::Error> {
+        let annotation = sqlx::query_as!(
+            TaskAnnotation,
             r#"
-            UPDATE tasker_task_annotations
-            SET annotation_type_id = COALESCE($2, annotation_type_id),
-                content = COALESCE($3, content),
+            UPDATE tasker_task_annotations 
+            SET task_id = $2,
+                annotation_type_id = $3,
+                annotation = $4,
                 updated_at = NOW()
             WHERE task_annotation_id = $1
+            RETURNING task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             "#,
-            self.task_annotation_id,
-            annotation_type_id,
-            content
+            id,
+            new_annotation.task_id,
+            new_annotation.annotation_type_id,
+            new_annotation.annotation
         )
-        .execute(pool)
+        .fetch_optional(pool)
         .await?;
 
-        // Update local instance
-        if let Some(type_id) = annotation_type_id {
-            self.annotation_type_id = type_id;
-        }
-        if let Some(new_content) = content {
-            self.content = Some(new_content);
-        }
-
-        Ok(())
+        Ok(annotation)
     }
 
-    /// Delete a task annotation
+    /// Delete an annotation
     pub async fn delete(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_task_annotations
-            WHERE task_annotation_id = $1
-            "#,
+            "DELETE FROM tasker_task_annotations WHERE task_annotation_id = $1",
             id
         )
         .execute(pool)
@@ -298,43 +329,21 @@ impl TaskAnnotation {
     }
 
     /// Delete all annotations for a task
-    pub async fn delete_for_task(pool: &PgPool, task_id: i64) -> Result<u64, sqlx::Error> {
+    pub async fn delete_by_task(pool: &PgPool, task_id: i64) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_task_annotations
-            WHERE task_id = $1
-            "#,
+            "DELETE FROM tasker_task_annotations WHERE task_id = $1",
             task_id
         )
         .execute(pool)
         .await?;
 
-        Ok(result.rows_affected())
+        Ok(result.rows_affected() as i64)
     }
 
-    /// Delete all annotations of a specific type
-    pub async fn delete_by_type(pool: &PgPool, annotation_type_id: i32) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_task_annotations
-            WHERE annotation_type_id = $1
-            "#,
-            annotation_type_id
-        )
-        .execute(pool)
-        .await?;
-
-        Ok(result.rows_affected())
-    }
-
-    /// Get count of annotations for a task
-    pub async fn count_for_task(pool: &PgPool, task_id: i64) -> Result<i64, sqlx::Error> {
+    /// Count annotations by task
+    pub async fn count_by_task(pool: &PgPool, task_id: i64) -> Result<i64, sqlx::Error> {
         let count = sqlx::query!(
-            r#"
-            SELECT COUNT(*) as count
-            FROM tasker_task_annotations
-            WHERE task_id = $1
-            "#,
+            "SELECT COUNT(*) as count FROM tasker_task_annotations WHERE task_id = $1",
             task_id
         )
         .fetch_one(pool)
@@ -343,37 +352,30 @@ impl TaskAnnotation {
         Ok(count.count.unwrap_or(0))
     }
 
-    /// Check if task has annotations of a specific type
-    pub async fn task_has_type(pool: &PgPool, task_id: i64, annotation_type_id: i32) -> Result<bool, sqlx::Error> {
-        let count = sqlx::query!(
+    /// List all annotations with pagination
+    pub async fn list_all(
+        pool: &PgPool,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<Vec<TaskAnnotation>, sqlx::Error> {
+        let offset_val = offset.unwrap_or(0);
+        let limit_val = limit.unwrap_or(50);
+
+        let annotations = sqlx::query_as!(
+            TaskAnnotation,
             r#"
-            SELECT COUNT(*) as count
+            SELECT task_annotation_id, task_id, annotation_type_id, annotation, created_at, updated_at
             FROM tasker_task_annotations
-            WHERE task_id = $1 AND annotation_type_id = $2
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
             "#,
-            task_id,
-            annotation_type_id
+            limit_val as i64,
+            offset_val as i64
         )
-        .fetch_one(pool)
+        .fetch_all(pool)
         .await?;
 
-        Ok(count.count.unwrap_or(0) > 0)
-    }
-
-    /// Clean up orphaned annotations (for deleted tasks)
-    pub async fn cleanup_orphaned_annotations(pool: &PgPool) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_task_annotations
-            WHERE task_id NOT IN (
-                SELECT task_id FROM tasker_tasks
-            )
-            "#
-        )
-        .execute(pool)
-        .await?;
-
-        Ok(result.rows_affected())
+        Ok(annotations)
     }
 }
 
@@ -381,158 +383,242 @@ impl TaskAnnotation {
 mod tests {
     use super::*;
     use crate::database::DatabaseConnection;
-    use crate::models::{Task, NamedTask, TaskNamespace, AnnotationType};
-    use crate::models::task::NewTask;
-    use crate::models::named_task::NewNamedTask;
-    use crate::models::task_namespace::NewTaskNamespace;
-    use crate::models::annotation_type::NewAnnotationType;
 
     #[tokio::test]
     async fn test_task_annotation_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Create test dependencies
-        let namespace = TaskNamespace::create(pool, NewTaskNamespace {
-            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create namespace");
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
 
-        let named_task = NamedTask::create(pool, NewNamedTask {
-            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            version: Some("1.0.0".to_string()),
-            description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
-            configuration: None,
-        }).await.expect("Failed to create named task");
+        let named_task = crate::models::named_task::NamedTask::create(
+            pool,
+            crate::models::named_task::NewNamedTask {
+                name: format!(
+                    "test_task_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                task_namespace_id: namespace.task_namespace_id as i64,
+                configuration: None,
+            },
+        )
+        .await
+        .expect("Failed to create named task");
 
-        let task = Task::create(pool, NewTask {
-            named_task_id: named_task.named_task_id as i32,
-            requested_at: None,
-            initiator: None,
-            source_system: None,
-            reason: None,
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({})),
-            identity_hash: "test_hash".to_string(),
-        }).await.expect("Failed to create task");
+        let task = crate::models::task::Task::create(
+            pool,
+            crate::models::task::NewTask {
+                named_task_id: named_task.named_task_id,
+                identity_hash: format!(
+                    "test_hash_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                requested_at: None,
+                initiator: None,
+                source_system: None,
+                reason: None,
+                bypass_steps: None,
+                tags: None,
+                context: None,
+            },
+        )
+        .await
+        .expect("Failed to create task");
 
-        let annotation_type = AnnotationType::create(pool, NewAnnotationType {
-            name: format!("test_annotation_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: Some("Test annotation type".to_string()),
-        }).await.expect("Failed to create annotation type");
+        let annotation_type = crate::models::annotation_type::AnnotationType::create(
+            pool,
+            crate::models::annotation_type::NewAnnotationType {
+                name: format!(
+                    "test_type_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: Some("Test annotation type".to_string()),
+            },
+        )
+        .await
+        .expect("Failed to create annotation type");
 
-        // Test annotation creation
+        // Test creation
         let new_annotation = NewTaskAnnotation {
             task_id: task.task_id,
             annotation_type_id: annotation_type.annotation_type_id,
-            content: Some("This is a test annotation".to_string()),
+            annotation: serde_json::json!({
+                "key": "test_value",
+                "priority": "high",
+                "metadata": {
+                    "source": "test"
+                }
+            }),
         };
 
-        let created = TaskAnnotation::create(pool, new_annotation)
+        let annotation = TaskAnnotation::create(pool, new_annotation.clone())
             .await
             .expect("Failed to create annotation");
-        assert_eq!(created.task_id, task.task_id);
-        assert_eq!(created.annotation_type_id, annotation_type.annotation_type_id);
+        assert_eq!(annotation.task_id, task.task_id);
+        assert_eq!(
+            annotation.annotation_type_id,
+            annotation_type.annotation_type_id
+        );
 
         // Test find by ID
-        let found = TaskAnnotation::find_by_id(pool, created.task_annotation_id)
+        let found = TaskAnnotation::find_by_id(pool, annotation.task_annotation_id)
             .await
-            .expect("Failed to find annotation")
-            .expect("Annotation not found");
-        assert_eq!(found.task_annotation_id, created.task_annotation_id);
+            .expect("Failed to find annotation");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().annotation["key"], "test_value");
 
-        // Test for_task
-        let task_annotations = TaskAnnotation::for_task(pool, task.task_id)
+        // Test find by task
+        let task_annotations = TaskAnnotation::find_by_task(pool, task.task_id)
             .await
-            .expect("Failed to get annotations for task");
-        assert_eq!(task_annotations.len(), 1);
+            .expect("Failed to find annotations by task");
+        assert!(!task_annotations.is_empty());
 
-        // Test by_type
-        let type_annotations = TaskAnnotation::by_type(pool, annotation_type.annotation_type_id)
+        // Test JSON search
+        let json_search = serde_json::json!({"key": "test_value"});
+        let search_results = TaskAnnotation::search_containing_json(pool, &json_search, Some(10))
             .await
-            .expect("Failed to get annotations by type");
-        assert_eq!(type_annotations.len(), 1);
+            .expect("Failed to search annotations");
+        assert!(!search_results.is_empty());
 
-        // Test with_types
-        let with_types = TaskAnnotation::with_types(pool)
+        // Test annotations with types
+        let with_types = TaskAnnotation::find_with_types(pool, Some(task.task_id), Some(10))
             .await
             .expect("Failed to get annotations with types");
         assert!(!with_types.is_empty());
-
-        // Test for_task_with_types
-        let task_with_types = TaskAnnotation::for_task_with_types(pool, task.task_id)
-            .await
-            .expect("Failed to get task annotations with types");
-        assert_eq!(task_with_types.len(), 1);
-        assert!(task_with_types[0].type_name.starts_with("test_annotation_"));
-
-        // Test search_content
-        let search_results = TaskAnnotation::search_content(pool, "test annotation")
-            .await
-            .expect("Failed to search annotation content");
-        assert!(!search_results.is_empty());
-
-        // Test recent
-        let recent = TaskAnnotation::recent(pool, Some(10))
-            .await
-            .expect("Failed to get recent annotations");
-        assert!(!recent.is_empty());
-
-        // Test created_between
-        let start_date = chrono::Utc::now() - chrono::Duration::hours(1);
-        let end_date = chrono::Utc::now() + chrono::Duration::hours(1);
-        let between = TaskAnnotation::created_between(pool, start_date, end_date)
-            .await
-            .expect("Failed to get annotations created between dates");
-        assert!(!between.is_empty());
-
-        // Test get_type_counts
-        let type_counts = TaskAnnotation::get_type_counts(pool)
-            .await
-            .expect("Failed to get type counts");
-        assert!(!type_counts.is_empty());
-
-        // Test update
-        let mut annotation = created.clone();
-        annotation.update(
-            pool,
-            None,
-            Some("Updated test annotation".to_string()),
-        )
-        .await
-        .expect("Failed to update annotation");
-
-        // Test count_for_task
-        let count = TaskAnnotation::count_for_task(pool, task.task_id)
-            .await
-            .expect("Failed to count annotations for task");
-        assert_eq!(count, 1);
-
-        // Test task_has_type
-        let has_type = TaskAnnotation::task_has_type(pool, task.task_id, annotation_type.annotation_type_id)
-            .await
-            .expect("Failed to check if task has annotation type");
-        assert!(has_type);
+        assert_eq!(with_types[0].annotation_type_name, annotation_type.name);
 
         // Cleanup
-        TaskAnnotation::delete(pool, created.task_annotation_id)
+        let deleted = TaskAnnotation::delete(pool, annotation.task_annotation_id)
             .await
             .expect("Failed to delete annotation");
-        AnnotationType::delete(pool, annotation_type.annotation_type_id)
-            .await
-            .expect("Failed to delete annotation type");
-        Task::delete(pool, task.task_id)
-            .await
-            .expect("Failed to delete task");
-        NamedTask::delete(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to delete named task");
-        TaskNamespace::delete(pool, namespace.task_namespace_id)
-            .await
-            .expect("Failed to delete namespace");
+        assert!(deleted);
+    }
 
-        db.close().await;
+    #[tokio::test]
+    async fn test_json_operations() {
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
+        let pool = db.pool();
+
+        // Create minimal test data
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
+
+        let named_task = crate::models::named_task::NamedTask::create(
+            pool,
+            crate::models::named_task::NewNamedTask {
+                name: format!(
+                    "test_task_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                task_namespace_id: namespace.task_namespace_id as i64,
+                configuration: None,
+            },
+        )
+        .await
+        .expect("Failed to create named task");
+
+        let task = crate::models::task::Task::create(
+            pool,
+            crate::models::task::NewTask {
+                named_task_id: named_task.named_task_id,
+                identity_hash: format!(
+                    "test_hash_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                requested_at: None,
+                initiator: None,
+                source_system: None,
+                reason: None,
+                bypass_steps: None,
+                tags: None,
+                context: None,
+            },
+        )
+        .await
+        .expect("Failed to create task");
+
+        let annotation_type = crate::models::annotation_type::AnnotationType::create(
+            pool,
+            crate::models::annotation_type::NewAnnotationType {
+                name: format!(
+                    "test_type_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create annotation type");
+
+        // Create annotation with complex JSON structure
+        let complex_json = serde_json::json!({
+            "config": {
+                "retry_count": 3,
+                "timeout": 30
+            },
+            "tags": ["urgent", "customer-facing"],
+            "owner": "test-team"
+        });
+
+        let new_annotation = NewTaskAnnotation {
+            task_id: task.task_id,
+            annotation_type_id: annotation_type.annotation_type_id,
+            annotation: complex_json.clone(),
+        };
+
+        let annotation = TaskAnnotation::create(pool, new_annotation)
+            .await
+            .expect("Failed to create complex annotation");
+
+        // Test JSON containment search
+        let search_subset = serde_json::json!({
+            "config": {
+                "retry_count": 3
+            }
+        });
+
+        let containment_results =
+            TaskAnnotation::search_containing_json(pool, &search_subset, Some(5))
+                .await
+                .expect("Failed to search by containment");
+        assert!(
+            !containment_results.is_empty(),
+            "Should find annotation containing search subset"
+        );
+
+        // Cleanup
+        TaskAnnotation::delete(pool, annotation.task_annotation_id)
+            .await
+            .expect("Failed to delete annotation");
     }
 }

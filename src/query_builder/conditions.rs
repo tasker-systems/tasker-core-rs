@@ -66,7 +66,11 @@ impl Condition {
     /// Convert condition to SQL string
     pub fn to_sql(&self) -> String {
         match self {
-            Condition::Simple { field, operator, value } => {
+            Condition::Simple {
+                field,
+                operator,
+                value,
+            } => {
                 format!("{} {} {}", field, operator, format_value(value))
             }
             Condition::In { field, values } => {
@@ -86,7 +90,12 @@ impl Condition {
                 format!("{} NOT IN ({})", field, value_list)
             }
             Condition::Between { field, start, end } => {
-                format!("{} BETWEEN {} AND {}", field, format_value(start), format_value(end))
+                format!(
+                    "{} BETWEEN {} AND {}",
+                    field,
+                    format_value(start),
+                    format_value(end)
+                )
             }
             Condition::IsNull { field } => {
                 format!("{} IS NULL", field)
@@ -100,8 +109,19 @@ impl Condition {
             Condition::NotExists { subquery } => {
                 format!("NOT EXISTS ({})", subquery)
             }
-            Condition::JsonPath { field, path, operator, value } => {
-                format!("{}->>'{}' {} {}", field, path, operator, format_value(value))
+            Condition::JsonPath {
+                field,
+                path,
+                operator,
+                value,
+            } => {
+                format!(
+                    "{}->>'{}' {} {}",
+                    field,
+                    path,
+                    operator,
+                    format_value(value)
+                )
             }
             Condition::JsonContains { field, value } => {
                 format!("{} @> {}", field, format_json_value(value))
@@ -110,17 +130,25 @@ impl Condition {
                 format!("{} <@ {}", field, format_json_value(value))
             }
             Condition::JsonHasKey { field, key } => {
-                format!("{} ? {}", field, format_value(&serde_json::Value::String(key.clone())))
+                format!(
+                    "{} ? {}",
+                    field,
+                    format_value(&serde_json::Value::String(key.clone()))
+                )
             }
             Condition::JsonHasAnyKeys { field, keys } => {
                 let key_array = serde_json::Value::Array(
-                    keys.iter().map(|k| serde_json::Value::String(k.clone())).collect()
+                    keys.iter()
+                        .map(|k| serde_json::Value::String(k.clone()))
+                        .collect(),
                 );
                 format!("{} ?| {}", field, format_json_value(&key_array))
             }
             Condition::JsonHasAllKeys { field, keys } => {
                 let key_array = serde_json::Value::Array(
-                    keys.iter().map(|k| serde_json::Value::String(k.clone())).collect()
+                    keys.iter()
+                        .map(|k| serde_json::Value::String(k.clone()))
+                        .collect(),
                 );
                 format!("{} ?& {}", field, format_json_value(&key_array))
             }
@@ -324,10 +352,7 @@ impl WhereClause {
             LogicalOperator::Or => " OR ",
         };
 
-        let condition_sqls: Vec<String> = self.conditions
-            .iter()
-            .map(|c| c.to_sql())
-            .collect();
+        let condition_sqls: Vec<String> = self.conditions.iter().map(|c| c.to_sql()).collect();
 
         format!("({})", condition_sqls.join(operator_str))
     }
@@ -382,7 +407,10 @@ mod tests {
             field: "metadata".to_string(),
             value: serde_json::json!({"key": "value"}),
         };
-        assert_eq!(condition.to_sql(), "metadata @> '{\"key\":\"value\"}'::jsonb");
+        assert_eq!(
+            condition.to_sql(),
+            "metadata @> '{\"key\":\"value\"}'::jsonb"
+        );
     }
 
     #[test]
@@ -390,6 +418,9 @@ mod tests {
         let condition = Condition::Exists {
             subquery: "SELECT 1 FROM related_table WHERE id = outer.id".to_string(),
         };
-        assert_eq!(condition.to_sql(), "EXISTS (SELECT 1 FROM related_table WHERE id = outer.id)");
+        assert_eq!(
+            condition.to_sql(),
+            "EXISTS (SELECT 1 FROM related_table WHERE id = outer.id)"
+        );
     }
 }

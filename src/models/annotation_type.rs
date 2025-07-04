@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -9,8 +9,8 @@ pub struct AnnotationType {
     pub annotation_type_id: i32,
     pub name: String,
     pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New AnnotationType for creation
@@ -26,19 +26,22 @@ pub struct AnnotationTypeWithStats {
     pub annotation_type_id: i32,
     pub name: String,
     pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub annotation_count: Option<i64>,
 }
 
 impl AnnotationType {
     /// Create a new annotation type
-    pub async fn create(pool: &PgPool, new_type: NewAnnotationType) -> Result<AnnotationType, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_type: NewAnnotationType,
+    ) -> Result<AnnotationType, sqlx::Error> {
         let annotation_type = sqlx::query_as!(
             AnnotationType,
             r#"
-            INSERT INTO tasker_annotation_types (name, description)
-            VALUES ($1, $2)
+            INSERT INTO tasker_annotation_types (name, description, created_at, updated_at)
+            VALUES ($1, $2, NOW(), NOW())
             RETURNING annotation_type_id, name, description, created_at, updated_at
             "#,
             new_type.name,
@@ -68,7 +71,10 @@ impl AnnotationType {
     }
 
     /// Find an annotation type by name
-    pub async fn find_by_name(pool: &PgPool, name: &str) -> Result<Option<AnnotationType>, sqlx::Error> {
+    pub async fn find_by_name(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<Option<AnnotationType>, sqlx::Error> {
         let annotation_type = sqlx::query_as!(
             AnnotationType,
             r#"
@@ -85,15 +91,22 @@ impl AnnotationType {
     }
 
     /// Find or create annotation type by name (Rails method: find_or_create_by!)
-    pub async fn find_or_create_by_name(pool: &PgPool, name: &str) -> Result<AnnotationType, sqlx::Error> {
+    pub async fn find_or_create_by_name(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<AnnotationType, sqlx::Error> {
         if let Some(existing) = Self::find_by_name(pool, name).await? {
             return Ok(existing);
         }
 
-        Self::create(pool, NewAnnotationType {
-            name: name.to_string(),
-            description: None,
-        }).await
+        Self::create(
+            pool,
+            NewAnnotationType {
+                name: name.to_string(),
+                description: None,
+            },
+        )
+        .await
     }
 
     /// Get all annotation types (Rails scope: all)
@@ -113,7 +126,9 @@ impl AnnotationType {
     }
 
     /// Get annotation types with usage statistics (Rails scope: with_counts)
-    pub async fn with_usage_stats(pool: &PgPool) -> Result<Vec<AnnotationTypeWithStats>, sqlx::Error> {
+    pub async fn with_usage_stats(
+        pool: &PgPool,
+    ) -> Result<Vec<AnnotationTypeWithStats>, sqlx::Error> {
         let types_with_stats = sqlx::query_as!(
             AnnotationTypeWithStats,
             r#"
@@ -155,7 +170,10 @@ impl AnnotationType {
     }
 
     /// Get recently created annotation types (Rails scope: recent)
-    pub async fn recent(pool: &PgPool, limit: Option<i64>) -> Result<Vec<AnnotationType>, sqlx::Error> {
+    pub async fn recent(
+        pool: &PgPool,
+        limit: Option<i64>,
+    ) -> Result<Vec<AnnotationType>, sqlx::Error> {
         let limit = limit.unwrap_or(10);
         let annotation_types = sqlx::query_as!(
             AnnotationType,
@@ -261,20 +279,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_annotation_type_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
-        // Test annotation type creation
+        // Test annotation type creation with unique name
+        let type_name = format!(
+            "bug_report_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
         let new_type = NewAnnotationType {
-            name: "bug_report".to_string(),
+            name: type_name.clone(),
             description: Some("Bug report annotations".to_string()),
         };
 
         let created = AnnotationType::create(pool, new_type)
             .await
             .expect("Failed to create annotation type");
-        assert_eq!(created.name, "bug_report");
-        assert_eq!(created.description, Some("Bug report annotations".to_string()));
+        assert_eq!(created.name, type_name);
+        assert_eq!(
+            created.description,
+            Some("Bug report annotations".to_string())
+        );
 
         // Test find by ID
         let found = AnnotationType::find_by_id(pool, created.annotation_type_id)
@@ -284,23 +311,30 @@ mod tests {
         assert_eq!(found.annotation_type_id, created.annotation_type_id);
 
         // Test find by name
-        let found_by_name = AnnotationType::find_by_name(pool, "bug_report")
+        let found_by_name = AnnotationType::find_by_name(pool, &type_name)
             .await
             .expect("Failed to find annotation type by name")
             .expect("Annotation type not found");
         assert_eq!(found_by_name.annotation_type_id, created.annotation_type_id);
 
         // Test find_or_create_by_name (should find existing)
-        let found_or_created = AnnotationType::find_or_create_by_name(pool, "bug_report")
+        let found_or_created = AnnotationType::find_or_create_by_name(pool, &type_name)
             .await
             .expect("Failed to find or create annotation type");
-        assert_eq!(found_or_created.annotation_type_id, created.annotation_type_id);
+        assert_eq!(
+            found_or_created.annotation_type_id,
+            created.annotation_type_id
+        );
 
         // Test find_or_create_by_name (should create new)
-        let new_type = AnnotationType::find_or_create_by_name(pool, "feature_request")
+        let new_type_name = format!(
+            "feature_request_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+        let new_type = AnnotationType::find_or_create_by_name(pool, &new_type_name)
             .await
             .expect("Failed to find or create annotation type");
-        assert_eq!(new_type.name, "feature_request");
+        assert_eq!(new_type.name, new_type_name);
 
         // Test all
         let all_types = AnnotationType::all(pool)
@@ -315,7 +349,7 @@ mod tests {
         assert!(with_stats.len() >= 2);
 
         // Test search
-        let search_results = AnnotationType::search(pool, "bug")
+        let search_results = AnnotationType::search(pool, "bug_report")
             .await
             .expect("Failed to search annotation types");
         assert!(!search_results.is_empty());
@@ -327,24 +361,27 @@ mod tests {
         assert!(!recent.is_empty());
 
         // Test update
+        let updated_name = format!(
+            "updated_bug_report_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
         let mut annotation_type = created.clone();
-        annotation_type.update(
-            pool,
-            Some("updated_bug_report"),
-            Some("Updated description"),
-        )
-        .await
-        .expect("Failed to update annotation type");
-        assert_eq!(annotation_type.name, "updated_bug_report");
+        annotation_type
+            .update(pool, Some(&updated_name), Some("Updated description"))
+            .await
+            .expect("Failed to update annotation type");
+        assert_eq!(annotation_type.name, updated_name);
 
         // Test is_in_use
-        let in_use = annotation_type.is_in_use(pool)
+        let in_use = annotation_type
+            .is_in_use(pool)
             .await
             .expect("Failed to check if annotation type is in use");
         assert!(!in_use); // Should not be in use yet
 
         // Test annotation_count
-        let count = annotation_type.annotation_count(pool)
+        let count = annotation_type
+            .annotation_count(pool)
             .await
             .expect("Failed to get annotation count");
         assert_eq!(count, 0);

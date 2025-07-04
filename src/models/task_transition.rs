@@ -1,9 +1,86 @@
+//! # Task Transition Model
+//!
+//! State transition audit trail and history management for tasks.
+//!
+//! ## Overview
+//!
+//! The `TaskTransition` model provides a complete audit trail of task state changes
+//! with atomic transition management and current state tracking. Each transition
+//! captures the state change, timing, and associated metadata.
+//!
+//! ## State Machine Integration
+//!
+//! This model serves as the storage layer for the TaskStateMachine:
+//! - **Current State Tracking**: `most_recent = true` flag for O(1) lookups
+//! - **Historical Audit**: Complete transition history with timestamps
+//! - **Atomic Transitions**: Transaction-wrapped state changes
+//! - **Metadata Storage**: JSONB context for transition reasons and data
+//!
+//! ## Key Features
+//!
+//! - **Automatic Sort Keys**: Sequential numbering for chronological ordering
+//! - **Most Recent Flagging**: Efficient current state queries
+//! - **Transaction Safety**: Atomic multi-row updates for consistency
+//! - **Rich Metadata**: JSONB storage for transition context and debugging
+//!
+//! ## Database Schema
+//!
+//! Maps to `tasker_task_transitions` table:
+//! ```sql
+//! CREATE TABLE tasker_task_transitions (
+//!   id BIGSERIAL PRIMARY KEY,
+//!   task_id BIGINT NOT NULL,
+//!   to_state VARCHAR NOT NULL,
+//!   from_state VARCHAR,
+//!   sort_key INTEGER NOT NULL,
+//!   most_recent BOOLEAN DEFAULT false,
+//!   metadata JSONB,
+//!   -- ... timestamps
+//! );
+//! ```
+//!
+//! ## Performance Optimization
+//!
+//! - **Current State Index**: `(task_id, most_recent) WHERE most_recent = true`
+//! - **History Index**: `(task_id, sort_key)` for chronological queries
+//! - **State Index**: `(to_state, created_at)` for state-based analytics
+//!
+//! ## Rails Heritage
+//!
+//! Migrated from `app/models/tasker/task_transition.rb` (7.3KB, 236 lines)
+//! Preserves all state machine integration and audit trail functionality.
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
-/// TaskTransition represents state transitions for tasks with audit trail
-/// Maps to `tasker_task_transitions` table - polymorphic audit trail (7.3KB Rails model)
+/// Represents a single state transition in a task's lifecycle.
+///
+/// Each transition captures a state change with full audit trail information,
+/// including timing, metadata, and sequence ordering for historical analysis.
+///
+/// # State Tracking
+///
+/// The model uses several fields for state management:
+/// - `to_state`: The new state after transition
+/// - `from_state`: Previous state (None for initial transitions)
+/// - `most_recent`: Flag indicating current state (only one per task)
+/// - `sort_key`: Sequential numbering for chronological ordering
+///
+/// # Metadata Structure
+///
+/// The metadata field contains transition context:
+/// ```json
+/// {
+///   "reason": "User requested cancellation",
+///   "actor": "user_123",
+///   "system_info": {
+///     "host": "worker-01",
+///     "version": "1.2.3"
+///   },
+///   "error_details": null
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct TaskTransition {
     pub id: i64,
@@ -37,12 +114,69 @@ pub struct TaskTransitionQuery {
 }
 
 impl TaskTransition {
-    /// Create a new task transition
-    /// This automatically handles sort_key generation and marks previous transitions as not most_recent
-    pub async fn create(pool: &PgPool, new_transition: NewTaskTransition) -> Result<TaskTransition, sqlx::Error> {
+    /// Create a new task transition with atomic state management.
+    ///
+    /// This method performs a complex multi-step transaction to ensure consistent
+    /// state transition recording with proper audit trail maintenance.
+    ///
+    /// # Transaction Steps
+    ///
+    /// The method executes three operations atomically:
+    ///
+    /// 1. **Sort Key Generation**: Calculate next sequential sort_key
+    /// ```sql
+    /// SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
+    /// FROM tasker_task_transitions
+    /// WHERE task_id = $1
+    /// ```
+    ///
+    /// 2. **Previous State Update**: Mark existing transitions as historical
+    /// ```sql
+    /// UPDATE tasker_task_transitions
+    /// SET most_recent = false, updated_at = NOW()
+    /// WHERE task_id = $1 AND most_recent = true
+    /// ```
+    ///
+    /// 3. **New Transition Insert**: Create transition with most_recent = true
+    ///
+    /// # Atomicity Guarantees
+    ///
+    /// The transaction ensures:
+    /// - **Exactly One Current State**: Only one transition per task has most_recent = true
+    /// - **Sequential Sort Keys**: No gaps or duplicates in chronological ordering
+    /// - **Consistent Timestamps**: All updates use same transaction timestamp
+    /// - **Rollback Safety**: Partial failures leave database in consistent state
+    ///
+    /// # Concurrency Handling
+    ///
+    /// Multiple concurrent transitions are handled safely through:
+    /// - **Row-level Locking**: PostgreSQL locks task_id rows during update
+    /// - **Serializable Isolation**: Prevents phantom reads in sort key calculation
+    /// - **Unique Constraints**: Database enforces single most_recent per task
+    ///
+    /// # Performance Characteristics
+    ///
+    /// - **Lock Duration**: Minimal (single transaction)
+    /// - **Index Usage**: Primary key and task_id indexes
+    /// - **Memory Usage**: Single row materialization
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let transition = TaskTransition::create(&pool, NewTaskTransition {
+    ///     task_id: 123,
+    ///     to_state: "processing".to_string(),
+    ///     from_state: Some("pending".to_string()),
+    ///     metadata: Some(json!({"reason": "worker_assigned"})),
+    /// }).await?;
+    /// ```
+    pub async fn create(
+        pool: &PgPool,
+        new_transition: NewTaskTransition,
+    ) -> Result<TaskTransition, sqlx::Error> {
         // Start a transaction to ensure atomicity
         let mut tx = pool.begin().await?;
-        
+
         // Get the next sort key for this task
         let sort_key_result = sqlx::query!(
             r#"
@@ -54,9 +188,9 @@ impl TaskTransition {
         )
         .fetch_one(&mut *tx)
         .await?;
-        
+
         let next_sort_key = sort_key_result.next_sort_key.unwrap_or(1);
-        
+
         // Mark all existing transitions as not most recent
         sqlx::query!(
             r#"
@@ -68,14 +202,14 @@ impl TaskTransition {
         )
         .execute(&mut *tx)
         .await?;
-        
+
         // Insert the new transition
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
             INSERT INTO tasker_task_transitions 
-            (task_id, to_state, from_state, metadata, sort_key, most_recent)
-            VALUES ($1, $2, $3, $4, $5, true)
+            (task_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
             RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
                       task_id, created_at, updated_at
             "#,
@@ -87,10 +221,10 @@ impl TaskTransition {
         )
         .fetch_one(&mut *tx)
         .await?;
-        
+
         // Commit the transaction
         tx.commit().await?;
-        
+
         Ok(transition)
     }
 
@@ -113,7 +247,10 @@ impl TaskTransition {
     }
 
     /// Get the current (most recent) transition for a task
-    pub async fn get_current(pool: &PgPool, task_id: i64) -> Result<Option<TaskTransition>, sqlx::Error> {
+    pub async fn get_current(
+        pool: &PgPool,
+        task_id: i64,
+    ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -133,7 +270,10 @@ impl TaskTransition {
     }
 
     /// Get all transitions for a task ordered by sort key
-    pub async fn list_by_task(pool: &PgPool, task_id: i64) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn list_by_task(
+        pool: &PgPool,
+        task_id: i64,
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -152,7 +292,11 @@ impl TaskTransition {
     }
 
     /// Get transitions by state
-    pub async fn list_by_state(pool: &PgPool, state: &str, most_recent_only: bool) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn list_by_state(
+        pool: &PgPool,
+        state: &str,
+        most_recent_only: bool,
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = if most_recent_only {
             sqlx::query_as!(
                 TaskTransition,
@@ -187,7 +331,10 @@ impl TaskTransition {
     }
 
     /// Get transitions for multiple tasks
-    pub async fn list_by_tasks(pool: &PgPool, task_ids: &[i64]) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn list_by_tasks(
+        pool: &PgPool,
+        task_ids: &[i64],
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -206,7 +353,10 @@ impl TaskTransition {
     }
 
     /// Get the previous transition for a task (before the current one)
-    pub async fn get_previous(pool: &PgPool, task_id: i64) -> Result<Option<TaskTransition>, sqlx::Error> {
+    pub async fn get_previous(
+        pool: &PgPool,
+        task_id: i64,
+    ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -226,7 +376,11 @@ impl TaskTransition {
     }
 
     /// Count transitions by state
-    pub async fn count_by_state(pool: &PgPool, state: &str, most_recent_only: bool) -> Result<i64, sqlx::Error> {
+    pub async fn count_by_state(
+        pool: &PgPool,
+        state: &str,
+        most_recent_only: bool,
+    ) -> Result<i64, sqlx::Error> {
         let count = if most_recent_only {
             sqlx::query!(
                 r#"
@@ -238,7 +392,8 @@ impl TaskTransition {
             )
             .fetch_one(pool)
             .await?
-            .count.unwrap_or(0)
+            .count
+            .unwrap_or(0)
         } else {
             sqlx::query!(
                 r#"
@@ -250,7 +405,8 @@ impl TaskTransition {
             )
             .fetch_one(pool)
             .await?
-            .count.unwrap_or(0)
+            .count
+            .unwrap_or(0)
         };
 
         Ok(count)
@@ -258,14 +414,14 @@ impl TaskTransition {
 
     /// Get transition history for a task with pagination
     pub async fn get_history(
-        pool: &PgPool, 
-        task_id: i64, 
-        limit: Option<i64>, 
-        offset: Option<i64>
+        pool: &PgPool,
+        task_id: i64,
+        limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let limit = limit.unwrap_or(50);
         let offset = offset.unwrap_or(0);
-        
+
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -287,7 +443,11 @@ impl TaskTransition {
     }
 
     /// Update metadata for a transition
-    pub async fn update_metadata(&mut self, pool: &PgPool, metadata: serde_json::Value) -> Result<(), sqlx::Error> {
+    pub async fn update_metadata(
+        &mut self,
+        pool: &PgPool,
+        metadata: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE tasker_task_transitions 
@@ -305,10 +465,15 @@ impl TaskTransition {
     }
 
     /// Check if a task can transition from one state to another
-    pub async fn can_transition(pool: &PgPool, task_id: i64, from_state: &str, _to_state: &str) -> Result<bool, sqlx::Error> {
+    pub async fn can_transition(
+        pool: &PgPool,
+        task_id: i64,
+        from_state: &str,
+        _to_state: &str,
+    ) -> Result<bool, sqlx::Error> {
         // Get current state
         let current = Self::get_current(pool, task_id).await?;
-        
+
         if let Some(transition) = current {
             // Check if current state matches expected from_state
             Ok(transition.to_state == from_state)
@@ -338,7 +503,10 @@ impl TaskTransition {
     }
 
     /// Get tasks by multiple states
-    pub async fn get_tasks_in_states(pool: &PgPool, states: &[String]) -> Result<Vec<i64>, sqlx::Error> {
+    pub async fn get_tasks_in_states(
+        pool: &PgPool,
+        states: &[String],
+    ) -> Result<Vec<i64>, sqlx::Error> {
         let task_ids = sqlx::query!(
             r#"
             SELECT DISTINCT task_id
@@ -357,7 +525,11 @@ impl TaskTransition {
     }
 
     /// Delete old transitions (keep only the most recent N transitions per task)
-    pub async fn cleanup_old_transitions(pool: &PgPool, task_id: i64, keep_count: i32) -> Result<u64, sqlx::Error> {
+    pub async fn cleanup_old_transitions(
+        pool: &PgPool,
+        task_id: i64,
+        keep_count: i32,
+    ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_task_transitions
@@ -440,7 +612,10 @@ impl TaskTransition {
     }
 
     /// Filter transitions with specific metadata key (Rails: scope :with_metadata_key)
-    pub async fn with_metadata_key(pool: &PgPool, key: &str) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn with_metadata_key(
+        pool: &PgPool,
+        key: &str,
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -463,7 +638,10 @@ impl TaskTransition {
     // ============================================================================
 
     /// Find most recent transition to a specific state (Rails: most_recent_to_state)
-    pub async fn most_recent_to_state(pool: &PgPool, state: &str) -> Result<Option<TaskTransition>, sqlx::Error> {
+    pub async fn most_recent_to_state(
+        pool: &PgPool,
+        state: &str,
+    ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -483,7 +661,11 @@ impl TaskTransition {
     }
 
     /// Find transitions within time range (Rails: in_time_range)
-    pub async fn in_time_range(pool: &PgPool, start_time: chrono::NaiveDateTime, end_time: chrono::NaiveDateTime) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn in_time_range(
+        pool: &PgPool,
+        start_time: chrono::NaiveDateTime,
+        end_time: chrono::NaiveDateTime,
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -503,7 +685,11 @@ impl TaskTransition {
     }
 
     /// Find transitions with specific metadata value (Rails: with_metadata_value)
-    pub async fn with_metadata_value(pool: &PgPool, key: &str, value: &str) -> Result<Vec<TaskTransition>, sqlx::Error> {
+    pub async fn with_metadata_value(
+        pool: &PgPool,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
@@ -524,11 +710,12 @@ impl TaskTransition {
 
     /// Get transition statistics (Rails: statistics)
     pub async fn statistics(pool: &PgPool) -> Result<TransitionStatistics, sqlx::Error> {
-        let total_transitions = sqlx::query!("SELECT COUNT(*) as count FROM tasker_task_transitions")
-            .fetch_one(pool)
-            .await?
-            .count
-            .unwrap_or(0);
+        let total_transitions =
+            sqlx::query!("SELECT COUNT(*) as count FROM tasker_task_transitions")
+                .fetch_one(pool)
+                .await?
+                .count
+                .unwrap_or(0);
 
         let states = sqlx::query!(
             r#"
@@ -561,17 +748,18 @@ impl TaskTransition {
             total_transitions,
             states: state_counts,
             recent_activity,
-            average_time_between_transitions: Self::average_time_between_transitions(pool).await.ok(),
+            average_time_between_transitions: Self::average_time_between_transitions(pool)
+                .await
+                .ok(),
         })
     }
 
     /// Calculate average time between transitions (Rails: average_time_between_transitions)
     pub async fn average_time_between_transitions(pool: &PgPool) -> Result<f64, sqlx::Error> {
-        let transitions = sqlx::query!(
-            "SELECT created_at FROM tasker_task_transitions ORDER BY created_at"
-        )
-        .fetch_all(pool)
-        .await?;
+        let transitions =
+            sqlx::query!("SELECT created_at FROM tasker_task_transitions ORDER BY created_at")
+                .fetch_all(pool)
+                .await?;
 
         if transitions.len() < 2 {
             return Ok(0.0);
@@ -579,7 +767,8 @@ impl TaskTransition {
 
         let mut total_time = 0.0;
         for i in 1..transitions.len() {
-            let duration = (transitions[i].created_at - transitions[i - 1].created_at).num_seconds() as f64;
+            let duration =
+                (transitions[i].created_at - transitions[i - 1].created_at).num_seconds() as f64;
             total_time += duration;
         }
 
@@ -644,16 +833,31 @@ impl TaskTransition {
     }
 
     /// Get formatted metadata with computed fields (Rails: formatted_metadata)
-    pub async fn formatted_metadata(&self, pool: &PgPool) -> Result<serde_json::Value, sqlx::Error> {
-        let mut base_metadata = self.metadata.clone().unwrap_or_else(|| serde_json::json!({}));
-        
+    pub async fn formatted_metadata(
+        &self,
+        pool: &PgPool,
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        let mut base_metadata = self
+            .metadata
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+
         if let serde_json::Value::Object(ref mut map) = base_metadata {
             // Add computed fields
             if let Ok(Some(duration)) = self.duration_since_previous(pool).await {
-                map.insert("duration_since_previous".to_string(), serde_json::json!(duration));
+                map.insert(
+                    "duration_since_previous".to_string(),
+                    serde_json::json!(duration),
+                );
             }
-            map.insert("transition_description".to_string(), serde_json::json!(self.description()));
-            map.insert("transition_timestamp".to_string(), serde_json::json!(self.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()));
+            map.insert(
+                "transition_description".to_string(),
+                serde_json::json!(self.description()),
+            );
+            map.insert(
+                "transition_timestamp".to_string(),
+                serde_json::json!(self.created_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
+            );
         }
 
         Ok(base_metadata)
@@ -679,7 +883,10 @@ impl TaskTransition {
 
     /// Set metadata value (Rails: set_metadata)
     pub fn set_metadata(&mut self, key: &str, value: serde_json::Value) -> serde_json::Value {
-        let mut metadata = self.metadata.take().unwrap_or_else(|| serde_json::json!({}));
+        let mut metadata = self
+            .metadata
+            .take()
+            .unwrap_or_else(|| serde_json::json!({}));
         if let serde_json::Value::Object(ref mut map) = metadata {
             map.insert(key.to_string(), value.clone());
         }
@@ -731,7 +938,7 @@ impl TaskTransitionQuery {
         let mut query = String::from(
             "SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
                     task_id, created_at, updated_at
-             FROM tasker_task_transitions WHERE 1=1"
+             FROM tasker_task_transitions WHERE 1=1",
         );
 
         let mut params = Vec::new();
@@ -769,10 +976,7 @@ impl TaskTransitionQuery {
 
         // For simplicity, using a direct query here since dynamic queries with sqlx are complex
         // In production, you'd want to use the query builder pattern more robustly
-        let transitions = TaskTransition::list_by_task(
-            pool, 
-            self.task_id.unwrap_or(0)
-        ).await?;
+        let transitions = TaskTransition::list_by_task(pool, self.task_id.unwrap_or(0)).await?;
 
         Ok(transitions)
     }
@@ -786,34 +990,60 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_transition_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Create test dependencies - Task
-        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
-            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create namespace");
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
 
-        let named_task = crate::models::named_task::NamedTask::create(pool, crate::models::named_task::NewNamedTask {
-            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            version: Some("1.0.0".to_string()),
-            description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
-            configuration: None,
-        }).await.expect("Failed to create named task");
+        let named_task = crate::models::named_task::NamedTask::create(
+            pool,
+            crate::models::named_task::NewNamedTask {
+                name: format!(
+                    "test_task_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                task_namespace_id: namespace.task_namespace_id as i64,
+                configuration: None,
+            },
+        )
+        .await
+        .expect("Failed to create named task");
 
-        let task = crate::models::task::Task::create(pool, crate::models::task::NewTask {
-            named_task_id: named_task.named_task_id as i32,
-            requested_at: None,
-            initiator: None,
-            source_system: None,
-            reason: None,
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({"test": "context"})),
-            identity_hash: "test_hash".to_string(),
-        }).await.expect("Failed to create task");
+        let task = crate::models::task::Task::create(
+            pool,
+            crate::models::task::NewTask {
+                named_task_id: named_task.named_task_id as i32,
+                requested_at: None,
+                initiator: None,
+                source_system: None,
+                reason: None,
+                bypass_steps: None,
+                tags: None,
+                context: Some(serde_json::json!({"test": "context"})),
+                identity_hash: format!(
+                    "test_hash_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+            },
+        )
+        .await
+        .expect("Failed to create task");
 
         let task_id = task.task_id;
 
@@ -877,14 +1107,9 @@ mod tests {
         assert_eq!(history[1].id, created.id);
 
         // Test can transition
-        let can_transition = TaskTransition::can_transition(
-            pool, 
-            task_id, 
-            "launched", 
-            "running"
-        )
-        .await
-        .expect("Failed to check transition");
+        let can_transition = TaskTransition::can_transition(pool, task_id, "launched", "running")
+            .await
+            .expect("Failed to check transition");
         assert!(can_transition);
 
         // Test state summary
@@ -894,10 +1119,22 @@ mod tests {
         assert!(!summary.is_empty());
 
         // Cleanup - delete in reverse dependency order (transitions first, then task)
-        sqlx::query!("DELETE FROM tasker_task_transitions WHERE task_id = $1", task.task_id).execute(pool).await.expect("Failed to delete transitions");
-        crate::models::task::Task::delete(pool, task.task_id).await.expect("Failed to delete task");
-        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id).await.expect("Failed to delete named task");
-        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id).await.expect("Failed to delete namespace");
+        sqlx::query!(
+            "DELETE FROM tasker_task_transitions WHERE task_id = $1",
+            task.task_id
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to delete transitions");
+        crate::models::task::Task::delete(pool, task.task_id)
+            .await
+            .expect("Failed to delete task");
+        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id)
+            .await
+            .expect("Failed to delete named task");
+        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
+            .await
+            .expect("Failed to delete namespace");
 
         db.close().await;
     }

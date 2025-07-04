@@ -1,25 +1,25 @@
-use async_trait::async_trait;
-use sqlx::PgPool;
-use serde_json::Value;
-use chrono::Utc;
-use crate::models::{Task, WorkflowStep};
-use crate::events::publisher::EventPublisher;
 use super::errors::{ActionError, ActionResult};
 use super::states::{TaskState, WorkflowStepState};
+use crate::events::publisher::EventPublisher;
+use crate::models::{Task, WorkflowStep};
+use async_trait::async_trait;
+use chrono::Utc;
+use serde_json::Value;
+use sqlx::PgPool;
 
 /// Trait for implementing state transition actions
 #[async_trait]
 pub trait StateAction<T> {
     /// Execute the action
     async fn execute(
-        &self, 
-        entity: &T, 
+        &self,
+        entity: &T,
         from_state: Option<String>,
         to_state: String,
         event: &str,
-        pool: &PgPool
+        pool: &PgPool,
     ) -> ActionResult<()>;
-    
+
     /// Get a description of this action for logging
     fn description(&self) -> &'static str;
 }
@@ -38,24 +38,26 @@ impl PublishTransitionEventAction {
 #[async_trait]
 impl StateAction<Task> for PublishTransitionEventAction {
     async fn execute(
-        &self, 
-        task: &Task, 
+        &self,
+        task: &Task,
         from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         let event_name = determine_task_event_name(&from_state, &to_state);
-        
+
         if let Some(event_name) = event_name {
             let context = build_task_event_context(task, &from_state, &to_state, event);
-            
-            self.event_publisher.publish(event_name, context).await
-                .map_err(|_| ActionError::EventPublishFailed { 
-                    event_name: event_name.to_string() 
+
+            self.event_publisher
+                .publish(event_name, context)
+                .await
+                .map_err(|_| ActionError::EventPublishFailed {
+                    event_name: event_name.to_string(),
                 })?;
         }
-        
+
         Ok(())
     }
 
@@ -67,24 +69,26 @@ impl StateAction<Task> for PublishTransitionEventAction {
 #[async_trait]
 impl StateAction<WorkflowStep> for PublishTransitionEventAction {
     async fn execute(
-        &self, 
-        step: &WorkflowStep, 
+        &self,
+        step: &WorkflowStep,
         from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         let event_name = determine_step_event_name(&from_state, &to_state);
-        
+
         if let Some(event_name) = event_name {
             let context = build_step_event_context(step, &from_state, &to_state, event);
-            
-            self.event_publisher.publish(event_name, context).await
-                .map_err(|_| ActionError::EventPublishFailed { 
-                    event_name: event_name.to_string() 
+
+            self.event_publisher
+                .publish(event_name, context)
+                .await
+                .map_err(|_| ActionError::EventPublishFailed {
+                    event_name: event_name.to_string(),
                 })?;
         }
-        
+
         Ok(())
     }
 
@@ -99,22 +103,19 @@ pub struct UpdateTaskCompletionAction;
 #[async_trait]
 impl StateAction<Task> for UpdateTaskCompletionAction {
     async fn execute(
-        &self, 
-        task: &Task, 
+        &self,
+        task: &Task,
         _from_state: Option<String>,
         to_state: String,
         _event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == TaskState::Complete.to_string() {
             // Log the completion for now - actual database updates will be handled
             // by the transition persistence layer and separate update operations
-            tracing::info!(
-                task_id = task.task_id,
-                "Task marked as complete"
-            );
+            tracing::info!(task_id = task.task_id, "Task marked as complete");
         }
-        
+
         Ok(())
     }
 
@@ -129,17 +130,17 @@ pub struct UpdateStepResultsAction;
 #[async_trait]
 impl StateAction<WorkflowStep> for UpdateStepResultsAction {
     async fn execute(
-        &self, 
-        step: &WorkflowStep, 
+        &self,
+        step: &WorkflowStep,
         _from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == WorkflowStepState::Complete.to_string() {
             // Extract results from event if available
             let results = extract_results_from_event(event)?;
-            
+
             // Log the completion for now - actual database updates will be handled
             // by the transition persistence layer and separate update operations
             tracing::info!(
@@ -149,7 +150,7 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
                 "Step marked as complete with results"
             );
         }
-        
+
         Ok(())
     }
 
@@ -172,12 +173,12 @@ impl TriggerStepDiscoveryAction {
 #[async_trait]
 impl StateAction<WorkflowStep> for TriggerStepDiscoveryAction {
     async fn execute(
-        &self, 
-        step: &WorkflowStep, 
+        &self,
+        step: &WorkflowStep,
         _from_state: Option<String>,
         to_state: String,
         _event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == WorkflowStepState::Complete.to_string() {
             // Trigger discovery of newly viable steps
@@ -186,13 +187,15 @@ impl StateAction<WorkflowStep> for TriggerStepDiscoveryAction {
                 "completed_step_id": step.workflow_step_id,
                 "triggered_at": Utc::now()
             });
-            
-            self.event_publisher.publish("step.discovery_triggered", context).await
-                .map_err(|_| ActionError::EventPublishFailed { 
-                    event_name: "step.discovery_triggered".to_string() 
+
+            self.event_publisher
+                .publish("step.discovery_triggered", context)
+                .await
+                .map_err(|_| ActionError::EventPublishFailed {
+                    event_name: "step.discovery_triggered".to_string(),
                 })?;
         }
-        
+
         Ok(())
     }
 
@@ -207,17 +210,17 @@ pub struct ErrorStateCleanupAction;
 #[async_trait]
 impl StateAction<Task> for ErrorStateCleanupAction {
     async fn execute(
-        &self, 
-        task: &Task, 
+        &self,
+        task: &Task,
         _from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == TaskState::Error.to_string() {
             // Extract error message from event for logging
             let error_message = extract_error_from_event(event);
-            
+
             // Log the error for debugging (error details will be stored in transition metadata)
             tracing::error!(
                 task_id = task.task_id,
@@ -225,7 +228,7 @@ impl StateAction<Task> for ErrorStateCleanupAction {
                 "Task transitioned to error state"
             );
         }
-        
+
         Ok(())
     }
 
@@ -237,16 +240,16 @@ impl StateAction<Task> for ErrorStateCleanupAction {
 #[async_trait]
 impl StateAction<WorkflowStep> for ErrorStateCleanupAction {
     async fn execute(
-        &self, 
-        step: &WorkflowStep, 
+        &self,
+        step: &WorkflowStep,
         _from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool
+        _pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == WorkflowStepState::Error.to_string() {
             let error_message = extract_error_from_event(event);
-            
+
             // Log the error for debugging (error details will be stored in transition metadata)
             tracing::error!(
                 step_id = step.workflow_step_id,
@@ -255,7 +258,7 @@ impl StateAction<WorkflowStep> for ErrorStateCleanupAction {
                 "Workflow step transitioned to error state"
             );
         }
-        
+
         Ok(())
     }
 
@@ -291,10 +294,10 @@ fn determine_step_event_name(from_state: &Option<String>, to_state: &str) -> Opt
 }
 
 fn build_task_event_context(
-    task: &Task, 
-    from_state: &Option<String>, 
-    to_state: &str, 
-    event: &str
+    task: &Task,
+    from_state: &Option<String>,
+    to_state: &str,
+    event: &str,
 ) -> Value {
     serde_json::json!({
         "task_id": task.task_id,
@@ -308,10 +311,10 @@ fn build_task_event_context(
 }
 
 fn build_step_event_context(
-    step: &WorkflowStep, 
-    from_state: &Option<String>, 
-    to_state: &str, 
-    event: &str
+    step: &WorkflowStep,
+    from_state: &Option<String>,
+    to_state: &str,
+    event: &str,
 ) -> Value {
     serde_json::json!({
         "task_id": step.task_id,
@@ -341,7 +344,7 @@ fn extract_error_from_event(event: &str) -> Option<String> {
             return error.as_str().map(|s| s.to_string());
         }
     }
-    
+
     // Fallback: use the event string itself as error message
     Some(event.to_string())
 }
@@ -353,22 +356,22 @@ mod tests {
     #[test]
     fn test_event_name_determination() {
         assert_eq!(
-            determine_task_event_name(&None, "in_progress"), 
+            determine_task_event_name(&None, "in_progress"),
             Some("task.started")
         );
-        
+
         assert_eq!(
-            determine_task_event_name(&Some("pending".to_string()), "complete"), 
+            determine_task_event_name(&Some("pending".to_string()), "complete"),
             Some("task.completed")
         );
-        
+
         assert_eq!(
-            determine_task_event_name(&Some("error".to_string()), "pending"), 
+            determine_task_event_name(&Some("error".to_string()), "pending"),
             Some("task.reset")
         );
-        
+
         assert_eq!(
-            determine_step_event_name(&None, "complete"), 
+            determine_step_event_name(&None, "complete"),
             Some("step.completed")
         );
     }
@@ -377,13 +380,13 @@ mod tests {
     fn test_error_extraction() {
         let event_with_error = r#"{"error": "Database connection failed"}"#;
         assert_eq!(
-            extract_error_from_event(event_with_error), 
+            extract_error_from_event(event_with_error),
             Some("Database connection failed".to_string())
         );
-        
+
         let plain_error = "Simple error message";
         assert_eq!(
-            extract_error_from_event(plain_error), 
+            extract_error_from_event(plain_error),
             Some("Simple error message".to_string())
         );
     }
@@ -393,7 +396,7 @@ mod tests {
         let event_with_results = r#"{"results": {"count": 42, "status": "ok"}}"#;
         let results = extract_results_from_event(event_with_results).unwrap();
         assert!(results.is_some());
-        
+
         let parsed_results = results.unwrap();
         assert_eq!(parsed_results["count"], 42);
     }

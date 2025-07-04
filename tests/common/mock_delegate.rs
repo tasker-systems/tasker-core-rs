@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Mock delegate for testing delegation patterns
@@ -70,7 +70,9 @@ impl MockDelegate {
 
     /// Check if a specific step was executed
     pub fn was_step_executed(&self, step_id: Uuid) -> bool {
-        self.executed_steps.iter().any(|exec| exec.step_id == step_id)
+        self.executed_steps
+            .iter()
+            .any(|exec| exec.step_id == step_id)
     }
 
     /// Get the number of times a handler class was executed
@@ -140,7 +142,7 @@ mod tests {
     fn test_mock_delegate_execution_tracking() {
         let mut delegate = MockDelegate::new();
         let step_id = Uuid::new_v4();
-        
+
         // Configure a mock result
         delegate.mock_step_result(
             "TestHandler",
@@ -148,20 +150,13 @@ mod tests {
         );
 
         // Execute a step
-        let result = delegate.execute_step(
-            step_id,
-            "TestHandler",
-            json!({"input": "test_input"}),
-        );
+        let result = delegate.execute_step(step_id, "TestHandler", json!({"input": "test_input"}));
 
         // Verify execution was tracked
         assert!(delegate.was_step_executed(step_id));
         assert_eq!(delegate.execution_count_for_handler("TestHandler"), 1);
         assert!(result.success);
-        assert_eq!(
-            result.result_context,
-            Some(json!({"result": "test_data"}))
-        );
+        assert_eq!(result.result_context, Some(json!({"result": "test_data"})));
     }
 
     #[test]
@@ -189,13 +184,12 @@ mod tests {
             MockDelegate::error_result("Something went wrong"),
         );
 
-        let result = delegate.execute_step(
-            Uuid::new_v4(),
-            "FailingHandler",
-            json!({}),
-        );
+        let result = delegate.execute_step(Uuid::new_v4(), "FailingHandler", json!({}));
 
         assert!(!result.success);
-        assert_eq!(result.error_message, Some("Something went wrong".to_string()));
+        assert_eq!(
+            result.error_message,
+            Some("Something went wrong".to_string())
+        );
     }
 }

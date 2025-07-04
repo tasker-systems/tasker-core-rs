@@ -1,0 +1,453 @@
+# Comprehensive CI/CD Pipeline for Tasker Core Rust
+# Based on Rust best practices and Rails engine patterns
+name: "Tasker Core Rust CI"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Code Quality and Linting
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: quality
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items
+
+  # Security audit
+  security:
+    name: Security Audit
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+  # Build and test matrix
+  test:
+    name: Test (Rust ${{ matrix.rust-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-version: ['stable', 'beta']
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+        include:
+          # Test MSRV (Minimum Supported Rust Version)
+          - rust-version: '1.75.0'  # SQLx minimum
+            os: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-version }}
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.rust-version }}-${{ matrix.os }}
+
+      - name: Install PostgreSQL client (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install PostgreSQL client (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install postgresql
+
+      - name: Install PostgreSQL client (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install postgresql --params '/Password:test_password' --no-progress
+          echo "C:\Program Files\PostgreSQL\16\bin" >> $GITHUB_PATH
+
+      - name: Set up database (Ubuntu/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          # Wait for PostgreSQL to be ready
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Set up database (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          # Use different approach for Windows
+          $env:PGPASSWORD = "test_password"
+          do {
+            Start-Sleep -Seconds 2
+            $result = & pg_isready -h localhost -p 5432 -U tasker_core_test 2>$null
+          } while ($LASTEXITCODE -ne 0)
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Run database migrations
+        run: sqlx migrate run
+
+      - name: Build project
+        run: cargo build --verbose --all-features
+
+      - name: Run lib tests
+        run: cargo test --lib --verbose
+
+      - name: Run integration tests
+        run: cargo test --test '*' --verbose
+
+      - name: Run doctests
+        run: cargo test --doc --verbose
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.rust-version }}-${{ matrix.os }}
+          path: target/debug/deps/
+
+  # SQLx compile-time verification
+  sqlx-check:
+    name: SQLx Compile-time Verification
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: sqlx-check
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Run database migrations
+        run: sqlx migrate run
+
+      - name: Generate SQLx metadata
+        run: cargo sqlx prepare
+
+      - name: Verify SQLx queries
+        run: cargo check --features sqlx-offline
+
+  # Performance benchmarks
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Run benchmarks
+        run: cargo bench --verbose
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: target/criterion/
+
+  # Example validation (similar to Rails template validation)
+  validate-examples:
+    name: Validate Examples and Demos
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: examples
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Validate Query Builder Demo
+        run: |
+          echo "🔧 Running query builder demonstration..."
+          cargo run --example query_builder_demo
+
+      - name: Validate SQL Functions Demo
+        run: |
+          echo "🗄️ Running SQL functions demonstration..."
+          cargo run --example sql_functions_demo
+
+      - name: Validate Model Verification
+        run: |
+          echo "📋 Running model verification..."
+          cargo run --example verify_models
+
+      - name: Build all examples
+        run: |
+          echo "🏗️ Building all examples..."
+          cargo build --examples --verbose
+
+  # Coverage reporting
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker_core_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: tasker_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+      CARGO_INCREMENTAL: 0
+      RUSTFLAGS: -Cinstrument-coverage
+      LLVM_PROFILE_FILE: cargo-test-%p-%m.profraw
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Generate coverage report
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+
+  # Final status check
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-22.04
+    needs: [quality, security, test, sqlx-check, validate-examples]
+    if: always()
+
+    steps:
+      - name: Check all jobs
+        run: |
+          echo "Quality: ${{ needs.quality.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          echo "Test: ${{ needs.test.result }}"
+          echo "SQLx Check: ${{ needs.sqlx-check.result }}"
+          echo "Validate Examples: ${{ needs.validate-examples.result }}"
+
+          if [[ "${{ needs.quality.result }}" != "success" ||
+                "${{ needs.security.result }}" != "success" ||
+                "${{ needs.test.result }}" != "success" ||
+                "${{ needs.sqlx-check.result }}" != "success" ||
+                "${{ needs.validate-examples.result }}" != "success" ]]; then
+            echo "❌ One or more required jobs failed"
+            exit 1
+          else
+            echo "✅ All required jobs passed"
+          fi

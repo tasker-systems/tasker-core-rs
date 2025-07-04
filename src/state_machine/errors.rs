@@ -99,19 +99,25 @@ pub enum PersistenceError {
 
 impl From<GuardError> for StateMachineError {
     fn from(err: GuardError) -> Self {
-        Self::GuardFailed { reason: err.to_string() }
+        Self::GuardFailed {
+            reason: err.to_string(),
+        }
     }
 }
 
 impl From<ActionError> for StateMachineError {
     fn from(err: ActionError) -> Self {
-        Self::ActionFailed { reason: err.to_string() }
+        Self::ActionFailed {
+            reason: err.to_string(),
+        }
     }
 }
 
 impl From<PersistenceError> for StateMachineError {
     fn from(err: PersistenceError) -> Self {
-        Self::PersistenceFailed { reason: err.to_string() }
+        Self::PersistenceFailed {
+            reason: err.to_string(),
+        }
     }
 }
 
@@ -128,7 +134,9 @@ pub fn internal_error(msg: impl Into<String>) -> StateMachineError {
 
 /// Helper function to create guard dependency errors
 pub fn dependencies_not_met(reason: impl Into<String>) -> GuardError {
-    GuardError::DependenciesNotMet { reason: reason.into() }
+    GuardError::DependenciesNotMet {
+        reason: reason.into(),
+    }
 }
 
 /// Helper function to create business rule violations
@@ -144,7 +152,7 @@ mod tests {
     fn test_error_chain() {
         let guard_err = dependencies_not_met("All steps must be complete");
         let sm_err: StateMachineError = guard_err.into();
-        
+
         match sm_err {
             StateMachineError::GuardFailed { reason } => {
                 assert!(reason.contains("Dependencies not satisfied"));
@@ -158,7 +166,9 @@ mod tests {
         let err = PersistenceError::StateResolutionFailed { entity_id: 123 };
         assert_eq!(err.to_string(), "Failed to resolve current state: 123");
 
-        let err = ActionError::EventPublishFailed { event_name: "task.completed".to_string() };
+        let err = ActionError::EventPublishFailed {
+            event_name: "task.completed".to_string(),
+        };
         assert_eq!(err.to_string(), "Event publishing failed: task.completed");
     }
 }

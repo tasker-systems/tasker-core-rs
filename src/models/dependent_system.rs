@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
@@ -9,8 +9,8 @@ pub struct DependentSystem {
     pub dependent_system_id: i32,
     pub name: String,
     pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// New DependentSystem for creation
@@ -22,12 +22,15 @@ pub struct NewDependentSystem {
 
 impl DependentSystem {
     /// Create a new dependent system
-    pub async fn create(pool: &PgPool, new_system: NewDependentSystem) -> Result<DependentSystem, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_system: NewDependentSystem,
+    ) -> Result<DependentSystem, sqlx::Error> {
         let system = sqlx::query_as!(
             DependentSystem,
             r#"
-            INSERT INTO tasker_dependent_systems (name, description)
-            VALUES ($1, $2)
+            INSERT INTO tasker_dependent_systems (name, description, created_at, updated_at)
+            VALUES ($1, $2, NOW(), NOW())
             RETURNING dependent_system_id, name, description, created_at, updated_at
             "#,
             new_system.name,
@@ -40,7 +43,10 @@ impl DependentSystem {
     }
 
     /// Find a dependent system by ID
-    pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<DependentSystem>, sqlx::Error> {
+    pub async fn find_by_id(
+        pool: &PgPool,
+        id: i32,
+    ) -> Result<Option<DependentSystem>, sqlx::Error> {
         let system = sqlx::query_as!(
             DependentSystem,
             r#"
@@ -57,7 +63,10 @@ impl DependentSystem {
     }
 
     /// Find a dependent system by name
-    pub async fn find_by_name(pool: &PgPool, name: &str) -> Result<Option<DependentSystem>, sqlx::Error> {
+    pub async fn find_by_name(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<Option<DependentSystem>, sqlx::Error> {
         let system = sqlx::query_as!(
             DependentSystem,
             r#"
@@ -74,7 +83,10 @@ impl DependentSystem {
     }
 
     /// Find or create by name (Rails find_or_create_by! equivalent)
-    pub async fn find_or_create_by_name(pool: &PgPool, name: &str) -> Result<DependentSystem, sqlx::Error> {
+    pub async fn find_or_create_by_name(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<DependentSystem, sqlx::Error> {
         // First try to find existing system
         if let Some(existing) = Self::find_by_name(pool, name).await? {
             return Ok(existing);
@@ -90,7 +102,9 @@ impl DependentSystem {
             Ok(system) => Ok(system),
             Err(sqlx::Error::Database(ref db_err)) if db_err.code().as_deref() == Some("23505") => {
                 // Unique constraint violation - try to find it again
-                Self::find_by_name(pool, name).await?.ok_or(sqlx::Error::RowNotFound)
+                Self::find_by_name(pool, name)
+                    .await?
+                    .ok_or(sqlx::Error::RowNotFound)
             }
             Err(e) => Err(e),
         }
@@ -98,9 +112,9 @@ impl DependentSystem {
 
     /// Find or create by name with description
     pub async fn find_or_create_by_name_with_description(
-        pool: &PgPool, 
-        name: &str, 
-        description: Option<String>
+        pool: &PgPool,
+        name: &str,
+        description: Option<String>,
     ) -> Result<DependentSystem, sqlx::Error> {
         // First try to find existing system
         if let Some(existing) = Self::find_by_name(pool, name).await? {
@@ -117,7 +131,9 @@ impl DependentSystem {
             Ok(system) => Ok(system),
             Err(sqlx::Error::Database(ref db_err)) if db_err.code().as_deref() == Some("23505") => {
                 // Unique constraint violation - try to find it again
-                Self::find_by_name(pool, name).await?.ok_or(sqlx::Error::RowNotFound)
+                Self::find_by_name(pool, name)
+                    .await?
+                    .ok_or(sqlx::Error::RowNotFound)
             }
             Err(e) => Err(e),
         }
@@ -222,7 +238,7 @@ impl DependentSystem {
         Ok(count.unwrap_or(0) == 0)
     }
 
-    /// Get dependent system object maps for this system
+    /// Get dependent system object maps for this system (bidirectional search)
     pub async fn get_object_maps(&self, pool: &PgPool) -> Result<Vec<i64>, sqlx::Error> {
         let map_ids = sqlx::query!(
             r#"
@@ -273,13 +289,17 @@ impl DependentSystem {
         )
         .fetch_one(pool)
         .await?
-        .count.unwrap_or(0);
+        .count
+        .unwrap_or(0);
 
         Ok(count)
     }
 
     /// Search dependent systems by name pattern
-    pub async fn search_by_name(pool: &PgPool, pattern: &str) -> Result<Vec<DependentSystem>, sqlx::Error> {
+    pub async fn search_by_name(
+        pool: &PgPool,
+        pattern: &str,
+    ) -> Result<Vec<DependentSystem>, sqlx::Error> {
         let systems = sqlx::query_as!(
             DependentSystem,
             r#"
@@ -297,9 +317,12 @@ impl DependentSystem {
     }
 
     /// Get usage statistics for this dependent system
-    pub async fn get_usage_stats(&self, pool: &PgPool) -> Result<DependentSystemStats, sqlx::Error> {
+    pub async fn get_usage_stats(
+        &self,
+        pool: &PgPool,
+    ) -> Result<DependentSystemStats, sqlx::Error> {
         let named_steps_count = self.count_named_steps(pool).await?;
-        
+
         let object_maps_count = sqlx::query!(
             r#"
             SELECT COUNT(*) as count
@@ -310,7 +333,8 @@ impl DependentSystem {
         )
         .fetch_one(pool)
         .await?
-        .count.unwrap_or(0);
+        .count
+        .unwrap_or(0);
 
         Ok(DependentSystemStats {
             named_steps_count,
@@ -333,12 +357,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_dependent_system_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Test creation
         let new_system = NewDependentSystem {
-            name: format!("test_system_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            name: format!(
+                "test_system_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
             description: Some("Test system description".to_string()),
         };
 
@@ -346,7 +375,10 @@ mod tests {
             .await
             .expect("Failed to create dependent system");
         assert!(created.name.starts_with("test_system_"));
-        assert_eq!(created.description, Some("Test system description".to_string()));
+        assert_eq!(
+            created.description,
+            Some("Test system description".to_string())
+        );
 
         // Test find by ID
         let found = DependentSystem::find_by_id(pool, created.dependent_system_id)
@@ -360,16 +392,25 @@ mod tests {
             .await
             .expect("Failed to find system by name")
             .expect("System not found by name");
-        assert_eq!(found_by_name.dependent_system_id, created.dependent_system_id);
+        assert_eq!(
+            found_by_name.dependent_system_id,
+            created.dependent_system_id
+        );
 
         // Test find_or_create_by_name (should find existing)
         let found_or_created = DependentSystem::find_or_create_by_name(pool, &created.name)
             .await
             .expect("Failed to find or create system");
-        assert_eq!(found_or_created.dependent_system_id, created.dependent_system_id);
+        assert_eq!(
+            found_or_created.dependent_system_id,
+            created.dependent_system_id
+        );
 
         // Test find_or_create_by_name (should create new)
-        let new_system_name = format!("test_system_2_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        let new_system_name = format!(
+            "test_system_2_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
         let new_system2 = DependentSystem::find_or_create_by_name(pool, &new_system_name)
             .await
             .expect("Failed to create new system");
@@ -389,7 +430,12 @@ mod tests {
 
         // Test update
         let mut system = created.clone();
-        system.update(pool, Some("updated_test_system"), Some("Updated description"))
+        system
+            .update(
+                pool,
+                Some("updated_test_system"),
+                Some("Updated description"),
+            )
             .await
             .expect("Failed to update system");
         assert_eq!(system.name, "updated_test_system");
@@ -408,7 +454,8 @@ mod tests {
         assert!(!search_results.is_empty());
 
         // Test usage stats
-        let stats = system.get_usage_stats(pool)
+        let stats = system
+            .get_usage_stats(pool)
             .await
             .expect("Failed to get usage stats");
         assert_eq!(stats.named_steps_count, 0); // No named steps yet

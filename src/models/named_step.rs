@@ -7,9 +7,9 @@ use sqlx::{FromRow, PgPool};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedStep {
     pub named_step_id: i32,
-    pub dependent_system_id: i32,
-    pub name: String,
-    pub description: Option<String>,
+    pub dependent_system_id: i32,    // NOT NULL in actual schema
+    pub name: String,                // max 128 chars
+    pub description: Option<String>, // max 255 chars
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -17,7 +17,7 @@ pub struct NamedStep {
 /// New NamedStep for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewNamedStep {
-    pub dependent_system_id: i32,
+    pub dependent_system_id: i32, // Required field
     pub name: String,
     pub description: Option<String>,
 }
@@ -28,8 +28,8 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (dependent_system_id, name, description)
-            VALUES ($1, $2, $3)
+            INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
             RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
             "#,
             new_step.dependent_system_id,
@@ -42,7 +42,7 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// Find a named step by ID
+    /// Find step by ID
     pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
@@ -59,28 +59,11 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// Find a named step by name
-    pub async fn find_by_name(
+    /// Find steps by dependent system
+    pub async fn find_by_system(
         pool: &PgPool,
-        name: &str,
-    ) -> Result<Option<NamedStep>, sqlx::Error> {
-        let step = sqlx::query_as!(
-            NamedStep,
-            r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
-            FROM tasker_named_steps
-            WHERE name = $1
-            "#,
-            name
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(step)
-    }
-
-    /// Find all named steps by dependent system
-    pub async fn find_by_dependent_system(pool: &PgPool, system_id: i32) -> Result<Vec<NamedStep>, sqlx::Error> {
+        system_id: i32,
+    ) -> Result<Vec<NamedStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
@@ -97,15 +80,17 @@ impl NamedStep {
         Ok(steps)
     }
 
-    /// List all named steps
-    pub async fn list_all(pool: &PgPool) -> Result<Vec<NamedStep>, sqlx::Error> {
+    /// Find steps by name
+    pub async fn find_by_name(pool: &PgPool, name: &str) -> Result<Vec<NamedStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
             SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
             FROM tasker_named_steps
-            ORDER BY name
-            "#
+            WHERE name = $1
+            ORDER BY created_at
+            "#,
+            name
         )
         .fetch_all(pool)
         .await?;
@@ -113,31 +98,51 @@ impl NamedStep {
         Ok(steps)
     }
 
+    /// Find step by system and name (uses unique constraint)
+    pub async fn find_by_system_and_name(
+        pool: &PgPool,
+        system_id: i32,
+        name: &str,
+    ) -> Result<Option<NamedStep>, sqlx::Error> {
+        let step = sqlx::query_as!(
+            NamedStep,
+            r#"
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            FROM tasker_named_steps
+            WHERE dependent_system_id = $1 AND name = $2
+            "#,
+            system_id,
+            name
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(step)
+    }
+
     /// Update a named step
     pub async fn update(
         pool: &PgPool,
         id: i32,
-        name: Option<&str>,
-        description: Option<&str>,
-        dependent_system_id: Option<i32>,
-    ) -> Result<NamedStep, sqlx::Error> {
+        new_step: NewNamedStep,
+    ) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            UPDATE tasker_named_steps
-            SET name = COALESCE($2, name),
-                description = COALESCE($3, description),
-                dependent_system_id = COALESCE($4, dependent_system_id),
+            UPDATE tasker_named_steps 
+            SET dependent_system_id = $2,
+                name = $3,
+                description = $4,
                 updated_at = NOW()
             WHERE named_step_id = $1
             RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
             "#,
             id,
-            name,
-            description,
-            dependent_system_id
+            new_step.dependent_system_id,
+            new_step.name,
+            new_step.description
         )
-        .fetch_one(pool)
+        .fetch_optional(pool)
         .await?;
 
         Ok(step)
@@ -146,10 +151,7 @@ impl NamedStep {
     /// Delete a named step
     pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            r#"
-            DELETE FROM tasker_named_steps
-            WHERE named_step_id = $1
-            "#,
+            "DELETE FROM tasker_named_steps WHERE named_step_id = $1",
             id
         )
         .execute(pool)
@@ -158,45 +160,86 @@ impl NamedStep {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Check if name is unique (since there's no version)
-    pub async fn is_name_unique(
+    /// Create or find existing step (idempotent)
+    pub async fn find_or_create(
         pool: &PgPool,
-        name: &str,
-        exclude_id: Option<i32>,
-    ) -> Result<bool, sqlx::Error> {
-        let count = if let Some(id) = exclude_id {
-            sqlx::query!(
-                r#"
-                SELECT COUNT(*) as count
-                FROM tasker_named_steps
-                WHERE name = $1 AND named_step_id != $2
-                "#,
-                name,
-                id
-            )
-            .fetch_one(pool)
-            .await?
-            .count
-        } else {
-            sqlx::query!(
-                r#"
-                SELECT COUNT(*) as count
-                FROM tasker_named_steps
-                WHERE name = $1
-                "#,
-                name
-            )
-            .fetch_one(pool)
-            .await?
-            .count
-        };
+        new_step: NewNamedStep,
+    ) -> Result<NamedStep, sqlx::Error> {
+        // Try to find existing step first
+        if let Some(existing) =
+            Self::find_by_system_and_name(pool, new_step.dependent_system_id, &new_step.name)
+                .await?
+        {
+            return Ok(existing);
+        }
 
-        Ok(count.unwrap_or(0) == 0)
+        // Create new step if not found
+        Self::create(pool, new_step).await
     }
 
-    /// Get step identifier for delegation
-    pub fn get_step_identifier(&self) -> String {
-        format!("{}:{}", self.name, self.dependent_system_id)
+    /// List all steps with pagination
+    pub async fn list_all(
+        pool: &PgPool,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<Vec<NamedStep>, sqlx::Error> {
+        let offset_val = offset.unwrap_or(0);
+        let limit_val = limit.unwrap_or(50);
+
+        let steps = sqlx::query_as!(
+            NamedStep,
+            r#"
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            FROM tasker_named_steps
+            ORDER BY name
+            LIMIT $1 OFFSET $2
+            "#,
+            limit_val as i64,
+            offset_val as i64
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
+    }
+
+    /// Count steps by system
+    pub async fn count_by_system(pool: &PgPool, system_id: i32) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query!(
+            "SELECT COUNT(*) as count FROM tasker_named_steps WHERE dependent_system_id = $1",
+            system_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(count.count.unwrap_or(0))
+    }
+
+    /// Search steps by name pattern
+    pub async fn search_by_name(
+        pool: &PgPool,
+        pattern: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<NamedStep>, sqlx::Error> {
+        let limit_val = limit.unwrap_or(20);
+        let search_pattern = format!("%{}%", pattern);
+
+        let steps = sqlx::query_as!(
+            NamedStep,
+            r#"
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            FROM tasker_named_steps
+            WHERE name ILIKE $1
+            ORDER BY name
+            LIMIT $2
+            "#,
+            search_pattern,
+            limit_val as i64
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 }
 
@@ -207,68 +250,126 @@ mod tests {
 
     #[tokio::test]
     async fn test_named_step_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
+        // Create test system first
+        let system = crate::models::dependent_system::DependentSystem::find_or_create_by_name(
+            pool,
+            &format!(
+                "test_system_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
+        )
+        .await
+        .expect("Failed to create system");
+
         // Test creation
-        let step_name = format!("test_step_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let new_step = NewNamedStep {
-            dependent_system_id: 1,
-            name: step_name.clone(),
+            dependent_system_id: system.dependent_system_id,
+            name: format!(
+                "test_step_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
             description: Some("Test step description".to_string()),
         };
 
-        let created = NamedStep::create(pool, new_step).await.expect("Failed to create step");
-        assert_eq!(created.name, step_name);
-        assert_eq!(created.dependent_system_id, 1);
+        let step = NamedStep::create(pool, new_step.clone())
+            .await
+            .expect("Failed to create step");
+        assert_eq!(step.dependent_system_id, system.dependent_system_id);
+        assert_eq!(step.description, Some("Test step description".to_string()));
 
         // Test find by ID
-        let found = NamedStep::find_by_id(pool, created.named_step_id)
+        let found = NamedStep::find_by_id(pool, step.named_step_id)
             .await
-            .expect("Failed to find step")
-            .expect("Step not found");
-        assert_eq!(found.named_step_id, created.named_step_id);
+            .expect("Failed to find step");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, step.name);
 
-        // Test find by name
-        let found_by_name = NamedStep::find_by_name(pool, &step_name)
+        // Test find by system and name
+        let found_specific =
+            NamedStep::find_by_system_and_name(pool, system.dependent_system_id, &step.name)
+                .await
+                .expect("Failed to find specific step");
+        assert!(found_specific.is_some());
+
+        // Test find_or_create (should find existing)
+        let found_or_created = NamedStep::find_or_create(pool, new_step)
             .await
-            .expect("Failed to find step by name")
-            .expect("Step not found by name");
-        assert_eq!(found_by_name.named_step_id, created.named_step_id);
+            .expect("Failed to find or create");
+        assert_eq!(found_or_created.named_step_id, step.named_step_id);
 
-        // Test name uniqueness
-        let is_unique = NamedStep::is_name_unique(pool, "test_step_unique", None)
+        // Test find by system
+        let system_steps = NamedStep::find_by_system(pool, system.dependent_system_id)
             .await
-            .expect("Failed to check uniqueness");
-        assert!(is_unique);
+            .expect("Failed to find steps by system");
+        assert!(!system_steps.is_empty());
 
-        let is_not_unique = NamedStep::is_name_unique(pool, &step_name, None)
+        // Test search by name
+        let search_results = NamedStep::search_by_name(pool, "test", Some(10))
             .await
-            .expect("Failed to check uniqueness");
-        assert!(!is_not_unique);
+            .expect("Failed to search steps");
+        assert!(!search_results.is_empty());
 
-        // Test update
-        let updated = NamedStep::update(
-            pool,
-            created.named_step_id,
-            Some("updated_test_step"),
-            Some("Updated description"),
-            None,
-        )
-        .await
-        .expect("Failed to update step");
-        assert_eq!(updated.name, "updated_test_step");
-        assert_eq!(updated.description, Some("Updated description".to_string()));
+        // Test count by system
+        let count = NamedStep::count_by_system(pool, system.dependent_system_id)
+            .await
+            .expect("Failed to count steps");
+        assert!(count > 0);
 
-        // Test delegation methods
-        assert_eq!(updated.get_step_identifier(), "updated_test_step:1");
-
-        // Test deletion
-        let deleted = NamedStep::delete(pool, created.named_step_id)
+        // Cleanup
+        let deleted = NamedStep::delete(pool, step.named_step_id)
             .await
             .expect("Failed to delete step");
         assert!(deleted);
+    }
 
-        db.close().await;
+    #[tokio::test]
+    async fn test_unique_constraint() {
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
+        let pool = db.pool();
+
+        let system = crate::models::dependent_system::DependentSystem::find_or_create_by_name(
+            pool,
+            &format!(
+                "test_system_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
+        )
+        .await
+        .expect("Failed to create system");
+
+        let step_name = format!(
+            "unique_test_step_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+
+        // Create first step
+        let new_step = NewNamedStep {
+            dependent_system_id: system.dependent_system_id,
+            name: step_name.clone(),
+            description: None,
+        };
+
+        let step1 = NamedStep::create(pool, new_step.clone())
+            .await
+            .expect("Failed to create first step");
+
+        // Try to create duplicate - should fail
+        let duplicate_result = NamedStep::create(pool, new_step).await;
+        assert!(
+            duplicate_result.is_err(),
+            "Should not allow duplicate system + name"
+        );
+
+        // Cleanup
+        NamedStep::delete(pool, step1.named_step_id)
+            .await
+            .expect("Failed to delete step");
     }
 }

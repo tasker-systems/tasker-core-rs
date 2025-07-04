@@ -1,14 +1,14 @@
-use tasker_core::models::{
-    task_namespace::{TaskNamespace, NewTaskNamespace},
-    named_task::{NamedTask, NewNamedTask},
-    named_step::{NamedStep, NewNamedStep},
-    task::{Task, NewTask},
-    workflow_step::{WorkflowStep, NewWorkflowStep},
-    workflow_step_edge::{WorkflowStepEdge, NewWorkflowStepEdge},
-    dependent_system::{DependentSystem, NewDependentSystem},
-};
-use sqlx::PgPool;
 use super::unique_name;
+use sqlx::PgPool;
+use tasker_core::models::{
+    dependent_system::{DependentSystem, NewDependentSystem},
+    named_step::{NamedStep, NewNamedStep},
+    named_task::{NamedTask, NewNamedTask},
+    task::{NewTask, Task},
+    task_namespace::{NewTaskNamespace, TaskNamespace},
+    workflow_step::{NewWorkflowStep, WorkflowStep},
+    workflow_step_edge::{NewWorkflowStepEdge, WorkflowStepEdge},
+};
 
 /// Builder pattern for creating test TaskNamespaces
 pub struct TaskNamespaceBuilder {
@@ -39,16 +39,8 @@ impl TaskNamespaceBuilder {
             name: self.name.unwrap_or_else(|| unique_name("namespace")),
             description: self.description,
         };
-        TaskNamespace::create(pool, new_namespace).await
-            .expect("Failed to create test TaskNamespace")
-    }
-
-    pub async fn build_in_tx(self, pool: &PgPool) -> TaskNamespace {
-        let new_namespace = NewTaskNamespace {
-            name: self.name.unwrap_or_else(|| unique_name("namespace")),
-            description: self.description,
-        };
-        TaskNamespace::create(pool, new_namespace).await
+        TaskNamespace::create(pool, new_namespace)
+            .await
             .expect("Failed to create test TaskNamespace")
     }
 }
@@ -87,40 +79,31 @@ impl NamedStepBuilder {
     pub async fn build(self, pool: &PgPool) -> NamedStep {
         // Get or create a default dependent system
         let system_name = unique_name("test_system");
-        let dependent_system = match DependentSystem::find_by_name(pool, &system_name).await.expect("Failed to query system") {
+        let dependent_system = match DependentSystem::find_by_name(pool, &system_name)
+            .await
+            .expect("Failed to query system")
+        {
             Some(system) => system,
-            None => DependentSystem::create(pool, NewDependentSystem {
-                name: system_name,
-                description: Some("Test system for builders".to_string()),
-            }).await.expect("Failed to create test system"),
+            None => DependentSystem::create(
+                pool,
+                NewDependentSystem {
+                    name: system_name,
+                    description: Some("Test system for builders".to_string()),
+                },
+            )
+            .await
+            .expect("Failed to create test system"),
         };
-        
-        let new_step = NewNamedStep {
-            dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
-            name: self.name.unwrap_or_else(|| unique_name("step")),
-            description: self.description,
-        };
-        NamedStep::create(pool, new_step).await
-            .expect("Failed to create test NamedStep")
-    }
 
-    pub async fn build_in_tx(self, pool: &PgPool) -> NamedStep {
-        // Get or create a default dependent system
-        let system_name = unique_name("test_system");
-        let dependent_system = match DependentSystem::find_by_name(pool, &system_name).await.expect("Failed to query system") {
-            Some(system) => system,
-            None => DependentSystem::create(pool, NewDependentSystem {
-                name: system_name,
-                description: Some("Test system for builders".to_string()),
-            }).await.expect("Failed to create test system"),
-        };
-        
         let new_step = NewNamedStep {
-            dependent_system_id: self.dependent_system_id.unwrap_or(dependent_system.dependent_system_id),
+            dependent_system_id: self
+                .dependent_system_id
+                .unwrap_or(dependent_system.dependent_system_id),
             name: self.name.unwrap_or_else(|| unique_name("step")),
             description: self.description,
         };
-        NamedStep::create(pool, new_step).await
+        NamedStep::create(pool, new_step)
+            .await
             .expect("Failed to create test NamedStep")
     }
 }
@@ -184,25 +167,8 @@ impl NamedTaskBuilder {
             task_namespace_id: namespace.task_namespace_id as i64,
             configuration: self.configuration,
         };
-        NamedTask::create(pool, new_task).await
-            .expect("Failed to create test NamedTask")
-    }
-
-    pub async fn build_in_tx(self, pool: &PgPool) -> NamedTask {
-        let namespace = if let Some(ns) = self.namespace {
-            ns
-        } else {
-            TaskNamespaceBuilder::new().build(pool).await
-        };
-
-        let new_task = NewNamedTask {
-            name: self.name.unwrap_or_else(|| unique_name("task")),
-            version: self.version.or(Some("1.0.0".to_string())),
-            description: self.description,
-            task_namespace_id: namespace.task_namespace_id as i64,
-            configuration: self.configuration,
-        };
-        NamedTask::create(pool, new_task).await
+        NamedTask::create(pool, new_task)
+            .await
             .expect("Failed to create test NamedTask")
     }
 }
@@ -248,32 +214,13 @@ impl TaskBuilder {
             bypass_steps: None,
             tags: None,
             context: Some(context.clone()),
-            identity_hash: Task::generate_identity_hash(named_task.named_task_id as i32, &Some(context)),
+            identity_hash: Task::generate_identity_hash(
+                named_task.named_task_id as i32,
+                &Some(context),
+            ),
         };
-        Task::create(pool, new_task).await
-            .expect("Failed to create test Task")
-    }
-
-    pub async fn build_in_tx(self, pool: &PgPool) -> Task {
-        let named_task = if let Some(nt) = self.named_task {
-            nt
-        } else {
-            NamedTaskBuilder::new().build(pool).await
-        };
-
-        let context = self.context.unwrap_or_else(|| serde_json::json!({}));
-        let new_task = NewTask {
-            named_task_id: named_task.named_task_id as i32,
-            requested_at: None,
-            initiator: None,
-            source_system: None,
-            reason: None,
-            bypass_steps: None,
-            tags: None,
-            context: Some(context.clone()),
-            identity_hash: Task::generate_identity_hash(named_task.named_task_id as i32, &Some(context)),
-        };
-        Task::create(pool, new_task).await
+        Task::create(pool, new_task)
+            .await
             .expect("Failed to create test Task")
     }
 }
@@ -337,32 +284,8 @@ impl WorkflowStepBuilder {
             inputs: self.context,
             skippable: Some(false),
         };
-        WorkflowStep::create(pool, new_step).await
-            .expect("Failed to create test WorkflowStep")
-    }
-
-    pub async fn build_in_tx(self, pool: &PgPool) -> WorkflowStep {
-        let task = if let Some(t) = self.task {
-            t
-        } else {
-            TaskBuilder::new().build(pool).await
-        };
-
-        let named_step = if let Some(ns) = self.named_step {
-            ns
-        } else {
-            NamedStepBuilder::new().build(pool).await
-        };
-
-        let new_step = NewWorkflowStep {
-            task_id: task.task_id,
-            named_step_id: named_step.named_step_id,
-            retryable: Some(true),
-            retry_limit: self.max_retries,
-            inputs: self.context,
-            skippable: Some(false),
-        };
-        WorkflowStep::create(pool, new_step).await
+        WorkflowStep::create(pool, new_step)
+            .await
             .expect("Failed to create test WorkflowStep")
     }
 }
@@ -446,7 +369,9 @@ impl WorkflowScenarioBuilder {
                     to_step_id: workflow_steps[*to_idx].workflow_step_id,
                     name: format!("edge_{}_{}", from_idx, to_idx),
                 },
-            ).await.expect("Failed to create workflow edge");
+            )
+            .await
+            .expect("Failed to create workflow edge");
             workflow_edges.push(edge);
         }
 
@@ -457,45 +382,44 @@ impl WorkflowScenarioBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::TestDatabase;
+    use sqlx::PgPool;
 
-    #[tokio::test]
-    async fn test_task_namespace_builder() {
-        let test_db = TestDatabase::new().await;
-        
+    #[sqlx::test]
+    async fn test_task_namespace_builder(pool: PgPool) -> sqlx::Result<()> {
         let namespace = TaskNamespaceBuilder::new()
             .with_name(&unique_name("test_builder_namespace"))
             .with_description("Built with builder pattern")
-            .build(test_db.pool())
+            .build(&pool)
             .await;
-        
+
         assert!(namespace.name.starts_with("test_builder_namespace"));
-        assert_eq!(namespace.description, Some("Built with builder pattern".to_string()));
-        
-        test_db.close().await;
+        assert_eq!(
+            namespace.description,
+            Some("Built with builder pattern".to_string())
+        );
+
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_workflow_scenario_builder() {
-        let test_db = TestDatabase::new().await;
-        
+    #[sqlx::test]
+    async fn test_workflow_scenario_builder(pool: PgPool) -> sqlx::Result<()> {
         // Create named steps
-        let step1 = NamedStepBuilder::new().build(test_db.pool()).await;
-        let step2 = NamedStepBuilder::new().build(test_db.pool()).await;
-        let step3 = NamedStepBuilder::new().build(test_db.pool()).await;
-        
+        let step1 = NamedStepBuilder::new().build(&pool).await;
+        let step2 = NamedStepBuilder::new().build(&pool).await;
+        let step3 = NamedStepBuilder::new().build(&pool).await;
+
         // Create linear workflow
         let (_task, workflow_steps, edges) = WorkflowScenarioBuilder::new()
             .add_step(step1)
             .add_step(step2)
             .add_step(step3)
             .linear_workflow(3)
-            .build(test_db.pool())
+            .build(&pool)
             .await;
-        
+
         assert_eq!(workflow_steps.len(), 3);
         assert_eq!(edges.len(), 2); // step1->step2, step2->step3
-        
-        test_db.close().await;
+
+        Ok(())
     }
 }

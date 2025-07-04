@@ -1,6 +1,6 @@
+use super::{Join, Pagination, WhereClause};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-use super::{Join, Pagination, WhereClause};
 
 /// Main query builder for complex SQL operations
 /// Supports ActiveRecord-style scopes with advanced PostgreSQL features
@@ -16,7 +16,9 @@ pub struct QueryBuilder {
     pagination: Option<Pagination>,
     with_clauses: Vec<String>, // For CTEs
     distinct_on: Vec<String>,  // For window functions
+    #[allow(dead_code)]
     parameters: HashMap<String, sqlx::types::Json<serde_json::Value>>,
+    #[allow(dead_code)]
     parameter_count: usize,
 }
 
@@ -153,18 +155,21 @@ impl QueryBuilder {
     }
 
     /// Add recursive CTE
-    pub fn with_recursive_cte(mut self, name: &str, base_query: &str, recursive_query: &str) -> Self {
-        let cte = format!(
-            "{} AS ({} UNION ALL {})",
-            name, base_query, recursive_query
-        );
+    pub fn with_recursive_cte(
+        mut self,
+        name: &str,
+        base_query: &str,
+        recursive_query: &str,
+    ) -> Self {
+        let cte = format!("{} AS ({} UNION ALL {})", name, base_query, recursive_query);
         self.with_clauses.push(cte);
         self
     }
 
     /// Add DISTINCT ON clause (PostgreSQL window function)
     pub fn distinct_on(mut self, fields: &[&str]) -> Self {
-        self.distinct_on.extend(fields.iter().map(|f| f.to_string()));
+        self.distinct_on
+            .extend(fields.iter().map(|f| f.to_string()));
         self
     }
 
@@ -175,7 +180,11 @@ impl QueryBuilder {
         // WITH clauses (CTEs)
         if !self.with_clauses.is_empty() {
             sql.push_str("WITH ");
-            if self.with_clauses.iter().any(|cte| cte.contains("UNION ALL")) {
+            if self
+                .with_clauses
+                .iter()
+                .any(|cte| cte.contains("UNION ALL"))
+            {
                 sql.push_str("RECURSIVE ");
             }
             sql.push_str(&self.with_clauses.join(", "));
@@ -184,12 +193,12 @@ impl QueryBuilder {
 
         // SELECT clause
         sql.push_str("SELECT ");
-        
+
         // DISTINCT ON
         if !self.distinct_on.is_empty() {
             sql.push_str(&format!("DISTINCT ON ({}) ", self.distinct_on.join(", ")));
         }
-        
+
         sql.push_str(&self.select_fields.join(", "));
 
         // FROM clause
@@ -204,7 +213,8 @@ impl QueryBuilder {
         // WHERE clauses
         if !self.where_clauses.is_empty() {
             sql.push_str(" WHERE ");
-            let where_parts: Vec<String> = self.where_clauses
+            let where_parts: Vec<String> = self
+                .where_clauses
                 .iter()
                 .map(|clause| clause.to_sql())
                 .collect();
@@ -219,10 +229,8 @@ impl QueryBuilder {
         // HAVING
         if !self.having.is_empty() {
             sql.push_str(" HAVING ");
-            let having_parts: Vec<String> = self.having
-                .iter()
-                .map(|clause| clause.to_sql())
-                .collect();
+            let having_parts: Vec<String> =
+                self.having.iter().map(|clause| clause.to_sql()).collect();
             sql.push_str(&having_parts.join(" AND "));
         }
 
@@ -245,9 +253,7 @@ impl QueryBuilder {
         T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         let sql = self.build_sql();
-        sqlx::query_as::<_, T>(&sql)
-            .fetch_all(pool)
-            .await
+        sqlx::query_as::<_, T>(&sql).fetch_all(pool).await
     }
 
     /// Execute the query and return one row
@@ -256,9 +262,7 @@ impl QueryBuilder {
         T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         let sql = self.build_sql();
-        sqlx::query_as::<_, T>(&sql)
-            .fetch_one(pool)
-            .await
+        sqlx::query_as::<_, T>(&sql).fetch_one(pool).await
     }
 
     /// Execute the query and return optional row
@@ -267,9 +271,7 @@ impl QueryBuilder {
         T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         let sql = self.build_sql();
-        sqlx::query_as::<_, T>(&sql)
-            .fetch_optional(pool)
-            .await
+        sqlx::query_as::<_, T>(&sql).fetch_optional(pool).await
     }
 
     /// Execute count query
@@ -281,10 +283,8 @@ impl QueryBuilder {
         count_builder.distinct_on.clear();
 
         let sql = count_builder.build_sql();
-        let row = sqlx::query(&sql)
-            .fetch_one(pool)
-            .await?;
-        
+        let row = sqlx::query(&sql).fetch_one(pool).await?;
+
         Ok(row.get::<i64, _>(0))
     }
 
@@ -298,13 +298,15 @@ impl QueryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Number;
 
     #[test]
     fn test_basic_query_building() {
         let query = QueryBuilder::new("tasker_tasks")
             .select(&["task_id", "context", "named_task_id"])
-            .where_eq("named_task_id", serde_json::Value::Number(serde_json::Number::from(1)))
+            .where_eq(
+                "named_task_id",
+                serde_json::Value::Number(serde_json::Number::from(1)),
+            )
             .order_desc("created_at")
             .limit(10);
 
@@ -318,8 +320,14 @@ mod tests {
     #[test]
     fn test_join_query_building() {
         let query = QueryBuilder::new("tasker_tasks t")
-            .inner_join("tasker_named_tasks nt", "t.named_task_id = nt.named_task_id")
-            .left_join("tasker_task_namespaces tn", "nt.task_namespace_id = tn.task_namespace_id")
+            .inner_join(
+                "tasker_named_tasks nt",
+                "t.named_task_id = nt.named_task_id",
+            )
+            .left_join(
+                "tasker_task_namespaces tn",
+                "nt.task_namespace_id = tn.task_namespace_id",
+            )
             .where_eq("tn.name", serde_json::Value::String("default".to_string()));
 
         let sql = query.build_sql();

@@ -33,30 +33,22 @@ pub struct NamedTaskWithSteps {
     pub step_associations: Vec<NamedTaskStepAssociation>,
 }
 
-/// Association between named tasks and named steps
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct NamedTaskStepAssociation {
-    pub id: i32,
-    pub named_task_id: i32,
-    pub named_step_id: i32,
-    pub skippable: bool,
-    pub default_retryable: bool,
-    pub default_retry_limit: i32,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-}
+/// Re-export the junction table type for convenience
+pub use super::named_tasks_named_step::NamedTasksNamedStep as NamedTaskStepAssociation;
 
 impl NamedTask {
     /// Create a new named task
     pub async fn create(pool: &PgPool, new_task: NewNamedTask) -> Result<NamedTask, sqlx::Error> {
         let version = new_task.version.unwrap_or_else(|| "0.1.0".to_string());
-        let configuration = new_task.configuration.unwrap_or_else(|| serde_json::json!({}));
-        
+        let configuration = new_task
+            .configuration
+            .unwrap_or_else(|| serde_json::json!({}));
+
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_id, configuration)
-            VALUES ($1, $2, $3, $4::bigint, $5)
+            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_id, configuration, created_at, updated_at)
+            VALUES ($1, $2, $3, $4::bigint, $5, NOW(), NOW())
             RETURNING named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
             "#,
             new_task.name,
@@ -300,10 +292,11 @@ impl NamedTask {
         let associations = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at
+            SELECT id, named_task_id, named_step_id, skippable, default_retryable, 
+                   default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_id = $1
-            ORDER BY id
+            ORDER BY created_at
             "#,
             self.named_task_id
         )
@@ -313,28 +306,23 @@ impl NamedTask {
         Ok(associations)
     }
 
-    /// Add step association
+    /// Add step association (simplified for actual schema)
     pub async fn add_step_association(
         &self,
         pool: &PgPool,
         named_step_id: i32,
-        skippable: Option<bool>,
-        default_retryable: Option<bool>,
-        default_retry_limit: Option<i32>,
     ) -> Result<NamedTaskStepAssociation, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
             INSERT INTO tasker_named_tasks_named_steps 
-            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at
+            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            VALUES ($1, $2, false, true, 3, NOW(), NOW())
+            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, 
+                      default_retry_limit, created_at, updated_at
             "#,
             self.named_task_id,
-            named_step_id,
-            skippable.unwrap_or(false),
-            default_retryable.unwrap_or(true),
-            default_retry_limit.unwrap_or(3)
+            named_step_id
         )
         .fetch_one(pool)
         .await?;
@@ -350,25 +338,40 @@ mod tests {
 
     #[tokio::test]
     async fn test_named_task_crud() {
-        let db = DatabaseConnection::new().await.expect("Failed to connect to database");
+        let db = DatabaseConnection::new()
+            .await
+            .expect("Failed to connect to database");
         let pool = db.pool();
 
         // Create a namespace first
-        let namespace = crate::models::task_namespace::TaskNamespace::create(pool, crate::models::task_namespace::NewTaskNamespace {
-            name: format!("test_namespace_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-            description: None,
-        }).await.expect("Failed to create namespace");
+        let namespace = crate::models::task_namespace::TaskNamespace::create(
+            pool,
+            crate::models::task_namespace::NewTaskNamespace {
+                name: format!(
+                    "test_namespace_{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                description: None,
+            },
+        )
+        .await
+        .expect("Failed to create namespace");
 
         // Test creation
         let new_task = NewNamedTask {
-            name: format!("test_task_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            name: format!(
+                "test_task_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
             version: Some("1.0.0".to_string()),
             description: Some("Test task description".to_string()),
             task_namespace_id: namespace.task_namespace_id as i64,
             configuration: Some(serde_json::json!({"timeout": 300})),
         };
 
-        let created = NamedTask::create(pool, new_task).await.expect("Failed to create task");
+        let created = NamedTask::create(pool, new_task)
+            .await
+            .expect("Failed to create task");
         assert!(created.name.starts_with("test_task_"));
         assert_eq!(created.version, "1.0.0");
 
@@ -380,32 +383,52 @@ mod tests {
         assert_eq!(found.named_task_id, created.named_task_id);
 
         // Test find by name/version/namespace
-        let found_by_nvn = NamedTask::find_by_name_version_namespace(pool, &created.name, "1.0.0", namespace.task_namespace_id as i64)
-            .await
-            .expect("Failed to find task by nvn")
-            .expect("Task not found by nvn");
+        let found_by_nvn = NamedTask::find_by_name_version_namespace(
+            pool,
+            &created.name,
+            "1.0.0",
+            namespace.task_namespace_id as i64,
+        )
+        .await
+        .expect("Failed to find task by nvn")
+        .expect("Task not found by nvn");
         assert_eq!(found_by_nvn.named_task_id, created.named_task_id);
 
         // Test version uniqueness
-        let is_unique = NamedTask::is_version_unique(pool, &created.name, "2.0.0", namespace.task_namespace_id as i64, None)
-            .await
-            .expect("Failed to check uniqueness");
+        let is_unique = NamedTask::is_version_unique(
+            pool,
+            &created.name,
+            "2.0.0",
+            namespace.task_namespace_id as i64,
+            None,
+        )
+        .await
+        .expect("Failed to check uniqueness");
         assert!(is_unique);
 
-        let is_not_unique = NamedTask::is_version_unique(pool, &created.name, "1.0.0", namespace.task_namespace_id as i64, None)
-            .await
-            .expect("Failed to check uniqueness");
+        let is_not_unique = NamedTask::is_version_unique(
+            pool,
+            &created.name,
+            "1.0.0",
+            namespace.task_namespace_id as i64,
+            None,
+        )
+        .await
+        .expect("Failed to check uniqueness");
         assert!(!is_not_unique);
 
         // Test delegation methods
-        assert_eq!(created.get_task_identifier(), format!("{}:1.0.0", created.name));
+        assert_eq!(
+            created.get_task_identifier(),
+            format!("{}:1.0.0", created.name)
+        );
 
         // Test deletion
         let deleted = NamedTask::delete(pool, created.named_task_id)
             .await
             .expect("Failed to delete task");
         assert!(deleted);
-        
+
         // Delete namespace
         crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
             .await

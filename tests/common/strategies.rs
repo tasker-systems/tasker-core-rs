@@ -1,9 +1,6 @@
 use proptest::prelude::*;
 use proptest::strategy::Just;
-use tasker_core::models::{
-    task_namespace::NewTaskNamespace,
-    named_step::NewNamedStep,
-};
+use tasker_core::models::{named_step::NewNamedStep, task_namespace::NewTaskNamespace};
 
 /// Strategy for generating valid task namespace names
 pub fn namespace_name_strategy() -> impl Strategy<Value = String> {
@@ -29,14 +26,15 @@ pub fn handler_class_strategy() -> impl Strategy<Value = String> {
 /// Strategy for generating NewNamedStep instances
 pub fn new_named_step_strategy() -> impl Strategy<Value = NewNamedStep> {
     (
-        1i32..10,  // dependent_system_id
+        1i32..10, // dependent_system_id
         namespace_name_strategy(),
         description_strategy(),
-    ).prop_map(|(dependent_system_id, name, description)| NewNamedStep {
-        dependent_system_id,
-        name,
-        description,
-    })
+    )
+        .prop_map(|(dependent_system_id, name, description)| NewNamedStep {
+            dependent_system_id,
+            name,
+            description,
+        })
 }
 
 /// Strategy for generating valid JSON contexts
@@ -52,8 +50,7 @@ pub fn json_context_strategy() -> impl Strategy<Value = serde_json::Value> {
 
 /// Strategy for generating DAG edges (ensuring no self-loops)
 pub fn dag_edge_strategy() -> impl Strategy<Value = (i64, i64)> {
-    (1i64..=100, 1i64..=100)
-        .prop_filter("No self-loops", |(from, to)| from != to)
+    (1i64..=100, 1i64..=100).prop_filter("No self-loops", |(from, to)| from != to)
 }
 
 /// Strategy for generating collections of DAG edges
@@ -65,11 +62,11 @@ pub fn dag_edges_strategy() -> impl Strategy<Value = Vec<(i64, i64)>> {
 pub fn acyclic_dag_strategy() -> impl Strategy<Value = Vec<(usize, usize)>> {
     // Use predefined patterns instead of complex generation
     prop_oneof![
-        Just(vec![(0, 1)]), // Simple 2-node chain
-        Just(vec![(0, 1), (1, 2)]), // Simple 3-node chain
+        Just(vec![(0, 1)]),                 // Simple 2-node chain
+        Just(vec![(0, 1), (1, 2)]),         // Simple 3-node chain
         Just(vec![(0, 1), (0, 2), (1, 2)]), // Triangle DAG
-        Just(vec![(0, 1), (0, 2)]), // Fan-out from 0
-        Just(vec![(0, 2), (1, 2)]), // Fan-in to 2
+        Just(vec![(0, 1), (0, 2)]),         // Fan-out from 0
+        Just(vec![(0, 2), (1, 2)]),         // Fan-in to 2
     ]
 }
 
@@ -109,10 +106,10 @@ pub fn task_state_strategy() -> impl Strategy<Value = String> {
 /// Strategy for generating realistic workflow patterns
 #[derive(Debug, Clone)]
 pub enum WorkflowPattern {
-    Linear(usize),           // Linear chain of N steps
-    Diamond,                 // Diamond: 1->2,3->4 pattern
-    FanOut(usize),          // 1 -> N pattern
-    FanIn(usize),           // N -> 1 pattern
+    Linear(usize),                // Linear chain of N steps
+    Diamond,                      // Diamond: 1->2,3->4 pattern
+    FanOut(usize),                // 1 -> N pattern
+    FanIn(usize),                 // N -> 1 pattern
     Complex(Vec<(usize, usize)>), // Custom DAG structure
 }
 
@@ -134,31 +131,24 @@ impl WorkflowPattern {
             WorkflowPattern::Diamond => 4,
             WorkflowPattern::FanOut(n) => n + 1,
             WorkflowPattern::FanIn(n) => n + 1,
-            WorkflowPattern::Complex(edges) => {
-                edges.iter()
-                    .flat_map(|(from, to)| [*from, *to])
-                    .max()
-                    .map(|max| max + 1)
-                    .unwrap_or(1)
-            }
+            WorkflowPattern::Complex(edges) => edges
+                .iter()
+                .flat_map(|(from, to)| [*from, *to])
+                .max()
+                .map(|max| max + 1)
+                .unwrap_or(1),
         }
     }
 
     /// Get the edges for this workflow pattern
     pub fn edges(&self) -> Vec<(usize, usize)> {
         match self {
-            WorkflowPattern::Linear(n) => {
-                (0..(*n - 1)).map(|i| (i, i + 1)).collect()
-            }
+            WorkflowPattern::Linear(n) => (0..(*n - 1)).map(|i| (i, i + 1)).collect(),
             WorkflowPattern::Diamond => {
                 vec![(0, 1), (0, 2), (1, 3), (2, 3)]
             }
-            WorkflowPattern::FanOut(n) => {
-                (1..=*n).map(|i| (0, i)).collect()
-            }
-            WorkflowPattern::FanIn(n) => {
-                (0..*n).map(|i| (i, *n)).collect()
-            }
+            WorkflowPattern::FanOut(n) => (1..=*n).map(|i| (0, i)).collect(),
+            WorkflowPattern::FanIn(n) => (0..*n).map(|i| (i, *n)).collect(),
             WorkflowPattern::Complex(edges) => edges.clone(),
         }
     }
@@ -167,11 +157,11 @@ impl WorkflowPattern {
     pub fn is_valid_dag(&self) -> bool {
         let edges = self.edges();
         let node_count = self.step_count();
-        
+
         // Use DFS to detect cycles
         let mut visited = vec![false; node_count];
         let mut rec_stack = vec![false; node_count];
-        
+
         // Build adjacency list
         let mut adj_list: Vec<Vec<usize>> = vec![Vec::new(); node_count];
         for (from, to) in edges {
@@ -179,7 +169,7 @@ impl WorkflowPattern {
                 adj_list[from].push(to);
             }
         }
-        
+
         fn has_cycle(
             node: usize,
             visited: &mut [bool],
@@ -188,7 +178,7 @@ impl WorkflowPattern {
         ) -> bool {
             visited[node] = true;
             rec_stack[node] = true;
-            
+
             for &neighbor in &adj_list[node] {
                 if !visited[neighbor] && has_cycle(neighbor, visited, rec_stack, adj_list) {
                     return true;
@@ -197,17 +187,17 @@ impl WorkflowPattern {
                     return true;
                 }
             }
-            
+
             rec_stack[node] = false;
             false
         }
-        
+
         for i in 0..node_count {
             if !visited[i] && has_cycle(i, &mut visited, &mut rec_stack, &adj_list) {
                 return false;
             }
         }
-        
+
         true
     }
 }

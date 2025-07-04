@@ -8,7 +8,11 @@ pub struct Pagination {
 impl Pagination {
     /// Create pagination with page number and per-page count
     pub fn new(page: u32, per_page: u32) -> Self {
-        let offset = if page > 0 { Some((page - 1) * per_page) } else { None };
+        let offset = if page > 0 {
+            Some((page - 1) * per_page)
+        } else {
+            None
+        };
         Self {
             limit: Some(per_page),
             offset,

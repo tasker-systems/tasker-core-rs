@@ -16,13 +16,13 @@ proptest! {
         // Should start with letter or underscore
         let first_char = name.chars().next().unwrap();
         prop_assert!(first_char.is_ascii_alphabetic() || first_char == '_');
-        
+
         // Should contain only valid characters
         prop_assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
-        
+
         // Should not be empty
         prop_assert!(!name.is_empty());
-        
+
         // Should not be too long
         prop_assert!(name.len() <= 64);
     }
@@ -78,20 +78,20 @@ mod workflow_pattern_invariants {
     #[test]
     fn test_linear_workflow_invariants() {
         let pattern = WorkflowPattern::Linear(5);
-        
+
         // Linear workflows should have exactly n-1 edges
         assert_eq!(pattern.edges().len(), pattern.step_count() - 1);
-        
+
         // Should be a valid DAG
         assert!(pattern.is_valid_dag());
-        
+
         // Should have exactly one root and one leaf
         let edges = pattern.edges();
-        let _nodes: std::collections::HashSet<usize> = edges.iter()
-            .flat_map(|(from, to)| [*from, *to])
-            .collect();
-        
-        let sources: std::collections::HashSet<usize> = edges.iter()
+        let _nodes: std::collections::HashSet<usize> =
+            edges.iter().flat_map(|(from, to)| [*from, *to]).collect();
+
+        let sources: std::collections::HashSet<usize> = edges
+            .iter()
             .filter_map(|(from, _to)| {
                 if !edges.iter().any(|(_, target)| target == from) {
                     Some(*from)
@@ -100,8 +100,9 @@ mod workflow_pattern_invariants {
                 }
             })
             .collect();
-        
-        let sinks: std::collections::HashSet<usize> = edges.iter()
+
+        let sinks: std::collections::HashSet<usize> = edges
+            .iter()
             .filter_map(|(_from, to)| {
                 if !edges.iter().any(|(source, _)| source == to) {
                     Some(*to)
@@ -110,19 +111,27 @@ mod workflow_pattern_invariants {
                 }
             })
             .collect();
-        
-        assert_eq!(sources.len(), 1, "Linear workflow should have exactly one source");
-        assert_eq!(sinks.len(), 1, "Linear workflow should have exactly one sink");
+
+        assert_eq!(
+            sources.len(),
+            1,
+            "Linear workflow should have exactly one source"
+        );
+        assert_eq!(
+            sinks.len(),
+            1,
+            "Linear workflow should have exactly one sink"
+        );
     }
 
     #[test]
     fn test_diamond_workflow_invariants() {
         let pattern = WorkflowPattern::Diamond;
-        
+
         assert_eq!(pattern.step_count(), 4);
         assert_eq!(pattern.edges().len(), 4);
         assert!(pattern.is_valid_dag());
-        
+
         let edges = pattern.edges();
         assert_eq!(edges, vec![(0, 1), (0, 2), (1, 3), (2, 3)]);
     }
@@ -130,11 +139,11 @@ mod workflow_pattern_invariants {
     #[test]
     fn test_fan_out_workflow_invariants() {
         let pattern = WorkflowPattern::FanOut(3);
-        
+
         assert_eq!(pattern.step_count(), 4); // 1 source + 3 targets
         assert_eq!(pattern.edges().len(), 3); // Source connects to each target
         assert!(pattern.is_valid_dag());
-        
+
         let edges = pattern.edges();
         // All edges should originate from node 0
         for (_from, _) in edges {
