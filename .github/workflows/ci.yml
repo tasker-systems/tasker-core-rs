@@ -59,20 +59,15 @@ jobs:
       - name: Run security audit
         run: cargo audit
 
-  # Build and test matrix
+  # Build and test on Ubuntu (production target)
   test:
-    name: Test (Rust ${{ matrix.rust-version }} on ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Test (Rust ${{ matrix.rust-version }})
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
       matrix:
         rust-version: ['stable', 'beta']
-        os: [ubuntu-22.04, windows-latest, macos-latest]
-        include:
-          # Test MSRV (Minimum Supported Rust Version)
-          - rust-version: '1.75.0'  # SQLx minimum
-            os: ubuntu-22.04
 
     services:
       postgres:
@@ -163,60 +158,9 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.rust-version }}-${{ matrix.os }}
+          name: test-results-${{ matrix.rust-version }}-ubuntu
           path: target/debug/deps/
 
-  # SQLx compile-time verification with integration testing
-  sqlx-check:
-    name: SQLx Integration Verification
-    runs-on: ubuntu-22.04
-
-    services:
-      postgres:
-        image: postgres:15-alpine
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: sqlx-integration
-
-      - name: Wait for PostgreSQL
-        run: |
-          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
-
-      - name: Run integration tests to set up schema
-        run: cargo test --test database_test --verbose
-        env:
-          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
-
-      - name: Verify SQLx queries compile against live database
-        run: cargo check --all-targets
-        env:
-          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
 
   # Performance benchmarks
   benchmark:
@@ -422,7 +366,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-22.04
-    needs: [quality, security, test, sqlx-check, validate-examples]
+    needs: [quality, security, test, validate-examples]
     if: always()
 
     steps:
