@@ -1,6 +1,5 @@
 use tasker_core::{
-    AnalyticsMetrics, StepReadinessStatus,
-    SystemHealthCounts, TaskExecutionContext,
+    AnalyticsMetrics, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 
 /// Demonstrates the high-performance SQL function wrapper system

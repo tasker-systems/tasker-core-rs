@@ -1,0 +1,46 @@
+#!/bin/bash
+# Pre-commit hook for Rust code quality
+# Ensures code is formatted and passes clippy checks before commit
+
+set -e
+
+echo "🔧 Running pre-commit hooks..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    echo "❌ Error: cargo is not available. Please install Rust."
+    exit 1
+fi
+
+# Check if we're in a Rust project
+if [ ! -f "Cargo.toml" ]; then
+    echo "❌ Error: No Cargo.toml found. Are you in a Rust project?"
+    exit 1
+fi
+
+echo "📝 Formatting code with rustfmt..."
+if ! cargo fmt --all -- --check; then
+    echo "❌ Code formatting issues found. Running cargo fmt to fix..."
+    cargo fmt --all
+    echo "✅ Code formatted. Please review and stage the changes."
+    echo "   Run: git add . && git commit"
+    exit 1
+fi
+echo "✅ Code formatting is clean"
+
+echo "🔍 Running clippy checks..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo "❌ Clippy found issues that must be fixed before commit."
+    echo "   Run: cargo clippy --fix --allow-dirty"
+    exit 1
+fi
+echo "✅ Clippy checks passed"
+
+echo "🧪 Running basic compile check..."
+if ! cargo check --all-targets; then
+    echo "❌ Compilation failed. Please fix errors before commit."
+    exit 1
+fi
+echo "✅ Compilation check passed"
+
+echo "🎉 All pre-commit checks passed!"

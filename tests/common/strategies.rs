@@ -1,3 +1,7 @@
+//! Property-based testing strategies for Phase 1.5 advanced testing
+
+#![allow(dead_code)] // Strategies are for Phase 1.5 usage
+
 use proptest::prelude::*;
 use proptest::strategy::Just;
 use tasker_core::models::{named_step::NewNamedStep, task_namespace::NewTaskNamespace};

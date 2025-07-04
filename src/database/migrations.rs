@@ -122,12 +122,10 @@ impl DatabaseMigrations {
             }
         }
 
-        Err(sqlx::Error::Io(
-            std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Timeout waiting for schema initialization",
-            ),
-        ))
+        Err(sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Timeout waiting for schema initialization",
+        )))
     }
 
     /// Run fresh schema for tests - drops and recreates everything
@@ -277,9 +275,7 @@ impl DatabaseMigrations {
 
     async fn run_migration(pool: &PgPool, migration_path: &str) -> Result<(), sqlx::Error> {
         if !Path::new(migration_path).exists() {
-            eprintln!(
-                "Warning: Migration file {migration_path} not found, skipping"
-            );
+            eprintln!("Warning: Migration file {migration_path} not found, skipping");
             return Ok(());
         }
 

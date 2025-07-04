@@ -1,3 +1,8 @@
+//! Test data builders for Phase 1.5 advanced test infrastructure
+//! These builders are designed for sophisticated test data construction patterns.
+
+#![allow(dead_code)] // These builders are for Phase 1.5 usage
+
 use super::unique_name;
 use sqlx::PgPool;
 use tasker_core::models::{

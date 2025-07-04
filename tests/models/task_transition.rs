@@ -164,11 +164,13 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
     .await?;
 
     // Test status progression
-    let statuses = ["pending",
+    let statuses = [
+        "pending",
         "in_progress",
         "paused",
         "in_progress",
-        "complete"];
+        "complete",
+    ];
 
     for (i, &status) in statuses.iter().enumerate() {
         let from_state = if i == 0 {

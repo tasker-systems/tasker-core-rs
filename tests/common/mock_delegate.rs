@@ -1,3 +1,7 @@
+//! Mock delegate for testing step execution patterns in Phase 1.5
+
+#![allow(dead_code)] // Mock components are for Phase 1.5 usage
+
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;

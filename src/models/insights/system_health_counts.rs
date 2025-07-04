@@ -263,8 +263,7 @@ impl SystemHealthCounts {
             0.0
         };
 
-        (completion_score - error_penalty - connection_penalty - retry_penalty)
-            .clamp(0.0, 100.0)
+        (completion_score - error_penalty - connection_penalty - retry_penalty).clamp(0.0, 100.0)
     }
 
     /// Get health status string based on health score.
