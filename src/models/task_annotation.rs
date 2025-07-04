@@ -382,18 +382,12 @@ impl TaskAnnotation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
 
-    #[tokio::test]
-    async fn test_task_annotation_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -402,11 +396,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -418,11 +411,10 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let task = crate::models::task::Task::create(
-            pool,
+            &pool,
             crate::models::task::NewTask {
                 named_task_id: named_task.named_task_id,
                 identity_hash: format!(
@@ -438,11 +430,10 @@ mod tests {
                 context: None,
             },
         )
-        .await
-        .expect("Failed to create task");
+        .await?;
 
         let annotation_type = crate::models::annotation_type::AnnotationType::create(
-            pool,
+            &pool,
             crate::models::annotation_type::NewAnnotationType {
                 name: format!(
                     "test_type_{}",
@@ -451,8 +442,7 @@ mod tests {
                 description: Some("Test annotation type".to_string()),
             },
         )
-        .await
-        .expect("Failed to create annotation type");
+        .await?;
 
         // Test creation
         let new_annotation = NewTaskAnnotation {
@@ -467,9 +457,7 @@ mod tests {
             }),
         };
 
-        let annotation = TaskAnnotation::create(pool, new_annotation.clone())
-            .await
-            .expect("Failed to create annotation");
+        let annotation = TaskAnnotation::create(&pool, new_annotation.clone()).await?;
         assert_eq!(annotation.task_id, task.task_id);
         assert_eq!(
             annotation.annotation_type_id,
@@ -477,49 +465,37 @@ mod tests {
         );
 
         // Test find by ID
-        let found = TaskAnnotation::find_by_id(pool, annotation.task_annotation_id)
-            .await
-            .expect("Failed to find annotation");
+        let found = TaskAnnotation::find_by_id(&pool, annotation.task_annotation_id).await?;
         assert!(found.is_some());
         assert_eq!(found.unwrap().annotation["key"], "test_value");
 
         // Test find by task
-        let task_annotations = TaskAnnotation::find_by_task(pool, task.task_id)
-            .await
-            .expect("Failed to find annotations by task");
+        let task_annotations = TaskAnnotation::find_by_task(&pool, task.task_id).await?;
         assert!(!task_annotations.is_empty());
 
         // Test JSON search
         let json_search = serde_json::json!({"key": "test_value"});
-        let search_results = TaskAnnotation::search_containing_json(pool, &json_search, Some(10))
-            .await
-            .expect("Failed to search annotations");
+        let search_results =
+            TaskAnnotation::search_containing_json(&pool, &json_search, Some(10)).await?;
         assert!(!search_results.is_empty());
 
         // Test annotations with types
-        let with_types = TaskAnnotation::find_with_types(pool, Some(task.task_id), Some(10))
-            .await
-            .expect("Failed to get annotations with types");
+        let with_types =
+            TaskAnnotation::find_with_types(&pool, Some(task.task_id), Some(10)).await?;
         assert!(!with_types.is_empty());
         assert_eq!(with_types[0].annotation_type_name, annotation_type.name);
 
         // Cleanup
-        let deleted = TaskAnnotation::delete(pool, annotation.task_annotation_id)
-            .await
-            .expect("Failed to delete annotation");
+        let deleted = TaskAnnotation::delete(&pool, annotation.task_annotation_id).await?;
         assert!(deleted);
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_json_operations() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
         // Create minimal test data
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -528,11 +504,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -544,11 +519,10 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let task = crate::models::task::Task::create(
-            pool,
+            &pool,
             crate::models::task::NewTask {
                 named_task_id: named_task.named_task_id,
                 identity_hash: format!(
@@ -564,11 +538,10 @@ mod tests {
                 context: None,
             },
         )
-        .await
-        .expect("Failed to create task");
+        .await?;
 
         let annotation_type = crate::models::annotation_type::AnnotationType::create(
-            pool,
+            &pool,
             crate::models::annotation_type::NewAnnotationType {
                 name: format!(
                     "test_type_{}",
@@ -577,8 +550,7 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create annotation type");
+        .await?;
 
         // Create annotation with complex JSON structure
         let complex_json = serde_json::json!({
@@ -596,9 +568,7 @@ mod tests {
             annotation: complex_json.clone(),
         };
 
-        let annotation = TaskAnnotation::create(pool, new_annotation)
-            .await
-            .expect("Failed to create complex annotation");
+        let annotation = TaskAnnotation::create(&pool, new_annotation).await?;
 
         // Test JSON containment search
         let search_subset = serde_json::json!({
@@ -608,17 +578,14 @@ mod tests {
         });
 
         let containment_results =
-            TaskAnnotation::search_containing_json(pool, &search_subset, Some(5))
-                .await
-                .expect("Failed to search by containment");
+            TaskAnnotation::search_containing_json(&pool, &search_subset, Some(5)).await?;
         assert!(
             !containment_results.is_empty(),
             "Should find annotation containing search subset"
         );
 
         // Cleanup
-        TaskAnnotation::delete(pool, annotation.task_annotation_id)
-            .await
-            .expect("Failed to delete annotation");
+        TaskAnnotation::delete(&pool, annotation.task_annotation_id).await?;
+        Ok(())
     }
 }

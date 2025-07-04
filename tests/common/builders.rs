@@ -211,7 +211,7 @@ impl TaskBuilder {
 
         let context = self.context.unwrap_or_else(|| serde_json::json!({}));
         let new_task = NewTask {
-            named_task_id: named_task.named_task_id as i32,
+            named_task_id: named_task.named_task_id,
             requested_at: None,
             initiator: None,
             source_system: None,
@@ -219,10 +219,7 @@ impl TaskBuilder {
             bypass_steps: None,
             tags: None,
             context: Some(context.clone()),
-            identity_hash: Task::generate_identity_hash(
-                named_task.named_task_id as i32,
-                &Some(context),
-            ),
+            identity_hash: Task::generate_identity_hash(named_task.named_task_id, &Some(context)),
         };
         Task::create(pool, new_task)
             .await

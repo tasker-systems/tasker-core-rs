@@ -42,13 +42,21 @@
 //!
 //! ## Usage Pattern
 //!
-//! ```rust,ignore
+//! ```rust,no_run
+//! use tasker_core::database::sql_functions::SqlFunctionExecutor;
+//! use sqlx::PgPool;
+//!
+//! # async fn example(pool: PgPool, task_id: i64) -> Result<(), sqlx::Error> {
 //! let executor = SqlFunctionExecutor::new(pool);
-//! let ready_steps = executor.find_ready_steps_for_task(task_id).await?;
+//! let ready_steps = executor.get_ready_steps(task_id).await?;
 //! for step in ready_steps {
 //!     println!("Step {} is ready for execution", step.workflow_step_id);
 //! }
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! For complete examples with test data setup, see `tests/database/sql_functions.rs`.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -103,11 +111,24 @@ impl SqlFunctionExecutor {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let result: Option<StepReadinessResult> = executor
+    /// ```rust,no_run
+    /// use tasker_core::database::sql_functions::{SqlFunctionExecutor, StepReadinessStatus};
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    /// let result: Option<StepReadinessStatus> = executor
     ///     .execute_single("SELECT * FROM get_step_readiness_status($1)")
     ///     .await?;
+    ///
+    /// if let Some(status) = result {
+    ///     println!("Step {} readiness: {}", status.workflow_step_id, status.ready_for_execution);
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with test data setup, see `tests/database/sql_functions.rs`.
     pub async fn execute_single<T>(&self, sql: &str) -> Result<Option<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
@@ -178,6 +199,61 @@ impl SqlFunctionExecutor {
 pub struct DependencyLevel {
     pub workflow_step_id: i64,
     pub dependency_level: i32,
+}
+
+impl DependencyLevel {
+    /// Create a new dependency level
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::database::sql_functions::DependencyLevel;
+    ///
+    /// let level = DependencyLevel::new(123, 2);
+    /// assert_eq!(level.workflow_step_id, 123);
+    /// assert_eq!(level.dependency_level, 2);
+    /// ```
+    pub fn new(workflow_step_id: i64, dependency_level: i32) -> Self {
+        Self {
+            workflow_step_id,
+            dependency_level,
+        }
+    }
+
+    /// Check if this is a root level (no dependencies)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::database::sql_functions::DependencyLevel;
+    ///
+    /// let root_level = DependencyLevel::new(123, 0);
+    /// assert!(root_level.is_root_level());
+    ///
+    /// let dependent_level = DependencyLevel::new(456, 2);
+    /// assert!(!dependent_level.is_root_level());
+    /// ```
+    pub fn is_root_level(&self) -> bool {
+        self.dependency_level == 0
+    }
+
+    /// Check if this level can run in parallel with another level
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::database::sql_functions::DependencyLevel;
+    ///
+    /// let level1 = DependencyLevel::new(123, 2);
+    /// let level2 = DependencyLevel::new(456, 2);
+    /// let level3 = DependencyLevel::new(789, 3);
+    ///
+    /// assert!(level1.can_run_parallel_with(&level2));
+    /// assert!(!level1.can_run_parallel_with(&level3));
+    /// ```
+    pub fn can_run_parallel_with(&self, other: &DependencyLevel) -> bool {
+        self.dependency_level == other.dependency_level
+    }
 }
 
 impl SqlFunctionExecutor {

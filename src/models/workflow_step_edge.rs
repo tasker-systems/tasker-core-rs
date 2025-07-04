@@ -186,12 +186,23 @@ impl WorkflowStepEdge {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use sqlx::PgPool;
+    /// use tasker_core::models::WorkflowStepEdge;
+    ///
+    /// # async fn example(pool: PgPool, step_a_id: i64, step_b_id: i64) -> Result<(), sqlx::Error> {
     /// // Before adding edge A -> B, check if B can already reach A
     /// if WorkflowStepEdge::would_create_cycle(&pool, step_a_id, step_b_id).await? {
-    ///     return Err("Adding this dependency would create a circular reference");
+    ///     return Err(sqlx::Error::RowNotFound); // Would create circular reference
     /// }
+    ///
+    /// // Safe to add the dependency - no cycle will be created
+    /// println!("Edge {step_a_id} -> {step_b_id} is safe to add");
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with test data setup, see `tests/models/workflow_step_edge.rs`.
     pub async fn would_create_cycle(
         pool: &PgPool,
         from_step_id: i64,

@@ -32,7 +32,6 @@
 //! - [`DependentSystemObjectMap`] - Bidirectional system object mappings
 //! - [`AnnotationType`] - Annotation categorization and metadata
 //! - [`TaskAnnotation`] - Task metadata storage with JSONB annotations
-//! - [`TaskDiagram`] - Workflow visualization and diagram generation
 //!
 //! ### Specialized Model Modules
 //!
@@ -89,7 +88,6 @@ pub mod named_task;
 pub mod named_tasks_named_step;
 pub mod task;
 pub mod task_annotation;
-pub mod task_diagram;
 pub mod task_namespace;
 pub mod task_transition;
 pub mod transitions;
@@ -114,10 +112,6 @@ pub use named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
 pub use task::Task;
 pub use task_annotation::{
     AnnotationTypeCount, NewTaskAnnotation, TaskAnnotation, TaskAnnotationWithType,
-};
-pub use task_diagram::{
-    DiagramEdge, DiagramNode, DiagramStats, Flowchart, NewTaskDiagram, TaskDiagram,
-    TaskDiagramWithTask,
 };
 pub use task_namespace::TaskNamespace;
 pub use task_transition::{NewTaskTransition, TaskTransition};

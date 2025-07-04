@@ -153,17 +153,25 @@ impl TaskExecutionContext {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
-    /// let context = TaskExecutionContext::get_for_task(&pool, task_id).await?;
+    /// ```rust,no_run
+    /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
+    /// use sqlx::PgPool;
     ///
-    /// println!("Task {} status: {}", context.task_id, context.execution_status);
-    /// println!("Progress: {}/{} steps complete",
-    ///          context.completed_steps, context.total_steps);
+    /// # async fn example(pool: PgPool, task_id: i64) -> Result<(), sqlx::Error> {
+    /// if let Some(context) = TaskExecutionContext::get_for_task(&pool, task_id).await? {
+    ///     println!("Task {} status: {}", context.task_id, context.execution_status);
+    ///     println!("Progress: {}/{} steps complete",
+    ///              context.completed_steps, context.total_steps);
     ///
-    /// if context.ready_steps > 0 {
-    ///     println!("{} steps ready for execution", context.ready_steps);
+    ///     if context.ready_steps > 0 {
+    ///         println!("{} steps ready for execution", context.ready_steps);
+    ///     }
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
     pub async fn get_for_task(
         pool: &PgPool,
         task_id: i64,
@@ -222,15 +230,27 @@ impl TaskExecutionContext {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
     /// let task_ids = vec![123, 456, 789];
     /// let contexts = TaskExecutionContext::get_for_tasks(&pool, &task_ids).await?;
     ///
     /// for context in contexts {
     ///     println!("Task {}: {} steps complete",
     ///              context.task_id, context.completed_steps);
+    ///     
+    ///     if context.ready_steps > 0 {
+    ///         println!("  → {} steps ready for execution", context.ready_steps);
+    ///     }
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
     pub async fn get_for_tasks(
         pool: &PgPool,
         task_ids: &[i64],

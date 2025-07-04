@@ -44,7 +44,7 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id as i32,
+            named_task_id: named_task.named_task_id,
             requested_at: None,
             initiator: Some("test".to_string()),
             source_system: Some("test".to_string()),

@@ -246,25 +246,18 @@ impl NamedStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
 
-    #[tokio::test]
-    async fn test_named_step_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test system first
         let system = crate::models::dependent_system::DependentSystem::find_or_create_by_name(
-            pool,
+            &pool,
             &format!(
                 "test_system_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
             ),
         )
-        .await
-        .expect("Failed to create system");
+        .await?;
 
         // Test creation
         let new_step = NewNamedStep {
@@ -276,73 +269,53 @@ mod tests {
             description: Some("Test step description".to_string()),
         };
 
-        let step = NamedStep::create(pool, new_step.clone())
-            .await
-            .expect("Failed to create step");
+        let step = NamedStep::create(&pool, new_step.clone()).await?;
         assert_eq!(step.dependent_system_id, system.dependent_system_id);
         assert_eq!(step.description, Some("Test step description".to_string()));
 
         // Test find by ID
-        let found = NamedStep::find_by_id(pool, step.named_step_id)
-            .await
-            .expect("Failed to find step");
+        let found = NamedStep::find_by_id(&pool, step.named_step_id).await?;
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, step.name);
 
         // Test find by system and name
         let found_specific =
-            NamedStep::find_by_system_and_name(pool, system.dependent_system_id, &step.name)
-                .await
-                .expect("Failed to find specific step");
+            NamedStep::find_by_system_and_name(&pool, system.dependent_system_id, &step.name)
+                .await?;
         assert!(found_specific.is_some());
 
         // Test find_or_create (should find existing)
-        let found_or_created = NamedStep::find_or_create(pool, new_step)
-            .await
-            .expect("Failed to find or create");
+        let found_or_created = NamedStep::find_or_create(&pool, new_step).await?;
         assert_eq!(found_or_created.named_step_id, step.named_step_id);
 
         // Test find by system
-        let system_steps = NamedStep::find_by_system(pool, system.dependent_system_id)
-            .await
-            .expect("Failed to find steps by system");
+        let system_steps = NamedStep::find_by_system(&pool, system.dependent_system_id).await?;
         assert!(!system_steps.is_empty());
 
         // Test search by name
-        let search_results = NamedStep::search_by_name(pool, "test", Some(10))
-            .await
-            .expect("Failed to search steps");
+        let search_results = NamedStep::search_by_name(&pool, "test", Some(10)).await?;
         assert!(!search_results.is_empty());
 
         // Test count by system
-        let count = NamedStep::count_by_system(pool, system.dependent_system_id)
-            .await
-            .expect("Failed to count steps");
+        let count = NamedStep::count_by_system(&pool, system.dependent_system_id).await?;
         assert!(count > 0);
 
         // Cleanup
-        let deleted = NamedStep::delete(pool, step.named_step_id)
-            .await
-            .expect("Failed to delete step");
+        let deleted = NamedStep::delete(&pool, step.named_step_id).await?;
         assert!(deleted);
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_unique_constraint() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_unique_constraint(pool: PgPool) -> sqlx::Result<()> {
         let system = crate::models::dependent_system::DependentSystem::find_or_create_by_name(
-            pool,
+            &pool,
             &format!(
                 "test_system_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
             ),
         )
-        .await
-        .expect("Failed to create system");
+        .await?;
 
         let step_name = format!(
             "unique_test_step_{}",
@@ -356,20 +329,18 @@ mod tests {
             description: None,
         };
 
-        let step1 = NamedStep::create(pool, new_step.clone())
-            .await
-            .expect("Failed to create first step");
+        let step1 = NamedStep::create(&pool, new_step.clone()).await?;
 
         // Try to create duplicate - should fail
-        let duplicate_result = NamedStep::create(pool, new_step).await;
+        let duplicate_result = NamedStep::create(&pool, new_step).await;
         assert!(
             duplicate_result.is_err(),
             "Should not allow duplicate system + name"
         );
 
         // Cleanup
-        NamedStep::delete(pool, step1.named_step_id)
-            .await
-            .expect("Failed to delete step");
+        NamedStep::delete(&pool, step1.named_step_id).await?;
+
+        Ok(())
     }
 }

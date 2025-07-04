@@ -921,19 +921,13 @@ pub struct TaskCompletionStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
     use serde_json::json;
 
-    #[tokio::test]
-    async fn test_workflow_step_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -942,11 +936,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -958,13 +951,12 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let task = crate::models::task::Task::create(
-            pool,
+            &pool,
             crate::models::task::NewTask {
-                named_task_id: named_task.named_task_id as i32,
+                named_task_id: named_task.named_task_id,
                 requested_at: None,
                 initiator: None,
                 source_system: None,
@@ -978,11 +970,10 @@ mod tests {
                 ),
             },
         )
-        .await
-        .expect("Failed to create task");
+        .await?;
 
         let dependent_system = crate::models::dependent_system::DependentSystem::create(
-            pool,
+            &pool,
             crate::models::dependent_system::NewDependentSystem {
                 name: format!(
                     "test_system_{}",
@@ -991,11 +982,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create dependent system");
+        .await?;
 
         let named_step = crate::models::named_step::NamedStep::create(
-            pool,
+            &pool,
             crate::models::named_step::NewNamedStep {
                 dependent_system_id: dependent_system.dependent_system_id,
                 name: format!(
@@ -1005,8 +995,7 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create named step");
+        .await?;
 
         // Test creation
         let new_step = NewWorkflowStep {
@@ -1018,9 +1007,7 @@ mod tests {
             skippable: Some(false),
         };
 
-        let created = WorkflowStep::create(pool, new_step)
-            .await
-            .expect("Failed to create step");
+        let created = WorkflowStep::create(&pool, new_step).await?;
         assert_eq!(created.task_id, task.task_id);
         assert_eq!(created.named_step_id, named_step.named_step_id);
         assert!(created.retryable);
@@ -1029,18 +1016,14 @@ mod tests {
         assert!(!created.in_process);
 
         // Test find by ID
-        let found = WorkflowStep::find_by_id(pool, created.workflow_step_id)
-            .await
-            .expect("Failed to find step")
+        let found = WorkflowStep::find_by_id(&pool, created.workflow_step_id)
+            .await?
             .expect("Step not found");
         assert_eq!(found.workflow_step_id, created.workflow_step_id);
 
         // Test mark in process
         let mut step_to_process = found.clone();
-        step_to_process
-            .mark_in_process(pool)
-            .await
-            .expect("Failed to mark in process");
+        step_to_process.mark_in_process(&pool).await?;
         assert!(step_to_process.in_process);
         assert!(step_to_process.last_attempted_at.is_some());
         assert_eq!(step_to_process.attempts, Some(1));
@@ -1048,9 +1031,8 @@ mod tests {
         // Test mark processed with results
         let results = json!({"output": "success", "count": 10});
         step_to_process
-            .mark_processed(pool, Some(results.clone()))
-            .await
-            .expect("Failed to mark processed");
+            .mark_processed(&pool, Some(results.clone()))
+            .await?;
         assert!(step_to_process.processed);
         assert!(!step_to_process.in_process);
         assert!(step_to_process.processed_at.is_some());
@@ -1063,38 +1045,27 @@ mod tests {
         // Test inputs update
         let new_inputs = json!({"updated_param": "new_value"});
         step_to_process
-            .update_inputs(pool, new_inputs.clone())
-            .await
-            .expect("Failed to update inputs");
+            .update_inputs(&pool, new_inputs.clone())
+            .await?;
         assert_eq!(step_to_process.inputs, Some(new_inputs));
 
         // Test deletion
-        let deleted = WorkflowStep::delete(pool, created.workflow_step_id)
-            .await
-            .expect("Failed to delete step");
+        let deleted = WorkflowStep::delete(&pool, created.workflow_step_id).await?;
         assert!(deleted);
 
         // Cleanup test dependencies
-        crate::models::task::Task::delete(pool, task.task_id)
-            .await
-            .expect("Failed to delete task");
-        crate::models::named_step::NamedStep::delete(pool, named_step.named_step_id)
-            .await
-            .expect("Failed to delete named step");
+        crate::models::task::Task::delete(&pool, task.task_id).await?;
+        crate::models::named_step::NamedStep::delete(&pool, named_step.named_step_id).await?;
         crate::models::dependent_system::DependentSystem::delete(
-            pool,
+            &pool,
             dependent_system.dependent_system_id,
         )
-        .await
-        .expect("Failed to delete dependent system");
-        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to delete named task");
-        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
-            .await
-            .expect("Failed to delete namespace");
+        .await?;
+        crate::models::named_task::NamedTask::delete(&pool, named_task.named_task_id).await?;
+        crate::models::task_namespace::TaskNamespace::delete(&pool, namespace.task_namespace_id)
+            .await?;
 
-        db.close().await;
+        Ok(())
     }
 
     #[test]

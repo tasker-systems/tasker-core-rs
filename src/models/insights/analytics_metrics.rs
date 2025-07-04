@@ -125,14 +125,33 @@ impl AnalyticsMetrics {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use chrono::{Duration, Utc};
+    /// use sqlx::PgPool;
+    /// use tasker_core::models::insights::AnalyticsMetrics;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
     /// // Get current metrics (last 24 hours)
     /// let metrics = AnalyticsMetrics::get_current(&pool).await?;
     ///
+    /// if let Some(metrics) = metrics {
+    ///     println!("Active tasks: {}", metrics.active_tasks_count);
+    ///     println!("Completed tasks: {}", metrics.completion_count);
+    /// }
+    ///
     /// // Get metrics since a specific time
-    /// let since = Utc::now() - chrono::Duration::hours(6);
-    /// let recent_metrics = AnalyticsMetrics::get_since(&pool, since).await?;
+    /// let since = Utc::now() - Duration::hours(6);
+    /// let recent_metrics = AnalyticsMetrics::get_since(&pool, Some(since)).await?;
+    ///
+    /// if let Some(recent) = recent_metrics {
+    ///     println!("Tasks completed in last 6 hours: {}", recent.completion_count);
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete working examples with database setup, see the integration tests in
+    /// `tests/models/analytics_metrics.rs`.
     pub async fn get_current(pool: &PgPool) -> Result<Option<AnalyticsMetrics>, sqlx::Error> {
         Self::get_since(pool, None).await
     }
@@ -181,21 +200,133 @@ impl AnalyticsMetrics {
     }
 
     /// Get completion rate as a percentage (0.0 to 100.0).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::insights::analytics_metrics::AnalyticsMetrics;
+    /// use sqlx::types::BigDecimal;
+    /// use std::str::FromStr;
+    /// use chrono::{DateTime, Utc};
+    ///
+    /// let metrics = AnalyticsMetrics {
+    ///     active_tasks_count: 100,
+    ///     total_namespaces_count: 5,
+    ///     unique_task_types_count: 12,
+    ///     system_health_score: BigDecimal::from_str("85.5").unwrap(),
+    ///     task_throughput: 156,
+    ///     completion_count: 94,
+    ///     error_count: 6,
+    ///     completion_rate: BigDecimal::from_str("94.2").unwrap(),
+    ///     error_rate: BigDecimal::from_str("6.0").unwrap(),
+    ///     avg_task_duration: BigDecimal::from_str("512.5").unwrap(),
+    ///     avg_step_duration: BigDecimal::from_str("45.2").unwrap(),
+    ///     step_throughput: 320,
+    ///     analysis_period_start: "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    ///     calculated_at: "2024-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    /// };
+    ///
+    /// assert_eq!(metrics.completion_percentage(), 94.2);
+    /// ```
     pub fn completion_percentage(&self) -> f64 {
         self.completion_rate.to_string().parse().unwrap_or(0.0)
     }
 
     /// Get error rate as a percentage (0.0 to 100.0).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::insights::analytics_metrics::AnalyticsMetrics;
+    /// use sqlx::types::BigDecimal;
+    /// use std::str::FromStr;
+    /// use chrono::{DateTime, Utc};
+    ///
+    /// let metrics = AnalyticsMetrics {
+    ///     active_tasks_count: 100,
+    ///     total_namespaces_count: 5,
+    ///     unique_task_types_count: 12,
+    ///     system_health_score: BigDecimal::from_str("85.5").unwrap(),
+    ///     task_throughput: 156,
+    ///     completion_count: 94,
+    ///     error_count: 6,
+    ///     completion_rate: BigDecimal::from_str("94.2").unwrap(),
+    ///     error_rate: BigDecimal::from_str("2.1").unwrap(),
+    ///     avg_task_duration: BigDecimal::from_str("512.5").unwrap(),
+    ///     avg_step_duration: BigDecimal::from_str("45.2").unwrap(),
+    ///     step_throughput: 320,
+    ///     analysis_period_start: "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    ///     calculated_at: "2024-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    /// };
+    ///
+    /// assert_eq!(metrics.error_percentage(), 2.1);
+    /// ```
     pub fn error_percentage(&self) -> f64 {
         self.error_rate.to_string().parse().unwrap_or(0.0)
     }
 
     /// Get average task duration in seconds.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::insights::analytics_metrics::AnalyticsMetrics;
+    /// use sqlx::types::BigDecimal;
+    /// use std::str::FromStr;
+    /// use chrono::{DateTime, Utc};
+    ///
+    /// let metrics = AnalyticsMetrics {
+    ///     active_tasks_count: 100,
+    ///     total_namespaces_count: 5,
+    ///     unique_task_types_count: 12,
+    ///     system_health_score: BigDecimal::from_str("85.5").unwrap(),
+    ///     task_throughput: 156,
+    ///     completion_count: 94,
+    ///     error_count: 6,
+    ///     completion_rate: BigDecimal::from_str("94.2").unwrap(),
+    ///     error_rate: BigDecimal::from_str("2.1").unwrap(),
+    ///     avg_task_duration: BigDecimal::from_str("312.75").unwrap(), // 5 minutes and 12.75 seconds
+    ///     avg_step_duration: BigDecimal::from_str("45.2").unwrap(),
+    ///     step_throughput: 320,
+    ///     analysis_period_start: "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    ///     calculated_at: "2024-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    /// };
+    ///
+    /// assert_eq!(metrics.avg_task_duration_seconds(), 312.75);
+    /// ```
     pub fn avg_task_duration_seconds(&self) -> f64 {
         self.avg_task_duration.to_string().parse().unwrap_or(0.0)
     }
 
     /// Get average step duration in seconds.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::insights::analytics_metrics::AnalyticsMetrics;
+    /// use sqlx::types::BigDecimal;
+    /// use std::str::FromStr;
+    /// use chrono::{DateTime, Utc};
+    ///
+    /// let metrics = AnalyticsMetrics {
+    ///     active_tasks_count: 100,
+    ///     total_namespaces_count: 5,
+    ///     unique_task_types_count: 12,
+    ///     system_health_score: BigDecimal::from_str("85.5").unwrap(),
+    ///     task_throughput: 156,
+    ///     completion_count: 94,
+    ///     error_count: 6,
+    ///     completion_rate: BigDecimal::from_str("94.2").unwrap(),
+    ///     error_rate: BigDecimal::from_str("2.1").unwrap(),
+    ///     avg_task_duration: BigDecimal::from_str("312.75").unwrap(),
+    ///     avg_step_duration: BigDecimal::from_str("45.8").unwrap(), // About 45.8 seconds per step
+    ///     step_throughput: 320,
+    ///     analysis_period_start: "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    ///     calculated_at: "2024-01-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+    /// };
+    ///
+    /// assert_eq!(metrics.avg_step_duration_seconds(), 45.8);
+    /// ```
     pub fn avg_step_duration_seconds(&self) -> f64 {
         self.avg_step_duration.to_string().parse().unwrap_or(0.0)
     }

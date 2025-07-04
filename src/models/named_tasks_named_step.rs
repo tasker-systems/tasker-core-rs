@@ -337,18 +337,12 @@ impl NamedTasksNamedStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
 
-    #[tokio::test]
-    async fn test_named_tasks_named_step_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -357,11 +351,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -373,11 +366,10 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let dependent_system = crate::models::dependent_system::DependentSystem::create(
-            pool,
+            &pool,
             crate::models::dependent_system::NewDependentSystem {
                 name: format!(
                     "test_system_{}",
@@ -386,11 +378,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create dependent system");
+        .await?;
 
         let named_step = crate::models::named_step::NamedStep::create(
-            pool,
+            &pool,
             crate::models::named_step::NewNamedStep {
                 name: format!(
                     "test_step_{}",
@@ -400,8 +391,7 @@ mod tests {
                 dependent_system_id: dependent_system.dependent_system_id,
             },
         )
-        .await
-        .expect("Failed to create named step");
+        .await?;
 
         // Test creation with custom configuration
         let new_association = NewNamedTasksNamedStep {
@@ -412,67 +402,53 @@ mod tests {
             default_retry_limit: Some(5),
         };
 
-        let association = NamedTasksNamedStep::create(pool, new_association.clone())
-            .await
-            .expect("Failed to create association");
+        let association = NamedTasksNamedStep::create(&pool, new_association.clone()).await?;
         assert_eq!(association.named_task_id, named_task.named_task_id);
         assert!(association.skippable);
         assert!(!association.default_retryable);
         assert_eq!(association.default_retry_limit, 5);
 
         // Test find by ID
-        let found = NamedTasksNamedStep::find_by_id(pool, association.id)
-            .await
-            .expect("Failed to find association");
+        let found = NamedTasksNamedStep::find_by_id(&pool, association.id).await?;
         assert!(found.is_some());
         assert_eq!(found.unwrap().named_step_id, named_step.named_step_id);
 
         // Test find by task and step
         let found_specific = NamedTasksNamedStep::find_by_task_and_step(
-            pool,
+            &pool,
             named_task.named_task_id,
             named_step.named_step_id,
         )
-        .await
-        .expect("Failed to find specific association");
+        .await?;
         assert!(found_specific.is_some());
 
         // Test find_or_create (should find existing)
-        let found_or_created = NamedTasksNamedStep::find_or_create(pool, new_association)
-            .await
-            .expect("Failed to find or create");
+        let found_or_created = NamedTasksNamedStep::find_or_create(&pool, new_association).await?;
         assert_eq!(found_or_created.id, association.id);
 
         // Test finding skippable associations
-        let skippable = NamedTasksNamedStep::find_skippable_by_task(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to find skippable");
+        let skippable =
+            NamedTasksNamedStep::find_skippable_by_task(&pool, named_task.named_task_id).await?;
         assert!(!skippable.is_empty());
 
         // Test finding non-retryable associations
         let non_retryable =
-            NamedTasksNamedStep::find_non_retryable_by_task(pool, named_task.named_task_id)
-                .await
-                .expect("Failed to find non-retryable");
+            NamedTasksNamedStep::find_non_retryable_by_task(&pool, named_task.named_task_id)
+                .await?;
         assert!(!non_retryable.is_empty());
 
         // Cleanup
-        let deleted = NamedTasksNamedStep::delete(pool, association.id)
-            .await
-            .expect("Failed to delete association");
+        let deleted = NamedTasksNamedStep::delete(&pool, association.id).await?;
         assert!(deleted);
+
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_default_values() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies with minimal data
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -481,11 +457,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -497,11 +472,10 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let dependent_system = crate::models::dependent_system::DependentSystem::create(
-            pool,
+            &pool,
             crate::models::dependent_system::NewDependentSystem {
                 name: format!(
                     "test_system_{}",
@@ -510,11 +484,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create dependent system");
+        .await?;
 
         let named_step = crate::models::named_step::NamedStep::create(
-            pool,
+            &pool,
             crate::models::named_step::NewNamedStep {
                 name: format!(
                     "test_step_{}",
@@ -524,8 +497,7 @@ mod tests {
                 dependent_system_id: dependent_system.dependent_system_id,
             },
         )
-        .await
-        .expect("Failed to create named step");
+        .await?;
 
         // Test creation with default values
         let new_association = NewNamedTasksNamedStep {
@@ -536,16 +508,14 @@ mod tests {
             default_retry_limit: None, // Should default to 3
         };
 
-        let association = NamedTasksNamedStep::create(pool, new_association)
-            .await
-            .expect("Failed to create association with defaults");
+        let association = NamedTasksNamedStep::create(&pool, new_association).await?;
         assert!(!association.skippable);
         assert!(association.default_retryable);
         assert_eq!(association.default_retry_limit, 3);
 
         // Cleanup
-        NamedTasksNamedStep::delete(pool, association.id)
-            .await
-            .expect("Failed to delete association");
+        NamedTasksNamedStep::delete(&pool, association.id).await?;
+
+        Ok(())
     }
 }

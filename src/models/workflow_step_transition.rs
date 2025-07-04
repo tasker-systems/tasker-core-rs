@@ -1132,7 +1132,7 @@ mod tests {
         let task = crate::models::task::Task::create(
             pool,
             crate::models::task::NewTask {
-                named_task_id: named_task.named_task_id as i32,
+                named_task_id: named_task.named_task_id,
                 requested_at: None,
                 initiator: None,
                 source_system: None,

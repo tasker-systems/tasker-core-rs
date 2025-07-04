@@ -805,21 +805,175 @@ impl TaskTransition {
     }
 
     /// Check if transition is to error state (Rails: error_transition?)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    ///
+    /// let transition = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "error".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(transition.error_transition());
+    ///
+    /// let success_transition = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "complete".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 3,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(!success_transition.error_transition());
+    /// ```
     pub fn error_transition(&self) -> bool {
         self.to_state == "error"
     }
 
     /// Check if transition is to completion state (Rails: completion_transition?)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    ///
+    /// let complete_transition = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "complete".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(complete_transition.completion_transition());
+    ///
+    /// let manual_transition = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "resolved_manually".to_string(),
+    ///     from_state: Some("error".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 3,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(manual_transition.completion_transition());
+    ///
+    /// let error_transition = TaskTransition {
+    ///     id: 3,
+    ///     task_id: 123,
+    ///     to_state: "error".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 4,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(!error_transition.completion_transition());
+    /// ```
     pub fn completion_transition(&self) -> bool {
         matches!(self.to_state.as_str(), "complete" | "resolved_manually")
     }
 
     /// Check if transition is to cancelled state (Rails: cancellation_transition?)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    ///
+    /// let cancelled_transition = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "cancelled".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(cancelled_transition.cancellation_transition());
+    ///
+    /// let running_transition = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "running".to_string(),
+    ///     from_state: Some("pending".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 1,
+    ///     most_recent: false,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(!running_transition.cancellation_transition());
+    /// ```
     pub fn cancellation_transition(&self) -> bool {
         self.to_state == "cancelled"
     }
 
     /// Get human-readable description (Rails: description)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    ///
+    /// let complete_transition = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "complete".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert_eq!(complete_transition.description(), "Task completed successfully");
+    ///
+    /// let custom_transition = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "custom_state".to_string(),
+    ///     from_state: Some("pending".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 1,
+    ///     most_recent: false,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert_eq!(custom_transition.description(), "Task transitioned to custom_state");
+    /// ```
     pub fn description(&self) -> String {
         match self.to_state.as_str() {
             "pending" => "Task initialized and ready for processing".to_string(),
@@ -864,6 +1018,44 @@ impl TaskTransition {
     }
 
     /// Check if metadata contains key (Rails: has_metadata?)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    /// use serde_json::json;
+    ///
+    /// let transition_with_metadata = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "complete".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: Some(json!({"reason": "task_finished", "duration": 120})),
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(transition_with_metadata.has_metadata("reason"));
+    /// assert!(transition_with_metadata.has_metadata("duration"));
+    /// assert!(!transition_with_metadata.has_metadata("missing_key"));
+    ///
+    /// let transition_no_metadata = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "error".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 3,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// assert!(!transition_no_metadata.has_metadata("any_key"));
+    /// ```
     pub fn has_metadata(&self, key: &str) -> bool {
         if let Some(metadata) = &self.metadata {
             metadata.get(key).is_some()
@@ -873,6 +1065,50 @@ impl TaskTransition {
     }
 
     /// Get metadata value with default (Rails: get_metadata)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::task_transition::TaskTransition;
+    /// use chrono::NaiveDateTime;
+    /// use serde_json::{json, Value};
+    ///
+    /// let transition = TaskTransition {
+    ///     id: 1,
+    ///     task_id: 123,
+    ///     to_state: "complete".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: Some(json!({"reason": "task_finished", "duration": 120})),
+    ///     sort_key: 2,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// // Get existing value
+    /// let reason = transition.get_metadata("reason", json!("unknown"));
+    /// assert_eq!(reason, json!("task_finished"));
+    ///
+    /// // Get missing value with default
+    /// let priority = transition.get_metadata("priority", json!("normal"));
+    /// assert_eq!(priority, json!("normal"));
+    ///
+    /// // Test with transition that has no metadata
+    /// let empty_transition = TaskTransition {
+    ///     id: 2,
+    ///     task_id: 123,
+    ///     to_state: "error".to_string(),
+    ///     from_state: Some("running".to_string()),
+    ///     metadata: None,
+    ///     sort_key: 3,
+    ///     most_recent: true,
+    ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
+    /// };
+    ///
+    /// let default_value = empty_transition.get_metadata("any_key", json!("default"));
+    /// assert_eq!(default_value, json!("default"));
+    /// ```
     pub fn get_metadata(&self, key: &str, default: serde_json::Value) -> serde_json::Value {
         if let Some(metadata) = &self.metadata {
             metadata.get(key).cloned().unwrap_or(default)
@@ -1028,7 +1264,7 @@ mod tests {
         let task = crate::models::task::Task::create(
             pool,
             crate::models::task::NewTask {
-                named_task_id: named_task.named_task_id as i32,
+                named_task_id: named_task.named_task_id,
                 requested_at: None,
                 initiator: None,
                 source_system: None,

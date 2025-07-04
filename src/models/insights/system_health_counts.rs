@@ -139,13 +139,25 @@ impl SystemHealthCounts {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use sqlx::PgPool;
+    /// use tasker_core::models::insights::SystemHealthCounts;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
     /// let health = SystemHealthCounts::get_current(&pool).await?;
     ///
-    /// println!("Total tasks: {}", health.total_tasks);
-    /// println!("Error tasks: {}", health.error_tasks);
-    /// println!("Connection usage: {}/{}", health.active_connections, health.max_connections);
+    /// if let Some(health) = health {
+    ///     println!("System Health Score: {:.1}", health.overall_health_score());
+    ///     println!("Total tasks: {}", health.total_tasks);
+    ///     println!("Error tasks: {}", health.error_tasks);
+    ///     println!("Is healthy: {}", health.is_healthy());
+    ///     println!("Connection usage: {}/{}", health.active_connections, health.max_connections);
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with test data, see `tests/models/system_health_counts.rs`.
     pub async fn get_current(pool: &PgPool) -> Result<Option<SystemHealthCounts>, sqlx::Error> {
         let counts = sqlx::query_as!(
             SystemHealthCounts,
@@ -249,6 +261,36 @@ impl SystemHealthCounts {
     /// - Error rates (lower is better)
     /// - Connection utilization (moderate is best)
     /// - Retry exhaustion (lower is better)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tasker_core::models::insights::SystemHealthCounts;
+    ///
+    /// // Example with healthy system metrics
+    /// let healthy_system = SystemHealthCounts {
+    ///     total_tasks: 100,
+    ///     pending_tasks: 5,
+    ///     in_progress_tasks: 10,
+    ///     complete_tasks: 85,
+    ///     error_tasks: 0,
+    ///     cancelled_tasks: 0,
+    ///     total_steps: 300,
+    ///     pending_steps: 10,
+    ///     in_progress_steps: 20,
+    ///     complete_steps: 270,
+    ///     error_steps: 0,
+    ///     retryable_error_steps: 0,
+    ///     exhausted_retry_steps: 0,
+    ///     in_backoff_steps: 0,
+    ///     active_connections: 5,
+    ///     max_connections: 20,
+    /// };
+    ///
+    /// let score = healthy_system.overall_health_score();
+    /// assert!(score > 85.0, "Healthy system should score above 85");
+    /// assert!(healthy_system.is_healthy());
+    /// ```
     pub fn overall_health_score(&self) -> f64 {
         let completion_score = (self.task_completion_rate() + self.step_completion_rate()) * 50.0;
         let error_penalty = (self.task_error_rate() + self.step_error_rate()) * 25.0;
@@ -312,19 +354,11 @@ impl SystemHealthCounts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
 
-    #[tokio::test]
-    async fn test_get_system_health_counts() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_get_system_health_counts(pool: PgPool) -> sqlx::Result<()> {
         // Test getting current system health counts
-        let health = SystemHealthCounts::get_current(pool)
-            .await
-            .expect("Failed to get system health counts");
+        let health = SystemHealthCounts::get_current(&pool).await?;
 
         // Should return some counts (might be zero for empty system)
         if let Some(h) = health {
@@ -345,20 +379,13 @@ mod tests {
             let _blocked_work = h.blocked_work_count();
         }
 
-        db.close().await;
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_get_health_summary() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_get_health_summary(pool: PgPool) -> sqlx::Result<()> {
         // Test getting health summary
-        let summary = SystemHealthCounts::get_health_summary(pool)
-            .await
-            .expect("Failed to get health summary");
+        let summary = SystemHealthCounts::get_health_summary(&pool).await?;
 
         // Should return without error (might be None for empty system)
         if let Some(s) = summary {
@@ -367,7 +394,7 @@ mod tests {
             assert!(!s.health_status.is_empty());
         }
 
-        db.close().await;
+        Ok(())
     }
 
     #[test]

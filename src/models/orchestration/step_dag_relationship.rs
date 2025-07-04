@@ -124,7 +124,7 @@ impl StepDagRelationship {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -153,7 +153,7 @@ impl StepDagRelationship {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -184,7 +184,7 @@ impl StepDagRelationship {
         let relationship = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -214,7 +214,7 @@ impl StepDagRelationship {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -245,7 +245,7 @@ impl StepDagRelationship {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -277,7 +277,7 @@ impl StepDagRelationship {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
-            SELECT 
+            SELECT
                 workflow_step_id as "workflow_step_id!: i64",
                 task_id as "task_id!: i64",
                 named_step_id as "named_step_id!: i32",
@@ -307,10 +307,26 @@ impl StepDagRelationship {
     /// These steps must complete successfully before this step can run.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// // For a "Deploy" step that depends on "Build" and "Test" steps
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let deploy_step = StepDagRelationship {
+    ///     workflow_step_id: 3,
+    ///     task_id: 100,
+    ///     named_step_id: 1003,
+    ///     parent_step_ids: json!([1, 2]), // Build and Test step IDs
+    ///     child_step_ids: json!([]),
+    ///     parent_count: 2,
+    ///     child_count: 0,
+    ///     is_root_step: false,
+    ///     is_leaf_step: true,
+    ///     min_depth_from_root: Some(2),
+    /// };
+    ///
     /// let parents = deploy_step.parent_ids();
-    /// println!("Deploy step waits for steps: {:?}", parents); // [build_id, test_id]
+    /// assert_eq!(parents, vec![1, 2]);
+    /// println!("Deploy step waits for steps: {:?}", parents); // [1, 2]
     /// ```
     pub fn parent_ids(&self) -> Vec<i64> {
         self.parent_step_ids
@@ -325,10 +341,26 @@ impl StepDagRelationship {
     /// These steps will be blocked until this step completes successfully.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// // For a "Build" step that enables "Test" and "Package" steps
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let build_step = StepDagRelationship {
+    ///     workflow_step_id: 1,
+    ///     task_id: 100,
+    ///     named_step_id: 1001,
+    ///     parent_step_ids: json!([]), // No dependencies - can start immediately
+    ///     child_step_ids: json!([2, 3]), // Test and Package step IDs
+    ///     parent_count: 0,
+    ///     child_count: 2,
+    ///     is_root_step: true,
+    ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(0),
+    /// };
+    ///
     /// let children = build_step.child_ids();
-    /// println!("Build completion will unblock: {:?}", children); // [test_id, package_id]
+    /// assert_eq!(children, vec![2, 3]);
+    /// println!("Build completion will unblock: {:?}", children); // [2, 3]
     /// ```
     pub fn child_ids(&self) -> Vec<i64> {
         self.child_step_ids
@@ -342,10 +374,41 @@ impl StepDagRelationship {
     /// Root steps are workflow entry points that can start as soon as the task begins.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// if step.can_execute_immediately() {
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let root_step = StepDagRelationship {
+    ///     workflow_step_id: 1,
+    ///     task_id: 100,
+    ///     named_step_id: 1001,
+    ///     parent_step_ids: json!([]), // No dependencies
+    ///     child_step_ids: json!([2, 3]),
+    ///     parent_count: 0,
+    ///     child_count: 2,
+    ///     is_root_step: true,
+    ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(0),
+    /// };
+    ///
+    /// let dependent_step = StepDagRelationship {
+    ///     workflow_step_id: 2,
+    ///     task_id: 100,
+    ///     named_step_id: 1002,
+    ///     parent_step_ids: json!([1]), // Depends on step 1
+    ///     child_step_ids: json!([]),
+    ///     parent_count: 1,
+    ///     child_count: 0,
+    ///     is_root_step: false,
+    ///     is_leaf_step: true,
+    ///     min_depth_from_root: Some(1),
+    /// };
+    ///
+    /// assert!(root_step.can_execute_immediately());
+    /// assert!(!dependent_step.can_execute_immediately());
+    ///
+    /// if root_step.can_execute_immediately() {
     ///     println!("This step can start right away!");
-    ///     scheduler.queue_for_execution(step);
     /// }
     /// ```
     pub fn can_execute_immediately(&self) -> bool {
@@ -358,10 +421,40 @@ impl StepDagRelationship {
     /// the entire task is considered finished.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// if step.is_workflow_exit() {
-    ///     println!("This is a final step - task may complete when this finishes");
-    /// }
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let final_step = StepDagRelationship {
+    ///     workflow_step_id: 3,
+    ///     task_id: 100,
+    ///     named_step_id: 1003,
+    ///     parent_step_ids: json!([1, 2]),
+    ///     child_step_ids: json!([]), // No children - this is a leaf step
+    ///     parent_count: 2,
+    ///     child_count: 0,
+    ///     is_root_step: false,
+    ///     is_leaf_step: true,
+    ///     min_depth_from_root: Some(2),
+    /// };
+    ///
+    /// let middle_step = StepDagRelationship {
+    ///     workflow_step_id: 2,
+    ///     task_id: 100,
+    ///     named_step_id: 1002,
+    ///     parent_step_ids: json!([1]),
+    ///     child_step_ids: json!([3]), // Has children - not a leaf
+    ///     parent_count: 1,
+    ///     child_count: 1,
+    ///     is_root_step: false,
+    ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(1),
+    /// };
+    ///
+    /// // Note: This depends on is_leaf_step field being set correctly
+    /// // For this example, we'll show the concept with assertions
+    /// println!("Step 3 is a workflow exit: {}", final_step.child_ids().is_empty());
+    /// println!("Step 2 is not a workflow exit: {}", !middle_step.child_ids().is_empty());
     /// ```
     pub fn is_workflow_exit(&self) -> bool {
         self.is_leaf_step
@@ -373,12 +466,58 @@ impl StepDagRelationship {
     /// This helps determine execution order and identify the "critical path".
     ///
     /// # Example
-    /// ```rust,ignore
-    /// match step.execution_level() {
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let root_step = StepDagRelationship {
+    ///     workflow_step_id: 1,
+    ///     task_id: 100,
+    ///     named_step_id: 1001,
+    ///     parent_step_ids: json!([]),
+    ///     child_step_ids: json!([2, 3]),
+    ///     parent_count: 0,
+    ///     child_count: 2,
+    ///     min_depth_from_root: Some(0), // Root step has depth 0
+    ///     is_root_step: true,
+    ///     is_leaf_step: false,
+    /// };
+    ///
+    /// let second_level_step = StepDagRelationship {
+    ///     workflow_step_id: 2,
+    ///     task_id: 100,
+    ///     named_step_id: 1002,
+    ///     parent_step_ids: json!([1]),
+    ///     child_step_ids: json!([4]),
+    ///     parent_count: 1,
+    ///     child_count: 1,
+    ///     min_depth_from_root: Some(1), // One step from root
+    ///     is_root_step: false,
+    ///     is_leaf_step: false,
+    /// };
+    ///
+    /// let orphaned_step = StepDagRelationship {
+    ///     workflow_step_id: 99,
+    ///     task_id: 100,
+    ///     named_step_id: 1099,
+    ///     parent_step_ids: json!([]),
+    ///     child_step_ids: json!([]),
+    ///     parent_count: 0,
+    ///     child_count: 0,
+    ///     min_depth_from_root: None, // No depth calculated
+    ///     is_root_step: false,
+    ///     is_leaf_step: false,
+    /// };
+    ///
+    /// match root_step.execution_level() {
     ///     Some(0) => println!("This is a root step (starts immediately)"),
     ///     Some(depth) => println!("This step runs at depth level {}", depth),
     ///     None => println!("This step may be orphaned or in a cycle"),
     /// }
+    ///
+    /// assert_eq!(root_step.execution_level(), Some(0));
+    /// assert_eq!(second_level_step.execution_level(), Some(1));
+    /// assert_eq!(orphaned_step.execution_level(), None);
     /// ```
     pub fn execution_level(&self) -> Option<i32> {
         self.min_depth_from_root
@@ -390,9 +529,41 @@ impl StepDagRelationship {
     /// These require special attention as they may never execute.
     ///
     /// # Example
-    /// ```rust,ignore
-    /// if step.is_orphaned() {
-    ///     eprintln!("WARNING: Step {} may be in a dependency cycle!", step.workflow_step_id);
+    /// ```rust
+    /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
+    /// use serde_json::json;
+    ///
+    /// let normal_step = StepDagRelationship {
+    ///     workflow_step_id: 1,
+    ///     task_id: 100,
+    ///     named_step_id: 1001,
+    ///     parent_step_ids: json!([]),
+    ///     child_step_ids: json!([2]),
+    ///     parent_count: 0,
+    ///     child_count: 1,
+    ///     min_depth_from_root: Some(0), // Has calculated depth
+    ///     is_root_step: true,
+    ///     is_leaf_step: false,
+    /// };
+    ///
+    /// let orphaned_step = StepDagRelationship {
+    ///     workflow_step_id: 99,
+    ///     task_id: 100,
+    ///     named_step_id: 1099,
+    ///     parent_step_ids: json!([]),
+    ///     child_step_ids: json!([]),
+    ///     parent_count: 0,
+    ///     child_count: 0,
+    ///     min_depth_from_root: None, // No depth - possibly orphaned
+    ///     is_root_step: false,
+    ///     is_leaf_step: false,
+    /// };
+    ///
+    /// assert!(!normal_step.is_orphaned());
+    /// assert!(orphaned_step.is_orphaned());
+    ///
+    /// if orphaned_step.is_orphaned() {
+    ///     eprintln!("WARNING: Step {} may be in a dependency cycle!", orphaned_step.workflow_step_id);
     ///     // Log for investigation or skip execution
     /// }
     /// ```

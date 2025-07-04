@@ -420,17 +420,27 @@ impl Task {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// use serde_json::json;
+    /// use tasker_core::models::Task;
+    ///
     /// let context = Some(json!({"order_id": 12345, "priority": "high"}));
     /// let hash = Task::generate_identity_hash(1, &context);
-    /// // hash: "a1b2c3d4e5f6..." (deterministic)
+    ///
+    /// // Hash is deterministic - same inputs always produce same output
+    /// assert_eq!(hash.len(), 16); // u64 hash produces 16-char hex string
+    /// assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    ///
+    /// // Same inputs produce same hash
+    /// let hash2 = Task::generate_identity_hash(1, &context);
+    /// assert_eq!(hash, hash2);
     /// ```
     ///
     /// # Performance
     ///
     /// - **Hash Calculation**: O(1) for typical context sizes
     /// - **Database Lookup**: O(1) via unique index on identity_hash
-    /// - **Memory Usage**: Fixed 64-character string regardless of context size
+    /// - **Memory Usage**: Fixed 16-character string regardless of context size
     pub fn generate_identity_hash(
         named_task_id: i32,
         context: &Option<serde_json::Value>,
@@ -737,18 +747,6 @@ impl Task {
         Ok(Some(serde_json::json!({"step_name": name, "found": true})))
     }
 
-    /// Get/create TaskDiagram for this task (Rails: diagram) - memoized
-    /// TODO: Implement TaskDiagram integration when table is created
-    pub async fn diagram(
-        &self,
-        _pool: &PgPool,
-        _base_url: Option<&str>,
-    ) -> Result<String, sqlx::Error> {
-        // Placeholder - TaskDiagram table doesn't exist yet in schema
-        // Will be implemented when tasker_task_diagrams table is added
-        Ok(format!("TaskDiagram(task_id: {})", self.task_id))
-    }
-
     /// Get RuntimeGraphAnalyzer for this task (Rails: runtime_analyzer) - memoized
     /// TODO: Implement RuntimeGraphAnalyzer
     pub fn runtime_analyzer(&self) -> String {
@@ -799,11 +797,23 @@ impl Task {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use sqlx::PgPool;
+    /// use tasker_core::models::Task;
+    ///
+    /// # async fn example(pool: PgPool, mut task: Task) -> Result<(), sqlx::Error> {
+    /// // Check if all workflow steps are complete before marking task as done
     /// if task.all_steps_complete(&pool).await? {
+    ///     println!("All steps complete! Marking task {} as done", task.task_id);
     ///     task.mark_complete(&pool).await?;
+    /// } else {
+    ///     println!("Task {} still has pending steps", task.task_id);
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples with workflow setup, see `tests/models/task.rs`.
     pub async fn all_steps_complete(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
@@ -860,17 +870,6 @@ impl Task {
         Ok(name)
     }
 
-    /// Generate Mermaid diagram (Rails: delegate :to_mermaid, to: :diagram)
-    /// TODO: Integrate with TaskDiagram.to_mermaid
-    pub async fn to_mermaid(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
-        // Placeholder - would delegate to TaskDiagram
-        let _diagram = self.diagram(pool, None).await?;
-        Ok(format!(
-            "graph TD\n  A[Task {}] --> B[Placeholder]",
-            self.task_id
-        ))
-    }
-
     /// Get workflow summary (Rails: delegate :workflow_summary, to: :task_execution_context)
     /// TODO: Integrate with TaskExecutionContext.workflow_summary
     pub async fn workflow_summary(&self, pool: &PgPool) -> Result<serde_json::Value, sqlx::Error> {
@@ -922,47 +921,50 @@ impl Task {
 impl Task {
     /// Example: Creating a customer order processing task
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use tasker_core::models::task::{Task, NewTask};
+    /// use sqlx::PgPool;
     /// use serde_json::json;
     ///
-    /// async fn create_order_processing_task(pool: &PgPool, order_id: i64) -> Result<Task, sqlx::Error> {
-    ///     // Order processing context with customer data and preferences
-    ///     let context = json!({
-    ///         "order_id": order_id,
-    ///         "priority": "high",
-    ///         "customer_tier": "premium",
-    ///         "shipping_method": "express",
-    ///         "payment_method": "credit_card",
-    ///         "special_instructions": "Gift wrap requested"
-    ///     });
-    ///     
-    ///     // Create identity hash for deduplication
-    ///     let identity_hash = Task::generate_identity_hash(ORDER_PROCESSING_NAMED_TASK_ID, &Some(context.clone()));
-    ///     
-    ///     // Check if task already exists (idempotent creation)
-    ///     if let Some(existing_task) = Task::find_by_identity_hash(pool, &identity_hash).await? {
-    ///         println!("Order {} already has a processing task: {}", order_id, existing_task.task_id);
-    ///         return Ok(existing_task);
-    ///     }
-    ///     
-    ///     // Create new task
-    ///     let new_task = NewTask {
-    ///         named_task_id: ORDER_PROCESSING_NAMED_TASK_ID,
-    ///         requested_at: None, // Will default to NOW()
-    ///         initiator: Some("order_service".to_string()),
-    ///         source_system: Some("e_commerce_api".to_string()),
-    ///         reason: Some(format!("Process order {}", order_id)),
-    ///         bypass_steps: None,
-    ///         tags: Some(json!({"order_id": order_id, "department": "fulfillment"})),
-    ///         context: Some(context),
-    ///         identity_hash,
-    ///     };
-    ///     
-    ///     let task = Task::create(pool, new_task).await?;
-    ///     println!("Created order processing task {} for order {}", task.task_id, order_id);
-    ///     
-    ///     Ok(task)
+    /// # async fn create_order_processing_task(pool: &PgPool, order_id: i64) -> Result<Task, sqlx::Error> {
+    /// # const ORDER_PROCESSING_NAMED_TASK_ID: i32 = 1;  // Example constant
+    /// // Order processing context with customer data and preferences
+    /// let context = json!({
+    ///     "order_id": order_id,
+    ///     "priority": "high",
+    ///     "customer_tier": "premium",
+    ///     "shipping_method": "express",
+    ///     "payment_method": "credit_card",
+    ///     "special_instructions": "Gift wrap requested"
+    /// });
+    ///
+    /// // Create identity hash for deduplication
+    /// let identity_hash = Task::generate_identity_hash(ORDER_PROCESSING_NAMED_TASK_ID, &Some(context.clone()));
+    ///
+    /// // Check if task already exists (idempotent creation)
+    /// if let Some(existing_task) = Task::find_by_identity_hash(pool, &identity_hash).await? {
+    ///     println!("Order {} already has a processing task: {}", order_id, existing_task.task_id);
+    ///     return Ok(existing_task);
     /// }
+    ///
+    /// // Create new task
+    /// let new_task = NewTask {
+    ///     named_task_id: ORDER_PROCESSING_NAMED_TASK_ID,
+    ///     requested_at: None, // Will default to NOW()
+    ///     initiator: Some("order_service".to_string()),
+    ///     source_system: Some("e_commerce_api".to_string()),
+    ///     reason: Some(format!("Process order {}", order_id)),
+    ///     bypass_steps: None,
+    ///     tags: Some(json!({"order_id": order_id, "department": "fulfillment"})),
+    ///     context: Some(context),
+    ///     identity_hash,
+    /// };
+    ///
+    /// let task = Task::create(pool, new_task).await?;
+    /// println!("Created order processing task {} for order {}", task.task_id, order_id);
+    ///
+    /// Ok(task)
+    /// # }
     /// ```
     ///
     /// This example shows:
@@ -974,46 +976,46 @@ impl Task {
 
     /// Example: Monitoring task execution progress
     ///
-    /// ```rust,ignore
-    /// async fn monitor_task_progress(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
-    ///     let task = Task::find_by_id(pool, task_id).await?
-    ///         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    ///     
-    ///     // Get real-time execution context
-    ///     let context = TaskExecutionContext::get_for_task(pool, task_id).await?
-    ///         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    ///     
-    ///     // Get current state from transition history
-    ///     let current_state = task.get_current_state(pool).await?
-    ///         .unwrap_or_else(|| "unknown".to_string());
-    ///     
-    ///     // Print comprehensive status
-    ///     println!("=== Task {} Progress Report ===", task_id);
-    ///     println!("State: {}", current_state);
-    ///     println!("Progress: {}/{} steps complete ({}%)",
-    ///              context.completed_steps,
-    ///              context.total_steps,
-    ///              context.completion_percentage);
-    ///     println!("Ready: {} steps ready to execute", context.ready_steps);
-    ///     println!("Active: {} steps currently running", context.in_progress_steps);
-    ///     println!("Failed: {} steps failed", context.failed_steps);
-    ///     println!("Health: {}", context.health_status);
-    ///     
-    ///     if let Some(action) = context.recommended_action {
-    ///         println!("Recommended Action: {}", action);
-    ///     }
-    ///     
-    ///     // Check if intervention needed
-    ///     if context.failed_steps > 0 && context.ready_steps == 0 {
-    ///         println!("⚠️  Task is blocked - manual intervention may be required");
-    ///     } else if context.ready_steps > 0 {
-    ///         println!("✅ Task has {} steps ready for execution", context.ready_steps);
-    ///     } else if context.is_complete() {
-    ///         println!("🎉 Task completed successfully!");
-    ///     }
-    ///     
-    ///     Ok(())
+    /// ```rust,no_run
+    /// use tasker_core::models::task::Task;
+    /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn monitor_task_progress(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
+    /// let task = Task::find_by_id(pool, task_id).await?
+    ///     .ok_or_else(|| sqlx::Error::RowNotFound)?;
+    ///
+    /// // Get real-time execution context
+    /// let context = TaskExecutionContext::get_for_task(pool, task_id).await?
+    ///     .ok_or_else(|| sqlx::Error::RowNotFound)?;
+    ///
+    /// // Get current state from transition history
+    /// let current_state = task.get_current_state(pool).await?
+    ///     .unwrap_or_else(|| "unknown".to_string());
+    ///
+    /// // Print comprehensive status
+    /// println!("=== Task {} Progress Report ===", task_id);
+    /// println!("State: {}", current_state);
+    /// println!("Progress: {}/{} steps complete",
+    ///          context.completed_steps, context.total_steps);
+    /// println!("Ready: {} steps ready to execute", context.ready_steps);
+    /// println!("Active: {} steps currently running", context.in_progress_steps);
+    /// println!("Failed: {} steps failed", context.failed_steps);
+    /// println!("Health: {}", context.health_status);
+    ///
+    /// if let Some(action) = context.recommended_action {
+    ///     println!("Recommended Action: {}", action);
     /// }
+    ///
+    /// // Check if intervention needed
+    /// if context.failed_steps > 0 && context.ready_steps == 0 {
+    ///     println!("⚠️  Task is blocked - manual intervention may be required");
+    /// } else if context.ready_steps > 0 {
+    ///     println!("✅ Task has {} steps ready for execution", context.ready_steps);
+    /// }
+    ///
+    /// Ok(())
+    /// # }
     /// ```
     ///
     /// This example demonstrates:
@@ -1025,61 +1027,65 @@ impl Task {
 
     /// Example: Bulk task analysis for dashboard
     ///
-    /// ```rust,ignore
-    /// async fn generate_task_dashboard(pool: &PgPool, task_ids: Vec<i64>) -> Result<(), sqlx::Error> {
-    ///     // Get execution contexts for all tasks in a single query
-    ///     let contexts = TaskExecutionContext::get_for_tasks(pool, &task_ids).await?;
-    ///     
-    ///     let mut summary = TaskDashboardSummary {
-    ///         total_tasks: contexts.len(),
-    ///         complete_tasks: 0,
-    ///         in_progress_tasks: 0,
-    ///         blocked_tasks: 0,
-    ///         ready_tasks: 0,
-    ///         total_ready_steps: 0,
-    ///     };
-    ///     
-    ///     println!("=== Task Dashboard ({} tasks) ===", contexts.len());
-    ///     
-    ///     for context in &contexts {
-    ///         // Categorize tasks
-    ///         if context.is_complete() {
-    ///             summary.complete_tasks += 1;
-    ///         } else if context.is_processing() {
-    ///             summary.in_progress_tasks += 1;
-    ///         } else if context.has_failures() && context.ready_steps == 0 {
-    ///             summary.blocked_tasks += 1;
-    ///         } else if context.has_ready_steps() {
-    ///             summary.ready_tasks += 1;
-    ///             summary.total_ready_steps += context.ready_steps;
-    ///         }
-    ///         
-    ///         // Print individual task status
-    ///         println!("Task {}: {} - {}% complete - {} ready steps",
-    ///                  context.task_id,
-    ///                  context.status_summary(),
-    ///                  (context.completion_ratio() * 100.0) as i32,
-    ///                  context.ready_steps);
+    /// ```rust,no_run
+    /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
+    /// use sqlx::PgPool;
+    ///
+    /// # struct TaskDashboardSummary {
+    /// #     total_tasks: usize,
+    /// #     complete_tasks: usize,
+    /// #     in_progress_tasks: usize,
+    /// #     blocked_tasks: usize,
+    /// #     ready_tasks: usize,
+    /// #     total_ready_steps: i64,
+    /// # }
+    /// # async fn generate_task_dashboard(pool: &PgPool, task_ids: Vec<i64>) -> Result<(), sqlx::Error> {
+    /// // Get execution contexts for all tasks in a single query
+    /// let contexts = TaskExecutionContext::get_for_tasks(pool, &task_ids).await?;
+    ///
+    /// let mut summary = TaskDashboardSummary {
+    ///     total_tasks: contexts.len(),
+    ///     complete_tasks: 0,
+    ///     in_progress_tasks: 0,
+    ///     blocked_tasks: 0,
+    ///     ready_tasks: 0,
+    ///     total_ready_steps: 0,
+    /// };
+    ///
+    /// println!("=== Task Dashboard ({} tasks) ===", contexts.len());
+    ///
+    /// for context in &contexts {
+    ///     // Categorize tasks by execution status
+    ///     if context.completed_steps == context.total_steps && context.total_steps > 0 {
+    ///         summary.complete_tasks += 1;
+    ///     } else if context.in_progress_steps > 0 {
+    ///         summary.in_progress_tasks += 1;
+    ///     } else if context.failed_steps > 0 && context.ready_steps == 0 {
+    ///         summary.blocked_tasks += 1;
+    ///     } else if context.ready_steps > 0 {
+    ///         summary.ready_tasks += 1;
+    ///         summary.total_ready_steps += context.ready_steps;
     ///     }
     ///     
-    ///     // Print summary
-    ///     println!("\n=== Summary ===");
-    ///     println!("✅ Complete: {}", summary.complete_tasks);
-    ///     println!("🔄 In Progress: {}", summary.in_progress_tasks);
-    ///     println!("⚡ Ready: {} ({} steps)", summary.ready_tasks, summary.total_ready_steps);
-    ///     println!("🚫 Blocked: {}", summary.blocked_tasks);
+    ///     // Print individual task status
+    ///     let completion_pct = if context.total_steps > 0 {
+    ///         (context.completed_steps * 100 / context.total_steps)
+    ///     } else { 0 };
     ///     
-    ///     Ok(())
+    ///     println!("Task {}: {} - {}% complete - {} ready steps",
+    ///              context.task_id, context.execution_status,
+    ///              completion_pct, context.ready_steps);
     /// }
     ///
-    /// struct TaskDashboardSummary {
-    ///     total_tasks: usize,
-    ///     complete_tasks: usize,
-    ///     in_progress_tasks: usize,
-    ///     blocked_tasks: usize,
-    ///     ready_tasks: usize,
-    ///     total_ready_steps: i64,
-    /// }
+    /// // Print summary
+    /// println!("\n=== Summary ===");
+    /// println!("✅ Complete: {}", summary.complete_tasks);
+    /// println!("🔄 In Progress: {}", summary.in_progress_tasks);
+    /// println!("⚡ Ready: {} ({} steps)", summary.ready_tasks, summary.total_ready_steps);
+    /// println!("🚫 Blocked: {}", summary.blocked_tasks);
+    ///
+    /// Ok(())
+    /// # }
     /// ```
     ///
     /// This example shows:
@@ -1161,19 +1167,13 @@ impl Task {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
     use serde_json::json;
 
-    #[tokio::test]
-    async fn test_task_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -1182,11 +1182,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -1198,12 +1197,11 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         // Test creation
         let new_task = NewTask {
-            named_task_id: named_task.named_task_id as i32,
+            named_task_id: named_task.named_task_id,
             requested_at: None, // Will default to now
             initiator: Some("test_user".to_string()),
             source_system: Some(format!(
@@ -1215,63 +1213,50 @@ mod tests {
             tags: Some(json!({"priority": "high", "team": "engineering"})),
             context: Some(json!({"input_data": "test_value"})),
             identity_hash: Task::generate_identity_hash(
-                named_task.named_task_id as i32,
+                named_task.named_task_id,
                 &Some(json!({"input_data": "test_value"})),
             ),
         };
 
-        let created = Task::create(pool, new_task)
-            .await
-            .expect("Failed to create task");
-        assert_eq!(created.named_task_id, named_task.named_task_id as i32);
+        let created = Task::create(&pool, new_task).await?;
+        assert_eq!(created.named_task_id, named_task.named_task_id);
         assert!(!created.complete);
         assert_eq!(created.initiator, Some("test_user".to_string()));
 
         // Test find by ID
-        let found = Task::find_by_id(pool, created.task_id)
-            .await
-            .expect("Failed to find task")
-            .expect("Task not found");
+        let found = Task::find_by_id(&pool, created.task_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
         assert_eq!(found.task_id, created.task_id);
 
         // Test find by identity hash
-        let found_by_hash = Task::find_by_identity_hash(pool, &created.identity_hash)
-            .await
-            .expect("Failed to find task by hash")
-            .expect("Task not found by hash");
+        let found_by_hash = Task::find_by_identity_hash(&pool, &created.identity_hash)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
         assert_eq!(found_by_hash.task_id, created.task_id);
 
         // Test mark complete
         let mut task_to_complete = found.clone();
-        task_to_complete
-            .mark_complete(pool)
-            .await
-            .expect("Failed to mark complete");
+        task_to_complete.mark_complete(&pool).await?;
         assert!(task_to_complete.complete);
 
         // Test context update
         let new_context = json!({"updated": true, "processed": "2024-01-01"});
         task_to_complete
-            .update_context(pool, new_context.clone())
-            .await
-            .expect("Failed to update context");
+            .update_context(&pool, new_context.clone())
+            .await?;
         assert_eq!(task_to_complete.context, Some(new_context));
 
         // Test deletion
-        let deleted = Task::delete(pool, created.task_id)
-            .await
-            .expect("Failed to delete task");
+        let deleted = Task::delete(&pool, created.task_id).await?;
         assert!(deleted);
 
         // Cleanup test dependencies
-        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to delete named task");
-        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
-            .await
-            .expect("Failed to delete namespace");
+        crate::models::named_task::NamedTask::delete(&pool, named_task.named_task_id).await?;
+        crate::models::task_namespace::TaskNamespace::delete(&pool, namespace.task_namespace_id)
+            .await?;
 
-        db.close().await;
+        Ok(())
     }
 
     #[test]

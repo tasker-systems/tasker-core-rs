@@ -107,15 +107,26 @@ impl TaskScopes {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use sqlx::PgPool;
+    /// use tasker_core::query_builder::TaskScopes;
+    /// use tasker_core::models::Task;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
     /// // Find all tasks currently in 'processing' state
-    /// let processing_tasks = TaskScopes::by_current_state(Some("processing"))
-    ///     .execute(&pool).await?;
+    /// let processing_tasks: Vec<Task> = TaskScopes::by_current_state(Some("processing"))
+    ///     .fetch_all(&pool).await?;
+    /// println!("Found {} processing tasks", processing_tasks.len());
     ///
     /// // Get all tasks with their current states (no filtering)
-    /// let all_tasks_with_states = TaskScopes::by_current_state(None)
-    ///     .execute(&pool).await?;
+    /// let all_tasks_with_states: Vec<Task> = TaskScopes::by_current_state(None)
+    ///     .fetch_all(&pool).await?;
+    /// println!("Total tasks: {}", all_tasks_with_states.len());
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For complete examples, see `tests/query_builder/scopes.rs`.
     ///
     /// Equivalent to Rails: scope :by_current_state
     pub fn by_current_state(state: Option<&str>) -> QueryBuilder {
@@ -239,17 +250,29 @@ impl TaskScopes {
     ///
     /// # Example Usage
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use sqlx::PgPool;
+    /// use tasker_core::query_builder::TaskScopes;
+    /// use tasker_core::models::Task;
+    ///
+    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
     /// // Find all tasks that need worker attention
-    /// let active_tasks = TaskScopes::active().execute(&pool).await?;
-    /// for task in active_tasks {
-    ///     monitor.track_active_task(task.task_id).await?;
-    /// }
+    /// let active_tasks: Vec<Task> = TaskScopes::active().fetch_all(&pool).await?;
+    /// println!("Found {} active tasks requiring attention", active_tasks.len());
     ///
     /// // Count active tasks for capacity planning
-    /// let active_count = TaskScopes::active().count().execute(&pool).await?;
+    /// let active_count = TaskScopes::active().count(&pool).await?;
     /// println!("Currently processing {} tasks", active_count);
+    ///
+    /// // Check if system is at capacity
+    /// if active_count > 1000 {
+    ///     println!("Warning: High task load detected!");
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
+    ///
+    /// For monitoring examples, see `tests/query_builder/scopes.rs`.
     ///
     /// Equivalent to Rails: scope :active
     pub fn active() -> QueryBuilder {
