@@ -1221,19 +1221,13 @@ impl TaskTransitionQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::DatabaseConnection;
     use serde_json::json;
 
-    #[tokio::test]
-    async fn test_task_transition_crud() {
-        let db = DatabaseConnection::new()
-            .await
-            .expect("Failed to connect to database");
-        let pool = db.pool();
-
+    #[sqlx::test]
+    async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
         // Create test dependencies - Task
         let namespace = crate::models::task_namespace::TaskNamespace::create(
-            pool,
+            &pool,
             crate::models::task_namespace::NewTaskNamespace {
                 name: format!(
                     "test_namespace_{}",
@@ -1242,11 +1236,10 @@ mod tests {
                 description: None,
             },
         )
-        .await
-        .expect("Failed to create namespace");
+        .await?;
 
         let named_task = crate::models::named_task::NamedTask::create(
-            pool,
+            &pool,
             crate::models::named_task::NewNamedTask {
                 name: format!(
                     "test_task_{}",
@@ -1258,11 +1251,10 @@ mod tests {
                 configuration: None,
             },
         )
-        .await
-        .expect("Failed to create named task");
+        .await?;
 
         let task = crate::models::task::Task::create(
-            pool,
+            &pool,
             crate::models::task::NewTask {
                 named_task_id: named_task.named_task_id,
                 requested_at: None,
@@ -1278,8 +1270,7 @@ mod tests {
                 ),
             },
         )
-        .await
-        .expect("Failed to create task");
+        .await?;
 
         let task_id = task.task_id;
 
@@ -1291,25 +1282,21 @@ mod tests {
             metadata: Some(json!({"reason": "ready_for_planning"})),
         };
 
-        let created = TaskTransition::create(pool, new_transition)
-            .await
-            .expect("Failed to create transition");
+        let created = TaskTransition::create(&pool, new_transition).await?;
         assert_eq!(created.to_state, "planned");
         assert!(created.most_recent);
         assert_eq!(created.sort_key, 1);
 
         // Test find by ID
-        let found = TaskTransition::find_by_id(pool, created.id)
-            .await
-            .expect("Failed to find transition")
-            .expect("Transition not found");
+        let found = TaskTransition::find_by_id(&pool, created.id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
         assert_eq!(found.id, created.id);
 
         // Test get current
-        let current = TaskTransition::get_current(pool, task_id)
-            .await
-            .expect("Failed to get current transition")
-            .expect("No current transition");
+        let current = TaskTransition::get_current(&pool, task_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
         assert_eq!(current.id, created.id);
         assert!(current.most_recent);
 
@@ -1321,37 +1308,29 @@ mod tests {
             metadata: Some(json!({"launched_at": "2024-01-01T00:00:00Z"})),
         };
 
-        let created2 = TaskTransition::create(pool, new_transition2)
-            .await
-            .expect("Failed to create second transition");
+        let created2 = TaskTransition::create(&pool, new_transition2).await?;
         assert_eq!(created2.sort_key, 2);
         assert!(created2.most_recent);
 
         // Verify first transition is no longer most recent
-        let updated_first = TaskTransition::find_by_id(pool, created.id)
-            .await
-            .expect("Failed to find first transition")
-            .expect("First transition not found");
+        let updated_first = TaskTransition::find_by_id(&pool, created.id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
         assert!(!updated_first.most_recent);
 
         // Test get history
-        let history = TaskTransition::get_history(pool, task_id, Some(10), None)
-            .await
-            .expect("Failed to get history");
+        let history = TaskTransition::get_history(&pool, task_id, Some(10), None).await?;
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].id, created2.id); // Most recent first
         assert_eq!(history[1].id, created.id);
 
         // Test can transition
-        let can_transition = TaskTransition::can_transition(pool, task_id, "launched", "running")
-            .await
-            .expect("Failed to check transition");
+        let can_transition =
+            TaskTransition::can_transition(&pool, task_id, "launched", "running").await?;
         assert!(can_transition);
 
         // Test state summary
-        let summary = TaskTransition::get_state_summary(pool)
-            .await
-            .expect("Failed to get state summary");
+        let summary = TaskTransition::get_state_summary(&pool).await?;
         assert!(!summary.is_empty());
 
         // Cleanup - delete in reverse dependency order (transitions first, then task)
@@ -1359,20 +1338,14 @@ mod tests {
             "DELETE FROM tasker_task_transitions WHERE task_id = $1",
             task.task_id
         )
-        .execute(pool)
-        .await
-        .expect("Failed to delete transitions");
-        crate::models::task::Task::delete(pool, task.task_id)
-            .await
-            .expect("Failed to delete task");
-        crate::models::named_task::NamedTask::delete(pool, named_task.named_task_id)
-            .await
-            .expect("Failed to delete named task");
-        crate::models::task_namespace::TaskNamespace::delete(pool, namespace.task_namespace_id)
-            .await
-            .expect("Failed to delete namespace");
+        .execute(&pool)
+        .await?;
+        crate::models::task::Task::delete(&pool, task.task_id).await?;
+        crate::models::named_task::NamedTask::delete(&pool, named_task.named_task_id).await?;
+        crate::models::task_namespace::TaskNamespace::delete(&pool, namespace.task_namespace_id)
+            .await?;
 
-        db.close().await;
+        Ok(())
     }
 
     #[test]
