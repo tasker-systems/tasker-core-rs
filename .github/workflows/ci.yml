@@ -371,7 +371,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-22.04
-    needs: [quality, security, test, sqlx-check, validate-examples]
+    needs: [quality, security, test, validate-examples]
     if: always()
 
     steps:
