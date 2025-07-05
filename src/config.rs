@@ -16,7 +16,7 @@ pub struct TaskerConfig {
 impl Default for TaskerConfig {
     fn default() -> Self {
         Self {
-            database_url: "postgresql://localhost/tasker_development".to_string(),
+            database_url: "postgresql://localhost/tasker_rust_development".to_string(),
             max_concurrent_steps: 10,
             retry_limit: 3,
             backoff_base_ms: 1000,
@@ -31,21 +31,23 @@ impl Default for TaskerConfig {
 impl TaskerConfig {
     pub fn from_env() -> Result<Self> {
         let mut config = Self::default();
-        
+
         if let Ok(db_url) = std::env::var("DATABASE_URL") {
             config.database_url = db_url;
         }
-        
+
         if let Ok(max_concurrent) = std::env::var("TASKER_MAX_CONCURRENT_STEPS") {
-            config.max_concurrent_steps = max_concurrent.parse()
-                .map_err(|e| TaskerError::ConfigurationError(format!("Invalid max_concurrent_steps: {}", e)))?;
+            config.max_concurrent_steps = max_concurrent.parse().map_err(|e| {
+                TaskerError::ConfigurationError(format!("Invalid max_concurrent_steps: {e}"))
+            })?;
         }
-        
+
         if let Ok(retry_limit) = std::env::var("TASKER_RETRY_LIMIT") {
-            config.retry_limit = retry_limit.parse()
-                .map_err(|e| TaskerError::ConfigurationError(format!("Invalid retry_limit: {}", e)))?;
+            config.retry_limit = retry_limit.parse().map_err(|e| {
+                TaskerError::ConfigurationError(format!("Invalid retry_limit: {e}"))
+            })?;
         }
-        
+
         Ok(config)
     }
 }
