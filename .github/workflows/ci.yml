@@ -70,9 +70,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy lints
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Check documentation
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
         run: cargo doc --no-deps --document-private-items
 
   # Security audit
@@ -155,6 +159,8 @@ jobs:
         run: sqlx migrate run
 
       - name: Build project
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
         run: cargo build --verbose --all-features
 
       - name: Run lib tests
@@ -285,11 +291,6 @@ jobs:
             sleep 2
           done
           sqlx migrate run
-
-      - name: Validate Query Builder Demo
-        run: |
-          echo "🔧 Running query builder demonstration..."
-          cargo run --example query_builder_demo
 
       - name: Validate SQL Functions Demo
         run: |

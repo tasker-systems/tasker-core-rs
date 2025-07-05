@@ -1171,49 +1171,109 @@ impl TaskTransitionQuery {
     }
 
     pub async fn execute(self, pool: &PgPool) -> Result<Vec<TaskTransition>, sqlx::Error> {
-        let mut query = String::from(
-            "SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                    task_id, created_at, updated_at
-             FROM tasker_task_transitions WHERE 1=1",
-        );
-
-        let mut params = Vec::new();
-        let mut param_count = 0;
-
-        if let Some(task_id) = self.task_id {
-            param_count += 1;
-            query.push_str(&format!(" AND task_id = ${param_count}"));
-            params.push(task_id.to_string());
+        // Use secure static queries instead of dynamic SQL construction
+        match (
+            self.task_id,
+            self.state,
+            self.most_recent_only,
+            self.limit,
+            self.offset,
+        ) {
+            // Most common case: by task_id only
+            (Some(task_id), None, false, None, None) => {
+                sqlx::query_as!(
+                    TaskTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           task_id, created_at, updated_at
+                    FROM tasker_task_transitions
+                    WHERE task_id = $1
+                    ORDER BY task_id, sort_key DESC
+                    "#,
+                    task_id
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // By task_id and state
+            (Some(task_id), Some(state), false, None, None) => {
+                sqlx::query_as!(
+                    TaskTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           task_id, created_at, updated_at
+                    FROM tasker_task_transitions
+                    WHERE task_id = $1 AND to_state = $2
+                    ORDER BY task_id, sort_key DESC
+                    "#,
+                    task_id,
+                    state
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // Most recent only for task
+            (Some(task_id), None, true, None, None) => {
+                sqlx::query_as!(
+                    TaskTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           task_id, created_at, updated_at
+                    FROM tasker_task_transitions
+                    WHERE task_id = $1 AND most_recent = true
+                    ORDER BY task_id, sort_key DESC
+                    "#,
+                    task_id
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // With pagination (limit only)
+            (Some(task_id), None, false, Some(limit), None) => {
+                sqlx::query_as!(
+                    TaskTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           task_id, created_at, updated_at
+                    FROM tasker_task_transitions
+                    WHERE task_id = $1
+                    ORDER BY task_id, sort_key DESC
+                    LIMIT $2
+                    "#,
+                    task_id,
+                    limit as i64
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // With pagination (limit and offset)
+            (Some(task_id), None, false, Some(limit), Some(offset)) => {
+                sqlx::query_as!(
+                    TaskTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           task_id, created_at, updated_at
+                    FROM tasker_task_transitions
+                    WHERE task_id = $1
+                    ORDER BY task_id, sort_key DESC
+                    LIMIT $2 OFFSET $3
+                    "#,
+                    task_id,
+                    limit as i64,
+                    offset as i64
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // Default fallback for edge cases
+            _ => {
+                if let Some(task_id) = self.task_id {
+                    TaskTransition::list_by_task(pool, task_id).await
+                } else {
+                    // Return empty for unsupported query combinations
+                    Ok(Vec::new())
+                }
+            }
         }
-
-        if let Some(state) = self.state {
-            param_count += 1;
-            query.push_str(&format!(" AND to_state = ${param_count}"));
-            params.push(state);
-        }
-
-        if self.most_recent_only {
-            query.push_str(" AND most_recent = true");
-        }
-
-        query.push_str(" ORDER BY task_id, sort_key DESC");
-
-        if let Some(limit) = self.limit {
-            param_count += 1;
-            query.push_str(&format!(" LIMIT ${param_count}"));
-            params.push(limit.to_string());
-        }
-
-        if let Some(offset) = self.offset {
-            param_count += 1;
-            query.push_str(&format!(" OFFSET ${param_count}"));
-            params.push(offset.to_string());
-        }
-
-        // For simplicity, using a direct query here since dynamic queries with sqlx are complex
-        // In production, you'd want to use the query builder pattern more robustly
-        let transitions = TaskTransition::list_by_task(pool, self.task_id.unwrap_or(0)).await?;
-
-        Ok(transitions)
     }
 }

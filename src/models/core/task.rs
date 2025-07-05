@@ -38,7 +38,6 @@
 //! - **State Queries**: Complex joins with task_transitions table
 //! - **Scope Queries**: Optimized with strategic indexes
 
-use crate::query_builder::TaskScopes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
@@ -122,6 +121,36 @@ pub struct TaskForOrchestration {
 impl Task {
     /// Create a new task
     pub async fn create(pool: &PgPool, new_task: NewTask) -> Result<Task, sqlx::Error> {
+        // Validate JSONB fields before database operation
+        if let Some(ref context) = new_task.context {
+            if let Err(validation_error) = crate::validation::validate_task_context(context) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid context: {validation_error}"
+                )));
+            }
+        }
+
+        if let Some(ref tags) = new_task.tags {
+            if let Err(validation_error) = crate::validation::validate_task_tags(tags) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid tags: {validation_error}"
+                )));
+            }
+        }
+
+        if let Some(ref bypass_steps) = new_task.bypass_steps {
+            if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid bypass_steps: {validation_error}"
+                )));
+            }
+        }
+
+        // Sanitize JSONB inputs
+        let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
+        let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
+        let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
+
         let requested_at = new_task
             .requested_at
             .unwrap_or_else(|| chrono::Utc::now().naive_utc());
@@ -142,9 +171,9 @@ impl Task {
             new_task.initiator,
             new_task.source_system,
             new_task.reason,
-            new_task.bypass_steps,
-            new_task.tags,
-            new_task.context,
+            sanitized_bypass_steps,
+            sanitized_tags,
+            sanitized_context,
             new_task.identity_hash
         )
         .fetch_one(pool)
@@ -255,6 +284,16 @@ impl Task {
         pool: &PgPool,
         context: serde_json::Value,
     ) -> Result<(), sqlx::Error> {
+        // Validate input before database operation
+        if let Err(validation_error) = crate::validation::validate_task_context(&context) {
+            return Err(sqlx::Error::Protocol(format!(
+                "Invalid context: {validation_error}"
+            )));
+        }
+
+        // Sanitize the JSON to remove potentially dangerous content
+        let sanitized_context = crate::validation::sanitize_json(context);
+
         sqlx::query!(
             r#"
             UPDATE tasker_tasks 
@@ -262,12 +301,12 @@ impl Task {
             WHERE task_id = $1
             "#,
             self.task_id,
-            context
+            sanitized_context
         )
         .execute(pool)
         .await?;
 
-        self.context = Some(context);
+        self.context = Some(sanitized_context);
         Ok(())
     }
 
@@ -277,6 +316,16 @@ impl Task {
         pool: &PgPool,
         tags: serde_json::Value,
     ) -> Result<(), sqlx::Error> {
+        // Validate input before database operation
+        if let Err(validation_error) = crate::validation::validate_task_tags(&tags) {
+            return Err(sqlx::Error::Protocol(format!(
+                "Invalid tags: {validation_error}"
+            )));
+        }
+
+        // Sanitize the JSON to remove potentially dangerous content
+        let sanitized_tags = crate::validation::sanitize_json(tags);
+
         sqlx::query!(
             r#"
             UPDATE tasker_tasks 
@@ -284,12 +333,12 @@ impl Task {
             WHERE task_id = $1
             "#,
             self.task_id,
-            tags
+            sanitized_tags
         )
         .execute(pool)
         .await?;
 
-        self.tags = Some(tags);
+        self.tags = Some(sanitized_tags);
         Ok(())
     }
 
@@ -454,11 +503,6 @@ impl Task {
             ctx.to_string().hash(&mut hasher);
         }
         format!("{:x}", hasher.finish())
-    }
-
-    /// Apply query builder scopes
-    pub fn scopes() -> TaskScopes {
-        TaskScopes::new()
     }
 
     // ============================================================================

@@ -6,5 +6,4 @@
 mod config;
 mod database;
 mod models;
-mod query_builder;
 mod state_machine;

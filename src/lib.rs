@@ -27,7 +27,6 @@
 //! ## Module Organization
 //!
 //! - [`models`] - Complete data layer with all Rails models
-//! - [`query_builder`] - High-performance query building with Rails-style scopes
 //! - [`database`] - SQL function execution and database operations
 //! - [`state_machine`] - Task and step state management
 //! - [`config`] - Configuration management
@@ -81,10 +80,10 @@ pub mod events;
 pub mod ffi;
 pub mod models;
 pub mod orchestration;
-pub mod query_builder;
 pub mod registry;
 pub mod sql_functions;
 pub mod state_machine;
+pub mod validation;
 
 pub use config::TaskerConfig;
 pub use database::{
@@ -92,7 +91,3 @@ pub use database::{
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
-pub use query_builder::{
-    NamedTaskScopes, QueryBuilder, ScopeHelpers, TaskScopes, WorkflowStepEdgeScopes,
-    WorkflowStepScopes,
-};

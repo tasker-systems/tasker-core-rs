@@ -7,6 +7,7 @@ pub enum TaskerError {
     OrchestrationError(String),
     EventError(String),
     ValidationError(String),
+    InvalidInput(String),
     ConfigurationError(String),
     FFIError(String),
 }
@@ -19,6 +20,7 @@ impl fmt::Display for TaskerError {
             TaskerError::OrchestrationError(msg) => write!(f, "Orchestration error: {msg}"),
             TaskerError::EventError(msg) => write!(f, "Event error: {msg}"),
             TaskerError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
+            TaskerError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             TaskerError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
             TaskerError::FFIError(msg) => write!(f, "FFI error: {msg}"),
         }

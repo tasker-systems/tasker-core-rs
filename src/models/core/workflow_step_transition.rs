@@ -1037,51 +1037,109 @@ impl WorkflowStepTransitionQuery {
     }
 
     pub async fn execute(self, pool: &PgPool) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
-        let mut query = String::from(
-            "SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                    workflow_step_id, created_at, updated_at
-             FROM tasker_workflow_step_transitions WHERE 1=1",
-        );
-
-        let mut params = Vec::new();
-        let mut param_count = 0;
-
-        if let Some(workflow_step_id) = self.workflow_step_id {
-            param_count += 1;
-            query.push_str(&format!(" AND workflow_step_id = ${param_count}"));
-            params.push(workflow_step_id.to_string());
+        // Use secure static queries instead of dynamic SQL construction
+        match (
+            self.workflow_step_id,
+            self.state,
+            self.most_recent_only,
+            self.limit,
+            self.offset,
+        ) {
+            // Most common case: by workflow_step_id only
+            (Some(step_id), None, false, None, None) => {
+                sqlx::query_as!(
+                    WorkflowStepTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_id, created_at, updated_at
+                    FROM tasker_workflow_step_transitions
+                    WHERE workflow_step_id = $1
+                    ORDER BY workflow_step_id, sort_key DESC
+                    "#,
+                    step_id
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // By workflow_step_id and state
+            (Some(step_id), Some(state), false, None, None) => {
+                sqlx::query_as!(
+                    WorkflowStepTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_id, created_at, updated_at
+                    FROM tasker_workflow_step_transitions
+                    WHERE workflow_step_id = $1 AND to_state = $2
+                    ORDER BY workflow_step_id, sort_key DESC
+                    "#,
+                    step_id,
+                    state
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // Most recent only for workflow step
+            (Some(step_id), None, true, None, None) => {
+                sqlx::query_as!(
+                    WorkflowStepTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_id, created_at, updated_at
+                    FROM tasker_workflow_step_transitions
+                    WHERE workflow_step_id = $1 AND most_recent = true
+                    ORDER BY workflow_step_id, sort_key DESC
+                    "#,
+                    step_id
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // With pagination (limit only)
+            (Some(step_id), None, false, Some(limit), None) => {
+                sqlx::query_as!(
+                    WorkflowStepTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_id, created_at, updated_at
+                    FROM tasker_workflow_step_transitions
+                    WHERE workflow_step_id = $1
+                    ORDER BY workflow_step_id, sort_key DESC
+                    LIMIT $2
+                    "#,
+                    step_id,
+                    limit as i64
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // With pagination (limit and offset)
+            (Some(step_id), None, false, Some(limit), Some(offset)) => {
+                sqlx::query_as!(
+                    WorkflowStepTransition,
+                    r#"
+                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_id, created_at, updated_at
+                    FROM tasker_workflow_step_transitions
+                    WHERE workflow_step_id = $1
+                    ORDER BY workflow_step_id, sort_key DESC
+                    LIMIT $2 OFFSET $3
+                    "#,
+                    step_id,
+                    limit as i64,
+                    offset as i64
+                )
+                .fetch_all(pool)
+                .await
+            }
+            // Default fallback for edge cases
+            _ => {
+                if let Some(step_id) = self.workflow_step_id {
+                    WorkflowStepTransition::list_by_workflow_step(pool, step_id).await
+                } else {
+                    // Return empty for unsupported query combinations
+                    Ok(Vec::new())
+                }
+            }
         }
-
-        if let Some(state) = self.state {
-            param_count += 1;
-            query.push_str(&format!(" AND to_state = ${param_count}"));
-            params.push(state);
-        }
-
-        if self.most_recent_only {
-            query.push_str(" AND most_recent = true");
-        }
-
-        query.push_str(" ORDER BY workflow_step_id, sort_key DESC");
-
-        if let Some(limit) = self.limit {
-            param_count += 1;
-            query.push_str(&format!(" LIMIT ${param_count}"));
-            params.push(limit.to_string());
-        }
-
-        if let Some(offset) = self.offset {
-            param_count += 1;
-            query.push_str(&format!(" OFFSET ${param_count}"));
-            params.push(offset.to_string());
-        }
-
-        // For simplicity, using a direct query here since dynamic queries with sqlx are complex
-        // In production, you'd want to use the query builder pattern more robustly
-        let transitions =
-            WorkflowStepTransition::list_by_workflow_step(pool, self.workflow_step_id.unwrap_or(0))
-                .await?;
-
-        Ok(transitions)
     }
 }
