@@ -1,0 +1,36 @@
+#!/bin/bash
+# Pre-push hook for comprehensive testing
+# Runs full test suite before pushing to remote
+
+set -e
+
+echo "🚀 Running pre-push hooks..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    echo "❌ Error: cargo is not available. Please install Rust."
+    exit 1
+fi
+
+echo "🧪 Running full test suite..."
+if ! cargo test --all-features; then
+    echo "❌ Tests failed. Please fix failing tests before pushing."
+    exit 1
+fi
+echo "✅ All tests passed"
+
+echo "📚 Checking documentation builds..."
+if ! cargo doc --no-deps --document-private-items; then
+    echo "❌ Documentation build failed. Please fix documentation issues."
+    exit 1
+fi
+echo "✅ Documentation builds successfully"
+
+echo "🔍 Running clippy with all features..."
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo "❌ Clippy found issues. Please fix before pushing."
+    exit 1
+fi
+echo "✅ Clippy checks passed"
+
+echo "🎉 All pre-push checks passed! Safe to push."

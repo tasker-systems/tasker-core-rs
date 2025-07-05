@@ -1,0 +1,16 @@
+# Cargo audit configuration
+# This file specifies which advisories to ignore during security audits
+
+[advisories]
+# Temporary ignore for RSA timing sidechannel (RUSTSEC-2023-0071)
+# This is a transitive dependency from SQLx and has no fix available yet
+# Risk: Medium severity timing attack - mitigated by our usage pattern
+# Review: Should be reviewed when SQLx updates or alternative becomes available
+ignore = [
+    "RUSTSEC-2023-0071",  # RSA timing sidechannel - no fix available
+]
+
+[database]
+# Fetch advisory database from RustSec
+fetch = true
+stale = false

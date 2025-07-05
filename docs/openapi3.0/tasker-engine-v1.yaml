@@ -1,0 +1,388 @@
+---
+openapi: 3.0.1
+info:
+  title: API V1
+  version: v1
+paths:
+  "/tasker/analytics/performance":
+    get:
+      summary: performance analytics
+      tags:
+      - Analytics
+      description: Get system-wide performance metrics and analytics. Authentication
+        requirements depend on configuration.
+      operationId: getPerformanceAnalytics
+      responses:
+        '200':
+          description: successful performance analytics
+        '503':
+          description: analytics unavailable
+  "/tasker/analytics/bottlenecks":
+    get:
+      summary: bottleneck analysis
+      tags:
+      - Analytics
+      description: Get bottleneck analysis scoped by task parameters. Authentication
+        requirements depend on configuration.
+      operationId: getBottleneckAnalysis
+      parameters:
+      - name: namespace
+        in: query
+        description: Filter by task namespace
+        required: false
+        schema:
+          type: string
+      - name: name
+        in: query
+        description: Filter by task name
+        required: false
+        schema:
+          type: string
+      - name: version
+        in: query
+        description: Filter by task version
+        required: false
+        schema:
+          type: string
+      - name: period
+        in: query
+        description: 'Analysis period in hours (default: 24)'
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: scoped bottleneck analysis
+        '503':
+          description: bottleneck analysis unavailable
+  "/tasker/handlers":
+    get:
+      summary: list namespaces - authentication required
+      tags:
+      - Handlers
+      description: Lists all registered namespaces with handler counts
+      operationId: listNamespaces
+      responses:
+        '200':
+          description: successful
+        '401':
+          description: unauthorized
+  "/tasker/handlers/{namespace}":
+    parameters:
+    - name: namespace
+      in: path
+      description: Handler namespace
+      required: true
+      schema:
+        type: string
+    get:
+      summary: list handlers in namespace
+      tags:
+      - Handlers
+      description: Lists all handlers in a specific namespace with their versions
+      operationId: listHandlersInNamespace
+      responses:
+        '200':
+          description: successful - payments namespace
+        '404':
+          description: namespace not found
+  "/tasker/handlers/{namespace}/{name}":
+    parameters:
+    - name: namespace
+      in: path
+      description: Handler namespace
+      required: true
+      schema:
+        type: string
+    - name: name
+      in: path
+      description: Handler name
+      required: true
+      schema:
+        type: string
+    get:
+      summary: show handler with dependency graph
+      tags:
+      - Handlers
+      description: Show a specific handler with full details including dependency
+        graph
+      operationId: getHandlerWithDependencies
+      parameters:
+      - name: version
+        in: query
+        required: false
+        description: Handler version
+        schema:
+          type: string
+      responses:
+        '200':
+          description: successful - complex handler with dependencies
+        '404':
+          description: namespace not found
+  "/tasker/health/ready":
+    get:
+      summary: readiness check
+      tags:
+      - Health
+      description: Check if the system is ready to accept requests. This endpoint
+        never requires authentication.
+      operationId: checkReadiness
+      responses:
+        '200':
+          description: system is ready
+        '503':
+          description: exception during health check
+  "/tasker/health/live":
+    get:
+      summary: liveness check
+      tags:
+      - Health
+      description: Check if the system is alive and responding. This endpoint never
+        requires authentication.
+      operationId: checkLiveness
+      responses:
+        '200':
+          description: system is alive
+  "/tasker/health/status":
+    get:
+      summary: detailed health status
+      tags:
+      - Health
+      description: Get detailed system health status including metrics and database
+        information. May require authorization depending on configuration.
+      operationId: getHealthStatus
+      responses:
+        '200':
+          description: healthy system status
+        '503':
+          description: status check exception
+  "/tasker/metrics":
+    get:
+      summary: export metrics
+      tags:
+      - Metrics
+      description: Export system metrics in Prometheus format. Authentication requirements
+        depend on configuration.
+      operationId: exportMetrics
+      responses:
+        '200':
+          description: empty metrics export
+        '503':
+          description: controller exception
+  "/tasker/tasks":
+    get:
+      summary: list tasks
+      tags:
+      - Tasks
+      description: Lists Tasks
+      operationId: listTasks
+      responses:
+        '200':
+          description: successful
+    post:
+      summary: create and enqueue task
+      tags:
+      - Tasks
+      description: Create and Enqueue Task
+      operationId: createTask
+      parameters: []
+      responses:
+        '201':
+          description: successful with namespace and version
+        '400':
+          description: bad request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                namespace:
+                  type: string
+                version:
+                  type: string
+                context:
+                  type: object
+                initiator:
+                  type: string
+                reason:
+                  type: string
+                source_system:
+                  type: string
+                tags:
+                  type: array
+                  items: string
+              required:
+              - name
+              - context
+  "/tasker/tasks/{task_id}":
+    parameters:
+    - name: task_id
+      in: path
+      description: task_id
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: show task
+      tags:
+      - Tasks
+      description: Show Task
+      operationId: getTask
+      parameters:
+      - name: include_dependencies
+        in: query
+        required: false
+        description: Include dependency analysis
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: successful for completed task
+    patch:
+      summary: update task
+      tags:
+      - Tasks
+      description: Update Task
+      operationId: updateTask
+      parameters: []
+      responses:
+        '200':
+          description: successful
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                tags:
+                  type: array
+                  items: string
+    put:
+      summary: update task
+      tags:
+      - Tasks
+      description: Update Task
+      operationId: updateTask
+      parameters: []
+      responses:
+        '200':
+          description: successful
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                tags:
+                  type: array
+                  items: string
+    delete:
+      summary: cancel task
+      tags:
+      - Tasks
+      description: Cancel Task
+      operationId: cancelTask
+      responses:
+        '200':
+          description: successful
+  "/tasker/tasks/{task_id}/workflow_steps":
+    parameters:
+    - name: task_id
+      in: path
+      description: task_id
+      required: true
+      schema:
+        type: string
+    get:
+      summary: list steps by task
+      tags:
+      - Steps
+      description: List Steps by Task
+      operationId: getStepsByTask
+      responses:
+        '200':
+          description: successful
+  "/tasker/tasks/{task_id}/workflow_steps/{step_id}":
+    parameters:
+    - name: task_id
+      in: path
+      description: task_id
+      required: true
+      schema:
+        type: string
+    - name: step_id
+      in: path
+      description: step_id
+      required: true
+      schema:
+        type: string
+    get:
+      summary: show step by task
+      tags:
+      - Steps
+      description: Show Step by Task
+      operationId: getStepByTask
+      responses:
+        '200':
+          description: successful
+    patch:
+      summary: update step by task
+      tags:
+      - Steps
+      description: Update Step by Task
+      operationId: updateStepByTask
+      parameters: []
+      responses:
+        '200':
+          description: successful
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retry_limit:
+                  type: integer
+                inputs:
+                  type: object
+    put:
+      summary: update step by task
+      tags:
+      - Steps
+      description: Update Step by Task
+      operationId: updateStepByTask
+      parameters: []
+      responses:
+        '200':
+          description: successful
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retry_limit:
+                  type: integer
+                inputs:
+                  type: object
+    delete:
+      summary: cancel step by task
+      tags:
+      - Steps
+      description: Cancel Step by Task
+      operationId: cancelStepByTask
+      responses:
+        '200':
+          description: successful
+servers:
+- url: https://{defaultHost}
+  variables:
+    defaultHost:
+      default: www.example.com

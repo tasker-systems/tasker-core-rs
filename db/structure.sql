@@ -64,7 +64,7 @@ DECLARE
 BEGIN
     -- Set analysis start time (default to 1 hour ago if not provided)
     analysis_start := COALESCE(since_timestamp, NOW() - INTERVAL '1 hour');
-    
+
     RETURN QUERY
     WITH active_tasks AS (
         SELECT COUNT(DISTINCT t.task_id) as active_count
@@ -86,7 +86,7 @@ BEGIN
         INNER JOIN tasker_tasks t ON t.named_task_id = nt.named_task_id
     ),
     recent_task_health AS (
-        SELECT 
+        SELECT
             COUNT(DISTINCT t.task_id) as total_recent_tasks,
             COUNT(DISTINCT t.task_id) FILTER (
                 WHERE wst.to_state = 'complete' AND wst.most_recent = true
@@ -100,7 +100,7 @@ BEGIN
         WHERE t.created_at > NOW() - INTERVAL '1 hour'
     ),
     period_metrics AS (
-        SELECT 
+        SELECT
             COUNT(DISTINCT t.task_id) as throughput,
             COUNT(DISTINCT t.task_id) FILTER (
                 WHERE completed_wst.to_state = 'complete' AND completed_wst.most_recent = true
@@ -110,14 +110,14 @@ BEGIN
             ) as errors,
             COUNT(DISTINCT ws.workflow_step_id) as step_count,
             AVG(
-                CASE 
+                CASE
                     WHEN completed_wst.to_state = 'complete' AND completed_wst.most_recent = true
                     THEN EXTRACT(EPOCH FROM (completed_wst.created_at - t.created_at))
                     ELSE NULL
                 END
             ) as avg_task_seconds,
             AVG(
-                CASE 
+                CASE
                     WHEN step_completed.to_state = 'complete' AND step_completed.most_recent = true
                     THEN EXTRACT(EPOCH FROM (step_completed.created_at - ws.created_at))
                     ELSE NULL
@@ -133,25 +133,25 @@ BEGIN
             AND step_completed.to_state = 'complete' AND step_completed.most_recent = true
         WHERE t.created_at > analysis_start
     )
-    SELECT 
+    SELECT
         at.active_count,
         ns.namespace_count,
         tts.task_type_count,
-        CASE 
-            WHEN (rth.completed_tasks + rth.error_tasks) > 0 
+        CASE
+            WHEN (rth.completed_tasks + rth.error_tasks) > 0
             THEN ROUND((rth.completed_tasks::NUMERIC / (rth.completed_tasks + rth.error_tasks)), 3)
             ELSE 1.0
         END as health_score,
         pm.throughput,
         pm.completions,
         pm.errors,
-        CASE 
-            WHEN pm.throughput > 0 
+        CASE
+            WHEN pm.throughput > 0
             THEN ROUND((pm.completions::NUMERIC / pm.throughput * 100), 2)
             ELSE 0.0
         END as completion_rate_pct,
-        CASE 
-            WHEN pm.throughput > 0 
+        CASE
+            WHEN pm.throughput > 0
             THEN ROUND((pm.errors::NUMERIC / pm.throughput * 100), 2)
             ELSE 0.0
         END as error_rate_pct,
@@ -181,10 +181,10 @@ DECLARE
 BEGIN
     -- Set analysis start time (default to 24 hours ago if not provided)
     analysis_start := COALESCE(since_timestamp, NOW() - INTERVAL '24 hours');
-    
+
     RETURN QUERY
     WITH step_durations AS (
-        SELECT 
+        SELECT
             ws.workflow_step_id,
             ws.task_id,
             ns.name as step_name,
@@ -212,7 +212,7 @@ BEGIN
           AND (task_name_filter IS NULL OR nt.name = task_name_filter)
           AND (version_filter IS NULL OR nt.version = version_filter)
     )
-    SELECT 
+    SELECT
         sd.workflow_step_id,
         sd.task_id,
         sd.step_name,
@@ -246,10 +246,10 @@ DECLARE
 BEGIN
     -- Set analysis start time (default to 24 hours ago if not provided)
     analysis_start := COALESCE(since_timestamp, NOW() - INTERVAL '24 hours');
-    
+
     RETURN QUERY
     WITH task_durations AS (
-        SELECT 
+        SELECT
             t.task_id,
             nt.name as task_name,
             tn.name as namespace_name,
@@ -292,7 +292,7 @@ BEGIN
             WHERE wst.to_state IN ('complete', 'error') AND wst.most_recent = true
         ) IS NOT NULL  -- Only include tasks that have at least one completed/failed step
     )
-    SELECT 
+    SELECT
         td.task_id,
         td.task_name,
         td.namespace_name,
@@ -839,27 +839,6 @@ $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
-
---
--- Name: ar_internal_metadata; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.ar_internal_metadata (
-    key character varying NOT NULL,
-    value character varying,
-    created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
-
---
--- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.schema_migrations (
-    version character varying NOT NULL
-);
-
 
 --
 -- Name: tasker_annotation_types; Type: TABLE; Schema: public; Owner: -
@@ -1464,23 +1443,6 @@ ALTER TABLE ONLY public.tasker_workflow_step_transitions ALTER COLUMN id SET DEF
 --
 
 ALTER TABLE ONLY public.tasker_workflow_steps ALTER COLUMN workflow_step_id SET DEFAULT nextval('public.tasker_workflow_steps_workflow_step_id_seq'::regclass);
-
-
---
--- Name: ar_internal_metadata ar_internal_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ar_internal_metadata
-    ADD CONSTRAINT ar_internal_metadata_pkey PRIMARY KEY (key);
-
-
---
--- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.schema_migrations
-    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
-
 
 --
 -- Name: tasker_annotation_types tasker_annotation_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -2313,29 +2275,3 @@ ALTER TABLE ONLY public.tasker_workflow_steps
 --
 
 SET search_path TO "$user", public;
-
-INSERT INTO "schema_migrations" (version) VALUES
-('20250630223643'),
-('20250628125747'),
-('20250620125540'),
-('20250620125433'),
-('20250616222419'),
-('20250612000007'),
-('20250612000006'),
-('20250612000005'),
-('20250612000004'),
-('20250612000003'),
-('20250612000002'),
-('20250612000001'),
-('20250611000001'),
-('20250604102259'),
-('20250604101431'),
-('20250603132849'),
-('20250528143344'),
-('20250525001940'),
-('20250524233039'),
-('20250413105135'),
-('20250331125551'),
-('20250115000001'),
-('20210826013425');
-

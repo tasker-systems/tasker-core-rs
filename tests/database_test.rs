@@ -1,20 +1,18 @@
-use tasker_core::database::DatabaseConnection;
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 
-#[tokio::test]
-async fn test_database_connection() {
-    let db = DatabaseConnection::new().await.expect("Failed to connect to database");
-    
-    let health = db.health_check().await.expect("Failed to check database health");
-    assert!(health, "Database health check failed");
-    
-    db.close().await;
+#[sqlx::test]
+async fn test_database_connection(pool: PgPool) -> sqlx::Result<()> {
+    // Test basic database connectivity
+    let row = sqlx::query("SELECT 1 as test").fetch_one(&pool).await?;
+
+    let test_value: i32 = row.get("test");
+    assert_eq!(test_value, 1);
+
+    Ok(())
 }
 
-#[tokio::test]
-async fn test_database_schema_exists() {
-    let db = DatabaseConnection::new().await.expect("Failed to connect to database");
-    
+#[sqlx::test]
+async fn test_database_schema_exists(pool: PgPool) -> sqlx::Result<()> {
     // Test that our core tables exist
     let tables = vec![
         "tasker_task_namespaces",
@@ -24,21 +22,20 @@ async fn test_database_schema_exists() {
         "tasker_workflow_steps",
         "tasker_workflow_step_edges",
     ];
-    
+
     for table in tables {
         let query = format!(
-            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public'",
-            table
+            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = '{table}' AND table_schema = 'public'"
         );
-        
+
         let row = sqlx::query(&query)
-            .fetch_one(db.pool())
+            .fetch_one(&pool)
             .await
-            .expect(&format!("Failed to query for table {}", table));
-        
+            .unwrap_or_else(|_| panic!("Failed to query for table {table}"));
+
         let count: i64 = row.get("count");
-        assert_eq!(count, 1, "Table {} does not exist", table);
+        assert_eq!(count, 1, "Table {table} does not exist");
     }
-    
-    db.close().await;
+
+    Ok(())
 }

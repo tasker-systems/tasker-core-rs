@@ -1,3 +1,4 @@
+use super::DatabaseMigrations;
 use sqlx::{PgPool, Row};
 use std::env;
 
@@ -7,11 +8,17 @@ pub struct DatabaseConnection {
 
 impl DatabaseConnection {
     pub async fn new() -> Result<Self, sqlx::Error> {
-        let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_development".to_string());
-        
+        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_development".to_string()
+        });
+
         let pool = PgPool::connect(&database_url).await?;
-        
+
+        // Run migrations if needed (skip if SKIP_MIGRATIONS is set)
+        if std::env::var("SKIP_MIGRATIONS").is_err() {
+            DatabaseMigrations::run_all(&pool).await?;
+        }
+
         Ok(Self { pool })
     }
 
@@ -23,7 +30,7 @@ impl DatabaseConnection {
         let row = sqlx::query("SELECT 1 as health")
             .fetch_one(&self.pool)
             .await?;
-        
+
         let health: i32 = row.get("health");
         Ok(health == 1)
     }
