@@ -49,7 +49,7 @@ impl TaskStateMachine {
     /// Attempt to transition the task state
     pub async fn transition(&mut self, event: TaskEvent) -> StateMachineResult<TaskState> {
         let current_state = self.current_state().await?;
-        let target_state = self.determine_target_state(current_state, &event)?;
+        let target_state = self.determine_target_state_internal(current_state, &event)?;
 
         // Check guards
         self.check_guards(current_state, target_state, &event)
@@ -75,8 +75,18 @@ impl TaskStateMachine {
         Ok(target_state)
     }
 
-    /// Determine the target state based on current state and event
-    fn determine_target_state(
+    /// Determine the target state based on current state and event (for testing)
+    /// This method is exposed for integration testing purposes
+    pub fn determine_target_state(
+        &self,
+        current_state: TaskState,
+        event: &TaskEvent,
+    ) -> StateMachineResult<TaskState> {
+        self.determine_target_state_internal(current_state, event)
+    }
+
+    /// Determine the target state based on current state and event (internal implementation)
+    fn determine_target_state_internal(
         &self,
         current_state: TaskState,
         event: &TaskEvent,
@@ -196,87 +206,5 @@ impl TaskStateMachine {
     /// Get task ID
     pub fn task_id(&self) -> i64 {
         self.task.task_id
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::events::publisher::EventPublisher;
-
-    #[test]
-    #[ignore = "State machine tests deferred as architectural dependency"]
-    fn test_state_transitions() {
-        // Test valid transitions
-        let sm = create_test_state_machine();
-
-        assert_eq!(
-            sm.determine_target_state(TaskState::Pending, &TaskEvent::Start)
-                .unwrap(),
-            TaskState::InProgress
-        );
-
-        assert_eq!(
-            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Complete)
-                .unwrap(),
-            TaskState::Complete
-        );
-
-        assert_eq!(
-            sm.determine_target_state(TaskState::InProgress, &TaskEvent::Fail("error".to_string()))
-                .unwrap(),
-            TaskState::Error
-        );
-    }
-
-    #[test]
-    #[ignore = "State machine tests deferred as architectural dependency"]
-    fn test_invalid_transitions() {
-        let sm = create_test_state_machine();
-
-        // Cannot start from complete state
-        assert!(sm
-            .determine_target_state(TaskState::Complete, &TaskEvent::Start)
-            .is_err());
-
-        // Cannot complete from pending state
-        assert!(sm
-            .determine_target_state(TaskState::Pending, &TaskEvent::Complete)
-            .is_err());
-    }
-
-    fn create_test_state_machine() -> TaskStateMachine {
-        use crate::models::Task;
-        use chrono::Utc;
-
-        let task = Task {
-            task_id: 1,
-            named_task_id: 1,
-            complete: false,
-            requested_at: Utc::now().naive_utc(),
-            initiator: Some("test".to_string()),
-            source_system: Some("test_system".to_string()),
-            reason: Some("test reason".to_string()),
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({})),
-            identity_hash: "test_hash".to_string(),
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        // This would normally require a real pool and event publisher
-        // For testing, we'd use mocks or test doubles
-        TaskStateMachine {
-            task,
-            pool: create_test_pool(), // Would be implemented in test helpers
-            event_publisher: EventPublisher::default(),
-            persistence: TaskTransitionPersistence,
-        }
-    }
-
-    // Mock helper - would be implemented with actual test database
-    fn create_test_pool() -> PgPool {
-        todo!("Implement test database pool")
     }
 }

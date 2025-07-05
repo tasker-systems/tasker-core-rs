@@ -81,3 +81,59 @@ async fn test_dependent_system_unique_constraints(pool: PgPool) -> sqlx::Result<
 
     Ok(())
 }
+
+#[sqlx::test]
+async fn test_dependent_system_comprehensive_functionality(pool: PgPool) -> sqlx::Result<()> {
+    // Test list_all (should work even with empty database)
+    let initial_systems = DependentSystem::list_all(&pool).await?;
+    let initial_count = initial_systems.len();
+
+    // Create a system for comprehensive testing
+    let new_system = NewDependentSystem {
+        name: "comprehensive_test_system".to_string(),
+        description: Some("System for comprehensive testing".to_string()),
+    };
+
+    let created = DependentSystem::create(&pool, new_system).await?;
+
+    // Test list_all again (should have one more)
+    let updated_systems = DependentSystem::list_all(&pool).await?;
+    assert_eq!(updated_systems.len(), initial_count + 1);
+
+    // Test is_name_unique
+    let is_unique = DependentSystem::is_name_unique(&pool, &created.name, None).await?;
+    assert!(!is_unique); // Should not be unique since we just created it
+
+    // Test is_name_unique excluding current ID
+    let is_unique_excluded =
+        DependentSystem::is_name_unique(&pool, &created.name, Some(created.dependent_system_id))
+            .await?;
+    assert!(is_unique_excluded); // Should be unique when excluding itself
+
+    // Test get_object_maps (should be empty for new system)
+    let object_maps = created.get_object_maps(&pool).await?;
+    assert!(object_maps.is_empty());
+
+    // Test get_named_steps (should be empty for new system)
+    let named_steps = created.get_named_steps(&pool).await?;
+    assert!(named_steps.is_empty());
+
+    // Test count_named_steps
+    let step_count = created.count_named_steps(&pool).await?;
+    assert_eq!(step_count, 0);
+
+    // Test search_by_name
+    let search_results = DependentSystem::search_by_name(&pool, "comprehensive").await?;
+    assert!(!search_results.is_empty());
+
+    // Test delete
+    let deleted = DependentSystem::delete(&pool, created.dependent_system_id).await?;
+    assert!(deleted);
+
+    // Verify deletion
+    let found_after_delete =
+        DependentSystem::find_by_id(&pool, created.dependent_system_id).await?;
+    assert!(found_after_delete.is_none());
+
+    Ok(())
+}

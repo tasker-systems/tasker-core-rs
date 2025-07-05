@@ -12,6 +12,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Always prefer existing, mature framework functionality over custom implementations.
 
+### Test Organization Pattern: `tests/` Directory Only
+
+**Core Principle**: All tests except doctests must be in the `tests/` directory.
+
+- ✅ **Doctests**: Remain in source files for documentation purposes
+- ✅ **Unit/Integration Tests**: All migrate to `tests/` directory  
+- ❌ **`#[cfg(test)]` modules**: Not allowed in `src/` files
+
+This pattern provides:
+- **Enhanced Discoverability**: Tests are easy to find without searching source files
+- **Faster Development**: Cleaner source files focused on business logic
+- **Superior CI Performance**: Parallel execution with SQLx database isolation
+- **Production Code Quality**: Zero test pollution in source files
+
+### Directory Structure
+```
+tests/
+├── config.rs              # Configuration tests
+├── database/              # Database-specific tests  
+├── models/                # Model tests with SQLx isolation
+│   └── insights/          # Analytics models
+├── query_builder/         # Query construction tests
+└── state_machine/         # State management tests
+```
+
 ### Testing Framework: SQLx Native Testing
 We use SQLx's built-in testing facilities (`#[sqlx::test]`) for all database-related tests:
 - **Automatic database creation** per test (perfect isolation)
@@ -30,6 +55,19 @@ async fn test_model_functionality(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 ```
+
+### Import Pattern
+```rust
+// In tests/models/example.rs
+use tasker_core::models::example::{Example, NewExample};
+use sqlx::PgPool;
+```
+
+### 🏆 Test Migration Achievement (July 2025)
+- **28 test modules** successfully migrated from `src/` to `tests/`
+- **149 total tests** reorganized with perfect isolation
+- **Zero `#[cfg(test)]` modules** remaining in source code
+- **Comprehensive coverage** across models, database, state machine, and query builder
 
 ### Additional Testing Tools
 - **rstest**: For parametrized testing (pytest equivalent)
@@ -128,14 +166,31 @@ src/models/
 - **Schema Management**: Dynamic schema rebuilds for testing, incremental for production
 - **Sequence Synchronization**: Proper handling of manual inserts and auto-increment conflicts
 
-#### **Testing Architecture - MIGRATION COMPLETE** ✅ 
+#### **Testing Architecture - MIGRATION IN PROGRESS** 🔄 
 - **SQLx Native Testing**: Successfully migrated from custom test_coordinator.rs to SQLx built-in testing
 - **Automatic Database Isolation**: Each test gets its own fresh database with automatic cleanup
 - **Parallel Execution**: 120 tests running safely in parallel (83 lib + 2 database + 18 integration + 17 property)
 - **Zero Configuration**: SQLx handles all database setup, migrations, and teardown
 - **Doctest Excellence**: 35 doctests passing, 0 failed, 7 legitimately deferred (83% success rate)
-- **Perfect Test Organization**: Database tests in `tests/models/`, unit tests in source files
-- **Migration Success**: Eliminated 35 `cfg(test)` blocks, moved critical tests to proper locations
+
+#### **Test Organization Strategy** 📋
+**PRINCIPLE**: All tests except doctests must be in `tests/` directory
+- **Doctests**: ✅ Remain in `src/` files for documentation (41 doctests correctly located)
+- **Unit/Integration Tests**: ❌→✅ Migrate from `src/` to `tests/` directory (27 modules need migration)
+- **Test Structure**: Mirror `src/` organization in `tests/` directory
+
+#### **Migration Status** 
+**Completed ✅**: 4 model test modules moved from `src/` to `tests/models/`
+- `annotation_type.rs`, `dependent_system.rs`, `dependent_system_object_map.rs`, `task_transition.rs`
+
+**Remaining ❌**: 27 `#[cfg(test)]` modules in `src/` need migration
+- **Models**: 12 files (8 core + 4 insights) → `tests/models/` and `tests/models/insights/`
+- **State Machine**: 8 files → `tests/state_machine/`
+- **Query Builder**: 5 files → `tests/query_builder/`
+- **Database**: 1 file → `tests/database/`
+- **Core Library**: 1 file → appropriate test location
+
+**Architecture Goal**: Zero `#[cfg(test)]` modules in `src/` directory
 
 #### **🔥 DOCTEST CONVERSION BREAKTHROUGH** ✅
 - **Pattern-Based Strategy**: Developed 5 comprehensive patterns for database-heavy codebases
@@ -359,11 +414,21 @@ Standard Rust development workflow:
 
 All project documentation is organized in the `docs/` directory:
 - `docs/testing/` - Testing strategies and results
+- `docs/testing-principles.md` - ⭐ **Core testing principles and organization**
+- `docs/test-migration-analysis.md` - Comprehensive test migration plan
 - `docs/architecture/` - System design and architecture decisions
 - `docs/historical/` - Historical records and migration summaries
 - `docs/rustdoc-guide.md` - Code documentation standards
 
 Only `CLAUDE.md` and `README.md` should exist in the project root.
+
+## Testing Architecture Decision
+
+**PRINCIPLE ESTABLISHED**: All tests except doctests must be in `tests/` directory
+- This early-stage architectural decision sets patterns for scalable development
+- Eliminates future technical debt and testing complexity
+- Ensures clean separation between implementation and test code
+- See `docs/testing-principles.md` for complete guidelines
 
 ## Project Structure
 

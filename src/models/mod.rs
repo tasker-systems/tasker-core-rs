@@ -41,7 +41,7 @@
 //!   - [`orchestration::StepDagRelationship`] - DAG relationship analysis
 //!
 //! - [`insights`] - Analytics and performance monitoring models
-//!   - [`insights::AnalyticsMetrics`] - System-wide performance metrics  
+//!   - [`insights::AnalyticsMetrics`] - System-wide performance metrics
 //!   - [`insights::SystemHealthCounts`] - Real-time health monitoring
 //!   - [`insights::SlowestSteps`] - Step performance analysis
 //!   - [`insights::SlowestTasks`] - Task optimization insights
@@ -50,7 +50,7 @@
 //!
 //! - **JSONB Operations**: Full PostgreSQL JSONB support with containment/path queries
 //! - **DAG Analysis**: Complete dependency resolution with cycle detection
-//! - **Retry Logic**: Exponential backoff and retry limit enforcement  
+//! - **Retry Logic**: Exponential backoff and retry limit enforcement
 //! - **State Machines**: Proper state tracking with transition audit trails
 //! - **Performance Monitoring**: Real-time analytics and bottleneck identification
 //! - **Complex Scoping**: Rails-equivalent scopes for filtering and advanced queries
@@ -80,45 +80,34 @@
 //! }).await?;
 //! ```
 
-pub mod annotation_type;
-pub mod dependent_system;
-pub mod dependent_system_object_map;
-pub mod named_step;
-pub mod named_task;
-pub mod named_tasks_named_step;
-pub mod task;
-pub mod task_annotation;
-pub mod task_namespace;
-pub mod task_transition;
-pub mod transitions;
-pub mod workflow_step;
-pub mod workflow_step_edge;
-pub mod workflow_step_transition; // Deprecated - kept for backwards compatibility
+// Deprecated - kept for backwards compatibility
 
 // Organized model modules
+pub mod core;
 pub mod insights;
 pub mod orchestration;
 
 // Re-export core models for easy access
-pub use annotation_type::{AnnotationType, AnnotationTypeWithStats, NewAnnotationType};
-pub use dependent_system::{DependentSystem, NewDependentSystem};
-pub use dependent_system_object_map::{
+pub use core::annotation_type::{AnnotationType, AnnotationTypeWithStats, NewAnnotationType};
+pub use core::dependent_system::{DependentSystem, NewDependentSystem};
+pub use core::dependent_system_object_map::{
     DependentSystemObjectMap, DependentSystemObjectMapWithSystems, MappingStats,
     NewDependentSystemObjectMap,
 };
-pub use named_step::NamedStep;
-pub use named_task::NamedTask;
-pub use named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
-pub use task::Task;
-pub use task_annotation::{
+pub use core::named_step::NamedStep;
+pub use core::named_task::NamedTask;
+pub use core::named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
+pub use core::task::Task;
+pub use core::task_annotation::{
     AnnotationTypeCount, NewTaskAnnotation, TaskAnnotation, TaskAnnotationWithType,
 };
-pub use task_namespace::TaskNamespace;
-pub use task_transition::{NewTaskTransition, TaskTransition};
-pub use workflow_step::WorkflowStep;
-pub use workflow_step_edge::WorkflowStepEdge;
-pub use workflow_step_transition::{NewWorkflowStepTransition, WorkflowStepTransition};
+pub use core::task_namespace::TaskNamespace;
+pub use core::task_transition::{NewTaskTransition, TaskTransition};
+pub use core::workflow_step::WorkflowStep;
+pub use core::workflow_step_edge::WorkflowStepEdge;
+pub use core::workflow_step_transition::{NewWorkflowStepTransition, WorkflowStepTransition};
 
 // Re-export organized model modules
+pub use core::*;
 pub use insights::*;
 pub use orchestration::*;

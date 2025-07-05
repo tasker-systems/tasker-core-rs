@@ -96,15 +96,3 @@ pub use query_builder::{
     NamedTaskScopes, QueryBuilder, ScopeHelpers, TaskScopes, WorkflowStepEdgeScopes,
     WorkflowStepScopes,
 };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn config_loads_successfully() {
-        let config = TaskerConfig::default();
-        assert_eq!(config.max_concurrent_steps, 10);
-        assert_eq!(config.retry_limit, 3);
-    }
-}

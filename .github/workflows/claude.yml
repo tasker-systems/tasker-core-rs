@@ -1,4 +1,4 @@
-name: Claude Code Assistant
+name: Claude Code
 
 on:
   issue_comment:
@@ -34,44 +34,25 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          
-          # Use Claude Sonnet 4 for Rust development
-          model: "claude-sonnet-4-20250514"
-          
-          # Custom instructions specific to Tasker Core Rust
-          custom_instructions: |
-            This is the Tasker Core Rust project - a high-performance workflow orchestration engine.
-            
-            Key project context:
-            - We use SQLx native testing with automatic database isolation per test
-            - All models are migrated from Rails with 100% schema parity  
-            - We have comprehensive query builders equivalent to ActiveRecord scopes
-            - We prioritize type safety, performance, and memory safety
-            - All database operations use SQLx with compile-time verification
-            
-            Development guidelines:
-            - Always run `cargo test` after making changes
-            - Use `cargo fmt` and `cargo clippy` for code quality
-            - Follow the existing model patterns in src/models/
-            - Use SQLx queries with compile-time verification
-            - Write comprehensive tests for new functionality
-            - Document public APIs with rustdoc
-            
-            Testing approach:
-            - Database tests: Use #[sqlx::test] in tests/models/
-            - Unit tests: Keep in source files with #[cfg(test)]
-            - Integration tests: Use tests/ directory
-            - All tests should run in parallel with perfect isolation
-            
-            Performance targets:
-            - 10-100x faster than Ruby/Rails equivalents
-            - Memory-safe parallelism
-            - Zero-cost abstractions where possible
-            
-          # Environment for development
-          claude_env: |
-            RUST_LOG: debug
-            DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
-            
-          # Allow Claude to run common Rust development commands
-          allowed_tools: "Bash(cargo build),Bash(cargo test),Bash(cargo test --lib),Bash(cargo fmt),Bash(cargo clippy),Bash(cargo doc),Bash(sqlx migrate run)"
+
+          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
+          # model: "claude-opus-4-20250514"
+
+          # Optional: Customize the trigger phrase (default: @claude)
+          # trigger_phrase: "/claude"
+
+          # Optional: Trigger when specific user is assigned to an issue
+          # assignee_trigger: "claude-bot"
+
+          # Optional: Allow Claude to run specific commands
+          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+
+          # Optional: Add custom instructions for Claude to customize its behavior for your project
+          # custom_instructions: |
+          #   Follow our coding standards
+          #   Ensure all new code has tests
+          #   Use TypeScript for new files
+
+          # Optional: Custom environment variables for Claude
+          # claude_env: |
+          #   NODE_ENV: test

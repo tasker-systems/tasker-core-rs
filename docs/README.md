@@ -14,7 +14,10 @@
 - **[SCHEMA_ANALYSIS.md](SCHEMA_ANALYSIS.md)** - Detailed SQL vs Rust model comparison
 
 ### **🧪 Testing & Analysis**
+- **[testing-principles.md](testing-principles.md)** - ⭐ **Core testing principles and organization strategy**
+- **[test-migration-analysis.md](test-migration-analysis.md)** - Comprehensive analysis and migration plan for all tests
 - **[TESTING_STRATEGY.md](TESTING_STRATEGY.md)** - Comprehensive testing approach with property-based testing
+- **[testing/](testing/)** - Detailed testing documentation and results
 
 ### **📊 Status Overview**
 

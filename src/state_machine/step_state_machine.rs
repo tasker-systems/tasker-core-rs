@@ -49,7 +49,7 @@ impl StepStateMachine {
     /// Attempt to transition the step state
     pub async fn transition(&mut self, event: StepEvent) -> StateMachineResult<WorkflowStepState> {
         let current_state = self.current_state().await?;
-        let target_state = self.determine_target_state(current_state, &event)?;
+        let target_state = self.determine_target_state_internal(current_state, &event)?;
 
         // Check guards
         self.check_guards(current_state, target_state, &event)
@@ -75,8 +75,18 @@ impl StepStateMachine {
         Ok(target_state)
     }
 
-    /// Determine the target state based on current state and event
-    fn determine_target_state(
+    /// Determine the target state based on current state and event (for testing)
+    /// This method is exposed for integration testing purposes
+    pub fn determine_target_state(
+        &self,
+        current_state: WorkflowStepState,
+        event: &StepEvent,
+    ) -> StateMachineResult<WorkflowStepState> {
+        self.determine_target_state_internal(current_state, event)
+    }
+
+    /// Determine the target state based on current state and event (internal implementation)
+    fn determine_target_state_internal(
         &self,
         current_state: WorkflowStepState,
         event: &StepEvent,
@@ -230,116 +240,5 @@ impl StepStateMachine {
         } else {
             false
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::events::publisher::EventPublisher;
-    use serde_json::json;
-
-    #[test]
-    #[ignore = "State machine tests deferred as architectural dependency"]
-    fn test_step_state_transitions() {
-        // Test valid transitions
-        let sm = create_test_step_state_machine();
-
-        assert_eq!(
-            sm.determine_target_state(WorkflowStepState::Pending, &StepEvent::Start)
-                .unwrap(),
-            WorkflowStepState::InProgress
-        );
-
-        assert_eq!(
-            sm.determine_target_state(WorkflowStepState::InProgress, &StepEvent::Complete(None))
-                .unwrap(),
-            WorkflowStepState::Complete
-        );
-
-        assert_eq!(
-            sm.determine_target_state(
-                WorkflowStepState::InProgress,
-                &StepEvent::Fail("error".to_string())
-            )
-            .unwrap(),
-            WorkflowStepState::Error
-        );
-
-        assert_eq!(
-            sm.determine_target_state(WorkflowStepState::Error, &StepEvent::Retry)
-                .unwrap(),
-            WorkflowStepState::Pending
-        );
-    }
-
-    #[test]
-    #[ignore = "State machine tests deferred as architectural dependency"]
-    fn test_step_invalid_transitions() {
-        let sm = create_test_step_state_machine();
-
-        // Cannot start from complete state
-        assert!(sm
-            .determine_target_state(WorkflowStepState::Complete, &StepEvent::Start)
-            .is_err());
-
-        // Cannot retry from pending state
-        assert!(sm
-            .determine_target_state(WorkflowStepState::Pending, &StepEvent::Retry)
-            .is_err());
-    }
-
-    #[test]
-    #[ignore = "State machine tests deferred as architectural dependency"]
-    fn test_step_completion_with_results() {
-        let sm = create_test_step_state_machine();
-        let results = json!({"processed": 42, "status": "success"});
-
-        assert_eq!(
-            sm.determine_target_state(
-                WorkflowStepState::InProgress,
-                &StepEvent::Complete(Some(results))
-            )
-            .unwrap(),
-            WorkflowStepState::Complete
-        );
-    }
-
-    fn create_test_step_state_machine() -> StepStateMachine {
-        use crate::models::WorkflowStep;
-        use chrono::Utc;
-
-        let step = WorkflowStep {
-            workflow_step_id: 1,
-            task_id: 1,
-            named_step_id: 1,
-            retryable: true,
-            retry_limit: Some(3),
-            in_process: false,
-            processed: false,
-            processed_at: None,
-            attempts: Some(0),
-            last_attempted_at: None,
-            backoff_request_seconds: None,
-            inputs: Some(json!({})),
-            results: Some(json!({})),
-            skippable: false,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-        };
-
-        // This would normally require a real pool and event publisher
-        // For testing, we'd use mocks or test doubles
-        StepStateMachine {
-            step,
-            pool: create_test_pool(), // Would be implemented in test helpers
-            event_publisher: EventPublisher::default(),
-            persistence: StepTransitionPersistence,
-        }
-    }
-
-    // Mock helper - would be implemented with actual test database
-    fn create_test_pool() -> PgPool {
-        todo!("Implement test database pool")
     }
 }
