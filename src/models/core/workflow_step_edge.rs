@@ -239,6 +239,30 @@ impl WorkflowStepEdge {
         Ok(has_path.unwrap_or(0) > 0)
     }
 
+    /// Find an existing edge by step IDs and name
+    pub async fn find_by_steps_and_name(
+        pool: &PgPool,
+        from_step_id: i64,
+        to_step_id: i64,
+        name: &str,
+    ) -> Result<Option<WorkflowStepEdge>, sqlx::Error> {
+        let edge = sqlx::query_as!(
+            WorkflowStepEdge,
+            r#"
+            SELECT id, from_step_id, to_step_id, name, created_at, updated_at
+            FROM tasker_workflow_step_edges
+            WHERE from_step_id = $1 AND to_step_id = $2 AND name = $3
+            "#,
+            from_step_id,
+            to_step_id,
+            name
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(edge)
+    }
+
     /// Delete a workflow step edge
     pub async fn delete(
         pool: &PgPool,

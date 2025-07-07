@@ -33,9 +33,10 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use tasker_core::database::{DatabaseConnection, SqlFunctionExecutor};
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Initialize database connection
 //! let db = DatabaseConnection::new().await?;
 //! let pool = db.pool();
@@ -43,6 +44,8 @@
 //! // Execute SQL functions
 //! let executor = SqlFunctionExecutor::new(pool.clone());
 //! let metrics = executor.get_analytics_metrics(None).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod connection;

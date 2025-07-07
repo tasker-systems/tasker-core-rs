@@ -1141,7 +1141,12 @@ impl Task {
 
     /// Example: Task context updates and lifecycle management
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// use tasker_core::models::core::task::Task;
+    /// use serde_json::json;
+    /// use sqlx::PgPool;
+    /// use chrono::Utc;
+    ///
     /// async fn update_task_lifecycle(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
     ///     let mut task = Task::find_by_id(pool, task_id).await?
     ///         .ok_or_else(|| sqlx::Error::RowNotFound)?;
@@ -1150,7 +1155,7 @@ impl Task {
     ///     let updated_context = json!({
     ///         "original_context": task.context,
     ///         "runtime_data": {
-    ///             "started_at": chrono::Utc::now(),
+    ///             "started_at": Utc::now(),
     ///             "worker_node": "worker-003",
     ///             "resource_allocation": {
     ///                 "cpu_cores": 4,
@@ -1180,7 +1185,7 @@ impl Task {
     ///     // Later, when task completes
     ///     let final_context = json!({
     ///         "execution_summary": {
-    ///             "completed_at": chrono::Utc::now(),
+    ///             "completed_at": Utc::now(),
     ///             "total_duration_seconds": 245,
     ///             "resource_usage": {
     ///                 "peak_cpu_percent": 78,
