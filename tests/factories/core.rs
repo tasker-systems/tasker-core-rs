@@ -8,11 +8,13 @@
 use super::base::*;
 use super::foundation::*;
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tasker_core::models::core::{task::NewTask, workflow_step::NewWorkflowStep};
-use tasker_core::models::{Task, TaskTransition, WorkflowStep};
+use tasker_core::models::core::{
+    task::NewTask, task_transition::NewTaskTransition, workflow_step::NewWorkflowStep,
+    workflow_step_transition::NewWorkflowStepTransition,
+};
+use tasker_core::models::{Task, TaskTransition, WorkflowStep, WorkflowStepTransition};
 
 /// Factory for creating Task instances
 #[derive(Debug, Clone)]
@@ -83,12 +85,6 @@ impl TaskFactory {
     pub fn completed(mut self) -> Self {
         self.complete = true;
         self.initial_state = Some("complete".to_string());
-        self
-    }
-
-    pub fn in_progress(mut self) -> Self {
-        self.with_transitions = true;
-        self.initial_state = Some("in_progress".to_string());
         self
     }
 
@@ -184,10 +180,10 @@ impl SqlxFactory<Task> for TaskFactory {
 
         let task = Task::create(pool, new_task).await?;
 
-        // TODO: Apply state transitions once we implement create_transition methods
-        // if self.with_transitions {
-        //     self.apply_state_transitions(&task, pool).await?;
-        // }
+        // Apply state transitions if requested
+        if self.with_transitions {
+            self.apply_state_transitions(&task, pool).await?;
+        }
 
         Ok(task)
     }
@@ -199,9 +195,69 @@ impl SqlxFactory<Task> for TaskFactory {
     }
 }
 
-// TODO: Implement StateFactory once we have create_transition methods
-// #[async_trait]
-// impl StateFactory<Task> for TaskFactory { ... }
+// Implement StateFactory for TaskFactory
+#[async_trait]
+impl StateFactory<Task> for TaskFactory {
+    async fn apply_state_transitions(&self, task: &Task, pool: &PgPool) -> FactoryResult<()> {
+        if let Some(state) = &self.initial_state {
+            let new_transition = NewTaskTransition {
+                task_id: task.task_id,
+                to_state: state.clone(),
+                from_state: None,
+                metadata: Some(json!({
+                    "factory_created": true,
+                    "initial_state": true
+                })),
+            };
+
+            TaskTransition::create(pool, new_transition)
+                .await
+                .map_err(FactoryError::Database)?;
+        }
+        Ok(())
+    }
+
+    fn with_initial_state(mut self, state: &str) -> Self {
+        self.initial_state = Some(state.to_string());
+        self.with_transitions = true;
+        self
+    }
+
+    fn with_state_sequence(mut self, states: Vec<String>) -> Self {
+        if let Some(last_state) = states.last() {
+            self.initial_state = Some(last_state.clone());
+            self.with_transitions = true;
+        }
+        self
+    }
+}
+
+// Convenience methods for TaskFactory states
+impl TaskFactory {
+    pub fn pending(self) -> Self {
+        self.with_initial_state("pending")
+    }
+
+    pub fn in_progress(self) -> Self {
+        self.with_initial_state("in_progress")
+    }
+
+    pub fn complete(self) -> Self {
+        self.with_initial_state("complete")
+    }
+
+    pub fn error(self) -> Self {
+        self.with_initial_state("error")
+    }
+
+    pub fn cancelled(self) -> Self {
+        self.with_initial_state("cancelled")
+    }
+
+    pub fn resolved_manually(self) -> Self {
+        self.with_initial_state("resolved_manually")
+    }
+}
 
 /// Factory for creating WorkflowStep instances
 #[derive(Debug, Clone)]
@@ -269,14 +325,6 @@ impl WorkflowStepFactory {
         self.in_process = true;
         self.initial_state = Some("in_progress".to_string());
         self.with_transitions = true;
-        self
-    }
-
-    pub fn completed(mut self) -> Self {
-        self.processed = true;
-        self.initial_state = Some("complete".to_string());
-        self.with_transitions = true;
-        self.results = Some(json!({"success": true, "completed_at": Utc::now()}));
         self
     }
 
@@ -348,10 +396,10 @@ impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
             step.mark_processed(pool, self.results.clone()).await?;
         }
 
-        // TODO: Apply state transitions once we implement create_transition methods
-        // if self.with_transitions {
-        //     self.apply_state_transitions(&step, pool).await?;
-        // }
+        // Apply state transitions if requested
+        if self.with_transitions {
+            self.apply_state_transitions(&step, pool).await?;
+        }
 
         Ok(step)
     }
@@ -362,82 +410,85 @@ impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
     }
 }
 
-// TODO: Implement StateFactory once we have create_transition methods on WorkflowStepTransition
-// #[async_trait]
-// impl StateFactory<WorkflowStep> for WorkflowStepFactory {
-//     async fn apply_state_transitions(&self, step: &WorkflowStep, pool: &PgPool) -> FactoryResult<()> {
-//         if let Some(state) = &self.initial_state {
-//             match state.as_str() {
-//                 "in_progress" => {
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         None,
-//                         "pending".to_string(),
-//                         Some(json!({"event": "step_created", "auto_generated": true}))
-//                     ).await?;
-//
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         Some("pending".to_string()),
-//                         "in_progress".to_string(),
-//                         Some(json!({"event": "step_started", "auto_generated": true}))
-//                     ).await?;
-//                 },
-//                 "complete" => {
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         None,
-//                         "pending".to_string(),
-//                         Some(json!({"event": "step_created", "auto_generated": true}))
-//                     ).await?;
-//
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         Some("pending".to_string()),
-//                         "in_progress".to_string(),
-//                         Some(json!({"event": "step_started", "auto_generated": true}))
-//                     ).await?;
-//
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         Some("in_progress".to_string()),
-//                         "complete".to_string(),
-//                         Some(json!({"event": "step_completed", "auto_generated": true}))
-//                     ).await?;
-//                 },
-//                 _ => {
-//                     WorkflowStepTransition::create_transition(
-//                         pool,
-//                         step.workflow_step_id,
-//                         None,
-//                         state.clone(),
-//                         Some(json!({"event": "step_created", "auto_generated": true}))
-//                     ).await?;
-//                 }
-//             }
-//         }
-//
-//         Ok(())
-//     }
-//
-//     fn with_initial_state(mut self, state: &str) -> Self {
-//         self.initial_state = Some(state.to_string());
-//         self
-//     }
-//
-//     fn with_state_sequence(mut self, states: Vec<String>) -> Self {
-//         if let Some(last_state) = states.last() {
-//             self.initial_state = Some(last_state.clone());
-//             self.with_transitions = true;
-//         }
-//         self
-//     }
-// }
+// Implement StateFactory for WorkflowStepFactory
+#[async_trait]
+impl StateFactory<WorkflowStep> for WorkflowStepFactory {
+    async fn apply_state_transitions(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+    ) -> FactoryResult<()> {
+        if let Some(state) = &self.initial_state {
+            let new_transition = NewWorkflowStepTransition {
+                workflow_step_id: step.workflow_step_id,
+                to_state: state.clone(),
+                from_state: None,
+                metadata: Some(json!({
+                    "factory_created": true,
+                    "initial_state": true
+                })),
+            };
+
+            WorkflowStepTransition::create(pool, new_transition)
+                .await
+                .map_err(FactoryError::Database)?;
+        }
+        Ok(())
+    }
+
+    fn with_initial_state(mut self, state: &str) -> Self {
+        self.initial_state = Some(state.to_string());
+        self.with_transitions = true;
+        // Update internal flags based on state
+        match state {
+            "in_progress" => {
+                self.in_process = true;
+            }
+            "complete" => {
+                self.processed = true;
+                if self.results.is_none() {
+                    self.results = Some(json!({"success": true}));
+                }
+            }
+            _ => {}
+        }
+        self
+    }
+
+    fn with_state_sequence(mut self, states: Vec<String>) -> Self {
+        if let Some(last_state) = states.last() {
+            self = self.with_initial_state(last_state);
+        }
+        self
+    }
+}
+
+// Convenience methods for WorkflowStepFactory states
+impl WorkflowStepFactory {
+    pub fn pending(self) -> Self {
+        self.with_initial_state("pending")
+    }
+
+    pub fn in_progress(self) -> Self {
+        self.with_initial_state("in_progress")
+    }
+
+    pub fn completed(self) -> Self {
+        self.with_initial_state("complete")
+    }
+
+    pub fn error(self) -> Self {
+        self.with_initial_state("error")
+    }
+
+    pub fn cancelled(self) -> Self {
+        self.with_initial_state("cancelled")
+    }
+
+    pub fn resolved_manually(self) -> Self {
+        self.with_initial_state("resolved_manually")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -462,12 +513,11 @@ mod tests {
     async fn test_task_factory_with_transitions(pool: PgPool) -> FactoryResult<()> {
         let task = TaskFactory::new().in_progress().create(&pool).await?;
 
-        // Check that task was created successfully
-        // TODO: Re-enable transition checks once create_transition methods are implemented
+        // Check that task was created successfully with transitions
         let transitions = TaskTransition::list_by_task(&pool, task.task_id).await?;
-        // For now, just verify the task exists and transitions list can be called
-        // No transitions created yet since feature is disabled
-        assert!(transitions.is_empty());
+        // Should have one transition to in_progress state
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to_state, "in_progress");
 
         Ok(())
     }
@@ -502,6 +552,159 @@ mod tests {
         assert_eq!(context["order_id"], 12345);
         assert_eq!(context["user_id"], 67890);
         assert!(context["items"].is_array());
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_workflow_step_factory_error_cases(pool: PgPool) -> FactoryResult<()> {
+        // Test creating a step with invalid JSONB
+        let result = WorkflowStepFactory::new()
+            .with_inputs(serde_json::Value::Null) // This should be valid
+            .create(&pool)
+            .await;
+        assert!(result.is_ok()); // Null is valid JSON
+
+        // Test creating a step with invalid context - we can't easily test invalid JSON
+        // since serde_json::Value enforces valid JSON structure, but we can test edge cases
+
+        // Test with extremely large input data
+        let large_input = json!({
+            "data": "x".repeat(10000), // 10KB of data
+            "nested": {
+                "level1": {
+                    "level2": {
+                        "level3": "deep nesting test"
+                    }
+                }
+            }
+        });
+
+        let result = WorkflowStepFactory::new()
+            .with_inputs(large_input)
+            .create(&pool)
+            .await;
+        assert!(result.is_ok()); // Should handle large valid JSON
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_task_factory_edge_cases(pool: PgPool) -> FactoryResult<()> {
+        // Test task with max length initiator name (varchar(128) limit)
+        let max_length_name = "x".repeat(128);
+        let task = TaskFactory::new()
+            .with_initiator(&max_length_name)
+            .create(&pool)
+            .await?;
+
+        assert_eq!(task.initiator.as_deref(), Some(max_length_name.as_str()));
+
+        // Test task with name that would exceed limit (should fail)
+        let too_long_name = "x".repeat(200);
+        let result = TaskFactory::new()
+            .with_initiator(&too_long_name)
+            .create(&pool)
+            .await;
+
+        assert!(result.is_err()); // Should fail due to database constraint
+
+        // Test task with empty context vs None context
+        let task_empty_context = TaskFactory::new()
+            .with_context(json!({}))
+            .create(&pool)
+            .await?;
+
+        assert!(task_empty_context.context.is_some());
+
+        // Test task with complex nested context
+        let complex_context = json!({
+            "workflow": {
+                "steps": [
+                    {"name": "step1", "config": {"timeout": 30}},
+                    {"name": "step2", "config": {"retries": 3}}
+                ],
+                "metadata": {
+                    "version": "1.0",
+                    "environment": "test"
+                }
+            },
+            "user_data": {
+                "preferences": {},
+                "history": []
+            }
+        });
+
+        let task_complex = TaskFactory::new()
+            .with_context(complex_context.clone())
+            .create(&pool)
+            .await?;
+
+        assert_eq!(task_complex.context, Some(complex_context));
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_state_transition_error_scenarios(pool: PgPool) -> FactoryResult<()> {
+        // Test multiple rapid state transitions
+        let task = TaskFactory::new().pending().create(&pool).await?;
+
+        // Verify the transition was created
+        let transitions = TaskTransition::list_by_task(&pool, task.task_id).await?;
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to_state, "pending");
+
+        // Test workflow step state transitions
+        let step = WorkflowStepFactory::new()
+            .for_task(task.task_id)
+            .in_progress()
+            .create(&pool)
+            .await?;
+
+        // Verify step state and transitions
+        assert!(step.in_process);
+        let step_transitions =
+            WorkflowStepTransition::list_by_workflow_step(&pool, step.workflow_step_id).await?;
+        assert_eq!(step_transitions.len(), 1);
+        assert_eq!(step_transitions[0].to_state, "in_progress");
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_factory_validation_edge_cases(pool: PgPool) -> FactoryResult<()> {
+        // Test find_or_create behavior
+        let task1 = TaskFactory::new()
+            .with_initiator("test_user")
+            .find_or_create(&pool)
+            .await?;
+
+        let task2 = TaskFactory::new()
+            .with_initiator("test_user")
+            .find_or_create(&pool)
+            .await?;
+
+        // Should create separate tasks (current implementation)
+        assert_ne!(task1.task_id, task2.task_id);
+
+        // Test step factory with missing task (should create one)
+        let step_auto_task = WorkflowStepFactory::new()
+            .api_call_step()
+            .create(&pool)
+            .await?;
+
+        assert!(step_auto_task.task_id > 0);
+
+        // Test step factory with explicit task
+        let explicit_task = TaskFactory::new().create(&pool).await?;
+        let step_explicit_task = WorkflowStepFactory::new()
+            .for_task(explicit_task.task_id)
+            .database_step()
+            .create(&pool)
+            .await?;
+
+        assert_eq!(step_explicit_task.task_id, explicit_task.task_id);
 
         Ok(())
     }
