@@ -1,3 +1,7 @@
+#![allow(clippy::doc_markdown)] // Allow technical terms like PostgreSQL, SQLx in docs
+#![allow(clippy::missing_errors_doc)] // Allow public functions without # Errors sections
+#![allow(clippy::must_use_candidate)] // Allow methods without must_use when context is clear
+
 //! # Tasker Core Rust
 //!
 //! High-performance Rust implementation of the core workflow orchestration engine.

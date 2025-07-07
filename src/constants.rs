@@ -88,9 +88,9 @@ pub enum WorkflowEdgeType {
 }
 
 impl WorkflowEdgeType {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            WorkflowEdgeType::Provides => "provides",
+            Self::Provides => "provides",
         }
     }
 }
@@ -182,6 +182,7 @@ pub type StepTransitionKey = (Option<WorkflowStepStatus>, WorkflowStepStatus);
 pub type StepTransitionMap = HashMap<StepTransitionKey, &'static str>;
 
 /// Build task transition event map
+#[must_use]
 pub fn build_task_transition_map() -> TaskTransitionMap {
     let mut map = HashMap::new();
 
@@ -247,6 +248,7 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
 }
 
 /// Build step transition event map
+#[must_use]
 pub fn build_step_transition_map() -> StepTransitionMap {
     let mut map = HashMap::new();
 
@@ -350,35 +352,29 @@ pub fn build_step_transition_map() -> StepTransitionMap {
 /// Convenience functions for status checking
 impl ExecutionStatus {
     /// Check if this status indicates active work is happening
-    pub fn is_active(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Processing | ExecutionStatus::HasReadySteps
-        )
+    pub const fn is_active(&self) -> bool {
+        matches!(self, Self::Processing | Self::HasReadySteps)
     }
 
     /// Check if this status indicates a blocked or waiting state
-    pub fn is_blocked(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::BlockedByFailures | ExecutionStatus::WaitingForDependencies
-        )
+    pub const fn is_blocked(&self) -> bool {
+        matches!(self, Self::BlockedByFailures | Self::WaitingForDependencies)
     }
 
     /// Check if this status indicates completion
-    pub fn is_complete(&self) -> bool {
-        matches!(self, ExecutionStatus::AllComplete)
+    pub const fn is_complete(&self) -> bool {
+        matches!(self, Self::AllComplete)
     }
 }
 
 impl HealthStatus {
     /// Check if this health status indicates a problem
-    pub fn is_problematic(&self) -> bool {
-        matches!(self, HealthStatus::Blocked | HealthStatus::Unknown)
+    pub const fn is_problematic(&self) -> bool {
+        matches!(self, Self::Blocked | Self::Unknown)
     }
 
     /// Check if this health status indicates normal operation
-    pub fn is_healthy(&self) -> bool {
-        matches!(self, HealthStatus::Healthy | HealthStatus::Recovering)
+    pub const fn is_healthy(&self) -> bool {
+        matches!(self, Self::Healthy | Self::Recovering)
     }
 }
