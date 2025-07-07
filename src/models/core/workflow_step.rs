@@ -742,7 +742,7 @@ impl WorkflowStep {
         let state = self.get_current_state(pool).await?;
         Ok(matches!(
             state.as_deref(),
-            Some("complete") | Some("resolved_manually")
+            Some("complete" | "resolved_manually")
         ))
     }
 

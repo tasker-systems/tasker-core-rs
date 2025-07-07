@@ -66,18 +66,31 @@
 //!
 //! ## Usage Examples
 //!
-//! ```rust,ignore
-//! use tasker_core::models::{Task, WorkflowStep, TaskNamespace};
+//! ```rust,no_run
+//! use tasker_core::models::core::task::{Task, NewTask};
+//! use tasker_core::models::core::workflow_step::WorkflowStep;
+//! use tasker_core::models::core::task_namespace::TaskNamespace;
+//! use serde_json::json;
+//! use sqlx::PgPool;
 //!
-//! // Find active tasks
-//! let active_tasks = Task::find_active(&pool).await?;
+//! # async fn example(pool: &PgPool, named_task_id: i32) -> Result<(), sqlx::Error> {
+//! // Find active tasks (this would need to be implemented)
+//! // let active_tasks = Task::find_active(pool).await?;
 //!
 //! // Create task with context
-//! let task = Task::create(&pool, NewTask {
-//!     named_task_id: template.named_task_id,
-//!     context: json!({"input": "data"}),
-//!     ..Default::default()
+//! let task = Task::create(pool, NewTask {
+//!     named_task_id,
+//!     requested_at: None,
+//!     initiator: Some("system".to_string()),
+//!     source_system: None,
+//!     reason: None,
+//!     bypass_steps: None,
+//!     tags: None,
+//!     context: Some(json!({"input": "data"})),
+//!     identity_hash: "example_hash".to_string(),
 //! }).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 // Deprecated - kept for backwards compatibility

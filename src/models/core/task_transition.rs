@@ -162,13 +162,20 @@ impl TaskTransition {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let transition = TaskTransition::create(&pool, NewTaskTransition {
+    /// ```rust,no_run
+    /// use tasker_core::models::core::task_transition::{TaskTransition, NewTaskTransition};
+    /// use serde_json::json;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: &PgPool) -> Result<(), sqlx::Error> {
+    /// let transition = TaskTransition::create(pool, NewTaskTransition {
     ///     task_id: 123,
     ///     to_state: "processing".to_string(),
     ///     from_state: Some("pending".to_string()),
     ///     metadata: Some(json!({"reason": "worker_assigned"})),
     /// }).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn create(
         pool: &PgPool,

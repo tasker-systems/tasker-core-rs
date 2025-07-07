@@ -77,7 +77,7 @@ impl DatabaseMigrations {
     async fn run_fresh_schema_with_lock(pool: &PgPool) -> Result<(), sqlx::Error> {
         // Use PostgreSQL advisory lock to ensure only one thread initializes schema
         // Lock key: hash of "tasker_test_schema_init"
-        const LOCK_KEY: i64 = 1234567890123456; // Deterministic hash
+        const LOCK_KEY: i64 = 1_234_567_890_123_456; // Deterministic hash
 
         // Try to acquire advisory lock
         let lock_acquired = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
@@ -132,11 +132,11 @@ impl DatabaseMigrations {
     async fn run_fresh_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
         // Drop all tables, views, functions, and sequences
         sqlx::raw_sql(
-            r#"
+            r"
             DROP SCHEMA public CASCADE;
             CREATE SCHEMA public;
             GRANT ALL ON SCHEMA public TO PUBLIC;
-        "#,
+        ",
         )
         .execute(pool)
         .await?;
@@ -188,7 +188,7 @@ impl DatabaseMigrations {
             let entry = entry.map_err(sqlx::Error::Io)?;
             let path = entry.path();
 
-            if path.is_file() && path.extension().map(|s| s == "sql").unwrap_or(false) {
+            if path.is_file() && path.extension().is_some_and(|s| s == "sql") {
                 if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
                     // Parse filename: YYYYMMDDHHMMSS_migration_name.sql
                     if let Some((version, name)) = Self::parse_migration_filename(filename) {
@@ -236,12 +236,12 @@ impl DatabaseMigrations {
     /// Ensure migration tracking table exists
     async fn ensure_migration_table(pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::raw_sql(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS tasker_schema_migrations (
                 version VARCHAR(14) PRIMARY KEY,
                 applied_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
             )
-        "#,
+        ",
         )
         .execute(pool)
         .await?;

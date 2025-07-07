@@ -1,3 +1,7 @@
+#![allow(clippy::doc_markdown)] // Allow technical terms like PostgreSQL, SQLx in docs
+#![allow(clippy::missing_errors_doc)] // Allow public functions without # Errors sections
+#![allow(clippy::must_use_candidate)] // Allow methods without must_use when context is clear
+
 //! # Tasker Core Rust
 //!
 //! High-performance Rust implementation of the core workflow orchestration engine.
@@ -45,17 +49,25 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,ignore
-//! use tasker_core::{TaskerConfig, models::Task};
+//! ```rust,no_run
+//! use tasker_core::config::TaskerConfig;
+//! use tasker_core::models::core::task::Task;
+//! use sqlx::PgPool;
 //!
+//! # async fn example(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! // Initialize configuration
 //! let config = TaskerConfig::default();
 //!
 //! // Work with models using SQLx
-//! let tasks = Task::find_by_current_state(&pool, "running").await?;
-//! for task in tasks {
-//!     println!("Task {} is running", task.task_id);
-//! }
+//! // Note: find_by_current_state would need to be implemented
+//! // let tasks = Task::find_by_current_state(pool, "running").await?;
+//! // for task in tasks {
+//! //     println!("Task {} is running", task.task_id);
+//! // }
+//!
+//! println!("Tasker core initialized with config: {:?}", config.database.max_connections);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Integration
@@ -74,6 +86,7 @@
 //! ```
 
 pub mod config;
+pub mod constants;
 pub mod database;
 pub mod error;
 pub mod events;
@@ -81,11 +94,21 @@ pub mod ffi;
 pub mod models;
 pub mod orchestration;
 pub mod registry;
+pub mod scopes;
 pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;
 
-pub use config::TaskerConfig;
+pub use config::{
+    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
+    TelemetryConfig,
+};
+pub use constants::{
+    status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
+    ReenqueueReason, TaskStatus, WorkflowEdgeType, WorkflowStepStatus,
+};
+// Re-export constants events with different name to avoid conflict
+pub use constants::events as system_events;
 pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,

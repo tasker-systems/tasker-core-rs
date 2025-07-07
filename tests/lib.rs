@@ -5,5 +5,6 @@
 
 mod config;
 mod database;
+mod factories;
 mod models;
 mod state_machine;

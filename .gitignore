@@ -35,3 +35,6 @@ target
 
 # let's not store our sqlx cache
 .sqlx/
+
+# don't pay attention to tmp
+tmp/

@@ -1,0 +1,151 @@
+//! # Relationship Factories
+//!
+//! Factories for creating relationships and edges between workflow entities.
+
+#![allow(dead_code)]
+
+use super::base::*;
+use async_trait::async_trait;
+use sqlx::PgPool;
+use tasker_core::models::core::workflow_step_edge::NewWorkflowStepEdge;
+use tasker_core::models::WorkflowStepEdge;
+
+/// Factory for creating workflow step edges (dependencies between steps)
+#[derive(Debug, Clone)]
+pub struct WorkflowStepEdgeFactory {
+    from_step_id: Option<i64>,
+    to_step_id: Option<i64>,
+    name: String,
+}
+
+impl Default for WorkflowStepEdgeFactory {
+    fn default() -> Self {
+        Self {
+            from_step_id: None,
+            to_step_id: None,
+            name: "provides".to_string(),
+        }
+    }
+}
+
+impl WorkflowStepEdgeFactory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_from_step(mut self, step_id: i64) -> Self {
+        self.from_step_id = Some(step_id);
+        self
+    }
+
+    pub fn with_to_step(mut self, step_id: i64) -> Self {
+        self.to_step_id = Some(step_id);
+        self
+    }
+
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.name = name.to_string();
+        self
+    }
+
+    /// Create a "provides" edge (default)
+    pub fn provides(self) -> Self {
+        self.with_name("provides")
+    }
+
+    /// Create a "depends_on" edge
+    pub fn depends_on(self) -> Self {
+        self.with_name("depends_on")
+    }
+
+    /// Create a "blocks" edge
+    pub fn blocks(self) -> Self {
+        self.with_name("blocks")
+    }
+
+    /// Create a "triggers" edge
+    pub fn triggers(self) -> Self {
+        self.with_name("triggers")
+    }
+}
+
+#[async_trait]
+impl SqlxFactory<WorkflowStepEdge> for WorkflowStepEdgeFactory {
+    async fn create(&self, pool: &PgPool) -> FactoryResult<WorkflowStepEdge> {
+        let from_step_id = self
+            .from_step_id
+            .ok_or_else(|| FactoryError::InvalidConfig {
+                details: "from_step_id is required".to_string(),
+            })?;
+
+        let to_step_id = self.to_step_id.ok_or_else(|| FactoryError::InvalidConfig {
+            details: "to_step_id is required".to_string(),
+        })?;
+
+        let new_edge = NewWorkflowStepEdge {
+            from_step_id,
+            to_step_id,
+            name: self.name.clone(),
+        };
+
+        let edge = WorkflowStepEdge::create(pool, new_edge).await?;
+        Ok(edge)
+    }
+
+    async fn find_or_create(&self, pool: &PgPool) -> FactoryResult<WorkflowStepEdge> {
+        let from_step_id = self
+            .from_step_id
+            .ok_or_else(|| FactoryError::InvalidConfig {
+                details: "from_step_id is required".to_string(),
+            })?;
+
+        let to_step_id = self.to_step_id.ok_or_else(|| FactoryError::InvalidConfig {
+            details: "to_step_id is required".to_string(),
+        })?;
+
+        // Try to find existing edge
+        if let Some(existing) =
+            WorkflowStepEdge::find_by_steps_and_name(pool, from_step_id, to_step_id, &self.name)
+                .await?
+        {
+            return Ok(existing);
+        }
+
+        // Create if not found
+        self.create(pool).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::factories::core::{TaskFactory, WorkflowStepFactory};
+
+    #[sqlx::test]
+    async fn test_create_workflow_step_edge(pool: PgPool) -> FactoryResult<()> {
+        // Create task and steps
+        let task = TaskFactory::new().create(&pool).await?;
+        let step1 = WorkflowStepFactory::new()
+            .for_task(task.task_id)
+            .create(&pool)
+            .await?;
+        let step2 = WorkflowStepFactory::new()
+            .for_task(task.task_id)
+            .create(&pool)
+            .await?;
+
+        // Create edge
+        let edge = WorkflowStepEdgeFactory::new()
+            .with_from_step(step1.workflow_step_id)
+            .with_to_step(step2.workflow_step_id)
+            .provides()
+            .create(&pool)
+            .await?;
+
+        assert_eq!(edge.from_step_id, step1.workflow_step_id);
+        assert_eq!(edge.to_step_id, step2.workflow_step_id);
+        assert_eq!(edge.name, "provides");
+
+        Ok(())
+    }
+}

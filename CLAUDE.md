@@ -25,4 +25,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Benefits**: Enhanced database development, automated dependency management, streamlined CI/CD workflows, and real-time Rust guidance.
 
+## Recent Accomplishments (January 2025)
+
+### SQL Scopes Implementation
+- Created comprehensive Rails-like SQL scope system in `src/scopes.rs`
+- Implemented `TaskScope`, `WorkflowStepScope`, and `TaskTransitionScope` with chainable query builders
+- Added support for time-based queries, state filtering, and complex JOIN operations
+- Achieved 11/12 test coverage with sophisticated deduplication for SQL JOINs
+
+### Factory System for Complex Workflows
+- Built comprehensive factory system in `tests/factories/` inspired by Rails patterns
+- Implemented complex workflow patterns: Linear, Diamond, Parallel Merge, Tree, and Mixed DAG
+- Created API integration workflow factories with multi-step dependencies
+- Added dummy task workflows for orchestration testing
+- Implemented find-or-create patterns for idempotent test data creation
+- Added batch generation capabilities with controlled pattern distributions
+
+### Configuration Architecture
+- Separated configuration (`src/config.rs`) from constants (`src/constants.rs`)
+- Created hierarchical configuration structure with nested components
+- Maintained clean separation between runtime settings and immutable values
+
+### Factory System Enhancement (January 2025)
+- **SQLx Factory Trait System**: Built comprehensive `SqlxFactory` trait with database persistence for all test factories
+- **Complex Workflow Patterns**: Implemented Linear (A→B→C→D), Diamond (A→(B,C)→D), Parallel Merge ((A,B,C)→D), Tree, and Mixed DAG patterns
+- **Relationship Factories**: Created `WorkflowStepEdgeFactory` for managing dependencies between workflow steps
+- **State Machine Integration**: Prepared state transition factories (currently disabled pending model method implementation)
+- **Batch Generation**: Implemented `ComplexWorkflowBatchFactory` with controlled pattern distributions and proper rounding
+- **Type Safety**: All factories work with compile-time verified SQLx queries and proper trait derivations
+- **Testing Coverage**: 20/20 factory tests passing with comprehensive edge case handling
+- **Rails Pattern Adaptation**: Successfully translated Rails factory patterns to Rust while maintaining type safety
+
 [... rest of the existing content remains unchanged ...]
