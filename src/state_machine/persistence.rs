@@ -1,6 +1,27 @@
+//! # State Machine Persistence Layer
+//!
+//! ## Architecture Decision: Delegation to Model Layer
+//!
+//! This persistence layer acts as a bridge between the state machine system and the data models,
+//! following the principle of separation of concerns. Rather than duplicating database logic,
+//! it delegates to the appropriate model methods:
+//!
+//! - **TaskTransitionPersistence** → delegates to `TaskTransition::create()` and `TaskTransition::get_current()`
+//! - **StepTransitionPersistence** → delegates to `WorkflowStepTransition::create()` and `WorkflowStepTransition::get_current()`
+//!
+//! This approach provides several benefits:
+//! 1. **No SQL Duplication**: Model methods handle all database operations
+//! 2. **Atomic Transactions**: Models provide proper transaction handling
+//! 3. **Consistency**: Single source of truth for database operations
+//! 4. **Maintainability**: Changes to database schema only require model updates
+//! 5. **Testability**: Model methods can be tested independently
+
 use super::errors::{PersistenceError, PersistenceResult};
+use crate::models::core::task_transition::{NewTaskTransition, TaskTransition};
+use crate::models::core::workflow_step_transition::{
+    NewWorkflowStepTransition, WorkflowStepTransition,
+};
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -43,54 +64,26 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         metadata: Option<Value>,
         pool: &PgPool,
     ) -> PersistenceResult<()> {
-        let sort_key = self.get_next_sort_key(task.task_id, pool).await?;
-
         let transition_metadata = metadata.unwrap_or_else(|| {
             serde_json::json!({
                 "event": event,
-                "timestamp": Utc::now(),
+                "timestamp": chrono::Utc::now(),
             })
         });
 
-        // Start a transaction to ensure consistency
-        let mut tx = pool.begin().await?;
-
-        // Insert the new transition
-        sqlx::query!(
-            r#"
-            INSERT INTO tasker_task_transitions 
-            (task_id, from_state, to_state, sort_key, most_recent, metadata)
-            VALUES ($1, $2, $3, $4, true, $5)
-            "#,
-            task.task_id,
-            from_state,
+        let new_transition = NewTaskTransition {
+            task_id: task.task_id,
             to_state,
-            sort_key,
-            transition_metadata
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to insert transition: {e}"),
-        })?;
+            from_state,
+            metadata: Some(transition_metadata),
+        };
 
-        // Update most_recent flags for previous transitions
-        sqlx::query!(
-            r#"
-            UPDATE tasker_task_transitions 
-            SET most_recent = false 
-            WHERE task_id = $1 AND sort_key < $2
-            "#,
-            task.task_id,
-            sort_key
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to update most_recent flags: {e}"),
-        })?;
+        TaskTransition::create(pool, new_transition)
+            .await
+            .map_err(|e| PersistenceError::TransitionSaveFailed {
+                reason: format!("Model delegation failed: {e}"),
+            })?;
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -99,35 +92,21 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         task_id: i64,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>> {
-        let row = sqlx::query!(
-            r#"
-            SELECT to_state 
-            FROM tasker_task_transitions 
-            WHERE task_id = $1 AND most_recent = true
-            ORDER BY sort_key DESC 
-            LIMIT 1
-            "#,
-            task_id
-        )
-        .fetch_optional(pool)
-        .await?;
+        let current_transition = TaskTransition::get_current(pool, task_id)
+            .await
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_id })?;
 
-        Ok(row.map(|r| r.to_state))
+        Ok(current_transition.map(|t| t.to_state))
     }
 
     async fn get_next_sort_key(&self, task_id: i64, pool: &PgPool) -> PersistenceResult<i32> {
-        let row = sqlx::query!(
-            r#"
-            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_key
-            FROM tasker_task_transitions 
-            WHERE task_id = $1
-            "#,
-            task_id
-        )
-        .fetch_one(pool)
-        .await?;
+        // Note: This is now handled internally by TaskTransition::create()
+        // This method is kept for trait compliance but not used in persist_transition
+        let transitions = TaskTransition::list_by_task(pool, task_id)
+            .await
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_id })?;
 
-        Ok(row.next_key.unwrap_or(1))
+        Ok(transitions.len() as i32 + 1)
     }
 }
 
@@ -145,54 +124,26 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         metadata: Option<Value>,
         pool: &PgPool,
     ) -> PersistenceResult<()> {
-        let sort_key = self.get_next_sort_key(step.workflow_step_id, pool).await?;
-
         let transition_metadata = metadata.unwrap_or_else(|| {
             serde_json::json!({
                 "event": event,
-                "timestamp": Utc::now(),
+                "timestamp": chrono::Utc::now(),
             })
         });
 
-        // Start a transaction to ensure consistency
-        let mut tx = pool.begin().await?;
-
-        // Insert the new transition
-        sqlx::query!(
-            r#"
-            INSERT INTO tasker_workflow_step_transitions 
-            (workflow_step_id, from_state, to_state, sort_key, most_recent, metadata)
-            VALUES ($1, $2, $3, $4, true, $5)
-            "#,
-            step.workflow_step_id,
-            from_state,
+        let new_transition = NewWorkflowStepTransition {
+            workflow_step_id: step.workflow_step_id,
             to_state,
-            sort_key,
-            transition_metadata
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to insert transition: {e}"),
-        })?;
+            from_state,
+            metadata: Some(transition_metadata),
+        };
 
-        // Update most_recent flags for previous transitions
-        sqlx::query!(
-            r#"
-            UPDATE tasker_workflow_step_transitions 
-            SET most_recent = false 
-            WHERE workflow_step_id = $1 AND sort_key < $2
-            "#,
-            step.workflow_step_id,
-            sort_key
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| PersistenceError::TransitionSaveFailed {
-            reason: format!("Failed to update most_recent flags: {e}"),
-        })?;
+        WorkflowStepTransition::create(pool, new_transition)
+            .await
+            .map_err(|e| PersistenceError::TransitionSaveFailed {
+                reason: format!("Model delegation failed: {e}"),
+            })?;
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -201,35 +152,21 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         step_id: i64,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>> {
-        let row = sqlx::query!(
-            r#"
-            SELECT to_state 
-            FROM tasker_workflow_step_transitions 
-            WHERE workflow_step_id = $1 AND most_recent = true
-            ORDER BY sort_key DESC 
-            LIMIT 1
-            "#,
-            step_id
-        )
-        .fetch_optional(pool)
-        .await?;
+        let current_transition = WorkflowStepTransition::get_current(pool, step_id)
+            .await
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_id })?;
 
-        Ok(row.map(|r| r.to_state))
+        Ok(current_transition.map(|t| t.to_state))
     }
 
     async fn get_next_sort_key(&self, step_id: i64, pool: &PgPool) -> PersistenceResult<i32> {
-        let row = sqlx::query!(
-            r#"
-            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_key
-            FROM tasker_workflow_step_transitions 
-            WHERE workflow_step_id = $1
-            "#,
-            step_id
-        )
-        .fetch_one(pool)
-        .await?;
+        // Note: This is now handled internally by WorkflowStepTransition::create()
+        // This method is kept for trait compliance but not used in persist_transition
+        let transitions = WorkflowStepTransition::list_by_workflow_step(pool, step_id)
+            .await
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_id })?;
 
-        Ok(row.next_key.unwrap_or(1))
+        Ok(transitions.len() as i32 + 1)
     }
 }
 

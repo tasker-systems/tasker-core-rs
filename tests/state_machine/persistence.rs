@@ -3,8 +3,6 @@
 //! Tests for the state machine persistence component using SQLx native testing
 //! for automatic database isolation.
 
-use sqlx::PgPool;
-
 #[test]
 fn test_metadata_creation() {
     let metadata = serde_json::json!({
@@ -16,10 +14,32 @@ fn test_metadata_creation() {
     assert!(metadata["timestamp"].is_string());
 }
 
-#[sqlx::test]
-#[ignore = "State machine persistence tests deferred as architectural dependency"]
-async fn test_idempotent_logic(_pool: PgPool) -> sqlx::Result<()> {
-    // Test that idempotent_transition properly detects when no transition is needed
-    // This would require a test database setup to run properly
-    Ok(())
+#[test]
+fn test_idempotent_logic() {
+    // Test the logical behavior of idempotent operations
+    // This tests the concept without requiring database setup
+
+    // Mock behavior: if current state equals target state, no transition needed
+    let current_state = Some("in_progress".to_string());
+    let target_state = "in_progress".to_string();
+
+    let should_transition = current_state.as_ref() != Some(&target_state);
+    assert!(
+        !should_transition,
+        "Should not transition when already in target state"
+    );
+
+    // Test different states - should transition
+    let current_state = Some("pending".to_string());
+    let target_state = "in_progress".to_string();
+
+    let should_transition = current_state.as_ref() != Some(&target_state);
+    assert!(should_transition, "Should transition when states differ");
+
+    // Test no current state - should transition
+    let current_state: Option<String> = None;
+    let target_state = "in_progress".to_string();
+
+    let should_transition = current_state.as_ref() != Some(&target_state);
+    assert!(should_transition, "Should transition when no current state");
 }

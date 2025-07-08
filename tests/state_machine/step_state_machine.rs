@@ -12,7 +12,6 @@ use tasker_core::state_machine::states::WorkflowStepState;
 use tasker_core::state_machine::step_state_machine::StepStateMachine;
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     // Test valid transitions
     let sm = create_test_step_state_machine(pool);
@@ -48,7 +47,6 @@ async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
 
@@ -66,7 +64,6 @@ async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_step_completion_with_results(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
     let results = json!({"processed": 42, "status": "success"});

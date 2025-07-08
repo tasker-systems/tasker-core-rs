@@ -1,6 +1,6 @@
 mod common;
 
-use common::*;
+use common::strategies::*;
 use proptest::prelude::*;
 
 proptest! {
@@ -73,7 +73,7 @@ async fn test_retry_logic_properties() {
 
 #[cfg(test)]
 mod workflow_pattern_invariants {
-    use super::*;
+    use super::common::strategies::*;
 
     #[test]
     fn test_linear_workflow_invariants() {
