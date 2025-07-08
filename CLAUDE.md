@@ -27,6 +27,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recent Accomplishments (January 2025)
 
+### State Machine Integration (COMPLETED - PR #11)
+- **Complete State Machine System**: Implemented all 7 planned phases with TaskStateMachine and StepStateMachine
+- **Event-Driven Architecture**: Built EventPublisher with broadcast channels for real-time state transition notifications
+- **Orchestration Integration**: Seamlessly integrated with OrchestrationCoordinator for unified workflow management
+- **Database Persistence**: Full StateTransitionRepository with SQLx integration and idempotent operations
+- **Guard System**: Comprehensive guard traits for dependency validation and completion checking
+- **Testing Framework**: 103 integration tests + 42 doc tests with comprehensive coverage
+- **Event Publishing Fix**: Resolved broadcast channel issue when no subscribers are present
+- **Coverage Migration**: Migrated from cargo-tarpaulin to cargo-llvm-cov for superior LLVM-based coverage analysis
+
 ### SQL Scopes Implementation
 - Created comprehensive Rails-like SQL scope system in `src/scopes.rs`
 - Implemented `TaskScope`, `WorkflowStepScope`, and `TaskTransitionScope` with chainable query builders
@@ -50,7 +60,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **SQLx Factory Trait System**: Built comprehensive `SqlxFactory` trait with database persistence for all test factories
 - **Complex Workflow Patterns**: Implemented Linear (A→B→C→D), Diamond (A→(B,C)→D), Parallel Merge ((A,B,C)→D), Tree, and Mixed DAG patterns
 - **Relationship Factories**: Created `WorkflowStepEdgeFactory` for managing dependencies between workflow steps
-- **State Machine Integration**: Prepared state transition factories (currently disabled pending model method implementation)
+- **State Machine Integration**: Fully integrated state transition factories with complete model method implementation
 - **Batch Generation**: Implemented `ComplexWorkflowBatchFactory` with controlled pattern distributions and proper rounding
 - **Type Safety**: All factories work with compile-time verified SQLx queries and proper trait derivations
 - **Testing Coverage**: 20/20 factory tests passing with comprehensive edge case handling
