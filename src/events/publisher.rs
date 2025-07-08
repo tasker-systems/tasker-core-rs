@@ -34,10 +34,15 @@ impl EventPublisher {
             published_at: chrono::Utc::now(),
         };
 
-        self.sender
-            .send(event)
-            .map_err(|_| PublishError::ChannelClosed)?;
-        Ok(())
+        // For broadcast channels, send() returns an error if there are no subscribers
+        // In our case, this is acceptable - we want to publish events even if no one is listening
+        match self.sender.send(event) {
+            Ok(_) => Ok(()),
+            Err(broadcast::error::SendError(_)) => {
+                // No subscribers - this is acceptable for event publishing
+                Ok(())
+            }
+        }
     }
 
     /// Subscribe to events

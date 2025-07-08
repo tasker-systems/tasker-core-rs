@@ -77,6 +77,9 @@ factori = "1.1"
 dotenvy = "0.15"  # Maintained fork of dotenv
 url = "2.0"
 
+# Coverage tools (used in CI)
+cargo-llvm-cov = "0.6"
+
 [features]
 default = ["postgres"]
 postgres = ["sqlx/postgres"]
@@ -99,3 +102,11 @@ panic = "abort"
 [profile.dev]
 opt-level = 0
 debug = true
+
+# Coverage profile (matches CI)
+[profile.coverage]
+inherits = "dev"
+debug = true
+codegen-units = 1
+incremental = false
+overflow-checks = false

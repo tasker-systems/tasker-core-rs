@@ -11,7 +11,6 @@ use tasker_core::state_machine::states::TaskState;
 use tasker_core::state_machine::task_state_machine::TaskStateMachine;
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     // Test valid transitions
     let sm = create_test_state_machine(pool);
@@ -38,7 +37,6 @@ async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 
@@ -56,7 +54,6 @@ async fn test_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     // Test that we can create a state machine instance
     let sm = create_test_state_machine(pool);
@@ -71,7 +68,6 @@ async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test]
-#[ignore = "State machine tests deferred as architectural dependency"]
 async fn test_task_properties(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 

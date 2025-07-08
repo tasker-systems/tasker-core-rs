@@ -3,8 +3,10 @@
 //! This module contains all integration tests using SQLx's native testing facilities.
 //! Each test gets its own isolated database instance with automatic cleanup.
 
+mod common;
 mod config;
 mod database;
 mod factories;
 mod models;
+mod orchestration;
 mod state_machine;
