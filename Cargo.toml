@@ -52,7 +52,7 @@ crossbeam = "0.8"
 smlang = "0.7"
 
 # Configuration
-config = "0.14"
+config = "0.15"
 
 # FFI support
 magnus = { version = "0.7", optional = true }
