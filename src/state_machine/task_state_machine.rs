@@ -14,6 +14,7 @@ use crate::models::Task;
 use sqlx::PgPool;
 
 /// Thread-safe task state machine for lifecycle management
+#[derive(Clone)]
 pub struct TaskStateMachine {
     task: Task,
     pool: PgPool,

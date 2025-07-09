@@ -8,6 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Architecture**: Step handler foundation where Rust implements the complete step handler base class that frameworks (Rails, Python, Node.js) extend through subclassing with `process()` and `process_results()` hooks.
 
+## Code Design Principles
+
+- Use TODO for intentionally delayed future work, but not to sidestep a better pattern, even if it requires changes to other related parts of our code.
+
+## Testing Guidelines
+
+- As much as possible, tests should go in our tests/ directory, excluding doctests
+- Use sqlx::test for tests requiring database access
+- Use #[test] on its own for pure unit tests
+
 ## MCP Server Integration
 
 **Essential Development Tools**: This project uses Model Context Protocol (MCP) servers to enhance development workflow and capabilities.
@@ -65,5 +75,3 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Type Safety**: All factories work with compile-time verified SQLx queries and proper trait derivations
 - **Testing Coverage**: 20/20 factory tests passing with comprehensive edge case handling
 - **Rails Pattern Adaptation**: Successfully translated Rails factory patterns to Rust while maintaining type safety
-
-[... rest of the existing content remains unchanged ...]

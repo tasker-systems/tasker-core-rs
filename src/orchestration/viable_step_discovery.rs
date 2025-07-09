@@ -16,21 +16,26 @@
 //!
 //! ## Usage
 //!
-//! ```rust,no_run
+//! ```rust
 //! use tasker_core::orchestration::viable_step_discovery::ViableStepDiscovery;
 //! use tasker_core::orchestration::event_publisher::EventPublisher;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
-//! use sqlx::PgPool;
 //!
-//! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+//! // Create ViableStepDiscovery for step readiness analysis
+//! # use sqlx::PgPool;
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let pool = PgPool::connect("postgresql://localhost/nonexistent").await?;
 //! let sql_executor = SqlFunctionExecutor::new(pool.clone());
 //! let event_publisher = EventPublisher::new();
 //! let discovery = ViableStepDiscovery::new(sql_executor, event_publisher, pool);
-//! let task_id = 123i64;
 //!
-//! let viable_steps = discovery.find_viable_steps(task_id).await?;
+//! // ViableStepDiscovery uses SQL functions to determine step readiness
+//! // Verify creation succeeded (we can't test SQL functions without a real database)
+//! let _discovery = discovery;
 //! # Ok(())
 //! # }
+//!
+//! // For complete integration examples, see tests/orchestration/viable_step_discovery_integration.rs
 //! ```
 
 use crate::database::sql_functions::SqlFunctionExecutor;

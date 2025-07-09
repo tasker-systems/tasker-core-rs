@@ -20,21 +20,24 @@
 //!
 //! ## Usage
 //!
-//! ```rust,no_run
+//! ```rust
 //! use tasker_core::orchestration::event_publisher::EventPublisher;
 //! use tasker_core::orchestration::types::OrchestrationEvent;
+//! use chrono::Utc;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # tokio_test::block_on(async {
 //! let publisher = EventPublisher::new();
 //!
 //! // Publish a task orchestration event
-//! publisher.publish_event(OrchestrationEvent::TaskOrchestrationStarted {
+//! let result = publisher.publish_event(OrchestrationEvent::TaskOrchestrationStarted {
 //!     task_id: 123,
 //!     framework: "rust_client".to_string(),
-//!     started_at: chrono::Utc::now(),
-//! }).await?;
-//! # Ok(())
-//! # }
+//!     started_at: Utc::now(),
+//! }).await;
+//!
+//! // Event publishing succeeds even without subscribers
+//! assert!(result.is_ok());
+//! # });
 //! ```
 
 use crate::orchestration::errors::{EventError, OrchestrationResult};

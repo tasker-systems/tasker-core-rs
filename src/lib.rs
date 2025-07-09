@@ -49,25 +49,17 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,no_run
+//! ```rust
 //! use tasker_core::config::TaskerConfig;
-//! use tasker_core::models::core::task::Task;
-//! use sqlx::PgPool;
 //!
-//! # async fn example(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-//! // Initialize configuration
+//! // Initialize configuration for tasker-core-rs
 //! let config = TaskerConfig::default();
 //!
-//! // Work with models using SQLx
-//! // Note: find_by_current_state would need to be implemented
-//! // let tasks = Task::find_by_current_state(pool, "running").await?;
-//! // for task in tasks {
-//! //     println!("Task {} is running", task.task_id);
-//! // }
+//! // Configuration provides database connection settings
+//! assert!(config.database.max_connections > 0);
+//! assert!(!config.database.url.is_empty());
 //!
-//! println!("Tasker core initialized with config: {:?}", config.database.max_connections);
-//! # Ok(())
-//! # }
+//! // For complete database integration examples, see tests/models/ directory
 //! ```
 //!
 //! ## Integration

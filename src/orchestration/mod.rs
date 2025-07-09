@@ -40,8 +40,8 @@ pub mod viable_step_discovery;
 // pub mod config;
 // pub mod step_handler;
 pub mod errors;
+pub mod state_manager;
 pub mod types;
-// pub mod state_manager;
 
 // Re-export core types and components for easy access
 pub use coordinator::{
@@ -58,7 +58,7 @@ pub use event_publisher::EventPublisher;
 pub use registry::TaskHandlerRegistry;
 // pub use config::ConfigurationManager;
 // pub use step_handler::{BaseStepHandler, BaseStepHandlerImpl};
-// pub use state_manager::StateManager;
 pub use errors::*;
+pub use state_manager::StateManager;
 pub use types::ViableStep;
 pub use types::*;

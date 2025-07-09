@@ -18,34 +18,38 @@
 //!
 //! ## Usage
 //!
-//! ```rust,no_run
+//! ```rust
 //! use tasker_core::orchestration::registry::TaskHandlerRegistry;
 //! use tasker_core::orchestration::event_publisher::EventPublisher;
-//! use std::sync::Arc;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # tokio_test::block_on(async {
 //! let event_publisher = EventPublisher::new();
 //! let registry = TaskHandlerRegistry::new(event_publisher);
 //!
 //! // Register an FFI handler (more common usage)
-//! registry.register_ffi_handler(
+//! let result = registry.register_ffi_handler(
 //!     "ecommerce",
 //!     "order_processor",
 //!     "1.0.0",
 //!     "OrderProcessorHandler",
 //!     None
-//! ).await?;
+//! ).await;
+//! assert!(result.is_ok());
 //!
 //! // Register another FFI handler
-//! registry.register_ffi_handler(
+//! let result = registry.register_ffi_handler(
 //!     "payments",
 //!     "payment_processor",
 //!     "2.1.0",
 //!     "PaymentProcessorHandler",
 //!     None
-//! ).await?;
-//! # Ok(())
-//! # }
+//! ).await;
+//! assert!(result.is_ok());
+//!
+//! // Check registry statistics
+//! let stats = registry.stats().unwrap();
+//! assert_eq!(stats.total_ffi_handlers, 2);
+//! # });
 //! ```
 
 use crate::orchestration::errors::{OrchestrationResult, RegistryError};
