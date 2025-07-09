@@ -905,6 +905,96 @@ impl WorkflowStep {
 
         Ok(count.unwrap_or(0) == 0)
     }
+
+    // ============================================================================
+    // GUARD DELEGATION METHODS
+    // ============================================================================
+
+    /// Check if all step dependencies are satisfied (for state machine guards)
+    ///
+    /// This method provides the core logic for the StepDependenciesMetGuard by checking
+    /// if all parent steps (dependencies) are in a complete state.
+    ///
+    /// Uses the step transition history to determine completion status rather than
+    /// relying on boolean flags, providing more accurate state representation.
+    pub async fn dependencies_met(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let unmet_dependencies = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_step_edges wse
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
+            WHERE wse.to_step_id = $1
+              AND (parent_states.to_state IS NULL 
+                   OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let unmet = unmet_dependencies.count.unwrap_or(0);
+        Ok(unmet == 0)
+    }
+
+    /// Check if step is not currently in progress (for state machine guards)
+    ///
+    /// This method checks the current step state from the transition history
+    /// to determine if the step is already in progress, preventing double execution.
+    pub async fn not_in_progress(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state != "in_progress"),
+            None => Ok(true), // No state means not in progress
+        }
+    }
+
+    /// Check if step can be retried (must be in error state)
+    ///
+    /// This method determines if a step is eligible for retry operations
+    /// by checking if it's currently in an error state.
+    pub async fn can_be_retried(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "error"),
+            None => Ok(false), // No state means can't be retried
+        }
+    }
+
+    /// Count unmet dependencies for this step
+    ///
+    /// Returns the count of parent steps that are not in a complete state.
+    /// Used for detailed error reporting in guard failures.
+    pub async fn count_unmet_dependencies(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_step_edges wse
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
+            WHERE wse.to_step_id = $1
+              AND (parent_states.to_state IS NULL 
+                   OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.count.unwrap_or(0))
+    }
 }
 
 /// Task completion statistics (Rails class method return type)

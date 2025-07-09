@@ -106,3 +106,7 @@ pub use database::{
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
+pub use registry::{
+    EventSubscriber, HandlerCacheStats, HandlerFactory, Plugin, PluginMetadata, PluginRegistry,
+    PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,
+};

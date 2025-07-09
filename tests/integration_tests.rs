@@ -789,3 +789,176 @@ async fn test_comprehensive_state_transition_scenarios(
 
     Ok(())
 }
+
+// =============================================================================
+// LEGACY FLAG INTEGRATION TESTS
+// =============================================================================
+
+/// Test that Task.complete is properly updated when state transitions occur
+#[sqlx::test]
+async fn test_task_complete_flag_integration_with_state_transitions(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use tasker_core::events::publisher::EventPublisher;
+    use tasker_core::models::core::task::Task;
+    use tasker_core::state_machine::events::TaskEvent;
+    use tasker_core::state_machine::states::TaskState;
+    use tasker_core::state_machine::task_state_machine::TaskStateMachine;
+
+    // Setup foundation and create a simple task (no steps for this test)
+    let _foundation = StandardFoundation::setup(&pool).await?;
+
+    // Create a simple task without workflow steps to test the complete flag
+    use factories::core::TaskFactory;
+    let test_task = TaskFactory::new()
+        .with_named_task("linear_workflow")
+        .with_context(serde_json::json!({"test": "task_complete_flag"}))
+        .create(&pool)
+        .await?;
+
+    // Get the task before state transition
+    let task_before = Task::find_by_id(&pool, test_task.task_id).await?.unwrap();
+    assert!(!task_before.complete, "Task should initially be incomplete");
+
+    // Create state machine and transition to complete
+    let event_publisher = EventPublisher::default();
+    let mut state_machine = TaskStateMachine::new(test_task.clone(), pool.clone(), event_publisher);
+
+    // First transition to in_progress state
+    let result = state_machine.transition(TaskEvent::Start).await;
+    match &result {
+        Ok(state) => {
+            assert_eq!(
+                *state,
+                TaskState::InProgress,
+                "Task should be in in_progress state"
+            );
+        }
+        Err(e) => {
+            panic!("State transition to in_progress should succeed, but got error: {e:?}");
+        }
+    }
+
+    // Then transition to complete state
+    let result = state_machine.transition(TaskEvent::Complete).await;
+    match &result {
+        Ok(state) => {
+            assert_eq!(
+                *state,
+                TaskState::Complete,
+                "Task should be in complete state"
+            );
+        }
+        Err(e) => {
+            panic!("State transition to complete should succeed, but got error: {e:?}");
+        }
+    }
+
+    // Verify the task.complete flag was updated in the database
+    let task_after = Task::find_by_id(&pool, test_task.task_id).await?.unwrap();
+    assert!(
+        task_after.complete,
+        "Task.complete should be true after state transition"
+    );
+
+    Ok(())
+}
+
+/// Test that WorkflowStep boolean flags are properly updated when state transitions occur
+#[sqlx::test]
+async fn test_workflow_step_flags_integration_with_state_transitions(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use tasker_core::events::publisher::EventPublisher;
+    use tasker_core::models::core::workflow_step::WorkflowStep;
+    use tasker_core::state_machine::events::StepEvent;
+    use tasker_core::state_machine::states::WorkflowStepState;
+    use tasker_core::state_machine::step_state_machine::StepStateMachine;
+
+    // Setup foundation
+    let foundation = StandardFoundation::setup(&pool).await?;
+    let scenario = LinearWorkflowScenario::create(&pool, &foundation).await?;
+    let test_step = &scenario.steps[0];
+
+    // Get the step before state transitions
+    let step_before = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+        .await?
+        .unwrap();
+    assert!(
+        !step_before.in_process,
+        "Step should initially not be in process"
+    );
+    assert!(
+        !step_before.processed,
+        "Step should initially not be processed"
+    );
+    assert!(
+        step_before.processed_at.is_none(),
+        "Step should have no processed_at timestamp"
+    );
+
+    // Create state machine
+    let event_publisher = EventPublisher::default();
+    let mut state_machine = StepStateMachine::new(test_step.clone(), pool.clone(), event_publisher);
+
+    // Transition to in_progress state
+    let result = state_machine.transition(StepEvent::Start).await;
+    assert!(
+        result.is_ok(),
+        "State transition to in_progress should succeed"
+    );
+    assert_eq!(
+        result.unwrap(),
+        WorkflowStepState::InProgress,
+        "Step should be in in_progress state"
+    );
+
+    // Verify the step.in_process flag was updated
+    let step_in_progress = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+        .await?
+        .unwrap();
+    assert!(
+        step_in_progress.in_process,
+        "Step.in_process should be true after transitioning to in_progress"
+    );
+    assert!(
+        !step_in_progress.processed,
+        "Step.processed should still be false"
+    );
+
+    // Transition to complete state
+    let results = Some(serde_json::json!({"result": "success"}));
+    let result = state_machine
+        .transition(StepEvent::Complete(results.clone()))
+        .await;
+    assert!(
+        result.is_ok(),
+        "State transition to complete should succeed"
+    );
+    assert_eq!(
+        result.unwrap(),
+        WorkflowStepState::Complete,
+        "Step should be in complete state"
+    );
+
+    // Verify the step.processed and processed_at flags were updated
+    let step_complete = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+        .await?
+        .unwrap();
+    assert!(
+        step_complete.processed,
+        "Step.processed should be true after transitioning to complete"
+    );
+    assert!(
+        step_complete.processed_at.is_some(),
+        "Step.processed_at should be set after transitioning to complete"
+    );
+
+    // Verify the in_process flag is now false (step is no longer in process after completion)
+    assert!(
+        !step_complete.in_process,
+        "Step.in_process should be false after completion"
+    );
+
+    Ok(())
+}

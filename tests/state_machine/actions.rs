@@ -303,14 +303,14 @@ fn test_action_descriptions() {
 
     assert_eq!(
         <UpdateTaskCompletionAction as StateAction<Task>>::description(&UpdateTaskCompletionAction),
-        "Update task completion metadata"
+        "Update task completion metadata and legacy flags"
     );
 
     assert_eq!(
         <UpdateStepResultsAction as StateAction<WorkflowStep>>::description(
             &UpdateStepResultsAction
         ),
-        "Update step results and completion metadata"
+        "Update step results and completion metadata with legacy flags"
     );
 
     assert_eq!(

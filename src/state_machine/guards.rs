@@ -1,5 +1,4 @@
-use super::errors::{business_rule_violation, dependencies_not_met, GuardError, GuardResult};
-use super::states::{TaskState, WorkflowStepState};
+use super::errors::{business_rule_violation, dependencies_not_met, GuardResult};
 use crate::models::{Task, WorkflowStep};
 use async_trait::async_trait;
 use sqlx::PgPool;
@@ -20,36 +19,16 @@ pub struct AllStepsCompleteGuard;
 #[async_trait]
 impl StateGuard<Task> for AllStepsCompleteGuard {
     async fn check(&self, task: &Task, pool: &PgPool) -> GuardResult<bool> {
-        // Query to find incomplete steps for this task
-        let incomplete_count = sqlx::query!(
-            r#"
-            SELECT COUNT(*) as count 
-            FROM tasker_workflow_steps ws
-            LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
-                WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
-            WHERE ws.task_id = $1 
-              AND (current_states.to_state IS NULL 
-                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
-            "#,
-            task.task_id
-        )
-        .fetch_one(pool)
-        .await?;
-
-        let incomplete = incomplete_count.count.unwrap_or(1);
-
-        if incomplete > 0 {
-            return Err(dependencies_not_met(format!(
+        // Delegate to the model's implementation
+        if task.all_workflow_steps_complete(pool).await? {
+            Ok(true)
+        } else {
+            let incomplete_count = task.count_incomplete_workflow_steps(pool).await?;
+            Err(dependencies_not_met(format!(
                 "Task {} has {} incomplete workflow steps",
-                task.task_id, incomplete
-            )));
+                task.task_id, incomplete_count
+            )))
         }
-
-        Ok(true)
     }
 
     fn description(&self) -> &'static str {
@@ -63,37 +42,16 @@ pub struct StepDependenciesMetGuard;
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepDependenciesMetGuard {
     async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        // Query to find unsatisfied dependencies
-        let unmet_dependencies = sqlx::query!(
-            r#"
-            SELECT COUNT(*) as count 
-            FROM tasker_workflow_step_edges wse
-            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
-            LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
-                WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
-            WHERE wse.to_step_id = $1
-              AND (parent_states.to_state IS NULL 
-                   OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
-            "#,
-            step.workflow_step_id
-        )
-        .fetch_one(pool)
-        .await?;
-
-        let unmet = unmet_dependencies.count.unwrap_or(1);
-
-        if unmet > 0 {
-            return Err(dependencies_not_met(format!(
+        // Delegate to the model's implementation
+        if step.dependencies_met(pool).await? {
+            Ok(true)
+        } else {
+            let unmet_count = step.count_unmet_dependencies(pool).await?;
+            Err(dependencies_not_met(format!(
                 "Step {} has {} unmet dependencies",
-                step.workflow_step_id, unmet
-            )));
+                step.workflow_step_id, unmet_count
+            )))
         }
-
-        Ok(true)
     }
 
     fn description(&self) -> &'static str {
@@ -107,19 +65,15 @@ pub struct TaskNotInProgressGuard;
 #[async_trait]
 impl StateGuard<Task> for TaskNotInProgressGuard {
     async fn check(&self, task: &Task, pool: &PgPool) -> GuardResult<bool> {
-        // Check current task state
-        let current_state = resolve_current_task_state(task.task_id, pool).await?;
-
-        if let Some(state) = current_state {
-            if state == TaskState::InProgress {
-                return Err(business_rule_violation(format!(
-                    "Task {} is already in progress",
-                    task.task_id
-                )));
-            }
+        // Delegate to the model's implementation
+        if task.not_in_progress(pool).await? {
+            Ok(true)
+        } else {
+            Err(business_rule_violation(format!(
+                "Task {} is already in progress",
+                task.task_id
+            )))
         }
-
-        Ok(true)
     }
 
     fn description(&self) -> &'static str {
@@ -133,18 +87,15 @@ pub struct StepNotInProgressGuard;
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepNotInProgressGuard {
     async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        let current_state = resolve_current_step_state(step.workflow_step_id, pool).await?;
-
-        if let Some(state) = current_state {
-            if state == WorkflowStepState::InProgress {
-                return Err(business_rule_violation(format!(
-                    "Step {} is already in progress",
-                    step.workflow_step_id
-                )));
-            }
+        // Delegate to the model's implementation
+        if step.not_in_progress(pool).await? {
+            Ok(true)
+        } else {
+            Err(business_rule_violation(format!(
+                "Step {} is already in progress",
+                step.workflow_step_id
+            )))
         }
-
-        Ok(true)
     }
 
     fn description(&self) -> &'static str {
@@ -158,18 +109,21 @@ pub struct TaskCanBeResetGuard;
 #[async_trait]
 impl StateGuard<Task> for TaskCanBeResetGuard {
     async fn check(&self, task: &Task, pool: &PgPool) -> GuardResult<bool> {
-        let current_state = resolve_current_task_state(task.task_id, pool).await?;
-
-        match current_state {
-            Some(TaskState::Error) => Ok(true),
-            Some(state) => Err(business_rule_violation(format!(
-                "Task {} cannot be reset from state {:?}, must be in Error state",
-                task.task_id, state
-            ))),
-            None => Err(business_rule_violation(format!(
-                "Task {} has no current state",
-                task.task_id
-            ))),
+        // Delegate to the model's implementation
+        if task.can_be_reset(pool).await? {
+            Ok(true)
+        } else {
+            let current_state = task.get_current_state(pool).await?;
+            match current_state {
+                Some(state) => Err(business_rule_violation(format!(
+                    "Task {} cannot be reset from state '{}', must be in Error state",
+                    task.task_id, state
+                ))),
+                None => Err(business_rule_violation(format!(
+                    "Task {} has no current state",
+                    task.task_id
+                ))),
+            }
         }
     }
 
@@ -184,18 +138,21 @@ pub struct StepCanBeRetriedGuard;
 #[async_trait]
 impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
     async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
-        let current_state = resolve_current_step_state(step.workflow_step_id, pool).await?;
-
-        match current_state {
-            Some(WorkflowStepState::Error) => Ok(true),
-            Some(state) => Err(business_rule_violation(format!(
-                "Step {} cannot be retried from state {:?}, must be in Error state",
-                step.workflow_step_id, state
-            ))),
-            None => Err(business_rule_violation(format!(
-                "Step {} has no current state",
-                step.workflow_step_id
-            ))),
+        // Delegate to the model's implementation
+        if step.can_be_retried(pool).await? {
+            Ok(true)
+        } else {
+            let current_state = step.get_current_state(pool).await?;
+            match current_state {
+                Some(state) => Err(business_rule_violation(format!(
+                    "Step {} cannot be retried from state '{}', must be in Error state",
+                    step.workflow_step_id, state
+                ))),
+                None => Err(business_rule_violation(format!(
+                    "Step {} has no current state",
+                    step.workflow_step_id
+                ))),
+            }
         }
     }
 
@@ -204,69 +161,6 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
     }
 }
 
-/// Helper function to resolve current task state from transitions
-pub async fn resolve_current_task_state(
-    task_id: i64,
-    pool: &PgPool,
-) -> GuardResult<Option<TaskState>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT to_state 
-        FROM tasker_task_transitions 
-        WHERE task_id = $1 AND most_recent = true
-        ORDER BY sort_key DESC 
-        LIMIT 1
-        "#,
-        task_id
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    match row {
-        Some(row) => {
-            // to_state is character varying NOT NULL, so it should always be present
-            let state =
-                row.to_state
-                    .parse::<TaskState>()
-                    .map_err(|_| GuardError::InvalidState {
-                        state: format!("Invalid task state: {}", row.to_state),
-                    })?;
-
-            Ok(Some(state))
-        }
-        None => Ok(None), // No transitions yet, task is in default state
-    }
-}
-
-/// Helper function to resolve current step state from transitions
-pub async fn resolve_current_step_state(
-    step_id: i64,
-    pool: &PgPool,
-) -> GuardResult<Option<WorkflowStepState>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT to_state 
-        FROM tasker_workflow_step_transitions 
-        WHERE workflow_step_id = $1 AND most_recent = true
-        ORDER BY sort_key DESC 
-        LIMIT 1
-        "#,
-        step_id
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    match row {
-        Some(row) => {
-            // to_state is character varying NOT NULL, so it should always be present
-            let state = row.to_state.parse::<WorkflowStepState>().map_err(|_| {
-                GuardError::InvalidState {
-                    state: format!("Invalid step state: {}", row.to_state),
-                }
-            })?;
-
-            Ok(Some(state))
-        }
-        None => Ok(None), // No transitions yet, step is in default state
-    }
-}
+// Helper functions have been removed - guards now delegate to model implementations
+// The model implementations (Task::get_current_state, WorkflowStep::get_current_state)
+// handle state resolution directly using the same SQL logic but with proper error handling

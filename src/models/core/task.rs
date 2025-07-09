@@ -1211,4 +1211,92 @@ impl Task {
     /// - **Lifecycle Tracking**: Capture execution timeline and resource usage
     /// - **Completion Handling**: Proper task finalization
     pub fn example_lifecycle_management() {}
+
+    // ============================================================================
+    // GUARD DELEGATION METHODS
+    // ============================================================================
+
+    /// Check if all workflow steps are complete (for state machine guards)
+    ///
+    /// This method provides the core logic for the AllStepsCompleteGuard by checking
+    /// if all workflow steps for this task are in a complete state.
+    ///
+    /// Uses the step transition history to determine completion status rather than
+    /// relying on boolean flags, providing more accurate state representation.
+    pub async fn all_workflow_steps_complete(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let incomplete_count = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_steps ws
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
+            WHERE ws.task_id = $1 
+              AND (current_states.to_state IS NULL 
+                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let incomplete = incomplete_count.count.unwrap_or(1);
+        Ok(incomplete == 0)
+    }
+
+    /// Check if task is not currently in progress (for state machine guards)
+    ///
+    /// This method checks the current task state from the transition history
+    /// to determine if the task is already in progress, preventing double execution.
+    pub async fn not_in_progress(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state != "in_progress"),
+            None => Ok(true), // No state means not in progress
+        }
+    }
+
+    /// Check if task can be reset (must be in error state)
+    ///
+    /// This method determines if a task is eligible for reset operations
+    /// by checking if it's currently in an error state.
+    pub async fn can_be_reset(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "error"),
+            None => Ok(false), // No state means can't be reset
+        }
+    }
+
+    /// Count incomplete workflow steps for this task
+    ///
+    /// Returns the count of workflow steps that are not in a complete state.
+    /// Used for detailed error reporting in guard failures.
+    pub async fn count_incomplete_workflow_steps(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_steps ws
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
+            WHERE ws.task_id = $1 
+              AND (current_states.to_state IS NULL 
+                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.count.unwrap_or(0))
+    }
 }
