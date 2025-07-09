@@ -11,7 +11,7 @@
 //!
 //! ## Core Components
 //!
-//! - **OrchestrationCoordinator**: Main orchestration engine that coordinates task execution lifecycle
+//! - **WorkflowCoordinator**: Main orchestration engine that coordinates task execution lifecycle
 //! - **StepExecutor**: Individual step execution and lifecycle management within orchestration core
 //! - **ViableStepDiscovery**: Uses SQL functions to determine which steps are ready for execution
 //! - **StateManager**: Manages state transitions using SQL functions for evaluation
@@ -19,6 +19,7 @@
 //! - **TaskHandlerRegistry**: Dual-path registry for both Rust and FFI task handler management
 //! - **ConfigurationManager**: YAML-driven configuration with environment overrides
 //! - **BaseStepHandler**: Configuration-driven step execution framework with hooks for business logic implementation
+//! - **BaseTaskHandler**: Developer-facing task integration point with Rails-compatible methods
 //!
 //! ## Integration with SQL Functions
 //!
@@ -32,7 +33,6 @@
 
 pub mod backoff_calculator;
 pub mod config;
-pub mod coordinator;
 pub mod errors;
 pub mod event_publisher;
 pub mod registry;
@@ -41,15 +41,12 @@ pub mod step_executor;
 pub mod step_handler;
 pub mod system_events;
 pub mod task_finalizer;
+pub mod task_handler;
 pub mod types;
 pub mod viable_step_discovery;
 pub mod workflow_coordinator;
 
 // Re-export core types and components for easy access
-pub use coordinator::{
-    OrchestrationCoordinator, StepExecutionDelegate, StepExecutionResult, StepExecutionStatus,
-    TaskOrchestrationResult,
-};
 pub use step_executor::{
     ExecutionPriority, ExecutionStats, RetryConfig, StepExecutionConfig, StepExecutionMetrics,
     StepExecutionRequest, StepExecutor,
@@ -74,5 +71,5 @@ pub use step_handler::{
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
 };
-pub use types::ViableStep;
+pub use task_handler::{BaseTaskHandler, TaskExecutionContext, TaskHandler, TaskHandlerFactory};
 pub use types::*;

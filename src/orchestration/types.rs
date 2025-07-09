@@ -279,3 +279,31 @@ impl StepResult {
         self.status == StepStatus::Retrying
     }
 }
+
+/// Result of task orchestration (moved from coordinator.rs)
+#[derive(Debug)]
+pub enum TaskOrchestrationResult {
+    /// Task completed successfully
+    Complete {
+        task_id: i64,
+        steps_executed: usize,
+        total_execution_time_ms: u64,
+    },
+    /// Task failed due to step failures
+    Failed {
+        task_id: i64,
+        error: String,
+        failed_steps: Vec<i64>,
+    },
+    /// Task is still in progress, should be re-queued
+    InProgress {
+        task_id: i64,
+        steps_executed: usize,
+        next_poll_delay_ms: u64,
+    },
+    /// Task is blocked waiting for dependencies
+    Blocked {
+        task_id: i64,
+        blocking_reason: String,
+    },
+}

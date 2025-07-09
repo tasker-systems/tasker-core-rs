@@ -672,16 +672,16 @@ impl StateManager {
 /// Summary of system-wide state health
 #[derive(Debug, Clone)]
 pub struct StateHealthSummary {
-    pub total_tasks: i32,
-    pub pending_tasks: i32,
-    pub in_progress_tasks: i32,
-    pub completed_tasks: i32,
-    pub failed_tasks: i32,
-    pub total_steps: i32,
-    pub pending_steps: i32,
-    pub in_progress_steps: i32,
-    pub completed_steps: i32,
-    pub failed_steps: i32,
+    pub total_tasks: i64,
+    pub pending_tasks: i64,
+    pub in_progress_tasks: i64,
+    pub completed_tasks: i64,
+    pub failed_tasks: i64,
+    pub total_steps: i64,
+    pub pending_steps: i64,
+    pub in_progress_steps: i64,
+    pub completed_steps: i64,
+    pub failed_steps: i64,
     pub overall_health_score: f64,
     pub last_updated: DateTime<Utc>,
 }

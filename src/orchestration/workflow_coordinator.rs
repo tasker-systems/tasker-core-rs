@@ -30,7 +30,6 @@
 //!
 //! ```rust,no_run
 //! use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
-//! use tasker_core::orchestration::OrchestrationCoordinator;
 //! use tasker_core::orchestration::types::FrameworkIntegration;
 //! use std::sync::Arc;
 //!
@@ -61,13 +60,13 @@
 //! ```
 
 use crate::orchestration::config::ConfigurationManager;
-use crate::orchestration::coordinator::TaskOrchestrationResult;
 use crate::orchestration::errors::OrchestrationResult;
 use crate::orchestration::event_publisher::EventPublisher;
 use crate::orchestration::registry::TaskHandlerRegistry;
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
 use crate::orchestration::step_executor::{ExecutionPriority, StepExecutionRequest, StepExecutor};
 use crate::orchestration::system_events::SystemEventsManager;
+use crate::orchestration::types::TaskOrchestrationResult;
 use crate::orchestration::types::{
     FrameworkIntegration, OrchestrationEvent, StepResult, StepStatus, TaskCompletionInfo,
     TaskErrorInfo, ViableStep,
