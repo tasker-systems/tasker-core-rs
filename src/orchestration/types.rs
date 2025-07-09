@@ -191,14 +191,22 @@ pub enum OrchestrationEvent {
 }
 
 /// Framework integration trait for delegation
+///
+/// This trait defines the interface for framework-specific step execution.
+/// The orchestration core handles concurrency, DAG traversal, and viable step
+/// discovery, while frameworks only need to implement individual step execution.
 #[async_trait::async_trait]
 pub trait FrameworkIntegration: Send + Sync {
-    /// Execute a batch of viable steps
-    async fn execute_steps(
+    /// Execute a single step
+    ///
+    /// This is the core method that frameworks must implement. The orchestration
+    /// layer will call this method for each individual step that needs execution.
+    /// Concurrency and batch operations are handled by the orchestration core.
+    async fn execute_single_step(
         &self,
-        task_id: i64,
-        steps: &[ViableStep],
-    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError>;
+        step: &ViableStep,
+        task_context: &TaskContext,
+    ) -> Result<StepResult, crate::orchestration::errors::OrchestrationError>;
 
     /// Framework name for logging/metrics
     fn framework_name(&self) -> &'static str;

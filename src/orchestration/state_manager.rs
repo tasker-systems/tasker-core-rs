@@ -89,6 +89,7 @@ pub struct StateEvaluationResult {
 }
 
 /// State manager for coordinating SQL functions with state machines
+#[derive(Clone)]
 pub struct StateManager {
     sql_executor: SqlFunctionExecutor,
     event_publisher: EventPublisher,

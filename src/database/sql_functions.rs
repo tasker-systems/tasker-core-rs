@@ -82,6 +82,7 @@ use std::collections::HashMap;
 /// - Reuses connections across function calls
 /// - Handles connection failures gracefully
 /// - Supports concurrent execution from multiple threads
+#[derive(Clone)]
 pub struct SqlFunctionExecutor {
     pool: PgPool,
 }

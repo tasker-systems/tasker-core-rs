@@ -105,6 +105,9 @@ pub enum OrchestrationError {
 
     /// Framework integration error
     FrameworkIntegrationError { framework: String, reason: String },
+
+    /// Step execution error (from StepExecutor)
+    ExecutionError(ExecutionError),
 }
 
 /// Step execution error types with proper classification
@@ -222,6 +225,42 @@ pub enum DiscoveryError {
     DependencyCycle { task_id: i64, cycle_steps: Vec<i64> },
 }
 
+/// Step execution error types
+#[derive(Debug, Clone)]
+pub enum ExecutionError {
+    /// Step execution failed
+    StepExecutionFailed {
+        step_id: i64,
+        reason: String,
+        error_code: Option<String>,
+    },
+
+    /// Invalid step state for execution
+    InvalidStepState {
+        step_id: i64,
+        current_state: String,
+        expected_state: String,
+    },
+
+    /// State transition error during execution
+    StateTransitionError { step_id: i64, reason: String },
+
+    /// Concurrency control error
+    ConcurrencyError { step_id: i64, reason: String },
+
+    /// No result returned from execution
+    NoResultReturned { step_id: i64 },
+
+    /// Execution timeout
+    ExecutionTimeout {
+        step_id: i64,
+        timeout_duration: Duration,
+    },
+
+    /// Retry limit exceeded
+    RetryLimitExceeded { step_id: i64, max_attempts: u32 },
+}
+
 // Implement Display for all error types
 impl fmt::Display for OrchestrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -335,6 +374,9 @@ impl fmt::Display for OrchestrationError {
                     f,
                     "Framework integration error with '{framework}': {reason}"
                 )
+            }
+            OrchestrationError::ExecutionError(err) => {
+                write!(f, "Step execution error: {err}")
             }
         }
     }
@@ -497,6 +539,60 @@ impl fmt::Display for DiscoveryError {
     }
 }
 
+impl fmt::Display for ExecutionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionError::StepExecutionFailed {
+                step_id,
+                reason,
+                error_code,
+            } => {
+                write!(
+                    f,
+                    "Step {step_id} execution failed: {reason} (code: {error_code:?})"
+                )
+            }
+            ExecutionError::InvalidStepState {
+                step_id,
+                current_state,
+                expected_state,
+            } => {
+                write!(
+                    f,
+                    "Step {step_id} in invalid state '{current_state}', expected '{expected_state}'"
+                )
+            }
+            ExecutionError::StateTransitionError { step_id, reason } => {
+                write!(f, "State transition failed for step {step_id}: {reason}")
+            }
+            ExecutionError::ConcurrencyError { step_id, reason } => {
+                write!(f, "Concurrency error for step {step_id}: {reason}")
+            }
+            ExecutionError::NoResultReturned { step_id } => {
+                write!(f, "No result returned from execution of step {step_id}")
+            }
+            ExecutionError::ExecutionTimeout {
+                step_id,
+                timeout_duration,
+            } => {
+                write!(
+                    f,
+                    "Step {step_id} execution timed out after {timeout_duration:?}"
+                )
+            }
+            ExecutionError::RetryLimitExceeded {
+                step_id,
+                max_attempts,
+            } => {
+                write!(
+                    f,
+                    "Step {step_id} exceeded retry limit of {max_attempts} attempts"
+                )
+            }
+        }
+    }
+}
+
 // Implement std::error::Error for all error types
 impl std::error::Error for OrchestrationError {}
 impl std::error::Error for StepExecutionError {}
@@ -505,6 +601,7 @@ impl std::error::Error for ConfigurationError {}
 impl std::error::Error for EventError {}
 impl std::error::Error for StateError {}
 impl std::error::Error for DiscoveryError {}
+impl std::error::Error for ExecutionError {}
 
 // Conversion implementations
 impl From<sqlx::Error> for OrchestrationError {
@@ -578,5 +675,11 @@ impl From<crate::state_machine::errors::StateMachineError> for OrchestrationErro
             entity_id: 0,
             reason: err.to_string(),
         }
+    }
+}
+
+impl From<ExecutionError> for OrchestrationError {
+    fn from(err: ExecutionError) -> Self {
+        OrchestrationError::ExecutionError(err)
     }
 }

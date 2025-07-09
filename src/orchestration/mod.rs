@@ -48,7 +48,10 @@ pub use coordinator::{
     OrchestrationCoordinator, StepExecutionDelegate, StepExecutionResult, StepExecutionStatus,
     TaskOrchestrationResult,
 };
-// pub use step_executor::StepExecutor;
+pub use step_executor::{
+    ExecutionPriority, ExecutionStats, RetryConfig, StepExecutionConfig, StepExecutionMetrics,
+    StepExecutionRequest, StepExecutor,
+};
 pub use viable_step_discovery::ViableStepDiscovery;
 // pub use task_finalizer::TaskFinalizer;
 // pub use backoff_calculator::BackoffCalculator;

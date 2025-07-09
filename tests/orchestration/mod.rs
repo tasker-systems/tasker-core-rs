@@ -4,3 +4,4 @@
 
 pub mod coordinator_integration;
 pub mod state_manager;
+pub mod step_executor_test;

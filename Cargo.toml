@@ -54,6 +54,9 @@ smlang = "0.7"
 # Configuration
 config = "0.14"
 
+# Random number generation
+fastrand = "2.0"
+
 # FFI support
 magnus = { version = "0.7", optional = true }
 pyo3 = { version = "0.24", optional = true, features = ["extension-module"] }
@@ -72,7 +75,6 @@ tempfile = "3.0"
 proptest = "1.0"
 insta = { version = "1.34", features = ["serde", "json"] }
 mockall = "0.13"
-fastrand = "2.0"
 factori = "1.1"
 dotenvy = "0.15"  # Maintained fork of dotenv
 url = "2.0"
