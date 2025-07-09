@@ -18,7 +18,7 @@
 //! - **EventPublisher**: Publishes orchestration events across FFI boundaries
 //! - **TaskHandlerRegistry**: Dual-path registry for both Rust and FFI task handler management
 //! - **ConfigurationManager**: YAML-driven configuration with environment overrides
-//! - **BaseStepHandler**: Framework for business logic step handler implementation
+//! - **BaseStepHandler**: Configuration-driven step execution framework with hooks for business logic implementation
 //!
 //! ## Integration with SQL Functions
 //!
@@ -31,17 +31,19 @@
 //! For complete implementation details, see `docs/ORCHESTRATION_ANALYSIS.md`.
 
 pub mod backoff_calculator;
+pub mod config;
 pub mod coordinator;
+pub mod errors;
 pub mod event_publisher;
 pub mod registry;
-pub mod step_executor;
-pub mod task_finalizer;
-pub mod viable_step_discovery;
-// pub mod config;
-// pub mod step_handler;
-pub mod errors;
 pub mod state_manager;
+pub mod step_executor;
+pub mod step_handler;
+pub mod system_events;
+pub mod task_finalizer;
 pub mod types;
+pub mod viable_step_discovery;
+pub mod workflow_coordinator;
 
 // Re-export core types and components for easy access
 pub use coordinator::{
@@ -53,15 +55,24 @@ pub use step_executor::{
     StepExecutionRequest, StepExecutor,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
+pub use workflow_coordinator::{
+    WorkflowCoordinator, WorkflowCoordinatorConfig, WorkflowExecutionMetrics,
+};
 // pub use task_finalizer::TaskFinalizer;
 // pub use backoff_calculator::BackoffCalculator;
 
 // Re-export new components (to be implemented)
+pub use config::{ConfigurationManager, StepTemplate, TaskTemplate, TaskerConfig};
+pub use errors::*;
 pub use event_publisher::EventPublisher;
 pub use registry::TaskHandlerRegistry;
-// pub use config::ConfigurationManager;
-// pub use step_handler::{BaseStepHandler, BaseStepHandlerImpl};
-pub use errors::*;
 pub use state_manager::StateManager;
+pub use step_handler::{
+    BaseStepHandler, ExecutionStatus, StepExecutionContext, StepExecutionEvent, StepHandler,
+    StepHandlerFactory, StepResult,
+};
+pub use system_events::{
+    constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
+};
 pub use types::ViableStep;
 pub use types::*;

@@ -10,6 +10,7 @@
 //! - State management errors
 //! - Event publishing errors
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
@@ -111,7 +112,7 @@ pub enum OrchestrationError {
 }
 
 /// Step execution error types with proper classification
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StepExecutionError {
     /// Permanent error - should not be retried
     Permanent {

@@ -29,6 +29,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 
 # Time and date handling
 chrono = { version = "0.4.38", features = ["serde"] }
@@ -53,6 +54,7 @@ smlang = "0.7"
 
 # Configuration
 config = "0.14"
+regex = "1.0"
 
 # Random number generation
 fastrand = "2.0"
