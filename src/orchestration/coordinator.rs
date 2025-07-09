@@ -13,13 +13,13 @@
 //! - **ViableStepDiscovery**: Uses SQL functions + state verification for readiness
 //! - **Delegation Interface**: Clean separation between coordination and execution
 
-use crate::error::{OrchestrationError, OrchestrationResult};
 use crate::events::publisher::EventPublisher;
 use crate::models::core::task::Task;
-// use crate::models::core::workflow_step::WorkflowStep; // TODO: Enable when get_by_id is implemented
-use crate::models::orchestration::step_readiness_status::StepReadinessStatus;
-use crate::models::orchestration::task_execution_context::TaskExecutionContext;
+use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
+use crate::orchestration::types::ViableStep;
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
+// use crate::models::core::workflow_step::WorkflowStep; // TODO: Enable when get_by_id is implemented
+use crate::models::orchestration::task_execution_context::TaskExecutionContext;
 use crate::state_machine::events::{StepEvent, TaskEvent};
 use crate::state_machine::states::{TaskState, WorkflowStepState};
 use crate::state_machine::step_state_machine::StepStateMachine;
@@ -50,29 +50,8 @@ pub enum StepExecutionStatus {
     Retry,
 }
 
-/// Viable step ready for execution
-#[derive(Debug, Clone)]
-pub struct ViableStep {
-    pub workflow_step_id: i64,
-    pub step_name: String,
-    pub task_id: i64,
-    pub dependencies_satisfied: bool,
-    pub retry_eligible: bool,
-    pub named_step_id: i32,
-}
-
-impl From<StepReadinessStatus> for ViableStep {
-    fn from(status: StepReadinessStatus) -> Self {
-        Self {
-            workflow_step_id: status.workflow_step_id,
-            step_name: status.name, // Note: field is 'name', not 'step_name'
-            task_id: status.task_id,
-            dependencies_satisfied: status.dependencies_satisfied,
-            retry_eligible: status.retry_eligible,
-            named_step_id: status.named_step_id, // Using this instead of priority for now
-        }
-    }
-}
+// ViableStep is now imported from orchestration::types
+// Removed local definition to avoid type conflicts
 
 /// Delegation interface for framework-specific step execution
 #[async_trait]
@@ -130,7 +109,11 @@ impl OrchestrationCoordinator {
     /// Create new coordinator for a specific task
     pub fn new(task: Task, pool: PgPool, event_publisher: EventPublisher) -> Self {
         let task_state_machine = TaskStateMachine::new(task, pool.clone(), event_publisher.clone());
-        let step_discovery = ViableStepDiscovery::new(pool.clone());
+        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
+        let orchestration_event_publisher =
+            crate::orchestration::event_publisher::EventPublisher::new();
+        let step_discovery =
+            ViableStepDiscovery::new(sql_executor, orchestration_event_publisher, pool.clone());
 
         Self {
             task_state_machine,
@@ -219,7 +202,7 @@ impl OrchestrationCoordinator {
 
         for step in viable_steps {
             let step_machine = self
-                .get_or_create_step_machine(&mut step_machines, step.workflow_step_id)
+                .get_or_create_step_machine(&mut step_machines, step.step_id)
                 .await?;
 
             // Transition to in_progress if currently pending
@@ -230,7 +213,7 @@ impl OrchestrationCoordinator {
                     .await
                     .map_err(|e| OrchestrationError::StateTransitionFailed {
                         entity_type: "WorkflowStep".to_string(),
-                        entity_id: step.workflow_step_id,
+                        entity_id: step.step_id,
                         reason: e.to_string(),
                     })?;
             }

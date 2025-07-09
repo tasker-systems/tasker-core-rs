@@ -4,12 +4,12 @@
 
 use crate::factories::base::SqlxFactory;
 use sqlx::PgPool;
-use tasker_core::error::OrchestrationResult;
+// use tasker_core::orchestration::errors::OrchestrationResult;
 use tasker_core::events::publisher::EventPublisher;
 use tasker_core::orchestration::coordinator::{
     OrchestrationCoordinator, StepExecutionDelegate, StepExecutionResult, StepExecutionStatus,
-    ViableStep,
 };
+use tasker_core::orchestration::types::ViableStep;
 
 /// Mock delegation for testing
 #[allow(dead_code)]
@@ -24,18 +24,19 @@ impl StepExecutionDelegate for MockStepDelegate {
         &self,
         _task_id: i64,
         steps: &[ViableStep],
-    ) -> OrchestrationResult<Vec<StepExecutionResult>> {
+    ) -> Result<Vec<StepExecutionResult>, tasker_core::orchestration::errors::OrchestrationError>
+    {
         let results = steps
             .iter()
             .map(|step| StepExecutionResult {
-                step_id: step.workflow_step_id,
+                step_id: step.step_id,
                 status: if self.should_succeed {
                     StepExecutionStatus::Success
                 } else {
                     StepExecutionStatus::Error
                 },
                 output: if self.should_succeed {
-                    Some(serde_json::json!({"step_id": step.workflow_step_id, "success": true}))
+                    Some(serde_json::json!({"step_id": step.step_id, "success": true}))
                 } else {
                     None
                 },

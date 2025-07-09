@@ -1,0 +1,273 @@
+//! # Orchestration Types
+//!
+//! Core types and data structures used throughout the orchestration system.
+//!
+//! This module provides the fundamental types that are shared across all orchestration
+//! components, including task results, step results, handler metadata, and configuration
+//! structures.
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::Duration;
+
+/// Result of task orchestration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskResult {
+    /// Task completed successfully
+    Complete(TaskCompletionInfo),
+    /// Task failed due to step failures
+    Error(TaskErrorInfo),
+    /// Task should be re-queued immediately
+    ReenqueueImmediate,
+    /// Task should be re-queued after delay
+    ReenqueueDelayed(Duration),
+}
+
+/// Information about a completed task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCompletionInfo {
+    pub task_id: i64,
+    pub steps_executed: usize,
+    pub total_execution_time_ms: u64,
+    pub completed_at: DateTime<Utc>,
+    pub step_results: Vec<StepResult>,
+}
+
+/// Information about a failed task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskErrorInfo {
+    pub task_id: i64,
+    pub error_message: String,
+    pub error_code: Option<String>,
+    pub failed_steps: Vec<i64>,
+    pub failed_at: DateTime<Utc>,
+}
+
+/// Result of step execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepResult {
+    pub step_id: i64,
+    pub status: StepStatus,
+    pub output: serde_json::Value,
+    pub execution_duration: Duration,
+    pub error_message: Option<String>,
+    pub retry_after: Option<Duration>,
+    pub error_code: Option<String>,
+    pub error_context: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Status of step execution
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StepStatus {
+    /// Step completed successfully
+    Completed,
+    /// Step failed with error
+    Failed,
+    /// Step is retrying
+    Retrying,
+    /// Step was skipped
+    Skipped,
+}
+
+/// A step that is ready for execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViableStep {
+    pub step_id: i64,
+    pub task_id: i64,
+    pub name: String,
+    pub named_step_id: i64,
+    pub current_state: String,
+    pub dependencies_satisfied: bool,
+    pub retry_eligible: bool,
+    pub attempts: i32,
+    pub retry_limit: i32,
+    pub last_failure_at: Option<DateTime<Utc>>,
+    pub next_retry_at: Option<DateTime<Utc>>,
+}
+
+/// Task execution context from SQL functions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskContext {
+    pub task_id: i64,
+    pub data: serde_json::Value,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// Handler metadata for registry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandlerMetadata {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub handler_class: String,
+    pub config_schema: Option<serde_json::Value>,
+    pub registered_at: DateTime<Utc>,
+}
+
+/// Registry statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryStats {
+    pub total_handlers: usize,
+    pub total_ffi_handlers: usize,
+    pub namespaces: Vec<String>,
+    pub thread_safe: bool,
+}
+
+/// Configuration for YAML processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskHandlerConfig {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub steps: Vec<StepTemplate>,
+    pub schema: Option<serde_json::Value>,
+    pub retry_policy: Option<RetryPolicy>,
+    pub environment_overrides: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Step template from YAML configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepTemplate {
+    pub name: String,
+    pub handler_class: String,
+    pub dependencies: Vec<String>,
+    pub retry_limit: Option<i32>,
+    pub timeout: Option<Duration>,
+    pub config: Option<serde_json::Value>,
+}
+
+/// Retry policy configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub max_attempts: i32,
+    pub base_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub backoff_multiplier: f64,
+    pub jitter: bool,
+}
+
+/// Orchestration event types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OrchestrationEvent {
+    /// Task orchestration started
+    TaskOrchestrationStarted {
+        task_id: i64,
+        framework: String,
+        started_at: DateTime<Utc>,
+    },
+    /// Viable steps discovered
+    ViableStepsDiscovered {
+        task_id: i64,
+        step_count: usize,
+        steps: Vec<ViableStep>,
+    },
+    /// Task orchestration completed
+    TaskOrchestrationCompleted {
+        task_id: i64,
+        result: TaskResult,
+        completed_at: DateTime<Utc>,
+    },
+    /// Step execution started
+    StepExecutionStarted {
+        step_id: i64,
+        task_id: i64,
+        step_name: String,
+        started_at: DateTime<Utc>,
+    },
+    /// Step execution completed
+    StepExecutionCompleted {
+        step_id: i64,
+        task_id: i64,
+        result: StepResult,
+        completed_at: DateTime<Utc>,
+    },
+    /// Handler registered
+    HandlerRegistered {
+        key: String,
+        metadata: HandlerMetadata,
+        registered_at: DateTime<Utc>,
+    },
+}
+
+/// Framework integration trait for delegation
+#[async_trait::async_trait]
+pub trait FrameworkIntegration: Send + Sync {
+    /// Execute a batch of viable steps
+    async fn execute_steps(
+        &self,
+        task_id: i64,
+        steps: &[ViableStep],
+    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError>;
+
+    /// Framework name for logging/metrics
+    fn framework_name(&self) -> &'static str;
+
+    /// Get task context for execution
+    async fn get_task_context(
+        &self,
+        task_id: i64,
+    ) -> Result<TaskContext, crate::orchestration::errors::OrchestrationError>;
+}
+
+/// Task handler trait for registry
+#[async_trait::async_trait]
+pub trait TaskHandler: Send + Sync {
+    /// Handle task execution
+    async fn handle_task(
+        &self,
+        task_context: &TaskContext,
+    ) -> Result<TaskResult, crate::orchestration::errors::OrchestrationError>;
+
+    /// Get handler metadata
+    fn metadata(&self) -> HandlerMetadata;
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            base_delay_ms: 1000,
+            max_delay_ms: 30000,
+            backoff_multiplier: 2.0,
+            jitter: true,
+        }
+    }
+}
+
+impl TaskResult {
+    /// Check if task completed successfully
+    pub fn is_success(&self) -> bool {
+        matches!(self, TaskResult::Complete(_))
+    }
+
+    /// Check if task failed
+    pub fn is_error(&self) -> bool {
+        matches!(self, TaskResult::Error(_))
+    }
+
+    /// Check if task should be re-queued
+    pub fn should_requeue(&self) -> bool {
+        matches!(
+            self,
+            TaskResult::ReenqueueImmediate | TaskResult::ReenqueueDelayed(_)
+        )
+    }
+}
+
+impl StepResult {
+    /// Check if step completed successfully
+    pub fn is_success(&self) -> bool {
+        self.status == StepStatus::Completed
+    }
+
+    /// Check if step failed
+    pub fn is_failure(&self) -> bool {
+        self.status == StepStatus::Failed
+    }
+
+    /// Check if step should be retried
+    pub fn should_retry(&self) -> bool {
+        self.status == StepStatus::Retrying
+    }
+}
