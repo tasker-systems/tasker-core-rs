@@ -1826,4 +1826,544 @@ mod ffi_integration_tests {
 - **API Validation**: Public interface tested through comprehensive client library usage
 - **Event System Testing**: All events published correctly within orchestration boundaries
 
+## Performance and Concurrency Test Plan
+
+### **Domain-Reasonable Boundaries**
+
+Based on production analysis, most Tasker workflows have well-defined characteristics:
+
+**Workflow Characteristics**:
+- **Typical Step Count**: 3-12 steps per workflow (95th percentile)
+- **Maximum Step Count**: ≤20 steps per workflow (enterprise upper bound)
+- **Typical Fanout**: 2-5 parallel branches maximum
+- **Maximum Depth**: ≤10 levels of dependency nesting
+- **Typical DAG Complexity**: Linear (40%), Diamond (30%), Tree (20%), Mixed (10%)
+
+**Concurrency Characteristics**:
+- **Typical Concurrent Workflows**: 10-100 simultaneous workflows
+- **Peak Concurrent Workflows**: 500-1000 simultaneous workflows (enterprise)
+- **Typical Concurrent Steps**: 50-500 steps executing simultaneously
+- **Peak Concurrent Steps**: 2000-5000 steps executing simultaneously
+- **Batch Processing**: 10-50 workflows processed in batch operations
+
+### **Performance Test Categories**
+
+#### **1. Orchestration Core Performance Tests**
+
+**Target**: 10-100x performance improvement over PostgreSQL dependency resolution
+
+```rust
+#[cfg(test)]
+mod orchestration_performance_tests {
+    use super::*;
+    use std::time::Instant;
+    
+    #[tokio::test]
+    async fn test_dependency_resolution_performance() {
+        // Test dependency resolution speed vs PostgreSQL
+        let coordinator = create_test_coordinator().await;
+        
+        // Create workflows with different complexity levels
+        let test_cases = vec![
+            (5, "Simple Linear"),      // 5 steps
+            (10, "Medium Complexity"), // 10 steps with 2-3 parallel branches
+            (20, "Maximum Complexity") // 20 steps with complex DAG
+        ];
+        
+        for (step_count, description) in test_cases {
+            let task_id = create_complex_workflow_task(step_count).await;
+            
+            // Test Rust dependency resolution
+            let start = Instant::now();
+            let viable_steps = coordinator
+                .step_discovery
+                .find_viable_steps(task_id)
+                .await
+                .unwrap();
+            let rust_duration = start.elapsed();
+            
+            // Test PostgreSQL dependency resolution (baseline)
+            let start = Instant::now();
+            let pg_viable_steps = get_step_readiness_status_sql(task_id).await;
+            let pg_duration = start.elapsed();
+            
+            // Performance assertions
+            let performance_ratio = pg_duration.as_nanos() as f64 / rust_duration.as_nanos() as f64;
+            
+            println!("{}: Rust {}μs, PostgreSQL {}μs, Ratio: {:.1}x", 
+                description, 
+                rust_duration.as_micros(), 
+                pg_duration.as_micros(),
+                performance_ratio
+            );
+            
+            // Target: At least 10x improvement
+            assert!(performance_ratio >= 10.0, 
+                "Performance improvement insufficient: {:.1}x (expected ≥10x)", performance_ratio);
+            
+            // Target: Under 5ms for maximum complexity
+            if step_count == 20 {
+                assert!(rust_duration < Duration::from_millis(5),
+                    "Maximum complexity resolution too slow: {}ms", rust_duration.as_millis());
+            }
+            
+            // Verify same results
+            assert_eq!(viable_steps.len(), pg_viable_steps.len(),
+                "Different result counts between Rust and PostgreSQL");
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_step_coordination_overhead() {
+        // Test step execution handoff overhead
+        let coordinator = create_test_coordinator().await;
+        let task_id = create_linear_workflow_task(10).await;
+        
+        let mut handoff_times = Vec::new();
+        
+        for _ in 0..100 {
+            let start = Instant::now();
+            let viable_steps = coordinator
+                .step_discovery
+                .find_viable_steps(task_id)
+                .await
+                .unwrap();
+            
+            if !viable_steps.is_empty() {
+                let step_result = coordinator
+                    .step_executor
+                    .execute_steps(task_id, &viable_steps[0..1], &create_test_context())
+                    .await
+                    .unwrap();
+            }
+            
+            let handoff_time = start.elapsed();
+            handoff_times.push(handoff_time);
+        }
+        
+        let avg_handoff = handoff_times.iter().sum::<Duration>() / handoff_times.len() as u32;
+        let p95_handoff = percentile(&handoff_times, 95);
+        
+        // Target: <1ms average handoff time
+        assert!(avg_handoff < Duration::from_millis(1),
+            "Average handoff time too slow: {}μs", avg_handoff.as_micros());
+            
+        // Target: <2ms 95th percentile
+        assert!(p95_handoff < Duration::from_millis(2),
+            "P95 handoff time too slow: {}μs", p95_handoff.as_micros());
+    }
+}
+```
+
+#### **2. Concurrency and Load Tests**
+
+**Target**: Handle realistic concurrent loads without performance degradation
+
+```rust
+#[tokio::test]
+async fn test_concurrent_workflow_execution() {
+    // Test multiple workflows executing simultaneously
+    let coordinator = Arc::new(create_test_coordinator().await);
+    let concurrent_workflows = 100; // Typical production load
+    
+    let start = Instant::now();
+    let mut tasks = Vec::new();
+    
+    // Launch concurrent workflows
+    for i in 0..concurrent_workflows {
+        let coordinator_clone = Arc::clone(&coordinator);
+        let task = tokio::spawn(async move {
+            let task_id = create_random_workflow_task().await;
+            coordinator_clone
+                .orchestrate_task(task_id, &TestFrameworkIntegration::new())
+                .await
+        });
+        tasks.push(task);
+    }
+    
+    // Wait for all workflows to complete
+    let results: Vec<_> = futures::future::try_join_all(tasks).await.unwrap();
+    let total_duration = start.elapsed();
+    
+    // Performance assertions
+    let avg_time_per_workflow = total_duration / concurrent_workflows;
+    let success_count = results.iter()
+        .filter(|r| matches!(r, Ok(TaskResult::Complete(_))))
+        .count();
+    
+    // Target: All workflows succeed
+    assert_eq!(success_count, concurrent_workflows as usize,
+        "Not all concurrent workflows succeeded");
+        
+    // Target: Average workflow time under 100ms at 100 concurrent
+    assert!(avg_time_per_workflow < Duration::from_millis(100),
+        "Average workflow time too slow under load: {}ms", 
+        avg_time_per_workflow.as_millis());
+    
+    // Target: Total throughput > 1000 workflows/second
+    let throughput = concurrent_workflows as f64 / total_duration.as_secs_f64();
+    assert!(throughput > 1000.0,
+        "Throughput too low: {:.1} workflows/second", throughput);
+}
+
+#[tokio::test]
+async fn test_peak_concurrent_step_execution() {
+    // Test maximum concurrent step execution
+    let coordinator = create_test_coordinator().await;
+    let concurrent_steps = 2000; // Peak enterprise load
+    
+    let task_ids: Vec<_> = (0..concurrent_steps)
+        .map(|_| create_single_step_workflow_task())
+        .collect::<FuturesUnordered<_>>()
+        .try_collect()
+        .await
+        .unwrap();
+    
+    let start = Instant::now();
+    
+    // Execute all steps simultaneously
+    let mut step_tasks = Vec::new();
+    for task_id in task_ids {
+        let coordinator_clone = coordinator.clone();
+        let task = tokio::spawn(async move {
+            coordinator_clone
+                .orchestrate_task(task_id, &TestFrameworkIntegration::new())
+                .await
+        });
+        step_tasks.push(task);
+    }
+    
+    let results = futures::future::try_join_all(step_tasks).await.unwrap();
+    let total_duration = start.elapsed();
+    
+    // Performance assertions
+    let success_count = results.iter()
+        .filter(|r| matches!(r, Ok(TaskResult::Complete(_))))
+        .count();
+    
+    assert_eq!(success_count, concurrent_steps as usize);
+    
+    // Target: Handle 2000 concurrent steps in under 5 seconds
+    assert!(total_duration < Duration::from_secs(5),
+        "Peak concurrent step execution too slow: {}s", total_duration.as_secs());
+    
+    // Target: Step throughput > 500 steps/second
+    let step_throughput = concurrent_steps as f64 / total_duration.as_secs_f64();
+    assert!(step_throughput > 500.0,
+        "Step throughput too low: {:.1} steps/second", step_throughput);
+}
+```
+
+#### **3. Memory and Resource Efficiency Tests**
+
+**Target**: Minimal memory footprint and efficient resource usage
+
+```rust
+#[tokio::test]
+async fn test_memory_efficiency_under_load() {
+    // Test memory usage doesn't grow unbounded
+    let coordinator = create_test_coordinator().await;
+    let initial_memory = get_memory_usage();
+    
+    // Process 1000 workflows in batches
+    for batch in 0..10 {
+        let mut batch_tasks = Vec::new();
+        
+        for _ in 0..100 {
+            let task_id = create_mixed_complexity_workflow_task().await;
+            let coordinator_clone = coordinator.clone();
+            let task = tokio::spawn(async move {
+                coordinator_clone
+                    .orchestrate_task(task_id, &TestFrameworkIntegration::new())
+                    .await
+            });
+            batch_tasks.push(task);
+        }
+        
+        // Wait for batch to complete
+        let _results = futures::future::try_join_all(batch_tasks).await.unwrap();
+        
+        // Force garbage collection
+        tokio::task::yield_now().await;
+        
+        let current_memory = get_memory_usage();
+        let memory_growth = current_memory - initial_memory;
+        
+        // Target: Memory growth <100MB after 1000 workflows
+        assert!(memory_growth < 100_000_000, // 100MB
+            "Excessive memory growth: {}MB after {} batches", 
+            memory_growth / 1_000_000, batch + 1);
+    }
+}
+
+#[tokio::test]
+async fn test_resource_cleanup() {
+    // Test that resources are properly cleaned up
+    let coordinator = create_test_coordinator().await;
+    let resource_monitor = create_resource_monitor();
+    
+    // Process workflows with deliberate failures
+    for _ in 0..100 {
+        let task_id = create_failing_workflow_task().await;
+        
+        let result = coordinator
+            .orchestrate_task(task_id, &TestFrameworkIntegration::new())
+            .await;
+        
+        // Should fail, but resources should be cleaned up
+        assert!(matches!(result, Ok(TaskResult::Error(_))));
+    }
+    
+    // Check for resource leaks
+    let leaked_connections = resource_monitor.count_leaked_connections();
+    let leaked_memory = resource_monitor.count_leaked_memory_blocks();
+    let leaked_file_handles = resource_monitor.count_leaked_file_handles();
+    
+    assert_eq!(leaked_connections, 0, "Database connection leaks detected");
+    assert_eq!(leaked_memory, 0, "Memory leaks detected");
+    assert_eq!(leaked_file_handles, 0, "File handle leaks detected");
+}
+```
+
+#### **4. Error Handling and Circuit Breaker Tests**
+
+**Target**: Robust error handling with proper circuit breaker behavior
+
+```rust
+#[tokio::test]
+async fn test_circuit_breaker_under_sustained_failures() {
+    // Test circuit breaker activates correctly under failure conditions
+    let coordinator = create_test_coordinator().await;
+    
+    // Create workflow with step that will fail repeatedly
+    let task_id = create_failing_step_workflow_task().await;
+    
+    let mut failure_count = 0;
+    let mut circuit_opened = false;
+    
+    // Keep trying until circuit breaker opens
+    for attempt in 0..20 {
+        let start = Instant::now();
+        let viable_steps = coordinator
+            .step_discovery
+            .find_viable_steps(task_id)
+            .await
+            .unwrap();
+        
+        if viable_steps.is_empty() {
+            // Circuit breaker has opened
+            circuit_opened = true;
+            break;
+        }
+        
+        // Execute the failing step
+        let result = coordinator
+            .step_executor
+            .execute_steps(task_id, &viable_steps[0..1], &create_test_context())
+            .await;
+        
+        if result.is_err() || matches!(result, Ok(ref results) if results[0].status == StepStatus::Failed) {
+            failure_count += 1;
+        }
+        
+        // Wait for backoff period
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    
+    // Circuit breaker should have opened after multiple failures
+    assert!(circuit_opened, "Circuit breaker did not open after {} failures", failure_count);
+    assert!(failure_count >= 3, "Not enough failure attempts before circuit opened");
+    assert!(failure_count <= 10, "Too many attempts before circuit opened");
+}
+
+#[tokio::test]
+async fn test_graceful_degradation_under_overload() {
+    // Test system behavior under extreme load
+    let coordinator = create_test_coordinator().await;
+    let overload_factor = 10; // 10x normal load
+    
+    let concurrent_workflows = 1000 * overload_factor;
+    let start = Instant::now();
+    
+    let mut tasks = Vec::new();
+    for _ in 0..concurrent_workflows {
+        let coordinator_clone = coordinator.clone();
+        let task = tokio::spawn(async move {
+            let task_id = create_simple_workflow_task().await;
+            coordinator_clone
+                .orchestrate_task(task_id, &TestFrameworkIntegration::new())
+                .await
+        });
+        tasks.push(task);
+    }
+    
+    // Don't wait for all to complete - test graceful degradation
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let results = futures::future::join_all(tasks).await;
+        
+        let completed_count = results.iter()
+            .filter(|r| matches!(r, Ok(Ok(TaskResult::Complete(_)))))
+            .count();
+        
+        let error_count = results.iter()
+            .filter(|r| matches!(r, Ok(Ok(TaskResult::Error(_)))))
+            .count();
+        
+        let system_error_count = results.iter()
+            .filter(|r| r.is_err())
+            .count();
+        
+        // Under overload, some workflows should complete
+        assert!(completed_count > 0, "No workflows completed under overload");
+        
+        // System should gracefully handle overload (not crash)
+        let total_processed = completed_count + error_count + system_error_count;
+        assert!(total_processed > concurrent_workflows / 10,
+            "System processed too few requests under overload");
+        
+        // Most failures should be graceful workflow errors, not system crashes
+        assert!(system_error_count < total_processed / 5,
+            "Too many system errors under overload: {}/{}", 
+            system_error_count, total_processed);
+    })
+    .await
+    .expect("Graceful degradation test timed out");
+}
+```
+
+#### **5. Event System Performance Tests**
+
+**Target**: Low-latency event publishing with high throughput
+
+```rust
+#[tokio::test]
+async fn test_event_publishing_performance() {
+    // Test event publishing latency and throughput
+    let event_publisher = create_test_event_publisher().await;
+    let event_count = 10_000;
+    
+    let mut publish_times = Vec::new();
+    let start = Instant::now();
+    
+    for i in 0..event_count {
+        let event_start = Instant::now();
+        
+        event_publisher
+            .publish_viable_steps_discovered(i, &create_test_viable_steps())
+            .await
+            .unwrap();
+        
+        let event_time = event_start.elapsed();
+        publish_times.push(event_time);
+    }
+    
+    let total_time = start.elapsed();
+    let avg_publish_time = publish_times.iter().sum::<Duration>() / publish_times.len() as u32;
+    let p95_publish_time = percentile(&publish_times, 95);
+    let throughput = event_count as f64 / total_time.as_secs_f64();
+    
+    // Target: Average event publishing <100μs
+    assert!(avg_publish_time < Duration::from_micros(100),
+        "Average event publishing too slow: {}μs", avg_publish_time.as_micros());
+    
+    // Target: P95 event publishing <1ms
+    assert!(p95_publish_time < Duration::from_millis(1),
+        "P95 event publishing too slow: {}μs", p95_publish_time.as_micros());
+    
+    // Target: Event throughput >100,000 events/second
+    assert!(throughput > 100_000.0,
+        "Event throughput too low: {:.0} events/second", throughput);
+}
+```
+
+### **Performance Monitoring and Metrics**
+
+```rust
+#[derive(Debug, Clone)]
+pub struct PerformanceMetrics {
+    pub dependency_resolution_time: Duration,
+    pub step_coordination_overhead: Duration,
+    pub event_publishing_latency: Duration,
+    pub memory_usage_bytes: u64,
+    pub concurrent_workflows: u32,
+    pub concurrent_steps: u32,
+    pub success_rate: f64,
+    pub error_rate: f64,
+    pub circuit_breaker_activations: u32,
+}
+
+impl PerformanceMetrics {
+    pub fn assert_production_readiness(&self) {
+        // Dependency resolution performance
+        assert!(self.dependency_resolution_time < Duration::from_millis(5),
+            "Dependency resolution too slow: {}ms", 
+            self.dependency_resolution_time.as_millis());
+        
+        // Step coordination efficiency
+        assert!(self.step_coordination_overhead < Duration::from_millis(1),
+            "Step coordination overhead too high: {}μs",
+            self.step_coordination_overhead.as_micros());
+        
+        // Event system performance  
+        assert!(self.event_publishing_latency < Duration::from_micros(100),
+            "Event publishing too slow: {}μs",
+            self.event_publishing_latency.as_micros());
+        
+        // Memory efficiency
+        assert!(self.memory_usage_bytes < 100_000_000, // 100MB max
+            "Memory usage too high: {}MB",
+            self.memory_usage_bytes / 1_000_000);
+        
+        // Success rate
+        assert!(self.success_rate > 0.99,
+            "Success rate too low: {:.2}%", self.success_rate * 100.0);
+        
+        // Error rate
+        assert!(self.error_rate < 0.01,
+            "Error rate too high: {:.2}%", self.error_rate * 100.0);
+    }
+}
+```
+
+### **Load Test Scenarios**
+
+#### **Realistic Production Simulation**
+- **Daily Load**: 10,000 workflows, 3-8 steps each, executed over 8 hours
+- **Peak Load**: 500 simultaneous workflows for 30 minutes
+- **Burst Load**: 1,000 workflows submitted in 60 seconds
+- **Error Scenarios**: 5% step failure rate with proper retry behavior
+- **Mixed Complexity**: 70% simple (≤5 steps), 25% medium (6-12 steps), 5% complex (13-20 steps)
+
+#### **Stress Test Scenarios** 
+- **Maximum Concurrency**: 1,000 simultaneous workflows with 5,000 concurrent steps
+- **Complex DAG Stress**: 100 workflows with maximum 20-step complexity
+- **Error Storm**: 50% failure rate to test circuit breaker behavior
+- **Memory Pressure**: Sustained load to test garbage collection and memory management
+- **Database Pressure**: High concurrent database access patterns
+
+### **Success Criteria Summary**
+
+**Core Performance Requirements**:
+- **Dependency Resolution**: ≥10x faster than PostgreSQL (target: ≥50x)
+- **Step Coordination**: <1ms average overhead per handoff
+- **Event Publishing**: <100μs average latency
+- **Memory Usage**: <100MB steady state, <200MB under peak load
+- **Throughput**: >1,000 workflows/second, >5,000 steps/second
+- **Success Rate**: >99% under normal load, >95% under stress
+
+**Scalability Requirements**:
+- **Concurrent Workflows**: Handle 1,000 simultaneous workflows
+- **Concurrent Steps**: Handle 5,000 simultaneous step executions  
+- **Complex Workflows**: Process 20-step DAGs in <10ms
+- **Error Handling**: <1% false positive circuit breaker activations
+- **Resource Efficiency**: No memory leaks over 24-hour runs
+
+**Production Readiness**:
+- **Availability**: 99.9% uptime under realistic load
+- **Error Recovery**: Graceful degradation under 10x overload
+- **Observability**: Complete metrics for all performance characteristics
+- **Deterministic Behavior**: Consistent performance across test runs
+
+This performance and concurrency test plan provides comprehensive validation that the Rust orchestration core can handle real-world production workloads while delivering the targeted 10-100x performance improvements over the existing PostgreSQL-based dependency resolution system.
+
 This analysis fundamentally reshapes our approach from building a replacement system to building a **complete high-performance orchestration core** that includes WorkflowCoordinator, StepExecutor, and base step handler framework. The clean API design and Rust client library serve as the foundation and pattern for how any framework - whether Rails, Django, Loco, or others - would integrate with Tasker in the future.

@@ -522,12 +522,53 @@ impl Task {
     }
 
     /// Find tasks by current state using transitions (Rails: scope :by_current_state)
-    /// TODO: Implement complex state transition queries
+    ///
+    /// Uses task transitions to efficiently find tasks in specific states.
+    /// When no state is provided, returns all tasks.
     pub async fn by_current_state(
         pool: &PgPool,
-        _state: Option<&str>,
+        state: Option<&str>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        match state {
+            Some(state_filter) => {
+                let tasks = sqlx::query_as!(
+                    Task,
+                    r#"
+                    SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                           t.initiator, t.source_system, t.reason, t.bypass_steps,
+                           t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                    FROM tasker_tasks t
+                    INNER JOIN tasker_task_transitions tt 
+                        ON t.task_id = tt.task_id
+                    WHERE tt.most_recent = true 
+                        AND tt.to_state = $1
+                    ORDER BY t.task_id
+                    "#,
+                    state_filter
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(tasks)
+            }
+            None => {
+                // Return all tasks when no state filter provided
+                let tasks = sqlx::query_as!(
+                    Task,
+                    r#"
+                    SELECT task_id, named_task_id, complete, requested_at,
+                           initiator, source_system, reason, bypass_steps,
+                           tags, context, identity_hash, created_at, updated_at
+                    FROM tasker_tasks
+                    ORDER BY task_id
+                    "#
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(tasks)
+            }
+        }
     }
 
     /// Find tasks with all associated records preloaded (Rails: scope :with_all_associated)
@@ -560,27 +601,88 @@ impl Task {
     }
 
     /// Find tasks completed since a specific time (Rails: scope :completed_since)
-    /// TODO: Implement completion time tracking via workflow step transitions
+    ///
+    /// Finds tasks that transitioned to complete state after the specified time.
+    /// Uses task transitions with timestamp filtering for accurate results.
     pub async fn completed_since(
         pool: &PgPool,
-        _since_time: DateTime<Utc>,
+        since_time: DateTime<Utc>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            INNER JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id
+            WHERE tt.most_recent = true 
+                AND tt.to_state = 'complete'
+                AND tt.created_at >= $1
+            ORDER BY tt.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks that failed since a specific time (Rails: scope :failed_since)
-    /// TODO: Implement failure detection via current state transitions
+    ///
+    /// Finds tasks that transitioned to error state after the specified time.
+    /// Uses task transitions with timestamp filtering for accurate results.
     pub async fn failed_since(
         pool: &PgPool,
-        _since_time: DateTime<Utc>,
+        since_time: DateTime<Utc>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            INNER JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id
+            WHERE tt.most_recent = true 
+                AND tt.to_state = 'error'
+                AND tt.created_at >= $1
+            ORDER BY tt.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find active tasks (not in terminal states) (Rails: scope :active)
-    /// TODO: Implement active task detection via workflow step transitions
+    ///
+    /// Active tasks are those not in terminal states (complete, error, cancelled).
+    /// Uses task transitions to accurately determine current state.
     pub async fn active(pool: &PgPool) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            LEFT JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id AND tt.most_recent = true
+            WHERE tt.to_state IS NULL 
+                OR tt.to_state NOT IN ('complete', 'error', 'cancelled')
+            ORDER BY t.task_id
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks in a specific namespace (Rails: scope :in_namespace)
@@ -767,16 +869,21 @@ impl Task {
     }
 
     /// Find workflow step by name (Rails: get_step_by_name)
-    /// TODO: Implement step lookup by name
+    ///
+    /// Looks up a workflow step within this task by its named step name.
+    /// Returns the workflow step if found, None if not found.
     pub async fn get_step_by_name(
         &self,
         pool: &PgPool,
         name: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        // Placeholder - would join with named_steps to find by name
-        let _step = sqlx::query!(
+    ) -> Result<Option<crate::models::WorkflowStep>, sqlx::Error> {
+        let step = sqlx::query_as!(
+            crate::models::WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
             WHERE ws.task_id = $1 AND ns.name = $2
@@ -788,7 +895,7 @@ impl Task {
         .fetch_optional(pool)
         .await?;
 
-        Ok(Some(serde_json::json!({"step_name": name, "found": true})))
+        Ok(step)
     }
 
     /// Get RuntimeGraphAnalyzer for this task (Rails: runtime_analyzer) - memoized

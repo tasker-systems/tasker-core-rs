@@ -115,7 +115,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Test retry logic
     assert!(!step_to_process.has_exceeded_retry_limit());
-    assert!(!step_to_process.is_ready_for_processing()); // Already processed
+    assert!(!step_to_process.is_processing_eligible()); // Already processed
 
     // Test inputs update
     let new_inputs = json!({"updated_param": "new_value"});
@@ -155,14 +155,15 @@ fn test_retry_limit_logic() {
 
     // Not exceeded yet
     assert!(!step.has_exceeded_retry_limit());
-    assert!(step.is_ready_for_processing());
+    assert!(step.is_processing_eligible());
 
     // Exceed limit
     step.attempts = Some(3);
     assert!(step.has_exceeded_retry_limit());
 
-    // In backoff
+    // In backoff - set both backoff_request_seconds and last_attempted_at to create valid backoff state
     step.attempts = Some(1);
     step.backoff_request_seconds = Some(60);
-    assert!(!step.is_ready_for_processing());
+    step.last_attempted_at = Some(chrono::Utc::now().naive_utc()); // Set to now to ensure we're in backoff period
+    assert!(!step.is_processing_eligible());
 }
