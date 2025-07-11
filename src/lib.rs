@@ -38,6 +38,7 @@
 //! - [`events`] - Event system foundation
 //! - [`orchestration`] - Workflow orchestration logic
 //! - [`registry`] - Component registration and discovery
+//! - [`client`] - Rust-native task and step handlers
 //! - [`ffi`] - Multi-language FFI bindings
 //!
 //! ## Performance Targets
@@ -77,6 +78,7 @@
 //! cargo test          # All tests (114+ tests)
 //! ```
 
+pub mod client;
 pub mod constants;
 pub mod database;
 pub mod error;
@@ -99,6 +101,10 @@ pub use orchestration::{
     TelemetryConfig,
 };
 // Re-export constants events with different name to avoid conflict
+pub use client::{
+    BaseStepHandler, BaseTaskHandler, ExecutionMetadata, RustStepHandler, RustTaskHandler,
+    StepContext, TaskContext,
+};
 pub use constants::events as system_events;
 pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,

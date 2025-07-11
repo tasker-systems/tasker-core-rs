@@ -49,10 +49,14 @@
 pub mod handler_factory;
 pub mod plugin_registry;
 pub mod subscriber_registry;
+pub mod task_handler_registry;
 
 // Re-export main types for easy access
 pub use handler_factory::{HandlerCacheStats, HandlerFactory};
 pub use plugin_registry::{Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats};
 pub use subscriber_registry::{
     EventSubscriber, SubscriberDetail, SubscriberRegistry, SubscriberStats,
+};
+pub use task_handler_registry::{
+    HandlerKey, RegistryStats as TaskHandlerRegistryStats, TaskHandlerRegistry,
 };

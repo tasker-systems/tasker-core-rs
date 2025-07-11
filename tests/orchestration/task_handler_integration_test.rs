@@ -107,6 +107,31 @@ impl FrameworkIntegration for TestFrameworkIntegration {
             metadata: HashMap::new(),
         })
     }
+
+    async fn enqueue_task(
+        &self,
+        _task_id: i64,
+        _delay: Option<std::time::Duration>,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
+
+    async fn mark_task_failed(
+        &self,
+        _task_id: i64,
+        _error: &str,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
+
+    async fn update_step_state(
+        &self,
+        _step_id: i64,
+        _state: &str,
+        _result: Option<&serde_json::Value>,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
 }
 
 #[sqlx::test]

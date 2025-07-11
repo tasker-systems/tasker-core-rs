@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tasker_core::orchestration::config::StepTemplate;
 use tasker_core::orchestration::{
     BaseStepHandler, ConfigurationManager, OrchestrationResult, StepExecutionContext, StepHandler,
     StepHandlerFactory, StepResult,
@@ -61,7 +62,7 @@ async fn test_step_handler_successful_execution() {
     let config_manager = Arc::new(ConfigurationManager::new());
 
     // Create a test step template
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "test_validation_step".to_string(),
         description: Some("Test validation step".to_string()),
         handler_class: "TestValidationHandler".to_string(),
@@ -139,7 +140,7 @@ async fn test_step_handler_successful_execution() {
 async fn test_step_handler_retry_logic() {
     let config_manager = Arc::new(ConfigurationManager::new());
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "test_retry_step".to_string(),
         description: Some("Test retry step".to_string()),
         handler_class: "TestRetryHandler".to_string(),
@@ -196,7 +197,7 @@ async fn test_step_handler_retry_logic() {
 async fn test_step_handler_timeout() {
     let config_manager = Arc::new(ConfigurationManager::new());
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "test_timeout_step".to_string(),
         description: Some("Test timeout step".to_string()),
         handler_class: "TestTimeoutHandler".to_string(),
@@ -250,7 +251,7 @@ async fn test_step_handler_factory() {
     let config_manager = Arc::new(ConfigurationManager::new());
     let factory = StepHandlerFactory::new(Arc::clone(&config_manager));
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "factory_test_step".to_string(),
         description: Some("Factory test step".to_string()),
         handler_class: "FactoryTestHandler".to_string(),
@@ -283,7 +284,7 @@ async fn test_step_handler_configuration_integration() {
     // Test that step handler properly applies template configuration
     let config_manager = Arc::new(ConfigurationManager::new());
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "config_integration_step".to_string(),
         description: Some("Configuration integration test".to_string()),
         handler_class: "ConfigIntegrationHandler".to_string(),
@@ -341,7 +342,7 @@ async fn test_step_handler_configuration_integration() {
 fn test_step_handler_component_access() {
     let config_manager = Arc::new(ConfigurationManager::new());
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "component_test_step".to_string(),
         description: Some("Component access test".to_string()),
         handler_class: "ComponentTestHandler".to_string(),

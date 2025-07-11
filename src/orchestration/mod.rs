@@ -16,7 +16,7 @@
 //! - **ViableStepDiscovery**: Uses SQL functions to determine which steps are ready for execution
 //! - **StateManager**: Manages state transitions using SQL functions for evaluation
 //! - **EventPublisher**: Publishes orchestration events across FFI boundaries
-//! - **TaskHandlerRegistry**: Dual-path registry for both Rust and FFI task handler management
+//! - **TaskHandlerRegistry**: Dual-path registry for both Rust and FFI task handler management (now in `crate::registry`)
 //! - **ConfigurationManager**: YAML-driven configuration with environment overrides
 //! - **BaseStepHandler**: Configuration-driven step execution framework with hooks for business logic implementation
 //! - **BaseTaskHandler**: Developer-facing task integration point with Rails-compatible methods
@@ -36,7 +36,7 @@ pub mod config;
 pub mod error_classifier;
 pub mod errors;
 pub mod event_publisher;
-pub mod registry;
+pub mod handler_config;
 pub mod state_manager;
 pub mod step_executor;
 pub mod step_handler;
@@ -72,7 +72,7 @@ pub use workflow_coordinator::{
 // Re-export new components (to be implemented)
 pub use config::{
     BackoffConfig, ConfigurationManager, DatabaseConfig, EventConfig, ExecutionConfig,
-    ReenqueueDelays, StepTemplate, TaskTemplate, TaskerConfig, TelemetryConfig,
+    ReenqueueDelays, TaskerConfig, TelemetryConfig,
 };
 pub use error_classifier::{
     ErrorCategory, ErrorClassification, ErrorClassifier, ErrorClassifierConfig, ErrorContext,
@@ -80,7 +80,10 @@ pub use error_classifier::{
 };
 pub use errors::*;
 pub use event_publisher::EventPublisher;
-pub use registry::TaskHandlerRegistry;
+pub use handler_config::{
+    EnvironmentConfig, HandlerConfiguration, ResolvedHandlerConfiguration, StepTemplate,
+    StepTemplateOverride,
+};
 pub use state_manager::StateManager;
 pub use step_handler::{
     BaseStepHandler, ExecutionStatus, StepExecutionContext, StepExecutionEvent, StepHandler,

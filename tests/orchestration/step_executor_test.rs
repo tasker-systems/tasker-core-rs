@@ -4,7 +4,6 @@ use std::time::Duration;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 use tasker_core::orchestration::errors::OrchestrationError;
 use tasker_core::orchestration::event_publisher::EventPublisher;
-use tasker_core::orchestration::registry::TaskHandlerRegistry;
 use tasker_core::orchestration::state_manager::StateManager;
 use tasker_core::orchestration::step_executor::{
     ExecutionPriority, StepExecutionRequest, StepExecutor,
@@ -12,6 +11,7 @@ use tasker_core::orchestration::step_executor::{
 use tasker_core::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
 };
+use tasker_core::registry::TaskHandlerRegistry;
 
 /// Mock framework integration for testing clean single-step execution architecture
 struct MockFrameworkIntegration {
@@ -64,6 +64,31 @@ impl FrameworkIntegration for MockFrameworkIntegration {
             metadata: HashMap::new(),
         })
     }
+
+    async fn enqueue_task(
+        &self,
+        _task_id: i64,
+        _delay: Option<Duration>,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
+
+    async fn mark_task_failed(
+        &self,
+        _task_id: i64,
+        _error: &str,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
+
+    async fn update_step_state(
+        &self,
+        _step_id: i64,
+        _state: &str,
+        _result: Option<&serde_json::Value>,
+    ) -> Result<(), OrchestrationError> {
+        Ok(())
+    }
 }
 
 #[sqlx::test]
@@ -75,7 +100,7 @@ async fn test_step_executor_single_step_execution(pool: sqlx::PgPool) {
     let sql_executor = SqlFunctionExecutor::new(pool.clone());
     let event_publisher = EventPublisher::new();
     let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
-    let registry = TaskHandlerRegistry::new(event_publisher.clone());
+    let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
     let step_executor = StepExecutor::new(state_manager, registry, event_publisher);
 
     let mock_framework = Arc::new(MockFrameworkIntegration::new());

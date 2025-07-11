@@ -30,7 +30,7 @@
 //! use tasker_core::orchestration::step_executor::StepExecutor;
 //! use tasker_core::orchestration::state_manager::StateManager;
 //! use tasker_core::orchestration::event_publisher::EventPublisher;
-//! use tasker_core::orchestration::registry::TaskHandlerRegistry;
+//! use tasker_core::registry::TaskHandlerRegistry;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //! use sqlx::PgPool;
 //!
@@ -39,7 +39,7 @@
 //! let sql_executor = SqlFunctionExecutor::new(pool.clone());
 //! let event_publisher = EventPublisher::new();
 //! let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
-//! let registry = TaskHandlerRegistry::new(event_publisher.clone());
+//! let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
 //! let step_executor = StepExecutor::new(state_manager, registry, event_publisher);
 //!
 //! // StepExecutor coordinates step execution through delegation
@@ -50,11 +50,11 @@
 
 use crate::orchestration::errors::{ExecutionError, OrchestrationResult};
 use crate::orchestration::event_publisher::EventPublisher;
-use crate::orchestration::registry::TaskHandlerRegistry;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
 };
+use crate::registry::TaskHandlerRegistry;
 use crate::state_machine::events::StepEvent;
 use fastrand;
 use std::collections::HashMap;

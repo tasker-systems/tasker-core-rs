@@ -62,7 +62,6 @@
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::OrchestrationResult;
 use crate::orchestration::event_publisher::EventPublisher;
-use crate::orchestration::registry::TaskHandlerRegistry;
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
 use crate::orchestration::step_executor::{ExecutionPriority, StepExecutionRequest, StepExecutor};
 use crate::orchestration::system_events::SystemEventsManager;
@@ -72,6 +71,7 @@ use crate::orchestration::types::{
     TaskErrorInfo, ViableStep,
 };
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
+use crate::registry::TaskHandlerRegistry;
 use chrono::Utc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -192,7 +192,7 @@ impl WorkflowCoordinator {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let registry = TaskHandlerRegistry::new(event_publisher.clone());
+        let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
         let step_executor =
             StepExecutor::new(state_manager.clone(), registry, event_publisher.clone());
         let viable_step_discovery =

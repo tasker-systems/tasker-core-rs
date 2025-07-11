@@ -7,6 +7,8 @@ pub mod named_tasks_named_step;
 pub mod task;
 pub mod task_annotation;
 pub mod task_namespace;
+pub mod task_request;
+pub mod task_template;
 pub mod task_transition;
 pub mod transitions;
 pub mod workflow_step;

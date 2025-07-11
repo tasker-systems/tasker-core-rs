@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use tasker_core::orchestration::config::StepTemplate;
 use tasker_core::orchestration::{
     constants, BaseStepHandler, ConfigurationManager, OrchestrationResult, StepExecutionContext,
     StepHandler, SystemEventsConfig, SystemEventsManager,
@@ -173,7 +174,7 @@ async fn test_step_handler_with_system_events() {
     // Test BaseStepHandler with SystemEventsManager integration
     let config_manager = Arc::new(ConfigurationManager::new());
 
-    let step_template = tasker_core::orchestration::StepTemplate {
+    let step_template = StepTemplate {
         name: "system_events_integration_step".to_string(),
         description: Some("System events integration test step".to_string()),
         handler_class: "SystemEventsTestHandler".to_string(),

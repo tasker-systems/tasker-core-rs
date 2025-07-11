@@ -757,46 +757,40 @@ impl Task {
     // ============================================================================
 
     /// Create and save task with defaults from TaskRequest (Rails: create_with_defaults!)
-    /// TODO: Implement TaskRequest integration and default value system
     pub async fn create_with_defaults(
         pool: &PgPool,
-        _task_request: serde_json::Value,
-    ) -> Result<Task, sqlx::Error> {
-        // Placeholder implementation - would integrate with TaskRequest system
-        let new_task = NewTask {
-            named_task_id: 1, // Would be extracted from task_request
-            requested_at: None,
-            initiator: Some("system".to_string()),
-            source_system: Some("default".to_string()),
-            reason: Some("Created with defaults".to_string()),
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({"default": true})),
-            identity_hash: Self::generate_identity_hash(
-                1,
-                &Some(serde_json::json!({"default": true})),
-            ),
-        };
-        Self::create(pool, new_task).await
+        task_request: super::task_request::TaskRequest,
+    ) -> Result<Task, crate::error::TaskerError> {
+        let resolved_request = task_request.resolve(pool).await?;
+        resolved_request.create_task(pool).await
     }
 
     /// Create unsaved task instance from TaskRequest (Rails: from_task_request)
-    /// TODO: Implement TaskRequest to Task conversion
-    pub fn from_task_request(_task_request: serde_json::Value) -> NewTask {
-        // Placeholder implementation - would extract fields from task_request
+    /// Note: This creates a NewTask but does not resolve the NamedTask from the database.
+    /// For full resolution, use create_with_defaults instead.
+    pub fn from_task_request(task_request: super::task_request::TaskRequest) -> NewTask {
         NewTask {
-            named_task_id: 1, // Would be extracted from task_request
-            requested_at: None,
-            initiator: Some("system".to_string()),
-            source_system: Some("default".to_string()),
-            reason: Some("From task request".to_string()),
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({"from_request": true})),
-            identity_hash: Self::generate_identity_hash(
-                1,
-                &Some(serde_json::json!({"from_request": true})),
-            ),
+            named_task_id: 0, // Will need to be resolved separately
+            requested_at: Some(task_request.requested_at),
+            initiator: Some(task_request.initiator),
+            source_system: Some(task_request.source_system),
+            reason: Some(task_request.reason),
+            bypass_steps: Some(serde_json::Value::Array(
+                task_request
+                    .bypass_steps
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            )),
+            tags: Some(serde_json::Value::Array(
+                task_request
+                    .tags
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            )),
+            context: Some(task_request.context.clone()),
+            identity_hash: Self::generate_identity_hash(0, &Some(task_request.context)),
         }
     }
 
@@ -817,13 +811,10 @@ impl Task {
     }
 
     /// Extract options from TaskRequest (Rails: get_request_options)
-    /// TODO: Implement TaskRequest option extraction
-    pub fn get_request_options(_task_request: serde_json::Value) -> serde_json::Value {
-        // Placeholder implementation - would extract options from task_request structure
-        serde_json::json!({
-            "default_options": true,
-            "extracted_from": "task_request"
-        })
+    pub fn get_request_options(
+        resolved_request: &super::task_request::ResolvedTaskRequest,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        resolved_request.get_request_options().clone()
     }
 
     /// Get default task request options for a named task (Rails: get_default_task_request_options)

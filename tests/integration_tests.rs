@@ -12,6 +12,7 @@
 #![allow(dead_code)]
 
 mod factories;
+mod orchestration;
 
 use factories::base::SqlxFactory;
 use factories::core::{TaskFactory, WorkflowStepFactory};
