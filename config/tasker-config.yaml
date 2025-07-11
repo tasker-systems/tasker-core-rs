@@ -55,6 +55,16 @@ execution:
   default_timeout_seconds: 3600
   step_execution_timeout_seconds: 300
 
+reenqueue:
+  has_ready_steps: 1
+  waiting_for_dependencies: 5
+  processing: 2
+
+events:
+  batch_size: 100
+  enabled: true
+  batch_timeout_ms: 1000
+
 cache:
   enabled: true
   ttl_seconds: 3600

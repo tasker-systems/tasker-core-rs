@@ -1,16 +1,16 @@
 //! Tests for system constants and configuration
 
 use tasker_core::constants::*;
+use tasker_core::state_machine::{TaskState, WorkflowStepState};
 use tasker_core::{system_events, BackoffConfig, ExecutionConfig, ReenqueueDelays};
 
 #[test]
 fn test_execution_config_defaults() {
     let config = ExecutionConfig::default();
-    assert_eq!(config.min_concurrent_steps, 3);
-    assert_eq!(config.max_concurrent_steps_limit, 12);
-    assert_eq!(config.concurrency_cache_duration, 30);
-    assert_eq!(config.batch_timeout_base_seconds, 30);
-    assert_eq!(config.max_batch_timeout_seconds, 120);
+    assert_eq!(config.max_concurrent_tasks, 100);
+    assert_eq!(config.max_concurrent_steps, 1000);
+    assert_eq!(config.default_timeout_seconds, 3600);
+    assert_eq!(config.step_execution_timeout_seconds, 300);
 }
 
 #[test]
@@ -26,9 +26,9 @@ fn test_backoff_config_defaults() {
 #[test]
 fn test_reenqueue_delays_defaults() {
     let delays = ReenqueueDelays::default();
-    assert_eq!(delays.has_ready_steps, 0);
-    assert_eq!(delays.waiting_for_dependencies, 45);
-    assert_eq!(delays.processing, 10);
+    assert_eq!(delays.has_ready_steps, 1);
+    assert_eq!(delays.waiting_for_dependencies, 5);
+    assert_eq!(delays.processing, 2);
 }
 
 #[test]
@@ -82,36 +82,34 @@ fn test_workflow_edge_type() {
 #[test]
 fn test_status_groups() {
     // Test step completion states
-    assert!(status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepStatus::Complete));
+    assert!(status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepState::Complete));
     assert!(
-        status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepStatus::ResolvedManually)
+        status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepState::ResolvedManually)
     );
-    assert!(status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepStatus::Cancelled));
-    assert!(!status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepStatus::Pending));
+    assert!(status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepState::Cancelled));
+    assert!(!status_groups::VALID_STEP_COMPLETION_STATES.contains(&WorkflowStepState::Pending));
 
     // Test step working states
-    assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepStatus::Pending));
-    assert!(
-        status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepStatus::InProgress)
-    );
-    assert!(!status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepStatus::Complete));
+    assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::Pending));
+    assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::InProgress));
+    assert!(!status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::Complete));
 
     // Test unready step statuses
-    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepStatus::InProgress));
-    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepStatus::Complete));
-    assert!(!status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepStatus::Pending));
+    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::InProgress));
+    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::Complete));
+    assert!(!status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::Pending));
 
     // Test task final states
-    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskStatus::Complete));
-    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskStatus::Cancelled));
-    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskStatus::ResolvedManually));
-    assert!(!status_groups::TASK_FINAL_STATES.contains(&TaskStatus::Pending));
+    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::Complete));
+    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::Cancelled));
+    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::ResolvedManually));
+    assert!(!status_groups::TASK_FINAL_STATES.contains(&TaskState::Pending));
 
     // Test task active states
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskStatus::Pending));
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskStatus::InProgress));
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskStatus::Error));
-    assert!(!status_groups::TASK_ACTIVE_STATES.contains(&TaskStatus::Complete));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Pending));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::InProgress));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Error));
+    assert!(!status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Complete));
 }
 
 #[test]
@@ -121,34 +119,34 @@ fn test_transition_maps() {
 
     // Test key task transitions exist
     assert_eq!(
-        task_map.get(&(None, TaskStatus::Pending)),
+        task_map.get(&(None, TaskState::Pending)),
         Some(&system_events::TASK_INITIALIZE_REQUESTED)
     );
     assert_eq!(
-        task_map.get(&(Some(TaskStatus::Pending), TaskStatus::InProgress)),
+        task_map.get(&(Some(TaskState::Pending), TaskState::InProgress)),
         Some(&system_events::TASK_START_REQUESTED)
     );
     assert_eq!(
-        task_map.get(&(Some(TaskStatus::InProgress), TaskStatus::Complete)),
+        task_map.get(&(Some(TaskState::InProgress), TaskState::Complete)),
         Some(&system_events::TASK_COMPLETED)
     );
 
     // Test key step transitions exist
     assert_eq!(
-        step_map.get(&(None, WorkflowStepStatus::Pending)),
+        step_map.get(&(None, WorkflowStepState::Pending)),
         Some(&system_events::STEP_INITIALIZE_REQUESTED)
     );
     assert_eq!(
         step_map.get(&(
-            Some(WorkflowStepStatus::Pending),
-            WorkflowStepStatus::InProgress
+            Some(WorkflowStepState::Pending),
+            WorkflowStepState::InProgress
         )),
         Some(&system_events::STEP_EXECUTION_REQUESTED)
     );
     assert_eq!(
         step_map.get(&(
-            Some(WorkflowStepStatus::InProgress),
-            WorkflowStepStatus::Complete
+            Some(WorkflowStepState::InProgress),
+            WorkflowStepState::Complete
         )),
         Some(&system_events::STEP_COMPLETED)
     );

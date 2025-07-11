@@ -3414,6 +3414,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "pyo3",
+ "rand 0.9.1",
  "regex",
  "rust_decimal",
  "serde",

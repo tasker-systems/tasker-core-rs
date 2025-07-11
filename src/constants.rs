@@ -9,8 +9,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Re-export state types for convenience
-pub use crate::state_machine::{TaskState as TaskStatus, WorkflowStepState as WorkflowStepStatus};
+// Import state types directly from state_machine module
+use crate::state_machine::{TaskState, WorkflowStepState};
 
 /// Core system events that trigger state transitions and orchestration actions
 pub mod events {
@@ -139,46 +139,43 @@ pub mod system {
 
 /// Status groupings for validation and logic
 pub mod status_groups {
-    use super::{TaskStatus, WorkflowStepStatus};
+    use super::{TaskState, WorkflowStepState};
 
     /// Workflow step statuses that indicate completion
-    pub const VALID_STEP_COMPLETION_STATES: &[WorkflowStepStatus] = &[
-        WorkflowStepStatus::Complete,
-        WorkflowStepStatus::ResolvedManually,
-        WorkflowStepStatus::Cancelled,
+    pub const VALID_STEP_COMPLETION_STATES: &[WorkflowStepState] = &[
+        WorkflowStepState::Complete,
+        WorkflowStepState::ResolvedManually,
+        WorkflowStepState::Cancelled,
     ];
 
     /// Workflow step statuses that indicate active work
-    pub const VALID_STEP_STILL_WORKING_STATES: &[WorkflowStepStatus] =
-        &[WorkflowStepStatus::Pending, WorkflowStepStatus::InProgress];
+    pub const VALID_STEP_STILL_WORKING_STATES: &[WorkflowStepState] =
+        &[WorkflowStepState::Pending, WorkflowStepState::InProgress];
 
     /// Workflow step statuses that make steps unavailable for execution
-    pub const UNREADY_WORKFLOW_STEP_STATUSES: &[WorkflowStepStatus] = &[
-        WorkflowStepStatus::InProgress,
-        WorkflowStepStatus::Complete,
-        WorkflowStepStatus::Cancelled,
-        WorkflowStepStatus::ResolvedManually,
+    pub const UNREADY_WORKFLOW_STEP_STATUSES: &[WorkflowStepState] = &[
+        WorkflowStepState::InProgress,
+        WorkflowStepState::Complete,
+        WorkflowStepState::Cancelled,
+        WorkflowStepState::ResolvedManually,
     ];
 
     /// Task statuses that indicate final completion
-    pub const TASK_FINAL_STATES: &[TaskStatus] = &[
-        TaskStatus::Complete,
-        TaskStatus::Cancelled,
-        TaskStatus::ResolvedManually,
+    pub const TASK_FINAL_STATES: &[TaskState] = &[
+        TaskState::Complete,
+        TaskState::Cancelled,
+        TaskState::ResolvedManually,
     ];
 
     /// Task statuses that indicate active execution
-    pub const TASK_ACTIVE_STATES: &[TaskStatus] = &[
-        TaskStatus::Pending,
-        TaskStatus::InProgress,
-        TaskStatus::Error,
-    ];
+    pub const TASK_ACTIVE_STATES: &[TaskState] =
+        &[TaskState::Pending, TaskState::InProgress, TaskState::Error];
 }
 
 /// State transition event mapping
-pub type TaskTransitionKey = (Option<TaskStatus>, TaskStatus);
+pub type TaskTransitionKey = (Option<TaskState>, TaskState);
 pub type TaskTransitionMap = HashMap<TaskTransitionKey, &'static str>;
-pub type StepTransitionKey = (Option<WorkflowStepStatus>, WorkflowStepStatus);
+pub type StepTransitionKey = (Option<WorkflowStepState>, WorkflowStepState);
 pub type StepTransitionMap = HashMap<StepTransitionKey, &'static str>;
 
 /// Build task transition event map
@@ -188,59 +185,59 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
 
     // Initial state transitions (from None)
     map.insert(
-        (None, TaskStatus::Pending),
+        (None, TaskState::Pending),
         events::TASK_INITIALIZE_REQUESTED,
     );
-    map.insert((None, TaskStatus::InProgress), events::TASK_START_REQUESTED);
-    map.insert((None, TaskStatus::Complete), events::TASK_COMPLETED);
-    map.insert((None, TaskStatus::Error), events::TASK_FAILED);
-    map.insert((None, TaskStatus::Cancelled), events::TASK_CANCELLED);
+    map.insert((None, TaskState::InProgress), events::TASK_START_REQUESTED);
+    map.insert((None, TaskState::Complete), events::TASK_COMPLETED);
+    map.insert((None, TaskState::Error), events::TASK_FAILED);
+    map.insert((None, TaskState::Cancelled), events::TASK_CANCELLED);
     map.insert(
-        (None, TaskStatus::ResolvedManually),
+        (None, TaskState::ResolvedManually),
         events::TASK_RESOLVED_MANUALLY,
     );
 
     // Standard lifecycle transitions
     map.insert(
-        (Some(TaskStatus::Pending), TaskStatus::InProgress),
+        (Some(TaskState::Pending), TaskState::InProgress),
         events::TASK_START_REQUESTED,
     );
     map.insert(
-        (Some(TaskStatus::InProgress), TaskStatus::Complete),
+        (Some(TaskState::InProgress), TaskState::Complete),
         events::TASK_COMPLETED,
     );
     map.insert(
-        (Some(TaskStatus::InProgress), TaskStatus::Error),
+        (Some(TaskState::InProgress), TaskState::Error),
         events::TASK_FAILED,
     );
     map.insert(
-        (Some(TaskStatus::Error), TaskStatus::InProgress),
+        (Some(TaskState::Error), TaskState::InProgress),
         events::TASK_RETRY_REQUESTED,
     );
     map.insert(
-        (Some(TaskStatus::Error), TaskStatus::Cancelled),
+        (Some(TaskState::Error), TaskState::Cancelled),
         events::TASK_CANCELLED,
     );
     map.insert(
-        (Some(TaskStatus::Error), TaskStatus::ResolvedManually),
+        (Some(TaskState::Error), TaskState::ResolvedManually),
         events::TASK_RESOLVED_MANUALLY,
     );
 
     // Manual intervention transitions
     map.insert(
-        (Some(TaskStatus::Pending), TaskStatus::Cancelled),
+        (Some(TaskState::Pending), TaskState::Cancelled),
         events::TASK_CANCELLED,
     );
     map.insert(
-        (Some(TaskStatus::InProgress), TaskStatus::Cancelled),
+        (Some(TaskState::InProgress), TaskState::Cancelled),
         events::TASK_CANCELLED,
     );
     map.insert(
-        (Some(TaskStatus::Pending), TaskStatus::ResolvedManually),
+        (Some(TaskState::Pending), TaskState::ResolvedManually),
         events::TASK_RESOLVED_MANUALLY,
     );
     map.insert(
-        (Some(TaskStatus::InProgress), TaskStatus::ResolvedManually),
+        (Some(TaskState::InProgress), TaskState::ResolvedManually),
         events::TASK_RESOLVED_MANUALLY,
     );
 
@@ -254,64 +251,58 @@ pub fn build_step_transition_map() -> StepTransitionMap {
 
     // Initial state transitions (from None)
     map.insert(
-        (None, WorkflowStepStatus::Pending),
+        (None, WorkflowStepState::Pending),
         events::STEP_INITIALIZE_REQUESTED,
     );
     map.insert(
-        (None, WorkflowStepStatus::InProgress),
+        (None, WorkflowStepState::InProgress),
         events::STEP_EXECUTION_REQUESTED,
     );
-    map.insert((None, WorkflowStepStatus::Complete), events::STEP_COMPLETED);
-    map.insert((None, WorkflowStepStatus::Error), events::STEP_FAILED);
+    map.insert((None, WorkflowStepState::Complete), events::STEP_COMPLETED);
+    map.insert((None, WorkflowStepState::Error), events::STEP_FAILED);
+    map.insert((None, WorkflowStepState::Cancelled), events::STEP_CANCELLED);
     map.insert(
-        (None, WorkflowStepStatus::Cancelled),
-        events::STEP_CANCELLED,
-    );
-    map.insert(
-        (None, WorkflowStepStatus::ResolvedManually),
+        (None, WorkflowStepState::ResolvedManually),
         events::STEP_RESOLVED_MANUALLY,
     );
 
     // Standard lifecycle transitions
     map.insert(
         (
-            Some(WorkflowStepStatus::Pending),
-            WorkflowStepStatus::InProgress,
+            Some(WorkflowStepState::Pending),
+            WorkflowStepState::InProgress,
         ),
         events::STEP_EXECUTION_REQUESTED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::InProgress),
-            WorkflowStepStatus::Complete,
+            Some(WorkflowStepState::InProgress),
+            WorkflowStepState::Complete,
         ),
         events::STEP_COMPLETED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::InProgress),
-            WorkflowStepStatus::Error,
+            Some(WorkflowStepState::InProgress),
+            WorkflowStepState::Error,
         ),
         events::STEP_FAILED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::Error),
-            WorkflowStepStatus::InProgress,
+            Some(WorkflowStepState::Error),
+            WorkflowStepState::InProgress,
         ),
         events::STEP_RETRY_REQUESTED,
     );
     map.insert(
-        (
-            Some(WorkflowStepStatus::Error),
-            WorkflowStepStatus::Cancelled,
-        ),
+        (Some(WorkflowStepState::Error), WorkflowStepState::Cancelled),
         events::STEP_CANCELLED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::Error),
-            WorkflowStepStatus::ResolvedManually,
+            Some(WorkflowStepState::Error),
+            WorkflowStepState::ResolvedManually,
         ),
         events::STEP_RESOLVED_MANUALLY,
     );
@@ -319,29 +310,29 @@ pub fn build_step_transition_map() -> StepTransitionMap {
     // Manual intervention transitions
     map.insert(
         (
-            Some(WorkflowStepStatus::Pending),
-            WorkflowStepStatus::Cancelled,
+            Some(WorkflowStepState::Pending),
+            WorkflowStepState::Cancelled,
         ),
         events::STEP_CANCELLED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::InProgress),
-            WorkflowStepStatus::Cancelled,
+            Some(WorkflowStepState::InProgress),
+            WorkflowStepState::Cancelled,
         ),
         events::STEP_CANCELLED,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::Pending),
-            WorkflowStepStatus::ResolvedManually,
+            Some(WorkflowStepState::Pending),
+            WorkflowStepState::ResolvedManually,
         ),
         events::STEP_RESOLVED_MANUALLY,
     );
     map.insert(
         (
-            Some(WorkflowStepStatus::InProgress),
-            WorkflowStepStatus::ResolvedManually,
+            Some(WorkflowStepState::InProgress),
+            WorkflowStepState::ResolvedManually,
         ),
         events::STEP_RESOLVED_MANUALLY,
     );

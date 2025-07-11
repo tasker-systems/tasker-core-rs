@@ -50,14 +50,14 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use tasker_core::config::TaskerConfig;
+//! use tasker_core::TaskerConfig;
 //!
 //! // Initialize configuration for tasker-core-rs
 //! let config = TaskerConfig::default();
 //!
-//! // Configuration provides database connection settings
-//! assert!(config.database.max_connections > 0);
-//! assert!(!config.database.url.is_empty());
+//! // Configuration provides database settings
+//! assert_eq!(config.database.enable_secondary_database, false);
+//! assert_eq!(config.execution.max_concurrent_tasks, 100);
 //!
 //! // For complete database integration examples, see tests/models/ directory
 //! ```
@@ -77,7 +77,6 @@
 //! cargo test          # All tests (114+ tests)
 //! ```
 
-pub mod config;
 pub mod constants;
 pub mod database;
 pub mod error;
@@ -91,13 +90,13 @@ pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;
 
-pub use config::{
-    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
-    TelemetryConfig,
-};
 pub use constants::{
     status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
-    ReenqueueReason, TaskStatus, WorkflowEdgeType, WorkflowStepStatus,
+    ReenqueueReason, WorkflowEdgeType,
+};
+pub use orchestration::{
+    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
+    TelemetryConfig,
 };
 // Re-export constants events with different name to avoid conflict
 pub use constants::events as system_events;

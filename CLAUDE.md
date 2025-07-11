@@ -75,3 +75,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Type Safety**: All factories work with compile-time verified SQLx queries and proper trait derivations
 - **Testing Coverage**: 20/20 factory tests passing with comprehensive edge case handling
 - **Rails Pattern Adaptation**: Successfully translated Rails factory patterns to Rust while maintaining type safety
+
+### Orchestration Layer Implementation (January 2025)
+- **Phase 1 & 2 Complete**: Foundation model layer and critical infrastructure components implemented
+- **BackoffCalculator**: Exponential backoff with jitter, server-requested delays, and context-aware retry strategies
+- **TaskFinalizer**: Context-driven task completion with state machine integration and intelligent reenqueue logic
+- **TaskEnqueuer**: Framework-agnostic task delegation supporting Rust, FFI, WASM, and JNI targets
+- **Error Classification System**: Centralized error categorization with 10 error types and actionable remediation
+- **Delegation Architecture**: Rust orchestrates decisions while frameworks handle execution and queue management
+- **SQL Function Integration**: Boundary-defined reuse with existing tested SQL functions for step readiness and execution context
+- **Production Ready**: Comprehensive test coverage with working demo examples and framework compatibility

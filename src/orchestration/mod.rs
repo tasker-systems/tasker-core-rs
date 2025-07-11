@@ -33,6 +33,7 @@
 
 pub mod backoff_calculator;
 pub mod config;
+pub mod error_classifier;
 pub mod errors;
 pub mod event_publisher;
 pub mod registry;
@@ -40,6 +41,7 @@ pub mod state_manager;
 pub mod step_executor;
 pub mod step_handler;
 pub mod system_events;
+pub mod task_enqueuer;
 pub mod task_finalizer;
 pub mod task_handler;
 pub mod types;
@@ -47,19 +49,35 @@ pub mod viable_step_discovery;
 pub mod workflow_coordinator;
 
 // Re-export core types and components for easy access
+pub use backoff_calculator::{
+    BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
+    BackoffType,
+};
 pub use step_executor::{
     ExecutionPriority, ExecutionStats, RetryConfig, StepExecutionConfig, StepExecutionMetrics,
     StepExecutionRequest, StepExecutor,
+};
+pub use task_enqueuer::{
+    DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
+    EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
+};
+pub use task_finalizer::{
+    FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
 pub use workflow_coordinator::{
     WorkflowCoordinator, WorkflowCoordinatorConfig, WorkflowExecutionMetrics,
 };
-// pub use task_finalizer::TaskFinalizer;
-// pub use backoff_calculator::BackoffCalculator;
 
 // Re-export new components (to be implemented)
-pub use config::{ConfigurationManager, StepTemplate, TaskTemplate, TaskerConfig};
+pub use config::{
+    BackoffConfig, ConfigurationManager, DatabaseConfig, EventConfig, ExecutionConfig,
+    ReenqueueDelays, StepTemplate, TaskTemplate, TaskerConfig, TelemetryConfig,
+};
+pub use error_classifier::{
+    ErrorCategory, ErrorClassification, ErrorClassifier, ErrorClassifierConfig, ErrorContext,
+    RetryStrategy, StandardErrorClassifier,
+};
 pub use errors::*;
 pub use event_publisher::EventPublisher;
 pub use registry::TaskHandlerRegistry;

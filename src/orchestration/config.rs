@@ -76,6 +76,8 @@ pub struct TaskerConfig {
     pub dependency_graph: DependencyGraphConfig,
     pub backoff: BackoffConfig,
     pub execution: ExecutionConfig,
+    pub reenqueue: ReenqueueDelays,
+    pub events: EventConfig,
     pub cache: CacheConfig,
 }
 
@@ -247,6 +249,48 @@ impl Default for ExecutionConfig {
             max_concurrent_steps: 1000,
             default_timeout_seconds: 3600,
             step_execution_timeout_seconds: 300,
+        }
+    }
+}
+
+/// Reenqueue delays based on task status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReenqueueDelays {
+    /// Delay when task has steps ready for execution (seconds)
+    pub has_ready_steps: u32,
+    /// Delay when waiting for dependencies to complete (seconds)
+    pub waiting_for_dependencies: u32,
+    /// Delay when task is currently processing (seconds)
+    pub processing: u32,
+}
+
+impl Default for ReenqueueDelays {
+    fn default() -> Self {
+        Self {
+            has_ready_steps: 1,
+            waiting_for_dependencies: 5,
+            processing: 2,
+        }
+    }
+}
+
+/// Event system configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventConfig {
+    /// Maximum number of events to batch together
+    pub batch_size: usize,
+    /// Whether event processing is enabled
+    pub enabled: bool,
+    /// Buffer timeout for event batching (milliseconds)
+    pub batch_timeout_ms: u64,
+}
+
+impl Default for EventConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 100,
+            enabled: true,
+            batch_timeout_ms: 1000,
         }
     }
 }

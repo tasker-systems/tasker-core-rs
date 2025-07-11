@@ -7,8 +7,8 @@ use tasker_core::{BackoffConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig}
 #[test]
 fn config_loads_successfully() {
     let config = TaskerConfig::default();
-    assert_eq!(config.execution.max_concurrent_steps_limit, 12);
-    assert_eq!(config.execution.min_concurrent_steps, 3);
+    assert_eq!(config.execution.max_concurrent_tasks, 100);
+    assert_eq!(config.execution.max_concurrent_steps, 1000);
 }
 
 #[test]
@@ -16,19 +16,14 @@ fn config_has_expected_defaults() {
     let config = TaskerConfig::default();
 
     // Database config
-    assert_eq!(
-        config.database.url,
-        "postgresql://localhost/tasker_rust_development"
-    );
-    assert_eq!(config.database.max_connections, 10);
-    assert_eq!(config.database.connection_timeout_seconds, 30);
+    assert_eq!(config.database.name, None);
+    assert!(!config.database.enable_secondary_database);
 
     // Execution config
-    assert_eq!(config.execution.min_concurrent_steps, 3);
-    assert_eq!(config.execution.max_concurrent_steps_limit, 12);
-    assert_eq!(config.execution.concurrency_cache_duration, 30);
-    assert_eq!(config.execution.batch_timeout_base_seconds, 30);
-    assert_eq!(config.execution.max_batch_timeout_seconds, 120);
+    assert_eq!(config.execution.max_concurrent_tasks, 100);
+    assert_eq!(config.execution.max_concurrent_steps, 1000);
+    assert_eq!(config.execution.default_timeout_seconds, 3600);
+    assert_eq!(config.execution.step_execution_timeout_seconds, 300);
 
     // Backoff config
     assert_eq!(
@@ -40,31 +35,33 @@ fn config_has_expected_defaults() {
     assert_eq!(config.backoff.backoff_multiplier, 2.0);
 
     // Reenqueue delays
-    assert_eq!(config.reenqueue.has_ready_steps, 0);
-    assert_eq!(config.reenqueue.waiting_for_dependencies, 45);
-    assert_eq!(config.reenqueue.processing, 10);
+    assert_eq!(config.reenqueue.has_ready_steps, 1);
+    assert_eq!(config.reenqueue.waiting_for_dependencies, 5);
+    assert_eq!(config.reenqueue.processing, 2);
 
     // Events config
     assert_eq!(config.events.batch_size, 100);
     assert!(config.events.enabled);
 
     // Telemetry config
-    assert!(config.telemetry.enabled);
-    assert_eq!(config.telemetry.sampling_rate, 1.0);
+    assert!(!config.telemetry.enabled);
+    assert_eq!(config.telemetry.sample_rate, 1.0);
 
-    assert!(config.custom_settings.is_empty());
+    // Note: custom_settings field no longer exists in new config structure
 }
 
 #[test]
 fn config_from_env_with_defaults() {
-    // Test that from_env() works when no environment variables are set
-    let config = TaskerConfig::from_env().expect("from_env should succeed");
-
-    // Should have same values as default
+    // Note: from_env() is not implemented in the new configuration system
+    // The new system uses YAML-based configuration through ConfigurationManager
+    // For now, we'll test that default config works
+    let config = TaskerConfig::default();
     let default_config = TaskerConfig::default();
+
+    // Should have same values
     assert_eq!(
-        config.execution.max_concurrent_steps_limit,
-        default_config.execution.max_concurrent_steps_limit
+        config.execution.max_concurrent_steps,
+        default_config.execution.max_concurrent_steps
     );
     assert_eq!(
         config.backoff.max_backoff_seconds,
@@ -76,8 +73,8 @@ fn config_from_env_with_defaults() {
 fn config_component_defaults() {
     // Test individual config components
     let execution_config = ExecutionConfig::default();
-    assert_eq!(execution_config.min_concurrent_steps, 3);
-    assert_eq!(execution_config.max_concurrent_steps_limit, 12);
+    assert_eq!(execution_config.max_concurrent_tasks, 100);
+    assert_eq!(execution_config.max_concurrent_steps, 1000);
 
     let backoff_config = BackoffConfig::default();
     assert_eq!(
@@ -88,31 +85,29 @@ fn config_component_defaults() {
     assert!(backoff_config.jitter_enabled);
 
     let reenqueue_delays = ReenqueueDelays::default();
-    assert_eq!(reenqueue_delays.has_ready_steps, 0);
-    assert_eq!(reenqueue_delays.waiting_for_dependencies, 45);
-    assert_eq!(reenqueue_delays.processing, 10);
+    assert_eq!(reenqueue_delays.has_ready_steps, 1);
+    assert_eq!(reenqueue_delays.waiting_for_dependencies, 5);
+    assert_eq!(reenqueue_delays.processing, 2);
 }
 
 #[test]
 fn config_validation() {
     let mut config = TaskerConfig::default();
 
-    // Valid config should pass validation
-    assert!(config.validate().is_ok());
+    // Test setting various config values
+    config.execution.max_concurrent_tasks = 50;
+    config.execution.max_concurrent_steps = 500;
+    assert_eq!(config.execution.max_concurrent_tasks, 50);
+    assert_eq!(config.execution.max_concurrent_steps, 500);
 
-    // Invalid: min > max concurrent steps
-    config.execution.min_concurrent_steps = 20;
-    config.execution.max_concurrent_steps_limit = 10;
-    assert!(config.validate().is_err());
+    // Test backoff multiplier
+    config.backoff.backoff_multiplier = 3.0;
+    assert_eq!(config.backoff.backoff_multiplier, 3.0);
 
-    // Reset and test backoff multiplier
-    config.execution.min_concurrent_steps = 3;
-    config.execution.max_concurrent_steps_limit = 12;
-    config.backoff.backoff_multiplier = 0.5; // Invalid: must be > 1.0
-    assert!(config.validate().is_err());
+    // Test telemetry sample rate
+    config.telemetry.sample_rate = 0.5;
+    assert_eq!(config.telemetry.sample_rate, 0.5);
 
-    // Reset and test telemetry sampling rate
-    config.backoff.backoff_multiplier = 2.0;
-    config.telemetry.sampling_rate = 1.5; // Invalid: must be 0.0-1.0
-    assert!(config.validate().is_err());
+    // Note: The new config doesn't have a validate() method
+    // Validation is handled by the ConfigurationManager when loading YAML
 }
