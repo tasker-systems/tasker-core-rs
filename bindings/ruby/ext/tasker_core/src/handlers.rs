@@ -16,22 +16,14 @@ use std::time::Duration;
 // Import from parent crate - this should work since bindings/ruby depends on tasker-core-rs
 use tasker_core::orchestration::errors::OrchestrationError;
 use tasker_core::orchestration::handler_config::HandlerConfiguration;
+use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
 use tasker_core::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext as RustTaskContext,
     TaskOrchestrationResult, ViableStep,
 };
 use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 
-use tasker_core::models::core::named_step::NamedStep;
-use tasker_core::models::core::task::Task;
 use tasker_core::models::core::task_request::TaskRequest;
-use tasker_core::models::core::workflow_step::{NewWorkflowStep, WorkflowStep};
-use tasker_core::models::core::workflow_step_edge::{NewWorkflowStepEdge, WorkflowStepEdge};
-
-use tasker_core::models::core::task_transition::{NewTaskTransition, TaskTransition};
-use tasker_core::models::core::workflow_step_transition::{
-    NewWorkflowStepTransition, WorkflowStepTransition,
-};
 
 use tasker_core::orchestration::config::ConfigurationManager;
 
@@ -554,16 +546,25 @@ impl BaseTaskHandler {
         self.convert_orchestration_result_to_ruby(result)
     }
 
-    /// Create task from TaskRequest using Rust orchestration components
+    /// Create task from TaskRequest using centralized TaskInitializer
     ///
-    /// This is the actual TaskInitializer implementation that:
+    /// This method now uses the transaction-safe TaskInitializer for atomic task creation
+    /// with proper error handling and state machine integration.
+    ///
+    /// ## Process Flow
+    ///
     /// 1. Deserializes and validates the TaskRequest
-    /// 2. Creates the Task record using existing Rust models
-    /// 3. Processes step templates and creates WorkflowSteps
-    /// 4. Establishes step dependencies
-    /// 5. Initializes state machine entries
+    /// 2. Creates TaskInitializer with Ruby-specific configuration  
+    /// 3. Uses TaskInitializer for atomic task creation with transaction safety
+    /// 4. Returns (task_id, step_count) on success
     ///
-    /// Returns (task_id, step_count) on success
+    /// ## Improvements Over Previous Implementation
+    ///
+    /// - **Transaction Safety**: All operations wrapped in SQLx transactions for atomicity
+    /// - **Error Recovery**: Automatic rollback on any failure ensures consistency
+    /// - **Maintainability**: Uses decomposed TaskInitializer methods
+    /// - **Reusability**: Same TaskInitializer used across the entire system
+    /// - **Better Error Handling**: Comprehensive error types with clear messages
     async fn create_task_from_request(
         &self,
         pool: sqlx::PgPool,
@@ -573,129 +574,28 @@ impl BaseTaskHandler {
         let task_request: TaskRequest = serde_json::from_value(task_request_data)
             .map_err(|e| format!("Invalid TaskRequest JSON: {e}"))?;
 
-        // 2. Get the task name before moving the task_request
-        let task_name = task_request.name.clone();
-
-        // 3. Use the proper from_task_request method to build NewTask
-        let new_task = Task::from_task_request(task_request);
-
-        // 4. Create Task record in database using proper method
-        let task = Task::create(&pool, new_task)
-            .await
-            .map_err(|e| format!("Failed to create Task: {e}"))?;
-
-        let task_id = task.task_id;
-
-        let handler_config = match self.load_handler_configuration(&task_name).await {
-            Ok(config) => config,
-            Err(_) => {
-                // If no YAML config found, create minimal task
-                return Ok((task_id, 0));
-            }
-        };
-
-        // 5. Create WorkflowSteps from step templates with proper DAG relationships
-        let mut step_map: HashMap<String, i64> = HashMap::new();
-        let mut step_count = 0;
-
-        // Create all steps first (no dependencies yet)
-        for step_template in &handler_config.step_templates {
-            // Ensure named step exists
-            let named_step = NamedStep::find_or_create(
-                &pool,
-                tasker_core::models::core::named_step::NewNamedStep {
-                    dependent_system_id: 1, // Default system ID - TODO: resolve from config
-                    name: step_template.name.clone(),
-                    description: step_template.description.clone(),
-                },
-            )
-            .await
-            .map_err(|e| format!("Failed to create NamedStep '{}': {}", step_template.name, e))?;
-
-            let new_workflow_step = NewWorkflowStep {
-                task_id,
-                named_step_id: named_step.named_step_id,
-                retryable: step_template.default_retryable,
-                retry_limit: step_template.default_retry_limit,
-                inputs: step_template.handler_config.clone(),
-                skippable: step_template.skippable,
-            };
-
-            let workflow_step = WorkflowStep::create(&pool, new_workflow_step)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "Failed to create WorkflowStep '{}': {}",
-                        step_template.name, e
-                    )
-                })?;
-
-            step_map.insert(step_template.name.clone(), workflow_step.workflow_step_id);
-            step_count += 1;
-        }
-
-        // 6. Create WorkflowStepEdges for DAG relationships
-        for step_template in &handler_config.step_templates {
-            let to_step_id = step_map[&step_template.name];
-
-            // Create edges for all dependencies using StepTemplate.all_dependencies()
-            for dependency_name in step_template.all_dependencies() {
-                if let Some(&from_step_id) = step_map.get(&dependency_name) {
-                    let edge = NewWorkflowStepEdge {
-                        from_step_id,
-                        to_step_id,
-                        name: "provides".to_string(), // Standard edge name
-                    };
-
-                    WorkflowStepEdge::create(&pool, edge).await.map_err(|e| {
-                        format!(
-                            "Failed to create edge '{}' -> '{}': {}",
-                            dependency_name, step_template.name, e
-                        )
-                    })?;
-                }
-            }
-        }
-
-        // 7. Create initial state machine entries (PENDING state)
-        // Task should start in PENDING state
-
-        let task_transition = NewTaskTransition {
-            task_id,
-            to_state: "pending".to_string(),
-            from_state: None,
-            metadata: Some(serde_json::json!({
+        // 2. Create TaskInitializer with Ruby-specific configuration
+        let config = TaskInitializationConfig {
+            default_system_id: 1, // Default system ID for Ruby bindings
+            initialize_state_machine: true,
+            event_metadata: Some(serde_json::json!({
                 "initialization": true,
-                "created_by": "ruby_task_initializer"
+                "created_by": "ruby_bindings",
+                "source": "ruby_task_handler",
+                "version": env!("CARGO_PKG_VERSION")
             })),
         };
 
-        TaskTransition::create(&pool, task_transition)
+        let initializer = TaskInitializer::with_config(pool, config);
+
+        // 3. Use TaskInitializer for atomic task creation
+        let result = initializer
+            .create_task_from_request(task_request)
             .await
-            .map_err(|e| format!("Failed to create initial task transition: {e}"))?;
+            .map_err(|e| format!("Task initialization failed: {e}"))?;
 
-        // Create initial state transitions for all workflow steps
-        for &workflow_step_id in step_map.values() {
-            let step_transition = NewWorkflowStepTransition {
-                workflow_step_id,
-                to_state: "pending".to_string(),
-                from_state: None,
-                metadata: Some(serde_json::json!({
-                    "initialization": true,
-                    "created_by": "ruby_task_initializer"
-                })),
-            };
-
-            WorkflowStepTransition::create(&pool, step_transition)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "Failed to create initial step transition for step {workflow_step_id}: {e}"
-                    )
-                })?;
-        }
-
-        Ok((task_id, step_count))
+        // 4. Return the same format as the previous implementation for Ruby compatibility
+        Ok((result.task_id, result.step_count))
     }
 
     /// Load handler configuration from YAML files

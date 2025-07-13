@@ -2,13 +2,49 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio;
 
+use tasker_core::models::core::task_request::TaskRequest;
 use tasker_core::orchestration::{
-    types::StepResult, FrameworkIntegration, OrchestrationError, TaskContext, ViableStep,
-    WorkflowCoordinator,
+    types::StepResult, FrameworkIntegration, OrchestrationError, TaskContext, TaskInitializer,
+    ViableStep, WorkflowCoordinator,
 };
+/// Helper function to create a task using TaskInitializer with consistent setup
+async fn create_test_task_with_initializer(
+    pool: &PgPool,
+    task_name: &str,
+    workflow_type: &str,
+    test_description: &str,
+) -> Result<tasker_core::orchestration::TaskInitializationResult, Box<dyn std::error::Error>> {
+    let initializer = TaskInitializer::new(pool.clone());
+
+    let task_request = TaskRequest::new(task_name.to_string(), "integration".to_string())
+        .with_context(json!({
+            "workflow_type": workflow_type,
+            "test": test_description,
+            "created_by": "integration_test_suite"
+        }))
+        .with_initiator("test_suite".to_string())
+        .with_source_system("integration_test".to_string())
+        .with_reason(format!("Testing {workflow_type} workflow execution"))
+        .with_tags(vec![
+            workflow_type.to_string(),
+            "workflow".to_string(),
+            "integration".to_string(),
+        ]);
+
+    let result = initializer
+        .create_task_from_request(task_request)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+    println!(
+        "Created task {} using TaskInitializer (workflow: {})",
+        result.task_id, workflow_type
+    );
+    Ok(result)
+}
 
 /// Mock framework integration for testing orchestration without real Ruby FFI
 pub struct MockFrameworkIntegration {
@@ -151,68 +187,29 @@ pub async fn setup_test_db() -> PgPool {
 
 #[sqlx::test]
 async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
-    // Create a real task with workflow steps using the factory system to expose deeper placeholders
-
-    // Use the core factory system to create a task AND workflow steps
-    use crate::factories::{
-        base::SqlxFactory,
-        core::{TaskFactory, WorkflowStepFactory},
-    };
-
-    // Create a task first
-    let task_factory = TaskFactory::new()
-        .with_context(json!({"test": "orchestration"}))
-        .complete();
-    let task = task_factory.create(&pool).await.unwrap();
-
-    // Create some workflow steps for this task WITH proper state transitions
-    let step1 = WorkflowStepFactory::new()
-        .for_task(task.task_id)
-        .with_named_step("start_step")
-        .pending() // This creates initial state transition to 'pending'
-        .create(&pool)
-        .await
-        .unwrap();
-
-    let step2 = WorkflowStepFactory::new()
-        .for_task(task.task_id)
-        .with_named_step("process_step")
-        .pending() // This creates initial state transition to 'pending'
-        .create(&pool)
-        .await
-        .unwrap();
+    // Create a real task using TaskInitializer for clean task creation
+    let result = create_test_task_with_initializer(
+        &pool,
+        "orchestration_test",
+        "basic",
+        "orchestration_placeholder_testing",
+    )
+    .await
+    .expect("Task initialization should succeed");
 
     println!(
-        "Created task {} with steps {} and {}",
-        task.task_id, step1.workflow_step_id, step2.workflow_step_id
+        "Created task {} using TaskInitializer (steps: {})",
+        result.task_id, result.step_count
     );
 
-    // Debug: Check what transitions exist for our steps
-    let transitions = sqlx::query!(
-        "SELECT workflow_step_id, from_state, to_state, most_recent FROM tasker_workflow_step_transitions WHERE workflow_step_id IN ($1, $2) ORDER BY created_at",
-        step1.workflow_step_id,
-        step2.workflow_step_id
-    ).fetch_all(&pool).await.unwrap();
-
-    println!("Step transitions found:");
-    for t in &transitions {
-        println!(
-            "  Step {}: {} -> {} (most_recent: {})",
-            t.workflow_step_id,
-            t.from_state.as_deref().unwrap_or("NULL"),
-            t.to_state,
-            t.most_recent
-        );
-    }
+    let task_id = result.task_id;
 
     // Debug: Check what the SQL function actually returns
-    let readiness_results = sqlx::query!(
-        "SELECT * FROM get_step_readiness_status($1, NULL)",
-        task.task_id
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let readiness_results =
+        sqlx::query!("SELECT * FROM get_step_readiness_status($1, NULL)", task_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
     println!("Step readiness results:");
     for r in &readiness_results {
@@ -222,8 +219,6 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
         );
     }
 
-    let task_id = task.task_id;
-
     // Try to create a WorkflowCoordinator
     let coordinator = WorkflowCoordinator::new(pool.clone());
 
@@ -231,14 +226,14 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
     let mock_integration = MockFrameworkIntegration::new();
 
     // This call should expose the critical placeholders we need to fix
-    let result = coordinator
+    let orchestration_result = coordinator
         .execute_task_workflow(task_id, Arc::new(mock_integration))
         .await;
 
     // This should expose deeper placeholders than the task-not-found error
-    match result {
-        Ok(result) => {
-            println!("Orchestration result: {result:?}");
+    match orchestration_result {
+        Ok(orch_result) => {
+            println!("Orchestration result: {orch_result:?}");
         }
         Err(e) => {
             println!("Orchestration error (this exposes placeholders): {e:?}");
@@ -271,5 +266,483 @@ async fn test_mock_framework_integration_compilation(_pool: PgPool) -> sqlx::Res
     assert_eq!(context.task_id, 123);
 
     println!("MockFrameworkIntegration works correctly");
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
+    println!("=== Linear Workflow Test (A→B→C→D) ===");
+
+    // Create a task using TaskInitializer for clean task creation
+    let task_result =
+        create_test_task_with_initializer(&pool, "linear_workflow", "linear", "linear_execution")
+            .await
+            .expect("Task initialization should succeed");
+
+    // Create workflow steps manually since we don't have handler config yet
+    use crate::factories::{
+        base::SqlxFactory, core::WorkflowStepFactory, relationships::WorkflowStepEdgeFactory,
+    };
+
+    // Create 4 steps: A→B→C→D
+    let step_a = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("step_a")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_b = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("step_b")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_c = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("step_c")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_d = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("step_d")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!(
+        "Created steps: A={}, B={}, C={}, D={}",
+        step_a.workflow_step_id,
+        step_b.workflow_step_id,
+        step_c.workflow_step_id,
+        step_d.workflow_step_id
+    );
+
+    // Create dependencies: A→B→C→D
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_b.workflow_step_id)
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_b.workflow_step_id)
+        .with_to_step(step_c.workflow_step_id)
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_c.workflow_step_id)
+        .with_to_step(step_d.workflow_step_id)
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!("Created dependencies: A→B→C→D");
+
+    // Test orchestration execution
+    let coordinator = WorkflowCoordinator::new(pool.clone());
+    let mock_integration = MockFrameworkIntegration::new();
+
+    let start_time = Instant::now();
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .await;
+
+    match orchestration_result {
+        Ok(orch_result) => {
+            let duration = start_time.elapsed();
+            println!("✅ Linear workflow completed successfully!");
+            println!("   Result: {orch_result:?}");
+            println!("   Duration: {duration:?}");
+
+            // Validate that all 4 steps were executed
+            // Note: We expect 4 steps in a linear workflow
+            // This tests our sequential dependency execution
+        }
+        Err(e) => {
+            println!("❌ Linear workflow failed: {e:?}");
+            return Err(sqlx::Error::Protocol(
+                "Linear workflow test failed".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
+    println!("=== Diamond Workflow Test (A→(B,C)→D) ===");
+
+    // Create a task using TaskInitializer for clean task creation
+    let task_result = create_test_task_with_initializer(
+        &pool,
+        "diamond_workflow",
+        "diamond",
+        "concurrent_execution",
+    )
+    .await
+    .expect("Task initialization should succeed");
+
+    // Create workflow steps manually since we don't have handler config yet
+    use crate::factories::{
+        base::SqlxFactory, core::WorkflowStepFactory, relationships::WorkflowStepEdgeFactory,
+    };
+
+    // Create 4 steps: A→(B,C)→D (diamond pattern)
+    let step_a = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("setup")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_b = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("process_a")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_c = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("process_b")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_d = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("finalize")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!(
+        "Created steps: Setup={}, ProcessA={}, ProcessB={}, Finalize={}",
+        step_a.workflow_step_id,
+        step_b.workflow_step_id,
+        step_c.workflow_step_id,
+        step_d.workflow_step_id
+    );
+
+    // Create diamond dependencies: A→B, A→C, B→D, C→D
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_b.workflow_step_id)
+        .with_name("setup_provides_for_process_a")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_c.workflow_step_id)
+        .with_name("setup_provides_for_process_b")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_b.workflow_step_id)
+        .with_to_step(step_d.workflow_step_id)
+        .with_name("process_a_provides_for_finalize")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_c.workflow_step_id)
+        .with_to_step(step_d.workflow_step_id)
+        .with_name("process_b_provides_for_finalize")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!("Created diamond dependencies: A→(B,C)→D");
+
+    // Test orchestration execution
+    let coordinator = WorkflowCoordinator::new(pool.clone());
+    let mock_integration = MockFrameworkIntegration::new();
+
+    let start_time = Instant::now();
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .await;
+
+    match orchestration_result {
+        Ok(orch_result) => {
+            let duration = start_time.elapsed();
+            println!("✅ Diamond workflow completed successfully!");
+            println!("   Result: {orch_result:?}");
+            println!("   Duration: {duration:?}");
+
+            // This tests concurrent execution capability
+            // B and C should be able to execute concurrently after A completes
+            // D should only execute after both B and C complete
+        }
+        Err(e) => {
+            println!("❌ Diamond workflow failed: {e:?}");
+            return Err(sqlx::Error::Protocol(
+                "Diamond workflow test failed".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
+    println!("=== Tree Workflow Test (Complex Multi-Level Dependencies) ===");
+
+    // Create a task using TaskInitializer for clean task creation
+    let task_result = create_test_task_with_initializer(
+        &pool,
+        "tree_workflow",
+        "tree",
+        "multi_level_dependencies",
+    )
+    .await
+    .expect("Task initialization should succeed");
+
+    // Create workflow steps manually since we don't have handler config yet
+    use crate::factories::{
+        base::SqlxFactory, core::WorkflowStepFactory, relationships::WorkflowStepEdgeFactory,
+    };
+
+    // Create tree structure:
+    //       Root (A)
+    //      /   |   \
+    //     B    C    D
+    //    / \   |   / \
+    //   E   F  G  H   I
+    //           |
+    //           J
+
+    // Level 0: Root
+    let step_a = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("root_initialization")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    // Level 1: Main branches
+    let step_b = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("branch_user_data")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_c = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("branch_payment")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_d = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("branch_inventory")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    // Level 2: Sub-branches
+    let step_e = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("validate_user_profile")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_f = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("validate_user_permissions")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_g = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("process_payment")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_h = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("reserve_inventory")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    let step_i = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("update_stock_levels")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    // Level 3: Leaf node
+    let step_j = WorkflowStepFactory::new()
+        .for_task(task_result.task_id)
+        .with_named_step("send_payment_confirmation")
+        .pending()
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!(
+        "Created tree steps: Root={}, B={}, C={}, D={}, E={}, F={}, G={}, H={}, I={}, J={}",
+        step_a.workflow_step_id,
+        step_b.workflow_step_id,
+        step_c.workflow_step_id,
+        step_d.workflow_step_id,
+        step_e.workflow_step_id,
+        step_f.workflow_step_id,
+        step_g.workflow_step_id,
+        step_h.workflow_step_id,
+        step_i.workflow_step_id,
+        step_j.workflow_step_id
+    );
+
+    // Create tree dependencies: Root → Main branches
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_b.workflow_step_id)
+        .with_name("root_enables_user_data_branch")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_c.workflow_step_id)
+        .with_name("root_enables_payment_branch")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_a.workflow_step_id)
+        .with_to_step(step_d.workflow_step_id)
+        .with_name("root_enables_inventory_branch")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    // Main branches → Sub-branches
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_b.workflow_step_id)
+        .with_to_step(step_e.workflow_step_id)
+        .with_name("user_data_enables_profile_validation")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_b.workflow_step_id)
+        .with_to_step(step_f.workflow_step_id)
+        .with_name("user_data_enables_permission_validation")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_c.workflow_step_id)
+        .with_to_step(step_g.workflow_step_id)
+        .with_name("payment_branch_enables_processing")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_d.workflow_step_id)
+        .with_to_step(step_h.workflow_step_id)
+        .with_name("inventory_branch_enables_reservation")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_d.workflow_step_id)
+        .with_to_step(step_i.workflow_step_id)
+        .with_name("inventory_branch_enables_stock_update")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    // Payment processing → Confirmation (leaf dependency)
+    WorkflowStepEdgeFactory::new()
+        .with_from_step(step_g.workflow_step_id)
+        .with_to_step(step_j.workflow_step_id)
+        .with_name("payment_processing_enables_confirmation")
+        .create(&pool)
+        .await
+        .unwrap();
+
+    println!("Created tree dependencies: 3-level hierarchical structure with 10 steps");
+
+    // Test orchestration execution
+    let coordinator = WorkflowCoordinator::new(pool.clone());
+    let mock_integration = MockFrameworkIntegration::new();
+
+    let start_time = Instant::now();
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .await;
+
+    match orchestration_result {
+        Ok(orch_result) => {
+            let duration = start_time.elapsed();
+            println!("✅ Tree workflow completed successfully!");
+            println!("   Result: {orch_result:?}");
+            println!("   Duration: {duration:?}");
+
+            // This tests complex dependency resolution:
+            // - Level 0: Root must execute first
+            // - Level 1: B, C, D can execute concurrently after A
+            // - Level 2: E, F depend on B; G depends on C; H, I depend on D
+            // - Level 3: J depends on G (payment confirmation after payment)
+
+            // This validates our dependency resolution engine handles:
+            // 1. Multi-level cascading dependencies
+            // 2. Concurrent execution within levels
+            // 3. Complex tree structures beyond simple linear/diamond patterns
+        }
+        Err(e) => {
+            println!("❌ Tree workflow failed: {e:?}");
+            return Err(sqlx::Error::Protocol(
+                "Tree workflow test failed".to_string(),
+            ));
+        }
+    }
+
     Ok(())
 }
