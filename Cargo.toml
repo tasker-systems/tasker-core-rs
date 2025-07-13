@@ -1,3 +1,11 @@
+[workspace]
+members = [
+    ".",
+    # Note: bindings/ruby/ext/tasker_core is excluded - it has its own workspace for Ruby extension build
+    # "bindings/python",  # Future
+    # "bindings/wasm",    # Future
+]
+
 [package]
 name = "tasker-core-rs"
 version = "0.1.0"

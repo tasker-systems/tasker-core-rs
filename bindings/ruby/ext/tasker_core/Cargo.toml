@@ -1,0 +1,39 @@
+[workspace]
+# Empty workspace table to exclude from parent workspace
+
+[package]
+name = "tasker_core_rb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
+description = "Ruby bindings for tasker-core-rs: High-performance workflow orchestration"
+license = "MIT"
+
+[lib]
+name = "tasker_core_rb"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core library dependency (relative path to parent)
+tasker-core = { path = "../../../..", package = "tasker-core-rs" }
+
+# Ruby FFI
+magnus = "0.7"
+
+# Database (needed for PgPool)
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres"] }
+
+# Async runtime for blocking on futures in FFI
+tokio = { version = "1.46", features = ["rt-multi-thread"] }
+
+# Serialization for Ruby ↔ Rust data conversion
+serde_json = "1.0"
+
+# Time handling for Ruby Time ↔ Rust DateTime conversion
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async trait for FrameworkIntegration implementation
+async-trait = "0.1"
+
+# Error handling
+thiserror = "2.0"

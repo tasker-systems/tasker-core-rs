@@ -1,0 +1,270 @@
+//! # Error Translation Layer
+//!
+//! Provides translation between Rust error types and Ruby exceptions,
+//! maintaining error context and stack traces across the FFI boundary.
+//! Supports permanent vs retryable error classification for proper orchestration behavior.
+
+use magnus::{exception, Error, RHash};
+use serde_json;
+
+/// Translate common Rust error types to appropriate Ruby exceptions
+///
+/// This function provides a foundation for error translation that can be
+/// extended when the full orchestration error types are integrated.
+pub fn translate_error(error_message: &str, error_type: &str) -> Error {
+    match error_type {
+        "database" => Error::new(
+            exception::standard_error(),
+            format!("Database error: {}", error_message),
+        ),
+        "state_transition" => Error::new(
+            exception::standard_error(),
+            format!("State transition error: {}", error_message),
+        ),
+        "validation" => Error::new(
+            exception::arg_error(),
+            format!("Validation error: {}", error_message),
+        ),
+        "timeout" => Error::new(
+            exception::standard_error(),
+            format!("Timeout error: {}", error_message),
+        ),
+        "ffi" => Error::new(
+            exception::standard_error(),
+            format!("FFI error: {}", error_message),
+        ),
+        _ => Error::new(
+            exception::standard_error(),
+            format!("Orchestration error: {}", error_message),
+        ),
+    }
+}
+
+/// Translate generic Rust errors to Ruby FFI errors
+pub fn translate_generic_error(rust_error: &dyn std::error::Error) -> Error {
+    Error::new(
+        exception::standard_error(),
+        format!("FFI error: {}", rust_error),
+    )
+}
+
+/// Create a Ruby validation error
+pub fn validation_error(message: String) -> Error {
+    Error::new(exception::arg_error(), message)
+}
+
+/// Create a Ruby timeout error
+pub fn timeout_error(operation: String, duration_ms: u64) -> Error {
+    Error::new(
+        exception::standard_error(),
+        format!("Timeout: {} exceeded {}ms", operation, duration_ms),
+    )
+}
+
+/// Create a Ruby database error
+pub fn database_error(message: String) -> Error {
+    Error::new(
+        exception::standard_error(),
+        format!("Database error: {}", message),
+    )
+}
+
+// ============================================================================
+// STEP HANDLER ERROR CLASSIFICATION (for orchestration integration)
+// ============================================================================
+
+/// Rust representation of error classification for orchestration decisions
+/// This mirrors the Rails engine's RetryableError vs PermanentError distinction
+#[derive(Debug, Clone)]
+pub enum ErrorClassification {
+    /// Temporary failures that should be retried with backoff
+    Retryable {
+        retry_after: Option<u64>,   // Server-suggested delay in seconds
+        error_category: String,     // Category for grouping (network, rate_limit, etc.)
+        context: serde_json::Value, // Additional context for debugging
+    },
+    /// Permanent failures that should NOT be retried
+    Permanent {
+        error_code: Option<String>, // Machine-readable error code
+        error_category: String,     // Category for grouping (validation, auth, etc.)
+        context: serde_json::Value, // Additional context for debugging
+    },
+}
+
+impl ErrorClassification {
+    /// Check if this error should be retried
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, ErrorClassification::Retryable { .. })
+    }
+
+    /// Get effective retry delay for retryable errors
+    pub fn effective_retry_delay(&self, attempt_number: u32) -> Option<u64> {
+        match self {
+            ErrorClassification::Retryable { retry_after, .. } => {
+                if let Some(delay) = retry_after {
+                    Some(*delay)
+                } else {
+                    // Exponential backoff: 2^attempt with max of 300 seconds (5 minutes)
+                    Some(std::cmp::min(2_u64.pow(attempt_number), 300))
+                }
+            }
+            ErrorClassification::Permanent { .. } => None,
+        }
+    }
+
+    /// Get error category for monitoring and grouping
+    pub fn category(&self) -> &str {
+        match self {
+            ErrorClassification::Retryable { error_category, .. } => error_category,
+            ErrorClassification::Permanent { error_category, .. } => error_category,
+        }
+    }
+
+    /// Get error code for permanent errors
+    pub fn error_code(&self) -> Option<&str> {
+        match self {
+            ErrorClassification::Permanent { error_code, .. } => error_code.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Check if server requested specific retry timing
+    pub fn has_server_suggested_retry(&self) -> bool {
+        match self {
+            ErrorClassification::Retryable { retry_after, .. } => retry_after.is_some(),
+            _ => false,
+        }
+    }
+}
+
+/// Create a retryable error for step handler failures
+/// TODO: This is a STUB - needs full integration with Ruby exception objects
+/// Real implementation should set attributes on the Ruby RetryableError instance
+pub fn retryable_error(
+    message: String,
+    retry_after: Option<u64>,
+    error_category: Option<String>,
+    _context: Option<RHash>,
+) -> Error {
+    let category = error_category.unwrap_or_else(|| "unknown".to_string());
+    let full_message = if let Some(delay) = retry_after {
+        format!(
+            "{} (retry after {}s, category: {})",
+            message, delay, category
+        )
+    } else {
+        format!("{} (category: {})", message, category)
+    };
+
+    // TODO: Create actual TaskerCore::RetryableError with attributes
+    Error::new(exception::standard_error(), full_message)
+}
+
+/// Create a permanent error for step handler failures
+/// TODO: This is a STUB - needs full integration with Ruby exception objects
+/// Real implementation should set attributes on the Ruby PermanentError instance
+pub fn permanent_error(
+    message: String,
+    error_code: Option<String>,
+    error_category: Option<String>,
+    _context: Option<RHash>,
+) -> Error {
+    let category = error_category.unwrap_or_else(|| "unknown".to_string());
+    let full_message = if let Some(code) = error_code {
+        format!("{} (code: {}, category: {})", message, code, category)
+    } else {
+        format!("{} (category: {})", message, category)
+    };
+
+    // TODO: Create actual TaskerCore::PermanentError with attributes
+    Error::new(exception::standard_error(), full_message)
+}
+
+/// Classify HTTP status codes into permanent vs retryable errors
+/// This mirrors the Rails engine's ResponseProcessor classification
+pub fn classify_http_error(
+    status_code: u16,
+    message: String,
+    response_body: Option<&str>,
+    retry_after_header: Option<u64>,
+) -> ErrorClassification {
+    match status_code {
+        // Success codes (shouldn't be called for these, but handle gracefully)
+        200..=226 => ErrorClassification::Retryable {
+            retry_after: None,
+            error_category: "unexpected_success".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "message": message
+            }),
+        },
+        // Rate limiting and service unavailable - retry with backoff
+        429 => ErrorClassification::Retryable {
+            retry_after: retry_after_header,
+            error_category: "rate_limit".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        503 => ErrorClassification::Retryable {
+            retry_after: retry_after_header,
+            error_category: "service_unavailable".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        // Client errors - permanent (don't retry)
+        400 => ErrorClassification::Permanent {
+            error_code: Some(format!("HTTP_{}", status_code)),
+            error_category: "validation".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        401 | 403 => ErrorClassification::Permanent {
+            error_code: Some(format!("HTTP_{}", status_code)),
+            error_category: "authorization".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        404 => ErrorClassification::Permanent {
+            error_code: Some(format!("HTTP_{}", status_code)),
+            error_category: "not_found".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        422 => ErrorClassification::Permanent {
+            error_code: Some(format!("HTTP_{}", status_code)),
+            error_category: "validation".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        // Other server errors - retry without forced backoff
+        500..=599 => ErrorClassification::Retryable {
+            retry_after: None,
+            error_category: "server_error".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+        // Unknown status codes - treat as retryable
+        _ => ErrorClassification::Retryable {
+            retry_after: None,
+            error_category: "unknown".to_string(),
+            context: serde_json::json!({
+                "status_code": status_code,
+                "response_body": response_body
+            }),
+        },
+    }
+}

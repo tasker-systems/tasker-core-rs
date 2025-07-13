@@ -1,0 +1,231 @@
+name: Ruby Gem Build and Test
+
+on:
+  push:
+    branches: [ main, orchestration ]
+    paths:
+      - 'bindings/ruby/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - '.github/workflows/ruby-gem.yml'
+  pull_request:
+    branches: [ main, orchestration ]
+    paths:
+      - 'bindings/ruby/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - '.github/workflows/ruby-gem.yml'
+
+defaults:
+  run:
+    working-directory: bindings/ruby
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        ruby: ['3.0', '3.1', '3.2', '3.3']
+        include:
+          # Test on Windows with latest Ruby only (compilation is complex)
+          - os: windows-latest
+            ruby: '3.3'
+
+    runs-on: ${{ matrix.os }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tasker_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tasker_test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-ruby-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        bundler-cache: true
+        working-directory: bindings/ruby
+
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpq-dev
+
+    - name: Install system dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install postgresql
+
+    - name: Install system dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        # Windows PostgreSQL setup would go here
+        echo "Windows PostgreSQL setup"
+
+    - name: Set up database
+      run: |
+        # Run migrations from the core Rust project
+        cd ../..
+        cargo install sqlx-cli --no-default-features --features native-tls,postgres
+        sqlx migrate run
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+
+    - name: Check Rust formatting
+      run: |
+        cd ../..
+        cargo fmt --check
+
+    - name: Run Rust clippy
+      run: |
+        cd ../..
+        cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Build Ruby extension
+      run: |
+        bundle exec rake compile
+
+    - name: Run Ruby tests
+      run: |
+        bundle exec rspec
+
+    - name: Run integration tests
+      run: |
+        bundle exec rake test:integration
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+
+    - name: Test gem installation
+      run: |
+        gem build tasker-core-rb.gemspec
+        gem install tasker-core-rb-*.gem
+
+  # Performance benchmarks (only on Linux with Ruby 3.3)
+  benchmark:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tasker_benchmark
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tasker_benchmark
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3'
+        bundler-cache: true
+        working-directory: bindings/ruby
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpq-dev
+
+    - name: Set up database
+      run: |
+        cd ../..
+        cargo install sqlx-cli --no-default-features --features native-tls,postgres
+        sqlx migrate run
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+
+    - name: Build Ruby extension (release mode)
+      run: |
+        CARGO_PROFILE_RELEASE_LTO=true bundle exec rake compile
+      env:
+        RUBY_CC_VERSION: 3.3.0
+
+    - name: Run performance benchmarks
+      run: |
+        bundle exec rake benchmark
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: bindings/ruby/benchmark-results.json
+
+  # Security audit
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Security audit
+      run: |
+        cd ../..
+        cargo install cargo-audit
+        cargo audit
+
+    - name: Check for known vulnerabilities in Ruby dependencies
+      run: |
+        gem install bundler-audit
+        bundle audit check --update
+      working-directory: bindings/ruby
