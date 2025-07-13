@@ -23,17 +23,17 @@
 //! ```rust
 //! use tasker_core::orchestration::TaskInitializer;
 //! use tasker_core::orchestration::handler_config::HandlerConfiguration;
-//! use tasker_core::models::TaskRequest;
+//! use tasker_core::models::core::task_request::TaskRequest;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/nonexistent").await?;
 //! let initializer = TaskInitializer::new(pool.clone());
 //!
-//! let task_request = TaskRequest {
-//!     name: "order_processor".to_string(),
-//!     context: serde_json::json!({"order_id": 12345}),
-//!     // ... other fields
-//! };
+//! let task_request = TaskRequest::new("order_processor".to_string(), "default".to_string())
+//!     .with_context(serde_json::json!({"order_id": 12345}))
+//!     .with_initiator("test_user".to_string())
+//!     .with_source_system("test_system".to_string())
+//!     .with_reason("Example usage".to_string());
 //!
 //! let result = initializer.create_task_from_request(task_request).await?;
 //! println!("Created task {} with {} steps", result.task_id, result.step_count);
