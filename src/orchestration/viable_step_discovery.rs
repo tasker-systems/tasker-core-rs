@@ -243,7 +243,7 @@ impl ViableStepDiscovery {
 
         // Apply priority filter (using named_step_id as priority)
         if let Some(min_priority) = min_priority {
-            viable_steps.retain(|step| step.named_step_id >= min_priority.into());
+            viable_steps.retain(|step| step.named_step_id >= min_priority);
         }
 
         // Apply step name filter

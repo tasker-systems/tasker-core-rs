@@ -54,6 +54,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Development Context (January 2025)
 
+### Testing-Driven Development Success 🎯
+**Approach**: Using comprehensive integration tests to systematically expose and fix critical placeholders
+**Philosophy**: Test failures are documentation - they show us exactly what needs to be implemented
+**Results**: Methodical identification and resolution of system-breaking issues
+
+### Critical Placeholders Fixed Through Testing ✅
+1. **SQL Schema Alignment** - Fixed `error_steps` vs `failed_steps` column mismatch in TaskExecutionContext
+2. **Type System Integrity** - Fixed BigDecimal to f64 conversion in TaskFinalizer 
+3. **SQL Type Compatibility** - Fixed `named_step_id` i64 vs i32 mismatch across all components
+4. **Database Function Integration** - Verified get_task_execution_context SQL function alignment
+
+### Current Active Investigation 🔍
+**Step State Initialization Issue**: Integration tests reveal workflow steps are in 'unknown' state instead of expected 'pending' state
+- **Error**: `StateTransitionError { step_id: 1, reason: "Step 1 is in invalid state 'unknown', expected one of: [\"pending\", \"in_progress\"]" }`
+- **Root Cause**: Either WorkflowStepFactory initialization or SQL function state retrieval issue
+- **Test Case**: `test_orchestration_with_real_task` successfully creates task + steps but orchestration fails on state validation
+
 ### Foundation Complete ✅
 - **Multi-workspace Architecture**: Main core + Ruby extension workspaces
 - **Ruby FFI Integration**: Magnus-based bindings with proper build system  
@@ -63,13 +80,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Database Layer**: Models, scopes, and SQL functions implemented
 - **Git Infrastructure**: Multi-workspace validation hooks and build artifacts management
 
-### Critical Gaps (Current Focus) 🚧
-Based on comprehensive placeholder analysis, these must be fixed before meaningful testing:
-
-1. **State Machine Integration** - Client handlers can't transition states (workflow execution broken)
-2. **Event Publishing System** - All publishing stubbed as no-ops (no monitoring possible)
-3. **Ruby Step Delegation** - Placeholder step execution (can't run Ruby handlers from Rust)
-4. **Configuration Hardcoding** - Prevents production deployment with environment-specific settings
+### Integration Test Infrastructure ✅
+- **MockFrameworkIntegration**: Complete test framework integration for orchestration testing
+- **Real Task Creation**: Factory system properly creates tasks with workflow steps
+- **Orchestration Flow**: End-to-end test successfully reaches step state validation
+- **Systematic Discovery**: Each test run exposes the next critical placeholder requiring implementation
 
 ### Implementation Status
 

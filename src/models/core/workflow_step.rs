@@ -756,7 +756,7 @@ impl WorkflowStep {
             Ok(TaskCompletionStats {
                 total_steps: context.total_steps,
                 completed_steps: context.completed_steps,
-                failed_steps: context.error_steps,
+                failed_steps: context.failed_steps,
                 pending_steps: context.pending_steps,
                 latest_completion_time,
                 all_complete: context.is_complete(),

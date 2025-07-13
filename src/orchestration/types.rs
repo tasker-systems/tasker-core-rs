@@ -76,14 +76,14 @@ pub struct ViableStep {
     pub step_id: i64,
     pub task_id: i64,
     pub name: String,
-    pub named_step_id: i64,
+    pub named_step_id: i32,
     pub current_state: String,
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
     pub attempts: i32,
     pub retry_limit: i32,
-    pub last_failure_at: Option<DateTime<Utc>>,
-    pub next_retry_at: Option<DateTime<Utc>>,
+    pub last_failure_at: Option<chrono::NaiveDateTime>,
+    pub next_retry_at: Option<chrono::NaiveDateTime>,
 }
 
 /// Task execution context from SQL functions

@@ -424,13 +424,19 @@ impl TaskFinalizer {
                 task_id,
                 execution_status: sql_context.recommended_action.clone(), // Use recommended_action as a proxy for status
                 health_status: Some("healthy".to_string()),               // Default health status
-                completion_percentage: Some(sql_context.completion_percentage),
+                completion_percentage: Some(
+                    sql_context
+                        .completion_percentage
+                        .to_string()
+                        .parse::<f64>()
+                        .unwrap_or(0.0),
+                ),
                 total_steps: Some(sql_context.total_steps as i32),
                 ready_steps: Some(sql_context.ready_steps as i32),
                 pending_steps: Some(sql_context.pending_steps as i32),
                 in_progress_steps: Some(0), // Not available in SQL context
                 completed_steps: Some(sql_context.completed_steps as i32),
-                failed_steps: Some(sql_context.error_steps as i32),
+                failed_steps: Some(sql_context.failed_steps as i32),
                 recommended_action: Some(sql_context.recommended_action),
             })),
             Ok(None) => Ok(None), // No context available

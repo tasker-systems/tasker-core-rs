@@ -52,24 +52,25 @@ async fn test_system_health_score_calculation(_pool: sqlx::PgPool) -> sqlx::Resu
 async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result<()> {
     let context = TaskExecutionContext {
         task_id: 1,
+        named_task_id: 100,
+        status: "in_progress".to_string(),
         total_steps: 10,
-        completed_steps: 8,
         pending_steps: 2,
-        error_steps: 0,
+        in_progress_steps: 0,
+        completed_steps: 8,
+        failed_steps: 0,
         ready_steps: 2,
-        blocked_steps: 0,
-        completion_percentage: 80.0,
-        estimated_duration_seconds: Some(300),
+        execution_status: "has_ready_steps".to_string(),
         recommended_action: "execute_ready_steps".to_string(),
-        next_steps_to_execute: vec![9, 10],
-        critical_path_steps: vec![9],
-        bottleneck_steps: vec![],
+        completion_percentage: sqlx::types::BigDecimal::from(80),
+        health_status: "healthy".to_string(),
     };
 
     assert!(context.can_proceed());
     assert!(!context.is_complete());
     assert!(!context.is_blocked());
-    assert_eq!(context.get_priority_steps(), &[9]);
+    assert_eq!(context.get_execution_status(), "has_ready_steps");
+    assert_eq!(context.get_health_status(), "healthy");
     Ok(())
 }
 

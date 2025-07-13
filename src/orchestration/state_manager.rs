@@ -189,10 +189,30 @@ impl StateManager {
     ) -> OrchestrationResult<StateEvaluationResult> {
         debug!(step_id = step_id, "Evaluating step state");
 
-        // 1. Get step readiness status from SQL function
+        // 1. First get the task_id for this step
+        let task_id_result = sqlx::query!(
+            "SELECT task_id FROM tasker_workflow_steps WHERE workflow_step_id = $1",
+            step_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| OrchestrationError::DatabaseError {
+            operation: "get_task_id_for_step".to_string(),
+            reason: e.to_string(),
+        })?;
+
+        let task_id = task_id_result
+            .ok_or_else(|| OrchestrationError::InvalidStepState {
+                step_id,
+                current_state: "unknown".to_string(),
+                expected_states: vec!["pending".to_string(), "in_progress".to_string()],
+            })?
+            .task_id;
+
+        // 2. Get step readiness status from SQL function with correct task_id
         let readiness_statuses = self
             .sql_executor
-            .get_step_readiness_status(0, Some(vec![step_id])) // 0 for task_id when filtering by step_id
+            .get_step_readiness_status(task_id, Some(vec![step_id]))
             .await
             .map_err(|e| OrchestrationError::SqlFunctionError {
                 function_name: "get_step_readiness_status".to_string(),
@@ -419,8 +439,8 @@ impl StateManager {
             }
             TaskState::InProgress => {
                 // Check for completion or failure
-                if context.error_steps > 0
-                    && context.completed_steps + context.error_steps == context.total_steps
+                if context.failed_steps > 0
+                    && context.completed_steps + context.failed_steps == context.total_steps
                 {
                     // All steps done but some failed
                     Ok((

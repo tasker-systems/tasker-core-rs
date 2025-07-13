@@ -21,7 +21,7 @@ fn create_viable_step(step_id: i64, task_id: i64, name: &str) -> ViableStep {
         step_id,
         task_id,
         name: name.to_string(),
-        named_step_id: step_id + 1000,
+        named_step_id: (step_id + 1000) as i32,
         current_state: "pending".to_string(),
         dependencies_satisfied: true,
         retry_eligible: true,

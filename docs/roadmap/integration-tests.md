@@ -22,9 +22,19 @@ Integration tests serve as the forcing function to complete critical placeholder
 
 ## Week 1 Test Implementation Plan
 
-### Day 1-2: Complex Workflow Integration Tests
+### Day 1-2: Complex Workflow Integration Tests ✅ IN PROGRESS
 
-#### Test File: `tests/orchestration/complex_workflow_integration_test.rs`
+#### Test File: `tests/orchestration/complex_workflow_integration_test.rs` ✅ IMPLEMENTED
+
+**Status**: Successfully created integration test infrastructure that systematically exposes critical placeholders
+
+**Achievements**:
+- ✅ Created MockFrameworkIntegration for testing orchestration without Ruby FFI
+- ✅ Established real task + workflow step creation through factory system
+- ✅ End-to-end orchestration test reaching step state validation
+- ✅ Fixed 4 critical schema/type alignment issues through systematic testing
+
+**Current Investigation**: Step state initialization issue - steps created as 'unknown' instead of 'pending'
 
 **Linear Workflow Test**
 ```rust
@@ -446,12 +456,26 @@ pub async fn setup_test_db() -> PgPool {
 ## Success Criteria
 
 ### Week 1 Completion Criteria
-- [ ] All complex workflow patterns execute correctly
-- [ ] SQL functions handle concurrent operations properly  
-- [ ] Ruby bindings load and instantiate handlers without errors
-- [ ] Context serialization works bidirectionally
-- [ ] State machine transitions occur during workflow execution
-- [ ] Event publishing flows from Rust to mock subscribers
+- 🔄 **Complex workflow patterns execute correctly** (IN PROGRESS - Step state initialization issue)
+- ✅ **SQL schema alignment validated** (Fixed error_steps, named_step_id type mismatches)
+- ✅ **Type system integrity confirmed** (Fixed BigDecimal conversions)
+- 🔄 **SQL functions handle concurrent operations properly** (Basic validation complete, step state issue remains)
+- ⏳ **Ruby bindings load and instantiate handlers without errors** (Pending)
+- ⏳ **Context serialization works bidirectionally** (Pending)
+- 🔄 **State machine transitions occur during workflow execution** (State initialization issue blocking)
+- ⏳ **Event publishing flows from Rust to mock subscribers** (Pending)
+
+### Critical Placeholders Fixed Through Testing ✅
+1. **SQL Schema Alignment** - Fixed `error_steps` vs `failed_steps` column mismatch
+2. **Type System Integrity** - Fixed BigDecimal to f64 conversion in TaskFinalizer
+3. **SQL Type Compatibility** - Fixed `named_step_id` i64 vs i32 mismatch across components
+4. **Database Function Integration** - Verified get_task_execution_context alignment
+
+### Current Active Issue 🔍
+**Step State Initialization**: Workflow steps created in 'unknown' state instead of 'pending'
+- **Test**: `test_orchestration_with_real_task` successfully creates task + steps
+- **Failure Point**: OrchestrationCoordinator → ViableStepDiscovery → SQL function returns 'unknown' state
+- **Next Investigation**: WorkflowStepFactory state initialization vs SQL function state retrieval
 
 ### Test Coverage Goals
 - **Complex Workflows**: Linear, Diamond, Parallel, Tree patterns

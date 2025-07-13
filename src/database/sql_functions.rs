@@ -60,7 +60,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{types::BigDecimal, FromRow, PgPool};
 use std::collections::HashMap;
 
 /// Core SQL function executor with type-safe async execution.
@@ -362,20 +362,20 @@ impl SqlFunctionExecutor {
 pub struct StepReadinessStatus {
     pub workflow_step_id: i64,
     pub task_id: i64,
-    pub named_step_id: i64,
+    pub named_step_id: i32,
     pub name: String,
     pub current_state: String,
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
     pub ready_for_execution: bool,
-    pub last_failure_at: Option<DateTime<Utc>>,
-    pub next_retry_at: Option<DateTime<Utc>>,
+    pub last_failure_at: Option<chrono::NaiveDateTime>,
+    pub next_retry_at: Option<chrono::NaiveDateTime>,
     pub total_parents: i32,
     pub completed_parents: i32,
     pub attempts: i32,
     pub retry_limit: i32,
     pub backoff_request_seconds: Option<i32>,
-    pub last_attempted_at: Option<DateTime<Utc>>,
+    pub last_attempted_at: Option<chrono::NaiveDateTime>,
 }
 
 impl StepReadinessStatus {
@@ -556,21 +556,22 @@ impl SqlFunctionExecutor {
 
 /// Task execution context and recommendations
 /// Equivalent to Rails: FunctionBasedTaskExecutionContext
+/// FIXED: Aligned with actual SQL function return columns
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskExecutionContext {
     pub task_id: i64,
+    pub named_task_id: i32,
+    pub status: String,
     pub total_steps: i64,
-    pub completed_steps: i64,
     pub pending_steps: i64,
-    pub error_steps: i64,
+    pub in_progress_steps: i64,
+    pub completed_steps: i64,
+    pub failed_steps: i64,
     pub ready_steps: i64,
-    pub blocked_steps: i64,
-    pub completion_percentage: f64,
-    pub estimated_duration_seconds: Option<i64>,
+    pub execution_status: String,
     pub recommended_action: String,
-    pub next_steps_to_execute: Vec<i64>,
-    pub critical_path_steps: Vec<i64>,
-    pub bottleneck_steps: Vec<i64>,
+    pub completion_percentage: sqlx::types::BigDecimal, // numeric from SQL
+    pub health_status: String,
 }
 
 impl TaskExecutionContext {
@@ -581,7 +582,7 @@ impl TaskExecutionContext {
 
     /// Check if task is complete
     pub fn is_complete(&self) -> bool {
-        self.completion_percentage >= 100.0
+        self.completion_percentage >= BigDecimal::from(100)
     }
 
     /// Check if task is blocked
@@ -589,13 +590,14 @@ impl TaskExecutionContext {
         self.ready_steps == 0 && self.pending_steps > 0
     }
 
-    /// Get priority steps to execute next
-    pub fn get_priority_steps(&self) -> &[i64] {
-        if !self.critical_path_steps.is_empty() {
-            &self.critical_path_steps
-        } else {
-            &self.next_steps_to_execute
-        }
+    /// Get execution status info
+    pub fn get_execution_status(&self) -> &str {
+        &self.execution_status
+    }
+
+    /// Get health status info  
+    pub fn get_health_status(&self) -> &str {
+        &self.health_status
     }
 }
 
@@ -629,7 +631,7 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedSlowestSteps
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SlowestStepAnalysis {
-    pub named_step_id: i64,
+    pub named_step_id: i32,
     pub step_name: String,
     pub avg_duration_seconds: f64,
     pub max_duration_seconds: f64,
