@@ -1,36 +1,29 @@
 #!/bin/bash
-# Pre-push hook for comprehensive testing
-# Runs full test suite before pushing to remote
+# Pre-push hook for comprehensive multi-workspace testing
+# Runs full test suite and documentation builds before pushing to remote
 
 set -e
+
+# Source the shared workspace utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/workspace-utils.sh"
 
 echo "🚀 Running pre-push hooks..."
 
 # Check if cargo is available
-if ! command -v cargo &> /dev/null; then
-    echo "❌ Error: cargo is not available. Please install Rust."
+if ! check_cargo_available; then
     exit 1
 fi
 
-echo "🧪 Running full test suite..."
-if ! cargo test --all-features; then
-    echo "❌ Tests failed. Please fix failing tests before pushing."
+# Run comprehensive validation across all workspaces
+if ! validate_all_workspaces "pre-push"; then
+    echo ""
+    echo "💡 Fix the issues above before pushing."
+    echo "   Common fixes:"
+    echo "   - Format code: .githooks/lib/workspace-utils.sh && auto_fix_formatting"
+    echo "   - Fix clippy: cargo clippy --fix --allow-dirty (in each workspace)"
+    echo "   - Fix tests: cargo test (in each workspace)"
     exit 1
 fi
-echo "✅ All tests passed"
-
-echo "📚 Checking documentation builds..."
-if ! cargo doc --no-deps --document-private-items; then
-    echo "❌ Documentation build failed. Please fix documentation issues."
-    exit 1
-fi
-echo "✅ Documentation builds successfully"
-
-echo "🔍 Running clippy with all features..."
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
-    echo "❌ Clippy found issues. Please fix before pushing."
-    exit 1
-fi
-echo "✅ Clippy checks passed"
 
 echo "🎉 All pre-push checks passed! Safe to push."

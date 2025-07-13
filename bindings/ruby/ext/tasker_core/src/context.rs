@@ -6,7 +6,6 @@
 use magnus::r_hash::ForEach;
 use magnus::value::ReprValue;
 use magnus::{Error, IntoValue, RHash, RString, TryConvert, Value};
-use serde_json;
 use tasker_core::client::context::{
     StepContext as RustStepContext, TaskContext as RustTaskContext,
 };
@@ -224,7 +223,7 @@ pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error>
         Ok(serde_json::Value::Object(map))
     } else {
         // Default to string representation for unsupported types
-        Ok(serde_json::Value::String(format!("{:?}", ruby_value)))
+        Ok(serde_json::Value::String(format!("{ruby_value:?}")))
     }
 }
 

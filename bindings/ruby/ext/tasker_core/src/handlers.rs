@@ -6,7 +6,7 @@
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use magnus::r_hash::ForEach;
 use magnus::value::ReprValue;
-use magnus::{Error, Module, RClass, RHash, RModule, RString, Ruby, Value};
+use magnus::{Error, RClass, RHash, RModule, RString, Ruby, Value};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -187,8 +187,7 @@ impl TaskHandlerRegistry {
 
         // No matching handler found
         Err(format!(
-            "No handler found for name='{}', namespace='{}', version='{}'",
-            name, namespace, version
+            "No handler found for name='{name}', namespace='{namespace}', version='{version}'"
         ))
     }
 
@@ -208,7 +207,7 @@ impl TaskHandlerRegistry {
 
         // Match on version (exact or compatible)
         let version_matches =
-            config.version == version || config.version.starts_with(&format!("{}.", version));
+            config.version == version || config.version.starts_with(&format!("{version}."));
 
         name_matches && namespace_matches && version_matches
     }
@@ -572,7 +571,7 @@ impl BaseTaskHandler {
     ) -> Result<(i64, usize), String> {
         // 1. Deserialize TaskRequest from JSON
         let task_request: TaskRequest = serde_json::from_value(task_request_data)
-            .map_err(|e| format!("Invalid TaskRequest JSON: {}", e))?;
+            .map_err(|e| format!("Invalid TaskRequest JSON: {e}"))?;
 
         // 2. Get the task name before moving the task_request
         let task_name = task_request.name.clone();
@@ -583,7 +582,7 @@ impl BaseTaskHandler {
         // 4. Create Task record in database using proper method
         let task = Task::create(&pool, new_task)
             .await
-            .map_err(|e| format!("Failed to create Task: {}", e))?;
+            .map_err(|e| format!("Failed to create Task: {e}"))?;
 
         let task_id = task.task_id;
 
@@ -673,10 +672,10 @@ impl BaseTaskHandler {
 
         TaskTransition::create(&pool, task_transition)
             .await
-            .map_err(|e| format!("Failed to create initial task transition: {}", e))?;
+            .map_err(|e| format!("Failed to create initial task transition: {e}"))?;
 
         // Create initial state transitions for all workflow steps
-        for (_step_name, &workflow_step_id) in &step_map {
+        for &workflow_step_id in step_map.values() {
             let step_transition = NewWorkflowStepTransition {
                 workflow_step_id,
                 to_state: "pending".to_string(),
@@ -691,8 +690,7 @@ impl BaseTaskHandler {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Failed to create initial step transition for step {}: {}",
-                        workflow_step_id, e
+                        "Failed to create initial step transition for step {workflow_step_id}: {e}"
                     )
                 })?;
         }
@@ -723,8 +721,7 @@ impl BaseTaskHandler {
 
         // Return error if no YAML configuration found
         Err(format!(
-            "No configuration file found for task '{}'",
-            task_name
+            "No configuration file found for task '{task_name}'"
         ))
     }
 
@@ -746,7 +743,7 @@ impl BaseTaskHandler {
 
                 // Create lazy connection pool (doesn't actually connect until first use)
                 sqlx::PgPool::connect_lazy(&database_url)
-                    .map_err(|e| format!("Failed to create database pool: {}", e))
+                    .map_err(|e| format!("Failed to create database pool: {e}"))
             })
             .clone()
     }
@@ -870,7 +867,7 @@ impl RubyFrameworkIntegration {
         // Get Ruby runtime - Magnus pattern for FFI calls
         let ruby = Ruby::get().map_err(|e| OrchestrationError::TaskExecutionFailed {
             task_id: step.task_id,
-            reason: format!("Ruby runtime not available: {}", e),
+            reason: format!("Ruby runtime not available: {e}"),
             error_code: Some("RUBY_RUNTIME_ERROR".to_string()),
         })?;
 
@@ -899,7 +896,7 @@ impl RubyFrameworkIntegration {
             .funcall("process", (ruby_task_context, sequence_number, ruby_step))
             .map_err(|e| OrchestrationError::TaskExecutionFailed {
                 task_id: step.task_id,
-                reason: format!("Ruby step handler process() failed: {}", e),
+                reason: format!("Ruby step handler process() failed: {e}"),
                 error_code: Some("RUBY_PROCESS_ERROR".to_string()),
             })?;
 
@@ -917,44 +914,44 @@ impl RubyFrameworkIntegration {
         hash.aset("step_id", step.step_id)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "step_id".to_string(),
-                reason: format!("Failed to set Ruby step_id: {}", e),
+                reason: format!("Failed to set Ruby step_id: {e}"),
             })?;
 
         hash.aset("name", step.name.clone())
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "name".to_string(),
-                reason: format!("Failed to set Ruby step name: {}", e),
+                reason: format!("Failed to set Ruby step name: {e}"),
             })?;
 
         hash.aset("task_id", step.task_id)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "task_id".to_string(),
-                reason: format!("Failed to set Ruby task_id: {}", e),
+                reason: format!("Failed to set Ruby task_id: {e}"),
             })?;
 
         // Add step state and readiness information
         hash.aset("current_state", step.current_state.clone())
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "current_state".to_string(),
-                reason: format!("Failed to set Ruby current_state: {}", e),
+                reason: format!("Failed to set Ruby current_state: {e}"),
             })?;
 
         hash.aset("dependencies_satisfied", step.dependencies_satisfied)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "dependencies_satisfied".to_string(),
-                reason: format!("Failed to set Ruby dependencies_satisfied: {}", e),
+                reason: format!("Failed to set Ruby dependencies_satisfied: {e}"),
             })?;
 
         hash.aset("retry_eligible", step.retry_eligible)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "retry_eligible".to_string(),
-                reason: format!("Failed to set Ruby retry_eligible: {}", e),
+                reason: format!("Failed to set Ruby retry_eligible: {e}"),
             })?;
 
         hash.aset("attempts", step.attempts)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "attempts".to_string(),
-                reason: format!("Failed to set Ruby attempts: {}", e),
+                reason: format!("Failed to set Ruby attempts: {e}"),
             })?;
 
         // TODO: Get step inputs from WorkflowStep model
@@ -963,7 +960,7 @@ impl RubyFrameworkIntegration {
         hash.aset("inputs", ruby.qnil())
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "inputs".to_string(),
-                reason: format!("Failed to set nil inputs: {}", e),
+                reason: format!("Failed to set nil inputs: {e}"),
             })?;
 
         Ok(hash)
@@ -979,20 +976,20 @@ impl RubyFrameworkIntegration {
         hash.aset("task_id", context.task_id)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "task_id".to_string(),
-                reason: format!("Failed to set Ruby context task_id: {}", e),
+                reason: format!("Failed to set Ruby context task_id: {e}"),
             })?;
 
         // Convert context data to Ruby
         let ruby_data = json_to_ruby_value(context.data.clone()).map_err(|e| {
             OrchestrationError::ValidationError {
                 field: "data".to_string(),
-                reason: format!("Failed to convert context data to Ruby: {}", e),
+                reason: format!("Failed to convert context data to Ruby: {e}"),
             }
         })?;
         hash.aset("data", ruby_data)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "data".to_string(),
-                reason: format!("Failed to set Ruby context data: {}", e),
+                reason: format!("Failed to set Ruby context data: {e}"),
             })?;
 
         // Convert metadata to Ruby hash
@@ -1000,21 +997,21 @@ impl RubyFrameworkIntegration {
         for (key, value) in &context.metadata {
             let ruby_value = json_to_ruby_value(value.clone()).map_err(|e| {
                 OrchestrationError::ValidationError {
-                    field: format!("metadata.{}", key),
-                    reason: format!("Failed to convert metadata value to Ruby: {}", e),
+                    field: format!("metadata.{key}"),
+                    reason: format!("Failed to convert metadata value to Ruby: {e}"),
                 }
             })?;
             metadata_hash.aset(key.clone(), ruby_value).map_err(|e| {
                 OrchestrationError::ValidationError {
-                    field: format!("metadata.{}", key),
-                    reason: format!("Failed to set Ruby metadata value: {}", e),
+                    field: format!("metadata.{key}"),
+                    reason: format!("Failed to set Ruby metadata value: {e}"),
                 }
             })?;
         }
         hash.aset("metadata", metadata_hash)
             .map_err(|e| OrchestrationError::ValidationError {
                 field: "metadata".to_string(),
-                reason: format!("Failed to set Ruby metadata: {}", e),
+                reason: format!("Failed to set Ruby metadata: {e}"),
             })?;
 
         Ok(hash)
@@ -1048,8 +1045,7 @@ impl RubyFrameworkIntegration {
         Err(OrchestrationError::TaskExecutionFailed {
             task_id: 0, // We don't have access to task_id in this context
             reason: format!(
-                "Ruby step handler class not found for step '{}'. Tried: {}",
-                step_name, class_name
+                "Ruby step handler class not found for step '{step_name}'. Tried: {class_name}"
             ),
             error_code: Some("RUBY_HANDLER_NOT_FOUND".to_string()),
         })
@@ -1074,7 +1070,7 @@ impl RubyFrameworkIntegration {
         if pascal_case.ends_with("Handler") {
             pascal_case
         } else {
-            format!("{}Handler", pascal_case)
+            format!("{pascal_case}Handler")
         }
     }
 
@@ -1087,7 +1083,7 @@ impl RubyFrameworkIntegration {
         let result_json = ruby_value_to_json(ruby_result).map_err(|e| {
             OrchestrationError::TaskExecutionFailed {
                 task_id: 0,
-                reason: format!("Failed to convert Ruby result to JSON: {}", e),
+                reason: format!("Failed to convert Ruby result to JSON: {e}"),
                 error_code: Some("RUBY_RESULT_CONVERSION_ERROR".to_string()),
             }
         })?;
@@ -1131,7 +1127,7 @@ impl RubyFrameworkIntegration {
         let retry_after = result_json
             .get("retry_after")
             .and_then(|v| v.as_u64())
-            .map(|seconds| Duration::from_secs(seconds));
+            .map(Duration::from_secs);
 
         let error_context = result_json
             .get("error_context")
@@ -1180,7 +1176,7 @@ impl FrameworkIntegration for RubyFrameworkIntegration {
         .await
         .map_err(|e| OrchestrationError::TaskExecutionFailed {
             task_id: step.task_id,
-            reason: format!("Ruby step execution spawn failed: {}", e),
+            reason: format!("Ruby step execution spawn failed: {e}"),
             error_code: Some("RUBY_SPAWN_ERROR".to_string()),
         })??;
 

@@ -5,7 +5,6 @@
 //! Supports permanent vs retryable error classification for proper orchestration behavior.
 
 use magnus::{exception, Error, RHash};
-use serde_json;
 
 /// Translate common Rust error types to appropriate Ruby exceptions
 ///
@@ -15,27 +14,27 @@ pub fn translate_error(error_message: &str, error_type: &str) -> Error {
     match error_type {
         "database" => Error::new(
             exception::standard_error(),
-            format!("Database error: {}", error_message),
+            format!("Database error: {error_message}"),
         ),
         "state_transition" => Error::new(
             exception::standard_error(),
-            format!("State transition error: {}", error_message),
+            format!("State transition error: {error_message}"),
         ),
         "validation" => Error::new(
             exception::arg_error(),
-            format!("Validation error: {}", error_message),
+            format!("Validation error: {error_message}"),
         ),
         "timeout" => Error::new(
             exception::standard_error(),
-            format!("Timeout error: {}", error_message),
+            format!("Timeout error: {error_message}"),
         ),
         "ffi" => Error::new(
             exception::standard_error(),
-            format!("FFI error: {}", error_message),
+            format!("FFI error: {error_message}"),
         ),
         _ => Error::new(
             exception::standard_error(),
-            format!("Orchestration error: {}", error_message),
+            format!("Orchestration error: {error_message}"),
         ),
     }
 }
@@ -44,7 +43,7 @@ pub fn translate_error(error_message: &str, error_type: &str) -> Error {
 pub fn translate_generic_error(rust_error: &dyn std::error::Error) -> Error {
     Error::new(
         exception::standard_error(),
-        format!("FFI error: {}", rust_error),
+        format!("FFI error: {rust_error}"),
     )
 }
 
@@ -57,7 +56,7 @@ pub fn validation_error(message: String) -> Error {
 pub fn timeout_error(operation: String, duration_ms: u64) -> Error {
     Error::new(
         exception::standard_error(),
-        format!("Timeout: {} exceeded {}ms", operation, duration_ms),
+        format!("Timeout: {operation} exceeded {duration_ms}ms"),
     )
 }
 
@@ -65,7 +64,7 @@ pub fn timeout_error(operation: String, duration_ms: u64) -> Error {
 pub fn database_error(message: String) -> Error {
     Error::new(
         exception::standard_error(),
-        format!("Database error: {}", message),
+        format!("Database error: {message}"),
     )
 }
 
@@ -148,12 +147,9 @@ pub fn retryable_error(
 ) -> Error {
     let category = error_category.unwrap_or_else(|| "unknown".to_string());
     let full_message = if let Some(delay) = retry_after {
-        format!(
-            "{} (retry after {}s, category: {})",
-            message, delay, category
-        )
+        format!("{message} (retry after {delay}s, category: {category})")
     } else {
-        format!("{} (category: {})", message, category)
+        format!("{message} (category: {category})")
     };
 
     // TODO: Create actual TaskerCore::RetryableError with attributes
@@ -171,9 +167,9 @@ pub fn permanent_error(
 ) -> Error {
     let category = error_category.unwrap_or_else(|| "unknown".to_string());
     let full_message = if let Some(code) = error_code {
-        format!("{} (code: {}, category: {})", message, code, category)
+        format!("{message} (code: {code}, category: {category})")
     } else {
-        format!("{} (category: {})", message, category)
+        format!("{message} (category: {category})")
     };
 
     // TODO: Create actual TaskerCore::PermanentError with attributes
@@ -217,7 +213,7 @@ pub fn classify_http_error(
         },
         // Client errors - permanent (don't retry)
         400 => ErrorClassification::Permanent {
-            error_code: Some(format!("HTTP_{}", status_code)),
+            error_code: Some(format!("HTTP_{status_code}")),
             error_category: "validation".to_string(),
             context: serde_json::json!({
                 "status_code": status_code,
@@ -225,7 +221,7 @@ pub fn classify_http_error(
             }),
         },
         401 | 403 => ErrorClassification::Permanent {
-            error_code: Some(format!("HTTP_{}", status_code)),
+            error_code: Some(format!("HTTP_{status_code}")),
             error_category: "authorization".to_string(),
             context: serde_json::json!({
                 "status_code": status_code,
@@ -233,7 +229,7 @@ pub fn classify_http_error(
             }),
         },
         404 => ErrorClassification::Permanent {
-            error_code: Some(format!("HTTP_{}", status_code)),
+            error_code: Some(format!("HTTP_{status_code}")),
             error_category: "not_found".to_string(),
             context: serde_json::json!({
                 "status_code": status_code,
@@ -241,7 +237,7 @@ pub fn classify_http_error(
             }),
         },
         422 => ErrorClassification::Permanent {
-            error_code: Some(format!("HTTP_{}", status_code)),
+            error_code: Some(format!("HTTP_{status_code}")),
             error_category: "validation".to_string(),
             context: serde_json::json!({
                 "status_code": status_code,

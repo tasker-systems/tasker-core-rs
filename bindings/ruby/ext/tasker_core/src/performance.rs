@@ -1091,7 +1091,7 @@ pub async fn get_task_execution_context(
     let pool = PgPool::connect(db_url).await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Database connection failed: {}", e),
+            format!("Database connection failed: {e}"),
         )
     })?;
 
@@ -1104,7 +1104,7 @@ pub async fn get_task_execution_context(
         .map_err(|e| {
             Error::new(
                 magnus::exception::standard_error(),
-                format!("Failed to get task execution context: {}", e),
+                format!("Failed to get task execution context: {e}"),
             )
         })?;
 
@@ -1129,7 +1129,7 @@ pub async fn get_task_execution_context(
         }
         None => Err(Error::new(
             magnus::exception::standard_error(),
-            format!("Task {} not found", task_id),
+            format!("Task {task_id} not found"),
         )),
     }
 }
@@ -1142,7 +1142,7 @@ pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Resul
     let pool = PgPool::connect(db_url).await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Database connection failed: {}", e),
+            format!("Database connection failed: {e}"),
         )
     })?;
 
@@ -1152,7 +1152,7 @@ pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Resul
     let ready_steps = executor.get_ready_steps(task_id).await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to get ready steps: {}", e),
+            format!("Failed to get ready steps: {e}"),
         )
     })?;
 
@@ -1185,7 +1185,7 @@ pub async fn get_system_health(database_url: RString) -> Result<RubySystemHealth
     let pool = PgPool::connect(db_url).await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Database connection failed: {}", e),
+            format!("Database connection failed: {e}"),
         )
     })?;
 
@@ -1195,7 +1195,7 @@ pub async fn get_system_health(database_url: RString) -> Result<RubySystemHealth
     let health = executor.get_system_health_counts().await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to get system health: {}", e),
+            format!("Failed to get system health: {e}"),
         )
     })?;
 
@@ -1229,7 +1229,7 @@ pub async fn get_analytics_metrics(
     let pool = PgPool::connect(db_url).await.map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Database connection failed: {}", e),
+            format!("Database connection failed: {e}"),
         )
     })?;
 
@@ -1249,7 +1249,7 @@ pub async fn get_analytics_metrics(
         .map_err(|e| {
             Error::new(
                 magnus::exception::standard_error(),
-                format!("Failed to get analytics metrics: {}", e),
+                format!("Failed to get analytics metrics: {e}"),
             )
         })?;
 
@@ -1260,7 +1260,7 @@ pub async fn get_analytics_metrics(
         .map_err(|e| {
             Error::new(
                 magnus::exception::standard_error(),
-                format!("Failed to get slowest steps: {}", e),
+                format!("Failed to get slowest steps: {e}"),
             )
         })?;
 
@@ -1270,7 +1270,7 @@ pub async fn get_analytics_metrics(
         .map_err(|e| {
             Error::new(
                 magnus::exception::standard_error(),
-                format!("Failed to get slowest tasks: {}", e),
+                format!("Failed to get slowest tasks: {e}"),
             )
         })?;
 
@@ -1382,7 +1382,7 @@ pub async fn analyze_dependencies(
         let pool = PgPool::connect(db_url).await.map_err(|e| {
             Error::new(
                 magnus::exception::runtime_error(),
-                format!("Database connection failed: {}", e),
+                format!("Database connection failed: {e}"),
             )
         })?;
 
@@ -1395,7 +1395,7 @@ pub async fn analyze_dependencies(
             .map_err(|e| {
                 Error::new(
                     magnus::exception::runtime_error(),
-                    format!("Failed to calculate dependency levels: {}", e),
+                    format!("Failed to calculate dependency levels: {e}"),
                 )
             })?;
 
@@ -1432,8 +1432,7 @@ pub async fn analyze_dependencies(
             completion_percentage: 0.0, // TODO: Calculate from completed vs total steps
             health_status: "good".to_string(), // TODO: Derive from error rates and blocking status
             analysis_complexity: format!(
-                "Task {} has {} dependency levels with max depth {}",
-                task_id, total_levels, max_depth
+                "Task {task_id} has {total_levels} dependency levels with max depth {max_depth}"
             ),
             parallelization_factor: if max_depth > 0 {
                 root_steps as f64 / max_depth as f64
@@ -1454,7 +1453,7 @@ pub fn get_task_execution_context_sync(
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 
@@ -1466,7 +1465,7 @@ pub fn discover_viable_steps_sync(task_id: i64, database_url: RString) -> Result
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 
@@ -1478,7 +1477,7 @@ pub fn get_system_health_sync(database_url: RString) -> Result<RubySystemHealth,
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 
@@ -1493,7 +1492,7 @@ pub fn get_analytics_metrics_sync(
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 
@@ -1508,7 +1507,7 @@ pub fn batch_update_step_states_sync(
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 
@@ -1523,7 +1522,7 @@ pub fn analyze_dependencies_sync(
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         Error::new(
             magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {}", e),
+            format!("Failed to create async runtime: {e}"),
         )
     })?;
 

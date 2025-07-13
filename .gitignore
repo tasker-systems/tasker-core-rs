@@ -38,3 +38,13 @@ target
 
 # don't pay attention to tmp
 tmp/
+
+# Ruby extension build artifacts
+*.bundle
+*.so
+*.dll
+*.dylib
+*.dSYM/
+bindings/ruby/ext/*/Makefile
+bindings/ruby/ext/*/mkmf.log
+bindings/ruby/ext/*/Cargo.lock

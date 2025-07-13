@@ -3,6 +3,10 @@
 //! This module provides Ruby FFI bindings for the Tasker Core Rust orchestration engine,
 //! focusing on high-performance operations that complement the existing Rails engine.
 
+// Allow dead code and unused variables in FFI bindings - this is expected
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use magnus::{Error, Module, Ruby};
 
 mod context;
