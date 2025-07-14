@@ -94,7 +94,7 @@ impl TaskFinalizer {
     /// Create a new TaskFinalizer
     pub fn new(pool: PgPool) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = EventPublisher::new(1000); // 1000 event capacity
+        let event_publisher = EventPublisher::with_capacity(1000); // 1000 event capacity
         let task_enqueuer =
             TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone());
         Self {
@@ -650,21 +650,39 @@ impl TaskFinalizer {
 
     /// Calculate intelligent re-enqueue delay based on execution context
     fn calculate_reenqueue_delay(&self, context: &Option<TaskExecutionContext>) -> u32 {
-        // Default delays for different states (in seconds)
-        const DEFAULT_DELAY: u32 = 30;
-        const READY_STEPS_DELAY: u32 = 5;
-        const WAITING_DELAY: u32 = 60;
-        const PROCESSING_DELAY: u32 = 15;
+        use crate::orchestration::config::ConfigurationManager;
 
         let Some(context) = context else {
-            return DEFAULT_DELAY;
+            // Use default reenqueue delay from configuration
+            let config_manager = ConfigurationManager::new();
+            return config_manager
+                .system_config()
+                .backoff
+                .default_reenqueue_delay as u32;
         };
 
+        // Use configured reenqueue delays based on context
+        let config_manager = ConfigurationManager::new();
+        let reenqueue_delays = &config_manager.system_config().backoff.reenqueue_delays;
+        let default_delay = config_manager
+            .system_config()
+            .backoff
+            .default_reenqueue_delay as u32;
+
         match context.execution_status.as_str() {
-            "has_ready_steps" => READY_STEPS_DELAY,
-            "waiting_for_dependencies" => WAITING_DELAY,
-            "processing" => PROCESSING_DELAY,
-            _ => DEFAULT_DELAY,
+            "has_ready_steps" => reenqueue_delays
+                .get("has_ready_steps")
+                .map(|&d| d as u32)
+                .unwrap_or(default_delay),
+            "waiting_for_dependencies" => reenqueue_delays
+                .get("waiting_for_dependencies")
+                .map(|&d| d as u32)
+                .unwrap_or(default_delay),
+            "processing" => reenqueue_delays
+                .get("processing")
+                .map(|&d| d as u32)
+                .unwrap_or(default_delay),
+            _ => default_delay,
         }
     }
 

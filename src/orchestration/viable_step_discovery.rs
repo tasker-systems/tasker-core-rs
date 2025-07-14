@@ -18,7 +18,7 @@
 //!
 //! ```rust
 //! use tasker_core::orchestration::viable_step_discovery::ViableStepDiscovery;
-//! use tasker_core::orchestration::event_publisher::EventPublisher;
+//! use tasker_core::events::publisher::EventPublisher;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //!
 //! // Create ViableStepDiscovery for step readiness analysis
@@ -39,8 +39,8 @@
 //! ```
 
 use crate::database::sql_functions::SqlFunctionExecutor;
+use crate::events::{EventPublisher, ViableStep as EventsViableStep};
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
-use crate::orchestration::event_publisher::EventPublisher;
 use crate::orchestration::types::ViableStep;
 use crate::state_machine::persistence::{resolve_state_with_retry, StepTransitionPersistence};
 use std::collections::HashMap;
@@ -155,8 +155,25 @@ impl ViableStepDiscovery {
         );
 
         // 5. Publish discovery event
+        let events_viable_steps: Vec<EventsViableStep> = viable_steps
+            .iter()
+            .map(|step| EventsViableStep {
+                step_id: step.step_id,
+                task_id: step.task_id,
+                name: step.name.clone(),
+                named_step_id: step.named_step_id as i64,
+                current_state: step.current_state.clone(),
+                dependencies_satisfied: step.dependencies_satisfied,
+                retry_eligible: step.retry_eligible,
+                attempts: step.attempts as u32,
+                retry_limit: step.retry_limit as u32,
+                last_failure_at: step.last_failure_at.map(|dt| dt.and_utc()),
+                next_retry_at: step.next_retry_at.map(|dt| dt.and_utc()),
+            })
+            .collect();
+
         self.event_publisher
-            .publish_viable_steps_discovered(task_id, &viable_steps)
+            .publish_viable_steps_discovered(task_id, &events_viable_steps)
             .await?;
 
         Ok(viable_steps)

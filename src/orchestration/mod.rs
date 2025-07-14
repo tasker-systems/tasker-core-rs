@@ -35,7 +35,6 @@ pub mod backoff_calculator;
 pub mod config;
 pub mod error_classifier;
 pub mod errors;
-pub mod event_publisher;
 pub mod handler_config;
 pub mod state_manager;
 pub mod step_executor;
@@ -83,7 +82,8 @@ pub use error_classifier::{
     RetryStrategy, StandardErrorClassifier,
 };
 pub use errors::*;
-pub use event_publisher::EventPublisher;
+// Use unified event publisher from events module
+pub use crate::events::EventPublisher;
 pub use handler_config::{
     EnvironmentConfig, HandlerConfiguration, ResolvedHandlerConfiguration, StepTemplate,
     StepTemplateOverride,

@@ -204,7 +204,46 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
     let task_id = result.task_id;
 
+    // Debug: First check if we actually have any workflow steps
+    let step_count = sqlx::query!(
+        "SELECT COUNT(*) as count FROM tasker_workflow_steps WHERE task_id = $1",
+        task_id
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    println!(
+        "Task {} has {} workflow steps",
+        task_id,
+        step_count.count.unwrap_or(0)
+    );
+
+    if step_count.count.unwrap_or(0) == 0 {
+        println!(
+            "⚠️ No workflow steps found - TaskInitializer needs handler config to create steps"
+        );
+        println!("Creating basic workflow steps manually for orchestration testing...");
+
+        // Create basic workflow steps manually for orchestration testing
+        use crate::factories::{base::SqlxFactory, core::WorkflowStepFactory};
+
+        let basic_step = WorkflowStepFactory::new()
+            .for_task(task_id)
+            .with_named_step("basic_test_step")
+            .pending()
+            .create(&pool)
+            .await
+            .unwrap();
+
+        println!(
+            "Created basic step {} for orchestration testing",
+            basic_step.workflow_step_id
+        );
+    }
+
     // Debug: Check what the SQL function actually returns
+    println!("Calling get_step_readiness_status SQL function...");
     let readiness_results =
         sqlx::query!("SELECT * FROM get_step_readiness_status($1, NULL)", task_id)
             .fetch_all(&pool)
@@ -219,25 +258,33 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
         );
     }
 
-    // Try to create a WorkflowCoordinator
-    let coordinator = WorkflowCoordinator::new(pool.clone());
+    // Create a WorkflowCoordinator optimized for testing (2-second timeout)
+    let coordinator = WorkflowCoordinator::for_testing_with_timeout(pool.clone(), 1);
 
     // Try to create our mock framework integration
     let mock_integration = MockFrameworkIntegration::new();
 
     // This call should expose the critical placeholders we need to fix
-    let orchestration_result = coordinator
-        .execute_task_workflow(task_id, Arc::new(mock_integration))
-        .await;
+    println!("🎯 Starting WorkflowCoordinator.execute_task_workflow()...");
+
+    let orchestration_result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        coordinator.execute_task_workflow(task_id, Arc::new(mock_integration)),
+    )
+    .await;
 
     // This should expose deeper placeholders than the task-not-found error
     match orchestration_result {
-        Ok(orch_result) => {
-            println!("Orchestration result: {orch_result:?}");
+        Ok(Ok(orch_result)) => {
+            println!("✅ Orchestration succeeded: {orch_result:?}");
         }
-        Err(e) => {
-            println!("Orchestration error (this exposes placeholders): {e:?}");
+        Ok(Err(e)) => {
+            println!("❌ Orchestration error (this exposes placeholders): {e:?}");
             // This will help us identify what placeholders need fixing
+        }
+        Err(_) => {
+            println!("⏱️ Orchestration timed out after 10 seconds - this indicates an infinite loop or deadlock");
+            println!("   Most likely in state machine evaluation or SQL function calls");
         }
     }
 

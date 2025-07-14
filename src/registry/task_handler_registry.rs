@@ -42,8 +42,8 @@
 //! ```
 
 use crate::error::{Result, TaskerError};
+use crate::events::{Event, EventPublisher, OrchestrationEvent};
 use crate::models::core::task_request::TaskRequest;
-use crate::orchestration::event_publisher::EventPublisher;
 use crate::orchestration::types::{HandlerMetadata, TaskHandler};
 use chrono::Utc;
 use std::collections::HashMap;
@@ -180,11 +180,11 @@ impl TaskHandlerRegistry {
 
         // Publish event if publisher is available
         if let Some(ref publisher) = self.event_publisher {
-            let event = crate::orchestration::types::OrchestrationEvent::HandlerRegistered {
-                key: key_string.clone(),
-                metadata: metadata.clone(),
+            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
+                handler_name: key_string.clone(),
+                handler_type: "task_handler".to_string(),
                 registered_at: Utc::now(),
-            };
+            });
             publisher
                 .publish_event(event)
                 .await
@@ -241,11 +241,11 @@ impl TaskHandlerRegistry {
 
         // Publish event if publisher is available
         if let Some(ref publisher) = self.event_publisher {
-            let event = crate::orchestration::types::OrchestrationEvent::HandlerRegistered {
-                key: key_string.clone(),
-                metadata: metadata.clone(),
+            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
+                handler_name: key_string.clone(),
+                handler_type: "task_handler".to_string(),
                 registered_at: Utc::now(),
-            };
+            });
             publisher
                 .publish_event(event)
                 .await

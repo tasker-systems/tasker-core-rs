@@ -1116,15 +1116,15 @@ pub async fn get_task_execution_context(
                 total_steps: ctx.total_steps,
                 completed_steps: ctx.completed_steps,
                 pending_steps: ctx.pending_steps,
-                error_steps: ctx.error_steps,
+                error_steps: ctx.failed_steps, // Map failed_steps to error_steps for compatibility
                 ready_steps: ctx.ready_steps,
-                blocked_steps: ctx.blocked_steps,
-                completion_percentage: ctx.completion_percentage,
-                estimated_duration_seconds: ctx.estimated_duration_seconds,
+                blocked_steps: 0, // Not available in current schema, use 0
+                completion_percentage: ctx.completion_percentage.to_string().parse().unwrap_or(0.0),
+                estimated_duration_seconds: None, // Not available in current schema, use None
                 recommended_action: ctx.recommended_action,
-                next_steps_to_execute: ctx.next_steps_to_execute,
-                critical_path_steps: ctx.critical_path_steps,
-                bottleneck_steps: ctx.bottleneck_steps,
+                next_steps_to_execute: vec![], // Not available in current schema, use empty vec
+                critical_path_steps: vec![], // Not available in current schema, use empty vec
+                bottleneck_steps: vec![], // Not available in current schema, use empty vec
             })
         }
         None => Err(Error::new(
@@ -1162,7 +1162,7 @@ pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Resul
         let ruby_step = RubyViableStep {
             workflow_step_id: step.workflow_step_id,
             task_id: step.task_id,
-            named_step_id: step.named_step_id,
+            named_step_id: step.named_step_id as i64,
             status: step.current_state.clone(),
             is_ready: step.ready_for_execution,
             readiness_reason: step.blocking_reason().unwrap_or("ready").to_string(),
@@ -1278,7 +1278,7 @@ pub async fn get_analytics_metrics(
     let ruby_slowest_steps: Vec<RubySlowestStepAnalysis> = slowest_steps
         .into_iter()
         .map(|step| RubySlowestStepAnalysis {
-            named_step_id: step.named_step_id,
+            named_step_id: step.named_step_id as i64,
             step_name: step.step_name,
             avg_duration_seconds: step.avg_duration_seconds,
             max_duration_seconds: step.max_duration_seconds,

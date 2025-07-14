@@ -74,6 +74,7 @@ pub struct TaskerConfig {
     pub engine: EngineConfig,
     pub health: HealthConfig,
     pub dependency_graph: DependencyGraphConfig,
+    pub system: SystemConfig,
     pub backoff: BackoffConfig,
     pub execution: ExecutionConfig,
     pub reenqueue: ReenqueueDelays,
@@ -200,6 +201,24 @@ impl Default for DependencyGraphConfig {
     }
 }
 
+/// System-level configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemConfig {
+    pub default_dependent_system_id: i64,
+    pub default_queue_name: String,
+    pub version: String,
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        Self {
+            default_dependent_system_id: 1,
+            default_queue_name: "default".to_string(),
+            version: "1.0.0".to_string(),
+        }
+    }
+}
+
 /// Backoff and retry configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackoffConfig {
@@ -240,6 +259,8 @@ pub struct ExecutionConfig {
     pub max_concurrent_steps: usize,
     pub default_timeout_seconds: u64,
     pub step_execution_timeout_seconds: u64,
+    pub max_discovery_attempts: u32,
+    pub step_batch_size: usize,
 }
 
 impl Default for ExecutionConfig {
@@ -249,6 +270,8 @@ impl Default for ExecutionConfig {
             max_concurrent_steps: 1000,
             default_timeout_seconds: 3600,
             step_execution_timeout_seconds: 300,
+            max_discovery_attempts: 3,
+            step_batch_size: 10,
         }
     }
 }

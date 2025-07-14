@@ -1,6 +1,6 @@
 use chrono::Utc;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
-use tasker_core::orchestration::event_publisher::EventPublisher;
+use tasker_core::events::publisher::EventPublisher;
 use tasker_core::orchestration::state_manager::{
     StateEntityType, StateHealthSummary, StateManager, StateTransitionEvent, StateTransitionRequest,
 };

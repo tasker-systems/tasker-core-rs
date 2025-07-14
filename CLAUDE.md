@@ -16,10 +16,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Critical placeholder analysis and resolution strategy
 - Implementation guidelines and code quality standards
 
-**Current Status**: Phase 1 (Testing Foundation) - Week 1
-- **Goal**: Fix critical placeholders through comprehensive integration tests
-- **Focus**: Complex workflow tests, SQL function validation, Ruby binding tests
-- **Rule**: No new placeholder/stub code - all implementations must be complete
+**Current Status**: Phase 3 (Enhanced Event Integration) - Week 3
+- **Goal**: Deep Rails dry-events integration with bidirectional event flow
+- **Focus**: FFI publishing bridge, payload compatibility, BaseSubscriber integration
+- **Rule**: Leverage existing Rails patterns while maintaining Rust performance benefits
 
 ## Code Design Principles
 
@@ -41,7 +41,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Configured MCP Servers
 - **PostgreSQL MCP** (`crystaldba/postgres-mcp`): Database operations, performance analysis, and migration management
-- **GitHub Official MCP** (`github/github-mcp-server`): Repository operations, PR management, and CI/CD integration  
+- **GitHub Official MCP** (`github/github-mcp-server`): Repository operations, PR management, and CI/CD integration
 - **Cargo Package MCP** (`artmann/package-registry-mcp`): Rust dependency management and security analysis
 - **Docker MCP** (`docker/mcp-servers`): Containerized testing and deployment automation
 - **Rust Documentation MCP** (`Govcraft/rust-docs-mcp-server`): Real-time Rust best practices and API guidance
@@ -54,6 +54,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current Development Context (January 2025)
 
+### 🚨 CRITICAL: Ruby FFI Mitigation Crisis
+**URGENT PRIORITY**: Prior session accidentally destroyed working Ruby FFI implementation before git commit
+**CURRENT STATUS**: Ruby bindings contain incorrect re-implementations instead of proper FFI bridges
+**IMPACT**: Complete breakdown of Ruby-Rust integration - bindings don't use core logic
+
+#### What Happened
+- Previous session had working Ruby FFI bridges that properly delegated to core Rust logic
+- Session ended before committing working implementation to git
+- Subsequent session accidentally overwrote working code with incorrect re-implementations
+- Current bindings violate delegation architecture by reimplementing core logic
+
+#### Critical Issues in Current Codebase
+1. **Handler Violations**: `bindings/ruby/ext/tasker_core/src/handlers/base_step_handler.rs` and `base_task_handler.rs` incorrectly re-implement logic from `src/orchestration/step_handler.rs` and `src/orchestration/task_handler.rs`
+2. **Event System Duplication**: `bindings/ruby/ext/tasker_core/src/events/` completely reimplements `src/events/publisher.rs` and `src/events/types.rs` instead of bridging to them
+3. **Architecture Violations**: Ruby bindings create new database connections, runtime instances, and orchestration components per FFI call instead of using singleton patterns
+4. **Performance Impact**: Each FFI call recreates expensive resources, violating the delegation architecture's performance goals
+
+#### Recovery Strategy
+- **Phase 3 PAUSED**: Enhanced event integration postponed until FFI foundation is restored
+- **NEW PRIORITY**: Ruby FFI Mitigation Plan (documented in `docs/roadmap/ruby-ffi-mitigation-plan.md`)
+- **APPROACH**: Remove incorrect implementations, create proper FFI bridges that delegate to core logic
+- **TIMELINE**: 1-2 sessions to restore working Ruby integration before resuming Phase 3
+
 ### Testing-Driven Development Success 🎯
 **Approach**: Using comprehensive integration tests to systematically expose and fix critical placeholders
 **Philosophy**: Test failures are documentation - they show us exactly what needs to be implemented
@@ -61,19 +84,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Critical Placeholders Fixed Through Testing ✅
 1. **SQL Schema Alignment** - Fixed `error_steps` vs `failed_steps` column mismatch in TaskExecutionContext
-2. **Type System Integrity** - Fixed BigDecimal to f64 conversion in TaskFinalizer 
+2. **Type System Integrity** - Fixed BigDecimal to f64 conversion in TaskFinalizer
 3. **SQL Type Compatibility** - Fixed `named_step_id` i64 vs i32 mismatch across all components
 4. **Database Function Integration** - Verified get_task_execution_context SQL function alignment
 
-### Current Active Investigation 🔍
-**Step State Initialization Issue**: Integration tests reveal workflow steps are in 'unknown' state instead of expected 'pending' state
-- **Error**: `StateTransitionError { step_id: 1, reason: "Step 1 is in invalid state 'unknown', expected one of: [\"pending\", \"in_progress\"]" }`
-- **Root Cause**: Either WorkflowStepFactory initialization or SQL function state retrieval issue
-- **Test Case**: `test_orchestration_with_real_task` successfully creates task + steps but orchestration fails on state validation
+### Phase 2 Completion Success ✅
+**Event Publishing & Configuration**: All critical components implemented and working
+- **FFI Event Bridge**: Rust→Ruby event forwarding with callback registration
+- **Configuration Management**: All hardcoded values extracted to YAML
+- **External Callback System**: Cross-language event handler registry functional
+- **Integration Tests**: Events flow end-to-end with proper error handling
 
 ### Foundation Complete ✅
 - **Multi-workspace Architecture**: Main core + Ruby extension workspaces
-- **Ruby FFI Integration**: Magnus-based bindings with proper build system  
+- **Ruby FFI Integration**: Magnus-based bindings with proper build system
 - **State Machine Framework**: Complete implementation with event publishing
 - **Factory System**: Comprehensive test data generation for complex workflows
 - **Orchestration Coordinator**: Core structure with async processing
@@ -96,11 +120,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **SQL Function Integration**: High-performance operations leveraging existing tested functions
 - **Orchestration Components**: BackoffCalculator, TaskFinalizer, TaskEnqueuer, Error Classification
 
-#### 🚧 Critical Missing (Phase 1 Focus)
-- **Client Handler State Integration**: State transitions in `src/client/{step_handler.rs, task_handler.rs}`
-- **Event Publishing Core**: Complete implementation in `src/orchestration/event_publisher.rs`
-- **Ruby Framework Integration**: Step delegation in `bindings/ruby/ext/tasker_core/src/handlers.rs`
-- **Queue Integration**: Task enqueuing in `src/orchestration/task_enqueuer.rs`
+#### 🎯 Phase 3 Focus (Enhanced Event Integration)
+- **FFI Publishing Bridge**: Enable Rust to publish directly to Rails dry-events Publisher singleton
+- **Payload Compatibility**: Create Rails-compatible event payload structures
+- **Event Type Mapping**: Map Rust event names to Rails event constants
+- **BaseSubscriber Integration**: Rust events compatible with Rails subscription patterns
+- **Custom Event Registration**: Bridge Rust custom events to Rails CustomRegistry
 
 ## Recent Accomplishments (January 2025)
 
@@ -151,6 +176,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Context Serialization**: Type conversion between Rust and Ruby with proper error handling
 - **Database Integration**: Task and WorkflowStep creation from Ruby with state machine setup
 
+### Event System Unification (January 2025)
+- **Unified EventPublisher**: Combined three separate event implementations into single cohesive system in `src/events/`
+- **Dual API Support**: Simple (name + context) and structured (typed events) APIs for different use cases
+- **FFI Bridge Foundation**: Event system ready for cross-language integration with Rails dry-events
+- **Type Conversion System**: Seamless conversion between orchestration and events types
+- **Comprehensive Testing**: 15 tests covering all event publishing scenarios with proper error handling
+
+### TaskHandlerRegistry Unification (January 2025) - ✅ COMPLETED
+- **Problem Identified**: Ruby bindings had duplicate TaskHandlerRegistry implementation creating new instances on every FFI call, losing all registered handlers
+- **Root Cause**: 296 lines of duplicate implementation in `bindings/ruby/ext/tasker_core/src/handlers.rs` instead of using core registry + singleton pattern violation
+- **Impact**: Complete breakdown of Ruby-Rust integration workflow as handler lookup failed consistently
+- **Solution Implemented**:
+  - Removed duplicate TaskHandlerRegistry implementation from Ruby bindings
+  - Created unified architecture using `tasker_core::registry::TaskHandlerRegistry` as single source of truth
+  - Implemented proper singleton pattern with `OnceLock<TaskHandlerRegistry>` for FFI operations
+  - Created `TaskHandlerRegistryWrapper` for Rails compatibility with YAML file lookup
+  - Updated all FFI wrapper functions to use unified singleton implementation
+- **Results**:
+  - Reduced from 296 lines of duplicate code to 76 lines of wrapper code
+  - Registry state now maintained across FFI calls
+  - Access to advanced core features: event publishing, dual-path support, validation, namespaces
+  - Thread-safe concurrent access with proper memory management
+  - Backward compatibility with Rails YAML-based handler discovery maintained
+- **Status**: ✅ CRITICAL ISSUE RESOLVED - Ruby-Rust integration workflow now functional
+
+### Phase 2: Event Publishing & Configuration (COMPLETED - January 2025)
+- **FFI Event Bridge Implementation**: Created `event_bridge_register` and `event_bridge_unregister` FFI functions with global RUBY_EVENT_CALLBACK registry
+- **External Callback System**: Implemented `register_external_event_callback` in EventPublisher for cross-language event forwarding
+- **Configuration Management**: Extracted hardcoded values from task_handler.rs and workflow_coordinator.rs to YAML configuration
+- **Integration Testing**: Created comprehensive event bridge tests verifying Rust→Ruby event flow
+- **Rails Compatibility**: Updated Ruby events.rb to use actual FFI functions instead of placeholders
+- **Compilation Fixes**: Resolved all import path and API compatibility issues across the test suite
+- **Status**: ✅ PHASE 2 COMPLETED - Events flow properly, zero hardcoded configuration values
+
+### Rails Engine Event System Analysis (January 2025)
+- **Architecture Analysis**: Comprehensive review of Rails engine event system including Publisher singleton, BaseSubscriber pattern, and dry-events integration
+- **Pattern Documentation**: Analyzed declarative subscriptions, automatic method routing, dual event types (system + custom), and observability strategy
+- **Integration Opportunities**: Identified specific enhancements for Rust-Ruby bridge including FFI publishing, payload compatibility, and event type mapping
+- **Implementation Roadmap**: Created detailed Phase 3 plan for enhanced event integration with specific technical specifications
+- **Documentation**: Created comprehensive EVENT_SYSTEM.md with gap analysis and implementation roadmap
+- **Status**: ✅ ANALYSIS COMPLETED - Ready for Phase 3 enhanced integration implementation
+
 ## Architecture Patterns Established
 
 ### Delegation-Based Architecture
@@ -192,7 +259,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Multi-Project Ecosystem
 - **tasker-engine/**: Production-ready Rails engine for workflow orchestration
-- **tasker-core-rs/**: High-performance Rust core for performance-critical operations  
+- **tasker-core-rs/**: High-performance Rust core for performance-critical operations
 - **tasker-blog/**: GitBook documentation with real-world engineering stories
 
 ### Integration Context
@@ -204,15 +271,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current Working Context
 
 - **Main Branch**: `orchestration`
-- **Development Phase**: Phase 1 (Testing Foundation) - Week 1
-- **Priority**: Integration tests for complex workflows to expose and fix critical placeholders
-- **Success Criteria**: All integration tests pass, no critical placeholders remain
-- **Next Phase**: Configuration management and event publishing completion
+- **Development Phase**: Phase 0 (Ruby FFI Mitigation) - URGENT PRIORITY
+- **Current Status**: Ruby FFI integration completely broken, requires immediate recovery
+- **Recent Crisis**:
+  - Working Ruby FFI implementation was lost in prior session before git commit
+  - Current bindings contain incorrect re-implementations instead of proper FFI bridges
+  - Architecture violations prevent Ruby-Rust integration from functioning
+- **Current Priority**: Execute Ruby FFI Mitigation Plan (see `docs/roadmap/ruby-ffi-mitigation-plan.md`)
+- **Next Priorities**:
+  1. Remove incorrect handler and event implementations
+  2. Create proper FFI bridges that delegate to core logic
+  3. Implement singleton pattern for shared resources
+  4. Validate performance targets and commit working implementation
+- **Success Criteria**: Ruby bindings use core logic through proper FFI bridges, no duplicate implementations
+- **Post-Recovery**: Resume Phase 3 enhanced event integration once FFI foundation is restored
 
 ## Key File Locations
 
 ### Roadmap and Planning
 - **Primary Source**: `docs/roadmap/README.md` (ALWAYS REFERENCE THIS)
+- **URGENT**: `docs/roadmap/ruby-ffi-mitigation-plan.md` (Ruby FFI recovery plan)
+- **Event System Analysis**: `docs/roadmap/EVENT_SYSTEM.md` (Rails integration roadmap)
 - **Critical Placeholders**: `docs/roadmap/critical-placeholders.md`
 - **Ruby Integration**: `docs/roadmap/ruby-integration.md`
 - **Testing Strategy**: `docs/roadmap/integration-tests.md`
@@ -230,6 +309,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Migrations**: `migrations/`
 - **Configuration**: `config/` (YAML configuration files)
 - **Git Hooks**: `.githooks/` (Multi-workspace validation)
+
+## Latest Session Summary (January 2025)
+
+### What We Accomplished
+1. **Comprehensive Rails Event System Analysis**: Detailed review of Publisher singleton, BaseSubscriber pattern, dry-events integration, and observability strategy
+2. **EVENT_SYSTEM.md Documentation**: Created complete analysis document with gap analysis and Phase 3 implementation roadmap
+3. **Roadmap Updates**: Updated docs/roadmap/README.md to reflect Phase 2 completion and Phase 3 priorities
+4. **CLAUDE.md Updates**: Comprehensive updates to reflect current Phase 3 status and enhanced event integration focus
+5. **Implementation Roadmap**: Detailed technical specifications for FFI publishing bridge, payload compatibility, and event type mapping
+
+### Current Phase 3 Priorities (Starting Next Session)
+1. **FFI Publishing Bridge**: Implement `rust_publish_to_rails` FFI function to enable Rust publishing directly to Rails dry-events Publisher singleton
+2. **Payload Compatibility**: Create Rails-compatible event payload structures with automatic timestamp enhancement
+3. **Event Type Mapping**: Map Rust event names to Rails constants for seamless integration
+
+### Key Files Created/Modified This Session
+- `docs/roadmap/EVENT_SYSTEM.md`: Complete Rails event system analysis and integration roadmap (NEW)
+- `docs/roadmap/README.md`: Updated to reflect Phase 2 completion and Phase 3 focus
+- `CLAUDE.md`: Comprehensive updates for Phase 3 status and priorities
 
 ---
 

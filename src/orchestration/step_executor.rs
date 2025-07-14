@@ -29,7 +29,7 @@
 //! ```rust,no_run
 //! use tasker_core::orchestration::step_executor::StepExecutor;
 //! use tasker_core::orchestration::state_manager::StateManager;
-//! use tasker_core::orchestration::event_publisher::EventPublisher;
+//! use tasker_core::events::publisher::EventPublisher;
 //! use tasker_core::registry::TaskHandlerRegistry;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //! use sqlx::PgPool;
@@ -48,8 +48,8 @@
 //! # });
 //! ```
 
+use crate::events::{EventPublisher, StepResult as EventsStepResult};
 use crate::orchestration::errors::{ExecutionError, OrchestrationResult};
-use crate::orchestration::event_publisher::EventPublisher;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
@@ -369,6 +369,11 @@ impl StepExecutor {
         Duration,
     ) {
         let execution_start = Instant::now();
+
+        // TODO: Use step-specific timeout from handler configuration
+        // Currently uses global config timeout, but should check for
+        // step_template.timeout_seconds from the handler config and
+        // prefer that over global defaults when available
         let execution_timeout = request
             .timeout
             .unwrap_or(self.config.default_timeout)
@@ -552,8 +557,22 @@ impl StepExecutor {
         }
 
         // Publish step execution completed event
+        let events_step_result = match step_result.status {
+            StepStatus::Completed => EventsStepResult::Success,
+            StepStatus::Failed => EventsStepResult::Failed {
+                error: step_result
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "Unknown error".to_string()),
+            },
+            StepStatus::Skipped => EventsStepResult::Skipped {
+                reason: "Step was skipped".to_string(),
+            },
+            _ => EventsStepResult::Success,
+        };
+
         self.event_publisher
-            .publish_step_execution_completed(step_id, task_id, step_result.clone())
+            .publish_step_execution_completed(step_id, task_id, events_step_result)
             .await?;
 
         // Clean up active execution tracking
@@ -682,6 +701,24 @@ impl Default for StepExecutionConfig {
     }
 }
 
+impl StepExecutionConfig {
+    /// Create configuration from ConfigurationManager
+    pub fn from_config_manager(
+        config_manager: &crate::orchestration::config::ConfigurationManager,
+    ) -> Self {
+        let system_config = config_manager.system_config();
+        Self {
+            max_concurrent_steps: system_config.execution.max_concurrent_steps,
+            default_timeout: Duration::from_secs(
+                system_config.execution.step_execution_timeout_seconds,
+            ),
+            max_timeout: Duration::from_secs(system_config.execution.default_timeout_seconds),
+            enable_metrics: true,
+            retry_config: RetryConfig::from_config_manager(config_manager),
+        }
+    }
+}
+
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
@@ -690,6 +727,29 @@ impl Default for RetryConfig {
             max_delay: Duration::from_secs(300), // 5 minutes
             backoff_multiplier: 2.0,
             jitter: true,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Create configuration from ConfigurationManager
+    pub fn from_config_manager(
+        config_manager: &crate::orchestration::config::ConfigurationManager,
+    ) -> Self {
+        let system_config = config_manager.system_config();
+        let backoff_config = &system_config.backoff;
+        Self {
+            max_attempts: backoff_config.default_backoff_seconds.len() as u32,
+            base_delay: Duration::from_secs(
+                backoff_config
+                    .default_backoff_seconds
+                    .first()
+                    .map(|&x| x as u64)
+                    .unwrap_or(1),
+            ),
+            max_delay: Duration::from_secs(backoff_config.max_backoff_seconds as u64),
+            backoff_multiplier: backoff_config.backoff_multiplier,
+            jitter: backoff_config.jitter_enabled,
         }
     }
 }

@@ -59,17 +59,16 @@
 //! # }
 //! ```
 
+use crate::events::{
+    Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent, TaskResult,
+};
 use crate::orchestration::config::ConfigurationManager;
-use crate::orchestration::errors::OrchestrationResult;
-use crate::orchestration::event_publisher::EventPublisher;
+use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
 use crate::orchestration::step_executor::{ExecutionPriority, StepExecutionRequest, StepExecutor};
 use crate::orchestration::system_events::SystemEventsManager;
 use crate::orchestration::types::TaskOrchestrationResult;
-use crate::orchestration::types::{
-    FrameworkIntegration, OrchestrationEvent, StepResult, StepStatus, TaskCompletionInfo,
-    TaskErrorInfo, ViableStep,
-};
+use crate::orchestration::types::{FrameworkIntegration, StepResult, StepStatus, ViableStep};
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
 use crate::registry::TaskHandlerRegistry;
 use chrono::Utc;
@@ -108,12 +107,36 @@ impl Default for WorkflowCoordinatorConfig {
 }
 
 impl WorkflowCoordinatorConfig {
+    /// Create configuration optimized for testing with short timeouts
+    pub fn for_testing() -> Self {
+        Self {
+            max_discovery_attempts: 2,
+            discovery_retry_delay: Duration::from_millis(100),
+            max_workflow_duration: Duration::from_secs(2), // Short timeout for tests
+            enable_metrics: true,
+            max_steps_per_run: 10,
+            step_batch_size: 5,
+        }
+    }
+
+    /// Create configuration optimized for testing with custom timeout
+    pub fn for_testing_with_timeout(timeout_secs: u64) -> Self {
+        Self {
+            max_discovery_attempts: 2,
+            discovery_retry_delay: Duration::from_millis(100),
+            max_workflow_duration: Duration::from_secs(timeout_secs),
+            enable_metrics: true,
+            max_steps_per_run: 10,
+            step_batch_size: 5,
+        }
+    }
+
     /// Create configuration from ConfigurationManager
     pub fn from_config_manager(config_manager: &ConfigurationManager) -> Self {
         let system_config = config_manager.system_config();
 
         Self {
-            max_discovery_attempts: 3, // TODO: Add to system config
+            max_discovery_attempts: system_config.execution.max_discovery_attempts,
             discovery_retry_delay: Duration::from_secs(
                 system_config.backoff.default_reenqueue_delay as u64,
             ),
@@ -122,7 +145,7 @@ impl WorkflowCoordinatorConfig {
             ),
             enable_metrics: system_config.telemetry.enabled,
             max_steps_per_run: system_config.execution.max_concurrent_steps,
-            step_batch_size: 10, // TODO: Add to system config
+            step_batch_size: system_config.execution.step_batch_size,
         }
     }
 }
@@ -180,6 +203,19 @@ impl WorkflowCoordinator {
     pub fn with_config(pool: sqlx::PgPool, config: WorkflowCoordinatorConfig) -> Self {
         let config_manager = Arc::new(ConfigurationManager::new());
         Self::with_config_manager(pool, config, config_manager)
+    }
+
+    /// Create a new workflow coordinator optimized for testing with short timeouts
+    pub fn for_testing(pool: sqlx::PgPool) -> Self {
+        Self::with_config(pool, WorkflowCoordinatorConfig::for_testing())
+    }
+
+    /// Create a new workflow coordinator for testing with custom timeout
+    pub fn for_testing_with_timeout(pool: sqlx::PgPool, timeout_secs: u64) -> Self {
+        Self::with_config(
+            pool,
+            WorkflowCoordinatorConfig::for_testing_with_timeout(timeout_secs),
+        )
     }
 
     /// Create a new workflow coordinator with configuration manager
@@ -295,12 +331,15 @@ impl WorkflowCoordinator {
 
         // Also publish the original orchestration event for backward compatibility
         self.event_publisher
-            .publish_event(OrchestrationEvent::TaskOrchestrationStarted {
-                task_id,
-                framework: framework.framework_name().to_string(),
-                started_at: metrics.started_at,
-            })
+            .publish_event(Event::orchestration(
+                EventsOrchestrationEvent::TaskOrchestrationStarted {
+                    task_id,
+                    framework: framework.framework_name().to_string(),
+                    started_at: metrics.started_at,
+                },
+            ))
             .await
+            .map_err(OrchestrationError::from)
     }
 
     /// Execute the main orchestration loop
@@ -548,12 +587,32 @@ impl WorkflowCoordinator {
 
         if !steps.is_empty() {
             // Publish discovery event
-            self.event_publisher
-                .publish_event(OrchestrationEvent::ViableStepsDiscovered {
-                    task_id,
-                    step_count: steps.len(),
-                    steps: steps.clone(),
+            // Convert viable steps to events format
+            let events_viable_steps: Vec<crate::events::ViableStep> = steps
+                .iter()
+                .map(|step| crate::events::ViableStep {
+                    step_id: step.step_id,
+                    task_id: step.task_id,
+                    name: step.name.clone(),
+                    named_step_id: step.named_step_id as i64,
+                    current_state: step.current_state.clone(),
+                    dependencies_satisfied: step.dependencies_satisfied,
+                    retry_eligible: step.retry_eligible,
+                    attempts: step.attempts as u32,
+                    retry_limit: step.retry_limit as u32,
+                    last_failure_at: step.last_failure_at.map(|dt| dt.and_utc()),
+                    next_retry_at: step.next_retry_at.map(|dt| dt.and_utc()),
                 })
+                .collect();
+
+            self.event_publisher
+                .publish_event(Event::orchestration(
+                    EventsOrchestrationEvent::ViableStepsDiscovered {
+                        task_id,
+                        step_count: steps.len(),
+                        steps: events_viable_steps,
+                    },
+                ))
                 .await?;
         }
 
@@ -680,40 +739,16 @@ impl WorkflowCoordinator {
 
         // Publish completion event with appropriate TaskResult
         let task_result = match &result {
-            TaskOrchestrationResult::Complete {
-                steps_executed,
-                total_execution_time_ms,
-                ..
-            } => {
-                crate::orchestration::types::TaskResult::Complete(TaskCompletionInfo {
-                    task_id,
-                    steps_executed: *steps_executed,
-                    total_execution_time_ms: *total_execution_time_ms,
-                    completed_at: metrics.completed_at.unwrap_or_else(Utc::now),
-                    step_results: vec![], // Would need to collect these during execution
-                })
+            TaskOrchestrationResult::Complete { .. } => TaskResult::Success,
+            TaskOrchestrationResult::Failed { error, .. } => TaskResult::Failed {
+                error: error.clone(),
+            },
+            TaskOrchestrationResult::InProgress { .. } => {
+                TaskResult::Success // For in-progress, we don't publish completion yet
             }
-            TaskOrchestrationResult::Failed {
-                error,
-                failed_steps,
-                ..
-            } => crate::orchestration::types::TaskResult::Error(TaskErrorInfo {
-                task_id,
-                error_message: error.clone(),
-                error_code: Some("WORKFLOW_EXECUTION_FAILED".to_string()),
-                failed_steps: failed_steps.clone(),
-                failed_at: Utc::now(),
-            }),
-            TaskOrchestrationResult::InProgress {
-                next_poll_delay_ms, ..
-            } => crate::orchestration::types::TaskResult::ReenqueueDelayed(Duration::from_millis(
-                *next_poll_delay_ms,
-            )),
-            TaskOrchestrationResult::Blocked { .. } => {
-                crate::orchestration::types::TaskResult::ReenqueueDelayed(
-                    Duration::from_secs(10), // Default delay for blocked tasks
-                )
-            }
+            TaskOrchestrationResult::Blocked { .. } => TaskResult::Failed {
+                error: "Task blocked".to_string(),
+            },
         };
 
         // Publish structured system events based on task completion state
@@ -767,11 +802,13 @@ impl WorkflowCoordinator {
 
         // Publish original orchestration event for backward compatibility
         self.event_publisher
-            .publish_event(OrchestrationEvent::TaskOrchestrationCompleted {
-                task_id,
-                result: task_result,
-                completed_at: Utc::now(),
-            })
+            .publish_event(Event::orchestration(
+                EventsOrchestrationEvent::TaskOrchestrationCompleted {
+                    task_id,
+                    result: task_result,
+                    completed_at: Utc::now(),
+                },
+            ))
             .await?;
 
         Ok(result)

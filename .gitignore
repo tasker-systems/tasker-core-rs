@@ -48,3 +48,4 @@ tmp/
 bindings/ruby/ext/*/Makefile
 bindings/ruby/ext/*/mkmf.log
 bindings/ruby/ext/*/Cargo.lock
+bindings/ruby/pkg/*/*.gem

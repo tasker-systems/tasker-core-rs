@@ -36,6 +36,11 @@ dependency_graph:
   cycle_detection_enabled: true
   optimization_enabled: true
 
+system:
+  default_dependent_system_id: 1
+  default_queue_name: "default"
+  version: "1.0.0"
+
 backoff:
   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
   max_backoff_seconds: 300
@@ -54,6 +59,8 @@ execution:
   max_concurrent_steps: 1000
   default_timeout_seconds: 3600
   step_execution_timeout_seconds: 300
+  max_discovery_attempts: 3
+  step_batch_size: 10
 
 reenqueue:
   has_ready_steps: 1

@@ -684,3 +684,12 @@ impl From<ExecutionError> for OrchestrationError {
         OrchestrationError::ExecutionError(err)
     }
 }
+
+impl From<crate::events::PublishError> for OrchestrationError {
+    fn from(err: crate::events::PublishError) -> Self {
+        OrchestrationError::EventPublishingError {
+            event_type: "unified_event".to_string(),
+            reason: err.to_string(),
+        }
+    }
+}

@@ -19,7 +19,7 @@
 //!
 //! ```rust
 //! use tasker_core::orchestration::state_manager::StateManager;
-//! use tasker_core::orchestration::event_publisher::EventPublisher;
+//! use tasker_core::events::publisher::EventPublisher;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //!
 //! // Create components for StateManager (using mock pool for example)
@@ -40,9 +40,8 @@
 //! ```
 
 use crate::database::sql_functions::SqlFunctionExecutor;
+use crate::events::EventPublisher;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
-use crate::orchestration::event_publisher::EventPublisher;
-use crate::orchestration::types::{StepResult, StepStatus};
 use crate::state_machine::events::{StepEvent, TaskEvent};
 use crate::state_machine::states::{TaskState, WorkflowStepState};
 use crate::state_machine::step_state_machine::StepStateMachine;
@@ -316,16 +315,7 @@ impl StateManager {
                             .publish_step_execution_completed(
                                 step_id,
                                 0, // task_id unknown in bulk operation
-                                StepResult {
-                                    step_id,
-                                    status: StepStatus::Completed,
-                                    output: serde_json::json!({"bulk_completed": true}),
-                                    execution_duration: std::time::Duration::from_millis(0),
-                                    error_message: None,
-                                    retry_after: None,
-                                    error_code: None,
-                                    error_context: None,
-                                },
+                                crate::events::StepResult::Success,
                             )
                             .await?;
                     }

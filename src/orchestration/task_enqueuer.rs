@@ -447,7 +447,7 @@ pub struct TaskEnqueuer {
 impl TaskEnqueuer {
     /// Create a new task enqueuer with default handlers
     pub fn new(pool: PgPool) -> Self {
-        let event_publisher = EventPublisher::new(1000);
+        let event_publisher = EventPublisher::with_capacity(1000);
         let handlers: Vec<Box<dyn EnqueueHandler>> = vec![
             Box::new(EventBasedEnqueueHandler::new(event_publisher.clone())),
             Box::new(DirectEnqueueHandler::new(pool.clone())),

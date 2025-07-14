@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative '../types'
+# require_relative '../types'  # Temporarily disabled due to dry-types version issues
 
 module TaskerCore
   module StepHandler
@@ -20,19 +20,19 @@ module TaskerCore
       # events come from the Rust orchestration layer (source of truth).
       # This class provides Ruby-specific functionality that wraps around
       # the Rust foundation where event publishing actually happens.
-      
+
       attr_reader :config, :logger, :rust_integration
-      
+
       def initialize(config: {}, logger: nil, rust_integration: nil)
         @config = config || {}
         @logger = logger || default_logger
         @rust_integration = rust_integration || default_rust_integration
       end
-      
+
       # ========================================================================
       # MAIN STEP EXECUTION INTERFACE (implemented by subclasses)
       # ========================================================================
-      
+
       # Main business logic method - Rails engine signature: process(task, sequence, step)
       # Subclasses implement the actual business logic in this method
       # @param task [Tasker::Task] Task model instance with context data
@@ -40,24 +40,24 @@ module TaskerCore
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
       def process(task, sequence, step)
-        raise NotImplementedError, "Subclasses must implement #process(task, sequence, step)"
+        raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
       end
-      
+
       # Optional result transformation method - Rails engine signature
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @param process_output [Object] Result from process() method
-      # @param initial_results [Object] Previous results if this is a retry  
+      # @param initial_results [Object] Previous results if this is a retry
       # @return [Object] Transformed result (defaults to process_output)
-      def process_results(step, process_output, initial_results = nil)
+      def process_results(_step, process_output, _initial_results = nil)
         # Default implementation returns process output unchanged
         # Rails handlers can override this to transform results before storage
         process_output
       end
-      
+
       # ========================================================================
       # CONFIGURATION AND METADATA
       # ========================================================================
-      
+
       # Validate step handler configuration
       # @param config_hash [Hash] Configuration to validate
       # @return [Boolean] Whether configuration is valid
@@ -65,27 +65,31 @@ module TaskerCore
         # Basic validation - subclasses can override for specific requirements
         config_hash.is_a?(Hash)
       end
-      
+
       # Get handler name for registration and logging
       # @return [String] Handler name
       def handler_name
         self.class.name.split('::').last.underscore
       end
-      
+
       # Get handler metadata for monitoring and introspection
       # @return [Hash] Handler metadata
       def metadata
         {
           handler_name: handler_name,
           handler_class: self.class.name,
-          version: (self.class.const_get(:VERSION) rescue '1.0.0'),
+          version: begin
+            self.class.const_get(:VERSION)
+          rescue StandardError
+            '1.0.0'
+          end,
           capabilities: capabilities,
           config_schema: config_schema,
           ruby_version: RUBY_VERSION,
           created_at: Time.now.iso8601
         }
       end
-      
+
       # Get handler capabilities
       # @return [Array<String>] List of capabilities
       def capabilities
@@ -95,7 +99,7 @@ module TaskerCore
         caps << 'streaming' if respond_to?(:process_stream, true)
         caps
       end
-      
+
       # Get configuration schema for validation
       # @return [Hash] JSON schema describing expected configuration
       def config_schema
@@ -109,36 +113,36 @@ module TaskerCore
           additionalProperties: true
         }
       end
-      
+
       # ========================================================================
       # RAILS ENGINE INTEGRATION NOTES
       # ========================================================================
-      
+
       # NOTE: In the Rails engine execution flow, step handlers are called via:
       # 1. TaskHandler.handle(task) → WorkflowCoordinator
-      # 2. WorkflowCoordinator → TaskHandler.handle_one_step(task, sequence, step)  
+      # 2. WorkflowCoordinator → TaskHandler.handle_one_step(task, sequence, step)
       # 3. handle_one_step → get_step_handler(step) → step_handler.process(task, sequence, step)
       #
       # The Rust foundation provides the same flow, so there's no need for a separate
-      # execute_step method. The Rails engine signature process(task, sequence, step) 
+      # execute_step method. The Rails engine signature process(task, sequence, step)
       # is the main entry point that frameworks call.
       #
       # The lifecycle management (events, error handling, retries) is handled by:
       # - Rust orchestration layer with TaskHandler/WorkflowCoordinator foundation
       # - Ruby subclasses provide business logic hooks via process() and process_results()
-      
+
       # ========================================================================
       # INTERNAL PROCESSING METHODS
       # ========================================================================
-      
+
       private
-      
+
       # Validate step configuration before execution
       def validate_step_configuration(config_hash)
         # Basic validation - subclasses can override for specific requirements
         config_hash.is_a?(Hash)
       end
-      
+
       # Extract step information for logging
       def extract_step_info(step)
         {
@@ -147,22 +151,22 @@ module TaskerCore
           step_class: step.class.name
         }
       end
-      
-      # Extract task information for logging  
+
+      # Extract task information for logging
       def extract_task_info(task)
         {
           task_id: extract_attribute(task, :task_id) || extract_attribute(task, :id),
           task_class: task.class.name
         }
       end
-      
+
       # Safe attribute extraction from Ruby objects
       def extract_attribute(object, attribute)
         object.respond_to?(attribute) ? object.send(attribute) : nil
       rescue StandardError
         nil
       end
-      
+
       # Validate process method result
       def validate_process_result(result)
         unless result.is_a?(Hash)
@@ -172,15 +176,15 @@ module TaskerCore
             error_category: 'validation'
           )
         end
-        
-        unless result.key?(:status) || result.key?('status')
-          logger.warn("Step process result missing status field - assuming success")
-          result[:status] = 'completed'
-        end
+
+        return if result.key?(:status) || result.key?('status')
+
+        logger.warn('Step process result missing status field - assuming success')
+        result[:status] = 'completed'
       end
-      
+
       # Classify unexpected errors into permanent vs retryable
-      def classify_unexpected_error(error, context)
+      def classify_unexpected_error(error, _context)
         case error
         when ArgumentError, TypeError, NoMethodError
           # Programming errors are permanent
@@ -210,14 +214,14 @@ module TaskerCore
           TaskerCore::RetryableError.new(
             "Unexpected error in step handler: #{error.message}",
             error_category: 'unknown',
-            context: { 
+            context: {
               original_error: error.class.name,
               backtrace: error.backtrace&.first(5)
             }
           )
         end
       end
-      
+
       # Format successful result for Rust layer
       def format_success_result(result, duration)
         {
@@ -229,7 +233,7 @@ module TaskerCore
           timestamp: Time.now.iso8601
         }
       end
-      
+
       # Format error result for Rust layer
       def format_error_result(error, duration, permanent:)
         {
@@ -249,7 +253,7 @@ module TaskerCore
           timestamp: Time.now.iso8601
         }
       end
-      
+
       # Default logger
       def default_logger
         if defined?(Rails)
@@ -264,7 +268,7 @@ module TaskerCore
           end
         end
       end
-      
+
       # Default Rust integration
       def default_rust_integration
         TaskerCore::RailsIntegration.new

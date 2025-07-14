@@ -118,14 +118,15 @@ end
 - **Handler Foundation**: Ruby base classes with proper hooks
 - **Task Initialization**: Complete TaskRequest → Task creation with state machines
 - **Database Integration**: Task, WorkflowStep, and state transition creation
-- **TaskHandlerRegistry**: Handler lookup with Ruby class names and YAML templates
+- **TaskHandlerRegistry Core**: Handler lookup with Ruby class names and YAML templates (needs singleton pattern)
 - **Result Conversion**: TaskOrchestrationResult → Ruby conversion
+- **Event Publishing Core**: Unified event system ready for FFI bridge to Rails dry-events
 
 ### 🚧 Critical Missing (Current Focus)
-- **State Machine Integration**: Client handlers can't transition states
-- **Event Publishing**: All publishing is stubbed as no-ops
+- **TaskHandlerRegistry Singleton Pattern**: FFI wrapper functions create new instances losing all registered handlers
 - **Step Delegation**: FrameworkIntegration trait has placeholder for step execution
 - **Queue Integration**: No TaskEnqueuer for Rails job queue integration
+- **Event Publishing FFI Bridge**: Core unified events need Ruby FFI bridge to Rails dry-events
 
 ### 🚧 TODO (Next Phase)
 - **Error Translation**: Rust → Ruby exception hierarchy

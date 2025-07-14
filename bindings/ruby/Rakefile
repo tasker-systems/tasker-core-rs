@@ -1,142 +1,143 @@
 # frozen_string_literal: true
 
-require "bundler/gem_tasks"
-require "rake/extensiontask"
-require "rspec/core/rake_task"
+require 'bundler/gem_tasks'
+require 'rake/extensiontask'
+require 'rspec/core/rake_task'
 
 # Configure the extension compilation
-Rake::ExtensionTask.new("tasker_core_rb") do |ext|
-  ext.lib_dir = "lib/tasker_core"
-  ext.source_pattern = "*.{rs,toml}"
+Rake::ExtensionTask.new('tasker_core_rb') do |ext|
+  ext.lib_dir = 'lib/tasker_core'
+  ext.ext_dir = 'ext/tasker_core'
+  ext.source_pattern = '*.{rs,toml}'
 end
 
 # RSpec test configuration
 RSpec::Core::RakeTask.new(:spec) do |t|
-  t.rspec_opts = "--color --format documentation"
+  t.rspec_opts = '--color --format documentation'
 end
 
 # Integration tests that require database
-RSpec::Core::RakeTask.new("test:integration") do |t|
-  t.pattern = "spec/integration/**/*_spec.rb"
-  t.rspec_opts = "--color --format documentation --tag integration"
+RSpec::Core::RakeTask.new('test:integration') do |t|
+  t.pattern = 'spec/integration/**/*_spec.rb'
+  t.rspec_opts = '--color --format documentation --tag integration'
 end
 
 # Benchmark task
 task :benchmark do
-  puts "🚀 Running performance benchmarks..."
-  ruby "spec/benchmarks/dependency_resolution_benchmark.rb"
-  ruby "spec/benchmarks/ffi_overhead_benchmark.rb"
+  puts '🚀 Running performance benchmarks...'
+  ruby 'spec/benchmarks/dependency_resolution_benchmark.rb'
+  ruby 'spec/benchmarks/ffi_overhead_benchmark.rb'
 end
 
 # Clean task to remove compiled artifacts
 task :clean do
-  rm_rf "lib/tasker_core/tasker_core_rb.so"
-  rm_rf "tmp/"
-  sh "cargo clean" if File.exist?("Cargo.toml")
+  rm_rf 'lib/tasker_core/tasker_core_rb.so'
+  rm_rf 'tmp/'
+  sh 'cargo clean' if File.exist?('Cargo.toml')
 end
 
 # Development setup task
 task :setup do
-  puts "🔧 Setting up development environment..."
-  
+  puts '🔧 Setting up development environment...'
+
   # Check for required tools
-  unless system("cargo --version > /dev/null 2>&1")
-    puts "❌ Rust toolchain not found. Please install Rust: https://rustup.rs/"
+  unless system('cargo --version > /dev/null 2>&1')
+    puts '❌ Rust toolchain not found. Please install Rust: https://rustup.rs/'
     exit 1
   end
-  
-  unless system("pg_config --version > /dev/null 2>&1")
-    puts "⚠️  PostgreSQL development libraries not found."
-    puts "   Install with: brew install postgresql (macOS) or apt-get install libpq-dev (Ubuntu)"
+
+  unless system('pg_config --version > /dev/null 2>&1')
+    puts '⚠️  PostgreSQL development libraries not found.'
+    puts '   Install with: brew install postgresql (macOS) or apt-get install libpq-dev (Ubuntu)'
   end
-  
+
   # Install Ruby dependencies
-  sh "bundle install"
-  
+  sh 'bundle install'
+
   # Compile the extension
   Rake::Task[:compile].invoke
-  
-  puts "✅ Development environment ready!"
+
+  puts '✅ Development environment ready!'
   puts "   Run 'rake spec' to run tests"
   puts "   Run 'rake benchmark' to run performance tests"
 end
 
 # Documentation generation
 task :docs do
-  puts "📚 Generating documentation..."
-  sh "yard doc"
+  puts '📚 Generating documentation...'
+  sh 'yard doc'
 end
 
 # Lint and format tasks
 task :lint do
-  puts "🔍 Running Rust linting..."
-  sh "cargo clippy --all-targets --all-features -- -D warnings"
-  
-  puts "🔍 Running Ruby linting..."
-  sh "bundle exec rubocop"
+  puts '🔍 Running Rust linting...'
+  sh 'cargo clippy --all-targets --all-features -- -D warnings'
+
+  puts '🔍 Running Ruby linting...'
+  sh 'bundle exec rubocop'
 end
 
 task :format do
-  puts "✨ Formatting Rust code..."
-  sh "cargo fmt"
-  
-  puts "✨ Formatting Ruby code..."
-  sh "bundle exec rubocop --auto-correct"
+  puts '✨ Formatting Rust code...'
+  sh 'cargo fmt'
+
+  puts '✨ Formatting Ruby code...'
+  sh 'bundle exec rubocop --auto-correct'
 end
 
 # Release preparation
 task :release_prep do
-  puts "🚀 Preparing for release..."
-  
+  puts '🚀 Preparing for release...'
+
   # Run all checks
   Rake::Task[:lint].invoke
   Rake::Task[:compile].invoke
   Rake::Task[:spec].invoke
-  
+
   # Build the gem
-  sh "gem build tasker-core-rb.gemspec"
-  
-  puts "✅ Release preparation complete!"
-  puts "   Review the generated .gem file before pushing to RubyGems"
+  sh 'gem build tasker-core-rb.gemspec'
+
+  puts '✅ Release preparation complete!'
+  puts '   Review the generated .gem file before pushing to RubyGems'
 end
 
 # Default task
-task default: [:setup, :compile, :spec]
+task default: %i[setup compile spec]
 
 # Help task
 task :help do
   puts <<~HELP
-    
+
     📦 Tasker Core Ruby Bindings - Available Rake Tasks
-    
+
     Development:
       rake setup              # Set up development environment
       rake compile            # Compile the Rust extension
       rake spec               # Run RSpec tests
       rake test:integration   # Run integration tests (requires database)
       rake benchmark          # Run performance benchmarks
-      
+    #{'  '}
     Code Quality:
       rake lint               # Run linting (clippy + rubocop)
       rake format             # Format code (rustfmt + rubocop)
       rake docs               # Generate documentation
-      
+    #{'  '}
     Release:
       rake build              # Build the gem
       rake release_prep       # Prepare for release (run all checks)
       rake release            # Release to RubyGems (requires credentials)
-      
+    #{'  '}
     Maintenance:
       rake clean              # Clean compiled artifacts
       rake help               # Show this help message
-    
+
     Environment Variables:
       DATABASE_URL            # PostgreSQL connection for tests
       RUST_LOG                # Rust logging level (debug, info, warn, error)
-      
+    #{'  '}
     Examples:
       DATABASE_URL=postgres://localhost/tasker_test rake test:integration
       RUST_LOG=debug rake benchmark
-    
+
   HELP
 end

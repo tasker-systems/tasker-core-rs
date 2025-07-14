@@ -7,6 +7,7 @@ use crate::client::context::{StepContext, TaskContext};
 use crate::client::step_handler::{BaseStepHandler, StepExecutionResult};
 use crate::client::traits::{RustStepHandler, RustTaskHandler};
 use crate::error::{Result, TaskerError};
+use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::handler_config::{HandlerConfiguration, ResolvedHandlerConfiguration};
 // use crate::state_machine::events::TaskEvent;
 use crate::state_machine::TaskStateMachine;
@@ -37,6 +38,9 @@ pub struct BaseTaskHandler {
 
     /// Whether to enable detailed performance metrics
     enable_metrics: bool,
+
+    /// Configuration manager for system-level configuration
+    config_manager: Arc<ConfigurationManager>,
 }
 
 /// Result of task execution
@@ -76,6 +80,15 @@ pub struct TaskExecutionResult {
 impl BaseTaskHandler {
     /// Create a new base task handler from a resolved handler configuration
     pub fn new(handler_config: ResolvedHandlerConfiguration) -> Result<Self> {
+        let config_manager = Arc::new(ConfigurationManager::new());
+        Self::with_config_manager(handler_config, config_manager)
+    }
+
+    /// Create a new base task handler with a custom configuration manager
+    pub fn with_config_manager(
+        handler_config: ResolvedHandlerConfiguration,
+        config_manager: Arc<ConfigurationManager>,
+    ) -> Result<Self> {
         // Create step handlers for all steps in the configuration
         let mut step_handlers = HashMap::new();
 
@@ -90,6 +103,7 @@ impl BaseTaskHandler {
             custom_handler: None,
             state_machine: None,
             enable_metrics: true,
+            config_manager,
         })
     }
 
@@ -394,7 +408,11 @@ impl BaseTaskHandler {
             attempt_number: 1, // Individual step attempts
             max_attempts: step_template.default_retry_limit.unwrap_or(3) as u32,
             is_retryable: step_template.default_retryable.unwrap_or(true),
-            timeout_seconds: 300, // TODO: Get from step template or config
+            timeout_seconds: self
+                .config_manager
+                .system_config()
+                .execution
+                .step_execution_timeout_seconds,
             environment: task_context.environment.clone(),
             metadata: task_context.metadata.clone(),
             tags: task_context.tags.clone(),

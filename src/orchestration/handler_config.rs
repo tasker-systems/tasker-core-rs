@@ -70,6 +70,11 @@ pub struct StepTemplate {
     /// Whether this step can be skipped in the workflow
     pub skippable: Option<bool>,
 
+    // TODO: Add timeout_seconds field for step-specific timeout configuration
+    // This would allow individual steps to define their own timeout values
+    // Note: Requires updates to orchestration layer (StepExecutor) to use
+    // step-specific timeouts instead of global timeout configuration
+    // pub timeout_seconds: Option<i32>,
     /// The class that implements the step's logic
     pub handler_class: String,
 
@@ -122,6 +127,8 @@ pub struct StepTemplateOverride {
 
     /// Override for skippable setting
     pub skippable: Option<bool>,
+    // TODO: Add timeout_seconds override for step-specific timeout configuration
+    // pub timeout_seconds: Option<i32>,
 }
 
 /// Resolved handler configuration with environment-specific overrides applied
