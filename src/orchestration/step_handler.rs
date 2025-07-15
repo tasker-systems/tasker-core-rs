@@ -18,7 +18,7 @@
 //! ## Usage Pattern:
 //!
 //! ```rust
-//! use tasker_core::orchestration::step_handler::{BaseStepHandler, StepExecutionContext, StepResult};
+//! use tasker_core::orchestration::step_handler::{BaseStepHandler, StepExecutionContext, StepResult, StepHandlerExecutor};
 //! use tasker_core::orchestration::config::ConfigurationManager;
 //! use std::collections::HashMap;
 //!
