@@ -29,10 +29,13 @@
 //! ```rust,no_run
 //! use tasker_core::orchestration::step_executor::StepExecutor;
 //! use tasker_core::orchestration::state_manager::StateManager;
+//! use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
+//! use tasker_core::orchestration::config::ConfigurationManager;
 //! use tasker_core::events::publisher::EventPublisher;
 //! use tasker_core::registry::TaskHandlerRegistry;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //! use sqlx::PgPool;
+//! use std::sync::Arc;
 //!
 //! # tokio_test::block_on(async {
 //! let pool = PgPool::connect("postgresql://localhost/test_db").await.unwrap();
@@ -40,7 +43,10 @@
 //! let event_publisher = EventPublisher::new();
 //! let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
 //! let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
-//! let step_executor = StepExecutor::new(state_manager, registry, event_publisher);
+//! let config_manager = Arc::new(ConfigurationManager::new());
+//! let registry_arc = Arc::new(registry.clone());
+//! let task_config_finder = TaskConfigFinder::new(config_manager, registry_arc);
+//! let step_executor = StepExecutor::new(state_manager, registry, event_publisher, task_config_finder);
 //!
 //! // StepExecutor coordinates step execution through delegation
 //! // Actual execution happens in framework-specific handlers
