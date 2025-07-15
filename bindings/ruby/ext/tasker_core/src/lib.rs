@@ -22,6 +22,7 @@ mod error_translation;
 mod globals;
 mod handlers;
 mod events;
+mod models;
 mod performance;
 mod test_helpers;
 
@@ -55,8 +56,15 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     performance::RubyDependencyAnalysis::define(ruby, &module)?;
     performance::RubyDependencyLevel::define(ruby, &module)?;
 
+    // Note: Magnus wrapped classes are automatically registered when used
+    // The #[magnus::wrap] attribute handles Ruby class registration
+    // We don't need to manually register them here
+
     // Register proper FFI bridges that delegate to core logic
-    handlers::register_handler_classes(ruby, module)?;
+    handlers::register_handler_classes(ruby, &module)?;
+
+    // Register registry functions (consolidated from registry.rs)
+    globals::register_registry_functions(module)?;
 
     // Register event system FFI bridge
     events::register_event_functions(module)?;

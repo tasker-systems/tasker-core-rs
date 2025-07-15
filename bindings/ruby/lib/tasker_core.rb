@@ -33,8 +33,8 @@ end
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
 # require_relative 'tasker_core/types'  # Temporarily disabled due to dry-types version issues
 require_relative 'tasker_core/events'
-# require_relative 'tasker_core/step_handler/base'  # Temporarily disabled - needs BaseStepHandler from Rust
-# require_relative 'tasker_core/step_handler/api'   # Temporarily disabled - depends on base
+require_relative 'tasker_core/step_handler/base'  # Now enabled - BaseStepHandler available from Rust
+require_relative 'tasker_core/step_handler/api'   # Now enabled - depends on base
 
 module TaskerCore
   # Base error hierarchy

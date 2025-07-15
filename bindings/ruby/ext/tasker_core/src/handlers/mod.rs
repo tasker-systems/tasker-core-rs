@@ -3,25 +3,14 @@
 //! Proper FFI bridges that delegate to core Rust orchestration systems
 //! instead of reimplementing the logic.
 
-pub mod step_handler_bridge;
-pub mod task_handler_bridge;
-pub mod registry;
-
-// Re-export for convenience
-pub use step_handler_bridge::register_step_handler_functions;
-pub use task_handler_bridge::register_task_handler_functions;
-pub use registry::register_registry_functions;
+pub mod base_step_handler;
+pub mod base_task_handler;
 
 use magnus::{Error, RModule, Ruby};
 
-/// Register all handler classes and functions
-pub fn register_handler_classes(_ruby: &Ruby, module: RModule) -> Result<(), Error> {
-    // Register TaskHandlerRegistry functions
-    register_registry_functions(module)?;
-
-    // Register proper FFI bridges that delegate to core logic
-    register_task_handler_functions(module)?;
-    register_step_handler_functions(module)?;
-
+/// Register all handler classes with Ruby
+pub fn register_handler_classes(ruby: &Ruby, module: &RModule) -> Result<(), Error> {
+    base_step_handler::register_ruby_step_handler_functions(*module)?;
+    base_task_handler::register_base_task_handler(ruby, module)?;
     Ok(())
 }
