@@ -105,6 +105,7 @@ impl BackoffContext {
 /// This component provides unified handling of both server-requested backoff
 /// (via Retry-After headers) and exponential backoff calculations.
 /// It integrates with the workflow step model to apply backoff settings.
+#[derive(Clone)]
 pub struct BackoffCalculator {
     config: BackoffCalculatorConfig,
     pool: PgPool,
@@ -265,7 +266,7 @@ impl BackoffCalculator {
         let step = sqlx::query!(
             r#"
             SELECT backoff_request_seconds, last_attempted_at
-            FROM tasker_workflow_steps 
+            FROM tasker_workflow_steps
             WHERE workflow_step_id = $1
             "#,
             step_id

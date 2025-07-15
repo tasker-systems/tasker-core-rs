@@ -14,6 +14,7 @@ use tasker_core::orchestration::step_executor::StepExecutor;
 use tasker_core::orchestration::config::ConfigurationManager;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 use tasker_core::registry::TaskHandlerRegistry;
+use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -52,12 +53,18 @@ impl OrchestrationSystem {
         let sql_executor = SqlFunctionExecutor::new(database_pool.clone());
         let state_manager = StateManager::new(sql_executor, event_publisher.clone(), database_pool.clone());
         let task_handler_registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
+        // Create config manager
+        let config_manager = Arc::new(ConfigurationManager::new());
+        // Create workflow coordinator
+        let workflow_coordinator = WorkflowCoordinator::new(database_pool.clone());
+        let task_config_finder = TaskConfigFinder::new(config_manager.clone(), Arc::new(task_handler_registry.clone()));
 
         // Create step executor
         let step_executor = StepExecutor::new(
             state_manager.clone(),
             task_handler_registry.clone(),
-            event_publisher.clone()
+            event_publisher.clone(),
+            task_config_finder.clone()
         );
 
         // Create task initializer
@@ -66,12 +73,6 @@ impl OrchestrationSystem {
             Default::default(),
             event_publisher.clone()
         );
-
-        // Create workflow coordinator
-        let workflow_coordinator = WorkflowCoordinator::new(database_pool.clone());
-
-        // Create config manager
-        let config_manager = Arc::new(ConfigurationManager::new());
 
         Ok(OrchestrationSystem {
             runtime,

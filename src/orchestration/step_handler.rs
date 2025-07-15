@@ -53,6 +53,7 @@
 //! # }
 //! ```
 
+use crate::orchestration::backoff_calculator::{BackoffCalculator, BackoffContext};
 use crate::orchestration::config::{ConfigurationManager, StepTemplate};
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult, StepExecutionError};
 use crate::orchestration::system_events::SystemEventsManager;
@@ -215,6 +216,9 @@ pub struct BaseStepHandler {
     /// Configuration manager for accessing system config
     config_manager: Arc<ConfigurationManager>,
 
+    /// Backoff calculator for retry logic
+    backoff_calculator: Option<BackoffCalculator>,
+
     /// State machine for step lifecycle management
     state_machine: Option<Arc<StepStateMachine>>,
 
@@ -231,6 +235,7 @@ impl BaseStepHandler {
         Self {
             step_template,
             config_manager: Arc::new(ConfigurationManager::new()),
+            backoff_calculator: None,
             state_machine: None,
             custom_handler: None,
             events_manager: None,
@@ -245,6 +250,7 @@ impl BaseStepHandler {
         Self {
             step_template,
             config_manager,
+            backoff_calculator: None,
             state_machine: None,
             custom_handler: None,
             events_manager: None,
@@ -254,6 +260,11 @@ impl BaseStepHandler {
     /// Set the state machine for this step handler
     pub fn set_state_machine(&mut self, state_machine: Arc<StepStateMachine>) {
         self.state_machine = Some(state_machine);
+    }
+
+    /// Set backoff calculator for retry logic
+    pub fn set_backoff_calculator(&mut self, backoff_calculator: BackoffCalculator) {
+        self.backoff_calculator = Some(backoff_calculator);
     }
 
     /// Set custom step handler implementation
@@ -480,6 +491,17 @@ impl BaseStepHandler {
         match execution_result {
             Ok(output_data) => {
                 debug!("Step executed successfully: {}", context.step_name);
+
+                // Clear backoff for successful step completion
+                if let Some(backoff_calculator) = &self.backoff_calculator {
+                    if let Err(e) = backoff_calculator.clear_backoff(context.step_id).await {
+                        warn!(
+                            "Failed to clear backoff for successful step {}: {}",
+                            context.step_id, e
+                        );
+                    }
+                }
+
                 StepResult {
                     success: true,
                     output_data: Some(output_data),
@@ -499,7 +521,12 @@ impl BaseStepHandler {
                     && self.is_retryable_error(&error);
 
                 let retry_delay = if should_retry {
-                    Some(self.calculate_retry_delay(context.attempt_number))
+                    self.calculate_retry_delay_with_backoff(
+                        context.step_id,
+                        context.attempt_number,
+                        Some(error.to_string()),
+                    )
+                    .await
                 } else {
                     None
                 };
@@ -536,8 +563,38 @@ impl BaseStepHandler {
         }
     }
 
-    /// Calculate retry delay using exponential backoff
-    fn calculate_retry_delay(&self, attempt_number: u32) -> u64 {
+    /// Calculate retry delay using BackoffCalculator if available, otherwise fallback to simple backoff
+    async fn calculate_retry_delay_with_backoff(
+        &self,
+        step_id: i64,
+        attempt_number: u32,
+        error_message: Option<String>,
+    ) -> Option<u64> {
+        if let Some(backoff_calculator) = &self.backoff_calculator {
+            let context = BackoffContext::new()
+                .with_error(error_message.unwrap_or_else(|| "Step execution failed".to_string()))
+                .with_metadata("attempt".to_string(), serde_json::json!(attempt_number))
+                .with_metadata("step_id".to_string(), serde_json::json!(step_id));
+
+            match backoff_calculator
+                .calculate_and_apply_backoff(step_id, context)
+                .await
+            {
+                Ok(result) => Some(result.delay_seconds as u64),
+                Err(e) => {
+                    warn!("Failed to calculate backoff for step {}: {}", step_id, e);
+                    // Fallback to simple exponential backoff
+                    self.calculate_simple_retry_delay(attempt_number)
+                }
+            }
+        } else {
+            // No BackoffCalculator available, use simple backoff
+            self.calculate_simple_retry_delay(attempt_number)
+        }
+    }
+
+    /// Simple retry delay calculation as fallback
+    fn calculate_simple_retry_delay(&self, attempt_number: u32) -> Option<u64> {
         let system_config = self.config_manager.system_config();
         let backoff_config = &system_config.backoff;
 
@@ -546,7 +603,7 @@ impl BaseStepHandler {
             .default_backoff_seconds
             .get(attempt_number as usize)
         {
-            *delay as u64
+            Some(*delay as u64)
         } else {
             // Fallback to exponential backoff
             let base_delay = backoff_config
@@ -559,7 +616,7 @@ impl BaseStepHandler {
                 * backoff_config
                     .backoff_multiplier
                     .powi(attempt_number as i32);
-            delay.min(backoff_config.max_backoff_seconds as f64) as u64
+            Some(delay.min(backoff_config.max_backoff_seconds as f64) as u64)
         }
     }
 

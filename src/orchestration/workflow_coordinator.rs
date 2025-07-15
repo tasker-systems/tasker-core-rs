@@ -229,8 +229,19 @@ impl WorkflowCoordinator {
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
         let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
-        let step_executor =
-            StepExecutor::new(state_manager.clone(), registry, event_publisher.clone());
+        let registry_arc = Arc::new(registry.clone());
+
+        let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
+            config_manager.clone(),
+            registry_arc.clone(),
+        );
+
+        let step_executor = StepExecutor::new(
+            state_manager.clone(),
+            registry,
+            event_publisher.clone(),
+            task_config_finder,
+        );
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor, event_publisher.clone(), pool);
 

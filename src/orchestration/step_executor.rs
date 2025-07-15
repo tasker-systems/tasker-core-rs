@@ -49,14 +49,15 @@
 //! ```
 
 use crate::events::{EventPublisher, StepResult as EventsStepResult};
+use crate::orchestration::backoff_calculator::{BackoffCalculator, BackoffContext};
 use crate::orchestration::errors::{ExecutionError, OrchestrationResult};
 use crate::orchestration::state_manager::StateManager;
+use crate::orchestration::task_config_finder::TaskConfigFinder;
 use crate::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
 };
 use crate::registry::TaskHandlerRegistry;
 use crate::state_machine::events::StepEvent;
-use fastrand;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -133,7 +134,10 @@ pub struct StepExecutor {
     state_manager: StateManager,
     registry: TaskHandlerRegistry,
     event_publisher: EventPublisher,
+    backoff_calculator: BackoffCalculator,
     config: StepExecutionConfig,
+    /// Task configuration finder for loading task templates
+    task_config_finder: TaskConfigFinder,
     /// Semaphore to control concurrent execution
     execution_semaphore: Arc<Semaphore>,
     /// Active execution metrics
@@ -146,9 +150,16 @@ impl StepExecutor {
         state_manager: StateManager,
         registry: TaskHandlerRegistry,
         event_publisher: EventPublisher,
+        task_config_finder: TaskConfigFinder,
     ) -> Self {
         let config = StepExecutionConfig::default();
-        Self::with_config(state_manager, registry, event_publisher, config)
+        Self::with_config(
+            state_manager,
+            registry,
+            event_publisher,
+            task_config_finder,
+            config,
+        )
     }
 
     /// Create new step executor with custom configuration
@@ -156,16 +167,23 @@ impl StepExecutor {
         state_manager: StateManager,
         registry: TaskHandlerRegistry,
         event_publisher: EventPublisher,
+        task_config_finder: TaskConfigFinder,
         config: StepExecutionConfig,
     ) -> Self {
         let execution_semaphore = Arc::new(Semaphore::new(config.max_concurrent_steps));
+
+        // Get pool from state_manager for BackoffCalculator
+        let pool = state_manager.pool().clone();
+        let backoff_calculator = BackoffCalculator::with_defaults(pool);
 
         Self {
             state_manager,
             registry,
             event_publisher,
-            execution_semaphore,
+            backoff_calculator,
             config,
+            task_config_finder,
+            execution_semaphore,
             active_executions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -417,17 +435,29 @@ impl StepExecutor {
                     status = ?step_result.status,
                     "Step execution completed successfully"
                 );
+
+                // Clear backoff for successful step completion
+                if let Err(e) = self.backoff_calculator.clear_backoff(step_id).await {
+                    warn!(
+                        "Failed to clear backoff for successful step {}: {}",
+                        step_id, e
+                    );
+                }
+
                 step_result
             }
-            Ok(Err(e)) => self.create_error_result(
-                step_id,
-                task_id,
-                e.to_string(),
-                execution_duration,
-                request.retry_attempt,
-                "EXECUTION_ERROR",
-                metrics,
-            ),
+            Ok(Err(e)) => {
+                self.create_error_result(
+                    step_id,
+                    task_id,
+                    e.to_string(),
+                    execution_duration,
+                    request.retry_attempt,
+                    "EXECUTION_ERROR",
+                    metrics,
+                )
+                .await
+            }
             Err(_) => {
                 // Timeout occurred
                 let error_message = format!("Step execution timed out after {execution_timeout:?}");
@@ -440,12 +470,13 @@ impl StepExecutor {
                     request.retry_attempt,
                     metrics,
                 )
+                .await
             }
         }
     }
 
     /// Create error result for failed execution
-    fn create_error_result(
+    async fn create_error_result(
         &self,
         step_id: i64,
         _task_id: i64,
@@ -473,8 +504,10 @@ impl StepExecutor {
                 "execution_duration_ms": execution_duration.as_millis()
             }),
             execution_duration,
-            error_message: Some(error_message),
-            retry_after: self.calculate_retry_delay(retry_attempt),
+            error_message: Some(error_message.clone()),
+            retry_after: self
+                .calculate_retry_delay(step_id, retry_attempt, Some(error_message))
+                .await,
             error_code: Some(error_code.to_string()),
             error_context: Some(HashMap::from([
                 ("step_id".to_string(), serde_json::json!(step_id)),
@@ -485,7 +518,7 @@ impl StepExecutor {
     }
 
     /// Create timeout result for timed out execution
-    fn create_timeout_result(
+    async fn create_timeout_result(
         &self,
         step_id: i64,
         _task_id: i64,
@@ -513,8 +546,10 @@ impl StepExecutor {
                 "execution_duration_ms": execution_duration.as_millis()
             }),
             execution_duration,
-            error_message: Some(error_message),
-            retry_after: self.calculate_retry_delay(retry_attempt),
+            error_message: Some(error_message.clone()),
+            retry_after: self
+                .calculate_retry_delay(step_id, retry_attempt, Some(error_message))
+                .await,
             error_code: Some("EXECUTION_TIMEOUT".to_string()),
             error_context: Some(HashMap::from([
                 ("step_id".to_string(), serde_json::json!(step_id)),
@@ -658,15 +693,22 @@ impl StepExecutor {
             "Resolved task handler metadata"
         );
 
-        // 4. Try to load task configuration to get step templates
-        let config_manager = crate::orchestration::config::ConfigurationManager::new();
-        let config_path = format!("config/tasks/{}.yaml", task_orchestration_info.task_name);
-
-        let task_config = match config_manager.load_task_template(&config_path).await {
+        // 4. Try to load task configuration using TaskConfigFinder
+        let task_config = match self
+            .task_config_finder
+            .find_task_template(
+                &task_orchestration_info.namespace_name,
+                &task_orchestration_info.task_name,
+                &task_orchestration_info.task_version,
+            )
+            .await
+        {
             Ok(config) => {
                 debug!(
                     step_id = step_id,
-                    config_path = config_path,
+                    namespace = task_orchestration_info.namespace_name,
+                    task_name = task_orchestration_info.task_name,
+                    version = task_orchestration_info.task_version,
                     step_template_count = config.step_templates.len(),
                     "Loaded task configuration"
                 );
@@ -675,7 +717,9 @@ impl StepExecutor {
             Err(e) => {
                 warn!(
                     step_id = step_id,
-                    config_path = config_path,
+                    namespace = task_orchestration_info.namespace_name,
+                    task_name = task_orchestration_info.task_name,
+                    version = task_orchestration_info.task_version,
                     error = %e,
                     "Failed to load task configuration, falling back to framework delegation"
                 );
@@ -746,7 +790,11 @@ impl StepExecutor {
                         .iter()
                         .find(|template| template.name == request.step.name)
                     {
-                        template.handler_config.clone().unwrap_or_default()
+                        // Convert serde_json::Value to HashMap<String, serde_json::Value>
+                        match template.handler_config.clone().unwrap_or_default() {
+                            serde_json::Value::Object(map) => map.into_iter().collect(),
+                            _ => std::collections::HashMap::new(),
+                        }
                     } else {
                         std::collections::HashMap::new()
                     }
@@ -755,16 +803,9 @@ impl StepExecutor {
                 };
 
                 // Get timeout from step template or use default
-                let timeout_seconds = if let Some(config) = &task_config {
-                    config
-                        .step_templates
-                        .iter()
-                        .find(|template| template.name == request.step.name)
-                        .and_then(|template| template.timeout_seconds)
-                        .unwrap_or(30) as u64
-                } else {
-                    30
-                };
+                // Note: The models::StepTemplate doesn't have timeout_seconds field
+                // We use a default timeout for now
+                let timeout_seconds = 30u64;
 
                 // Create step execution context with proper configuration
                 // First, load the WorkflowStep object to get its dependencies
@@ -908,25 +949,41 @@ impl StepExecutor {
         }
     }
 
-    /// Calculate retry delay based on attempt number
-    fn calculate_retry_delay(&self, attempt: u32) -> Option<Duration> {
+    /// Calculate retry delay based on attempt number using BackoffCalculator
+    async fn calculate_retry_delay(
+        &self,
+        step_id: i64,
+        attempt: u32,
+        error_message: Option<String>,
+    ) -> Option<Duration> {
         if attempt >= self.config.retry_config.max_attempts {
             return None;
         }
 
-        let base_delay = self.config.retry_config.base_delay;
-        let multiplier = self.config.retry_config.backoff_multiplier;
-        let max_delay = self.config.retry_config.max_delay;
+        let context = BackoffContext::new()
+            .with_error(error_message.unwrap_or_else(|| "Step execution failed".to_string()))
+            .with_metadata("attempt".to_string(), serde_json::json!(attempt))
+            .with_metadata(
+                "max_attempts".to_string(),
+                serde_json::json!(self.config.retry_config.max_attempts),
+            );
 
-        let delay = base_delay.mul_f64(multiplier.powi(attempt as i32));
-        let delay = delay.min(max_delay);
+        match self
+            .backoff_calculator
+            .calculate_and_apply_backoff(step_id, context)
+            .await
+        {
+            Ok(result) => Some(Duration::from_secs(result.delay_seconds as u64)),
+            Err(e) => {
+                warn!("Failed to calculate backoff for step {}: {}", step_id, e);
+                // Fallback to simple exponential backoff
+                let base_delay = self.config.retry_config.base_delay;
+                let multiplier = self.config.retry_config.backoff_multiplier;
+                let max_delay = self.config.retry_config.max_delay;
 
-        if self.config.retry_config.jitter {
-            let jitter = fastrand::f64() * 0.1; // 10% jitter
-            let jittered_delay = delay.mul_f64(1.0 + jitter);
-            Some(jittered_delay.min(max_delay))
-        } else {
-            Some(delay)
+                let delay = base_delay.mul_f64(multiplier.powi(attempt as i32));
+                Some(delay.min(max_delay))
+            }
         }
     }
 }
@@ -938,7 +995,9 @@ impl Clone for StepExecutor {
             state_manager: self.state_manager.clone(),
             registry: self.registry.clone(),
             event_publisher: self.event_publisher.clone(),
+            backoff_calculator: self.backoff_calculator.clone(),
             config: self.config.clone(),
+            task_config_finder: self.task_config_finder.clone(),
             execution_semaphore: self.execution_semaphore.clone(),
             active_executions: self.active_executions.clone(),
         }

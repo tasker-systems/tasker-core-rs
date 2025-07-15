@@ -3,11 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 use tasker_core::events::publisher::EventPublisher;
+use tasker_core::orchestration::config::ConfigurationManager;
 use tasker_core::orchestration::errors::OrchestrationError;
 use tasker_core::orchestration::state_manager::StateManager;
 use tasker_core::orchestration::step_executor::{
     ExecutionPriority, StepExecutionRequest, StepExecutor,
 };
+use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
 use tasker_core::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
 };
@@ -101,7 +103,11 @@ async fn test_step_executor_single_step_execution(pool: sqlx::PgPool) {
     let event_publisher = EventPublisher::new();
     let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
     let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
-    let step_executor = StepExecutor::new(state_manager, registry, event_publisher);
+    let config_manager = Arc::new(ConfigurationManager::new());
+    let registry_arc = Arc::new(registry.clone());
+    let task_config_finder = TaskConfigFinder::new(config_manager, registry_arc);
+    let step_executor =
+        StepExecutor::new(state_manager, registry, event_publisher, task_config_finder);
 
     let mock_framework = Arc::new(MockFrameworkIntegration::new());
 

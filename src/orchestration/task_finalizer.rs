@@ -16,6 +16,24 @@
 //! - **Error Handling**: Robust error state management and recovery
 //! - **Reenqueue Logic**: Intelligent task reenqueuing with context-aware delays
 //!
+//! ## Delay Types and Separation of Concerns
+//!
+//! This module handles **task-level reenqueue delays** which are different from
+//! **step-level retry delays**:
+//!
+//! - **Task Reenqueue Delays** (handled here): Delays between task orchestration attempts
+//!   - Used when a task needs to be re-enqueued for continued processing
+//!   - Based on task execution context (has_ready_steps, waiting_for_dependencies, etc.)
+//!   - Configured via `BackoffConfig.reenqueue_delays` in system configuration
+//!   - Typical range: 0-45 seconds
+//!
+//! - **Step Retry Delays** (handled by BackoffCalculator): Delays between individual step retry attempts
+//!   - Used when a specific step fails and needs to be retried
+//!   - Based on step execution context and error information
+//!   - Configured via `BackoffCalculator` with exponential backoff
+//!   - Typical range: 1-300 seconds with exponential growth
+//!   - Persisted in database `backoff_request_seconds` field
+//!
 //! ## Rails Heritage
 //!
 //! Migrated from `lib/tasker/orchestration/task_finalizer.rb` with enhanced
@@ -356,6 +374,14 @@ impl TaskFinalizer {
     }
 
     /// Reenqueue task with context intelligence
+    ///
+    /// This method handles task-level reenqueuing with appropriate delays based on
+    /// the task's execution context. This is different from step-level retries:
+    ///
+    /// - **Task Reenqueue**: When the entire task needs to be processed again
+    ///   (e.g., more steps became ready, dependencies completed)
+    /// - **Step Retry**: When a specific step failed and needs to be retried
+    ///   (handled by BackoffCalculator in StepExecutor/StepHandler)
     async fn reenqueue_task_with_context(
         &self,
         task: Task,
@@ -649,6 +675,17 @@ impl TaskFinalizer {
     }
 
     /// Calculate intelligent re-enqueue delay based on execution context
+    ///
+    /// **Important**: This method calculates task-level reenqueue delays, NOT step-level
+    /// retry delays. Step retry delays are handled by `BackoffCalculator`.
+    ///
+    /// Task reenqueue delays are used when:
+    /// - A task needs to be re-enqueued for continued orchestration
+    /// - The task is waiting for dependencies to complete
+    /// - The task has ready steps but needs to be processed again
+    ///
+    /// These delays are typically shorter (0-45 seconds) compared to step retry delays
+    /// which use exponential backoff (1-300 seconds).
     fn calculate_reenqueue_delay(&self, context: &Option<TaskExecutionContext>) -> u32 {
         use crate::orchestration::config::ConfigurationManager;
 

@@ -40,6 +40,7 @@ pub mod state_manager;
 pub mod step_executor;
 pub mod step_handler;
 pub mod system_events;
+pub mod task_config_finder;
 pub mod task_enqueuer;
 pub mod task_finalizer;
 pub mod task_handler;

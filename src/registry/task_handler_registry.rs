@@ -44,6 +44,7 @@
 use crate::error::{Result, TaskerError};
 use crate::events::{Event, EventPublisher, OrchestrationEvent};
 use crate::models::core::task_request::TaskRequest;
+use crate::models::core::task_template::TaskTemplate;
 use crate::orchestration::step_handler::StepHandler;
 use crate::orchestration::types::{HandlerMetadata, TaskHandler};
 use chrono::Utc;
@@ -107,6 +108,8 @@ pub struct TaskHandlerRegistry {
     step_handlers: Arc<RwLock<HashMap<String, Arc<dyn StepHandler>>>>,
     /// Metadata for FFI consumers
     ffi_handlers: Arc<RwLock<HashMap<String, HandlerMetadata>>>,
+    /// Task template configurations
+    task_templates: Arc<RwLock<HashMap<String, TaskTemplate>>>,
     /// Event publisher for notifications
     event_publisher: Option<EventPublisher>,
 }
@@ -118,6 +121,7 @@ impl TaskHandlerRegistry {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             step_handlers: Arc::new(RwLock::new(HashMap::new())),
             ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
+            task_templates: Arc::new(RwLock::new(HashMap::new())),
             event_publisher: None,
         }
     }
@@ -128,8 +132,99 @@ impl TaskHandlerRegistry {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             step_handlers: Arc::new(RwLock::new(HashMap::new())),
             ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
+            task_templates: Arc::new(RwLock::new(HashMap::new())),
             event_publisher: Some(event_publisher),
         }
+    }
+
+    /// Register a task template configuration
+    pub async fn register_task_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+        template: TaskTemplate,
+    ) -> Result<()> {
+        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
+        let key_string = key.key_string();
+
+        info!(
+            namespace = namespace,
+            name = name,
+            version = version,
+            template_name = template.name,
+            "Registering task template"
+        );
+
+        {
+            let mut task_templates = self.task_templates.write().map_err(|_| {
+                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
+            })?;
+
+            if task_templates.contains_key(&key_string) {
+                warn!(
+                    key = key_string,
+                    "Task template already registered, replacing"
+                );
+            }
+
+            task_templates.insert(key_string.clone(), template);
+        }
+
+        info!(key = key_string, "Task template registered successfully");
+        Ok(())
+    }
+
+    /// Get a task template by namespace, name, and version
+    pub fn get_task_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Result<TaskTemplate> {
+        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
+        let key_string = key.key_string();
+
+        let task_templates = self.task_templates.read().map_err(|_| {
+            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        })?;
+
+        task_templates.get(&key_string).cloned().ok_or_else(|| {
+            TaskerError::ValidationError(format!("Task template not found: {key_string}"))
+        })
+    }
+
+    /// Check if a task template exists
+    pub fn has_task_template(&self, namespace: &str, name: &str, version: &str) -> bool {
+        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
+        let key_string = key.key_string();
+
+        if let Ok(task_templates) = self.task_templates.read() {
+            task_templates.contains_key(&key_string)
+        } else {
+            false
+        }
+    }
+
+    /// List all task templates in a namespace (or all if namespace is None)
+    pub fn list_task_templates(&self, namespace: Option<&str>) -> Result<Vec<String>> {
+        let task_templates = self.task_templates.read().map_err(|_| {
+            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        })?;
+
+        let filtered: Vec<String> = task_templates
+            .iter()
+            .filter(|(key, _)| {
+                if let Some(ns) = namespace {
+                    key.starts_with(&format!("{ns}/"))
+                } else {
+                    true
+                }
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        Ok(filtered)
     }
 
     /// Register a Rust task handler
@@ -404,6 +499,13 @@ impl TaskHandlerRegistry {
             ffi_handlers.clear();
         }
 
+        {
+            let mut task_templates = self.task_templates.write().map_err(|_| {
+                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
+            })?;
+            task_templates.clear();
+        }
+
         info!("Task handler registry cleared");
         Ok(())
     }
@@ -538,6 +640,7 @@ impl Clone for TaskHandlerRegistry {
             handlers: Arc::clone(&self.handlers),
             step_handlers: Arc::clone(&self.step_handlers),
             ffi_handlers: Arc::clone(&self.ffi_handlers),
+            task_templates: Arc::clone(&self.task_templates),
             event_publisher: self.event_publisher.clone(),
         }
     }
@@ -701,5 +804,48 @@ mod tests {
         assert!(!registry.is_valid_semver("1.0.0.0"));
         assert!(!registry.is_valid_semver("v1.0.0"));
         assert!(!registry.is_valid_semver("1.a.0"));
+    }
+
+    #[tokio::test]
+    async fn test_task_template_registration() {
+        let registry = TaskHandlerRegistry::new();
+
+        // Create a test template
+        let template = TaskTemplate {
+            name: "test_task".to_string(),
+            module_namespace: Some("TestModule".to_string()),
+            task_handler_class: "TestTaskHandler".to_string(),
+            namespace_name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            default_dependent_system: None,
+            named_steps: vec!["step1".to_string(), "step2".to_string()],
+            schema: None,
+            step_templates: vec![],
+            environments: None,
+            default_context: None,
+            default_options: None,
+        };
+
+        // Register the template
+        registry
+            .register_task_template("test", "test_task", "1.0.0", template.clone())
+            .await
+            .unwrap();
+
+        // Verify we can retrieve it
+        let retrieved = registry
+            .get_task_template("test", "test_task", "1.0.0")
+            .unwrap();
+        assert_eq!(retrieved.name, "test_task");
+        assert_eq!(retrieved.version, "1.0.0");
+
+        // Verify has_task_template works
+        assert!(registry.has_task_template("test", "test_task", "1.0.0"));
+        assert!(!registry.has_task_template("test", "missing_task", "1.0.0"));
+
+        // Test listing templates
+        let templates = registry.list_task_templates(Some("test")).unwrap();
+        assert_eq!(templates.len(), 1);
+        assert!(templates[0].contains("test/test_task/1.0.0"));
     }
 }
