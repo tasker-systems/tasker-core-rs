@@ -114,6 +114,11 @@ impl StateManager {
         }
     }
 
+    /// Get reference to the database pool
+    pub fn pool(&self) -> &sqlx::PgPool {
+        &self.pool
+    }
+
     /// Evaluate task state based on SQL function analysis and trigger transitions if needed
     #[instrument(skip(self), fields(task_id = task_id))]
     pub async fn evaluate_task_state(

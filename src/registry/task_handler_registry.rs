@@ -44,6 +44,7 @@
 use crate::error::{Result, TaskerError};
 use crate::events::{Event, EventPublisher, OrchestrationEvent};
 use crate::models::core::task_request::TaskRequest;
+use crate::orchestration::step_handler::StepHandler;
 use crate::orchestration::types::{HandlerMetadata, TaskHandler};
 use chrono::Utc;
 use std::collections::HashMap;
@@ -93,6 +94,7 @@ impl std::fmt::Display for HandlerKey {
 #[derive(Debug, Clone)]
 pub struct RegistryStats {
     pub total_handlers: usize,
+    pub total_step_handlers: usize,
     pub total_ffi_handlers: usize,
     pub namespaces: Vec<String>,
 }
@@ -101,6 +103,8 @@ pub struct RegistryStats {
 pub struct TaskHandlerRegistry {
     /// Direct handler references for Rust consumers
     handlers: Arc<RwLock<HashMap<String, Arc<dyn TaskHandler>>>>,
+    /// Step handler references for orchestration
+    step_handlers: Arc<RwLock<HashMap<String, Arc<dyn StepHandler>>>>,
     /// Metadata for FFI consumers
     ffi_handlers: Arc<RwLock<HashMap<String, HandlerMetadata>>>,
     /// Event publisher for notifications
@@ -112,6 +116,7 @@ impl TaskHandlerRegistry {
     pub fn new() -> Self {
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
+            step_handlers: Arc::new(RwLock::new(HashMap::new())),
             ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
             event_publisher: None,
         }
@@ -121,6 +126,7 @@ impl TaskHandlerRegistry {
     pub fn with_event_publisher(event_publisher: EventPublisher) -> Self {
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
+            step_handlers: Arc::new(RwLock::new(HashMap::new())),
             ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
             event_publisher: Some(event_publisher),
         }
@@ -356,6 +362,10 @@ impl TaskHandlerRegistry {
             TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
         })?;
 
+        let step_handlers = self.step_handlers.read().map_err(|_| {
+            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        })?;
+
         let ffi_handlers = self.ffi_handlers.read().map_err(|_| {
             TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
         })?;
@@ -365,6 +375,7 @@ impl TaskHandlerRegistry {
 
         Ok(RegistryStats {
             total_handlers: handlers.len(),
+            total_step_handlers: step_handlers.len(),
             total_ffi_handlers: ffi_handlers.len(),
             namespaces: namespaces.into_iter().collect(),
         })
@@ -380,6 +391,13 @@ impl TaskHandlerRegistry {
         }
 
         {
+            let mut step_handlers = self.step_handlers.write().map_err(|_| {
+                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
+            })?;
+            step_handlers.clear();
+        }
+
+        {
             let mut ffi_handlers = self.ffi_handlers.write().map_err(|_| {
                 TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
             })?;
@@ -388,6 +406,79 @@ impl TaskHandlerRegistry {
 
         info!("Task handler registry cleared");
         Ok(())
+    }
+
+    /// Register a step handler
+    pub async fn register_step_handler(
+        &self,
+        handler_class: &str,
+        step_handler: Arc<dyn StepHandler>,
+    ) -> Result<()> {
+        info!(handler_class = handler_class, "Registering step handler");
+
+        // Register step handler reference
+        {
+            let mut step_handlers = self.step_handlers.write().map_err(|_| {
+                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
+            })?;
+
+            if step_handlers.contains_key(handler_class) {
+                warn!(
+                    handler_class = handler_class,
+                    "Step handler already registered, replacing"
+                );
+            }
+
+            step_handlers.insert(handler_class.to_string(), step_handler);
+        }
+
+        // Publish event if publisher is available
+        if let Some(ref publisher) = self.event_publisher {
+            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
+                handler_name: handler_class.to_string(),
+                handler_type: "step_handler".to_string(),
+                registered_at: Utc::now(),
+            });
+            publisher
+                .publish_event(event)
+                .await
+                .map_err(|e| TaskerError::EventError(e.to_string()))?;
+        }
+
+        info!(
+            handler_class = handler_class,
+            "Step handler registered successfully"
+        );
+        Ok(())
+    }
+
+    /// Get a step handler by class name
+    pub fn get_step_handler(&self, handler_class: &str) -> Result<Arc<dyn StepHandler>> {
+        let step_handlers = self.step_handlers.read().map_err(|_| {
+            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        })?;
+
+        step_handlers.get(handler_class).cloned().ok_or_else(|| {
+            TaskerError::ValidationError(format!("Step handler not found: {handler_class}"))
+        })
+    }
+
+    /// Check if a step handler exists
+    pub fn contains_step_handler(&self, handler_class: &str) -> bool {
+        if let Ok(step_handlers) = self.step_handlers.read() {
+            step_handlers.contains_key(handler_class)
+        } else {
+            false
+        }
+    }
+
+    /// List all registered step handlers
+    pub fn list_step_handlers(&self) -> Result<Vec<String>> {
+        let step_handlers = self.step_handlers.read().map_err(|_| {
+            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        })?;
+
+        Ok(step_handlers.keys().cloned().collect())
     }
 
     /// Validate handler before registration
@@ -445,6 +536,7 @@ impl Clone for TaskHandlerRegistry {
     fn clone(&self) -> Self {
         Self {
             handlers: Arc::clone(&self.handlers),
+            step_handlers: Arc::clone(&self.step_handlers),
             ffi_handlers: Arc::clone(&self.ffi_handlers),
             event_publisher: self.event_publisher.clone(),
         }

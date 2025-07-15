@@ -330,5 +330,92 @@ pub fn register_registry_functions(module: RModule) -> Result<(), Error> {
         magnus::function!(contains_handler_wrapper, 1),
     )?;
 
+    // Step handler registration functions
+    module.define_module_function(
+        "register_step_handler",
+        magnus::function!(register_step_handler_wrapper, 2),
+    )?;
+
+    module.define_module_function(
+        "get_step_handler",
+        magnus::function!(get_step_handler_wrapper, 1),
+    )?;
+
+    module.define_module_function(
+        "list_step_handlers",
+        magnus::function!(list_step_handlers_wrapper, 0),
+    )?;
+
     Ok(())
+}
+
+/// Register a Ruby step handler with the orchestration system
+pub fn register_step_handler_wrapper(handler_class_value: Value, step_name_value: Value) -> Result<Value, Error> {
+    let handler_class = String::try_convert(handler_class_value)
+        .map_err(|_| Error::new(Ruby::get().unwrap().exception_runtime_error(), "Invalid handler class"))?;
+
+    let step_name = String::try_convert(step_name_value)
+        .map_err(|_| Error::new(Ruby::get().unwrap().exception_runtime_error(), "Invalid step name"))?;
+
+    let result = execute_async(async move {
+        use crate::handlers::RubyStepHandler;
+        use std::sync::Arc;
+
+        // Create a Ruby step handler instance
+        let ruby_handler = RubyStepHandler::new(
+            handler_class.clone(),
+            step_name.clone(),
+            std::collections::HashMap::new(), // TODO: Accept config from Ruby
+        );
+
+        // Register with the orchestration system
+        let orchestration = get_global_orchestration_system();
+        let registry = &orchestration.task_handler_registry;
+
+        registry.register_step_handler(&handler_class, Arc::new(ruby_handler)).await
+            .map_err(|e| format!("Failed to register step handler: {}", e))?;
+
+        Ok::<serde_json::Value, String>(serde_json::json!({
+            "status": "registered",
+            "handler_class": handler_class,
+            "step_name": step_name
+        }))
+    });
+
+    match result {
+        Ok(success_data) => json_to_ruby_value(success_data),
+        Err(error_msg) => json_to_ruby_value(serde_json::json!({
+            "status": "error",
+            "error": error_msg
+        }))
+    }
+}
+
+/// Get a registered step handler
+pub fn get_step_handler_wrapper(handler_class_value: Value) -> Result<Value, Error> {
+    let handler_class = String::try_convert(handler_class_value)
+        .map_err(|_| Error::new(Ruby::get().unwrap().exception_runtime_error(), "Invalid handler class"))?;
+
+    let orchestration = get_global_orchestration_system();
+    let registry = &orchestration.task_handler_registry;
+
+    let exists = registry.contains_step_handler(&handler_class);
+
+    json_to_ruby_value(serde_json::json!({
+        "exists": exists,
+        "handler_class": handler_class
+    }))
+}
+
+/// List all registered step handlers
+pub fn list_step_handlers_wrapper() -> Result<Value, Error> {
+    let orchestration = get_global_orchestration_system();
+    let registry = &orchestration.task_handler_registry;
+
+    let handlers = registry.list_step_handlers().unwrap_or_else(|_| vec![]);
+
+    json_to_ruby_value(serde_json::json!({
+        "handlers": handlers,
+        "count": handlers.len()
+    }))
 }

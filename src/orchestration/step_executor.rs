@@ -610,37 +610,272 @@ impl StepExecutor {
             }
         })?;
 
-        // 2. Resolve step handler through registry
-        // TODO: In a full implementation, this would:
-        // - Look up the handler class from the step configuration
-        // - Resolve the handler through the registry
-        // - Call handler.process() with the task context
-        // - Call handler.process_results() with the execution results
+        // 2. Get task orchestration info (name, namespace, version) from database
+        let task_orchestration_info = {
+            use crate::models::core::task::Task;
 
-        // 3. Execute the single step through framework delegation
-        let step_result = framework
-            .execute_single_step(&request.step, &task_context)
-            .await
-            .map_err(|e| ExecutionError::StepExecutionFailed {
-                step_id,
-                reason: e.to_string(),
-                error_code: Some("FRAMEWORK_EXECUTION_ERROR".to_string()),
-            })?;
+            // First get the task from database
+            let task = Task::find_by_id(self.state_manager.pool(), task_id)
+                .await
+                .map_err(|e| ExecutionError::StateTransitionError {
+                    step_id,
+                    reason: format!("Failed to find task {task_id}: {e}"),
+                })?
+                .ok_or_else(|| ExecutionError::StateTransitionError {
+                    step_id,
+                    reason: format!("Task {task_id} not found"),
+                })?;
 
-        // 4. Validate that we got a result for the correct step
-        if step_result.step_id != step_id {
-            return Err(ExecutionError::StepExecutionFailed {
+            // Get orchestration info with task name, version, and namespace
+            task.for_orchestration(self.state_manager.pool())
+                .await
+                .map_err(|e| ExecutionError::StateTransitionError {
+                    step_id,
+                    reason: format!("Failed to get task orchestration info: {e}"),
+                })?
+        };
+
+        // 3. Try to resolve task handler metadata from registry
+        let task_request = crate::models::core::task_request::TaskRequest::new(
+            task_orchestration_info.task_name.clone(),
+            task_orchestration_info.namespace_name.clone(),
+        )
+        .with_version(task_orchestration_info.task_version.clone());
+
+        let task_handler_metadata = self.registry.resolve_handler(&task_request).map_err(|e| {
+            ExecutionError::StateTransitionError {
                 step_id,
-                reason: format!(
-                    "Framework returned result for step {} but expected step {}",
-                    step_result.step_id, step_id
-                ),
-                error_code: Some("STEP_ID_MISMATCH".to_string()),
+                reason: format!("Failed to resolve task handler metadata: {e}"),
             }
-            .into());
-        }
+        })?;
 
-        Ok(step_result)
+        debug!(
+            step_id = step_id,
+            task_name = task_orchestration_info.task_name,
+            namespace = task_orchestration_info.namespace_name,
+            version = task_orchestration_info.task_version,
+            handler_class = task_handler_metadata.handler_class,
+            "Resolved task handler metadata"
+        );
+
+        // 4. Try to load task configuration to get step templates
+        let config_manager = crate::orchestration::config::ConfigurationManager::new();
+        let config_path = format!("config/tasks/{}.yaml", task_orchestration_info.task_name);
+
+        let task_config = match config_manager.load_task_template(&config_path).await {
+            Ok(config) => {
+                debug!(
+                    step_id = step_id,
+                    config_path = config_path,
+                    step_template_count = config.step_templates.len(),
+                    "Loaded task configuration"
+                );
+                Some(config)
+            }
+            Err(e) => {
+                warn!(
+                    step_id = step_id,
+                    config_path = config_path,
+                    error = %e,
+                    "Failed to load task configuration, falling back to framework delegation"
+                );
+                None
+            }
+        };
+
+        // 5. Try to find step template and resolve handler class
+        let step_handler_result = if let Some(ref config) = task_config {
+            // Find the step template by name
+            let step_template = config
+                .step_templates
+                .iter()
+                .find(|template| template.name == request.step.name);
+
+            if let Some(template) = step_template {
+                let handler_class = &template.handler_class;
+
+                debug!(
+                    step_id = step_id,
+                    step_name = request.step.name,
+                    handler_class = handler_class,
+                    "Found step template with handler class"
+                );
+
+                // Try to get step handler from registry using the handler class from template
+                self.registry.get_step_handler(handler_class)
+            } else {
+                warn!(
+                    step_id = step_id,
+                    step_name = request.step.name,
+                    "Step template not found in task configuration"
+                );
+                // Try fallback with auto-generated handler class name
+                let fallback_handler_class = format!("{}StepHandler", request.step.name);
+                self.registry.get_step_handler(&fallback_handler_class)
+            }
+        } else {
+            // No task configuration, try fallback with auto-generated handler class name
+            let fallback_handler_class = format!("{}StepHandler", request.step.name);
+            self.registry.get_step_handler(&fallback_handler_class)
+        };
+
+        match step_handler_result {
+            Ok(step_handler) => {
+                // We found a step handler, use it to process the step
+                let handler_class = if let Some(config) = &task_config {
+                    config
+                        .step_templates
+                        .iter()
+                        .find(|template| template.name == request.step.name)
+                        .map(|template| template.handler_class.clone())
+                        .unwrap_or_else(|| format!("{}StepHandler", request.step.name))
+                } else {
+                    format!("{}StepHandler", request.step.name)
+                };
+
+                debug!(
+                    step_id = step_id,
+                    handler_class = handler_class,
+                    "Using registered step handler"
+                );
+
+                // Build step configuration from template if available
+                let step_config = if let Some(config) = &task_config {
+                    if let Some(template) = config
+                        .step_templates
+                        .iter()
+                        .find(|template| template.name == request.step.name)
+                    {
+                        template.handler_config.clone().unwrap_or_default()
+                    } else {
+                        std::collections::HashMap::new()
+                    }
+                } else {
+                    std::collections::HashMap::new()
+                };
+
+                // Get timeout from step template or use default
+                let timeout_seconds = if let Some(config) = &task_config {
+                    config
+                        .step_templates
+                        .iter()
+                        .find(|template| template.name == request.step.name)
+                        .and_then(|template| template.timeout_seconds)
+                        .unwrap_or(30) as u64
+                } else {
+                    30
+                };
+
+                // Create step execution context with proper configuration
+                let execution_context = crate::orchestration::step_handler::StepExecutionContext {
+                    step_id,
+                    task_id,
+                    step_name: request.step.name.clone(),
+                    input_data: task_context.data.clone(),
+                    previous_results: None, // TODO: Get previous results from task context
+                    step_config,
+                    attempt_number: request.retry_attempt,
+                    max_retry_attempts: request.step.retry_limit as u32,
+                    timeout_seconds,
+                    is_retryable: request.step.retry_eligible,
+                    environment: "production".to_string(), // TODO: Get from configuration
+                    metadata: std::collections::HashMap::new(),
+                };
+
+                // Call the step handler
+                let output_data = step_handler
+                    .process(&execution_context)
+                    .await
+                    .map_err(|e| ExecutionError::StepExecutionFailed {
+                        step_id,
+                        reason: format!("Step handler execution failed: {e}"),
+                        error_code: Some("STEP_HANDLER_ERROR".to_string()),
+                    })?;
+
+                // Create successful step result
+                let step_result = StepResult {
+                    step_id,
+                    status: StepStatus::Completed,
+                    output: output_data.clone(),
+                    execution_duration: std::time::Duration::from_millis(100), // TODO: Track actual duration
+                    error_message: None,
+                    retry_after: None,
+                    error_code: None,
+                    error_context: None,
+                };
+
+                // Call process_results hook if the handler supports it
+                let step_handler_result = crate::orchestration::step_handler::StepResult {
+                    success: step_result.status == StepStatus::Completed,
+                    output_data: Some(step_result.output.clone()),
+                    error: if step_result.status == StepStatus::Failed {
+                        Some(
+                            crate::orchestration::errors::StepExecutionError::Permanent {
+                                message: step_result
+                                    .error_message
+                                    .clone()
+                                    .unwrap_or_else(|| "Step failed".to_string()),
+                                error_code: step_result.error_code.clone(),
+                            },
+                        )
+                    } else {
+                        None
+                    },
+                    should_retry: step_result.status == StepStatus::Retrying,
+                    retry_delay: step_result.retry_after.map(|d| d.as_secs()),
+                    execution_duration: step_result.execution_duration,
+                    metadata: std::collections::HashMap::new(),
+                    events_to_publish: vec![],
+                };
+
+                if let Err(e) = step_handler
+                    .process_results(&execution_context, &step_handler_result)
+                    .await
+                {
+                    warn!(
+                        step_id = step_id,
+                        error = %e,
+                        "Step handler process_results hook failed (non-fatal)"
+                    );
+                }
+
+                Ok(step_result)
+            }
+            Err(_) => {
+                // No step handler found, fall back to framework delegation
+                let fallback_handler_class = format!("{}StepHandler", request.step.name);
+                debug!(
+                    step_id = step_id,
+                    handler_class = fallback_handler_class,
+                    "No step handler found in registry, falling back to framework delegation"
+                );
+
+                // 6. Execute the single step through framework delegation
+                let step_result = framework
+                    .execute_single_step(&request.step, &task_context)
+                    .await
+                    .map_err(|e| ExecutionError::StepExecutionFailed {
+                        step_id,
+                        reason: e.to_string(),
+                        error_code: Some("FRAMEWORK_EXECUTION_ERROR".to_string()),
+                    })?;
+
+                // 7. Validate that we got a result for the correct step
+                if step_result.step_id != step_id {
+                    return Err(ExecutionError::StepExecutionFailed {
+                        step_id,
+                        reason: format!(
+                            "Framework returned result for step {} but expected step {}",
+                            step_result.step_id, step_id
+                        ),
+                        error_code: Some("STEP_ID_MISMATCH".to_string()),
+                    }
+                    .into());
+                }
+
+                Ok(step_result)
+            }
+        }
     }
 
     /// Calculate retry delay based on attempt number

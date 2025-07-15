@@ -60,10 +60,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // The #[magnus::wrap] attribute handles Ruby class registration
     // We don't need to manually register them here
 
-    // Register proper FFI bridges that delegate to core logic
-    handlers::register_handler_classes(ruby, &module)?;
+    // Register models
+    models::register_model_classes(ruby, &module)?;
 
-    // Register registry functions (consolidated from registry.rs)
+    // Register globals and registry functions
     globals::register_registry_functions(module)?;
 
     // Register event system FFI bridge

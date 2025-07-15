@@ -27,6 +27,59 @@ module TaskerCore
         @config = config || {}
         @logger = logger || default_logger
         @rust_integration = rust_integration || default_rust_integration
+
+        # Auto-register this handler with the orchestration system
+        register_with_orchestration_system
+      end
+
+      # ========================================================================
+      # ORCHESTRATION SYSTEM INTEGRATION
+      # ========================================================================
+
+      # Register this handler with the Rust orchestration system
+      # This allows the StepExecutor to discover and call this handler
+      def register_with_orchestration_system
+        handler_class = self.class.name
+        step_name = extract_step_name_from_class
+
+        result = TaskerCore.register_step_handler(handler_class, step_name)
+
+        if result['status'] == 'registered'
+          @logger.info "Registered step handler: #{handler_class} for step: #{step_name}"
+        else
+          @logger.error "Failed to register step handler: #{result['error']}"
+        end
+
+        result
+      rescue => e
+        @logger.error "Error registering step handler: #{e.message}"
+        { 'status' => 'error', 'error' => e.message }
+      end
+
+      # Extract step name from class name
+      # e.g., "PaymentProcessingStepHandler" -> "payment_processing"
+      def extract_step_name_from_class
+        class_name = self.class.name.split('::').last
+        # Remove "StepHandler" suffix if present
+        step_name = class_name.sub(/StepHandler$/, '')
+        # Convert to snake_case
+        step_name.gsub(/([A-Z])/, '_\1').downcase.sub(/^_/, '')
+      end
+
+      # Check if this handler is registered with the orchestration system
+      def registered?
+        result = TaskerCore.get_step_handler(self.class.name)
+        result['exists'] == true
+      rescue => e
+        @logger.error "Error checking handler registration: #{e.message}"
+        false
+      end
+
+      # Get all registered step handlers
+      def self.list_registered_handlers
+        TaskerCore.list_step_handlers
+      rescue => e
+        { 'handlers' => [], 'count' => 0, 'error' => e.message }
       end
 
       # ========================================================================
