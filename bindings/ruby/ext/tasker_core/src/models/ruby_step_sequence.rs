@@ -12,6 +12,7 @@ use crate::models::RubyStep;
 /// This provides type-safe access to step sequence information from Ruby code.
 /// Uses `free_immediately` for memory safety since these are read-only snapshots.
 #[magnus::wrap(class = "TaskerCore::Models::StepSequence", free_immediately, size)]
+#[derive(Clone)]
 pub struct RubyStepSequence {
     pub total_steps: usize,
     pub current_position: usize,

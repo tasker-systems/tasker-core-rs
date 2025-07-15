@@ -35,7 +35,7 @@
 //!     task_id: 456,
 //!     step_name: step_template.name.clone(),
 //!     input_data: serde_json::json!({"amount": 100.0}),
-//!     previous_results: None,
+//!     previous_steps: vec![], // Placeholder, will be populated by WorkflowStep objects
 //!     step_config: HashMap::new(),
 //!     attempt_number: 1,
 //!     max_retry_attempts: 3,
@@ -80,8 +80,8 @@ pub struct StepExecutionContext {
     /// Input data for the step
     pub input_data: serde_json::Value,
 
-    /// Previous step results (if any)
-    pub previous_results: Option<HashMap<String, serde_json::Value>>,
+    /// Previous step results from dependency steps
+    pub previous_steps: Vec<crate::models::WorkflowStep>,
 
     /// Step configuration from template
     pub step_config: HashMap<String, serde_json::Value>,
@@ -655,7 +655,7 @@ mod tests {
             task_id: 456,
             step_name: "test_step".to_string(),
             input_data: serde_json::json!({"test": "value"}),
-            previous_results: None,
+            previous_steps: vec![], // Placeholder, will be populated by WorkflowStep objects
             step_config: HashMap::new(),
             attempt_number: 1,
             max_retry_attempts: 3,

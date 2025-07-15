@@ -298,7 +298,7 @@ async fn test_step_handler_with_system_events() {
             "test_data": "system_events_integration",
             "timestamp": chrono::Utc::now().to_rfc3339()
         }),
-        previous_results: None,
+        previous_steps: vec![],
         step_config: HashMap::new(),
         attempt_number: 1,
         max_retry_attempts: 3,

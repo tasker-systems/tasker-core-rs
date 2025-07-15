@@ -767,12 +767,42 @@ impl StepExecutor {
                 };
 
                 // Create step execution context with proper configuration
+                // First, load the WorkflowStep object to get its dependencies
+                let workflow_step = {
+                    use crate::models::WorkflowStep;
+                    WorkflowStep::find_by_id(self.state_manager.pool(), step_id)
+                        .await
+                        .map_err(|e| ExecutionError::StateTransitionError {
+                            step_id,
+                            reason: format!("Failed to load WorkflowStep: {e}"),
+                        })?
+                        .ok_or_else(|| ExecutionError::StateTransitionError {
+                            step_id,
+                            reason: format!("WorkflowStep {step_id} not found"),
+                        })?
+                };
+
+                // Load dependency steps using WorkflowStep::get_dependencies()
+                let previous_steps = workflow_step
+                    .get_dependencies(self.state_manager.pool())
+                    .await
+                    .map_err(|e| ExecutionError::StateTransitionError {
+                        step_id,
+                        reason: format!("Failed to load step dependencies: {e}"),
+                    })?;
+
+                debug!(
+                    step_id = step_id,
+                    dependency_count = previous_steps.len(),
+                    "Loaded step dependencies"
+                );
+
                 let execution_context = crate::orchestration::step_handler::StepExecutionContext {
                     step_id,
                     task_id,
                     step_name: request.step.name.clone(),
                     input_data: task_context.data.clone(),
-                    previous_results: None, // TODO: Get previous results from task context
+                    previous_steps,
                     step_config,
                     attempt_number: request.retry_attempt,
                     max_retry_attempts: request.step.retry_limit as u32,

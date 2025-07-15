@@ -137,12 +137,14 @@ impl RubyStepHandler {
             })?;
 
         // Convert Ruby objects to Values for method call
-        let task_value = ruby.obj_wrap(*ruby_task);
-        let sequence_value = ruby.obj_wrap(*ruby_sequence);
-        let step_value = ruby.obj_wrap(*ruby_step);
+        // Note: These types implement IntoValue automatically via #[magnus::wrap]
+        // but we need to clone them since we have references and IntoValue requires owned values
+        let task_clone = ruby_task.clone();
+        let sequence_clone = ruby_sequence.clone();
+        let step_clone = ruby_step.clone();
 
         // Call the process method
-        let result: Value = handler_class.funcall("process", (task_value, sequence_value, step_value))
+        let result: Value = handler_class.funcall("process", (task_clone, sequence_clone, step_clone))
             .map_err(|e| {
                 tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                     operation: "call_process".to_string(),
@@ -178,7 +180,7 @@ impl RubyStepHandler {
             })?;
 
         // Convert arguments to Ruby values
-        let step_value = ruby.obj_wrap(*ruby_step);
+        let step_value = ruby_step.clone();
         let process_output_value = json_to_ruby_value(process_output.clone()).map_err(|e| {
             tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                 operation: "convert_process_output".to_string(),

@@ -10,6 +10,7 @@ use tasker_core::models::core::task::Task;
 /// This provides type-safe access to Task fields from Ruby code.
 /// Uses `free_immediately` for memory safety since these are read-only snapshots.
 #[magnus::wrap(class = "TaskerCore::Models::Task", free_immediately, size)]
+#[derive(Clone)]
 pub struct RubyTask {
     pub task_id: i64,
     pub named_task_id: i32,

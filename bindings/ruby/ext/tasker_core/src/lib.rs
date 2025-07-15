@@ -60,9 +60,6 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // The #[magnus::wrap] attribute handles Ruby class registration
     // We don't need to manually register them here
 
-    // Register models
-    models::register_model_classes(ruby, &module)?;
-
     // Register globals and registry functions
     globals::register_registry_functions(module)?;
 
