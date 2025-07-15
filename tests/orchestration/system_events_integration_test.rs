@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tasker_core::orchestration::config::StepTemplate;
 use tasker_core::orchestration::{
     constants, BaseStepHandler, ConfigurationManager, OrchestrationResult, StepExecutionContext,
-    StepHandler, SystemEventsConfig, SystemEventsManager,
+    StepHandler, StepHandlerExecutor, SystemEventsConfig, SystemEventsManager,
 };
 
 /// Test step handler for system events integration
@@ -280,7 +280,9 @@ async fn test_step_handler_with_system_events() {
     };
 
     let events_manager = Arc::new(SystemEventsManager::new(events_config));
-    step_handler.set_events_manager(Arc::clone(&events_manager));
+    step_handler
+        .orchestrator_mut()
+        .set_events_manager(Arc::clone(&events_manager));
 
     // Set custom handler implementation
     let custom_handler = SystemEventsTestHandler {

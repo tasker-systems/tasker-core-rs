@@ -8,7 +8,7 @@ use std::time::Duration;
 use tasker_core::orchestration::config::StepTemplate;
 use tasker_core::orchestration::{
     BaseStepHandler, ConfigurationManager, OrchestrationResult, StepExecutionContext, StepHandler,
-    StepHandlerFactory, StepResult,
+    StepHandlerExecutor, StepHandlerFactory, StepResult,
 };
 
 /// Custom step handler implementation for testing

@@ -37,6 +37,7 @@ pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
 pub mod state_manager;
+pub mod step_execution_orchestrator;
 pub mod step_executor;
 pub mod step_handler;
 pub mod system_events;
@@ -90,9 +91,12 @@ pub use handler_config::{
     StepTemplateOverride,
 };
 pub use state_manager::StateManager;
+pub use step_execution_orchestrator::{
+    StepExecutionOrchestrator, StepExecutionOrchestratorBuilder,
+};
 pub use step_handler::{
     BaseStepHandler, ExecutionStatus, StepExecutionContext, StepExecutionEvent, StepHandler,
-    StepHandlerFactory, StepResult,
+    StepHandlerExecutor, StepHandlerFactory, StepResult,
 };
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,

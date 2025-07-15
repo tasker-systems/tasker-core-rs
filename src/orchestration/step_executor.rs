@@ -881,25 +881,13 @@ impl StepExecutor {
                     error_context: None,
                 };
 
-                // Call process_results hook if the handler supports it
+                // Call process_results hook
                 let step_handler_result = crate::orchestration::step_handler::StepResult {
                     success: step_result.status == StepStatus::Completed,
                     output_data: Some(step_result.output.clone()),
-                    error: if step_result.status == StepStatus::Failed {
-                        Some(
-                            crate::orchestration::errors::StepExecutionError::Permanent {
-                                message: step_result
-                                    .error_message
-                                    .clone()
-                                    .unwrap_or_else(|| "Step failed".to_string()),
-                                error_code: step_result.error_code.clone(),
-                            },
-                        )
-                    } else {
-                        None
-                    },
-                    should_retry: step_result.status == StepStatus::Retrying,
-                    retry_delay: step_result.retry_after.map(|d| d.as_secs()),
+                    error: None,
+                    should_retry: false,
+                    retry_delay: None,
                     execution_duration: step_result.execution_duration,
                     metadata: std::collections::HashMap::new(),
                     events_to_publish: vec![],

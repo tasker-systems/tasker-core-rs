@@ -22,8 +22,11 @@ use crate::globals::get_global_database_pool;
 use magnus::{Ruby, Value};
 use magnus::value::ReprValue;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
-use tasker_core::orchestration::step_handler::{StepHandler, StepExecutionContext, StepResult};
+use tasker_core::orchestration::config::ConfigurationManager;
+use tasker_core::orchestration::step_execution_orchestrator::StepExecutionOrchestrator;
+use tasker_core::orchestration::step_handler::{StepHandler, StepHandlerExecutor, StepExecutionContext, StepResult};
 use tasker_core::orchestration::errors::OrchestrationResult;
 use tasker_core::models::core::workflow_step::WorkflowStep;
 use tasker_core::models::core::task::Task;
@@ -43,6 +46,9 @@ pub struct RubyStepHandler {
 
     /// Step template name for identification
     step_name: String,
+
+    /// Orchestrator for shared execution logic
+    orchestrator: Option<StepExecutionOrchestrator>,
 }
 
 impl RubyStepHandler {
@@ -52,7 +58,38 @@ impl RubyStepHandler {
             handler_class,
             config,
             step_name,
+            orchestrator: None,
         }
+    }
+
+    /// Create a new Ruby step handler with orchestrator
+    pub fn with_orchestrator(
+        handler_class: String,
+        step_name: String,
+        config: HashMap<String, serde_json::Value>,
+        orchestrator: StepExecutionOrchestrator,
+    ) -> Self {
+        Self {
+            handler_class,
+            config,
+            step_name,
+            orchestrator: Some(orchestrator),
+        }
+    }
+
+    /// Set up the orchestrator for this handler
+    pub fn setup_orchestrator(&mut self, config_manager: Arc<ConfigurationManager>) {
+        self.orchestrator = Some(StepExecutionOrchestrator::new(config_manager));
+    }
+
+    /// Get a reference to the orchestrator
+    pub fn orchestrator(&self) -> Option<&StepExecutionOrchestrator> {
+        self.orchestrator.as_ref()
+    }
+
+    /// Get a mutable reference to the orchestrator
+    pub fn orchestrator_mut(&mut self) -> Option<&mut StepExecutionOrchestrator> {
+        self.orchestrator.as_mut()
     }
 
     /// Get the handler class name
@@ -271,5 +308,43 @@ impl StepHandler for RubyStepHandler {
         self.config.get("timeout_seconds")
             .and_then(|v| v.as_u64())
             .map(Duration::from_secs)
+    }
+}
+
+// Implement StepHandlerExecutor trait for RubyStepHandler
+#[async_trait::async_trait]
+impl StepHandlerExecutor for RubyStepHandler {
+    async fn execute_step(
+        &self,
+        context: StepExecutionContext,
+    ) -> OrchestrationResult<StepResult> {
+        if let Some(orchestrator) = &self.orchestrator {
+            // Use the orchestrator for full lifecycle management
+            orchestrator.execute_step(self, context).await
+        } else {
+            // Fallback to basic execution without orchestration
+            debug!(
+                "No orchestrator available for Ruby handler {}, using basic execution",
+                self.handler_class
+            );
+            
+            let output_data = self.process(&context).await?;
+            
+            let result = StepResult {
+                success: true,
+                output_data: Some(output_data),
+                error: None,
+                should_retry: false,
+                retry_delay: None,
+                execution_duration: Duration::from_millis(0), // TODO: Track actual duration
+                metadata: HashMap::new(),
+                events_to_publish: vec![],
+            };
+            
+            // Call process_results hook
+            self.process_results(&context, &result).await?;
+            
+            Ok(result)
+        }
     }
 }

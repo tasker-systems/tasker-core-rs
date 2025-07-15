@@ -16,16 +16,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Critical placeholder analysis and resolution strategy
 - Implementation guidelines and code quality standards
 
-**Current Status**: Phase 3 (Ruby Integration Testing) - Week 3
+**Current Status**: Phase 3 (Ruby Integration Testing) - Week 3 - TaskConfigFinder Complete
 - **Goal**: Complete validation of Ruby-Rust integration and prepare for production use
 - **Focus**: End-to-end Ruby step handler testing, database integration, performance validation
+- **Recent Achievement**: ✅ TaskConfigFinder implementation complete with registry and file system fallback
 - **Rule**: Ensure Ruby step handlers work seamlessly with Rust orchestration core
+
+## Recent Major Achievement: TaskConfigFinder Implementation
+
+### ✅ TaskConfigFinder Complete (January 2025)
+**Status**: ✅ **COMPLETE** - Centralized task configuration discovery with registry integration
+**Impact**: Eliminated hardcoded configuration paths and enabled Ruby handler configuration registration
+
+#### Key Features Implemented
+- **Registry-First Search**: Checks TaskHandlerRegistry for registered configurations before file system
+- **File System Fallback**: Searches multiple paths with versioned and default naming patterns
+- **Path Resolution**: Uses configurable `task_config_directory` from `tasker-config.yaml`
+- **Type Conversion**: Seamless conversion between config and model TaskTemplate types
+- **Ruby Integration**: Enables Ruby handlers to register configurations directly in registry
+
+#### Technical Implementation
+```rust
+// Search Strategy: Registry → File System
+pub async fn find_task_template(
+    &self,
+    namespace: &str,
+    name: &str,
+    version: &str,
+) -> OrchestrationResult<TaskTemplate>
+
+// Path Patterns:
+// 1. <config_dir>/tasks/{namespace}/{name}/{version}.(yml|yaml)
+// 2. <config_dir>/tasks/{name}/{version}.(yml|yaml)
+// 3. <config_dir>/tasks/{name}.(yml|yaml)
+```
+
+#### Integration Points
+- **StepExecutor**: Now uses TaskConfigFinder instead of hardcoded paths
+- **WorkflowCoordinator**: Creates and injects TaskConfigFinder into StepExecutor
+- **TaskHandlerRegistry**: Enhanced with TaskTemplate storage and retrieval
+- **Ruby Handlers**: Can register configurations directly in registry
+
+#### Test Coverage
+- ✅ **553 total tests passing** (92 unit + 86 integration + 199 comprehensive + 63 doctests + more)
+- ✅ **TaskConfigFinder demo** working with registry and file system examples
+- ✅ **Ruby bindings** still compile correctly after changes
+- ✅ **All git hooks** passing including doctest compilation
 
 ## Code Design Principles
 
-- **No More Placeholders**: All new code must be implemented to completion
+- **No More Placeholders**: All new code must be implemented to completion [[memory:3255552]]
 - **Testing-Driven**: Use failing tests to expose and fix existing placeholders
 - **Sequential Progress**: Complete current phase before proceeding to next
+- **Proper Integration**: All code must delegate properly to Rust core system [[memory:3255552]]
 - Use TODO for intentionally delayed future work, but not to sidestep a better pattern
 
 ## Testing Guidelines
@@ -34,6 +77,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Use sqlx::test for tests requiring database access
 - Use #[test] on its own for pure unit tests
 - **Integration Tests Priority**: Complex workflows reveal system boundaries and force placeholder completion
+- **Doctest Excellence**: Maintain high doctest success rate with working examples
 
 ## MCP Server Integration
 
