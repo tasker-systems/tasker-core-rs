@@ -17,13 +17,14 @@ use magnus::{Error, RModule, Ruby, Value};
 
 // Import core models directly (available from main crate)
 use tasker_core::models::{
-    Task, WorkflowStep, TaskNamespace, NamedTask, NamedStep,
+    Task, WorkflowStep, TaskNamespace, NamedTask, NamedStep, DependentSystem,
     core::{
         task::NewTask,
         workflow_step::NewWorkflowStep, 
         task_namespace::NewTaskNamespace,
         named_task::NewNamedTask,
         named_step::NewNamedStep,
+        dependent_system::NewDependentSystem,
     }
 };
 
@@ -64,6 +65,21 @@ async fn create_dummy_named_task(pool: &PgPool) -> Result<NamedTask, sqlx::Error
     NamedTask::create(pool, new_named_task).await
 }
 
+async fn create_or_find_dependent_system(pool: &PgPool, name: &str, description: &str) -> Result<DependentSystem, sqlx::Error> {
+    // Try to find existing dependent system first
+    if let Some(existing) = DependentSystem::find_by_name(pool, name).await? {
+        return Ok(existing);
+    }
+    
+    // Create new dependent system
+    let new_dependent_system = NewDependentSystem {
+        name: name.to_string(),
+        description: Some(description.to_string()),
+    };
+    
+    DependentSystem::create(pool, new_dependent_system).await
+}
+
 async fn create_dummy_named_step(pool: &PgPool) -> Result<NamedStep, sqlx::Error> {
     // Try to find existing dummy step first
     let existing_steps = NamedStep::find_by_name(pool, "dummy_step").await?;
@@ -71,10 +87,13 @@ async fn create_dummy_named_step(pool: &PgPool) -> Result<NamedStep, sqlx::Error
         return Ok(existing.clone());
     }
     
+    // Ensure dependent system exists
+    let dependent_system = create_or_find_dependent_system(pool, "test_system", "Test system for Ruby helpers").await?;
+    
     // Create new dummy step
     let new_named_step = NewNamedStep {
         name: "dummy_step".to_string(),
-        dependent_system_id: 1, // Default system ID
+        dependent_system_id: dependent_system.dependent_system_id as i32,
         description: Some("Dummy step for testing".to_string()),
     };
     
@@ -118,34 +137,9 @@ async fn create_dummy_task(pool: &PgPool) -> Result<Task, sqlx::Error> {
 fn create_test_task_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
     let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
     
-    // Create runtime for async operations
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_e| {
-            Error::new(
-                Ruby::get().unwrap().exception_runtime_error(),
-                "Failed to create tokio runtime for factory operations",
-            )
-        })?;
-
-    let result = runtime.block_on(async {
-        // Get database URL from options or environment
-        let database_url = options.get("database_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("postgresql://localhost/tasker_test");
-            
-        // Create database pool
-        let pool_result = PgPool::connect(database_url).await;
-        let pool = match pool_result {
-            Ok(p) => p,
-            Err(e) => {
-                return json!({
-                    "error": format!("Database connection failed: {}", e),
-                    "database_url": database_url
-                });
-            }
-        };
+    let result = crate::globals::execute_async(async {
+        // Use shared global database pool to avoid connection pool exhaustion
+        let pool = crate::globals::get_global_database_pool();
 
         // Create or find dummy named task (mimicking factory pattern)
         let named_task_result = create_dummy_named_task(&pool).await;
@@ -159,10 +153,21 @@ fn create_test_task_with_factory_wrapper(options_value: Value) -> Result<Value, 
         };
 
         // Extract options with defaults (mimicking TaskFactory defaults)
-        let context = options.get("context").cloned().unwrap_or_else(|| json!({
+        let mut context = json!({
             "test": true,
             "created_by": "ruby_test_helper"
-        }));
+        });
+        
+        // Merge provided context with defaults
+        if let Some(provided_context) = options.get("context") {
+            if let Some(provided_obj) = provided_context.as_object() {
+                if let Some(default_obj) = context.as_object_mut() {
+                    for (key, value) in provided_obj {
+                        default_obj.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
         
         let tags = options.get("tags").cloned().unwrap_or_else(|| json!({
             "test": true,
@@ -211,33 +216,9 @@ fn create_test_task_with_factory_wrapper(options_value: Value) -> Result<Value, 
 fn create_test_workflow_step_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
     let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
     
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_e| {
-            Error::new(
-                Ruby::get().unwrap().exception_runtime_error(),
-                "Failed to create tokio runtime for factory operations",
-            )
-        })?;
-
-    let result = runtime.block_on(async {
-        // Get database URL from options or environment
-        let database_url = options.get("database_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("postgresql://localhost/tasker_test");
-            
-        // Create database pool
-        let pool_result = PgPool::connect(database_url).await;
-        let pool = match pool_result {
-            Ok(p) => p,
-            Err(e) => {
-                return json!({
-                    "error": format!("Database connection failed: {}", e),
-                    "database_url": database_url
-                });
-            }
-        };
+    let result = crate::globals::execute_async(async {
+        // Use shared global database pool to avoid connection pool exhaustion
+        let pool = crate::globals::get_global_database_pool();
 
         // Get or create task_id (mimicking WorkflowStepFactory pattern)
         let task_id = if let Some(id) = options.get("task_id").and_then(|v| v.as_i64()) {
@@ -309,33 +290,9 @@ fn create_test_workflow_step_with_factory_wrapper(options_value: Value) -> Resul
 fn create_test_foundation_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
     let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
     
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_e| {
-            Error::new(
-                Ruby::get().unwrap().exception_runtime_error(),
-                "Failed to create tokio runtime for factory operations",
-            )
-        })?;
-
-    let result = runtime.block_on(async {
-        // Get database URL from options or environment
-        let database_url = options.get("database_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("postgresql://localhost/tasker_test");
-            
-        // Create database pool
-        let pool_result = PgPool::connect(database_url).await;
-        let pool = match pool_result {
-            Ok(p) => p,
-            Err(e) => {
-                return json!({
-                    "error": format!("Database connection failed: {}", e),
-                    "database_url": database_url
-                });
-            }
-        };
+    let result = crate::globals::execute_async(async {
+        // Use shared global database pool to avoid connection pool exhaustion
+        let pool = crate::globals::get_global_database_pool();
 
         // Extract options with defaults
         let namespace_name = options.get("namespace")

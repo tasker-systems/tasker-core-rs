@@ -44,8 +44,8 @@ module TaskerCore
 
       # Allow connection customization with block (mirrors Rails pattern)
       # @yield [connection] Faraday connection for customization
-      def configure_connection(&block)
-        @connection = build_faraday_connection(&block)
+      def configure_connection(&)
+        @connection = build_faraday_connection(&)
       end
 
       # ========================================================================
@@ -63,7 +63,7 @@ module TaskerCore
         # This base implementation shows the pattern but needs to be customized
 
         # Example of accessing task context (subclasses would customize this)
-        url_path = step.results&.dig('url_path') || config.dig(:default_path) || '/'
+        url_path = step.results&.dig('url_path') || config[:default_path] || '/'
 
         # Make HTTP request using the configured connection
         response = connection.get(url_path)
@@ -297,7 +297,7 @@ module TaskerCore
 
       # Build Faraday connection with configuration (mirrors Rails engine ConnectionBuilder)
       def build_faraday_connection
-        base_url = config.dig(:url) || config.dig('url')
+        base_url = config[:url] || config['url']
 
         Faraday.new(base_url) do |conn|
           # Apply configuration
@@ -314,21 +314,21 @@ module TaskerCore
       # Apply configuration to Faraday connection
       def apply_connection_config(conn)
         # Timeouts
-        conn.options.timeout = config.dig(:timeout) || config.dig('timeout') || 30
-        conn.options.open_timeout = config.dig(:open_timeout) || config.dig('open_timeout') || 10
+        conn.options.timeout = config[:timeout] || config['timeout'] || 30
+        conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || 10
 
         # SSL configuration
-        if ssl_config = config.dig(:ssl) || config.dig('ssl')
+        if (ssl_config = config[:ssl] || config['ssl'])
           conn.ssl.merge!(ssl_config.transform_keys(&:to_sym))
         end
 
         # Headers
-        if headers = config.dig(:headers) || config.dig('headers')
+        if (headers = config[:headers] || config['headers'])
           headers.each { |key, value| conn.headers[key] = value }
         end
 
         # Query parameters
-        if params = config.dig(:params) || config.dig('params')
+        if (params = config[:params] || config['params'])
           conn.params.merge!(params)
         end
 
@@ -347,7 +347,7 @@ module TaskerCore
 
       # Apply authentication to connection (mirrors Rails engine patterns)
       def apply_authentication(conn)
-        auth_config = config.dig(:auth) || config.dig('auth') || {}
+        auth_config = config[:auth] || config['auth'] || {}
 
         case auth_config[:type] || auth_config['type']
         when 'bearer'
@@ -372,8 +372,8 @@ module TaskerCore
           config.response :json
 
           # Timeouts
-          config.options.timeout = self.config.dig(:timeout) || 30
-          config.options.open_timeout = self.config.dig(:open_timeout) || 10
+          config.options.timeout = self.config[:timeout] || 30
+          config.options.open_timeout = self.config[:open_timeout] || 10
 
           # Authentication middleware
           setup_authentication(config)
@@ -385,7 +385,7 @@ module TaskerCore
 
       # Setup authentication based on configuration
       def setup_authentication(config)
-        auth_config = self.config.dig(:auth) || {}
+        auth_config = self.config[:auth] || {}
 
         case auth_config[:type]
         when 'bearer'
@@ -401,11 +401,11 @@ module TaskerCore
 
       # Build request headers
       def build_request_headers(additional_headers)
-        headers = (config.dig(:headers) || {}).dup
+        headers = (config[:headers] || {}).dup
         headers.merge!(additional_headers)
 
         # Add authentication headers
-        auth_config = config.dig(:auth) || {}
+        auth_config = config[:auth] || {}
         case auth_config[:type]
         when 'api_key'
           key_header = auth_config[:api_key_header] || 'X-API-Key'
@@ -419,7 +419,7 @@ module TaskerCore
 
       # Build full URL from base URL and path
       def build_full_url(path)
-        base_url = config.dig(:base_url)
+        base_url = config[:base_url]
         return path unless base_url
 
         File.join(base_url, path)
@@ -466,7 +466,7 @@ module TaskerCore
         return data[pagination_key] || data[pagination_key.to_s] if data.is_a?(Hash)
 
         # Check for next URL in headers (Link header)
-        if headers = response[:headers] || response['headers']
+        if (headers = response[:headers] || response['headers'])
           link_header = headers['Link'] || headers['link']
           if link_header&.include?('rel="next"')
             # Extract URL and parse pagination parameter

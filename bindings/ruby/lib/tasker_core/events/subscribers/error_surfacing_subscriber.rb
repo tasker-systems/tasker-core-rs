@@ -81,7 +81,7 @@ module TaskerCore
           entity_id = safe_get(event, :entity_id, 'unknown')
           error_code = safe_get(event, :error_code, 'ORCHESTRATION_ERROR')
           message = safe_get(event, :message, 'Orchestration error occurred')
-          context = event.reject { |k, _| %i[entity_type entity_id error_code message].include?(k) }
+          context = event.except(:entity_type, :entity_id, :error_code, :message)
 
           error_message = "#{entity_type} #{entity_id} orchestration error [#{error_code}]: #{message}"
 

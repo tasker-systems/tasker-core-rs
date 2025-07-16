@@ -313,20 +313,18 @@ pub async fn find_task_template(
 ## Current Working Context
 
 - **Main Branch**: `orchestration`
-- **Development Phase**: Phase 0 (Ruby FFI Mitigation) - URGENT PRIORITY
-- **Current Status**: Ruby FFI integration completely broken, requires immediate recovery
-- **Recent Crisis**:
-  - Working Ruby FFI implementation was lost in prior session before git commit
-  - Current bindings contain incorrect re-implementations instead of proper FFI bridges
-  - Architecture violations prevent Ruby-Rust integration from functioning
-- **Current Priority**: Execute Ruby FFI Mitigation Plan (see `docs/roadmap/ruby-ffi-mitigation-plan.md`)
+- **Development Phase**: Phase 3 (Ruby Integration Testing) - Database Pool Issue Resolution
+- **Current Status**: Database connection pool exhaustion causing test timeouts
+- **Critical Issue**: Multiple components creating separate database pools instead of using shared singleton
+- **Progress Made**: Fixed 5+ separate `PgPool::connect()` calls in performance.rs and factory_wrappers.rs
+- **Current Priority**: Resolve remaining database pool conflicts causing test failures
 - **Next Priorities**:
-  1. Remove incorrect handler and event implementations
-  2. Create proper FFI bridges that delegate to core logic
-  3. Implement singleton pattern for shared resources
-  4. Validate performance targets and commit working implementation
-- **Success Criteria**: Ruby bindings use core logic through proper FFI bridges, no duplicate implementations
-- **Post-Recovery**: Resume Phase 3 enhanced event integration once FFI foundation is restored
+  1. Identify remaining sources of database pool creation (possibly in models/ruby_step_sequence.rs)
+  2. Ensure all components use `crate::globals::get_global_database_pool()`
+  3. Validate that orchestration system singleton initialization is working correctly
+  4. Fix final step handler task_id extraction issue once pool issues resolved
+- **Success Criteria**: All tests pass without pool timeout errors, shared database pool used consistently
+- **Test Status**: 69 examples, 3 failures (down from many timeout failures, but pool timeouts persist)
 
 ## Key File Locations
 
@@ -352,24 +350,41 @@ pub async fn find_task_template(
 - **Configuration**: `config/` (YAML configuration files)
 - **Git Hooks**: `.githooks/` (Multi-workspace validation)
 
-## Latest Session Summary (January 2025)
+## Latest Session Summary (January 2025) - Database Pool Issue Resolution
 
 ### What We Accomplished
-1. **Comprehensive Rails Event System Analysis**: Detailed review of Publisher singleton, BaseSubscriber pattern, dry-events integration, and observability strategy
-2. **EVENT_SYSTEM.md Documentation**: Created complete analysis document with gap analysis and Phase 3 implementation roadmap
-3. **Roadmap Updates**: Updated docs/roadmap/README.md to reflect Phase 2 completion and Phase 3 priorities
-4. **CLAUDE.md Updates**: Comprehensive updates to reflect current Phase 3 status and enhanced event integration focus
-5. **Implementation Roadmap**: Detailed technical specifications for FFI publishing bridge, payload compatibility, and event type mapping
+1. **Database Pool Audit**: Systematic identification of all database pool creation instances across Ruby bindings
+2. **Performance.rs Fixes**: Updated `get_analytics_metrics` and `analyze_dependencies` functions to use shared global pool
+3. **Factory Wrappers Fixes**: Updated all 3 factory wrapper functions to use `crate::globals::execute_async()` and shared pool
+4. **Runtime Precedence Pattern**: Applied consistent runtime management to avoid nested runtime conflicts
+5. **Architecture Cleanup**: Removed 5+ separate `PgPool::connect()` calls that were causing connection exhaustion
 
-### Current Phase 3 Priorities (Starting Next Session)
-1. **FFI Publishing Bridge**: Implement `rust_publish_to_rails` FFI function to enable Rust publishing directly to Rails dry-events Publisher singleton
-2. **Payload Compatibility**: Create Rails-compatible event payload structures with automatic timestamp enhancement
-3. **Event Type Mapping**: Map Rust event names to Rails constants for seamless integration
+### Critical Issue Identified
+- **Database Pool Exhaustion**: Multiple components creating separate database pools instead of using singleton
+- **Root Cause**: Factory functions and SQL functions creating independent pools, exhausting connection limits
+- **Test Impact**: Pool timeout errors preventing proper Ruby-Rust integration validation
 
-### Key Files Created/Modified This Session
-- `docs/roadmap/EVENT_SYSTEM.md`: Complete Rails event system analysis and integration roadmap (NEW)
-- `docs/roadmap/README.md`: Updated to reflect Phase 2 completion and Phase 3 focus
-- `CLAUDE.md`: Comprehensive updates for Phase 3 status and priorities
+### Files Modified This Session
+- `bindings/ruby/ext/tasker_core/src/performance.rs`: Fixed 2 functions to use shared pool
+- `bindings/ruby/ext/tasker_core/src/test_helpers/factory_wrappers.rs`: Fixed 3 functions to use runtime precedence
+- `bindings/ruby/ext/tasker_core/src/globals.rs`: Enhanced understanding of pool management architecture
+
+### Outstanding Issues (Continuing Next Session)
+1. **Persistent Pool Timeouts**: Despite fixes, pool exhaustion errors continue in tests
+2. **Potential Remaining Sources**: User identified `models/ruby_step_sequence.rs` may contain additional pool creation
+3. **Orchestration System Timing**: Possible race condition in global orchestration system initialization
+4. **Step Handler Task ID**: Final test failure related to task_id extraction (blocked by pool issues)
+
+### Next Session Priorities
+1. **Complete Pool Audit**: Search for any remaining `PgPool::connect()` or pool creation patterns
+2. **Validate Singleton Pattern**: Ensure global orchestration system initialization is working correctly
+3. **Test Pool Behavior**: Debug why shared pool still shows timeout symptoms
+4. **Move Globals Pattern**: Consider moving globals.rs to core FFI module for reuse across language bindings
+
+### Current Test Status
+- **Before**: Many timeout failures, completely broken integration
+- **After Fixes**: 69 examples, 3 failures (significant improvement but pool timeouts persist)
+- **Target**: All pool timeouts resolved, only semantic test failures remaining
 
 ---
 

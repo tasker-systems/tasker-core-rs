@@ -66,6 +66,15 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Register event system FFI bridge
     events::register_event_functions(module)?;
 
+    // Register step handler bridge functions
+    handlers::base_step_handler::register_ruby_step_handler_functions(module)?;
+    
+    // Register RubyStepHandler wrapper class
+    handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
+    
+    // Register task handler bridge functions
+    handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
+
     // Register test helpers under TestHelpers module (always available, Rails gem controls exposure)
     let test_helpers_module = module.define_module("TestHelpers")?;
     test_helpers::register_test_helper_functions(test_helpers_module)?;

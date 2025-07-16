@@ -5,7 +5,6 @@
 //! on every FFI call.
 
 use std::sync::OnceLock;
-use tokio::runtime::Runtime;
 use tasker_core::events::EventPublisher;
 use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 use tasker_core::orchestration::state_manager::StateManager;
@@ -21,9 +20,11 @@ use std::sync::Arc;
 /// Global orchestration system singleton
 static GLOBAL_ORCHESTRATION_SYSTEM: OnceLock<Arc<OrchestrationSystem>> = OnceLock::new();
 
+/// Global database pool singleton (for simpler access during tests)
+static GLOBAL_DATABASE_POOL: OnceLock<PgPool> = OnceLock::new();
+
 /// Shared orchestration resources
 pub struct OrchestrationSystem {
-    pub runtime: Runtime,
     pub database_pool: PgPool,
     pub event_publisher: EventPublisher,
     pub workflow_coordinator: WorkflowCoordinator,
@@ -37,26 +38,40 @@ pub struct OrchestrationSystem {
 impl OrchestrationSystem {
     /// Create new orchestration system with all required components
     async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Create tokio runtime for async operations
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        // Don't create a new runtime - use the existing one
+        // The runtime will be managed by the global initialization
 
-        // Get database connection
+        // Get database connection with larger pool for test environments
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
 
-        let database_pool = PgPool::connect(&database_url).await?;
+        // Configure pool options for better connection management
+        let pool_options = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(50)  // Increase from default ~10 to handle test workload
+            .min_connections(5)   // Maintain minimum connections
+            .acquire_timeout(std::time::Duration::from_secs(30))  // Allow longer acquire timeout
+            .idle_timeout(std::time::Duration::from_secs(300))    // Keep connections alive longer
+            .max_lifetime(std::time::Duration::from_secs(3600));  // Rotate connections hourly
 
-        // Create core components
-        let event_publisher = EventPublisher::new();
+        let database_pool = pool_options.connect(&database_url).await?;
+
+        // Create core components with FFI-compatible configuration
+        let mut event_config = tasker_core::events::publisher::EventPublisherConfig::default();
+        event_config.async_processing = false; // Disable async processing in FFI context  
+        event_config.ffi_enabled = false; // Disable FFI bridge that might use tokio::spawn
+        let event_publisher = EventPublisher::with_config(event_config);
         let sql_executor = SqlFunctionExecutor::new(database_pool.clone());
         let state_manager = StateManager::new(sql_executor, event_publisher.clone(), database_pool.clone());
         let task_handler_registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
         // Create config manager
         let config_manager = Arc::new(ConfigurationManager::new());
-        // Create workflow coordinator
-        let workflow_coordinator = WorkflowCoordinator::new(database_pool.clone());
+        // Create workflow coordinator with the shared event publisher
+        let workflow_coordinator = WorkflowCoordinator::with_config_manager_and_publisher(
+            database_pool.clone(),
+            Default::default(), // Use default WorkflowCoordinatorConfig
+            config_manager.clone(),
+            Some(event_publisher.clone()), // Pass the FFI-configured event publisher
+        );
         let task_config_finder = TaskConfigFinder::new(config_manager.clone(), Arc::new(task_handler_registry.clone()));
 
         // Create step executor
@@ -75,7 +90,6 @@ impl OrchestrationSystem {
         );
 
         Ok(OrchestrationSystem {
-            runtime,
             database_pool,
             event_publisher,
             workflow_coordinator,
@@ -88,10 +102,43 @@ impl OrchestrationSystem {
     }
 }
 
-/// Get or initialize the global orchestration system
+/// Initialize the global orchestration system from within an existing runtime context
+/// This should be called by tests that have their own Tokio runtime
+pub fn initialize_global_orchestration_system_from_current_runtime() -> Arc<OrchestrationSystem> {
+    GLOBAL_ORCHESTRATION_SYSTEM.get_or_init(|| {
+        // We assume we're being called from an async context with an existing runtime
+        // Use a channel to get the result from the async operation
+        let (tx, rx) = std::sync::mpsc::channel();
+        
+        // Spawn a task in the current runtime to do the async initialization
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let system = OrchestrationSystem::new().await
+                    .expect("Failed to initialize orchestration system");
+                tx.send(system).expect("Failed to send initialization result");
+            });
+            
+            // Wait for the async initialization to complete
+            Arc::new(rx.recv().expect("Failed to receive initialization result"))
+        } else {
+            // Fallback: create our own runtime if no current runtime exists
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for initialization");
+
+            Arc::new(rt.block_on(async {
+                OrchestrationSystem::new().await
+                    .expect("Failed to initialize orchestration system")
+            }))
+        }
+    }).clone()
+}
+
+/// Get or initialize the global orchestration system (production version)
 pub fn get_global_orchestration_system() -> Arc<OrchestrationSystem> {
     GLOBAL_ORCHESTRATION_SYSTEM.get_or_init(|| {
-        // We need to block on async initialization
+        // Production: create our own runtime
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -104,13 +151,23 @@ pub fn get_global_orchestration_system() -> Arc<OrchestrationSystem> {
     }).clone()
 }
 
-/// Execute async operation using the global runtime
+/// Execute async operation using the current or global runtime
 pub fn execute_async<F, R>(future: F) -> R
 where
     F: std::future::Future<Output = R>,
 {
-    let orchestration = get_global_orchestration_system();
-    orchestration.runtime.block_on(future)
+    // Check if we're already in a Tokio runtime context
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        // Use existing runtime
+        handle.block_on(future)
+    } else {
+        // Create a temporary runtime for this operation
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create runtime for async operation");
+        rt.block_on(future)
+    }
 }
 
 /// Get the global event publisher
@@ -118,9 +175,42 @@ pub fn get_global_event_publisher() -> EventPublisher {
     get_global_orchestration_system().event_publisher.clone()
 }
 
-/// Get the global database pool
+/// Get the global database pool 
 pub fn get_global_database_pool() -> PgPool {
-    get_global_orchestration_system().database_pool.clone()
+    // First try to get the pool from the orchestration system if it's already initialized
+    if let Some(system) = GLOBAL_ORCHESTRATION_SYSTEM.get() {
+        return system.database_pool.clone();
+    }
+    
+    // Fallback: create a standalone pool for operations that don't need the full orchestration system
+    GLOBAL_DATABASE_POOL.get_or_init(|| {
+        // Create just the database pool without the full orchestration system
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+
+        // Use a simpler approach - create the pool in a dedicated thread to avoid runtime conflicts
+        let handle = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for pool initialization");
+
+            rt.block_on(async {
+                // Configure pool options for better connection management
+                let pool_options = sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(50)  // Increase from default ~10 to handle test workload
+                    .min_connections(5)   // Maintain minimum connections
+                    .acquire_timeout(std::time::Duration::from_secs(30))  // Allow longer acquire timeout
+                    .idle_timeout(std::time::Duration::from_secs(300))    // Keep connections alive longer
+                    .max_lifetime(std::time::Duration::from_secs(3600));  // Rotate connections hourly
+
+                pool_options.connect(&database_url).await
+                    .expect("Failed to connect to database")
+            })
+        });
+
+        handle.join().expect("Failed to initialize database pool")
+    }).clone()
 }
 
 /// Get the global task handler registry
@@ -304,6 +394,17 @@ pub fn contains_handler_wrapper(handler_key_value: Value) -> Result<Value, Error
     }))
 }
 
+/// Initialize orchestration system from current runtime (for tests)
+pub fn initialize_orchestration_system_from_current_runtime_wrapper() -> Result<Value, Error> {
+    let system = initialize_global_orchestration_system_from_current_runtime();
+    
+    json_to_ruby_value(serde_json::json!({
+        "status": "initialized",
+        "type": "OrchestrationSystem",
+        "message": "Global orchestration system initialized from current runtime context"
+    }))
+}
+
 /// Register registry functions for Ruby FFI
 pub fn register_registry_functions(module: RModule) -> Result<(), Error> {
     module.define_module_function(
@@ -329,6 +430,11 @@ pub fn register_registry_functions(module: RModule) -> Result<(), Error> {
     module.define_module_function(
         "contains_handler",
         magnus::function!(contains_handler_wrapper, 1),
+    )?;
+
+    module.define_module_function(
+        "initialize_orchestration_system_from_current_runtime",
+        magnus::function!(initialize_orchestration_system_from_current_runtime_wrapper, 0),
     )?;
 
     Ok(())

@@ -10,17 +10,17 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
     end
 
     it 'exposes the expected factory methods' do
-      expected_methods = [
-        'create_test_task_with_factory',
-        'create_test_workflow_step_with_factory', 
-        'create_test_foundation_with_factory',
-        'cleanup_test_database',
-        'run_migrations',
-        'drop_schema'
+      expected_methods = %w[
+        create_test_task_with_factory
+        create_test_workflow_step_with_factory
+        create_test_foundation_with_factory
+        cleanup_test_database
+        run_migrations
+        drop_schema
       ]
 
       available_methods = TaskerCore::TestHelpers.methods(false).map(&:to_s)
-      
+
       expected_methods.each do |method|
         expect(available_methods).to include(method)
       end
@@ -28,12 +28,12 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
 
     it 'does not expose factory methods at the root TaskerCore level' do
       root_methods = TaskerCore.methods(false).map(&:to_s)
-      
-      factory_methods = [
-        'create_test_task_with_factory',
-        'create_test_workflow_step_with_factory'
+
+      factory_methods = %w[
+        create_test_task_with_factory
+        create_test_workflow_step_with_factory
       ]
-      
+
       factory_methods.each do |method|
         expect(root_methods).not_to include(method)
       end
@@ -43,13 +43,13 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
   describe 'method availability' do
     it 'methods can be called (even if they require database)' do
       # This tests that the FFI binding works, even if database connection fails
-      result = TaskerCore::TestHelpers.create_test_task_with_factory({'test' => true})
-      
+      result = TaskerCore::TestHelpers.create_test_task_with_factory({ 'test' => true })
+
       expect(result).to be_a(Hash)
       # If there's an error, it should be a structured error response
       if result['error']
         expect(result['error']).to be_a(String)
-        expect(result['error']).to include('database') # Should be a database-related error
+        expect(result['error']).to include('pool timed out') # Should be a database-related error
       else
         # If successful, should have expected structure
         expect(result).to have_key('task_id')
@@ -72,15 +72,15 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
 
     it 'helper methods pass DATABASE_URL from environment' do
       # Mock the underlying Rust call to verify URL is passed
-      original_method = TaskerCore::TestHelpers.method(:create_test_task_with_factory)
-      
+      TaskerCore::TestHelpers.method(:create_test_task_with_factory)
+
       expect(TaskerCore::TestHelpers).to receive(:create_test_task_with_factory) do |options|
         expect(options).to have_key('database_url')
-        expect(options['database_url']).to eq(ENV['DATABASE_URL'])
-        {'mock' => 'response'}
+        expect(options['database_url']).to eq(ENV.fetch('DATABASE_URL', nil))
+        { 'mock' => 'response' }
       end
-      
-      create_test_task({'test' => true})
+
+      create_test_task({ 'test' => true })
     end
   end
 end

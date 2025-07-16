@@ -10,6 +10,7 @@ module TaskerCore
   # 1. Access to Rust factory patterns for creating test data
   # 2. Database cleanup utilities
   # 3. Convenient Ruby APIs for common test scenarios
+  # 4. Environment safety checks to prevent destructive operations in non-test environments
   #
   # ## Usage
   #
@@ -29,9 +30,50 @@ module TaskerCore
   # end
   # ```
   module TestHelpers
-    # Database connection and transaction management
-    
+    # ==========================================================================
+    # ENVIRONMENT SAFETY VALIDATION
+    # ==========================================================================
+
+    # Validate that we're running in a test environment before any destructive operations
+    def self.validate_test_environment!
+      environment_variables = %w[RAILS_ENV APP_ENV RACK_ENV]
+      current_env = environment_variables.find { |var| ENV.fetch(var, nil) }&.then { |var| ENV.fetch(var, nil) }
+
+      if current_env && current_env.downcase != 'test'
+        raise "❌ FATAL ERROR: Refusing to run destructive database operations!\n   " \
+              "Current environment: #{current_env}\n   " \
+              "Expected: 'test'\n   " \
+              "This protects against accidentally running operations against production/development databases.\n   " \
+              'To fix: Set RAILS_ENV=test (or APP_ENV=test, RACK_ENV=test)'
+      end
+
+      # Validate DATABASE_URL looks like a test database
+      database_url = ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
+      unless database_url.include?('test') || database_url.include?('_test')
+        if ENV['FORCE_ACCEPT_DB_URL']
+          warn '⚠️  OVERRIDE: Accepting non-test-like DATABASE_URL due to FORCE_ACCEPT_DB_URL=true'
+          warn "   DATABASE_URL: #{database_url}"
+        else
+          raise "❌ FATAL ERROR: DATABASE_URL does not appear to be a test database!\n   " \
+                "DATABASE_URL: #{database_url}\n   " \
+                "Expected: URL containing 'test' or '_test'\n   " \
+                "This protects against accidentally running tests against production/development databases.\n   " \
+                "To override: Set FORCE_ACCEPT_DB_URL=true if you're certain this is a test database\n   " \
+                'Example: FORCE_ACCEPT_DB_URL=true bundle exec rspec'
+        end
+      end
+
+      true
+    end
+
+    # ==========================================================================
+    # DATABASE CONNECTION AND TRANSACTION MANAGEMENT
+    # ==========================================================================
+
     def setup_test_database
+      # Environment safety check before destructive operations
+      TaskerCore::TestHelpers.validate_test_environment!
+
       # Run migrations to ensure schema is up to date
       run_migrations
       # Initialize foundation data if needed
@@ -39,43 +81,64 @@ module TaskerCore
     end
 
     def cleanup_test_database
+      # Environment safety check before destructive operations
+      TaskerCore::TestHelpers.validate_test_environment!
+
       # Call Rust database cleanup through FFI wrapper
       result = TaskerCore::TestHelpers.cleanup_test_database
       result.is_a?(Hash) ? result : {}
     end
 
     def run_migrations
+      # Environment safety check before destructive operations
+      TaskerCore::TestHelpers.validate_test_environment!
+
       # Run all migrations using Rust DatabaseMigrations
       database_url = ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
       result = TaskerCore::TestHelpers.run_migrations(database_url)
-      
-      if result.is_a?(Hash) && result['status'] == 'error'
-        raise "Migration failed: #{result['error']}"
-      end
-      
+
+      raise "Migration failed: #{result['error']}" if result.is_a?(Hash) && result['status'] == 'error'
+
       result.is_a?(Hash) ? result : {}
     end
 
     def drop_schema
+      # Environment safety check before destructive operations
+      TaskerCore::TestHelpers.validate_test_environment!
+
       # Drop and recreate schema using Rust DatabaseMigrations
       database_url = ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
       result = TaskerCore::TestHelpers.drop_schema(database_url)
-      
-      if result.is_a?(Hash) && result['status'] == 'error'
-        raise "Schema drop failed: #{result['error']}"
-      end
-      
+
+      raise "Schema drop failed: #{result['error']}" if result.is_a?(Hash) && result['status'] == 'error'
+
       result.is_a?(Hash) ? result : {}
     end
 
     def reset_test_database
+      # Environment safety check before destructive operations
+      TaskerCore::TestHelpers.validate_test_environment!
+
       # Complete database reset: drop schema + run migrations
       drop_schema
       run_migrations
     end
 
+    def list_database_tables
+      # List all tables in the database for diagnostic purposes
+      database_url = ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
+      result = TaskerCore::TestHelpers.list_database_tables(database_url)
+
+      if result.is_a?(Hash) && result['status'] == 'error'
+        puts "❌ ERROR: Failed to list database tables: #{result['error']}"
+        return result
+      end
+
+      result.is_a?(Hash) ? result : {}
+    end
+
     # Factory methods that delegate to Rust factories
-    
+
     # Create a test task using Rust TaskFactory
     #
     # @param [Hash] options Task creation options
@@ -86,11 +149,14 @@ module TaskerCore
     # @option options [String] :reason Reason for task creation
     # @return [Hash] Task data
     def create_test_task(options = {})
+      # Convert symbol keys to string keys recursively for consistency
+      string_options = deep_transform_keys(options, &:to_s)
+
       # Add database URL from environment if not provided
-      options_with_db = options.merge(
+      options_with_db = string_options.merge(
         'database_url' => ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
       )
-      
+
       # Call Rust TaskFactory through FFI wrapper
       result = TaskerCore::TestHelpers.create_test_task_with_factory(options_with_db)
       result.is_a?(Hash) ? result : {}
@@ -104,11 +170,14 @@ module TaskerCore
     # @option options [String] :state Initial state (defaults to 'pending')
     # @return [Hash] Workflow step data
     def create_test_workflow_step(options = {})
+      # Convert symbol keys to string keys recursively for consistency
+      string_options = deep_transform_keys(options, &:to_s)
+
       # Add database URL from environment if not provided
-      options_with_db = options.merge(
+      options_with_db = string_options.merge(
         'database_url' => ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
       )
-      
+
       # Call Rust WorkflowStepFactory through FFI wrapper
       result = TaskerCore::TestHelpers.create_test_workflow_step_with_factory(options_with_db)
       result.is_a?(Hash) ? result : {}
@@ -139,11 +208,14 @@ module TaskerCore
     # @param [Hash] options Foundation creation options
     # @return [Hash] Foundation data
     def create_test_foundation(options = {})
+      # Convert symbol keys to string keys recursively for consistency
+      string_options = deep_transform_keys(options, &:to_s)
+
       # Add database URL from environment if not provided
-      options_with_db = options.merge(
+      options_with_db = string_options.merge(
         'database_url' => ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
       )
-      
+
       # Call Rust StandardFoundation through FFI wrapper
       result = TaskerCore::TestHelpers.create_test_foundation_with_factory(options_with_db)
       result.is_a?(Hash) ? result : {}
@@ -151,17 +223,31 @@ module TaskerCore
 
     private
 
+    # Deep transform all keys in a hash recursively
+    def deep_transform_keys(object, &block)
+      case object
+      when Hash
+        object.each_with_object({}) do |(key, value), result|
+          result[yield(key)] = deep_transform_keys(value, &block)
+        end
+      when Array
+        object.map { |e| deep_transform_keys(e, &block) }
+      else
+        object
+      end
+    end
+
     def create_linear_workflow(options)
       # Create A→B→C→D workflow using Rust factories
       task = create_test_task(options.merge(name: 'linear_workflow'))
-      
+
       {
         'task' => task,
         'steps' => [
-          create_test_workflow_step(task_id: task['id'], name: 'step_a'),
-          create_test_workflow_step(task_id: task['id'], name: 'step_b'),
-          create_test_workflow_step(task_id: task['id'], name: 'step_c'),
-          create_test_workflow_step(task_id: task['id'], name: 'step_d')
+          create_test_workflow_step(task_id: task['task_id'], name: 'step_a'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'step_b'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'step_c'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'step_d')
         ],
         'type' => 'linear'
       }
@@ -170,14 +256,14 @@ module TaskerCore
     def create_diamond_workflow(options)
       # Create A→(B,C)→D workflow using Rust factories
       task = create_test_task(options.merge(name: 'diamond_workflow'))
-      
+
       {
         'task' => task,
         'steps' => [
-          create_test_workflow_step(task_id: task['id'], name: 'setup'),
-          create_test_workflow_step(task_id: task['id'], name: 'process_a'),
-          create_test_workflow_step(task_id: task['id'], name: 'process_b'),
-          create_test_workflow_step(task_id: task['id'], name: 'finalize')
+          create_test_workflow_step(task_id: task['task_id'], name: 'setup'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'process_a'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'process_b'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'finalize')
         ],
         'type' => 'diamond'
       }
@@ -186,13 +272,13 @@ module TaskerCore
     def create_parallel_workflow(options)
       # Create parallel workflow using Rust factories
       task = create_test_task(options.merge(name: 'parallel_workflow'))
-      
+
       {
         'task' => task,
         'steps' => [
-          create_test_workflow_step(task_id: task['id'], name: 'parallel_1'),
-          create_test_workflow_step(task_id: task['id'], name: 'parallel_2'),
-          create_test_workflow_step(task_id: task['id'], name: 'parallel_3')
+          create_test_workflow_step(task_id: task['task_id'], name: 'parallel_1'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'parallel_2'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'parallel_3')
         ],
         'type' => 'parallel'
       }
@@ -201,15 +287,15 @@ module TaskerCore
     def create_tree_workflow(options)
       # Create tree workflow using Rust factories
       task = create_test_task(options.merge(name: 'tree_workflow'))
-      
+
       {
         'task' => task,
         'steps' => [
-          create_test_workflow_step(task_id: task['id'], name: 'root'),
-          create_test_workflow_step(task_id: task['id'], name: 'branch_a'),
-          create_test_workflow_step(task_id: task['id'], name: 'branch_b'),
-          create_test_workflow_step(task_id: task['id'], name: 'leaf_1'),
-          create_test_workflow_step(task_id: task['id'], name: 'leaf_2')
+          create_test_workflow_step(task_id: task['task_id'], name: 'root'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'branch_a'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'branch_b'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'leaf_1'),
+          create_test_workflow_step(task_id: task['task_id'], name: 'leaf_2')
         ],
         'type' => 'tree'
       }

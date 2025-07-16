@@ -195,21 +195,12 @@ impl TaskContext {
 
 /// Convert Ruby Value to serde_json::Value
 pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error> {
+    
     if ruby_value.is_nil() {
         Ok(serde_json::Value::Null)
     } else if let Some(string) = RString::from_value(ruby_value) {
         let s = unsafe { string.as_str() }?;
         Ok(serde_json::Value::String(s.to_string()))
-    } else if let Ok(int) = i64::try_convert(ruby_value) {
-        Ok(serde_json::Value::Number(serde_json::Number::from(int)))
-    } else if let Ok(float) = f64::try_convert(ruby_value) {
-        if let Some(num) = serde_json::Number::from_f64(float) {
-            Ok(serde_json::Value::Number(num))
-        } else {
-            Ok(serde_json::Value::Null)
-        }
-    } else if let Ok(bool_val) = bool::try_convert(ruby_value) {
-        Ok(serde_json::Value::Bool(bool_val))
     } else if let Some(hash) = RHash::from_value(ruby_value) {
         let mut map = serde_json::Map::new();
         hash.foreach(|key: Value, value: Value| -> Result<ForEach, Error> {
@@ -221,6 +212,23 @@ pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error>
             Ok(ForEach::Continue)
         })?;
         Ok(serde_json::Value::Object(map))
+    } else if let Some(array) = magnus::RArray::from_value(ruby_value) {
+        let mut vec = Vec::new();
+        for item in array.into_iter() {
+            let json_item = ruby_value_to_json(item)?;
+            vec.push(json_item);
+        }
+        Ok(serde_json::Value::Array(vec))
+    } else if let Ok(int) = i64::try_convert(ruby_value) {
+        Ok(serde_json::Value::Number(serde_json::Number::from(int)))
+    } else if let Ok(float) = f64::try_convert(ruby_value) {
+        if let Some(num) = serde_json::Number::from_f64(float) {
+            Ok(serde_json::Value::Number(num))
+        } else {
+            Ok(serde_json::Value::Null)
+        }
+    } else if let Ok(bool_val) = bool::try_convert(ruby_value) {
+        Ok(serde_json::Value::Bool(bool_val))
     } else {
         // Default to string representation for unsupported types
         Ok(serde_json::Value::String(format!("{ruby_value:?}")))

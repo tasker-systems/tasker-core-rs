@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Example of how Ruby developers would implement step handlers
 # with the new RubyStepHandler architecture
 
@@ -19,16 +21,16 @@ class PaymentProcessingStepHandler
     amount = inputs['amount'] || 0
 
     # Simulate payment processing
-    if amount > 0
+    if amount.positive?
       {
-        status: "success",
+        status: 'success',
         payment_id: "pay_#{Time.now.to_i}",
         amount_processed: amount,
-        currency: "USD"
+        currency: 'USD'
       }
     else
       {
-        status: "error",
+        status: 'error',
         error_message: "Invalid amount: #{amount}"
       }
     end
@@ -39,17 +41,17 @@ class PaymentProcessingStepHandler
   # @param process_output [Hash] Result from process() method
   # @param initial_results [Hash] Previous results if retry
   # @return [Hash] Transformed result
-  def process_results(step, process_output, initial_results = nil)
+  def process_results(step, process_output, _initial_results = nil)
     puts "Processing results for step: #{step['workflow_step_id']}"
 
     # Transform results if needed
-    if process_output[:status] == "success"
+    if process_output[:status] == 'success'
       # Add audit trail
       process_output.merge({
-        processed_at: Time.now.iso8601,
-        step_id: step['workflow_step_id'],
-        retry_count: step['attempts'] || 0
-      })
+                             processed_at: Time.now.iso8601,
+                             step_id: step['workflow_step_id'],
+                             retry_count: step['attempts'] || 0
+                           })
     else
       # Log error details
       puts "Step failed: #{process_output[:error_message]}"

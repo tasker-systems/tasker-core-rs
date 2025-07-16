@@ -35,6 +35,7 @@ end
 require_relative 'tasker_core/events'
 require_relative 'tasker_core/step_handler/base'  # Now enabled - BaseStepHandler available from Rust
 require_relative 'tasker_core/step_handler/api'   # Now enabled - depends on base
+require_relative 'tasker_core/task_handler'       # Task handler base class
 
 module TaskerCore
   # Base error hierarchy
@@ -62,12 +63,12 @@ module TaskerCore
 
     # Check if this error suggests skipping standard exponential backoff
     def skip_backoff?
-      retry_after && retry_after > 0
+      retry_after&.positive?
     end
 
     # Get effective retry delay (server-suggested or calculated)
     def effective_retry_delay(attempt_number = 1)
-      return retry_after if retry_after && retry_after > 0
+      return retry_after if retry_after&.positive?
 
       # Exponential backoff: 2^attempt with max of 300 seconds (5 minutes)
       [2**attempt_number, 300].min
@@ -348,18 +349,18 @@ module TaskerCore
     end
 
     # Subscribe to orchestration events
-    def subscribe_to_orchestration(event_type, &block)
-      TaskerCore::Events.subscribe_orchestration(event_type, &block)
+    def subscribe_to_orchestration(event_type, &)
+      TaskerCore::Events.subscribe_orchestration(event_type, &)
     end
 
     # Subscribe to step handler events
-    def subscribe_to_step_handler(event_type, &block)
-      TaskerCore::Events.subscribe_step_handler(event_type, &block)
+    def subscribe_to_step_handler(event_type, &)
+      TaskerCore::Events.subscribe_step_handler(event_type, &)
     end
 
     # Subscribe to Rust events (pattern-based)
-    def subscribe_to_rust_events(event_pattern, &block)
-      @event_bridge.subscribe_to_rust_events(event_pattern, &block)
+    def subscribe_to_rust_events(event_pattern, &)
+      @event_bridge.subscribe_to_rust_events(event_pattern, &)
     end
 
     # ========================================================================
@@ -496,5 +497,4 @@ module TaskerCore
       end
     end
   end
-
 end

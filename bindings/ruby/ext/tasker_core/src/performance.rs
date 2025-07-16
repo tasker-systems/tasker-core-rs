@@ -1087,14 +1087,8 @@ pub async fn get_task_execution_context(
 ) -> Result<RubyTaskExecutionContext, Error> {
     let db_url = unsafe { database_url.as_str() }?;
 
-    // Connect to database and call the ACTUAL Rust implementation
-    let pool = PgPool::connect(db_url).await.map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Database connection failed: {e}"),
-        )
-    })?;
-
+    // Use the global database pool instead of creating a new one
+    let pool = crate::globals::get_global_database_pool();
     let executor = SqlFunctionExecutor::new(pool);
 
     // Call the real Rust function that uses SQL functions for high-performance analysis
@@ -1138,14 +1132,8 @@ pub async fn get_task_execution_context(
 pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Result<RArray, Error> {
     let db_url = unsafe { database_url.as_str() }?;
 
-    // Connect to database and call the ACTUAL Rust implementation
-    let pool = PgPool::connect(db_url).await.map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Database connection failed: {e}"),
-        )
-    })?;
-
+    // Use the global database pool instead of creating a new one
+    let pool = crate::globals::get_global_database_pool();
     let executor = SqlFunctionExecutor::new(pool);
 
     // Call the real high-performance Rust dependency resolution
@@ -1181,14 +1169,8 @@ pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Resul
 pub async fn get_system_health(database_url: RString) -> Result<RubySystemHealth, Error> {
     let db_url = unsafe { database_url.as_str() }?;
 
-    // Connect to database and call the ACTUAL Rust implementation
-    let pool = PgPool::connect(db_url).await.map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Database connection failed: {e}"),
-        )
-    })?;
-
+    // Use the global database pool instead of creating a new one
+    let pool = crate::globals::get_global_database_pool();
     let executor = SqlFunctionExecutor::new(pool);
 
     // Call the real Rust system health function
@@ -1225,15 +1207,9 @@ pub async fn get_analytics_metrics(
     let db_url = unsafe { database_url.as_str() }?;
     let hours = time_range_hours.unwrap_or(24);
 
-    // Connect to database and call the ACTUAL Rust implementation
-    let pool = PgPool::connect(db_url).await.map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Database connection failed: {e}"),
-        )
-    })?;
-
-    let executor = SqlFunctionExecutor::new(pool.clone());
+    // Use shared global database pool to avoid connection pool exhaustion
+    let pool = crate::globals::get_global_database_pool();
+    let executor = SqlFunctionExecutor::new(pool);
 
     // Calculate time range for analytics
     let since_timestamp = if hours > 0 {
@@ -1378,14 +1354,8 @@ pub async fn analyze_dependencies(
         .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
 
     rt.block_on(async {
-        // Connect to database
-        let pool = PgPool::connect(db_url).await.map_err(|e| {
-            Error::new(
-                magnus::exception::runtime_error(),
-                format!("Database connection failed: {e}"),
-            )
-        })?;
-
+        // Use shared global database pool to avoid connection pool exhaustion
+        let pool = crate::globals::get_global_database_pool();
         let executor = SqlFunctionExecutor::new(pool);
 
         // Get dependency levels for the task

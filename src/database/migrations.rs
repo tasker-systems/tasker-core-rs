@@ -176,15 +176,31 @@ impl DatabaseMigrations {
     /// Discover all migration files in the migrations directory
     fn discover_migrations() -> Result<BTreeMap<String, Migration>, sqlx::Error> {
         let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let migrations_dir = project_root.join("migrations");
+        // Try multiple possible locations for migrations directory
+        let mut possible_migrations_dirs = vec![
+            project_root.join("migrations"),       // Same directory
+            project_root.join("../../migrations"), // From bindings/ruby -> core root
+        ];
 
-        if !migrations_dir.exists() {
-            return Ok(BTreeMap::new());
+        // Add parent directories if they exist
+        if let Some(parent) = project_root.parent() {
+            if let Some(grandparent) = parent.parent() {
+                possible_migrations_dirs.push(grandparent.join("migrations"));
+            }
         }
+
+        let migrations_dir = possible_migrations_dirs
+            .into_iter()
+            .find(|dir| dir.exists());
+
+        let migrations_dir = match migrations_dir {
+            Some(dir) => dir,
+            None => return Ok(BTreeMap::new()),
+        };
 
         let mut migrations = BTreeMap::new();
 
-        for entry in fs::read_dir(migrations_dir).map_err(sqlx::Error::Io)? {
+        for entry in fs::read_dir(&migrations_dir).map_err(sqlx::Error::Io)? {
             let entry = entry.map_err(sqlx::Error::Io)?;
             let path = entry.path();
 

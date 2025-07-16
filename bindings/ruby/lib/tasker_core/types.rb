@@ -6,7 +6,7 @@ require 'dry-struct'
 module TaskerCore
   module Types
     include Dry.Types()
-    
+
     # Define Coercible from the included module
     # Note: Coercible is available through include Dry.Types()
 
@@ -58,8 +58,8 @@ module TaskerCore
         to_h
       end
 
-      def to_json(*args)
-        to_h.to_json(*args)
+      def to_json(*)
+        to_h.to_json(*)
       end
     end
 
@@ -84,15 +84,15 @@ module TaskerCore
         return 'complete' if is_complete?
         return 'blocked' if is_blocked?
         return 'ready' if has_ready_steps?
-        return 'pending' if pending_steps > 0
+        return 'pending' if pending_steps.positive?
 
         'unknown'
       end
 
       def health_status
-        return 'healthy' if error_steps == 0
+        return 'healthy' if error_steps.zero?
 
-        error_rate = error_steps.to_f / total_steps.to_f
+        error_rate = error_steps.to_f / total_steps
         return 'unhealthy' if error_rate > 0.5
         return 'degraded' if error_rate > 0.1
 
@@ -100,7 +100,7 @@ module TaskerCore
       end
 
       def can_proceed?
-        ready_steps > 0
+        ready_steps.positive?
       end
 
       def is_complete?
@@ -108,15 +108,15 @@ module TaskerCore
       end
 
       def is_blocked?
-        ready_steps == 0 && pending_steps > 0
+        ready_steps.zero? && pending_steps.positive?
       end
 
       def has_ready_steps?
-        ready_steps > 0
+        ready_steps.positive?
       end
 
       def has_failures?
-        error_steps > 0
+        error_steps.positive?
       end
 
       def completion_ratio
@@ -197,7 +197,7 @@ module TaskerCore
       attribute :dependency_level, Types::Coercible::Integer.constrained(gteq: 0)
 
       def is_root_level?
-        dependency_level == 0
+        dependency_level.zero?
       end
 
       def can_run_parallel_with?(other)

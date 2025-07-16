@@ -28,7 +28,7 @@ puts "🦀 Using Rust: #{rust_version}"
 # Enable test-helpers feature when running tests
 if ENV['ENABLE_TEST_HELPERS'] || ENV['RAILS_ENV'] == 'test' || ENV['RACK_ENV'] == 'test'
   ENV['CARGO_FEATURE_TEST_HELPERS'] = '1'
-  puts "🧪 Enabling test helpers for development/test environment"
+  puts '🧪 Enabling test helpers for development/test environment'
 end
 
 # Create the Rust makefile for the extension

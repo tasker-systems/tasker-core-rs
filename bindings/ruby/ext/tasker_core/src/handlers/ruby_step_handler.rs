@@ -19,7 +19,7 @@
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use crate::models::{RubyTask, RubyStep, RubyStepSequence};
 use crate::globals::get_global_database_pool;
-use magnus::{Ruby, Value};
+use magnus::{Ruby, Value, Error, RModule, Module, Object, function, method};
 use magnus::value::ReprValue;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,7 +36,6 @@ use tracing::{debug, warn};
 ///
 /// This struct bridges Ruby step handlers with the Rust orchestration system,
 /// allowing Ruby business logic to be executed within the orchestration workflow.
-#[derive(Debug, Clone)]
 pub struct RubyStepHandler {
     /// Ruby handler class name (e.g., "PaymentProcessingStepHandler")
     handler_class: String,
@@ -347,4 +346,46 @@ impl StepHandlerExecutor for RubyStepHandler {
             Ok(result)
         }
     }
+}
+
+/// Ruby wrapper for RubyStepHandler 
+#[magnus::wrap(class = "TaskerCore::RubyStepHandler")]
+pub struct RubyStepHandlerWrapper {
+    inner: RubyStepHandler,
+}
+
+impl RubyStepHandlerWrapper {
+    /// Create new RubyStepHandler from Ruby
+    pub fn new(handler_class: String, step_name: String, config: Value) -> Result<Self, Error> {
+        let config_json = ruby_value_to_json(config)?;
+        let config_map: HashMap<String, serde_json::Value> = if let serde_json::Value::Object(map) = config_json {
+            map.into_iter().collect()
+        } else {
+            HashMap::new()
+        };
+        
+        let inner = RubyStepHandler::new(handler_class, step_name, config_map);
+        Ok(Self { inner })
+    }
+    
+    /// Get handler class name
+    pub fn handler_class(&self) -> String {
+        self.inner.handler_class().to_string()
+    }
+    
+    /// Get step name
+    pub fn step_name(&self) -> String {
+        self.inner.step_name().to_string()
+    }
+}
+
+/// Register RubyStepHandler class with Ruby
+pub fn register_ruby_step_handler_class(ruby: &Ruby, module: &RModule) -> Result<(), Error> {
+    let class = module.define_class("RubyStepHandler", ruby.class_object())?;
+    
+    class.define_singleton_method("new", function!(RubyStepHandlerWrapper::new, 3))?;
+    class.define_method("handler_class", method!(RubyStepHandlerWrapper::handler_class, 0))?;
+    class.define_method("step_name", method!(RubyStepHandlerWrapper::step_name, 0))?;
+    
+    Ok(())
 }

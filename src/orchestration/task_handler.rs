@@ -231,6 +231,36 @@ impl BaseTaskHandler {
         }
     }
 
+    /// Create a new base task handler with pre-existing components (for FFI)
+    pub fn with_components(
+        task_template: TaskTemplate,
+        pool: PgPool,
+        workflow_coordinator: WorkflowCoordinator,
+    ) -> Self {
+        let config_manager = Arc::new(ConfigurationManager::new());
+
+        // Create system events manager - in production this would be loaded from file
+        let events_manager = Arc::new(SystemEventsManager::new(
+            crate::orchestration::system_events::SystemEventsConfig {
+                event_metadata: std::collections::HashMap::new(),
+                state_machine_mappings: crate::orchestration::system_events::StateMachineMappings {
+                    task_transitions: vec![],
+                    step_transitions: vec![],
+                },
+            },
+        ));
+
+        Self {
+            task_template,
+            pool,
+            workflow_coordinator,
+            config_manager,
+            events_manager,
+            custom_handler: None,
+            framework_integration: None,
+        }
+    }
+
     /// Set custom task handler implementation
     pub fn set_custom_handler(&mut self, handler: Box<dyn TaskHandler>) {
         self.custom_handler = Some(handler);

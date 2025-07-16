@@ -7,19 +7,20 @@
 use crate::globals::get_global_orchestration_system;
 use magnus::value::ReprValue;
 use magnus::{function, method, Error, Module, Object, RModule, Ruby, Value};
-use tasker_core::orchestration::task_handler::{BaseTaskHandler as RustBaseTaskHandler};
 use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
 use tasker_core::orchestration::task_enqueuer::{TaskEnqueuer, EnqueueRequest, EnqueuePriority};
 use tasker_core::orchestration::config::TaskTemplate;
-use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 use tasker_core::models::core::task_request::TaskRequest;
+use sqlx::PgPool;
 
 
 /// Ruby wrapper for Rust BaseTaskHandler
 #[magnus::wrap(class = "TaskerCore::BaseTaskHandler")]
 pub struct BaseTaskHandler {
-    /// The underlying Rust task handler
-    rust_handler: RustBaseTaskHandler,
+    /// Task template for this handler
+    task_template: TaskTemplate,
+    /// Database pool
+    database_pool: PgPool,
 }
 
 impl BaseTaskHandler {
@@ -27,16 +28,10 @@ impl BaseTaskHandler {
     pub fn new(task_template: TaskTemplate) -> magnus::error::Result<Self> {
         let orchestration_system = get_global_orchestration_system();
 
-        let mut rust_handler = RustBaseTaskHandler::new(
+        Ok(Self { 
             task_template,
-            orchestration_system.database_pool.clone(),
-        );
-
-        // Set up a basic framework integration for Ruby
-        let framework_integration = std::sync::Arc::new(BasicRubyFrameworkIntegration::new());
-        rust_handler.set_framework_integration(framework_integration);
-
-        Ok(Self { rust_handler })
+            database_pool: orchestration_system.database_pool.clone(),
+        })
     }
 
     /// Create a new BaseTaskHandler from JSON (for Ruby FFI)
@@ -110,14 +105,10 @@ impl BaseTaskHandler {
     pub fn handle(&self, task_id: i64) -> magnus::error::Result<Value> {
         let orchestration_system = get_global_orchestration_system();
 
-        // Delegate directly to WorkflowCoordinator
+        // Delegate directly to the global WorkflowCoordinator
         let result = crate::globals::execute_async(async {
-            let workflow_coordinator = WorkflowCoordinator::new(
-                orchestration_system.database_pool.clone()
-            );
-
             let framework_integration = std::sync::Arc::new(BasicRubyFrameworkIntegration::new());
-            let task_result = workflow_coordinator.execute_task_workflow(task_id, framework_integration).await
+            let task_result = orchestration_system.workflow_coordinator.execute_task_workflow(task_id, framework_integration).await
                 .map_err(|e| format!("Task execution failed: {}", e))?;
 
             // Convert TaskOrchestrationResult to JSON

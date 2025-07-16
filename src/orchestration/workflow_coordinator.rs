@@ -224,7 +224,28 @@ impl WorkflowCoordinator {
         config: WorkflowCoordinatorConfig,
         config_manager: Arc<ConfigurationManager>,
     ) -> Self {
-        let event_publisher = EventPublisher::new();
+        Self::with_config_manager_and_publisher(pool, config, config_manager, None)
+    }
+
+    /// Create a new workflow coordinator with configuration manager and optional event publisher
+    ///
+    /// This allows injecting a specific EventPublisher instance (e.g., from global FFI state)
+    /// while maintaining backward compatibility through the `with_config_manager` method.
+    ///
+    /// # Arguments
+    /// * `pool` - Database connection pool
+    /// * `config` - Workflow coordinator configuration
+    /// * `config_manager` - Shared configuration manager
+    /// * `event_publisher` - Optional EventPublisher instance. If None, creates a new one.
+    pub fn with_config_manager_and_publisher(
+        pool: sqlx::PgPool,
+        config: WorkflowCoordinatorConfig,
+        config_manager: Arc<ConfigurationManager>,
+        event_publisher: Option<crate::events::publisher::EventPublisher>,
+    ) -> Self {
+        // Use provided event publisher or create new one
+        let event_publisher = event_publisher.unwrap_or_default();
+
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());

@@ -307,6 +307,7 @@ module TaskerCore
       [WorkflowStepStatuses::CANCELLED, WorkflowStepStatuses::CANCELLED] => StepEvents::CANCELLED
     }.freeze
   end
+
   module ConfigSchemas
     API_CONFIG_SCHEMA = {
       url: { type: 'string', format: 'uri' },
