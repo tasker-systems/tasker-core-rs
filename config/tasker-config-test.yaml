@@ -1,5 +1,5 @@
-# Tasker Core Configuration
-# This configuration file mirrors the Rails engine defaults
+# Tasker Core Configuration - Test Environment
+# This configuration file provides test-specific overrides
 
 auth:
   authentication_enabled: false
@@ -13,15 +13,15 @@ database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
   pool:
-    max_connections: 10
-    min_connections: 1
-    acquire_timeout_seconds: 30
-    idle_timeout_seconds: 300
-    max_lifetime_seconds: 3600
+    max_connections: 10  # Reasonable for test environment
+    min_connections: 2
+    acquire_timeout_seconds: 2  # FAIL FAST: 2 second timeout for tests
+    idle_timeout_seconds: 30   # Shorter idle timeout for tests
+    max_lifetime_seconds: 300  # Shorter lifetime for tests
 
 telemetry:
   enabled: false
-  service_name: "tasker-core-rs"
+  service_name: "tasker-core-rs-test"
   sample_rate: 1.0
 
 engine:
@@ -32,7 +32,7 @@ engine:
     - "config/tasker/events"
 
 health:
-  enabled: true
+  enabled: false  # Disable health checks in tests
   check_interval_seconds: 60
   alert_thresholds:
     error_rate: 0.05
@@ -46,7 +46,7 @@ dependency_graph:
 system:
   default_dependent_system_id: 1
   default_queue_name: "default"
-  version: "1.0.0"
+  version: "1.0.0-test"
 
 backoff:
   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
@@ -62,10 +62,10 @@ backoff:
   buffer_seconds: 5
 
 execution:
-  max_concurrent_tasks: 100
-  max_concurrent_steps: 1000
-  default_timeout_seconds: 3600
-  step_execution_timeout_seconds: 300
+  max_concurrent_tasks: 10    # Reduced for test environment
+  max_concurrent_steps: 50    # Reduced for test environment
+  default_timeout_seconds: 300  # Reduced for faster tests
+  step_execution_timeout_seconds: 60
   max_discovery_attempts: 3
   step_batch_size: 10
 

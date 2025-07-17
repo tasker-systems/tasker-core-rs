@@ -14,7 +14,6 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
         create_test_task_with_factory
         create_test_workflow_step_with_factory
         create_test_foundation_with_factory
-        cleanup_test_database
         run_migrations
         drop_schema
       ]
@@ -64,7 +63,6 @@ RSpec.describe 'TaskerCore::TestHelpers Architecture' do
       expect(self).to respond_to(:create_test_task)
       expect(self).to respond_to(:create_test_workflow_step)
       expect(self).to respond_to(:create_test_foundation)
-      expect(self).to respond_to(:cleanup_test_database)
       expect(self).to respond_to(:run_migrations)
       expect(self).to respond_to(:drop_schema)
       expect(self).to respond_to(:reset_test_database)

@@ -195,40 +195,6 @@ RSpec.describe TaskerCore::TestHelpers do
     end
   end
 
-  describe '#cleanup_test_database' do
-    it 'cleans up test data using Rust cleanup through FFI' do
-      # Create some test data first
-      task = create_test_task(name: 'cleanup_test_task')
-      skip "Database error: #{task['error']}" if task['error']
-
-      step = create_test_workflow_step(task_id: task['task_id'], name: 'cleanup_test_step')
-      skip "Database error: #{step['error']}" if step['error']
-
-      # Now clean up
-      result = cleanup_test_database
-
-      expect(result).to be_a(Hash)
-      expect(%w[success partial_success]).to include(result['status'])
-      expect(result['message']).to include('cleanup completed')
-      expect(result['cleaned_tables']).to be_a(Integer)
-      expect(result['cleaned_tables']).to be >= 0
-    end
-  end
-
-  describe '#setup_test_database' do
-    it 'sets up test database with foundation data' do
-      result = setup_test_database
-
-      expect(result).to be_a(Hash)
-
-      skip "Database error: #{result['error']}" if result['error']
-
-      expect(result['namespace']).to be_a(Hash)
-      expect(result['named_task']).to be_a(Hash)
-      expect(result['named_step']).to be_a(Hash)
-    end
-  end
-
   # Helper method for skipping tests with database errors
   def skip_if_database_error(workflow)
     skip "Database error: #{workflow['task']['error']}" if workflow['task']['error']

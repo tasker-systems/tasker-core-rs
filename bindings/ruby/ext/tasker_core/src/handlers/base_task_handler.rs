@@ -4,14 +4,14 @@
 //! Ruby developers can subclass this to implement their task logic in lifecycle
 //! hooks, receiving simple Ruby arrays/hashes instead of complex Rust types.
 
-use crate::globals::get_global_orchestration_system;
+use crate::globals::{get_global_orchestration_system, execute_async};
+use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use magnus::value::ReprValue;
 use magnus::{function, method, Error, Module, Object, RModule, Ruby, Value};
 use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
 use tasker_core::orchestration::task_enqueuer::{TaskEnqueuer, EnqueueRequest, EnqueuePriority};
 use tasker_core::orchestration::config::TaskTemplate;
 use tasker_core::models::core::task_request::TaskRequest;
-use sqlx::PgPool;
 
 
 /// Ruby wrapper for Rust BaseTaskHandler
@@ -19,24 +19,28 @@ use sqlx::PgPool;
 pub struct BaseTaskHandler {
     /// Task template for this handler
     task_template: TaskTemplate,
-    /// Database pool
-    database_pool: PgPool,
+    /// Reference to the unified orchestration system
+    orchestration_system: std::sync::Arc<crate::globals::OrchestrationSystem>,
 }
 
 impl BaseTaskHandler {
         /// Create a new BaseTaskHandler with a TaskTemplate
     pub fn new(task_template: TaskTemplate) -> magnus::error::Result<Self> {
+        // 🎯 CRITICAL FIX: Use the singleton orchestration system 
+        // This prevents the "37 calls to initialize_unified_orchestration_system" problem
+        // by reusing the same orchestration system instance across all BaseTaskHandler instances
+        println!("🔧 BaseTaskHandler::new() - reusing existing orchestration system singleton");
         let orchestration_system = get_global_orchestration_system();
 
-        Ok(Self { 
+        Ok(Self {
             task_template,
-            database_pool: orchestration_system.database_pool.clone(),
+            orchestration_system,
         })
     }
 
     /// Create a new BaseTaskHandler from JSON (for Ruby FFI)
     pub fn new_from_json(task_template_json: Value) -> magnus::error::Result<Self> {
-        let task_template_data = crate::context::ruby_value_to_json(task_template_json)
+        let task_template_data = ruby_value_to_json(task_template_json)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Invalid task template: {}", e)))?;
 
         let task_template: TaskTemplate = serde_json::from_value(task_template_data)
@@ -48,17 +52,17 @@ impl BaseTaskHandler {
     /// Initialize task from TaskRequest - this is the critical method from RUBY.md
     pub fn initialize_task(&self, task_request_value: Value) -> magnus::error::Result<Value> {
         let ruby = Ruby::get().unwrap();
-        let orchestration_system = get_global_orchestration_system();
 
         // Convert Ruby value to JSON then to TaskRequest
-        let task_request_json = crate::context::ruby_value_to_json(task_request_value)
+        let task_request_json = ruby_value_to_json(task_request_value)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Invalid task request: {}", e)))?;
 
         let task_request: TaskRequest = serde_json::from_value(task_request_json)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskRequest: {}", e)))?;
 
         // Use TaskInitializer to properly initialize the task
-        let result = crate::globals::execute_async(async {
+        let orchestration_system = &self.orchestration_system;
+        let result = execute_async(async {
             let task_initializer = TaskInitializer::with_state_manager(
                 orchestration_system.database_pool.clone(),
                 TaskInitializationConfig::default(),
@@ -94,7 +98,7 @@ impl BaseTaskHandler {
         });
 
         match result {
-            Ok(success_data) => crate::context::json_to_ruby_value(success_data),
+            Ok(success_data) => json_to_ruby_value(success_data),
             Err(error_msg) => {
                 Err(Error::new(magnus::exception::runtime_error(), error_msg))
             }
@@ -103,10 +107,10 @@ impl BaseTaskHandler {
 
     /// Handle task execution by task_id - delegates directly to WorkflowCoordinator
     pub fn handle(&self, task_id: i64) -> magnus::error::Result<Value> {
-        let orchestration_system = get_global_orchestration_system();
+        let orchestration_system = &self.orchestration_system;
 
-        // Delegate directly to the global WorkflowCoordinator
-        let result = crate::globals::execute_async(async {
+        // Delegate directly to the WorkflowCoordinator from our orchestration system
+        let result = execute_async(async {
             let framework_integration = std::sync::Arc::new(BasicRubyFrameworkIntegration::new());
             let task_result = orchestration_system.workflow_coordinator.execute_task_workflow(task_id, framework_integration).await
                 .map_err(|e| format!("Task execution failed: {}", e))?;
@@ -157,7 +161,7 @@ impl BaseTaskHandler {
         });
 
         match result {
-            Ok(success_data) => crate::context::json_to_ruby_value(success_data),
+            Ok(success_data) => json_to_ruby_value(success_data),
             Err(error_msg) => {
                 Err(Error::new(magnus::exception::runtime_error(), error_msg))
             }

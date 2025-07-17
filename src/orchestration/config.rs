@@ -115,6 +115,30 @@ impl Default for AuthConfig {
 pub struct DatabaseConfig {
     pub name: Option<String>,
     pub enable_secondary_database: bool,
+    pub url: Option<String>,
+    pub pool: DatabasePoolConfig,
+}
+
+/// Database connection pool configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabasePoolConfig {
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub acquire_timeout_seconds: u64,
+    pub idle_timeout_seconds: u64,
+    pub max_lifetime_seconds: u64,
+}
+
+impl Default for DatabasePoolConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: 10,
+            min_connections: 1,
+            acquire_timeout_seconds: 30,
+            idle_timeout_seconds: 300,
+            max_lifetime_seconds: 3600,
+        }
+    }
 }
 
 /// Telemetry configuration

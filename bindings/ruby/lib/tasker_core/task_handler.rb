@@ -3,6 +3,9 @@
 require 'yaml'
 require 'json'
 require 'logger'
+require 'singleton'
+require 'digest'
+require_relative 'orchestration_manager'
 
 module TaskerCore
   class TaskHandler
@@ -24,6 +27,7 @@ module TaskerCore
     # Ruby wrapper that delegates to Rust BaseTaskHandler for orchestration integration
     # Note: We use composition instead of inheritance due to Magnus FFI limitations
     class Base
+      
       attr_reader :config, :logger, :rust_integration, :task_config
 
       def initialize(config: {}, logger: nil, rust_integration: nil, task_config_path: nil, task_config: nil)
@@ -33,16 +37,25 @@ module TaskerCore
         @task_config_path = task_config_path
         @task_config = task_config || (task_config_path ? load_task_config_from_path(task_config_path) : {})
 
-        # Initialize the Rust BaseTaskHandler with composition (delegation pattern)
+        # 🎯 CRITICAL FIX: Get BaseTaskHandler from OrchestrationManager singleton
+        # This prevents the "37 calls to BaseTaskHandler.new" problem by using memoized handler
         if @task_config && !@task_config.empty?
           begin
-            # Convert to JSON and back to ensure proper Ruby hash structure
+            # Convert to JSON for BaseTaskHandler
             task_config_json = @task_config.to_json
             task_config_hash = JSON.parse(task_config_json)
-            @rust_handler = TaskerCore::BaseTaskHandler.new(task_config_hash)
-            @logger.info 'Successfully created Rust handler instance'
+            
+            # Get BaseTaskHandler from OrchestrationManager (memoized)
+            orchestration_manager = TaskerCore::OrchestrationManager.instance
+            @rust_handler = orchestration_manager.get_base_task_handler(task_config_hash)
+            
+            if @rust_handler
+              @logger.info '♻️  Got BaseTaskHandler from OrchestrationManager singleton'
+            else
+              @logger.error 'Failed to get BaseTaskHandler from OrchestrationManager'
+            end
           rescue StandardError => e
-            @logger.error "Failed to create Rust handler: #{e.message}"
+            @logger.error "Failed to get BaseTaskHandler: #{e.message}"
             @rust_handler = nil
           end
         else
@@ -71,7 +84,7 @@ module TaskerCore
           'config_schema' => @task_config
         }
 
-        result = TaskerCore.register_ffi_handler(handler_data)
+        result = TaskerCore::OrchestrationManager.instance.register_handler(handler_data)
 
         if result['status'] == 'registered'
           @logger.info "Registered task handler: #{self.class.name} for task: #{handler_data['name']}"

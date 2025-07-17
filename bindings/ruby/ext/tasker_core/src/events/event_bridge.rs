@@ -4,7 +4,7 @@
 //! reimplementing it. Uses singleton pattern for shared resources.
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use crate::globals::{get_global_orchestration_system, execute_async};
+use crate::globals::{initialize_unified_orchestration_system, execute_async};
 use magnus::{Error, RModule, Ruby, Value};
 use tasker_core::events::{Event, OrchestrationEvent};
 use tasker_core::events::types::TaskResult;
@@ -25,7 +25,7 @@ fn publish_simple_event_wrapper(event_data_value: Value) -> Result<Value, Error>
             .unwrap_or(serde_json::json!({}));
 
         // Get global orchestration system (singleton)
-        let orchestration = get_global_orchestration_system();
+        let orchestration = initialize_unified_orchestration_system();
 
         // Delegate to core event publisher
         orchestration.event_publisher.publish(event_name, payload).await
@@ -121,7 +121,7 @@ fn publish_orchestration_event_wrapper(event_data_value: Value) -> Result<Value,
         let event = Event::Orchestration(orchestration_event);
 
         // Get global orchestration system (singleton)
-        let orchestration = get_global_orchestration_system();
+        let orchestration = initialize_unified_orchestration_system();
 
         // Delegate to core event publisher
         orchestration.event_publisher.publish_event(event).await
@@ -154,7 +154,7 @@ fn subscribe_to_events_wrapper(subscription_data_value: Value) -> Result<Value, 
             .unwrap_or("*");
 
         // Get global orchestration system (singleton)
-        let orchestration = get_global_orchestration_system();
+        let orchestration = initialize_unified_orchestration_system();
 
         // For now, return a subscription acknowledgment
         // Full callback implementation would require additional Ruby callback handling
@@ -183,7 +183,7 @@ fn subscribe_to_events_wrapper(subscription_data_value: Value) -> Result<Value, 
 fn get_event_stats_wrapper() -> Result<Value, Error> {
     let result = execute_async(async {
         // Get global orchestration system (singleton)
-        let orchestration = get_global_orchestration_system();
+        let orchestration = initialize_unified_orchestration_system();
 
         // Delegate to core event publisher stats
         let stats = orchestration.event_publisher.stats();
@@ -218,7 +218,7 @@ fn register_external_event_callback_wrapper(callback_data_value: Value) -> Resul
             .unwrap_or("ruby_callback");
 
         // Get global orchestration system (singleton)
-        let orchestration = get_global_orchestration_system();
+        let orchestration = initialize_unified_orchestration_system();
 
         // This would register a callback with the core event publisher
         // For now, acknowledge the registration

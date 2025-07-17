@@ -20,6 +20,7 @@ use magnus::{Error, Module, Ruby};
 mod context;
 mod error_translation;
 mod globals;
+mod handles;  // 🎯 NEW: Handle-based FFI architecture
 mod handlers;
 mod events;
 mod models;
@@ -66,44 +67,23 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Register event system FFI bridge
     events::register_event_functions(module)?;
 
-    // Register step handler bridge functions
-    handlers::base_step_handler::register_ruby_step_handler_functions(module)?;
-    
     // Register RubyStepHandler wrapper class
     handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
-    
+
     // Register task handler bridge functions
     handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
 
     // Register test helpers under TestHelpers module (always available, Rails gem controls exposure)
-    let test_helpers_module = module.define_module("TestHelpers")?;
-    test_helpers::register_test_helper_functions(test_helpers_module)?;
+    test_helpers::register_test_helper_functions(module)?;
+
+    // Register Performance module
+    let performance_module = module.define_module("Performance")?;
 
     // Define performance function wrappers - simplified approach
-    module.define_module_function(
-        "get_task_execution_context",
-        magnus::function!(performance::get_task_execution_context_sync, 2),
-    )?;
-    module.define_module_function(
-        "discover_viable_steps",
-        magnus::function!(performance::discover_viable_steps_sync, 2),
-    )?;
-    module.define_module_function(
-        "get_system_health",
-        magnus::function!(performance::get_system_health_sync, 1),
-    )?;
-    module.define_module_function(
-        "get_analytics_metrics",
-        magnus::function!(performance::get_analytics_metrics_sync, 2),
-    )?;
-    module.define_module_function(
-        "batch_update_step_states",
-        magnus::function!(performance::batch_update_step_states_sync, 2),
-    )?;
-    module.define_module_function(
-        "analyze_dependencies",
-        magnus::function!(performance::analyze_dependencies_sync, 2),
-    )?;
+    performance::register_performance_functions(performance_module)?;
+
+    // 🎯 NEW: Register handle-based FFI functions
+    handles::register_handle_functions(module)?;
 
     Ok(())
 }

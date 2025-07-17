@@ -210,18 +210,6 @@ step = TaskerCore::TestHelpers.create_test_workflow_step_with_factory({
    result = TaskerCore::TestHelpers.run_migrations(DATABASE_URL)
    ```
 
-2. **Run Example**:
-   ```bash
-   cd examples
-   ruby composition_integration_example.rb
-   ```
-
-3. **Cleanup**:
-   ```bash
-   # Clean up test data
-   result = TaskerCore::TestHelpers.cleanup_test_database
-   ```
-
 ## Testing Integration
 
 ### Unit Testing
@@ -245,24 +233,16 @@ end
 
 ```ruby
 RSpec.describe 'Payment Processing Integration' do
-  before do
-    TaskerCore::TestHelpers.run_migrations(DATABASE_URL)
-  end
-
-  after do
-    TaskerCore::TestHelpers.cleanup_test_database
-  end
-
   it 'creates and processes payment workflow' do
     # Create test data
     foundation = TaskerCore::TestHelpers.create_test_foundation_with_factory({
       namespace: 'payment_processing'
     })
-    
+
     task = TaskerCore::TestHelpers.create_test_task_with_factory({
       context: { customer_id: 'cust_123' }
     })
-    
+
     # Test handler execution
     handler = PaymentProcessingStepHandler.new
     # ... test logic
@@ -291,7 +271,7 @@ Step handlers receive configuration through their `initialize` method:
 class MyStepHandler < TaskerCore::StepHandler::Base
   def initialize(config: {}, logger: nil)
     super(config: config, logger: logger)
-    
+
     @timeout = config['timeout'] || 30
     @max_retries = config['max_retries'] || 3
     @api_key = config['api_key'] || ENV['API_KEY']
@@ -309,7 +289,7 @@ environments:
     task_config:
       timeout_seconds: 60
       retry_limit: 1
-      
+
   production:
     task_config:
       timeout_seconds: 300

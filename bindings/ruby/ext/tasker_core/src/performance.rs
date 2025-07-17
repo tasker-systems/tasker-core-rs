@@ -1304,7 +1304,7 @@ pub async fn get_analytics_metrics(
     })
 }
 
-/// Batch update step states efficiently  
+/// Batch update step states efficiently
 ///
 /// TODO: This is a STUB IMPLEMENTATION that needs to be completed.
 ///
@@ -1497,4 +1497,33 @@ pub fn analyze_dependencies_sync(
     })?;
 
     rt.block_on(analyze_dependencies(task_id, database_url))
+}
+
+pub fn register_performance_functions(module: RModule) -> Result<(), magnus::Error> {
+  module.define_module_function(
+    "get_task_execution_context",
+    magnus::function!(get_task_execution_context_sync, 2),
+  )?;
+  module.define_module_function(
+      "discover_viable_steps",
+      magnus::function!(discover_viable_steps_sync, 2),
+  )?;
+  module.define_module_function(
+      "get_system_health",
+      magnus::function!(get_system_health_sync, 1),
+  )?;
+  module.define_module_function(
+      "get_analytics_metrics",
+      magnus::function!(get_analytics_metrics_sync, 2),
+  )?;
+  module.define_module_function(
+      "batch_update_step_states",
+      magnus::function!(batch_update_step_states_sync, 2),
+  )?;
+    module.define_module_function(
+      "analyze_dependencies",
+      magnus::function!(analyze_dependencies_sync, 2),
+  )?;
+
+  Ok(())
 }

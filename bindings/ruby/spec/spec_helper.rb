@@ -34,8 +34,10 @@ if current_env.nil?
   ENV['RAILS_ENV'] = 'test'
   ENV['APP_ENV'] = 'test'
   ENV['RACK_ENV'] = 'test'
-  puts '🛡️  Environment safety: Set RAILS_ENV=test, APP_ENV=test, RACK_ENV=test'
+  ENV['TASKER_ENV'] = 'test'  # Set TASKER_ENV for configuration loading
+  puts '🛡️  Environment safety: Set RAILS_ENV=test, APP_ENV=test, RACK_ENV=test, TASKER_ENV=test'
 else
+  ENV['TASKER_ENV'] = 'test'  # Ensure TASKER_ENV is set for configuration loading
   puts "🛡️  Environment safety: Confirmed running in test environment (#{current_env})"
 end
 
@@ -76,8 +78,7 @@ RSpec.configure do |config|
   config.order = :random
   Kernel.srand config.seed
 
-  # Database migration hooks for test isolation
-  config.before(:suite) do
+  def ensure_safe_environment!
     # Double-check environment safety before destructive operations
     environment_variables = %w[RAILS_ENV APP_ENV RACK_ENV]
     current_env = environment_variables.find { |var| ENV.fetch(var, nil) }&.then { |var| ENV.fetch(var, nil) }
@@ -106,62 +107,75 @@ RSpec.configure do |config|
         exit 1
       end
     end
+  end
 
-    # Run migrations once before all tests
-    puts '🗃️  Setting up test database with migrations...'
+  def initialize_orchestration_system
+    puts '🧪 Setting up test environment...'
+    puts '💡 Note: Database migrations should be run separately with: bundle exec rake test:setup'
+
     begin
-      # Use the same migration functions we expose to test helpers
-      result = TaskerCore::TestHelpers.run_migrations(database_url)
-
-      if result['status'] == 'error'
-        puts "❌ Migration failed: #{result['error']}"
-        exit 1
-      else
-        puts '✅ Migrations completed successfully'
+      # 🎯 UNIFIED ENTRY POINT: Initialize unified orchestration system via OrchestrationManager
+      puts '⚙️  Initializing unified orchestration system for tests...'
+      begin
+        orchestration_manager = TaskerCore::OrchestrationManager.instance
+        init_result = orchestration_manager.initialize_orchestration_system!
         
-        # Initialize orchestration system from current runtime context (for tests)
-        puts '⚙️  Initializing orchestration system for tests...'
-        begin
-          init_result = TaskerCore.initialize_orchestration_system_from_current_runtime
-          if init_result['status'] == 'initialized'
-            puts '✅ Orchestration system initialized successfully'
-          else
-            puts "❌ Orchestration system initialization failed: #{init_result['error']}"
-            exit 1
-          end
-        rescue StandardError => e
-          puts "❌ Failed to initialize orchestration system: #{e.message}"
+        if init_result['status'] == 'initialized'
+          puts '✅ Unified orchestration system initialized successfully via OrchestrationManager'
+          puts "   Architecture: #{init_result['architecture']}"
+          puts "   Pool source: #{init_result['pool_source']}"
+          puts "   Manager status: #{orchestration_manager.status}"
+        else
+          puts "❌ Unified orchestration system initialization failed: #{init_result['error']}"
           exit 1
         end
+      rescue StandardError => e
+        puts "❌ Failed to initialize unified orchestration system: #{e.message}"
+        exit 1
+      end
+
+      # Use TestingManager singleton for unified test environment setup
+      puts '🧪 Running lightweight test environment setup via TestingManager...'
+      testing_manager = TaskerCore::TestingManager.instance
+      result = testing_manager.setup_test_environment
+
+      if result['status'] == 'error'
+        puts "❌ TestingManager setup failed: #{result['error']}"
+        puts "💡 Try running: bundle exec rake test:setup"
+        exit 1
+      else
+        puts '✅ TestingManager setup completed successfully'
+        puts "   Steps: #{result['steps_completed']&.join(', ')}"
+        puts "   Pool connections: #{result['pool_connections']}"
+        puts "   Manager status: #{testing_manager.status}"
       end
     rescue StandardError => e
-      puts "❌ Failed to setup test database: #{e.message}"
+      puts "❌ Failed to setup test environment: #{e.message}"
+      puts "💡 Try running: bundle exec rake test:setup"
       exit 1
     end
   end
 
-  config.after(:suite) do
-    # Optional: Clean up after all tests
-    puts '🧹 Test suite completed'
+  # Test environment setup (migrations handled by rake task)
+  config.before(:suite) do
+    ensure_safe_environment!
+    initialize_orchestration_system
   end
 
-  config.around do |example|
-    # For tests that need isolated database state
-    if example.metadata[:database]
-      # Environment safety check before destructive operations per test
-      environment_variables = %w[RAILS_ENV APP_ENV RACK_ENV]
-      current_env = environment_variables.find { |var| ENV.fetch(var, nil) }&.then { |var| ENV.fetch(var, nil) }
+  config.after(:suite) do
+    # Clean up after all tests using TestingFramework
+    ensure_safe_environment!
 
-      unless current_env&.downcase == 'test'
-        raise "Environment safety check failed! Current environment: #{current_env || 'unset'}. Expected: 'test'"
-      end
+    puts '🧹 Cleaning up test environment with TestingManager...'
+    testing_manager = TaskerCore::TestingManager.instance
+    result = testing_manager.cleanup_test_environment
 
-      # Reset database for this test
-      database_url = ENV['DATABASE_URL'] || 'postgresql://tasker:tasker@localhost/tasker_rust_test'
-      TaskerCore::TestHelpers.drop_schema(database_url)
-      TaskerCore::TestHelpers.run_migrations(database_url)
+    if result['status'] == 'error'
+      puts "⚠️  TestingManager cleanup failed: #{result['error']}"
+    else
+      puts '✅ TestingManager cleanup completed successfully'
     end
 
-    example.run
+    puts '🧹 Test suite completed'
   end
 end
