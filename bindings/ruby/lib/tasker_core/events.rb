@@ -80,6 +80,10 @@ module TaskerCore
         @subscribed_events || []
       end
 
+      def initialize(logger: nil)
+        @logger = logger || TaskerCore::Logging::Logger.instance
+      end
+
       # Handle incoming event by routing to appropriate method
       def handle_event(event_type, event_payload)
         method_name = "handle_#{event_type.tr('.', '_')}"
@@ -136,7 +140,6 @@ module TaskerCore
 
       # Handle errors in subscribers
       def self.handle_subscriber_error(event_type, _event_payload, error)
-        logger = defined?(Rails) ? Rails.logger : Logger.new($stderr)
         logger.error("Subscriber error handling #{event_type}: #{error.message}")
         logger.error(error.backtrace.join("\n")) if error.backtrace
       end
@@ -149,13 +152,13 @@ module TaskerCore
     # Bridge that connects Rust orchestration events to Ruby subscribers
     # Rust is the authoritative source of events; Ruby provides ergonomic subscription
     class RustEventBridge
-      attr_reader :rust_integration
+      attr_reader :rust_integration, :logger
 
       def initialize(rust_integration)
         @rust_integration = rust_integration
         @running = false
         @event_callbacks = {}
-        @logger = defined?(Rails) ? Rails.logger : Logger.new($stdout)
+        @logger = TaskerCore::Logging::Logger.instance
       end
 
       # Start the bridge - connects to Rust event stream
@@ -163,12 +166,12 @@ module TaskerCore
         return if @running
 
         @running = true
-        @logger.info('Starting Rust event bridge')
+        logger.info('Starting Rust event bridge')
 
         # Register with Rust layer to receive events
         register_with_rust_event_system
 
-        @logger.info('Rust event bridge started')
+        logger.info('Rust event bridge started')
       end
 
       # Stop the bridge
@@ -176,12 +179,12 @@ module TaskerCore
         return unless @running
 
         @running = false
-        @logger.info('Stopping Rust event bridge')
+        logger.info('Stopping Rust event bridge')
 
         # Unregister from Rust layer
         unregister_from_rust_event_system
 
-        @logger.info('Rust event bridge stopped')
+        logger.info('Rust event bridge stopped')
       end
 
       # Handle event received from Rust orchestration layer
@@ -203,12 +206,12 @@ module TaskerCore
           @event_callbacks[event_type]&.each do |callback|
             callback.call(enriched_payload)
           rescue StandardError => e
-            @logger.error("Error in event callback for #{event_type}: #{e.message}")
+            logger.error("Error in event callback for #{event_type}: #{e.message}")
           end
         rescue JSON::ParserError => e
-          @logger.error("Failed to parse event payload from Rust: #{e.message}")
+          logger.error("Failed to parse event payload from Rust: #{e.message}")
         rescue StandardError => e
-          @logger.error("Error handling Rust event #{event_type}: #{e.message}")
+          logger.error("Error handling Rust event #{event_type}: #{e.message}")
         end
       end
 
@@ -223,12 +226,12 @@ module TaskerCore
         publisher = TaskerCore::Events::Publisher.instance
         publisher.publish(event_name, event_payload)
 
-        @logger.debug("Published Rust event to TaskerCore Publisher: #{event_name}")
+        logger.debug("Published Rust event to TaskerCore Publisher: #{event_name}")
       rescue JSON::ParserError => e
-        @logger.error("Failed to parse event payload from Rust for publication: #{e.message}")
+        logger.error("Failed to parse event payload from Rust for publication: #{e.message}")
         raise e
       rescue StandardError => e
-        @logger.error("Error publishing Rust event #{event_name}: #{e.message}")
+        logger.error("Error publishing Rust event #{event_name}: #{e.message}")
         raise e
       end
 
@@ -258,36 +261,47 @@ module TaskerCore
 
       # Register with Rust event system via FFI
       def register_with_rust_event_system
-        # Check if event bridge is available
-        if TaskerCore.respond_to?(:event_bridge_register)
-          # Call the Rust FFI function to register this Ruby object as the event bridge
-          result = TaskerCore.event_bridge_register(self)
+        # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
+        orchestration_manager = TaskerCore::OrchestrationManager.instance
 
-          if result['registered']
-            @logger.info("Successfully registered Ruby event bridge with Rust: #{result['status']}")
+        # Check if event bridge is available
+        if orchestration_manager.respond_to?(:register_external_event_callback_with_handle)
+          # Call the handle-based method to register this Ruby object as the event bridge
+          callback_data = {
+            'callback_name' => 'ruby_event_bridge',
+            'handler_object' => self,
+            'event_patterns' => ['*']
+          }
+
+          result = orchestration_manager.register_external_event_callback_with_handle(callback_data)
+
+          if result && result['status'] == 'registered'
+            logger.info("Successfully registered Ruby event bridge with Rust: #{result['status']}")
           else
-            @logger.error("Failed to register Ruby event bridge: #{result}")
+            logger.error("Failed to register Ruby event bridge: #{result}")
           end
         else
-          @logger.warn('Event bridge not available - running without Rust event integration')
+          logger.warn('Event bridge not available - running without Rust event integration')
         end
-      rescue StandardError => e
-        @logger.error("Error registering Ruby event bridge: #{e.message}")
+
         # Don't re-raise in test environment
-        @logger.warn('Continuing without event bridge registration')
+        logger.warn('Continuing without event bridge registration')
       end
 
       # Unregister with Rust event system via FFI
       def unregister_from_rust_event_system
-        result = TaskerCore.event_bridge_unregister
+        # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
+        # For now, there's no specific unregister method in the handle-based architecture
+        # The handle lifecycle manages this automatically
+        # We'll just log the unregistration attempt
+        logger.info("Ruby event bridge unregistration requested - handled by OrchestrationManager lifecycle")
 
-        if result['unregistered']
-          @logger.info("Successfully unregistered Ruby event bridge: #{result['status']}")
-        else
-          @logger.error("Failed to unregister Ruby event bridge: #{result}")
-        end
+        # Could implement a specific handle-based unregister method if needed
+        # orchestration_manager = TaskerCore::OrchestrationManager.instance
+        # result = orchestration_manager.unregister_external_event_callback_with_handle(callback_id)
+
       rescue StandardError => e
-        @logger.error("Error unregistering Ruby event bridge: #{e.message}")
+        logger.error("Error unregistering Ruby event bridge: #{e.message}")
         # Don't re-raise during shutdown
       end
 
@@ -312,7 +326,7 @@ module TaskerCore
       # subscribe_to 'step.completed', 'task.completed', 'performance.bottleneck_detected'
 
       def initialize(logger: nil, slow_step_threshold: 30.0, slow_task_threshold: 300.0)
-        @logger = logger || default_logger
+        @logger = logger || TaskerCore::Logging::Logger.instance
         @slow_step_threshold = slow_step_threshold
         @slow_task_threshold = slow_task_threshold
       end
@@ -326,7 +340,7 @@ module TaskerCore
 
         return unless duration > @slow_step_threshold
 
-        @logger.warn("Slow step detected: step_id=#{identifiers[:step_id]} duration=#{duration}s")
+        logger.warn("Slow step detected: step_id=#{identifiers[:step_id]} duration=#{duration}s")
 
         # NOTE: Since Rust is source of truth, we don't publish events back
         # Instead, we could send feedback to Rust or just log/monitor
@@ -342,7 +356,7 @@ module TaskerCore
 
         return unless duration > @slow_task_threshold
 
-        @logger.warn("Slow task detected: task_id=#{identifiers[:task_id]} duration=#{duration}s")
+        logger.warn("Slow task detected: task_id=#{identifiers[:task_id]} duration=#{duration}s")
 
         log_slow_task(identifiers[:task_id], duration, event)
       end
@@ -352,8 +366,8 @@ module TaskerCore
         description = safe_get(event, :description, 'Unknown bottleneck')
         step_ids = safe_get(event, :step_ids, [])
 
-        @logger.warn("Performance bottleneck detected: #{description}")
-        @logger.warn("Affected steps: #{step_ids.join(', ')}") if step_ids.any?
+        logger.warn("Performance bottleneck detected: #{description}")
+        logger.warn("Affected steps: #{step_ids.join(', ')}") if step_ids.any?
 
         # Could integrate with monitoring systems here
         log_bottleneck(event)
@@ -364,21 +378,17 @@ module TaskerCore
       def log_slow_step(step_id, duration, _event_data)
         # Integration point for external monitoring systems
         # Could send to DataDog, NewRelic, etc.
-        @logger.debug("Performance metrics - slow step: #{step_id}, duration: #{duration}, threshold: #{@slow_step_threshold}")
+        logger.debug("Performance metrics - slow step: #{step_id}, duration: #{duration}, threshold: #{@slow_step_threshold}")
       end
 
       def log_slow_task(task_id, duration, _event_data)
         # Integration point for external monitoring systems
-        @logger.debug("Performance metrics - slow task: #{task_id}, duration: #{duration}, threshold: #{@slow_task_threshold}")
+        logger.debug("Performance metrics - slow task: #{task_id}, duration: #{duration}, threshold: #{@slow_task_threshold}")
       end
 
       def log_bottleneck(event)
         # Integration point for external monitoring systems
-        @logger.debug("Performance bottleneck: #{event}")
-      end
-
-      def default_logger
-        defined?(Rails) ? Rails.logger : Logger.new($stdout)
+        logger.debug("Performance bottleneck: #{event}")
       end
     end
 
@@ -389,7 +399,7 @@ module TaskerCore
       # subscribe_to 'step.failed', 'task.failed', 'api.request_failed', 'handler.failed'
 
       def initialize(logger: nil, error_threshold: 10)
-        @logger = logger || default_logger
+        super(logger: logger)
         @error_counts = Hash.new(0)
         @error_threshold = error_threshold
         @window_start = Time.now
@@ -403,7 +413,7 @@ module TaskerCore
         error_key = "step_#{identifiers[:step_id]}"
         @error_counts[error_key] += 1
 
-        @logger.error("Step failed: step_id=#{identifiers[:step_id]} error=#{error_info[:error_message]}")
+        logger.error("Step failed: step_id=#{identifiers[:step_id]} error=#{error_info[:error_message]}")
 
         check_error_threshold(error_key, identifiers)
       end
@@ -416,7 +426,7 @@ module TaskerCore
         error_key = "task_#{identifiers[:task_id]}"
         @error_counts[error_key] += 1
 
-        @logger.error("Task failed: task_id=#{identifiers[:task_id]} error=#{error_info[:error_message]}")
+        logger.error("Task failed: task_id=#{identifiers[:task_id]} error=#{error_info[:error_message]}")
 
         check_error_threshold(error_key, identifiers)
       end
@@ -430,7 +440,7 @@ module TaskerCore
         api_key = "api_#{url}_#{service}"
         @error_counts[api_key] += 1
 
-        @logger.error("API request failed: #{url} service=#{service} error=#{error_info[:error_message]}")
+        logger.error("API request failed: #{url} service=#{service} error=#{error_info[:error_message]}")
 
         check_api_error_threshold(api_key, url, service)
       end
@@ -440,7 +450,7 @@ module TaskerCore
         handler_name = safe_get(event, :handler_name, 'unknown')
         error_info = extract_error_metrics(event)
 
-        @logger.error("Handler failed: #{handler_name} error=#{error_info[:error_message]}")
+        logger.error("Handler failed: #{handler_name} error=#{error_info[:error_message]}")
       end
 
       # Get error statistics for monitoring
@@ -458,7 +468,7 @@ module TaskerCore
       def check_error_threshold(error_key, identifiers)
         return unless @error_counts[error_key] >= @error_threshold
 
-        @logger.warn("Error threshold exceeded: #{error_key} count=#{@error_counts[error_key]}")
+        logger.warn("Error threshold exceeded: #{error_key} count=#{@error_counts[error_key]}")
 
         # Could trigger alerts or circuit breakers here
         # Since Rust is source of truth, we would send feedback to Rust layer
@@ -468,23 +478,19 @@ module TaskerCore
       def check_api_error_threshold(api_key, url, service)
         return unless @error_counts[api_key] >= @error_threshold
 
-        @logger.warn("API error threshold exceeded: #{url} count=#{@error_counts[api_key]}")
+        logger.warn("API error threshold exceeded: #{url} count=#{@error_counts[api_key]}")
 
         alert_api_issues(api_key, url, service)
       end
 
       def alert_high_error_rate(error_key, identifiers)
         # Integration point for alerting systems
-        @logger.debug("High error rate alert: #{error_key}, identifiers: #{identifiers}")
+        logger.debug("High error rate alert: #{error_key}, identifiers: #{identifiers}")
       end
 
       def alert_api_issues(api_key, url, service)
         # Integration point for API monitoring systems
-        @logger.debug("API issues alert: #{api_key}, url: #{url}, service: #{service}")
-      end
-
-      def default_logger
-        defined?(Rails) ? Rails.logger : Logger.new($stdout)
+        logger.debug("API issues alert: #{api_key}, url: #{url}, service: #{service}")
       end
     end
 
@@ -517,10 +523,11 @@ module TaskerCore
     # This is the main setup method called by RailsIntegration
     def self.initialize_subscribers(logger: nil)
       # Initialize built-in subscribers (they auto-register via class definition)
+      logger ||= TaskerCore::Logging::Logger.instance
       @performance_monitor ||= PerformanceMonitor.new(logger: logger)
       @error_tracker ||= ErrorTracker.new(logger: logger)
 
-      logger&.info('TaskerCore event subscribers initialized')
+      logger.info('TaskerCore event subscribers initialized')
     end
 
     # Create and start Rust event bridge
@@ -535,40 +542,6 @@ module TaskerCore
     def self.shutdown
       @rust_bridge&.stop
       @rust_bridge = nil
-    end
-
-    # ========================================================================
-    # BACKWARDS COMPATIBILITY (deprecated methods)
-    # ========================================================================
-
-    # Legacy method - now delegates to main subscribe method
-    # @deprecated Use Events.subscribe instead
-    def self.subscribe_orchestration(event_type, &)
-      warn '[DEPRECATED] Events.subscribe_orchestration is deprecated. Use Events.subscribe instead.'
-      subscribe(event_type, &)
-    end
-
-    # Legacy method - now delegates to main subscribe method
-    # @deprecated Use Events.subscribe instead
-    def self.subscribe_step_handler(event_type, &)
-      warn '[DEPRECATED] Events.subscribe_step_handler is deprecated. Use Events.subscribe instead.'
-      subscribe(event_type, &)
-    end
-
-    # Publishing events is no longer supported from Ruby side
-    # Events come from Rust orchestration layer
-    # @deprecated Events are now published by Rust orchestration layer
-    def self.publish_orchestration(_event_type, _data = {})
-      warn '[DEPRECATED] Ruby-side event publishing is deprecated. Events come from Rust orchestration layer.'
-      # Could implement sending back to Rust if needed for custom events
-    end
-
-    # Publishing events is no longer supported from Ruby side
-    # Events come from Rust orchestration layer
-    # @deprecated Events are now published by Rust orchestration layer
-    def self.publish_step_handler(_event_type, _data = {})
-      warn '[DEPRECATED] Ruby-side event publishing is deprecated. Events come from Rust orchestration layer.'
-      # Could implement sending back to Rust if needed for custom events
     end
   end
 end

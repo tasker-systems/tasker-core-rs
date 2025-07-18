@@ -4,15 +4,21 @@
 //! reimplementing it. Uses singleton pattern for shared resources.
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use crate::globals::{initialize_unified_orchestration_system, execute_async};
+use crate::globals::execute_async;
 use magnus::{Error, RModule, Ruby, Value};
 use tasker_core::events::{Event, OrchestrationEvent};
 use tasker_core::events::types::TaskResult;
 use chrono::Utc;
 use serde_json;
 
-/// Publish a simple event through core EventPublisher
-fn publish_simple_event_wrapper(event_data_value: Value) -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Publish a simple event using OrchestrationHandle
+fn publish_simple_event_with_handle_wrapper(
+    handle_value: Value,
+    event_data_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
     let event_data = ruby_value_to_json(event_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid event data: {}", e)))?;
 
@@ -24,11 +30,11 @@ fn publish_simple_event_wrapper(event_data_value: Value) -> Result<Value, Error>
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
-        // Get global orchestration system (singleton)
-        let orchestration = initialize_unified_orchestration_system();
+        // Use handle's persistent event publisher - NO global lookup!
+        let event_publisher = handle.event_publisher();
 
         // Delegate to core event publisher
-        orchestration.event_publisher.publish(event_name, payload).await
+        event_publisher.publish(event_name, payload).await
             .map_err(|e| format!("Event publishing failed: {}", e))?;
 
         Ok::<serde_json::Value, String>(serde_json::json!({
@@ -47,8 +53,13 @@ fn publish_simple_event_wrapper(event_data_value: Value) -> Result<Value, Error>
     }
 }
 
-/// Publish a structured orchestration event through core EventPublisher
-fn publish_orchestration_event_wrapper(event_data_value: Value) -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Publish a structured orchestration event using OrchestrationHandle
+fn publish_orchestration_event_with_handle_wrapper(
+    handle_value: Value,
+    event_data_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let event_data = ruby_value_to_json(event_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid event data: {}", e)))?;
 
@@ -120,11 +131,11 @@ fn publish_orchestration_event_wrapper(event_data_value: Value) -> Result<Value,
         // Create and publish structured event using core event system
         let event = Event::Orchestration(orchestration_event);
 
-        // Get global orchestration system (singleton)
-        let orchestration = initialize_unified_orchestration_system();
+        // Use handle's persistent event publisher - NO global lookup!
+        let event_publisher = handle.event_publisher();
 
         // Delegate to core event publisher
-        orchestration.event_publisher.publish_event(event).await
+        event_publisher.publish_event(event).await
             .map_err(|e| format!("Orchestration event publishing failed: {}", e))?;
 
         Ok::<serde_json::Value, String>(serde_json::json!({
@@ -143,8 +154,13 @@ fn publish_orchestration_event_wrapper(event_data_value: Value) -> Result<Value,
     }
 }
 
-/// Subscribe to events from Ruby (using core event system)
-fn subscribe_to_events_wrapper(subscription_data_value: Value) -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Subscribe to events using OrchestrationHandle
+fn subscribe_to_events_with_handle_wrapper(
+    handle_value: Value,
+    subscription_data_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let subscription_data = ruby_value_to_json(subscription_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid subscription data: {}", e)))?;
 
@@ -153,8 +169,8 @@ fn subscribe_to_events_wrapper(subscription_data_value: Value) -> Result<Value, 
             .and_then(|v| v.as_str())
             .unwrap_or("*");
 
-        // Get global orchestration system (singleton)
-        let orchestration = initialize_unified_orchestration_system();
+        // Use handle's persistent event publisher - NO global lookup!
+        let _event_publisher = handle.event_publisher();
 
         // For now, return a subscription acknowledgment
         // Full callback implementation would require additional Ruby callback handling
@@ -179,14 +195,16 @@ fn subscribe_to_events_wrapper(subscription_data_value: Value) -> Result<Value, 
     }
 }
 
-/// Get event publisher statistics from core system
-fn get_event_stats_wrapper() -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Get event publisher statistics using OrchestrationHandle
+fn get_event_stats_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let result = execute_async(async {
-        // Get global orchestration system (singleton)
-        let orchestration = initialize_unified_orchestration_system();
+        // Use handle's persistent event publisher - NO global lookup!
+        let event_publisher = handle.event_publisher();
 
         // Delegate to core event publisher stats
-        let stats = orchestration.event_publisher.stats();
+        let stats = event_publisher.stats();
 
         Ok::<serde_json::Value, String>(serde_json::json!({
             "buffer_size": stats.buffer_size,
@@ -207,8 +225,13 @@ fn get_event_stats_wrapper() -> Result<Value, Error> {
     }
 }
 
-/// Register external event callback for Ruby integration
-fn register_external_event_callback_wrapper(callback_data_value: Value) -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Register external event callback using OrchestrationHandle
+fn register_external_event_callback_with_handle_wrapper(
+    handle_value: Value,
+    callback_data_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let callback_data = ruby_value_to_json(callback_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid callback data: {}", e)))?;
 
@@ -217,8 +240,8 @@ fn register_external_event_callback_wrapper(callback_data_value: Value) -> Resul
             .and_then(|v| v.as_str())
             .unwrap_or("ruby_callback");
 
-        // Get global orchestration system (singleton)
-        let orchestration = initialize_unified_orchestration_system();
+        // Use handle's persistent event publisher - NO global lookup!
+        let _event_publisher = handle.event_publisher();
 
         // This would register a callback with the core event publisher
         // For now, acknowledge the registration
@@ -242,31 +265,33 @@ fn register_external_event_callback_wrapper(callback_data_value: Value) -> Resul
     }
 }
 
-/// Register event system FFI bridge functions
+/// ✅ HANDLE-BASED: Register only handle-based event functions
+/// Note: All event operations now flow through OrchestrationManager handles
 pub fn register_event_functions(module: RModule) -> Result<(), Error> {
+    // Only register handle-based functions for direct replacement migration
     module.define_module_function(
-        "publish_simple_event",
-        magnus::function!(publish_simple_event_wrapper, 1),
+        "publish_simple_event_with_handle",
+        magnus::function!(publish_simple_event_with_handle_wrapper, 2),
     )?;
 
     module.define_module_function(
-        "publish_orchestration_event",
-        magnus::function!(publish_orchestration_event_wrapper, 1),
+        "publish_orchestration_event_with_handle", 
+        magnus::function!(publish_orchestration_event_with_handle_wrapper, 2),
     )?;
 
     module.define_module_function(
-        "subscribe_to_events",
-        magnus::function!(subscribe_to_events_wrapper, 1),
+        "subscribe_to_events_with_handle",
+        magnus::function!(subscribe_to_events_with_handle_wrapper, 2),
     )?;
 
     module.define_module_function(
-        "get_event_stats",
-        magnus::function!(get_event_stats_wrapper, 0),
+        "get_event_stats_with_handle",
+        magnus::function!(get_event_stats_with_handle_wrapper, 1),
     )?;
 
     module.define_module_function(
-        "register_external_event_callback",
-        magnus::function!(register_external_event_callback_wrapper, 1),
+        "register_external_event_callback_with_handle",
+        magnus::function!(register_external_event_callback_with_handle_wrapper, 2),
     )?;
 
     Ok(())

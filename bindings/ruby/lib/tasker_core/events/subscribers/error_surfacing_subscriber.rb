@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative '../../errors'
+# Error classes are defined in main TaskerCore module
 
 module TaskerCore
   module Events
@@ -36,9 +36,11 @@ module TaskerCore
         # Subscribe to error events from Rust orchestration
         # Note: These subscriptions would be set up after event registration
         # subscribe_to 'workflow.invalid_transition', 'workflow.orchestration_error'
+        #
+        attr_reader :logger
 
-        def initialize(logger: nil)
-          @logger = logger || default_logger
+        def initialize
+          @logger = TaskerCore::Logging::Logger.new
           @error_callbacks = {}
         end
 
@@ -54,7 +56,7 @@ module TaskerCore
 
           error_message = "Cannot transition #{entity_type} #{entity_id} from '#{from_state}' to '#{to_state}': #{reason}"
 
-          @logger.error(error_message)
+          logger.error(error_message)
 
           # Create and store the error for the calling code to handle
           error = TaskerCore::InvalidTransitionError.new(
@@ -85,7 +87,7 @@ module TaskerCore
 
           error_message = "#{entity_type} #{entity_id} orchestration error [#{error_code}]: #{message}"
 
-          @logger.error(error_message)
+          logger.error(error_message)
 
           error = TaskerCore::OrchestrationError.new(
             error_message,
@@ -142,12 +144,8 @@ module TaskerCore
           callbacks.each do |callback|
             callback.call(error)
           rescue StandardError => e
-            @logger.error("Error in error callback: #{e.message}")
+            logger.error("Error in error callback: #{e.message}")
           end
-        end
-
-        def default_logger
-          defined?(Rails) ? Rails.logger : Logger.new($stdout)
         end
       end
     end

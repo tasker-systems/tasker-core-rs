@@ -195,7 +195,7 @@ impl TaskContext {
 
 /// Convert Ruby Value to serde_json::Value
 pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error> {
-    
+
     if ruby_value.is_nil() {
         Ok(serde_json::Value::Null)
     } else if let Some(string) = RString::from_value(ruby_value) {
@@ -203,14 +203,36 @@ pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error>
         Ok(serde_json::Value::String(s.to_string()))
     } else if let Some(hash) = RHash::from_value(ruby_value) {
         let mut map = serde_json::Map::new();
+        println!("🔍 CONTEXT: Processing hash with {} entries", hash.len());
         hash.foreach(|key: Value, value: Value| -> Result<ForEach, Error> {
-            if let Some(key_str) = RString::from_value(key) {
-                let key_s = unsafe { key_str.as_str() }?;
-                let json_value = ruby_value_to_json(value)?;
-                map.insert(key_s.to_string(), json_value);
-            }
+            println!("🔍 CONTEXT: Processing key: {:?}, value: {:?}", key, value);
+            // Handle both string keys and symbol keys
+            let key_string = if let Some(key_str) = RString::from_value(key) {
+                // String key
+                let s = unsafe { key_str.as_str() }?.to_string();
+                println!("🔍 CONTEXT: Found string key: {}", s);
+                s
+            } else {
+                // Try to call to_s on any key (symbols, etc)
+                match key.funcall::<&str, (), String>("to_s", ()) {
+                    Ok(s) => {
+                        println!("🔍 CONTEXT: Converted key to string: {}", s);
+                        s
+                    },
+                    Err(e) => {
+                        println!("🔍 CONTEXT: Failed to convert key to string: {:?}, skipping", e);
+                        // Skip unknown key types
+                        return Ok(ForEach::Continue);
+                    }
+                }
+            };
+
+            let json_value = ruby_value_to_json(value)?;
+            println!("🔍 CONTEXT: Inserting key '{}' with value: {:?}", key_string, json_value);
+            map.insert(key_string, json_value);
             Ok(ForEach::Continue)
         })?;
+        println!("🔍 CONTEXT: Final map has {} entries", map.len());
         Ok(serde_json::Value::Object(map))
     } else if let Some(array) = magnus::RArray::from_value(ruby_value) {
         let mut vec = Vec::new();

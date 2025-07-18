@@ -52,3 +52,6 @@ bindings/ruby/pkg/*/*.gem
 
 # no rspec results
 rspec_results.json
+
+# no log files
+*.log

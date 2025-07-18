@@ -76,14 +76,19 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Register test helpers under TestHelpers module (always available, Rails gem controls exposure)
     test_helpers::register_test_helper_functions(module)?;
 
-    // Register Performance module
-    let performance_module = module.define_module("Performance")?;
-
-    // Define performance function wrappers - simplified approach
-    performance::register_performance_functions(performance_module)?;
-
     // 🎯 NEW: Register handle-based FFI functions
     handles::register_handle_functions(module)?;
+
+    // 🎯 NEW: Register TestHelpers factory functions that maintain existing Ruby API
+    handles::register_test_helpers_factory_functions(module)?;
+
+    // Register performance monitoring module
+    let performance_module = module.define_module("Performance")?;
+    performance::register_performance_functions(performance_module)?;
+
+    // Register event bridge module
+    let events_module = module.define_module("Events")?;
+    events::event_bridge::register_event_functions(events_module)?;
 
     Ok(())
 }

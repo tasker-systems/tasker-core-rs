@@ -41,9 +41,11 @@ module TaskerCore
       include TaskerCore::Events::Concerns::EventBasedTransitions
       include Singleton
 
+      attr_reader :logger
+
       def initialize
         # Register all static events from constants
-        @logger = defined?(Rails) ? Rails.logger : Logger.new($stdout)
+        @logger = TaskerCore::Logging::Logger.new
         register_static_events
       end
 
@@ -60,12 +62,12 @@ module TaskerCore
         # Ensure timestamp is always present in the payload
         enhanced_payload = ensure_timestamp(payload)
 
-        @logger.debug { "Publishing event: #{event_name} with payload keys: #{enhanced_payload.keys}" }
+        logger.debug { "Publishing event: #{event_name} with payload keys: #{enhanced_payload.keys}" }
 
         # Call the parent publish method from dry-events
         super(event_name, enhanced_payload)
       rescue StandardError => e
-        @logger.error { "Failed to publish event #{event_name}: #{e.message}" }
+        logger.error { "Failed to publish event #{event_name}: #{e.message}" }
         raise
       end
 
@@ -127,7 +129,7 @@ module TaskerCore
       #
       # This mirrors the Rails engine approach but uses TaskerCore constants
       def register_static_events
-        @logger.info('TaskerCore: Registering events from static constants')
+        logger.info('TaskerCore: Registering events from static constants')
 
         event_count = 0
         @registered_events = []
@@ -165,7 +167,7 @@ module TaskerCore
         event_count += count_test_events
 
         @registered_event_count = event_count
-        @logger.info("TaskerCore: Successfully registered #{event_count} events from static constants")
+        logger.info("TaskerCore: Successfully registered #{event_count} events from static constants")
       end
 
       # Register nested observability events

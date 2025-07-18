@@ -96,7 +96,7 @@ module TaskerCore
 
         # Get logger instance
         def logger
-          @logger ||= defined?(Rails) ? Rails.logger : Logger.new($stdout)
+          @logger ||= TaskerCore::Logging::Logger.new
         end
       end
     end

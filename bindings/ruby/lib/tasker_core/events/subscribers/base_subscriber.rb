@@ -82,7 +82,7 @@ module TaskerCore
         def initialize(name: nil, events: nil, config: {})
           @subscription_name = name
           @subscription_config = config
-          @logger = defined?(Rails) ? Rails.logger : Logger.new($stdout)
+          @logger = TaskerCore::Logging::Logger.new
 
           # If events are provided via constructor (from YAML), add them to subscribed events
           return if events.blank?

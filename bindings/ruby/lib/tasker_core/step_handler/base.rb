@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require 'ostruct'
+require 'json'
+require 'time'
+
 # require_relative '../types'  # Temporarily disabled due to dry-types version issues
 
 module TaskerCore
@@ -28,7 +32,7 @@ module TaskerCore
 
       def initialize(config: {}, logger: nil, rust_integration: nil)
         @config = config || {}
-        @logger = logger || default_logger
+        @logger = logger || TaskerCore::Logging::Logger.new
         @rust_integration = rust_integration || default_rust_integration
 
         # Initialize the Rust RubyStepHandler with composition (delegation pattern)
@@ -83,13 +87,36 @@ module TaskerCore
       # @param context_json [String] JSON representation of StepExecutionContext
       # @return [String] JSON representation of the result
       def process_with_context(context_json)
-        # The RubyStepHandler is for orchestration-level integration, not direct FFI calls
-        # For now, use the Ruby FFI bridge to call the existing process method
-        # The bridge will convert the context to the Rails (task, sequence, step) format
-        result = TaskerCore.call_ruby_process_method(self, context_json)
+        # 🎯 HANDLE-BASED: Direct Ruby context conversion instead of FFI bridge
+        # The RubyStepHandler in Rust handles the orchestration integration,
+        # this method provides the Ruby-side processing logic
+
+        # Parse the StepExecutionContext from JSON
+        context = JSON.parse(context_json)
+
+        # Convert context to Rails-compatible objects
+        # Note: This is a simplified conversion - in a full implementation,
+        # we would create proper Task, StepSequence, and WorkflowStep objects
+        mock_task = create_mock_task_from_context(context)
+        mock_sequence = create_mock_sequence_from_context(context)
+        mock_step = create_mock_step_from_context(context)
+
+        # Call the Rails-compatible process method
+        result = process(mock_task, mock_sequence, mock_step)
 
         # Ensure result is JSON serializable
         JSON.generate(result)
+      rescue JSON::ParserError => e
+        # Return error in JSON format for parsing errors
+        JSON.generate({
+                        error: {
+                          message: "Invalid JSON context: #{e.message}",
+                          type: e.class.name,
+                          permanent: true,
+                          error_code: 'INVALID_JSON_CONTEXT',
+                          error_category: 'validation'
+                        }
+                      })
       rescue StandardError => e
         # Return error in JSON format
         JSON.generate({
@@ -363,24 +390,54 @@ module TaskerCore
         }
       end
 
-      # Default logger
-      def default_logger
-        if defined?(Rails)
-          Rails.logger
-        else
-          require 'logger'
-          Logger.new($stdout).tap do |log|
-            log.level = Logger::INFO
-            log.formatter = proc { |severity, datetime, progname, msg|
-              "[#{datetime}] #{severity} #{progname}: #{msg}\n"
-            }
-          end
-        end
-      end
-
       # Default Rust integration
       def default_rust_integration
         TaskerCore::RailsIntegration.new
+      end
+
+      # 🎯 HANDLE-BASED: Context conversion helpers for process_with_context
+      # These methods convert StepExecutionContext JSON to Rails-compatible objects
+
+      # Create mock Task object from StepExecutionContext
+      def create_mock_task_from_context(context)
+        # Create a simple object that responds to the methods needed by process()
+        OpenStruct.new(
+          task_id: context['task_id'],
+          id: context['task_id'],
+          name: context['task_name'],
+          status: context['task_status'] || 'processing',
+          context_data: context['context_data'] || {},
+          created_at: (Time.parse(context['created_at']) rescue Time.now),
+          updated_at: (Time.parse(context['updated_at']) rescue Time.now)
+        )
+      end
+
+      # Create mock StepSequence object from StepExecutionContext
+      def create_mock_sequence_from_context(context)
+        # Create a simple object that responds to the methods needed by process()
+        OpenStruct.new(
+          total_steps: context['total_steps'] || 1,
+          current_position: context['current_position'] || 0,
+          completed_steps: context['completed_steps'] || 0,
+          failed_steps: context['failed_steps'] || 0,
+          pending_steps: context['pending_steps'] || 1
+        )
+      end
+
+      # Create mock WorkflowStep object from StepExecutionContext
+      def create_mock_step_from_context(context)
+        # Create a simple object that responds to the methods needed by process()
+        OpenStruct.new(
+          id: context['step_id'],
+          workflow_step_id: context['step_id'],
+          name: context['step_name'],
+          status: context['step_status'] || 'pending',
+          step_type: context['step_type'] || 'processing',
+          config: context['step_config'] || {},
+          dependencies: context['dependencies'] || [],
+          created_at: (Time.parse(context['step_created_at']) rescue Time.now),
+          updated_at: (Time.parse(context['step_updated_at']) rescue Time.now)
+        )
       end
     end
   end

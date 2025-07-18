@@ -17,7 +17,7 @@ use magnus::{Error, RModule, Ruby, Value};
 
 // Import core models directly (available from main crate)
 use tasker_core::models::{
-    Task, WorkflowStep, TaskNamespace, NamedTask, NamedStep, DependentSystem,
+    Task, WorkflowStep, TaskNamespace, NamedTask, NamedStep, DependentSystem, WorkflowStepEdge,
     core::{
         task::NewTask,
         workflow_step::NewWorkflowStep,
@@ -25,6 +25,7 @@ use tasker_core::models::{
         named_task::NewNamedTask,
         named_step::NewNamedStep,
         dependent_system::NewDependentSystem,
+        workflow_step_edge::NewWorkflowStepEdge,
     }
 };
 
@@ -110,8 +111,23 @@ impl TestingFactory {
     /// This method encapsulates all the logic for creating a test task,
     /// including creating dependent entities (named tasks, namespaces) as needed.
     pub async fn create_task(&self, options: serde_json::Value) -> serde_json::Value {
-        // Create or find dummy named task (mimicking factory pattern)
-        let named_task = match create_dummy_named_task(self.pool()).await {
+        // Extract options
+        let task_name = options.get("name").and_then(|v| v.as_str()).unwrap_or("test_task");
+        let namespace_name = options.get("namespace").and_then(|v| v.as_str()).unwrap_or("default");
+        let version = options.get("version").and_then(|v| v.as_str()).unwrap_or("0.1.0");
+
+        // Step 1: Create or find namespace
+        let namespace = match create_or_find_namespace(self.pool(), namespace_name, "Test namespace created by Ruby helper").await {
+            Ok(ns) => ns,
+            Err(e) => {
+                return json!({
+                    "error": format!("Failed to create namespace: {}", e)
+                });
+            }
+        };
+
+        // Step 2: Create or find named task
+        let named_task = match create_or_find_named_task(self.pool(), task_name, namespace.task_namespace_id as i64, version).await {
             Ok(nt) => nt,
             Err(e) => {
                 return json!({
@@ -120,22 +136,22 @@ impl TestingFactory {
             }
         };
 
-        // Extract options with defaults (mimicking TaskFactory defaults)
-        let mut context = json!({
-            "test": true,
-            "created_by": "ruby_test_helper"
-        });
-
-        // Merge provided context with defaults
-        if let Some(provided_context) = options.get("context") {
-            if let Some(provided_obj) = provided_context.as_object() {
-                if let Some(default_obj) = context.as_object_mut() {
-                    for (key, value) in provided_obj {
-                        default_obj.insert(key.clone(), value.clone());
-                    }
-                }
+        // Handle context properly - if provided context is empty object, keep it empty
+        let context = if let Some(provided_context) = options.get("context") {
+            if provided_context.is_object() && provided_context.as_object().unwrap().is_empty() {
+                // Explicitly empty context - respect it
+                json!({})
+            } else {
+                // Use provided context as-is, don't merge with defaults
+                provided_context.clone()
             }
-        }
+        } else {
+            // No context provided - use defaults
+            json!({
+                "test": true,
+                "created_by": "ruby_test_helper"
+            })
+        };
 
         let tags = options.get("tags").cloned().unwrap_or_else(|| json!({
             "test": true,
@@ -160,6 +176,7 @@ impl TestingFactory {
             Ok(task) => json!({
                 "task_id": task.task_id,
                 "named_task_id": task.named_task_id,
+                "name": named_task.name,
                 "complete": task.complete,
                 "context": task.context,
                 "tags": task.tags,
@@ -197,8 +214,11 @@ impl TestingFactory {
             }
         };
 
-        // Create or find dummy named step
-        let named_step = match create_dummy_named_step(self.pool()).await {
+        // Extract step name from options
+        let step_name = options.get("step_name").and_then(|v| v.as_str()).unwrap_or("test_step");
+
+        // Create or find named step using provided name
+        let named_step = match create_or_find_named_step(self.pool(), step_name).await {
             Ok(ns) => ns,
             Err(e) => {
                 return json!({
@@ -229,6 +249,7 @@ impl TestingFactory {
                 "workflow_step_id": step.workflow_step_id,
                 "task_id": step.task_id,
                 "named_step_id": step.named_step_id,
+                "name": named_step.name,
                 "retryable": step.retryable,
                 "retry_limit": step.retry_limit,
                 "inputs": step.inputs,
@@ -244,10 +265,280 @@ impl TestingFactory {
         }
     }
 
+    /// Create a complex workflow with multiple steps and dependencies
+    ///
+    /// This method creates workflows with different patterns:
+    /// - Linear: A -> B -> C -> D
+    /// - Diamond: A -> (B, C) -> D
+    /// - Parallel: (A, B, C) -> D
+    /// - Tree: A -> (B -> (D, E), C -> (F, G))
+    pub async fn create_complex_workflow(&self, options: serde_json::Value) -> serde_json::Value {
+        // Extract pattern type (default to linear)
+        let pattern = options.get("pattern").and_then(|v| v.as_str()).unwrap_or("linear");
+        let task_name = options.get("task_name").and_then(|v| v.as_str()).unwrap_or("complex_workflow");
+        let namespace_name = options.get("namespace").and_then(|v| v.as_str()).unwrap_or("default");
+        
+        // First create the task
+        let task_options = json!({
+            "name": task_name,
+            "namespace": namespace_name,
+            "context": options.get("context").cloned().unwrap_or(json!({"workflow_pattern": pattern}))
+        });
+        
+        let task_result = self.create_task(task_options).await;
+        if let Some(error) = task_result.get("error") {
+            return task_result;
+        }
+        
+        let task_id = match task_result.get("task_id").and_then(|v| v.as_i64()) {
+            Some(id) => id,
+            None => return json!({"error": "Failed to get task_id from created task"})
+        };
+        
+        // Create steps based on pattern
+        let step_ids = match pattern {
+            "linear" => self.create_linear_steps(task_id).await,
+            "diamond" => self.create_diamond_steps(task_id).await,
+            "parallel" => self.create_parallel_steps(task_id).await,
+            "tree" => self.create_tree_steps(task_id).await,
+            _ => return json!({"error": format!("Unknown workflow pattern: {}", pattern)})
+        };
+        
+        match step_ids {
+            Ok(ids) => json!({
+                "task_id": task_id,
+                "pattern": pattern,
+                "step_ids": ids,
+                "step_count": ids.len(),
+                "created_by": "testing_factory"
+            }),
+            Err(e) => json!({
+                "error": format!("Failed to create workflow steps: {}", e)
+            })
+        }
+    }
+    
+    /// Create linear workflow steps: A -> B -> C -> D
+    async fn create_linear_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let mut step_ids = Vec::new();
+        
+        for i in 1..=4 {
+            let step_name = format!("linear_step_{}", i);
+            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            
+            let new_step = NewWorkflowStep {
+                task_id,
+                named_step_id: named_step.named_step_id,
+                retryable: Some(true),
+                retry_limit: Some(3),
+                inputs: Some(json!({
+                    "step_number": i,
+                    "pattern": "linear"
+                })),
+                skippable: Some(false),
+            };
+            
+            let workflow_step = WorkflowStep::create(self.pool(), new_step).await?;
+            
+            // Create dependency edge from previous step
+            if i > 1 {
+                let edge = NewWorkflowStepEdge {
+                    from_step_id: step_ids[i - 2],
+                    to_step_id: workflow_step.workflow_step_id,
+                    name: "provides".to_string(),
+                };
+                WorkflowStepEdge::create(self.pool(), edge).await?;
+            }
+            
+            step_ids.push(workflow_step.workflow_step_id);
+        }
+        
+        Ok(step_ids)
+    }
+    
+    /// Create diamond workflow steps: A -> (B, C) -> D
+    async fn create_diamond_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let mut step_ids = Vec::new();
+        
+        // Step A (start)
+        let step_a = create_or_find_named_step(self.pool(), "diamond_start").await?;
+        let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
+            task_id,
+            named_step_id: step_a.named_step_id,
+            retryable: Some(true),
+            retry_limit: Some(3),
+            inputs: Some(json!({"position": "start"})),
+            skippable: Some(false),
+        }).await?;
+        step_ids.push(ws_a.workflow_step_id);
+        
+        // Steps B and C (branches)
+        for letter in ['b', 'c'].iter() {
+            let step_name = format!("diamond_branch_{}", letter);
+            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            
+            let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
+                task_id,
+                named_step_id: named_step.named_step_id,
+                retryable: Some(true),
+                retry_limit: Some(3),
+                inputs: Some(json!({"branch": letter.to_string()})),
+                skippable: Some(false),
+            }).await?;
+            
+            // Create edge from A to B/C
+            WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
+                from_step_id: ws_a.workflow_step_id,
+                to_step_id: ws.workflow_step_id,
+                name: "provides".to_string(),
+            }).await?;
+            
+            step_ids.push(ws.workflow_step_id);
+        }
+        
+        // Step D (merge)
+        let step_d = create_or_find_named_step(self.pool(), "diamond_merge").await?;
+        let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
+            task_id,
+            named_step_id: step_d.named_step_id,
+            retryable: Some(true),
+            retry_limit: Some(3),
+            inputs: Some(json!({"position": "merge"})),
+            skippable: Some(false),
+        }).await?;
+        
+        // Create edges from B and C to D
+        for i in 1..=2 {
+            WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
+                from_step_id: step_ids[i],
+                to_step_id: ws_d.workflow_step_id,
+                name: "provides".to_string(),
+            }).await?;
+        }
+        
+        step_ids.push(ws_d.workflow_step_id);
+        Ok(step_ids)
+    }
+    
+    /// Create parallel workflow steps: (A, B, C) -> D
+    async fn create_parallel_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let mut step_ids = Vec::new();
+        
+        // Create parallel steps A, B, C
+        for letter in ['a', 'b', 'c'].iter() {
+            let step_name = format!("parallel_step_{}", letter);
+            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            
+            let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
+                task_id,
+                named_step_id: named_step.named_step_id,
+                retryable: Some(true),
+                retry_limit: Some(3),
+                inputs: Some(json!({"parallel_branch": letter.to_string()})),
+                skippable: Some(false),
+            }).await?;
+            
+            step_ids.push(ws.workflow_step_id);
+        }
+        
+        // Create merge step D
+        let step_d = create_or_find_named_step(self.pool(), "parallel_merge").await?;
+        let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
+            task_id,
+            named_step_id: step_d.named_step_id,
+            retryable: Some(true),
+            retry_limit: Some(3),
+            inputs: Some(json!({"position": "merge", "depends_on_count": 3})),
+            skippable: Some(false),
+        }).await?;
+        
+        // Create edges from all parallel steps to merge
+        for i in 0..3 {
+            WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
+                from_step_id: step_ids[i],
+                to_step_id: ws_d.workflow_step_id,
+                name: "provides".to_string(),
+            }).await?;
+        }
+        
+        step_ids.push(ws_d.workflow_step_id);
+        Ok(step_ids)
+    }
+    
+    /// Create tree workflow steps: A -> (B -> (D, E), C -> (F, G))
+    async fn create_tree_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let mut step_ids = Vec::new();
+        
+        // Root step A
+        let step_a = create_or_find_named_step(self.pool(), "tree_root").await?;
+        let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
+            task_id,
+            named_step_id: step_a.named_step_id,
+            retryable: Some(true),
+            retry_limit: Some(3),
+            inputs: Some(json!({"position": "root"})),
+            skippable: Some(false),
+        }).await?;
+        step_ids.push(ws_a.workflow_step_id);
+        
+        // Branch steps B and C
+        for (i, letter) in ['b', 'c'].iter().enumerate() {
+            let step_name = format!("tree_branch_{}", letter);
+            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            
+            let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
+                task_id,
+                named_step_id: named_step.named_step_id,
+                retryable: Some(true),
+                retry_limit: Some(3),
+                inputs: Some(json!({"branch": letter.to_string()})),
+                skippable: Some(false),
+            }).await?;
+            
+            // Edge from A to B/C
+            WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
+                from_step_id: ws_a.workflow_step_id,
+                to_step_id: ws.workflow_step_id,
+                name: "provides".to_string(),
+            }).await?;
+            
+            step_ids.push(ws.workflow_step_id);
+            
+            // Create leaf steps for each branch
+            let leaves = if i == 0 { ['d', 'e'] } else { ['f', 'g'] };
+            for leaf in leaves.iter() {
+                let leaf_name = format!("tree_leaf_{}", leaf);
+                let leaf_step = create_or_find_named_step(self.pool(), &leaf_name).await?;
+                
+                let ws_leaf = WorkflowStep::create(self.pool(), NewWorkflowStep {
+                    task_id,
+                    named_step_id: leaf_step.named_step_id,
+                    retryable: Some(true),
+                    retry_limit: Some(3),
+                    inputs: Some(json!({"leaf": leaf.to_string()})),
+                    skippable: Some(false),
+                }).await?;
+                
+                // Edge from branch to leaf
+                WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
+                    from_step_id: ws.workflow_step_id,
+                    to_step_id: ws_leaf.workflow_step_id,
+                    name: "provides".to_string(),
+                }).await?;
+                
+                step_ids.push(ws_leaf.workflow_step_id);
+            }
+        }
+        
+        Ok(step_ids)
+    }
+
     /// Create test foundation data with the given options
     ///
-    /// This method creates the basic foundation entities needed for testing:
-    /// namespaces, named tasks, and named steps.
+    /// This method creates a complete test workflow with:
+    /// - namespace, named task, named step (foundation entities)
+    /// - An actual task instance
+    /// - Multiple workflow steps with dependencies
     pub async fn create_foundation(&self, options: serde_json::Value) -> serde_json::Value {
         // Extract options with defaults
         let namespace_name = options.get("namespace")
@@ -256,11 +547,14 @@ impl TestingFactory {
         let task_name = options.get("task_name")
             .and_then(|v| v.as_str())
             .unwrap_or("dummy_task");
-        let step_name = options.get("step_name")
+        let step_count = options.get("step_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3) as usize;
+        let pattern = options.get("pattern")
             .and_then(|v| v.as_str())
-            .unwrap_or("dummy_step");
+            .unwrap_or("linear");
 
-        // Create foundation data (mimicking StandardFoundation pattern)
+        // Create foundation data
         let namespace = match create_or_find_namespace(self.pool(), namespace_name, "Test namespace created by Ruby helper").await {
             Ok(ns) => ns,
             Err(e) => {
@@ -270,7 +564,7 @@ impl TestingFactory {
             }
         };
 
-        let named_task = match create_dummy_named_task(self.pool()).await {
+        let named_task = match create_or_find_named_task(self.pool(), task_name, namespace.task_namespace_id as i64, "0.1.0").await {
             Ok(nt) => nt,
             Err(e) => {
                 return json!({
@@ -279,18 +573,106 @@ impl TestingFactory {
             }
         };
 
-        let named_step = match create_dummy_named_step(self.pool()).await {
-            Ok(ns) => ns,
+        // Create the actual task instance
+        let new_task = NewTask {
+            named_task_id: named_task.named_task_id,
+            requested_at: None,
+            initiator: Some("foundation_factory".to_string()),
+            source_system: Some("ruby_test_helpers".to_string()),
+            reason: Some("Foundation data for testing".to_string()),
+            bypass_steps: None,
+            tags: Some(json!({"foundation": true, "pattern": pattern})),
+            context: Some(json!({"test": true, "pattern": pattern})),
+            identity_hash: generate_test_identity_hash(),
+        };
+
+        let task = match Task::create(self.pool(), new_task).await {
+            Ok(t) => t,
             Err(e) => {
                 return json!({
-                    "error": format!("Failed to create named step: {}", e)
+                    "error": format!("Failed to create task: {}", e)
                 });
             }
         };
 
+        // Create workflow steps with dependencies
+        let mut workflow_steps = Vec::new();
+        let mut previous_step_id: Option<i64> = None;
+
+        for i in 1..=step_count {
+            let step_name = format!("foundation_step_{}", i);
+            let named_step = match create_or_find_named_step(self.pool(), &step_name).await {
+                Ok(ns) => ns,
+                Err(e) => {
+                    return json!({
+                        "error": format!("Failed to create named step {}: {}", i, e)
+                    });
+                }
+            };
+
+            let new_step = NewWorkflowStep {
+                task_id: task.task_id,
+                named_step_id: named_step.named_step_id,
+                retryable: Some(true),
+                retry_limit: Some(3),
+                inputs: Some(json!({
+                    "step_number": i,
+                    "foundation": true
+                })),
+                skippable: Some(false),
+            };
+
+            let workflow_step = match WorkflowStep::create(self.pool(), new_step).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    return json!({
+                        "error": format!("Failed to create workflow step {}: {}", i, e)
+                    });
+                }
+            };
+
+            // Create dependency edge from previous step
+            if let Some(prev_id) = previous_step_id {
+                let edge = NewWorkflowStepEdge {
+                    from_step_id: prev_id,
+                    to_step_id: workflow_step.workflow_step_id,
+                    name: "provides".to_string(),
+                };
+                
+                if let Err(e) = WorkflowStepEdge::create(self.pool(), edge).await {
+                    println!("Warning: Failed to create edge from {} to {}: {}", prev_id, workflow_step.workflow_step_id, e);
+                }
+            }
+
+            workflow_steps.push(json!({
+                "workflow_step_id": workflow_step.workflow_step_id,
+                "name": named_step.name,
+                "named_step_id": workflow_step.named_step_id,
+                "in_process": workflow_step.in_process,
+                "processed": workflow_step.processed
+            }));
+
+            previous_step_id = Some(workflow_step.workflow_step_id);
+        }
+
+        // Get the first named_step from the workflow steps we created (for backward compatibility)
+        let first_named_step = if let Some(first_step) = workflow_steps.first() {
+            let step_id = first_step.get("named_step_id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            match NamedStep::find_by_id(self.pool(), step_id).await {
+                Ok(Some(ns)) => Some(json!({
+                    "named_step_id": ns.named_step_id,
+                    "name": ns.name,
+                    "description": ns.description
+                })),
+                _ => None
+            }
+        } else {
+            None
+        };
+
         json!({
             "namespace": {
-                "task_namespace_id": namespace.task_namespace_id,
+                "namespace_id": namespace.task_namespace_id,
                 "name": namespace.name,
                 "description": namespace.description
             },
@@ -298,14 +680,26 @@ impl TestingFactory {
                 "named_task_id": named_task.named_task_id,
                 "name": named_task.name,
                 "task_namespace_id": named_task.task_namespace_id,
+                "namespace_id": named_task.task_namespace_id, // Add for backward compatibility
                 "version": named_task.version,
                 "description": named_task.description
             },
-            "named_step": {
-                "named_step_id": named_step.named_step_id,
-                "name": named_step.name,
-                "description": named_step.description
+            "named_step": first_named_step.unwrap_or(json!({
+                "named_step_id": 0,
+                "name": "dummy_step",
+                "description": "No steps created"
+            })),
+            "task": {
+                "task_id": task.task_id,
+                "named_task_id": task.named_task_id,
+                "name": named_task.name, // Add name for backward compatibility
+                "complete": task.complete,
+                "context": task.context,
+                "tags": task.tags,
+                "requested_at": task.requested_at.and_utc().to_rfc3339()
             },
+            "workflow_steps": workflow_steps,
+            "step_count": workflow_steps.len(),
             "created_by": "testing_factory"
         })
     }
@@ -314,9 +708,48 @@ impl TestingFactory {
 // Helper functions (mimicking factory utility functions)
 
 fn generate_test_identity_hash() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-    format!("test_task_{}", timestamp)
+    use uuid::Uuid;
+    Uuid::new_v4().to_string()
+}
+
+async fn create_or_find_named_task(pool: &PgPool, name: &str, namespace_id: i64, version: &str) -> Result<NamedTask, sqlx::Error> {
+    // Try to find existing task first (find-or-create pattern)
+    if let Some(existing) = NamedTask::find_by_name_version_namespace(
+        pool,
+        name,
+        version,
+        namespace_id,
+    ).await? {
+        return Ok(existing);
+    }
+
+    // Create new named task
+    let new_named_task = NewNamedTask {
+        name: name.to_string(),
+        task_namespace_id: namespace_id,
+        version: Some(version.to_string()),
+        description: Some(format!("Test task: {}", name)),
+        configuration: Some(json!({"test": true})),
+    };
+
+    NamedTask::create(pool, new_named_task).await
+}
+
+async fn create_or_find_named_step(pool: &PgPool, name: &str) -> Result<NamedStep, sqlx::Error> {
+    // Try to find existing step first
+    let existing_steps = NamedStep::find_by_name(pool, name).await?;
+    if let Some(existing) = existing_steps.first() {
+        return Ok(existing.clone());
+    }
+
+    // Create new named step
+    let new_named_step = NewNamedStep {
+        dependent_system_id: 1, // Default system ID for testing
+        name: name.to_string(),
+        description: Some(format!("Test step: {}", name)),
+    };
+
+    NamedStep::create(pool, new_named_step).await
 }
 
 async fn create_dummy_named_task(pool: &PgPool) -> Result<NamedTask, sqlx::Error> {
@@ -474,14 +907,30 @@ fn create_test_foundation_with_factory_wrapper(options_value: Value) -> Result<V
     json_to_ruby_value(result)
 }
 
+/// Create complex workflow using TestingFactory
+/// FFI wrapper for creating workflows with different patterns (linear, diamond, parallel, tree)
+fn create_complex_workflow_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
+    let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
+
+    let result = crate::globals::execute_async(async {
+        // Get TestingFactory from unified orchestration system
+        let factory = get_global_testing_factory();
+
+        // Use the factory to create the complex workflow
+        factory.create_complex_workflow(options).await
+    });
+
+    json_to_ruby_value(result)
+}
+
 /// Setup the factory singleton - triggers Rust-side singleton initialization
 /// This ensures the `get_global_testing_factory()` singleton is created and ready
 fn setup_factory_singleton_wrapper() -> Result<Value, Error> {
     println!("🎯 FACTORY SINGLETON: Initializing factory singleton from Ruby coordination");
-    
+
     // Trigger the singleton initialization by calling get_global_testing_factory
     let _factory = get_global_testing_factory();
-    
+
     json_to_ruby_value(serde_json::json!({
         "status": "initialized",
         "type": "TestingFactorySingleton",
@@ -497,7 +946,7 @@ pub fn register_factory_functions(module: RModule) -> Result<(), Error> {
         "setup_factory_singleton",
         magnus::function!(setup_factory_singleton_wrapper, 0),
     )?;
-    
+
     // Factory operation functions
     module.define_module_function(
         "create_test_task_with_factory",
@@ -510,6 +959,10 @@ pub fn register_factory_functions(module: RModule) -> Result<(), Error> {
     module.define_module_function(
         "create_test_foundation_with_factory",
         magnus::function!(create_test_foundation_with_factory_wrapper, 1),
+    )?;
+    module.define_module_function(
+        "create_complex_workflow_with_factory",
+        magnus::function!(create_complex_workflow_with_factory_wrapper, 1),
     )?;
     Ok(())
 }

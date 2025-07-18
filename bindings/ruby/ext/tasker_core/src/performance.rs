@@ -5,6 +5,7 @@
 //! These functions call the ACTUAL Rust implementations for real performance benefits.
 
 use magnus::{Error, Module, RArray, RHash, RModule, RString, Ruby, Value};
+use magnus::value::ReprValue;
 use sqlx::PgPool;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 
@@ -1081,15 +1082,17 @@ impl RubyDependencyLevel {
 }
 
 /// Get real-time task execution context as a structured Ruby object
+/// ✅ HANDLE-BASED: Uses persistent database pool from OrchestrationHandle
 pub async fn get_task_execution_context(
+    handle: &crate::handles::OrchestrationHandle,
     task_id: i64,
-    database_url: RString,
 ) -> Result<RubyTaskExecutionContext, Error> {
-    let db_url = unsafe { database_url.as_str() }?;
+    // Validate handle before use
+    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    // Use the global database pool instead of creating a new one
-    let pool = crate::globals::get_global_database_pool();
-    let executor = SqlFunctionExecutor::new(pool);
+    // Use handle's persistent database pool - NO global lookup!
+    let pool = handle.database_pool();
+    let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real Rust function that uses SQL functions for high-performance analysis
     let context = executor
@@ -1129,12 +1132,17 @@ pub async fn get_task_execution_context(
 }
 
 /// Discover viable steps as a Ruby array of structured objects
-pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Result<RArray, Error> {
-    let db_url = unsafe { database_url.as_str() }?;
+/// ✅ HANDLE-BASED: Uses persistent database pool from OrchestrationHandle
+pub async fn discover_viable_steps(
+    handle: &crate::handles::OrchestrationHandle,
+    task_id: i64,
+) -> Result<RArray, Error> {
+    // Validate handle before use
+    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    // Use the global database pool instead of creating a new one
-    let pool = crate::globals::get_global_database_pool();
-    let executor = SqlFunctionExecutor::new(pool);
+    // Use handle's persistent database pool - NO global lookup!
+    let pool = handle.database_pool();
+    let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real high-performance Rust dependency resolution
     let ready_steps = executor.get_ready_steps(task_id).await.map_err(|e| {
@@ -1166,12 +1174,16 @@ pub async fn discover_viable_steps(task_id: i64, database_url: RString) -> Resul
 }
 
 /// Get system health metrics as a structured Ruby object
-pub async fn get_system_health(database_url: RString) -> Result<RubySystemHealth, Error> {
-    let db_url = unsafe { database_url.as_str() }?;
+/// ✅ HANDLE-BASED: Uses persistent database pool from OrchestrationHandle
+pub async fn get_system_health(
+    handle: &crate::handles::OrchestrationHandle,
+) -> Result<RubySystemHealth, Error> {
+    // Validate handle before use
+    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    // Use the global database pool instead of creating a new one
-    let pool = crate::globals::get_global_database_pool();
-    let executor = SqlFunctionExecutor::new(pool);
+    // Use handle's persistent database pool - NO global lookup!
+    let pool = handle.database_pool();
+    let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real Rust system health function
     let health = executor.get_system_health_counts().await.map_err(|e| {
@@ -1200,16 +1212,19 @@ pub async fn get_system_health(database_url: RString) -> Result<RubySystemHealth
 }
 
 /// Get analytics metrics as a structured Ruby object
+/// ✅ HANDLE-BASED: Uses persistent database pool from OrchestrationHandle
 pub async fn get_analytics_metrics(
-    database_url: RString,
+    handle: &crate::handles::OrchestrationHandle,
     time_range_hours: Option<i32>,
 ) -> Result<RubyAnalyticsMetrics, Error> {
-    let db_url = unsafe { database_url.as_str() }?;
+    // Validate handle before use
+    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+    
     let hours = time_range_hours.unwrap_or(24);
 
-    // Use shared global database pool to avoid connection pool exhaustion
-    let pool = crate::globals::get_global_database_pool();
-    let executor = SqlFunctionExecutor::new(pool);
+    // Use handle's persistent database pool - NO global lookup!
+    let pool = handle.database_pool();
+    let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Calculate time range for analytics
     let since_timestamp = if hours > 0 {
@@ -1343,20 +1358,17 @@ pub async fn batch_update_step_states(
 }
 
 /// High-performance dependency analysis as a structured Ruby object
+/// ✅ HANDLE-BASED: Uses persistent database pool from OrchestrationHandle
 pub async fn analyze_dependencies(
+    handle: &crate::handles::OrchestrationHandle,
     task_id: i64,
-    database_url: RString,
 ) -> Result<RubyDependencyAnalysis, Error> {
-    let db_url = unsafe { database_url.as_str() }?;
+    // Validate handle before use
+    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    // Initialize Tokio runtime for async database operations
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))?;
-
-    rt.block_on(async {
-        // Use shared global database pool to avoid connection pool exhaustion
-        let pool = crate::globals::get_global_database_pool();
-        let executor = SqlFunctionExecutor::new(pool);
+    // Use handle's persistent database pool - NO global lookup or runtime creation!
+    let pool = handle.database_pool();
+    let executor = SqlFunctionExecutor::new(pool.clone());
 
         // Get dependency levels for the task
         let dependency_levels = executor
@@ -1410,120 +1422,149 @@ pub async fn analyze_dependencies(
                 1.0
             },
         })
-    })
 }
 
-// Synchronous wrapper functions for Ruby FFI integration
+// ✅ HANDLE-BASED: Wrapper functions for Ruby FFI integration using OrchestrationHandle
 
-/// Synchronous wrapper for get_task_execution_context
-pub fn get_task_execution_context_sync(
+/// ✅ HANDLE-BASED: Synchronous wrapper for analyze_dependencies using OrchestrationHandle
+pub fn analyze_dependencies_with_handle_wrapper(
+    handle_value: Value,
     task_id: i64,
-    database_url: RString,
-) -> Result<RubyTaskExecutionContext, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(get_task_execution_context(task_id, database_url))
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
+    let result = crate::globals::execute_async(async {
+        analyze_dependencies(handle, task_id).await
+    });
+    
+    match result {
+        Ok(analysis) => {
+            // RubyDependencyAnalysis implements IntoValue via magnus::wrap
+            Ok(analysis.into_value())
+        },
+        Err(e) => Err(Error::new(magnus::exception::runtime_error(), format!("Dependency analysis failed: {}", e)))
+    }
 }
 
-/// Synchronous wrapper for discover_viable_steps
-pub fn discover_viable_steps_sync(task_id: i64, database_url: RString) -> Result<RArray, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(discover_viable_steps(task_id, database_url))
-}
-
-/// Synchronous wrapper for get_system_health
-pub fn get_system_health_sync(database_url: RString) -> Result<RubySystemHealth, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(get_system_health(database_url))
-}
-
-/// Synchronous wrapper for get_analytics_metrics
-pub fn get_analytics_metrics_sync(
-    database_url: RString,
-    time_range_hours: Option<i32>,
-) -> Result<RubyAnalyticsMetrics, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(get_analytics_metrics(database_url, time_range_hours))
-}
-
-/// Synchronous wrapper for batch_update_step_states
-pub fn batch_update_step_states_sync(
-    updates: Vec<(i64, String, Option<Value>)>,
-    database_url: RString,
-) -> Result<i64, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(batch_update_step_states(updates, database_url))
-}
-
-/// Synchronous wrapper for analyze_dependencies
-pub fn analyze_dependencies_sync(
+/// ✅ HANDLE-BASED: Synchronous wrapper for get_task_execution_context using OrchestrationHandle
+pub fn get_task_execution_context_with_handle_wrapper(
+    handle_value: Value,
     task_id: i64,
-    database_url: RString,
-) -> Result<RubyDependencyAnalysis, Error> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-        Error::new(
-            magnus::exception::standard_error(),
-            format!("Failed to create async runtime: {e}"),
-        )
-    })?;
-
-    rt.block_on(analyze_dependencies(task_id, database_url))
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
+    let result = crate::globals::execute_async(async {
+        get_task_execution_context(handle, task_id).await
+    });
+    
+    match result {
+        Ok(context) => {
+            // RubyTaskExecutionContext implements IntoValue via magnus::wrap
+            Ok(context.into_value())
+        },
+        Err(e) => Err(Error::new(magnus::exception::runtime_error(), format!("Task execution context failed: {}", e)))
+    }
 }
 
+/// ✅ HANDLE-BASED: Synchronous wrapper for discover_viable_steps using OrchestrationHandle
+pub fn discover_viable_steps_with_handle_wrapper(
+    handle_value: Value,
+    task_id: i64,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
+    let result = crate::globals::execute_async(async {
+        discover_viable_steps(handle, task_id).await
+    });
+    
+    match result {
+        Ok(steps) => {
+            // RArray implements IntoValue
+            Ok(steps.into_value())
+        },
+        Err(e) => Err(Error::new(magnus::exception::runtime_error(), format!("Discover viable steps failed: {}", e)))
+    }
+}
+
+/// ✅ HANDLE-BASED: Synchronous wrapper for get_system_health using OrchestrationHandle
+pub fn get_system_health_with_handle_wrapper(
+    handle_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
+    let result = crate::globals::execute_async(async {
+        get_system_health(handle).await
+    });
+    
+    match result {
+        Ok(health) => {
+            // RubySystemHealth implements IntoValue via magnus::wrap
+            Ok(health.into_value())
+        },
+        Err(e) => Err(Error::new(magnus::exception::runtime_error(), format!("System health check failed: {}", e)))
+    }
+}
+
+/// ✅ HANDLE-BASED: Synchronous wrapper for get_analytics_metrics using OrchestrationHandle
+pub fn get_analytics_metrics_with_handle_wrapper(
+    handle_value: Value,
+    time_range_hours_value: Value,
+) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
+    // Extract time_range_hours from Ruby value (can be nil)
+    let time_range_hours: Option<i32> = if time_range_hours_value.is_nil() {
+        None
+    } else {
+        Some(TryConvert::try_convert(time_range_hours_value)?)
+    };
+    
+    let result = crate::globals::execute_async(async {
+        get_analytics_metrics(handle, time_range_hours).await
+    });
+    
+    match result {
+        Ok(metrics) => {
+            // RubyAnalyticsMetrics implements IntoValue via magnus::wrap
+            Ok(metrics.into_value())
+        },
+        Err(e) => Err(Error::new(magnus::exception::runtime_error(), format!("Analytics metrics failed: {}", e)))
+    }
+}
+
+/// ✅ HANDLE-BASED: Register only handle-based performance functions
+/// Note: All performance operations now flow through OrchestrationManager handles
 pub fn register_performance_functions(module: RModule) -> Result<(), magnus::Error> {
-  module.define_module_function(
-    "get_task_execution_context",
-    magnus::function!(get_task_execution_context_sync, 2),
-  )?;
-  module.define_module_function(
-      "discover_viable_steps",
-      magnus::function!(discover_viable_steps_sync, 2),
-  )?;
-  module.define_module_function(
-      "get_system_health",
-      magnus::function!(get_system_health_sync, 1),
-  )?;
-  module.define_module_function(
-      "get_analytics_metrics",
-      magnus::function!(get_analytics_metrics_sync, 2),
-  )?;
-  module.define_module_function(
-      "batch_update_step_states",
-      magnus::function!(batch_update_step_states_sync, 2),
-  )?;
+    // Register all handle-based performance functions for direct replacement migration
     module.define_module_function(
-      "analyze_dependencies",
-      magnus::function!(analyze_dependencies_sync, 2),
-  )?;
+        "analyze_dependencies_with_handle",
+        magnus::function!(analyze_dependencies_with_handle_wrapper, 2),
+    )?;
+    
+    module.define_module_function(
+        "get_task_execution_context_with_handle",
+        magnus::function!(get_task_execution_context_with_handle_wrapper, 2),
+    )?;
+    
+    module.define_module_function(
+        "discover_viable_steps_with_handle",
+        magnus::function!(discover_viable_steps_with_handle_wrapper, 2),
+    )?;
+    
+    module.define_module_function(
+        "get_system_health_with_handle",
+        magnus::function!(get_system_health_with_handle_wrapper, 1),
+    )?;
+    
+    module.define_module_function(
+        "get_analytics_metrics_with_handle",
+        magnus::function!(get_analytics_metrics_with_handle_wrapper, 2),
+    )?;
 
-  Ok(())
+    Ok(())
 }

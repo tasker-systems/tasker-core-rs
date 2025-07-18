@@ -96,10 +96,11 @@ impl TestingFramework {
         })
     }
 
-    /// Create a new TestingFramework using the global database pool
+    /// ⚠️ DEPRECATED: Use handle-based pool access instead
     ///
-    /// This is the recommended constructor for most use cases as it ensures
-    /// coordination with the orchestration system's database pool.
+    /// This method uses global database pool access and should be replaced with
+    /// handle-based pool access for better architecture.
+    /// TODO: Remove this method in favor of handle-based approach
     pub async fn with_global_pool() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let pool = crate::globals::get_global_database_pool();
         Self::new(pool).await
@@ -262,9 +263,13 @@ use magnus::{Error, RModule, Ruby, Value};
 ///
 /// This function creates a TestingFramework using the global database pool
 /// and returns a status report for Ruby integration.
-pub fn create_testing_framework_wrapper() -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Create testing framework using OrchestrationHandle
+pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
     let result = crate::globals::execute_async(async {
-        match TestingFramework::with_global_pool().await {
+        match TestingFramework::new(handle.database_pool().clone()).await {
             Ok(framework) => {
                 // Store framework reference in globals for reuse
                 // For now, return success status
@@ -290,9 +295,13 @@ pub fn create_testing_framework_wrapper() -> Result<Value, Error> {
 ///
 /// This function coordinates the complete test environment setup process
 /// using the TestingFramework's managed approach.
-pub fn setup_test_environment_wrapper() -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Setup test environment using OrchestrationHandle
+pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
     let result = crate::globals::execute_async(async {
-        match TestingFramework::with_global_pool().await {
+        match TestingFramework::new(handle.database_pool().clone()).await {
             Ok(framework) => {
                 match framework.setup_test_environment().await {
                     Ok(success_result) => success_result,
@@ -320,9 +329,13 @@ pub fn setup_test_environment_wrapper() -> Result<Value, Error> {
 ///
 /// This function handles test environment cleanup using the TestingFramework's
 /// coordinated approach.
-pub fn cleanup_test_environment_wrapper() -> Result<Value, Error> {
+/// ✅ HANDLE-BASED: Cleanup test environment using OrchestrationHandle
+pub fn cleanup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
+    use magnus::{TryConvert, IntoValue};
+    let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
+    
     let result = crate::globals::execute_async(async {
-        match TestingFramework::with_global_pool().await {
+        match TestingFramework::new(handle.database_pool().clone()).await {
             Ok(framework) => {
                 match framework.cleanup_test_environment().await {
                     Ok(success_result) => success_result,
@@ -346,21 +359,23 @@ pub fn cleanup_test_environment_wrapper() -> Result<Value, Error> {
     json_to_ruby_value(result)
 }
 
-/// Register TestingFramework functions for Ruby FFI
+/// ✅ HANDLE-BASED: Register only handle-based testing framework functions
+/// Note: All testing operations now flow through OrchestrationManager handles
 pub fn register_testing_framework_functions(module: RModule) -> Result<(), Error> {
+    // Only register handle-based functions for direct replacement migration
     module.define_module_function(
-        "create_testing_framework",
-        magnus::function!(create_testing_framework_wrapper, 0),
+        "create_testing_framework_with_handle",
+        magnus::function!(create_testing_framework_with_handle_wrapper, 1),
     )?;
 
     module.define_module_function(
-        "setup_test_environment_with_framework",
-        magnus::function!(setup_test_environment_wrapper, 0),
+        "setup_test_environment_with_handle",
+        magnus::function!(setup_test_environment_with_handle_wrapper, 1),
     )?;
 
     module.define_module_function(
-        "cleanup_test_environment_with_framework",
-        magnus::function!(cleanup_test_environment_wrapper, 0),
+        "cleanup_test_environment_with_handle",
+        magnus::function!(cleanup_test_environment_with_handle_wrapper, 1),
     )?;
 
     Ok(())

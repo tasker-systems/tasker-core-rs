@@ -32,6 +32,7 @@ end
 
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
 # require_relative 'tasker_core/types'  # Temporarily disabled due to dry-types version issues
+require_relative 'tasker_core/logging/logger'            # Logging system
 require_relative 'tasker_core/orchestration_manager'     # Singleton orchestration manager
 require_relative 'tasker_core/testing_manager'           # Singleton testing manager
 require_relative 'tasker_core/testing_factory_manager'   # Singleton testing factory manager
@@ -39,6 +40,13 @@ require_relative 'tasker_core/events'
 require_relative 'tasker_core/step_handler/base'  # Now enabled - BaseStepHandler available from Rust
 require_relative 'tasker_core/step_handler/api'   # Now enabled - depends on base
 require_relative 'tasker_core/task_handler'       # Task handler base class
+
+# 🎯 NEW: Domain-based API modules with singleton handle management
+require_relative 'tasker_core/factory'           # TaskerCore::Factory domain
+require_relative 'tasker_core/registry'          # TaskerCore::Registry domain
+require_relative 'tasker_core/performance'       # TaskerCore::Performance domain
+require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain
+require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 
 module TaskerCore
   # Base error hierarchy

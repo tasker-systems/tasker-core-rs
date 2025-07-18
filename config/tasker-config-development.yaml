@@ -13,9 +13,9 @@ database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
   pool:
-    max_connections: 10
-    min_connections: 1
-    acquire_timeout_seconds: 30
+    max_connections: 150
+    min_connections: 10
+    acquire_timeout_seconds: 2
     idle_timeout_seconds: 300
     max_lifetime_seconds: 3600
 

@@ -31,6 +31,7 @@ use tasker_core::orchestration::errors::OrchestrationResult;
 use tasker_core::models::core::workflow_step::WorkflowStep;
 use tasker_core::models::core::task::Task;
 use tracing::{debug, warn};
+use sqlx::PgPool;
 
 /// Ruby step handler that implements the Rust StepHandler trait
 ///
@@ -101,9 +102,8 @@ impl RubyStepHandler {
         &self.step_name
     }
 
-    /// Convert StepExecutionContext to Ruby-compatible data
-    async fn convert_context_to_ruby(&self, context: &StepExecutionContext) -> OrchestrationResult<(RubyTask, RubyStepSequence, RubyStep)> {
-        let pool = get_global_database_pool();
+    /// ✅ HANDLE-BASED: Convert StepExecutionContext to Ruby-compatible data using provided pool
+    async fn convert_context_to_ruby(&self, context: &StepExecutionContext, pool: &sqlx::PgPool) -> OrchestrationResult<(RubyTask, RubyStepSequence, RubyStep)> {
 
         // Load Task from database
         let task = Task::find_by_id(&pool, context.task_id).await
@@ -262,7 +262,9 @@ impl StepHandler for RubyStepHandler {
         );
 
         // Convert context to Ruby objects
-        let (ruby_task, ruby_sequence, ruby_step) = self.convert_context_to_ruby(context).await?;
+        // TODO: This should use handle-based pool access at construction time
+        let pool = get_global_database_pool();
+        let (ruby_task, ruby_sequence, ruby_step) = self.convert_context_to_ruby(context, &pool).await?;
 
         // Call Ruby process method
         let result = self.call_ruby_process(&ruby_task, &ruby_sequence, &ruby_step).await?;
@@ -285,7 +287,9 @@ impl StepHandler for RubyStepHandler {
         );
 
         // Convert context to Ruby objects
-        let (_, _, ruby_step) = self.convert_context_to_ruby(context).await?;
+        // TODO: This should use handle-based pool access at construction time
+        let pool = get_global_database_pool();
+        let (_, _, ruby_step) = self.convert_context_to_ruby(context, &pool).await?;
 
         // Call Ruby process_results method if it exists
         self.call_ruby_process_results(&ruby_step, result.output_data.as_ref().unwrap_or(&serde_json::json!({})), None).await?;

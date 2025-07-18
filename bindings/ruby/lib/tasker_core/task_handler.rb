@@ -27,12 +27,12 @@ module TaskerCore
     # Ruby wrapper that delegates to Rust BaseTaskHandler for orchestration integration
     # Note: We use composition instead of inheritance due to Magnus FFI limitations
     class Base
-      
+
       attr_reader :config, :logger, :rust_integration, :task_config
 
-      def initialize(config: {}, logger: nil, rust_integration: nil, task_config_path: nil, task_config: nil)
+      def initialize(config: {}, rust_integration: nil, task_config_path: nil, task_config: nil)
         @config = config || {}
-        @logger = logger || default_logger
+        @logger = TaskerCore::Logging::Logger.instance
         @rust_integration = rust_integration || default_rust_integration
         @task_config_path = task_config_path
         @task_config = task_config || (task_config_path ? load_task_config_from_path(task_config_path) : {})
@@ -44,22 +44,22 @@ module TaskerCore
             # Convert to JSON for BaseTaskHandler
             task_config_json = @task_config.to_json
             task_config_hash = JSON.parse(task_config_json)
-            
+
             # Get BaseTaskHandler from OrchestrationManager (memoized)
             orchestration_manager = TaskerCore::OrchestrationManager.instance
             @rust_handler = orchestration_manager.get_base_task_handler(task_config_hash)
-            
+
             if @rust_handler
-              @logger.info '♻️  Got BaseTaskHandler from OrchestrationManager singleton'
+              logger.info '♻️  Got BaseTaskHandler from OrchestrationManager singleton'
             else
-              @logger.error 'Failed to get BaseTaskHandler from OrchestrationManager'
+              logger.error 'Failed to get BaseTaskHandler from OrchestrationManager'
             end
           rescue StandardError => e
-            @logger.error "Failed to get BaseTaskHandler: #{e.message}"
+            logger.error "Failed to get BaseTaskHandler: #{e.message}"
             @rust_handler = nil
           end
         else
-          @logger.warn 'No task config provided - Rust integration disabled'
+          logger.warn 'No task config provided - Rust integration disabled'
           @rust_handler = nil
         end
 
@@ -87,14 +87,14 @@ module TaskerCore
         result = TaskerCore::OrchestrationManager.instance.register_handler(handler_data)
 
         if result['status'] == 'registered'
-          @logger.info "Registered task handler: #{self.class.name} for task: #{handler_data['name']}"
+          logger.info "Registered task handler: #{self.class.name} for task: #{handler_data['name']}"
         else
-          @logger.error "Failed to register task handler: #{result['error']}"
+          logger.error "Failed to register task handler: #{result['error']}"
         end
 
         result
       rescue StandardError => e
-        @logger.error "Error registering task handler: #{e.message}"
+        logger.error "Error registering task handler: #{e.message}"
         { 'status' => 'error', 'error' => e.message }
       end
 
@@ -107,16 +107,19 @@ module TaskerCore
           'name' => @task_config['name'],
           'version' => @task_config['version'] || '1.0.0'
         }
-        result = TaskerCore.contains_handler(handler_key)
+
+        # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
+        result = TaskerCore::OrchestrationManager.instance.handler_exists?(handler_key)
         result['exists'] == true
       rescue StandardError => e
-        @logger.error "Error checking handler registration: #{e.message}"
+        logger.error "Error checking handler registration: #{e.message}"
         false
       end
 
       # Get all registered task handlers
       def self.list_registered_handlers
-        TaskerCore.list_handlers(nil)
+        # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
+        TaskerCore::OrchestrationManager.instance.list_handlers(nil)
       rescue StandardError => e
         { 'handlers' => [], 'count' => 0, 'error' => e.message }
       end
@@ -189,7 +192,7 @@ module TaskerCore
 
         handler_class.new(config: handler_config, logger: @logger)
       rescue StandardError => e
-        @logger.error "Error creating step handler: #{e.message}"
+        logger.error "Error creating step handler: #{e.message}"
         nil
       end
 
@@ -262,20 +265,6 @@ module TaskerCore
       rescue StandardError => e
         puts "Error loading task configuration: #{e.message}"
         {}
-      end
-
-      # Default logger
-      def default_logger
-        if defined?(Rails)
-          Rails.logger
-        else
-          Logger.new($stdout).tap do |log|
-            log.level = Logger::INFO
-            log.formatter = proc { |severity, datetime, progname, msg|
-              "[#{datetime}] #{severity} #{progname}: #{msg}\n"
-            }
-          end
-        end
       end
 
       # Default Rust integration

@@ -37,6 +37,7 @@ fn is_test_environment() -> bool {
     std::env::var("RAILS_ENV").unwrap_or_default() == "test"
         || std::env::var("APP_ENV").unwrap_or_default() == "test"
         || std::env::var("RACK_ENV").unwrap_or_default() == "test"
+        || std::env::var("TASKER_ENV").unwrap_or_default() == "test"
 }
 
 /// Create a database pool from configuration instead of hardcoded values
@@ -50,14 +51,42 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
         pool_config.min_connections,
         pool_config.acquire_timeout_seconds);
 
-    sqlx::postgres::PgPoolOptions::new()
+    // Test connection first before creating pool
+    println!("🔍 POOL: Testing connection to {}", database_url);
+    let test_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(&database_url)
+        .await;
+        
+    match test_pool {
+        Ok(pool) => {
+            println!("✅ POOL: Test connection successful");
+            pool.close().await;
+        },
+        Err(e) => {
+            println!("❌ POOL: Test connection failed: {}", e);
+            return Err(e);
+        }
+    }
+
+    // Create pool with full configuration
+    let pool_options = sqlx::postgres::PgPoolOptions::new()
         .max_connections(pool_config.max_connections)
         .min_connections(pool_config.min_connections)
         .acquire_timeout(std::time::Duration::from_secs(pool_config.acquire_timeout_seconds))
         .idle_timeout(std::time::Duration::from_secs(pool_config.idle_timeout_seconds))
-        .max_lifetime(std::time::Duration::from_secs(pool_config.max_lifetime_seconds))
-        .connect(&database_url)
-        .await
+        .max_lifetime(std::time::Duration::from_secs(pool_config.max_lifetime_seconds));
+        
+    println!("🔍 POOL: Creating pool with options - max: {}, min: {}", 
+        pool_config.max_connections, pool_config.min_connections);
+        
+    let final_pool = pool_options.connect(&database_url).await?;
+    
+    println!("✅ POOL: Created successfully - size: {}, max: {}", 
+        final_pool.size(), final_pool.options().get_max_connections());
+        
+    Ok(final_pool)
 }
 
 /// 🎯 UNIFIED ENTRY POINT: Single way to create orchestration system
@@ -71,6 +100,45 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
 /// 4. OrchestrationSystem owns the pool, TestingFramework references it
 async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Box<dyn std::error::Error + Send + Sync>> {
     println!("🎯 UNIFIED ENTRY: Creating orchestration system from configuration");
+
+    // CRITICAL FIX: Load environment variables from .env.test file
+    let is_test = is_test_environment();
+    println!("🔍 ENV CHECK: is_test_environment() = {}", is_test);
+    println!("🔍 ENV CHECK: RAILS_ENV = {:?}, APP_ENV = {:?}, RACK_ENV = {:?}, TASKER_ENV = {:?}", 
+        std::env::var("RAILS_ENV"), 
+        std::env::var("APP_ENV"), 
+        std::env::var("RACK_ENV"), 
+        std::env::var("TASKER_ENV")
+    );
+    
+    if is_test {
+        // Look for .env.test in multiple locations relative to Ruby bindings
+        let possible_paths = [
+            ".env.test",              // Current directory
+            "../../../.env.test",     // From Ruby bindings to project root
+            "../../.env.test",        // Alternative path
+        ];
+        
+        let mut loaded = false;
+        for path in &possible_paths {
+            if std::path::Path::new(path).exists() {
+                match dotenvy::from_path(path) {
+                    Ok(_) => {
+                        println!("✅ DOTENV: Successfully loaded environment from {}", path);
+                        loaded = true;
+                        break;
+                    },
+                    Err(e) => {
+                        println!("⚠️ DOTENV: Failed to load {}: {}", path, e);
+                    }
+                }
+            }
+        }
+        
+        if !loaded {
+            println!("⚠️ DOTENV: No .env.test file found in any expected location");
+        }
+    }
 
     // 1. Load configuration from environment/files
     // Use TASKER_ENV as the primary environment variable
@@ -163,32 +231,53 @@ impl OrchestrationSystem {
     async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         println!("🔍 ORCHESTRATION TRACE: OrchestrationSystem::new() called");
 
-        // Get database connection with appropriate pool size for environment
+        // Load configuration from files instead of using hardcoded values
+        let environment = std::env::var("TASKER_ENV")
+            .unwrap_or_else(|_| "development".to_string());
+        
+        let config_filename = format!("config/tasker-config-{}.yaml", environment);
+        let final_config_path = if std::path::Path::new("../../config").exists() {
+            format!("../../{}", config_filename)
+        } else {
+            config_filename.to_string()
+        };
+
+        println!("🔍 ORCHESTRATION TRACE: Loading configuration from: {}", final_config_path);
+
+        let config_manager = if std::path::Path::new(&final_config_path).exists() {
+            match ConfigurationManager::load_from_file(&final_config_path).await {
+                Ok(manager) => {
+                    println!("✅ ORCHESTRATION TRACE: Successfully loaded configuration from {}", final_config_path);
+                    Arc::new(manager)
+                },
+                Err(e) => {
+                    println!("⚠️  ORCHESTRATION TRACE: Failed to load config file: {}. Using defaults.", e);
+                    Arc::new(ConfigurationManager::new())
+                }
+            }
+        } else {
+            println!("⚠️  ORCHESTRATION TRACE: Config file not found at {}. Using defaults.", final_config_path);
+            Arc::new(ConfigurationManager::new())
+        };
+
+        // Get database pool configuration from config files
+        let pool_config = config_manager.system_config().database.pool.clone();
+        
+        println!("🔍 ORCHESTRATION TRACE: Using pool configuration: max={}, min={}, acquire_timeout={}s", 
+            pool_config.max_connections, pool_config.min_connections, pool_config.acquire_timeout_seconds);
+
+        // Get database connection using configuration values
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
         println!("🔍 ORCHESTRATION TRACE: Database URL: {}", database_url);
 
-        // Configure pool options based on environment
-        let is_test = std::env::var("RAILS_ENV").unwrap_or_default() == "test"
-            || std::env::var("APP_ENV").unwrap_or_default() == "test";
-
-        let pool_options = if is_test {
-            // Test environment: fail fast to debug pool issues quickly
-            sqlx::postgres::PgPoolOptions::new()
-                .max_connections(10)  // Increased for debugging
-                .min_connections(2)
-                .acquire_timeout(std::time::Duration::from_secs(2))  // FAIL FAST: 2 second timeout
-                .idle_timeout(std::time::Duration::from_secs(30))    // Shorter idle timeout
-                .max_lifetime(std::time::Duration::from_secs(300))   // Shorter lifetime
-        } else {
-            // Production environment: larger pool
-            sqlx::postgres::PgPoolOptions::new()
-                .max_connections(20)
-                .min_connections(5)
-                .acquire_timeout(std::time::Duration::from_secs(30))
-                .idle_timeout(std::time::Duration::from_secs(300))
-                .max_lifetime(std::time::Duration::from_secs(3600))
-        };
+        // Use configuration values instead of hardcoded values
+        let pool_options = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(pool_config.max_connections)
+            .min_connections(pool_config.min_connections)
+            .acquire_timeout(std::time::Duration::from_secs(pool_config.acquire_timeout_seconds))
+            .idle_timeout(std::time::Duration::from_secs(pool_config.idle_timeout_seconds))
+            .max_lifetime(std::time::Duration::from_secs(pool_config.max_lifetime_seconds));
 
         println!("🔍 ORCHESTRATION TRACE: Attempting to connect to database for orchestration system");
         let database_pool = pool_options.connect(&database_url).await?;
@@ -277,29 +366,11 @@ impl OrchestrationSystem {
 pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
     println!("🎯 UNIFIED ENTRY: initialize_unified_orchestration_system called");
     GLOBAL_ORCHESTRATION_SYSTEM.get_or_init(|| {
-        // Check if we're already in a runtime context
-        let orchestration_system = if tokio::runtime::Handle::try_current().is_ok() {
-            // Use the existing runtime context
-            println!("🎯 UNIFIED ENTRY: Using existing runtime context");
-            // Use Tokio's block_in_place for async calls in sync context
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(create_unified_orchestration_system())
-            }).expect("Failed to create unified orchestration system")
-        } else {
-            // Create our own runtime
-            println!("🎯 UNIFIED ENTRY: Creating new runtime context");
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for unified orchestration system");
-
-            rt.block_on(async {
-                create_unified_orchestration_system().await
-                    .expect("Failed to create unified orchestration system")
-            })
-        };
-
-        Arc::new(orchestration_system)
+        println!("🎯 UNIFIED ENTRY: Using global runtime for consistent execution context");
+        let runtime = get_global_runtime();
+        
+        Arc::new(runtime.block_on(create_unified_orchestration_system())
+            .expect("Failed to create unified orchestration system"))
     }).clone()
 }
 
@@ -318,22 +389,29 @@ pub fn get_global_orchestration_system() -> Arc<OrchestrationSystem> {
 }
 
 /// Execute async operation using the current or global runtime
+/// Global runtime for consistent async execution context
+static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+/// Get or create the global runtime
+fn get_global_runtime() -> &'static tokio::runtime::Runtime {
+    GLOBAL_RUNTIME.get_or_init(|| {
+        println!("🔧 RUNTIME: Creating global Tokio runtime for consistent execution context");
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(4) // Small number for FFI context
+            .thread_name("tasker-core-runtime")
+            .build()
+            .expect("Failed to create global runtime")
+    })
+}
+
 pub fn execute_async<F, R>(future: F) -> R
 where
     F: std::future::Future<Output = R>,
 {
-    // Check if we're already in a Tokio runtime context
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        // Use existing runtime
-        handle.block_on(future)
-    } else {
-        // Create a temporary runtime for this operation
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create runtime for async operation");
-        rt.block_on(future)
-    }
+    // CRITICAL FIX: Always use the same global runtime to avoid pool context issues
+    let runtime = get_global_runtime();
+    runtime.block_on(future)
 }
 
 /// Get the global event publisher
@@ -635,43 +713,23 @@ pub fn initialize_unified_orchestration_system_wrapper() -> Result<Value, Error>
         "testing_framework": "separated"
     }))
 }
-/// Register registry functions for Ruby FFI
+/// 🎯 HANDLE-BASED: Register only essential functions - old global lookup functions removed
+/// Note: Handler operations now flow through OrchestrationManager handles
 pub fn register_registry_functions(module: RModule) -> Result<(), Error> {
-    module.define_module_function(
-        "registry_new",
-        magnus::function!(registry_new_wrapper, 0),
-    )?;
-
-    module.define_module_function(
-        "register_ffi_handler",
-        magnus::function!(register_ffi_handler_wrapper, 1),
-    )?;
-
-    module.define_module_function(
-        "find_handler",
-        magnus::function!(find_handler_wrapper, 1),
-    )?;
-
-    module.define_module_function(
-        "list_handlers",
-        magnus::function!(list_handlers_wrapper, 1),
-    )?;
-
-    module.define_module_function(
-        "contains_handler",
-        magnus::function!(contains_handler_wrapper, 1),
-    )?;
-
-    module.define_module_function(
-        "initialize_orchestration_system_from_current_runtime",
-        magnus::function!(initialize_orchestration_system_from_current_runtime_wrapper, 0),
-    )?;
-
-    // 🎯 NEW UNIFIED ENTRY POINT: Register the new unified orchestration system initialization
+    // Keep only the unified orchestration system initialization for backward compatibility
+    // All other operations now use handle-based patterns
     module.define_module_function(
         "initialize_unified_orchestration_system",
         magnus::function!(initialize_unified_orchestration_system_wrapper, 0),
     )?;
+
+    // REMOVED: Direct global lookup functions replaced by handle-based methods
+    // - register_ffi_handler → OrchestrationManager.instance.register_handler_with_handle
+    // - find_handler → OrchestrationManager.instance.find_handler_with_handle
+    // - list_handlers → OrchestrationManager.instance.list_handlers
+    // - contains_handler → OrchestrationManager.instance.handler_exists?
+    // - registry_new → Not needed (handled by OrchestrationHandle)
+    // - initialize_orchestration_system_from_current_runtime → Deprecated
 
     Ok(())
 }

@@ -13,8 +13,8 @@ database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
   pool:
-    max_connections: 10  # Reasonable for test environment
-    min_connections: 2
+    max_connections: 150  # High for test environment to avoid contention
+    min_connections: 10
     acquire_timeout_seconds: 2  # FAIL FAST: 2 second timeout for tests
     idle_timeout_seconds: 30   # Shorter idle timeout for tests
     max_lifetime_seconds: 300  # Shorter lifetime for tests
