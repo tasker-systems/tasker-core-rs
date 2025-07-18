@@ -3087,18 +3087,18 @@ dependencies = [
 
 [[package]]
 name = "smlang"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "575de1cab77b6c852f1f61227755ca0c500d75d3e87317b67eee3ad110d1d4ca"
+checksum = "1de84f9f80bbe6272174e2bfdb8cf7ce4815b218038a42161c2f21c1d872c215"
 dependencies = [
  "smlang-macros",
 ]
 
 [[package]]
 name = "smlang-macros"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aa9703a40b34abf1d323658a18b197f30f450358f9fd49fe8f7a687bfe301f4"
+checksum = "231b4425dcc43afc7e18c34e7c6738cd252d42d91d909c948df14107c9ae79f1"
 dependencies = [
  "proc-macro2",
  "quote",
