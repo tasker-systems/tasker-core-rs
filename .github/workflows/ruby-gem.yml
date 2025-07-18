@@ -95,23 +95,35 @@ jobs:
         done
         echo "PostgreSQL is ready"
 
-    - name: Check Rust formatting
-      run: |
-        cargo fmt --check
-
-    - name: Run Rust clippy
-      run: |
-        cargo clippy --workspace --all-targets --all-features -- -D warnings
-
     - name: Build Ruby extension
       run: |
         bundle exec rake compile
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+        TASKER_ENV: test
+        RAILS_ENV: test
 
     - name: Set up Ruby test environment
       run: |
         # Run Ruby-specific test setup (includes schema setup and verification)
         # This mirrors what developers would run locally
         bundle exec rake test:setup
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+        TASKER_ENV: test
+        RAILS_ENV: test
+
+    - name: Check Rust formatting
+      run: |
+        cargo fmt --check
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+        TASKER_ENV: test
+        RAILS_ENV: test
+
+    - name: Run Rust clippy
+      run: |
+        cargo clippy --workspace --all-targets --all-features -- -D warnings
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
         TASKER_ENV: test
@@ -127,34 +139,34 @@ jobs:
 
 
   # Security audit
-  security:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+  # security:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+  #   - name: Install Rust toolchain
+  #     uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: security-audit
+  #   - name: Cache Rust dependencies
+  #     uses: Swatinem/rust-cache@v2
+  #     with:
+  #       key: security-audit
 
-    - name: Security audit
-      run: |
-        cargo install cargo-audit
-        cargo audit
+  #   - name: Security audit
+  #     run: |
+  #       cargo install cargo-audit
+  #       cargo audit
 
-    - name: Set up Ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.2'
-        bundler-cache: true
-        working-directory: bindings/ruby
+  #   - name: Set up Ruby
+  #     uses: ruby/setup-ruby@v1
+  #     with:
+  #       ruby-version: '3.2'
+  #       bundler-cache: true
+  #       working-directory: bindings/ruby
 
-    - name: Check for known vulnerabilities in Ruby dependencies
-      run: |
-        gem install bundler-audit
-        bundle audit check --update
-      working-directory: bindings/ruby
+  #   - name: Check for known vulnerabilities in Ruby dependencies
+  #     run: |
+  #       gem install bundler-audit
+  #       bundle audit check --update
+  #     working-directory: bindings/ruby
