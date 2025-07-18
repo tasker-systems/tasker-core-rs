@@ -61,8 +61,13 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // 🎯 NEW: Magnus wrapped classes for FFI optimization
     // These classes eliminate JSON serialization overhead
     // The #[magnus::wrap] attribute with free_immediately handles Ruby class registration
-    // CreateTaskInput, TaskMetadata, and FactoryResult are auto-registered when used
     ffi_converters::TaskMetadata::define(ruby, &module)?;
+    
+    // Register additional Magnus wrapped classes
+    let ruby = magnus::Ruby::get().unwrap();
+    let workflow_step_input_class = module.define_class("WorkflowStepInput", ruby.class_object())?;
+    let complex_workflow_input_class = module.define_class("ComplexWorkflowInput", ruby.class_object())?;
+    let factory_result_class = module.define_class("FactoryResult", ruby.class_object())?;
 
     // Register globals and registry functions
     globals::register_registry_functions(module)?;
@@ -71,10 +76,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     events::register_event_functions(module)?;
 
     // Register RubyStepHandler wrapper class
-    handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
+    handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
 
     // Register task handler bridge functions
-    handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
+    handlers::base_task_handler::register_base_task_handler(&ruby, &module)?;
 
     // Register test helpers under TestHelpers module (always available, Rails gem controls exposure)
     test_helpers::register_test_helper_functions(module)?;

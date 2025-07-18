@@ -180,6 +180,77 @@ pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> 
     }
 }
 
+/// Optimized WorkflowStepInput structure using Magnus wrapped classes
+#[derive(Clone, Debug)]
+#[magnus::wrap(class = "TaskerCore::WorkflowStepInput", free_immediately)]
+pub struct WorkflowStepInput {
+    pub task_id: i64,
+    pub name: String,
+    pub dependencies: Vec<String>,
+    pub handler_class: Option<String>,
+    pub config: Option<String>, // JSON string for configuration
+}
+
+impl WorkflowStepInput {
+    /// Create from Ruby parameters
+    pub fn from_params(
+        task_id: i64,
+        name: String,
+        dependencies: Option<Vec<String>>,
+        handler_class: Option<String>,
+        config: Option<RHash>,
+    ) -> Result<Self, Error> {
+        let config_json = if let Some(cfg) = config {
+            let json_val = crate::context::ruby_value_to_json(cfg.into_value())
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Config conversion failed: {}", e)))?;
+            Some(json_val.to_string())
+        } else {
+            None
+        };
+
+        Ok(WorkflowStepInput {
+            task_id,
+            name,
+            dependencies: dependencies.unwrap_or_default(),
+            handler_class,
+            config: config_json,
+        })
+    }
+}
+
+/// Optimized ComplexWorkflowInput structure using Magnus wrapped classes
+#[derive(Clone, Debug)]
+#[magnus::wrap(class = "TaskerCore::ComplexWorkflowInput", free_immediately)]
+pub struct ComplexWorkflowInput {
+    pub pattern: String,
+    pub namespace: String,
+    pub task_name: String,
+    pub step_count: Option<i32>,
+    pub parallel_branches: Option<i32>,
+    pub dependency_depth: Option<i32>,
+}
+
+impl ComplexWorkflowInput {
+    /// Create from Ruby parameters
+    pub fn from_params(
+        pattern: String,
+        namespace: String,
+        task_name: String,
+        step_count: Option<i32>,
+        parallel_branches: Option<i32>,
+        dependency_depth: Option<i32>,
+    ) -> Result<Self, Error> {
+        Ok(ComplexWorkflowInput {
+            pattern,
+            namespace,
+            task_name,
+            step_count,
+            parallel_branches,
+            dependency_depth,
+        })
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -228,5 +299,40 @@ mod tests {
         assert!(!metadata.found);
         assert_eq!(metadata.namespace, "test_namespace");
         assert_eq!(metadata.ruby_class_name, None);
+    }
+    
+    #[test]
+    fn test_workflow_step_input_creation() {
+        let input = WorkflowStepInput::from_params(
+            123,
+            "test_step".to_string(),
+            Some(vec!["dep1".to_string(), "dep2".to_string()]),
+            Some("TestHandler".to_string()),
+            None,
+        ).unwrap();
+        
+        assert_eq!(input.task_id, 123);
+        assert_eq!(input.name, "test_step");
+        assert_eq!(input.dependencies.len(), 2);
+        assert_eq!(input.handler_class, Some("TestHandler".to_string()));
+        assert_eq!(input.config, None);
+    }
+    
+    #[test]
+    fn test_complex_workflow_input_creation() {
+        let input = ComplexWorkflowInput::from_params(
+            "linear".to_string(),
+            "test_namespace".to_string(),
+            "test_workflow".to_string(),
+            Some(5),
+            Some(2),
+            Some(3),
+        ).unwrap();
+        
+        assert_eq!(input.pattern, "linear");
+        assert_eq!(input.namespace, "test_namespace");
+        assert_eq!(input.step_count, Some(5));
+        assert_eq!(input.parallel_branches, Some(2));
+        assert_eq!(input.dependency_depth, Some(3));
     }
 }
