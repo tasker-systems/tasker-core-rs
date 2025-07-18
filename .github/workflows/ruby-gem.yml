@@ -105,7 +105,7 @@ jobs:
 
     - name: Set up database
       run: |
-        until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+        until pg_isready -h localhost -p 5432 -U tasker_rust_test; do
           echo "Waiting for PostgreSQL..."
           sleep 2
         done
