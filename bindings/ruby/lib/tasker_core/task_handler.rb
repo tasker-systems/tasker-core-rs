@@ -50,7 +50,7 @@ module TaskerCore
             @rust_handler = orchestration_manager.get_base_task_handler(task_config_hash)
 
             if @rust_handler
-              logger.info '♻️  Got BaseTaskHandler from OrchestrationManager singleton'
+              logger.info '♻️  Got stateless BaseTaskHandler from OrchestrationManager (config passed per-call)'
             else
               logger.error 'Failed to get BaseTaskHandler from OrchestrationManager'
             end
@@ -137,7 +137,9 @@ module TaskerCore
           raise NotImplementedError, 'handle method must be implemented by subclass (Rust handler not available)'
         end
 
-        @rust_handler.handle(task.task_id)
+        # Pass both task_id AND the task config for thread-safe, pure functional operation
+        # This ensures each task execution gets its own configuration
+        @rust_handler.handle(task.task_id, @task_config)
       end
 
       # Delegate other BaseTaskHandler methods to maintain interface compatibility

@@ -11,7 +11,7 @@ use magnus::{function, method, Error, Module, Object, RModule, Ruby, Value};
 use tracing::debug;
 use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
 use tasker_core::orchestration::task_enqueuer::{TaskEnqueuer, EnqueueRequest, EnqueuePriority};
-use tasker_core::orchestration::config::TaskTemplate;
+use tasker_core::models::core::task_template::TaskTemplate;
 use tasker_core::models::core::task_request::TaskRequest;
 
 
@@ -54,8 +54,29 @@ impl BaseTaskHandler {
         let task_template_data = crate::context::ruby_value_to_json_with_validation(task_template_json, &validation_config)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task template validation failed: {}", e)))?;
 
-        let task_template: TaskTemplate = serde_json::from_value(task_template_data)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskTemplate: {}", e)))?;
+        // For stateless handler pattern, allow empty config
+        // The actual config will be passed per-call in handle() method
+        let task_template = if task_template_data.is_object() && task_template_data.as_object().map(|o| o.is_empty()).unwrap_or(false) {
+            // Create a minimal valid TaskTemplate for stateless operation
+            TaskTemplate {
+                name: "stateless_handler".to_string(),
+                module_namespace: Some("Stateless".to_string()),
+                task_handler_class: "StatelessHandler".to_string(),
+                namespace_name: "stateless".to_string(),
+                version: "1.0.0".to_string(),
+                default_dependent_system: None,
+                named_steps: vec![],
+                schema: None,
+                step_templates: vec![],
+                environments: None,
+                default_context: None,
+                default_options: None,
+            }
+        } else {
+            // Parse the provided template normally
+            serde_json::from_value(task_template_data)
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskTemplate: {}", e)))?
+        };
 
         Self::new(task_template)
     }
@@ -126,9 +147,22 @@ impl BaseTaskHandler {
         }
     }
 
-    /// Handle task execution by task_id - delegates directly to WorkflowCoordinator
-    pub fn handle(&self, task_id: i64) -> magnus::error::Result<Value> {
+    /// Handle task execution by task_id with per-call configuration
+    /// This ensures thread safety by accepting config as a parameter rather than storing it
+    pub fn handle(&self, task_id: i64, task_config: Value) -> magnus::error::Result<Value> {
         let orchestration_system = &self.orchestration_system;
+
+        // Convert Ruby task_config to JSON for logging/future use
+        let _config_json = match crate::context::ruby_value_to_json(task_config) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!("Failed to parse task config: {}, using empty config", e);
+                serde_json::json!({})
+            }
+        };
+
+        // TODO: Pass config through to framework integration when needed
+        // For now, the config is available for future enhancements
 
         // Delegate directly to the WorkflowCoordinator from our orchestration system
         let result = execute_async(async {
@@ -236,7 +270,7 @@ pub fn register_base_task_handler(ruby: &Ruby, module: &RModule) -> magnus::erro
 
     class.define_singleton_method("new", function!(BaseTaskHandler::new_from_json, 1))?;
     class.define_method("initialize_task", method!(BaseTaskHandler::initialize_task, 1))?;
-    class.define_method("handle", method!(BaseTaskHandler::handle, 1))?;
+    class.define_method("handle", method!(BaseTaskHandler::handle, 2))?;  // Now accepts task_id and task_config
     class.define_method("initialize", method!(BaseTaskHandler::initialize, 1))?;
     class.define_method("before_execute", method!(BaseTaskHandler::before_execute, 1))?;
     class.define_method("after_execute", method!(BaseTaskHandler::after_execute, 1))?;

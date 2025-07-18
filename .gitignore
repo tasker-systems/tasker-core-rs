@@ -50,6 +50,7 @@ bindings/ruby/ext/*/mkmf.log
 bindings/ruby/pkg/*/*.gem
 bindings/ruby/*/*.gem
 bindings/ruby/*.gem
+bindings/ruby/spec/examples.txt
 
 # no rspec results
 rspec_results.json

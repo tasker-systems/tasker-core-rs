@@ -19,6 +19,7 @@ use tracing::{info, debug};
 use crate::globals::OrchestrationSystem;
 use crate::test_helpers::testing_factory::TestingFactory;
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
+use crate::ffi_converters::TaskMetadata;  // 🎯 NEW: Magnus optimized types
 
 /// Global handle singleton to prevent creating multiple orchestration systems
 static GLOBAL_ORCHESTRATION_HANDLE: OnceLock<Arc<OrchestrationHandle>> = OnceLock::new();
@@ -384,6 +385,150 @@ impl OrchestrationHandle {
         }
     }
 
+    /// 🎯 OPTIMIZED: Find handler using Magnus wrapped classes (eliminates JSON serialization)
+    pub fn find_handler_optimized(&self, namespace: String, name: String, version: String) -> Result<TaskMetadata, Error> {
+        self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+
+        let task_request = tasker_core::models::core::task_request::TaskRequest {
+            namespace: namespace.clone(),
+            name: name.clone(),
+            version: version.clone(),
+            context: serde_json::json!({}),
+            status: "PENDING".to_string(),
+            initiator: "FFI_OPTIMIZED".to_string(),
+            source_system: "RUST_CORE".to_string(),
+            reason: "Handler lookup optimization".to_string(),
+            complete: false,
+            tags: Vec::new(),
+            bypass_steps: Vec::new(),
+            requested_at: chrono::Utc::now().naive_utc(),
+            options: None,
+        };
+
+        let result: Result<TaskMetadata, String> = crate::globals::execute_async(async {
+            // Use handle's orchestration system directly - NO global lookup!
+            match self.orchestration_system.task_handler_registry.resolve_handler(&task_request) {
+                Ok(metadata) => Ok(TaskMetadata::found(
+                    metadata.namespace,
+                    metadata.name,
+                    metadata.version,
+                    metadata.handler_class,
+                    metadata.config_schema.map(|v| v.to_string()),  // Convert serde_json::Value to String
+                    metadata.registered_at.to_rfc3339(),
+                    self.handle_id.clone(),
+                )),
+                Err(_) => Ok(TaskMetadata::not_found(
+                    task_request.namespace,
+                    task_request.name,
+                    task_request.version,
+                ))
+            }
+        });
+
+        match result {
+            Ok(metadata) => Ok(metadata),
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), format!("Handler lookup failed: {}", error_msg)))
+        }
+    }
+
+    /// 🎯 OPTIMIZED: Create workflow step using primitive parameters (eliminates JSON serialization)
+    pub fn create_test_workflow_step_optimized(&self, task_id: i64, name: String, dependencies: Option<Value>, handler_class: Option<String>, config: Option<Value>) -> Result<Value, Error> {
+        self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+
+        // Convert primitive parameters to JSON options for the factory
+        let mut options = json!({
+            "task_id": task_id,
+            "name": name
+        });
+
+        // Handle dependencies array
+        if let Some(deps_value) = dependencies {
+            if let Ok(deps_json) = ruby_value_to_json(deps_value) {
+                options["dependencies"] = deps_json;
+            }
+        }
+
+        if let Some(handler_class) = handler_class {
+            options["handler_class"] = json!(handler_class);
+        }
+
+        if let Some(config_value) = config {
+            if let Ok(config_json) = ruby_value_to_json(config_value) {
+                options["config"] = config_json;
+            }
+        }
+
+        let result = crate::globals::execute_async(async {
+            let step_data = self.testing_factory.create_workflow_step(options).await;
+            if let Some(step_id) = step_data.get("step_id").and_then(|v| v.as_i64()) {
+                json!({
+                    "success": true,
+                    "task_id": task_id,
+                    "workflow_steps": [step_id],
+                    "message": format!("Workflow step '{}' created successfully", name)
+                })
+            } else {
+                json!({
+                    "success": false,
+                    "message": "Step creation succeeded but no step_id returned",
+                    "error": "INVALID_RESPONSE"
+                })
+            }
+        });
+
+        json_to_ruby_value(result)
+    }
+
+    /// 🎯 OPTIMIZED: Create complex workflow using primitive parameters (eliminates JSON serialization)
+    pub fn create_complex_workflow_optimized(&self, pattern: String, namespace: String, task_name: String, step_count: Option<i32>, parallel_branches: Option<i32>, dependency_depth: Option<i32>) -> Result<Value, Error> {
+        self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+
+        // Convert primitive parameters to JSON options for the factory
+        let mut options = json!({
+            "pattern": pattern,
+            "namespace": namespace,
+            "task_name": task_name
+        });
+
+        if let Some(step_count) = step_count {
+            options["step_count"] = json!(step_count);
+        }
+
+        if let Some(parallel_branches) = parallel_branches {
+            options["parallel_branches"] = json!(parallel_branches);
+        }
+
+        if let Some(dependency_depth) = dependency_depth {
+            options["dependency_depth"] = json!(dependency_depth);
+        }
+
+        let result = crate::globals::execute_async(async {
+            let workflow_data = self.testing_factory.create_complex_workflow(options).await;
+            if let Some(task_id) = workflow_data.get("task_id").and_then(|v| v.as_i64()) {
+                let workflow_steps: Vec<i64> = workflow_data
+                    .get("workflow_steps")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                    .unwrap_or_default();
+
+                json!({
+                    "success": true,
+                    "task_id": task_id,
+                    "workflow_steps": workflow_steps,
+                    "message": format!("Complex workflow '{}' with pattern '{}' created successfully", task_name, pattern)
+                })
+            } else {
+                json!({
+                    "success": false,
+                    "message": "Workflow creation succeeded but no task_id returned",
+                    "error": "INVALID_RESPONSE"
+                })
+            }
+        });
+
+        json_to_ruby_value(result)
+    }
+
     // ========================================================================
     // TESTING ENVIRONMENT OPERATIONS (no global lookups!)
     // ========================================================================
@@ -464,6 +609,9 @@ pub fn register_handle_functions(module: magnus::RModule) -> Result<(), magnus::
     handle_class.define_method("create_complex_workflow", method!(OrchestrationHandle::create_complex_workflow, 1))?;
     handle_class.define_method("register_ffi_handler", method!(OrchestrationHandle::register_ffi_handler, 1))?;
     handle_class.define_method("find_handler", method!(OrchestrationHandle::find_handler, 1))?;
+    handle_class.define_method("find_handler_optimized", method!(OrchestrationHandle::find_handler_optimized, 3))?;  // 🎯 NEW: Magnus optimized version
+    handle_class.define_method("create_test_workflow_step_optimized", method!(OrchestrationHandle::create_test_workflow_step_optimized, 5))?;  // 🎯 NEW: Magnus optimized version  
+    handle_class.define_method("create_complex_workflow_optimized", method!(OrchestrationHandle::create_complex_workflow_optimized, 6))?;  // 🎯 NEW: Magnus optimized version
     handle_class.define_method("setup_test_environment", method!(OrchestrationHandle::setup_test_environment, 0))?;
     handle_class.define_method("cleanup_test_environment", method!(OrchestrationHandle::cleanup_test_environment, 0))?;
     handle_class.define_method("create_testing_framework", method!(OrchestrationHandle::create_testing_framework, 0))?;

@@ -19,6 +19,7 @@ use magnus::{Error, Module, Ruby};
 
 mod context;
 mod error_translation;
+mod ffi_converters;  // 🎯 NEW: Magnus optimized FFI converters
 mod globals;
 mod handles;  // 🎯 NEW: Handle-based FFI architecture
 mod handlers;
@@ -57,9 +58,15 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     performance::RubyDependencyAnalysis::define(ruby, &module)?;
     performance::RubyDependencyLevel::define(ruby, &module)?;
 
-    // Note: Magnus wrapped classes are automatically registered when used
-    // The #[magnus::wrap] attribute handles Ruby class registration
-    // We don't need to manually register them here
+    // 🎯 NEW: Magnus wrapped classes for FFI optimization
+    // These classes eliminate JSON serialization overhead
+    // The #[magnus::wrap] attribute with free_immediately handles Ruby class registration
+    ffi_converters::TaskMetadata::define(ruby, &module)?;
+
+    // Register additional Magnus wrapped classes
+    let workflow_step_input_class = module.define_class("WorkflowStepInput", ruby.class_object())?;
+    let complex_workflow_input_class = module.define_class("ComplexWorkflowInput", ruby.class_object())?;
+    let factory_result_class = module.define_class("FactoryResult", ruby.class_object())?;
 
     // Register globals and registry functions
     globals::register_registry_functions(module)?;
@@ -68,10 +75,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     events::register_event_functions(module)?;
 
     // Register RubyStepHandler wrapper class
-    handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
+    handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
 
     // Register task handler bridge functions
-    handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
+    handlers::base_task_handler::register_base_task_handler(&ruby, &module)?;
 
     // Register test helpers under TestHelpers module (always available, Rails gem controls exposure)
     test_helpers::register_test_helper_functions(module)?;
@@ -84,7 +91,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // Register root-level performance functions that OrchestrationManager expects
     performance::register_root_performance_functions(module)?;
-    
+
     // Register performance monitoring module
     let performance_module = module.define_module("Performance")?;
     performance::register_performance_functions(performance_module)?;

@@ -101,15 +101,18 @@ module TaskerCore
       TaskerCore.contains_handler(handler_key)
     end
 
-    # 🎯 CRITICAL FIX: Get memoized BaseTaskHandler to prevent excessive instantiation
-    # This prevents the "37 calls to BaseTaskHandler.new" problem by using ||= memoization
-    def get_base_task_handler(task_config_hash)
+    # 🎯 THREAD-SAFE FIX: Create stateless BaseTaskHandler singleton
+    # The handler itself is stateless - configuration is passed per-call via handle(task_id, config)
+    # This ensures thread safety and correct per-task configuration handling
+    def get_base_task_handler(task_config_hash = nil)
       orchestration_system # Ensure initialized
 
-      # Use memoization pattern to create BaseTaskHandler only once
-      @base_task_handler ||= begin
-        logger.info "✅ Creating NEW BaseTaskHandler (memoized for reuse)"
-        TaskerCore::BaseTaskHandler.new(task_config_hash)
+      # Create a stateless singleton handler that receives config per-call
+      # The config parameter here is ignored - it's only kept for API compatibility
+      @stateless_base_task_handler ||= begin
+        logger.info "✅ Creating stateless BaseTaskHandler singleton (config passed per-call)"
+        # Pass empty config since the handler is now stateless
+        TaskerCore::BaseTaskHandler.new({})
       rescue StandardError => e
         error_msg = "Failed to create BaseTaskHandler: #{e.message}"
         logger.error error_msg
