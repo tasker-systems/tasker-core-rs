@@ -19,6 +19,7 @@ use magnus::{Error, Module, Ruby};
 
 mod context;
 mod error_translation;
+mod ffi_converters;  // 🎯 NEW: Magnus optimized FFI converters
 mod globals;
 mod handles;  // 🎯 NEW: Handle-based FFI architecture
 mod handlers;
@@ -57,9 +58,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     performance::RubyDependencyAnalysis::define(ruby, &module)?;
     performance::RubyDependencyLevel::define(ruby, &module)?;
 
-    // Note: Magnus wrapped classes are automatically registered when used
-    // The #[magnus::wrap] attribute handles Ruby class registration
-    // We don't need to manually register them here
+    // 🎯 NEW: Magnus wrapped classes for FFI optimization
+    // These classes eliminate JSON serialization overhead
+    // The #[magnus::wrap] attribute with free_immediately handles Ruby class registration
+    // CreateTaskInput, TaskMetadata, and FactoryResult are auto-registered when used
 
     // Register globals and registry functions
     globals::register_registry_functions(module)?;

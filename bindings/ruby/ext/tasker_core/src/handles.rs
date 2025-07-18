@@ -16,9 +16,11 @@ use magnus::{Error, Value, Module, method, function};
 use magnus::TryConvert;
 use serde_json::json;
 use tracing::{info, debug};
+use chrono::Utc;
 use crate::globals::OrchestrationSystem;
 use crate::test_helpers::testing_factory::TestingFactory;
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
+use crate::ffi_converters::{TaskMetadata, CreateTaskInput, FactoryResult};  // 🎯 NEW: Magnus optimized types
 
 /// Global handle singleton to prevent creating multiple orchestration systems
 static GLOBAL_ORCHESTRATION_HANDLE: OnceLock<Arc<OrchestrationHandle>> = OnceLock::new();
@@ -384,6 +386,52 @@ impl OrchestrationHandle {
         }
     }
 
+    /// 🎯 OPTIMIZED: Find handler using Magnus wrapped classes (eliminates JSON serialization)
+    pub fn find_handler_optimized(&self, namespace: String, name: String, version: String) -> Result<TaskMetadata, Error> {
+        self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+
+        let task_request = tasker_core::models::core::task_request::TaskRequest {
+            namespace: namespace.clone(),
+            name: name.clone(),
+            version: version.clone(),
+            context: serde_json::json!({}),
+            status: "PENDING".to_string(),
+            initiator: "FFI_OPTIMIZED".to_string(),
+            source_system: "RUST_CORE".to_string(),
+            reason: "Handler lookup optimization".to_string(),
+            complete: false,
+            tags: Vec::new(),
+            bypass_steps: Vec::new(),
+            requested_at: chrono::Utc::now().naive_utc(),
+            options: None,
+        };
+
+        let result: Result<TaskMetadata, String> = crate::globals::execute_async(async {
+            // Use handle's orchestration system directly - NO global lookup!
+            match self.orchestration_system.task_handler_registry.resolve_handler(&task_request) {
+                Ok(metadata) => Ok(TaskMetadata::found(
+                    metadata.namespace,
+                    metadata.name,
+                    metadata.version,
+                    metadata.handler_class,
+                    metadata.config_schema.map(|v| v.to_string()),  // Convert serde_json::Value to String
+                    metadata.registered_at.to_rfc3339(),
+                    self.handle_id.clone(),
+                )),
+                Err(_) => Ok(TaskMetadata::not_found(
+                    task_request.namespace,
+                    task_request.name,
+                    task_request.version,
+                ))
+            }
+        });
+
+        match result {
+            Ok(metadata) => Ok(metadata),
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), format!("Handler lookup failed: {}", error_msg)))
+        }
+    }
+
     // ========================================================================
     // TESTING ENVIRONMENT OPERATIONS (no global lookups!)
     // ========================================================================
@@ -464,6 +512,7 @@ pub fn register_handle_functions(module: magnus::RModule) -> Result<(), magnus::
     handle_class.define_method("create_complex_workflow", method!(OrchestrationHandle::create_complex_workflow, 1))?;
     handle_class.define_method("register_ffi_handler", method!(OrchestrationHandle::register_ffi_handler, 1))?;
     handle_class.define_method("find_handler", method!(OrchestrationHandle::find_handler, 1))?;
+    handle_class.define_method("find_handler_optimized", method!(OrchestrationHandle::find_handler_optimized, 3))?;  // 🎯 NEW: Magnus optimized version
     handle_class.define_method("setup_test_environment", method!(OrchestrationHandle::setup_test_environment, 0))?;
     handle_class.define_method("cleanup_test_environment", method!(OrchestrationHandle::cleanup_test_environment, 0))?;
     handle_class.define_method("create_testing_framework", method!(OrchestrationHandle::create_testing_framework, 0))?;
