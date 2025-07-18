@@ -38,6 +38,7 @@
 //! - [`events`] - Event system foundation
 //! - [`orchestration`] - Workflow orchestration logic
 //! - [`registry`] - Component registration and discovery
+//! - [`client`] - Rust-native task and step handlers
 //! - [`ffi`] - Multi-language FFI bindings
 //!
 //! ## Performance Targets
@@ -49,25 +50,17 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,no_run
-//! use tasker_core::config::TaskerConfig;
-//! use tasker_core::models::core::task::Task;
-//! use sqlx::PgPool;
+//! ```rust
+//! use tasker_core::TaskerConfig;
 //!
-//! # async fn example(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-//! // Initialize configuration
+//! // Initialize configuration for tasker-core-rs
 //! let config = TaskerConfig::default();
 //!
-//! // Work with models using SQLx
-//! // Note: find_by_current_state would need to be implemented
-//! // let tasks = Task::find_by_current_state(pool, "running").await?;
-//! // for task in tasks {
-//! //     println!("Task {} is running", task.task_id);
-//! // }
+//! // Configuration provides database settings
+//! assert_eq!(config.database.enable_secondary_database, false);
+//! assert_eq!(config.execution.max_concurrent_tasks, 100);
 //!
-//! println!("Tasker core initialized with config: {:?}", config.database.max_connections);
-//! # Ok(())
-//! # }
+//! // For complete database integration examples, see tests/models/ directory
 //! ```
 //!
 //! ## Integration
@@ -85,7 +78,7 @@
 //! cargo test          # All tests (114+ tests)
 //! ```
 
-pub mod config;
+pub mod client;
 pub mod constants;
 pub mod database;
 pub mod error;
@@ -99,18 +92,26 @@ pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;
 
-pub use config::{
+pub use constants::{
+    status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
+    ReenqueueReason, WorkflowEdgeType,
+};
+pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
     TelemetryConfig,
 };
-pub use constants::{
-    status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
-    ReenqueueReason, TaskStatus, WorkflowEdgeType, WorkflowStepStatus,
-};
 // Re-export constants events with different name to avoid conflict
+pub use client::{
+    BaseStepHandler, BaseTaskHandler, ExecutionMetadata, RustStepHandler, RustTaskHandler,
+    StepContext, TaskContext,
+};
 pub use constants::events as system_events;
 pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
+pub use registry::{
+    EventSubscriber, HandlerCacheStats, HandlerFactory, Plugin, PluginMetadata, PluginRegistry,
+    PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,
+};

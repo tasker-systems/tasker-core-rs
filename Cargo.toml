@@ -1,3 +1,11 @@
+[workspace]
+members = [
+    ".",
+    # Note: bindings/ruby/ext/tasker_core is excluded - it has its own workspace for Ruby extension build
+    # "bindings/python",  # Future
+    # "bindings/wasm",    # Future
+]
+
 [package]
 name = "tasker-core-rs"
 version = "0.1.0"
@@ -29,6 +37,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 
 # Time and date handling
 chrono = { version = "0.4.38", features = ["serde"] }
@@ -53,6 +62,10 @@ smlang = "0.7"
 
 # Configuration
 config = "0.14"
+regex = "1.0"
+
+# Random number generation
+fastrand = "2.0"
 
 # FFI support
 magnus = { version = "0.7", optional = true }
@@ -64,6 +77,7 @@ web-sys = { version = "0.3", optional = true }
 
 # Development and testing
 criterion = { version = "0.5.1", optional = true }
+rand = "0.9.1"
 
 [dev-dependencies]
 # Testing tools
@@ -72,10 +86,10 @@ tempfile = "3.0"
 proptest = "1.0"
 insta = { version = "1.34", features = ["serde", "json"] }
 mockall = "0.13"
-fastrand = "2.0"
 factori = "1.1"
 dotenvy = "0.15"  # Maintained fork of dotenv
 url = "2.0"
+serial_test = "3.1"
 
 # Coverage tools (used in CI)
 cargo-llvm-cov = "0.6"

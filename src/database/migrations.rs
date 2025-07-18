@@ -73,27 +73,43 @@ impl DatabaseMigrations {
         Self::run_outstanding_migrations(pool).await
     }
 
-    /// Run fresh schema for tests with database-level locking to prevent race conditions
+    /// Run fresh schema for tests with simple file-based locking to prevent race conditions
+    /// CRITICAL: Eliminates advisory locks entirely to prevent connection leaks
     async fn run_fresh_schema_with_lock(pool: &PgPool) -> Result<(), sqlx::Error> {
-        // Use PostgreSQL advisory lock to ensure only one thread initializes schema
-        // Lock key: hash of "tasker_test_schema_init"
-        const LOCK_KEY: i64 = 1_234_567_890_123_456; // Deterministic hash
+        // Use file-based locking instead of PostgreSQL advisory locks
+        // This prevents any database connection leaks from lock management
+        use std::fs::OpenOptions;
+        use std::io::Write;
 
-        // Try to acquire advisory lock
-        let lock_acquired = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
-            .bind(LOCK_KEY)
-            .fetch_one(pool)
-            .await?;
+        let lock_file_path = std::env::temp_dir().join("tasker_test_schema_lock");
+
+        // Try to create lock file (atomic operation)
+        let mut lock_acquired = false;
+        for _ in 0..10 {
+            // Try for up to 5 seconds
+            match OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&lock_file_path)
+            {
+                Ok(mut file) => {
+                    let _ = file.write_all(b"locked");
+                    lock_acquired = true;
+                    break;
+                }
+                Err(_) => {
+                    // Lock file exists, wait and retry
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
 
         if lock_acquired {
             // We got the lock - we're responsible for schema initialization
             let result = Self::run_fresh_schema(pool).await;
 
-            // Always release the lock
-            sqlx::query("SELECT pg_advisory_unlock($1)")
-                .bind(LOCK_KEY)
-                .execute(pool)
-                .await?;
+            // Always release the lock by removing the file
+            let _ = std::fs::remove_file(&lock_file_path);
 
             result
         } else {
@@ -176,15 +192,31 @@ impl DatabaseMigrations {
     /// Discover all migration files in the migrations directory
     fn discover_migrations() -> Result<BTreeMap<String, Migration>, sqlx::Error> {
         let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let migrations_dir = project_root.join("migrations");
+        // Try multiple possible locations for migrations directory
+        let mut possible_migrations_dirs = vec![
+            project_root.join("migrations"),       // Same directory
+            project_root.join("../../migrations"), // From bindings/ruby -> core root
+        ];
 
-        if !migrations_dir.exists() {
-            return Ok(BTreeMap::new());
+        // Add parent directories if they exist
+        if let Some(parent) = project_root.parent() {
+            if let Some(grandparent) = parent.parent() {
+                possible_migrations_dirs.push(grandparent.join("migrations"));
+            }
         }
+
+        let migrations_dir = possible_migrations_dirs
+            .into_iter()
+            .find(|dir| dir.exists());
+
+        let migrations_dir = match migrations_dir {
+            Some(dir) => dir,
+            None => return Ok(BTreeMap::new()),
+        };
 
         let mut migrations = BTreeMap::new();
 
-        for entry in fs::read_dir(migrations_dir).map_err(sqlx::Error::Io)? {
+        for entry in fs::read_dir(&migrations_dir).map_err(sqlx::Error::Io)? {
             let entry = entry.map_err(sqlx::Error::Io)?;
             let path = entry.path();
 

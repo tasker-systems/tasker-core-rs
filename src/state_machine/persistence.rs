@@ -51,6 +51,7 @@ pub trait TransitionPersistence<T> {
 }
 
 /// Task transition persistence implementation
+#[derive(Clone)]
 pub struct TaskTransitionPersistence;
 
 #[async_trait]
@@ -111,6 +112,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
 }
 
 /// Workflow step transition persistence implementation
+#[derive(Clone)]
 pub struct StepTransitionPersistence;
 
 #[async_trait]

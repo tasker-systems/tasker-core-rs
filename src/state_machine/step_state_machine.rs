@@ -14,6 +14,7 @@ use crate::models::WorkflowStep;
 use sqlx::PgPool;
 
 /// Thread-safe workflow step state machine for individual step management
+#[derive(Clone)]
 pub struct StepStateMachine {
     step: WorkflowStep,
     pool: PgPool,

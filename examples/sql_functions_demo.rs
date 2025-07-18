@@ -112,35 +112,31 @@ async fn main() {
     println!("6. Task Execution Context:");
     let context = TaskExecutionContext {
         task_id: 789,
+        named_task_id: 123,
+        status: "in_progress".to_string(),
         total_steps: 10,
-        completed_steps: 6,
         pending_steps: 3,
-        error_steps: 1,
+        in_progress_steps: 1,
+        completed_steps: 6,
+        failed_steps: 1,
         ready_steps: 2,
-        blocked_steps: 1,
-        completion_percentage: 60.0,
-        estimated_duration_seconds: Some(420),
+        execution_status: "ready_steps_available".to_string(),
         recommended_action: "execute_ready_steps".to_string(),
-        next_steps_to_execute: vec![7, 8],
-        critical_path_steps: vec![8],
-        bottleneck_steps: vec![9],
+        completion_percentage: sqlx::types::BigDecimal::from(60),
+        health_status: "healthy".to_string(),
     };
 
     println!("   Task ID: {}", context.task_id);
     println!(
-        "   Progress: {:.1}% ({}/{} steps)",
+        "   Progress: {}% ({}/{} steps)",
         context.completion_percentage, context.completed_steps, context.total_steps
     );
-    println!("   Can proceed: {}", context.can_proceed());
-    println!("   Is complete: {}", context.is_complete());
-    println!("   Is blocked: {}", context.is_blocked());
+    println!("   Status: {}", context.status);
+    println!("   Execution status: {}", context.execution_status);
+    println!("   Health status: {}", context.health_status);
     println!("   Ready steps: {}", context.ready_steps);
-    println!(
-        "   Estimated duration: {} minutes",
-        context.estimated_duration_seconds.unwrap_or(0) / 60
-    );
+    println!("   Failed steps: {}", context.failed_steps);
     println!("   Recommended action: {}", context.recommended_action);
-    println!("   Priority steps: {:?}", context.get_priority_steps());
     println!();
 
     println!("7. Analytics Metrics:");

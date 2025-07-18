@@ -108,19 +108,31 @@ impl StateAction<Task> for UpdateTaskCompletionAction {
         _from_state: Option<String>,
         to_state: String,
         _event: &str,
-        _pool: &PgPool,
+        pool: &PgPool,
     ) -> ActionResult<()> {
         if to_state == TaskState::Complete.to_string() {
-            // Log the completion for now - actual database updates will be handled
-            // by the transition persistence layer and separate update operations
-            tracing::info!(task_id = task.task_id, "Task marked as complete");
+            // Update the legacy complete boolean flag in the database
+            // This ensures compatibility with SQL functions and queries that rely on this flag
+            let mut task_clone = task.clone();
+            task_clone.mark_complete(pool).await.map_err(|e| {
+                ActionError::DatabaseUpdateFailed {
+                    entity_type: "Task".to_string(),
+                    entity_id: task.task_id,
+                    reason: format!("Failed to mark task as complete: {e}"),
+                }
+            })?;
+
+            tracing::info!(
+                task_id = task.task_id,
+                "Task marked as complete with legacy flag updated"
+            );
         }
 
         Ok(())
     }
 
     fn description(&self) -> &'static str {
-        "Update task completion metadata"
+        "Update task completion metadata and legacy flags"
     }
 }
 
@@ -135,19 +147,48 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
         _from_state: Option<String>,
         to_state: String,
         event: &str,
-        _pool: &PgPool,
+        pool: &PgPool,
     ) -> ActionResult<()> {
+        // Handle transition to in_progress state
+        if to_state == WorkflowStepState::InProgress.to_string() {
+            let mut step_clone = step.clone();
+            step_clone.mark_in_process(pool).await.map_err(|e| {
+                ActionError::DatabaseUpdateFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step.workflow_step_id,
+                    reason: format!("Failed to mark step as in process: {e}"),
+                }
+            })?;
+
+            tracing::info!(
+                step_id = step.workflow_step_id,
+                task_id = step.task_id,
+                "Step marked as in_process with legacy flag updated"
+            );
+        }
+
+        // Handle transition to complete state
         if to_state == WorkflowStepState::Complete.to_string() {
             // Extract results from event if available
             let results = extract_results_from_event(event)?;
 
-            // Log the completion for now - actual database updates will be handled
-            // by the transition persistence layer and separate update operations
+            // Update the legacy processed boolean flag and processed_at timestamp
+            // This ensures compatibility with SQL functions and queries that rely on these flags
+            let mut step_clone = step.clone();
+            step_clone
+                .mark_processed(pool, results.clone())
+                .await
+                .map_err(|e| ActionError::DatabaseUpdateFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step.workflow_step_id,
+                    reason: format!("Failed to mark step as processed: {e}"),
+                })?;
+
             tracing::info!(
                 step_id = step.workflow_step_id,
                 task_id = step.task_id,
                 ?results,
-                "Step marked as complete with results"
+                "Step marked as complete with results and legacy flags updated"
             );
         }
 
@@ -155,7 +196,7 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
     }
 
     fn description(&self) -> &'static str {
-        "Update step results and completion metadata"
+        "Update step results and completion metadata with legacy flags"
     }
 }
 

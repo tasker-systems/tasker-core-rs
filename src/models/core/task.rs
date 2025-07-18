@@ -522,12 +522,53 @@ impl Task {
     }
 
     /// Find tasks by current state using transitions (Rails: scope :by_current_state)
-    /// TODO: Implement complex state transition queries
+    ///
+    /// Uses task transitions to efficiently find tasks in specific states.
+    /// When no state is provided, returns all tasks.
     pub async fn by_current_state(
         pool: &PgPool,
-        _state: Option<&str>,
+        state: Option<&str>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        match state {
+            Some(state_filter) => {
+                let tasks = sqlx::query_as!(
+                    Task,
+                    r#"
+                    SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                           t.initiator, t.source_system, t.reason, t.bypass_steps,
+                           t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                    FROM tasker_tasks t
+                    INNER JOIN tasker_task_transitions tt 
+                        ON t.task_id = tt.task_id
+                    WHERE tt.most_recent = true 
+                        AND tt.to_state = $1
+                    ORDER BY t.task_id
+                    "#,
+                    state_filter
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(tasks)
+            }
+            None => {
+                // Return all tasks when no state filter provided
+                let tasks = sqlx::query_as!(
+                    Task,
+                    r#"
+                    SELECT task_id, named_task_id, complete, requested_at,
+                           initiator, source_system, reason, bypass_steps,
+                           tags, context, identity_hash, created_at, updated_at
+                    FROM tasker_tasks
+                    ORDER BY task_id
+                    "#
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(tasks)
+            }
+        }
     }
 
     /// Find tasks with all associated records preloaded (Rails: scope :with_all_associated)
@@ -560,27 +601,88 @@ impl Task {
     }
 
     /// Find tasks completed since a specific time (Rails: scope :completed_since)
-    /// TODO: Implement completion time tracking via workflow step transitions
+    ///
+    /// Finds tasks that transitioned to complete state after the specified time.
+    /// Uses task transitions with timestamp filtering for accurate results.
     pub async fn completed_since(
         pool: &PgPool,
-        _since_time: DateTime<Utc>,
+        since_time: DateTime<Utc>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            INNER JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id
+            WHERE tt.most_recent = true 
+                AND tt.to_state = 'complete'
+                AND tt.created_at >= $1
+            ORDER BY tt.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks that failed since a specific time (Rails: scope :failed_since)
-    /// TODO: Implement failure detection via current state transitions
+    ///
+    /// Finds tasks that transitioned to error state after the specified time.
+    /// Uses task transitions with timestamp filtering for accurate results.
     pub async fn failed_since(
         pool: &PgPool,
-        _since_time: DateTime<Utc>,
+        since_time: DateTime<Utc>,
     ) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            INNER JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id
+            WHERE tt.most_recent = true 
+                AND tt.to_state = 'error'
+                AND tt.created_at >= $1
+            ORDER BY tt.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find active tasks (not in terminal states) (Rails: scope :active)
-    /// TODO: Implement active task detection via workflow step transitions
+    ///
+    /// Active tasks are those not in terminal states (complete, error, cancelled).
+    /// Uses task transitions to accurately determine current state.
     pub async fn active(pool: &PgPool) -> Result<Vec<Task>, sqlx::Error> {
-        Self::list_incomplete(pool).await
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                   t.initiator, t.source_system, t.reason, t.bypass_steps,
+                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+            FROM tasker_tasks t
+            LEFT JOIN tasker_task_transitions tt 
+                ON t.task_id = tt.task_id AND tt.most_recent = true
+            WHERE tt.to_state IS NULL 
+                OR tt.to_state NOT IN ('complete', 'error', 'cancelled')
+            ORDER BY t.task_id
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
     }
 
     /// Find tasks in a specific namespace (Rails: scope :in_namespace)
@@ -655,46 +757,40 @@ impl Task {
     // ============================================================================
 
     /// Create and save task with defaults from TaskRequest (Rails: create_with_defaults!)
-    /// TODO: Implement TaskRequest integration and default value system
     pub async fn create_with_defaults(
         pool: &PgPool,
-        _task_request: serde_json::Value,
-    ) -> Result<Task, sqlx::Error> {
-        // Placeholder implementation - would integrate with TaskRequest system
-        let new_task = NewTask {
-            named_task_id: 1, // Would be extracted from task_request
-            requested_at: None,
-            initiator: Some("system".to_string()),
-            source_system: Some("default".to_string()),
-            reason: Some("Created with defaults".to_string()),
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({"default": true})),
-            identity_hash: Self::generate_identity_hash(
-                1,
-                &Some(serde_json::json!({"default": true})),
-            ),
-        };
-        Self::create(pool, new_task).await
+        task_request: super::task_request::TaskRequest,
+    ) -> Result<Task, crate::error::TaskerError> {
+        let resolved_request = task_request.resolve(pool).await?;
+        resolved_request.create_task(pool).await
     }
 
     /// Create unsaved task instance from TaskRequest (Rails: from_task_request)
-    /// TODO: Implement TaskRequest to Task conversion
-    pub fn from_task_request(_task_request: serde_json::Value) -> NewTask {
-        // Placeholder implementation - would extract fields from task_request
+    /// Note: This creates a NewTask but does not resolve the NamedTask from the database.
+    /// For full resolution, use create_with_defaults instead.
+    pub fn from_task_request(task_request: super::task_request::TaskRequest) -> NewTask {
         NewTask {
-            named_task_id: 1, // Would be extracted from task_request
-            requested_at: None,
-            initiator: Some("system".to_string()),
-            source_system: Some("default".to_string()),
-            reason: Some("From task request".to_string()),
-            bypass_steps: None,
-            tags: None,
-            context: Some(serde_json::json!({"from_request": true})),
-            identity_hash: Self::generate_identity_hash(
-                1,
-                &Some(serde_json::json!({"from_request": true})),
-            ),
+            named_task_id: 0, // Will need to be resolved separately
+            requested_at: Some(task_request.requested_at),
+            initiator: Some(task_request.initiator),
+            source_system: Some(task_request.source_system),
+            reason: Some(task_request.reason),
+            bypass_steps: Some(serde_json::Value::Array(
+                task_request
+                    .bypass_steps
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            )),
+            tags: Some(serde_json::Value::Array(
+                task_request
+                    .tags
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            )),
+            context: Some(task_request.context.clone()),
+            identity_hash: Self::generate_identity_hash(0, &Some(task_request.context)),
         }
     }
 
@@ -715,13 +811,10 @@ impl Task {
     }
 
     /// Extract options from TaskRequest (Rails: get_request_options)
-    /// TODO: Implement TaskRequest option extraction
-    pub fn get_request_options(_task_request: serde_json::Value) -> serde_json::Value {
-        // Placeholder implementation - would extract options from task_request structure
-        serde_json::json!({
-            "default_options": true,
-            "extracted_from": "task_request"
-        })
+    pub fn get_request_options(
+        resolved_request: &super::task_request::ResolvedTaskRequest,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        resolved_request.get_request_options().clone()
     }
 
     /// Get default task request options for a named task (Rails: get_default_task_request_options)
@@ -767,16 +860,21 @@ impl Task {
     }
 
     /// Find workflow step by name (Rails: get_step_by_name)
-    /// TODO: Implement step lookup by name
+    ///
+    /// Looks up a workflow step within this task by its named step name.
+    /// Returns the workflow step if found, None if not found.
     pub async fn get_step_by_name(
         &self,
         pool: &PgPool,
         name: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        // Placeholder - would join with named_steps to find by name
-        let _step = sqlx::query!(
+    ) -> Result<Option<crate::models::WorkflowStep>, sqlx::Error> {
+        let step = sqlx::query_as!(
+            crate::models::WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
             WHERE ws.task_id = $1 AND ns.name = $2
@@ -788,7 +886,7 @@ impl Task {
         .fetch_optional(pool)
         .await?;
 
-        Ok(Some(serde_json::json!({"step_name": name, "found": true})))
+        Ok(step)
     }
 
     /// Get RuntimeGraphAnalyzer for this task (Rails: runtime_analyzer) - memoized
@@ -1211,4 +1309,92 @@ impl Task {
     /// - **Lifecycle Tracking**: Capture execution timeline and resource usage
     /// - **Completion Handling**: Proper task finalization
     pub fn example_lifecycle_management() {}
+
+    // ============================================================================
+    // GUARD DELEGATION METHODS
+    // ============================================================================
+
+    /// Check if all workflow steps are complete (for state machine guards)
+    ///
+    /// This method provides the core logic for the AllStepsCompleteGuard by checking
+    /// if all workflow steps for this task are in a complete state.
+    ///
+    /// Uses the step transition history to determine completion status rather than
+    /// relying on boolean flags, providing more accurate state representation.
+    pub async fn all_workflow_steps_complete(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let incomplete_count = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_steps ws
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
+            WHERE ws.task_id = $1 
+              AND (current_states.to_state IS NULL 
+                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let incomplete = incomplete_count.count.unwrap_or(1);
+        Ok(incomplete == 0)
+    }
+
+    /// Check if task is not currently in progress (for state machine guards)
+    ///
+    /// This method checks the current task state from the transition history
+    /// to determine if the task is already in progress, preventing double execution.
+    pub async fn not_in_progress(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state != "in_progress"),
+            None => Ok(true), // No state means not in progress
+        }
+    }
+
+    /// Check if task can be reset (must be in error state)
+    ///
+    /// This method determines if a task is eligible for reset operations
+    /// by checking if it's currently in an error state.
+    pub async fn can_be_reset(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "error"),
+            None => Ok(false), // No state means can't be reset
+        }
+    }
+
+    /// Count incomplete workflow steps for this task
+    ///
+    /// Returns the count of workflow steps that are not in a complete state.
+    /// Used for detailed error reporting in guard failures.
+    pub async fn count_incomplete_workflow_steps(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_steps ws
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
+            WHERE ws.task_id = $1 
+              AND (current_states.to_state IS NULL 
+                   OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.task_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.count.unwrap_or(0))
+    }
 }

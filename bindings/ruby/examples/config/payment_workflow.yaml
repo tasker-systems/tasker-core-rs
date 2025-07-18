@@ -1,0 +1,326 @@
+# Payment Workflow Configuration
+# This demonstrates how to configure a complete workflow with step handlers
+# using the new composition-based architecture and TaskConfigFinder integration.
+
+name: payment_workflow
+version: "1.0.0"
+description: "Complete payment processing workflow with confirmation"
+namespace: default
+
+# Global workflow settings
+settings:
+  max_execution_time: 300  # 5 minutes
+  default_retry_limit: 3
+  default_timeout: 30
+  error_handling: "strict"
+  event_publishing: true
+
+# Step templates define the workflow structure
+step_templates:
+  # Step 1: Payment Processing
+  - name: payment_processing
+    description: "Process customer payment using configured gateway"
+    handler_class: PaymentProcessingStepHandler
+    depends_on_steps: []
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      payment_gateway: "stripe"
+      max_amount: 10000
+      min_amount: 1
+      currency: "USD"
+      capture_method: "automatic"
+      confirmation_method: "automatic"
+      supported_payment_methods:
+        - "card"
+        - "bank_transfer"
+        - "digital_wallet"
+      security_settings:
+        require_cvv: true
+        require_3d_secure: true
+        fraud_detection: true
+      retry_settings:
+        backoff_multiplier: 2
+        max_backoff: 300
+        jitter: true
+    
+  # Step 2: Payment Verification
+  - name: payment_verification
+    description: "Verify payment was processed correctly"
+    handler_class: PaymentVerificationStepHandler
+    depends_on_steps: ["payment_processing"]
+    default_retryable: true
+    default_retry_limit: 2
+    timeout_seconds: 15
+    handler_config:
+      verification_method: "webhook"
+      webhook_timeout: 10
+      fallback_method: "polling"
+      polling_interval: 2
+      max_polling_attempts: 5
+      
+  # Step 3: Send Confirmation
+  - name: send_confirmation
+    description: "Send payment confirmation to customer"
+    handler_class: NotificationStepHandler
+    depends_on_steps: ["payment_verification"]
+    default_retryable: true
+    default_retry_limit: 5
+    timeout_seconds: 15
+    handler_config:
+      notification_type: "email"
+      template: "payment_confirmation"
+      priority: "high"
+      delivery_settings:
+        retry_attempts: 3
+        retry_delay: 5
+        fallback_channels: ["sms", "push"]
+      template_variables:
+        include_receipt: true
+        include_support_contact: true
+        include_refund_policy: true
+        
+  # Step 4: Update Customer Records
+  - name: update_customer_records
+    description: "Update customer payment history and preferences"
+    handler_class: CustomerUpdateStepHandler
+    depends_on_steps: ["send_confirmation"]
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 20
+    handler_config:
+      update_fields:
+        - "last_payment_date"
+        - "payment_method_preferences"
+        - "transaction_history"
+        - "loyalty_points"
+      audit_logging: true
+      data_retention_policy: "7_years"
+      
+  # Step 5: Generate Analytics
+  - name: generate_analytics
+    description: "Generate analytics data for reporting"
+    handler_class: AnalyticsStepHandler
+    depends_on_steps: ["update_customer_records"]
+    default_retryable: true
+    default_retry_limit: 2
+    timeout_seconds: 10
+    handler_config:
+      analytics_type: "payment_metrics"
+      metrics_to_track:
+        - "payment_volume"
+        - "payment_success_rate"
+        - "average_transaction_value"
+        - "customer_payment_patterns"
+        - "gateway_performance"
+      reporting_interval: "daily"
+      aggregation_level: "hourly"
+
+# Workflow constraints and dependencies
+constraints:
+  # Business rules
+  business_rules:
+    - name: "minimum_payment_amount"
+      type: "validation"
+      rule: "payment_amount >= 1"
+      error_message: "Payment amount must be at least $1"
+      
+    - name: "maximum_payment_amount"
+      type: "validation"
+      rule: "payment_amount <= 10000"
+      error_message: "Payment amount cannot exceed $10,000"
+      
+    - name: "supported_currencies"
+      type: "validation"
+      rule: "currency in ['USD', 'EUR', 'GBP']"
+      error_message: "Currency must be USD, EUR, or GBP"
+      
+  # Technical constraints
+  technical_constraints:
+    - name: "max_concurrent_steps"
+      value: 5
+      description: "Maximum number of concurrent step executions"
+      
+    - name: "max_workflow_duration"
+      value: 1800  # 30 minutes
+      description: "Maximum time a workflow can run"
+      
+    - name: "resource_limits"
+      memory_limit: "512MB"
+      cpu_limit: "1.0"
+      description: "Resource limits for step execution"
+
+# Event configuration
+events:
+  # Step-level events
+  step_events:
+    - event: "step_started"
+      publish_to: ["audit_log", "monitoring"]
+      
+    - event: "step_completed"
+      publish_to: ["audit_log", "monitoring", "analytics"]
+      
+    - event: "step_failed"
+      publish_to: ["audit_log", "monitoring", "alerting"]
+      
+    - event: "step_retried"
+      publish_to: ["audit_log", "monitoring"]
+      
+  # Workflow-level events
+  workflow_events:
+    - event: "workflow_started"
+      publish_to: ["audit_log", "customer_updates"]
+      
+    - event: "workflow_completed"
+      publish_to: ["audit_log", "customer_updates", "analytics"]
+      
+    - event: "workflow_failed"
+      publish_to: ["audit_log", "customer_updates", "alerting"]
+      
+    - event: "payment_processed"
+      publish_to: ["audit_log", "fraud_detection", "analytics"]
+      
+    - event: "notification_sent"
+      publish_to: ["audit_log", "customer_updates"]
+
+# Error handling configuration
+error_handling:
+  # Permanent errors (no retry)
+  permanent_errors:
+    - "ValidationError"
+    - "AuthenticationError"
+    - "InsufficientFundsError"
+    - "CardDeclinedError"
+    
+  # Retryable errors
+  retryable_errors:
+    - "NetworkError"
+    - "TimeoutError"
+    - "ServiceUnavailableError"
+    - "RateLimitError"
+    
+  # Error escalation
+  escalation_rules:
+    - condition: "retry_count >= 3"
+      action: "escalate_to_support"
+      
+    - condition: "error_type == 'fraud_detected'"
+      action: "escalate_to_security"
+      
+    - condition: "payment_amount > 1000 AND error_type == 'card_declined'"
+      action: "escalate_to_manual_review"
+
+# Monitoring and alerting
+monitoring:
+  # Metrics to track
+  metrics:
+    - name: "step_execution_time"
+      type: "histogram"
+      buckets: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+      
+    - name: "step_success_rate"
+      type: "gauge"
+      
+    - name: "workflow_completion_rate"
+      type: "gauge"
+      
+    - name: "payment_processing_volume"
+      type: "counter"
+      
+  # Alerting rules
+  alerts:
+    - name: "high_failure_rate"
+      condition: "step_success_rate < 0.95"
+      severity: "warning"
+      
+    - name: "payment_processing_down"
+      condition: "payment_processing_success_rate < 0.8"
+      severity: "critical"
+      
+    - name: "slow_step_execution"
+      condition: "step_execution_time > 30s"
+      severity: "warning"
+
+# Security configuration
+security:
+  # Data encryption
+  encryption:
+    enabled: true
+    algorithm: "AES-256"
+    key_rotation_interval: "30d"
+    
+  # PCI compliance
+  pci_compliance:
+    enabled: true
+    audit_level: "level_1"
+    data_retention: "90d"
+    
+  # Access control
+  access_control:
+    authentication_required: true
+    authorization_method: "rbac"
+    allowed_roles: ["payment_processor", "admin"]
+    
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: "info"
+    include_sensitive_data: false
+    retention_period: "7_years"
+
+# Performance optimization
+performance:
+  # Connection pooling
+  database_pool:
+    min_connections: 5
+    max_connections: 20
+    connection_timeout: 30
+    
+  # Caching
+  caching:
+    enabled: true
+    cache_type: "redis"
+    ttl: 3600  # 1 hour
+    
+  # Batching
+  batching:
+    enabled: true
+    batch_size: 100
+    batch_timeout: 5
+    
+  # Concurrency
+  concurrency:
+    max_concurrent_workflows: 50
+    max_concurrent_steps: 200
+    queue_size: 1000
+
+# Testing configuration
+testing:
+  # Test data
+  test_data:
+    enabled: true
+    test_payment_amounts: [1, 10, 100, 1000, 5000]
+    test_currencies: ["USD", "EUR", "GBP"]
+    test_payment_methods: ["card", "bank_transfer"]
+    
+  # Mock services
+  mock_services:
+    payment_gateway: "mock_stripe"
+    notification_service: "mock_email"
+    analytics_service: "mock_analytics"
+    
+  # Test scenarios
+  test_scenarios:
+    - name: "successful_payment"
+      description: "End-to-end successful payment processing"
+      steps: ["payment_processing", "payment_verification", "send_confirmation"]
+      
+    - name: "payment_failure"
+      description: "Payment declined by gateway"
+      expected_error: "CardDeclinedError"
+      
+    - name: "timeout_recovery"
+      description: "Payment timeout with successful retry"
+      timeout_step: "payment_processing"
+      retry_expected: true

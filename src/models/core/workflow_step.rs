@@ -440,9 +440,28 @@ impl WorkflowStep {
         }
     }
 
-    /// Check if step is ready for processing
+    /// Check if step is eligible for processing based on internal state only
+    ///
+    /// This checks only the step's internal state (not processed, not in process, not waiting for backoff).
+    /// For full readiness including dependencies, use the `ready()` method instead.
+    ///
+    /// Enhanced to use proper backoff timing validation rather than just checking
+    /// for presence of backoff_request_seconds field.
+    pub fn is_processing_eligible(&self) -> bool {
+        !self.processed && !self.in_process && !self.waiting_for_backoff()
+    }
+
+    /// Check if step is ready for processing (DEPRECATED - use is_processing_eligible for internal state)
+    ///
+    /// This method is maintained for backward compatibility but should be replaced with
+    /// more specific methods: is_processing_eligible() for internal state checks,
+    /// or ready() for full readiness including dependencies.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use is_processing_eligible() for internal state or ready() for full readiness"
+    )]
     pub fn is_ready_for_processing(&self) -> bool {
-        !self.processed && !self.in_process && self.backoff_request_seconds.is_none()
+        self.is_processing_eligible()
     }
 
     /// Get current state from transitions (since state is managed separately)
@@ -510,58 +529,202 @@ impl WorkflowStep {
     // ============================================================================
 
     /// Find completed steps using state machine transitions (Rails: scope :completed)
-    /// TODO: Fix SQLx database validation issues for complex state machine queries
     pub async fn completed(pool: &PgPool) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        // Placeholder - would use workflow_step_transitions to find completed steps
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_transitions wst 
+                ON ws.workflow_step_id = wst.workflow_step_id
+            WHERE wst.most_recent = true 
+                AND wst.to_state IN ('complete', 'resolved_manually')
+            ORDER BY ws.workflow_step_id
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     /// Find failed steps using state machine transitions (Rails: scope :failed)
-    /// TODO: Implement complex state transition queries
     pub async fn failed(pool: &PgPool) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_transitions wst 
+                ON ws.workflow_step_id = wst.workflow_step_id
+            WHERE wst.most_recent = true 
+                AND wst.to_state = 'error'
+            ORDER BY ws.workflow_step_id
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     /// Find pending steps (no transitions or pending/in_progress) (Rails: scope :pending)
-    /// TODO: Implement complex state transition logic
     pub async fn pending(pool: &PgPool) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            LEFT JOIN tasker_workflow_step_transitions wst 
+                ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
+            WHERE wst.to_state IS NULL 
+                OR wst.to_state IN ('pending', 'in_progress')
+            ORDER BY ws.workflow_step_id
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     /// Find steps by current state using transitions (Rails: scope :by_current_state)
-    /// TODO: Implement state transition queries
     pub async fn by_current_state(
         pool: &PgPool,
-        _state: Option<&str>,
+        state: Option<&str>,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        match state {
+            Some(state_filter) => {
+                let steps = sqlx::query_as!(
+                    WorkflowStep,
+                    r#"
+                    SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                           ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                           ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                           ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+                    FROM tasker_workflow_steps ws
+                    LEFT JOIN tasker_workflow_step_transitions wst 
+                        ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
+                    WHERE (wst.to_state = $1) 
+                        OR (wst.to_state IS NULL AND $1 = 'pending')
+                    ORDER BY ws.workflow_step_id
+                    "#,
+                    state_filter
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(steps)
+            }
+            None => {
+                // Return all steps when no state filter provided
+                let steps = sqlx::query_as!(
+                    WorkflowStep,
+                    r#"
+                    SELECT workflow_step_id, task_id, named_step_id, retryable, 
+                           retry_limit, in_process, processed, processed_at,
+                           attempts, last_attempted_at, backoff_request_seconds,
+                           inputs, results, skippable, created_at, updated_at
+                    FROM tasker_workflow_steps
+                    ORDER BY workflow_step_id
+                    "#
+                )
+                .fetch_all(pool)
+                .await?;
+
+                Ok(steps)
+            }
+        }
     }
 
     /// Find steps completed since specific time (Rails: scope :completed_since)
-    /// TODO: Implement time-based completion filtering
     pub async fn completed_since(
         pool: &PgPool,
-        _since_time: chrono::DateTime<chrono::Utc>,
+        since_time: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_transitions wst 
+                ON ws.workflow_step_id = wst.workflow_step_id
+            WHERE wst.most_recent = true 
+                AND wst.to_state IN ('complete', 'resolved_manually')
+                AND wst.created_at >= $1
+            ORDER BY wst.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     /// Find steps that failed since specific time (Rails: scope :failed_since)
-    /// TODO: Implement time-based failure filtering
     pub async fn failed_since(
         pool: &PgPool,
-        _since_time: chrono::DateTime<chrono::Utc>,
+        since_time: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_transitions wst 
+                ON ws.workflow_step_id = wst.workflow_step_id
+            WHERE wst.most_recent = true 
+                AND wst.to_state = 'error'
+                AND wst.created_at >= $1
+            ORDER BY wst.created_at DESC
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     /// Find steps for tasks created since specific time (Rails: scope :for_tasks_since)
-    /// TODO: Implement task creation time filtering
     pub async fn for_tasks_since(
         pool: &PgPool,
-        _since_time: chrono::DateTime<chrono::Utc>,
+        since_time: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_unprocessed(pool).await
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                   ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
+                   ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
+                   ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_tasks t ON ws.task_id = t.task_id
+            WHERE t.created_at >= $1
+            ORDER BY t.created_at DESC, ws.workflow_step_id
+            "#,
+            since_time.naive_utc()
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     // ============================================================================
@@ -569,31 +732,51 @@ impl WorkflowStep {
     // ============================================================================
 
     /// Get task completion statistics (Rails: task_completion_stats)
-    /// TODO: Implement complex completion statistics calculation
+    ///
+    /// Uses the existing get_task_execution_context SQL function for comprehensive
+    /// task progress analysis. This is critical for orchestration monitoring.
     pub async fn task_completion_stats(
         pool: &PgPool,
         task_id: i64,
     ) -> Result<TaskCompletionStats, sqlx::Error> {
-        let task_steps = Self::for_task(pool, task_id).await?;
-        let total_steps = task_steps.len() as i64;
+        use crate::database::sql_functions::SqlFunctionExecutor;
 
-        // Simplified calculation - would use state machine transitions in full implementation
-        let completed_count = task_steps.iter().filter(|s| s.processed).count() as i64;
-        let in_process_count = task_steps.iter().filter(|s| s.in_process).count() as i64;
-        let pending_count = total_steps - completed_count - in_process_count;
+        // Use the existing SQL function to get comprehensive task context
+        let executor = SqlFunctionExecutor::new(pool.clone());
+        if let Some(context) = executor.get_task_execution_context(task_id).await? {
+            // Get latest completion time from processed_at
+            let latest_completion_time = sqlx::query!(
+                "SELECT MAX(processed_at) as latest_completion FROM tasker_workflow_steps WHERE task_id = $1 AND processed = true",
+                task_id
+            )
+            .fetch_one(pool)
+            .await?
+            .latest_completion;
 
-        Ok(TaskCompletionStats {
-            total_steps,
-            completed_steps: completed_count,
-            failed_steps: 0, // TODO: Calculate from state transitions
-            pending_steps: pending_count,
-            latest_completion_time: None, // TODO: Get from processed_at
-            all_complete: completed_count == total_steps && total_steps > 0,
-        })
+            Ok(TaskCompletionStats {
+                total_steps: context.total_steps,
+                completed_steps: context.completed_steps,
+                failed_steps: context.failed_steps,
+                pending_steps: context.pending_steps,
+                latest_completion_time,
+                all_complete: context.is_complete(),
+            })
+        } else {
+            // Fallback if no context found (task doesn't exist or has no steps)
+            Ok(TaskCompletionStats {
+                total_steps: 0,
+                completed_steps: 0,
+                failed_steps: 0,
+                pending_steps: 0,
+                latest_completion_time: None,
+                all_complete: false,
+            })
+        }
     }
 
     /// Find step by name in collection (Rails: find_step_by_name)
-    /// TODO: Implement full DAG traversal and step finding logic
+    ///
+    /// Finds a workflow step by its named step name within a specific task.
     pub async fn find_step_by_name(
         pool: &PgPool,
         task_id: i64,
@@ -664,14 +847,48 @@ impl WorkflowStep {
     }
 
     /// Get viable (ready) steps for execution (Rails: get_viable_steps)
-    /// TODO: Integrate with StepReadinessStatus for high-performance readiness checking
+    ///
+    /// Uses the existing get_step_readiness_status SQL function for high-performance
+    /// readiness checking. This is critical for orchestration to determine execution candidates.
     pub async fn get_viable_steps(
         pool: &PgPool,
         task_id: i64,
         _sequence: serde_json::Value,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        // Placeholder - would use get_step_readiness_status SQL function
-        Self::for_task(pool, task_id).await
+        use crate::database::sql_functions::SqlFunctionExecutor;
+
+        // Use the existing SQL function to get ready steps
+        let executor = SqlFunctionExecutor::new(pool.clone());
+        let ready_statuses = executor.get_ready_steps(task_id).await?;
+
+        // Extract ready step IDs
+        let ready_step_ids: Vec<i64> = ready_statuses
+            .iter()
+            .map(|status| status.workflow_step_id)
+            .collect();
+
+        if ready_step_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Fetch the actual WorkflowStep objects for ready steps
+        let steps = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            SELECT workflow_step_id, task_id, named_step_id, retryable, 
+                   retry_limit, in_process, processed, processed_at,
+                   attempts, last_attempted_at, backoff_request_seconds,
+                   inputs, results, skippable, created_at, updated_at
+            FROM tasker_workflow_steps
+            WHERE workflow_step_id = ANY($1)
+            ORDER BY workflow_step_id
+            "#,
+            &ready_step_ids
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
     }
 
     // ============================================================================
@@ -698,13 +915,25 @@ impl WorkflowStep {
     }
 
     /// Add provides edge to another step (Rails: add_provides_edge!)
-    /// TODO: Implement workflow step edge creation
+    ///
+    /// Creates a dependency relationship where this step provides input to the target step.
+    /// Includes cycle detection to ensure DAG integrity.
     pub async fn add_provides_edge(
         &self,
         pool: &PgPool,
         to_step_id: i64,
     ) -> Result<(), sqlx::Error> {
-        // Placeholder - would create workflow_step_edge
+        use crate::models::WorkflowStepEdge;
+
+        // Check for cycle detection before creating the edge
+        if WorkflowStepEdge::would_create_cycle(pool, self.workflow_step_id, to_step_id).await? {
+            return Err(sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Adding this edge would create a cycle in the workflow DAG",
+            )));
+        }
+
+        // Create the edge safely
         sqlx::query!(
             r#"
             INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id, name, created_at, updated_at)
@@ -771,44 +1000,72 @@ impl WorkflowStep {
     }
 
     /// Check ready status (Rails: ready_status?)
-    /// TODO: Implement UNREADY_WORKFLOW_STEP_STATUSES constant check
+    ///
+    /// Returns true if the step is in a state where it could potentially be executed.
+    /// Excludes terminal failure states: error, cancelled, skipped.
     pub async fn ready_status(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let state = self
             .get_current_state(pool)
             .await?
             .unwrap_or("pending".to_string());
-        // Simplified - would check against UNREADY_WORKFLOW_STEP_STATUSES constant
+        // Step is ready unless in a terminal failure state
         Ok(!matches!(state.as_str(), "error" | "cancelled" | "skipped"))
     }
 
     /// Comprehensive readiness check (Rails: ready?)
-    /// TODO: Integrate with StepReadinessStatus for full readiness calculation
+    ///
+    /// Uses the existing get_step_readiness_status SQL function for the most accurate
+    /// readiness determination. This is the definitive method for orchestration decisions.
     pub async fn ready(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
-        // Placeholder - would use step_readiness_status.ready_for_execution
-        let _readiness = self.step_readiness_status(pool).await?;
-        Ok(self.is_ready_for_processing())
+        use crate::database::sql_functions::SqlFunctionExecutor;
+
+        // Use the existing SQL function for comprehensive readiness checking
+        let executor = SqlFunctionExecutor::new(pool.clone());
+        let readiness_statuses = executor
+            .get_step_readiness_status(self.task_id, Some(vec![self.workflow_step_id]))
+            .await?;
+
+        if let Some(status) = readiness_statuses.first() {
+            Ok(status.ready_for_execution)
+        } else {
+            // Fallback to basic checks if step not found
+            Ok(self.is_processing_eligible() && self.dependencies_satisfied(pool).await?)
+        }
     }
 
     /// Check if dependencies are satisfied (Rails: dependencies_satisfied?)
-    /// TODO: Integrate with StepReadinessStatus dependency analysis
+    ///
+    /// Uses efficient SQL query to check if all parent steps are in complete state
+    /// without loading full dependency objects. Integrates with state machine transitions
+    /// for accurate state representation.
     pub async fn dependencies_satisfied(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
-        // Placeholder - would use step_readiness_status.dependencies_satisfied
-        let deps = self.get_dependencies(pool).await?;
-        let mut all_satisfied = true;
-        for dep in deps {
-            if !dep.complete(pool).await? {
-                all_satisfied = false;
-                break;
-            }
-        }
-        Ok(all_satisfied)
+        // Use the same efficient logic as dependencies_met() method
+        self.dependencies_met(pool).await
     }
 
     /// Check if step is retry eligible (Rails: retry_eligible?)
-    /// TODO: Integrate with StepReadinessStatus retry/backoff calculation
+    ///
+    /// Comprehensive retry eligibility check that validates:
+    /// - Step has retryable flag set to true
+    /// - Step has not exceeded its retry limit
+    /// - Step is currently in error state
     pub async fn retry_eligible(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
-        // Placeholder - would use step_readiness_status.retry_eligible
-        Ok(self.retryable && !self.has_exceeded_retry_limit() && self.in_error(pool).await?)
+        // Must be marked as retryable
+        if !self.retryable {
+            return Ok(false);
+        }
+
+        // Must not have exceeded retry limit
+        if self.has_exceeded_retry_limit() {
+            return Ok(false);
+        }
+
+        // Must be in error state to be retry eligible
+        if !self.in_error(pool).await? {
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     /// Check if step has retry attempts (Rails: has_retry_attempts?)
@@ -822,13 +1079,26 @@ impl WorkflowStep {
     }
 
     /// Check if waiting for backoff period (Rails: waiting_for_backoff?)
-    /// TODO: Implement next_retry_at calculation from StepReadinessStatus
+    ///
+    /// Enhanced to check actual timing rather than just presence of backoff value.
+    /// Compares last_attempted_at + backoff_request_seconds with current time.
     pub fn waiting_for_backoff(&self) -> bool {
-        self.backoff_request_seconds.is_some()
+        match (self.last_attempted_at, self.backoff_request_seconds) {
+            (Some(last_attempt), Some(backoff_seconds)) => {
+                let backoff_duration = chrono::Duration::seconds(backoff_seconds as i64);
+                let retry_available_at = last_attempt + backoff_duration;
+                chrono::Utc::now().naive_utc() < retry_available_at
+            }
+            _ => false, // No backoff or no last attempt time
+        }
     }
 
     /// Check if can retry right now (Rails: can_retry_now?)
-    /// TODO: Implement comprehensive retry check with state machine and backoff
+    ///
+    /// Comprehensive retry eligibility check that validates:
+    /// - Step is in error state
+    /// - Step is retry eligible (retryable flag, not exceeded limits)
+    /// - Not waiting for backoff period
     pub async fn can_retry_now(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         if !self.in_error(pool).await? {
             return Ok(false);
@@ -843,14 +1113,18 @@ impl WorkflowStep {
     }
 
     /// Check if this is a root step (Rails: root_step?)
-    /// TODO: Integrate with StepReadinessStatus total_parents calculation
+    ///
+    /// Returns true if this step has no dependencies (parent steps).
+    /// Root steps can be executed immediately when a task starts.
     pub async fn root_step(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let deps = self.get_dependencies(pool).await?;
         Ok(deps.is_empty())
     }
 
     /// Check if this is a leaf step (Rails: leaf_step?)
-    /// TODO: Integrate with StepDagRelationship view for child_count
+    ///
+    /// Returns true if this step has no dependents (child steps).
+    /// Leaf steps represent the final operations in a workflow.
     pub async fn leaf_step(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let dependents = self.get_dependents(pool).await?;
         Ok(dependents.is_empty())
@@ -904,6 +1178,96 @@ impl WorkflowStep {
         .count;
 
         Ok(count.unwrap_or(0) == 0)
+    }
+
+    // ============================================================================
+    // GUARD DELEGATION METHODS
+    // ============================================================================
+
+    /// Check if all step dependencies are satisfied (for state machine guards)
+    ///
+    /// This method provides the core logic for the StepDependenciesMetGuard by checking
+    /// if all parent steps (dependencies) are in a complete state.
+    ///
+    /// Uses the step transition history to determine completion status rather than
+    /// relying on boolean flags, providing more accurate state representation.
+    pub async fn dependencies_met(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let unmet_dependencies = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_step_edges wse
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
+            WHERE wse.to_step_id = $1
+              AND (parent_states.to_state IS NULL 
+                   OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let unmet = unmet_dependencies.count.unwrap_or(0);
+        Ok(unmet == 0)
+    }
+
+    /// Check if step is not currently in progress (for state machine guards)
+    ///
+    /// This method checks the current step state from the transition history
+    /// to determine if the step is already in progress, preventing double execution.
+    pub async fn not_in_progress(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state != "in_progress"),
+            None => Ok(true), // No state means not in progress
+        }
+    }
+
+    /// Check if step can be retried (must be in error state)
+    ///
+    /// This method determines if a step is eligible for retry operations
+    /// by checking if it's currently in an error state.
+    pub async fn can_be_retried(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "error"),
+            None => Ok(false), // No state means can't be retried
+        }
+    }
+
+    /// Count unmet dependencies for this step
+    ///
+    /// Returns the count of parent steps that are not in a complete state.
+    /// Used for detailed error reporting in guard failures.
+    pub async fn count_unmet_dependencies(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT COUNT(*) as count 
+            FROM tasker_workflow_step_edges wse
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                FROM tasker_workflow_step_transitions 
+                WHERE most_recent = true
+                ORDER BY workflow_step_id, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
+            WHERE wse.to_step_id = $1
+              AND (parent_states.to_state IS NULL 
+                   OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(result.count.unwrap_or(0))
     }
 }
 

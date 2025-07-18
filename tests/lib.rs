@@ -9,4 +9,5 @@ mod database;
 mod factories;
 mod models;
 mod orchestration;
+mod sql_functions;
 mod state_machine;

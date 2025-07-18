@@ -2,44 +2,89 @@
 //!
 //! ## Architecture: SQL Functions + State Machine Verification
 //!
-//! This component uses the high-performance SQL functions from the orchestration models
+//! This component uses the high-performance SQL functions from the existing Rails system
 //! combined with state machine verification to determine which steps are ready for execution.
 //! This approach balances performance (SQL functions) with consistency (state machine validation).
+//!
+//! ## Key Features
+//!
+//! - **SQL-driven discovery**: Uses existing `get_step_readiness_status()` function
+//! - **State machine verification**: Ensures consistency between SQL results and state machine state
+//! - **Dependency analysis**: Leverages `calculate_dependency_levels()` for complex workflows
+//! - **Task execution context**: Uses `get_task_execution_context()` for comprehensive analysis
+//! - **Circuit breaker integration**: Respects circuit breaker logic from SQL functions
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use tasker_core::orchestration::viable_step_discovery::ViableStepDiscovery;
+//! use tasker_core::events::publisher::EventPublisher;
+//! use tasker_core::database::sql_functions::SqlFunctionExecutor;
+//!
+//! // Create ViableStepDiscovery for step readiness analysis
+//! # use sqlx::PgPool;
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let pool = PgPool::connect("postgresql://localhost/nonexistent").await?;
+//! let sql_executor = SqlFunctionExecutor::new(pool.clone());
+//! let event_publisher = EventPublisher::new();
+//! let discovery = ViableStepDiscovery::new(sql_executor, event_publisher, pool);
+//!
+//! // ViableStepDiscovery uses SQL functions to determine step readiness
+//! // Verify creation succeeded (we can't test SQL functions without a real database)
+//! let _discovery = discovery;
+//! # Ok(())
+//! # }
+//!
+//! // For complete integration examples, see tests/orchestration/viable_step_discovery_integration.rs
+//! ```
 
-use crate::error::{OrchestrationError, OrchestrationResult};
-use crate::models::orchestration::step_readiness_status::StepReadinessStatus;
-use crate::orchestration::coordinator::ViableStep;
+use crate::database::sql_functions::SqlFunctionExecutor;
+use crate::events::{EventPublisher, ViableStep as EventsViableStep};
+use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
+use crate::orchestration::types::ViableStep;
 use crate::state_machine::persistence::{resolve_state_with_retry, StepTransitionPersistence};
-use sqlx::PgPool;
+use std::collections::HashMap;
+use tracing::{debug, error, info, instrument, warn};
 
 /// High-performance step readiness discovery engine
 pub struct ViableStepDiscovery {
-    pool: PgPool,
+    sql_executor: SqlFunctionExecutor,
+    event_publisher: EventPublisher,
     step_persistence: StepTransitionPersistence,
+    pool: sqlx::PgPool,
 }
 
 impl ViableStepDiscovery {
     /// Create new step discovery instance
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(
+        sql_executor: SqlFunctionExecutor,
+        event_publisher: EventPublisher,
+        pool: sqlx::PgPool,
+    ) -> Self {
         Self {
-            pool,
+            sql_executor,
+            event_publisher,
             step_persistence: StepTransitionPersistence,
+            pool,
         }
     }
 
     /// Find all viable steps for a task using SQL functions + state verification
+    #[instrument(skip(self), fields(task_id = task_id))]
     pub async fn find_viable_steps(&self, task_id: i64) -> OrchestrationResult<Vec<ViableStep>> {
-        tracing::debug!(task_id = task_id, "Finding viable steps");
+        debug!(task_id = task_id, "Finding viable steps");
 
-        // 1. Get step readiness status using high-performance SQL functions
-        let readiness_statuses = StepReadinessStatus::get_for_task(&self.pool, task_id)
+        // 1. Get step readiness status using SqlFunctionExecutor
+        let readiness_statuses = self
+            .sql_executor
+            .get_step_readiness_status(task_id, None)
             .await
-            .map_err(|e| OrchestrationError::DatabaseError {
-                operation: "get_step_readiness_status".to_string(),
+            .map_err(|e| DiscoveryError::SqlFunctionError {
+                function_name: "get_step_readiness_status".to_string(),
                 reason: e.to_string(),
             })?;
 
-        tracing::debug!(
+        debug!(
             task_id = task_id,
             candidate_steps = readiness_statuses.len(),
             "Retrieved step readiness statuses"
@@ -55,28 +100,41 @@ impl ViableStepDiscovery {
             })
             .collect();
 
-        tracing::debug!(
+        debug!(
             task_id = task_id,
             ready_steps = candidate_steps.len(),
             "Filtered to ready steps"
         );
 
-        // 3. Verify state machine consistency for each candidate
+        // 3. Convert to ViableStep objects and verify state machine consistency
         let mut viable_steps = Vec::new();
         for status in candidate_steps {
             match self.verify_step_state_consistency(&status).await {
                 Ok(true) => {
-                    viable_steps.push(ViableStep::from(status));
+                    let viable_step = ViableStep {
+                        step_id: status.workflow_step_id,
+                        task_id: status.task_id,
+                        name: status.name,
+                        named_step_id: status.named_step_id,
+                        current_state: status.current_state,
+                        dependencies_satisfied: status.dependencies_satisfied,
+                        retry_eligible: status.retry_eligible,
+                        attempts: status.attempts,
+                        retry_limit: status.retry_limit,
+                        last_failure_at: status.last_failure_at,
+                        next_retry_at: status.next_retry_at,
+                    };
+                    viable_steps.push(viable_step);
                 }
                 Ok(false) => {
-                    tracing::warn!(
+                    warn!(
                         task_id = task_id,
                         step_id = status.workflow_step_id,
                         "Step failed state machine consistency check"
                     );
                 }
                 Err(e) => {
-                    tracing::error!(
+                    error!(
                         task_id = task_id,
                         step_id = status.workflow_step_id,
                         error = %e,
@@ -90,11 +148,33 @@ impl ViableStepDiscovery {
         // 4. Sort by named_step_id (lower ID = higher priority)
         viable_steps.sort_by(|a, b| a.named_step_id.cmp(&b.named_step_id));
 
-        tracing::info!(
+        info!(
             task_id = task_id,
             viable_steps = viable_steps.len(),
             "Completed viable step discovery"
         );
+
+        // 5. Publish discovery event
+        let events_viable_steps: Vec<EventsViableStep> = viable_steps
+            .iter()
+            .map(|step| EventsViableStep {
+                step_id: step.step_id,
+                task_id: step.task_id,
+                name: step.name.clone(),
+                named_step_id: step.named_step_id as i64,
+                current_state: step.current_state.clone(),
+                dependencies_satisfied: step.dependencies_satisfied,
+                retry_eligible: step.retry_eligible,
+                attempts: step.attempts as u32,
+                retry_limit: step.retry_limit as u32,
+                last_failure_at: step.last_failure_at.map(|dt| dt.and_utc()),
+                next_retry_at: step.next_retry_at.map(|dt| dt.and_utc()),
+            })
+            .collect();
+
+        self.event_publisher
+            .publish_viable_steps_discovered(task_id, &events_viable_steps)
+            .await?;
 
         Ok(viable_steps)
     }
@@ -102,7 +182,7 @@ impl ViableStepDiscovery {
     /// Verify that a step's SQL-reported readiness matches state machine state
     async fn verify_step_state_consistency(
         &self,
-        status: &StepReadinessStatus,
+        status: &crate::database::sql_functions::StepReadinessStatus,
     ) -> OrchestrationResult<bool> {
         // Get current state from state machine persistence layer with retry logic
         let current_state = resolve_state_with_retry(
@@ -112,10 +192,7 @@ impl ViableStepDiscovery {
             3, // max retries
         )
         .await
-        .map_err(|e| OrchestrationError::StateVerificationFailed {
-            step_id: status.workflow_step_id,
-            reason: e.to_string(),
-        })?;
+        .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
 
         // Verify state consistency
         match current_state {
@@ -124,7 +201,7 @@ impl ViableStepDiscovery {
                 let is_consistent = state == "pending" && status.ready_for_execution;
 
                 if !is_consistent {
-                    tracing::debug!(
+                    debug!(
                         step_id = status.workflow_step_id,
                         current_state = state,
                         sql_ready = status.ready_for_execution,
@@ -139,6 +216,36 @@ impl ViableStepDiscovery {
                 Ok(status.ready_for_execution)
             }
         }
+    }
+
+    /// Get dependency levels using SQL function
+    pub async fn get_dependency_levels(
+        &self,
+        task_id: i64,
+    ) -> OrchestrationResult<HashMap<i64, i32>> {
+        self.sql_executor
+            .dependency_levels_hash(task_id)
+            .await
+            .map_err(|e| DiscoveryError::SqlFunctionError {
+                function_name: "calculate_dependency_levels".to_string(),
+                reason: e.to_string(),
+            })
+            .map_err(Into::into)
+    }
+
+    /// Get task execution context using SQL function
+    pub async fn get_execution_context(
+        &self,
+        task_id: i64,
+    ) -> OrchestrationResult<Option<crate::database::sql_functions::TaskExecutionContext>> {
+        self.sql_executor
+            .get_task_execution_context(task_id)
+            .await
+            .map_err(|e| DiscoveryError::SqlFunctionError {
+                function_name: "get_task_execution_context".to_string(),
+                reason: e.to_string(),
+            })
+            .map_err(Into::into)
     }
 
     /// Get viable steps filtered by specific criteria
@@ -158,7 +265,7 @@ impl ViableStepDiscovery {
 
         // Apply step name filter
         if let Some(step_names) = step_names {
-            viable_steps.retain(|step| step_names.contains(&step.step_name));
+            viable_steps.retain(|step| step_names.contains(&step.name));
         }
 
         // Apply max steps limit
@@ -174,10 +281,12 @@ impl ViableStepDiscovery {
         &self,
         task_id: i64,
     ) -> OrchestrationResult<TaskReadinessSummary> {
-        let statuses = StepReadinessStatus::get_for_task(&self.pool, task_id)
+        let statuses = self
+            .sql_executor
+            .get_step_readiness_status(task_id, None)
             .await
-            .map_err(|e| OrchestrationError::DatabaseError {
-                operation: "get_step_readiness_status".to_string(),
+            .map_err(|e| DiscoveryError::SqlFunctionError {
+                function_name: "get_step_readiness_status".to_string(),
                 reason: e.to_string(),
             })?;
 

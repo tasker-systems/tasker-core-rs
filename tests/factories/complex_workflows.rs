@@ -299,8 +299,139 @@ impl ComplexWorkflowFactory {
     async fn create_tree_workflow(&self, task_id: i64, pool: &PgPool) -> FactoryResult<Vec<i64>> {
         // Implementation for tree workflow
         // A -> (B -> (D, E), C -> (F, G))
-        // TODO: Implement tree pattern
-        self.create_linear_workflow(task_id, pool).await
+        let system = DependentSystemFactory::new()
+            .with_name("tree-system")
+            .with_description("System for tree workflows")
+            .find_or_create(pool)
+            .await?;
+
+        let mut step_ids = Vec::new();
+
+        // Create root step A
+        let step_a = NamedStepFactory::new()
+            .with_name("tree_root")
+            .with_system(&system.name)
+            .find_or_create(pool)
+            .await?;
+
+        let ws_a = WorkflowStepFactory::new()
+            .for_task(task_id)
+            .with_named_step(&step_a.name)
+            .with_inputs(json!({"position": "root", "tree_level": 0}))
+            .create(pool)
+            .await?;
+        step_ids.push(ws_a.workflow_step_id);
+
+        // Create branch steps B and C
+        let step_b = NamedStepFactory::new()
+            .with_name("tree_branch_left")
+            .with_system(&system.name)
+            .find_or_create(pool)
+            .await?;
+
+        let ws_b = WorkflowStepFactory::new()
+            .for_task(task_id)
+            .with_named_step(&step_b.name)
+            .with_inputs(json!({"branch": "left", "tree_level": 1}))
+            .create(pool)
+            .await?;
+
+        let step_c = NamedStepFactory::new()
+            .with_name("tree_branch_right")
+            .with_system(&system.name)
+            .find_or_create(pool)
+            .await?;
+
+        let ws_c = WorkflowStepFactory::new()
+            .for_task(task_id)
+            .with_named_step(&step_c.name)
+            .with_inputs(json!({"branch": "right", "tree_level": 1}))
+            .create(pool)
+            .await?;
+
+        step_ids.push(ws_b.workflow_step_id);
+        step_ids.push(ws_c.workflow_step_id);
+
+        // Create dependencies: A -> B, A -> C
+        if self.with_dependencies {
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(ws_a.workflow_step_id)
+                .with_to_step(ws_b.workflow_step_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(ws_a.workflow_step_id)
+                .with_to_step(ws_c.workflow_step_id)
+                .provides()
+                .create(pool)
+                .await?;
+        }
+
+        // Create leaf steps: D, E (children of B)
+        for (i, child_name) in ["tree_leaf_d", "tree_leaf_e"].iter().enumerate() {
+            let leaf_step = NamedStepFactory::new()
+                .with_name(child_name)
+                .with_system(&system.name)
+                .find_or_create(pool)
+                .await?;
+
+            let ws_leaf = WorkflowStepFactory::new()
+                .for_task(task_id)
+                .with_named_step(&leaf_step.name)
+                .with_inputs(json!({
+                    "parent": "left",
+                    "leaf_index": i,
+                    "tree_level": 2
+                }))
+                .create(pool)
+                .await?;
+
+            if self.with_dependencies {
+                WorkflowStepEdgeFactory::new()
+                    .with_from_step(ws_b.workflow_step_id)
+                    .with_to_step(ws_leaf.workflow_step_id)
+                    .provides()
+                    .create(pool)
+                    .await?;
+            }
+
+            step_ids.push(ws_leaf.workflow_step_id);
+        }
+
+        // Create leaf steps: F, G (children of C)
+        for (i, child_name) in ["tree_leaf_f", "tree_leaf_g"].iter().enumerate() {
+            let leaf_step = NamedStepFactory::new()
+                .with_name(child_name)
+                .with_system(&system.name)
+                .find_or_create(pool)
+                .await?;
+
+            let ws_leaf = WorkflowStepFactory::new()
+                .for_task(task_id)
+                .with_named_step(&leaf_step.name)
+                .with_inputs(json!({
+                    "parent": "right",
+                    "leaf_index": i,
+                    "tree_level": 2
+                }))
+                .create(pool)
+                .await?;
+
+            if self.with_dependencies {
+                WorkflowStepEdgeFactory::new()
+                    .with_from_step(ws_c.workflow_step_id)
+                    .with_to_step(ws_leaf.workflow_step_id)
+                    .provides()
+                    .create(pool)
+                    .await?;
+            }
+
+            step_ids.push(ws_leaf.workflow_step_id);
+        }
+
+        Ok(step_ids)
     }
 
     async fn create_mixed_dag_workflow(
@@ -309,9 +440,136 @@ impl ComplexWorkflowFactory {
         pool: &PgPool,
     ) -> FactoryResult<Vec<i64>> {
         // Implementation for mixed DAG workflow
-        // Complex pattern with various dependencies
-        // TODO: Implement mixed DAG pattern
-        self.create_diamond_workflow(task_id, pool).await
+        // Complex pattern with various dependency types:
+        // A -> B, A -> C, B -> D, C -> D, B -> E, C -> F, (D,E,F) -> G
+        let system = DependentSystemFactory::new()
+            .with_name("mixed-dag-system")
+            .with_description("System for mixed DAG workflows")
+            .find_or_create(pool)
+            .await?;
+
+        let mut step_ids = Vec::new();
+
+        // Create all named steps first
+        let step_names = [
+            "dag_init",
+            "dag_process_left",
+            "dag_process_right",
+            "dag_validate",
+            "dag_transform",
+            "dag_analyze",
+            "dag_finalize",
+        ];
+
+        for name in step_names.iter() {
+            NamedStepFactory::new()
+                .with_name(name)
+                .with_system(&system.name)
+                .find_or_create(pool)
+                .await?;
+        }
+
+        // Create workflow steps
+        let mut workflow_step_ids = Vec::new();
+        for (i, name) in step_names.iter().enumerate() {
+            let ws = WorkflowStepFactory::new()
+                .for_task(task_id)
+                .with_named_step(name)
+                .with_inputs(json!({
+                    "step_type": name,
+                    "dag_position": i,
+                    "complexity": "mixed"
+                }))
+                .create(pool)
+                .await?;
+            workflow_step_ids.push(ws.workflow_step_id);
+            step_ids.push(ws.workflow_step_id);
+        }
+
+        // Create complex dependency structure
+        if self.with_dependencies {
+            let init_id = workflow_step_ids[0];
+            let left_id = workflow_step_ids[1];
+            let right_id = workflow_step_ids[2];
+            let validate_id = workflow_step_ids[3];
+            let transform_id = workflow_step_ids[4];
+            let analyze_id = workflow_step_ids[5];
+            let final_id = workflow_step_ids[6];
+
+            // A -> B (init -> left)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(init_id)
+                .with_to_step(left_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // A -> C (init -> right)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(init_id)
+                .with_to_step(right_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // B -> D (left -> validate)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(left_id)
+                .with_to_step(validate_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // C -> D (right -> validate)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(right_id)
+                .with_to_step(validate_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // B -> E (left -> transform)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(left_id)
+                .with_to_step(transform_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // C -> F (right -> analyze)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(right_id)
+                .with_to_step(analyze_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // D -> G (validate -> final)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(validate_id)
+                .with_to_step(final_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // E -> G (transform -> final)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(transform_id)
+                .with_to_step(final_id)
+                .provides()
+                .create(pool)
+                .await?;
+
+            // F -> G (analyze -> final)
+            WorkflowStepEdgeFactory::new()
+                .with_from_step(analyze_id)
+                .with_to_step(final_id)
+                .provides()
+                .create(pool)
+                .await?;
+        }
+
+        Ok(step_ids)
     }
 }
 
@@ -507,6 +765,57 @@ mod tests {
         .unwrap_or(0);
 
         assert_eq!(edge_count, 3); // 3 edges from parallel steps to merge
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_create_tree_workflow(pool: PgPool) -> FactoryResult<()> {
+        let (task_id, step_ids) = ComplexWorkflowFactory::new().tree().create(&pool).await?;
+
+        assert_eq!(step_ids.len(), 7); // Root(1) + Branches(2) + Leaves(4) = 7 steps
+
+        // Verify edges were created for tree structure
+        let edge_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) 
+             FROM tasker_workflow_step_edges e
+             JOIN tasker_workflow_steps s1 ON e.from_step_id = s1.workflow_step_id
+             JOIN tasker_workflow_steps s2 ON e.to_step_id = s2.workflow_step_id
+             WHERE s1.task_id = $1 AND s2.task_id = $1",
+            task_id
+        )
+        .fetch_one(&pool)
+        .await?
+        .unwrap_or(0);
+
+        assert_eq!(edge_count, 6); // A->B, A->C, B->D, B->E, C->F, C->G = 6 edges
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn test_create_mixed_dag_workflow(pool: PgPool) -> FactoryResult<()> {
+        let (task_id, step_ids) = ComplexWorkflowFactory::new()
+            .mixed_dag()
+            .create(&pool)
+            .await?;
+
+        assert_eq!(step_ids.len(), 7); // Complex DAG with 7 steps
+
+        // Verify edges were created for complex DAG structure
+        let edge_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) 
+             FROM tasker_workflow_step_edges e
+             JOIN tasker_workflow_steps s1 ON e.from_step_id = s1.workflow_step_id
+             JOIN tasker_workflow_steps s2 ON e.to_step_id = s2.workflow_step_id
+             WHERE s1.task_id = $1 AND s2.task_id = $1",
+            task_id
+        )
+        .fetch_one(&pool)
+        .await?
+        .unwrap_or(0);
+
+        assert_eq!(edge_count, 9); // Complex dependency structure with 9 edges
 
         Ok(())
     }

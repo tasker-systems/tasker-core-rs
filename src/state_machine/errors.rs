@@ -53,8 +53,12 @@ pub enum ActionError {
     #[error("Event publishing failed: {event_name}")]
     EventPublishFailed { event_name: String },
 
-    #[error("Database update failed: {operation}")]
-    DatabaseUpdateFailed { operation: String },
+    #[error("Database update failed for {entity_type} {entity_id}: {reason}")]
+    DatabaseUpdateFailed {
+        entity_type: String,
+        entity_id: i64,
+        reason: String,
+    },
 
     #[error("External service error: {service} - {reason}")]
     ExternalServiceError { service: String, reason: String },

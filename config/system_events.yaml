@@ -1,0 +1,304 @@
+# Tasker System Events Metadata & State Machine Configuration
+#
+# This file provides rich metadata about system events and state machine mappings.
+# Ported from the Rails engine system_events.yml to maintain compatibility.
+#
+# This file serves two purposes:
+# 1. Event metadata for runtime introspection (descriptions, schemas, etc.)
+# 2. State machine transition mappings for declarative configuration
+
+# Event metadata for runtime introspection and documentation
+event_metadata:
+  # Task lifecycle events
+  task:
+    initialize_requested:
+      description: "Fired when a task is being created and initialized"
+      constant_ref: "TaskEvents::INITIALIZE_REQUESTED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        task_name: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["TaskBuilder", "TaskStateMachine"]
+
+    start_requested:
+      description: "Fired when a task processing begins"
+      constant_ref: "TaskEvents::START_REQUESTED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        task_name: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["TaskHandler", "TaskStateMachine"]
+
+    completed:
+      description: "Fired when a task completes successfully"
+      constant_ref: "TaskEvents::COMPLETED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        task_name: { type: "String", required: true }
+        total_steps: { type: "Integer", required: true }
+        completed_steps: { type: "Integer", required: true }
+        total_duration: { type: "Float", required: false }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["TaskHandler", "TaskStateMachine"]
+
+    failed:
+      description: "Fired when a task fails due to errors"
+      constant_ref: "TaskEvents::FAILED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        task_name: { type: "String", required: true }
+        error_message: { type: "String", required: true }
+        failed_steps: { type: "Array", required: false }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["TaskHandler", "TaskStateMachine"]
+
+    retry_requested:
+      description: "Fired when a task is queued for retry"
+      constant_ref: "TaskEvents::RETRY_REQUESTED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        task_name: { type: "String", required: true }
+        retry_reason: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["TaskHandler", "TaskStateMachine"]
+
+  # Step lifecycle events
+  step:
+    execution_requested:
+      description: "Fired when a step is queued for execution"
+      constant_ref: "StepEvents::EXECUTION_REQUESTED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        step_id: { type: "String", required: true }
+        step_name: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["StepExecutor", "StepStateMachine"]
+
+    before_handle:
+      description: "Fired just before a step handler is called"
+      constant_ref: "StepEvents::BEFORE_HANDLE"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        step_id: { type: "String", required: true }
+        step_name: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["BaseStepHandler"]
+
+    completed:
+      description: "Fired when a step completes successfully"
+      constant_ref: "StepEvents::COMPLETED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        step_id: { type: "String", required: true }
+        step_name: { type: "String", required: true }
+        execution_duration: { type: "Float", required: true }
+        attempt_number: { type: "Integer", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["BaseStepHandler", "StepStateMachine"]
+
+    failed:
+      description: "Fired when a step fails during execution"
+      constant_ref: "StepEvents::FAILED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        step_id: { type: "String", required: true }
+        step_name: { type: "String", required: true }
+        error_message: { type: "String", required: true }
+        error_class: { type: "String", required: true }
+        backtrace: { type: "Array", required: false }
+        attempt_number: { type: "Integer", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["BaseStepHandler", "StepStateMachine"]
+
+  # Workflow orchestration events
+  workflow:
+    viable_steps_discovered:
+      description: "Fired when steps are identified as ready for execution"
+      constant_ref: "WorkflowEvents::VIABLE_STEPS_DISCOVERED"
+      payload_schema:
+        task_id: { type: "String", required: true }
+        step_ids: { type: "Array", required: true }
+        step_count: { type: "Integer", required: true }
+        processing_mode: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["ViableStepDiscovery", "WorkflowCoordinator"]
+
+  # Registry system events
+  handler:
+    registered:
+      description: "Fired when a handler is successfully registered"
+      constant_ref: "RegistryEvents::HANDLER_REGISTERED"
+      payload_schema:
+        handler_class: { type: "String", required: true }
+        namespace_name: { type: "String", required: true }
+        version: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["StepHandlerFactory", "TaskHandlerRegistry"]
+
+    unregistered:
+      description: "Fired when a handler is unregistered"
+      constant_ref: "RegistryEvents::HANDLER_UNREGISTERED"
+      payload_schema:
+        handler_class: { type: "String", required: true }
+        namespace_name: { type: "String", required: true }
+        version: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["StepHandlerFactory", "TaskHandlerRegistry"]
+
+    validation_failed:
+      description: "Fired when handler validation fails during registration"
+      constant_ref: "RegistryEvents::HANDLER_VALIDATION_FAILED"
+      payload_schema:
+        handler_class: { type: "String", required: true }
+        validation_error: { type: "String", required: true }
+        timestamp: { type: "Time", required: true }
+      fired_by: ["StepHandlerFactory", "TaskHandlerRegistry"]
+
+# State machine transition mappings (declarative configuration)
+state_machine_mappings:
+  task_transitions:
+    # Initial state transitions (from null/initial)
+    - from_state: null
+      to_state: "pending"
+      event_constant: "task.initialize_requested"
+      description: "Task initialization"
+
+    - from_state: null
+      to_state: "in_progress"
+      event_constant: "task.start_requested"
+      description: "Direct task start"
+
+    - from_state: null
+      to_state: "complete"
+      event_constant: "task.completed"
+      description: "Direct task completion"
+
+    - from_state: null
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Direct task failure"
+
+    - from_state: null
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Direct task cancellation"
+
+    - from_state: null
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Direct manual resolution"
+
+    # Normal state transitions
+    - from_state: "pending"
+      to_state: "in_progress"
+      event_constant: "task.start_requested"
+      description: "Task starts processing"
+
+    - from_state: "pending"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Pending task cancelled"
+
+    - from_state: "pending"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Pending task failed"
+
+    - from_state: "in_progress"
+      to_state: "pending"
+      event_constant: "task.initialize_requested"
+      description: "Reset task to pending"
+
+    - from_state: "in_progress"
+      to_state: "complete"
+      event_constant: "task.completed"
+      description: "Task completed successfully"
+
+    - from_state: "in_progress"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Task failed during processing"
+
+    - from_state: "in_progress"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Running task cancelled"
+
+    - from_state: "error"
+      to_state: "pending"
+      event_constant: "task.retry_requested"
+      description: "Failed task retry"
+
+    - from_state: "error"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Failed task manually resolved"
+
+    # Admin override scenarios
+    - from_state: "complete"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Admin cancellation override"
+
+    - from_state: "resolved_manually"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Manual resolution cancelled"
+
+  step_transitions:
+    # Initial state transitions
+    - from_state: null
+      to_state: "pending"
+      event_constant: "step.execution_requested"
+      description: "Step initialized for execution"
+
+    - from_state: null
+      to_state: "in_progress"
+      event_constant: "step.before_handle"
+      description: "Direct step execution start"
+
+    - from_state: null
+      to_state: "complete"
+      event_constant: "step.completed"
+      description: "Direct step completion"
+
+    - from_state: null
+      to_state: "error"
+      event_constant: "step.failed"
+      description: "Direct step failure"
+
+    # Normal state transitions
+    - from_state: "pending"
+      to_state: "in_progress"
+      event_constant: "step.before_handle"
+      description: "Step starts processing"
+
+    - from_state: "pending"
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Pending step cancelled"
+
+    - from_state: "in_progress"
+      to_state: "complete"
+      event_constant: "step.completed"
+      description: "Step completed successfully"
+
+    - from_state: "in_progress"
+      to_state: "error"
+      event_constant: "step.failed"
+      description: "Step failed during processing"
+
+    - from_state: "in_progress"
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Running step cancelled"
+
+    - from_state: "error"
+      to_state: "pending"
+      event_constant: "step.execution_requested"
+      description: "Failed step retry"
+
+    - from_state: "error"
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Failed step manually resolved"
