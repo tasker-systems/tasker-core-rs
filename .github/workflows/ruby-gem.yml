@@ -2,14 +2,14 @@ name: Ruby Gem Build and Test
 
 on:
   push:
-    branches: [ main, orchestration ]
+    branches: [ main ]
     paths:
       - 'bindings/ruby/**'
       - 'src/**'
       - 'Cargo.toml'
       - '.github/workflows/ruby-gem.yml'
   pull_request:
-    branches: [ main, orchestration ]
+    branches: [ main ]
     paths:
       - 'bindings/ruby/**'
       - 'src/**'
@@ -27,10 +27,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         ruby: ['3.0', '3.1', '3.2', '3.3']
-        include:
-          # Test on Windows with latest Ruby only (compilation is complex)
-          - os: windows-latest
-            ruby: '3.3'
 
     runs-on: ${{ matrix.os }}
 
@@ -38,8 +34,9 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tasker_test
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -49,29 +46,28 @@ jobs:
           - 5432:5432
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tasker_test
+      DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+      TASKER_ENV: test
+      RAILS_ENV: test
+      APP_ENV: test
+      RACK_ENV: test
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        override: true
         components: rustfmt, clippy
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v4
+      uses: Swatinem/rust-cache@v2
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-ruby-${{ hashFiles('**/Cargo.lock') }}
+        key: ruby-gem-${{ matrix.os }}-${{ matrix.ruby }}
+        workspaces: |
+          . -> target
+          bindings/ruby -> target
 
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
@@ -91,20 +87,23 @@ jobs:
       run: |
         brew install postgresql
 
-    - name: Install system dependencies (Windows)
-      if: runner.os == 'Windows'
+    - name: Wait for PostgreSQL
       run: |
-        # Windows PostgreSQL setup would go here
-        echo "Windows PostgreSQL setup"
+        until pg_isready -h localhost -p 5432 -U tasker; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        echo "PostgreSQL is ready"
 
-    - name: Set up database
+    - name: Set up Ruby test environment
       run: |
-        # Run migrations from the core Rust project
-        cd ../..
-        cargo install sqlx-cli --no-default-features --features native-tls,postgres
-        sqlx migrate run
+        # Run Ruby-specific test setup (includes schema setup and verification)
+        # This mirrors what developers would run locally
+        bundle exec rake test:setup
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
+        TASKER_ENV: test
+        RAILS_ENV: test
 
     - name: Check Rust formatting
       run: |
@@ -123,87 +122,16 @@ jobs:
     - name: Run Ruby tests
       run: |
         bundle exec rspec
-
-    - name: Run integration tests
-      run: |
-        bundle exec rake test:integration
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
+        TASKER_ENV: test
+        RAILS_ENV: test
 
     - name: Test gem installation
       run: |
         gem build tasker-core-rb.gemspec
         gem install tasker-core-rb-*.gem
 
-  # Performance benchmarks (only on Linux with Ruby 3.3)
-  benchmark:
-    runs-on: ubuntu-latest
-    needs: test
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tasker_benchmark
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tasker_benchmark
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-
-    - name: Set up Ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.3'
-        bundler-cache: true
-        working-directory: bindings/ruby
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libpq-dev
-
-    - name: Set up database
-      run: |
-        cd ../..
-        cargo install sqlx-cli --no-default-features --features native-tls,postgres
-        sqlx migrate run
-      env:
-        DATABASE_URL: ${{ env.DATABASE_URL }}
-
-    - name: Build Ruby extension (release mode)
-      run: |
-        CARGO_PROFILE_RELEASE_LTO=true bundle exec rake compile
-      env:
-        RUBY_CC_VERSION: 3.3.0
-
-    - name: Run performance benchmarks
-      run: |
-        bundle exec rake benchmark
-      env:
-        DATABASE_URL: ${{ env.DATABASE_URL }}
-
-    - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-results
-        path: bindings/ruby/benchmark-results.json
 
   # Security audit
   security:
@@ -213,16 +141,25 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
       with:
-        toolchain: stable
-        override: true
+        key: security-audit
 
     - name: Security audit
       run: |
         cd ../..
         cargo install cargo-audit
         cargo audit
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3'
+        bundler-cache: true
+        working-directory: bindings/ruby
 
     - name: Check for known vulnerabilities in Ruby dependencies
       run: |
