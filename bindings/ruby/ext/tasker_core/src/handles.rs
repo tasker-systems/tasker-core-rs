@@ -16,11 +16,10 @@ use magnus::{Error, Value, Module, method, function};
 use magnus::TryConvert;
 use serde_json::json;
 use tracing::{info, debug};
-use chrono::Utc;
 use crate::globals::OrchestrationSystem;
 use crate::test_helpers::testing_factory::TestingFactory;
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use crate::ffi_converters::{TaskMetadata, CreateTaskInput, FactoryResult};  // 🎯 NEW: Magnus optimized types
+use crate::ffi_converters::TaskMetadata;  // 🎯 NEW: Magnus optimized types
 
 /// Global handle singleton to prevent creating multiple orchestration systems
 static GLOBAL_ORCHESTRATION_HANDLE: OnceLock<Arc<OrchestrationHandle>> = OnceLock::new();

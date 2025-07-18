@@ -9,8 +9,7 @@
 //! - Provides proper Ruby GC integration with `free_immediately`
 //! - Reduces FFI call overhead from >1ms to <100μs target
 
-use magnus::{Error, RArray, RHash, RString, Value, IntoValue, TryConvert, Module};
-use std::collections::HashMap;
+use magnus::{Error, RArray, RHash, RString, Value, IntoValue, Module};
 
 /// Trait for converting Ruby hashes to Rust structs without JSON serialization
 pub trait FromRHash: Sized {
@@ -181,14 +180,6 @@ pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> 
     }
 }
 
-/// Helper function to convert HashMap<String, Value> to Ruby hash
-pub fn hashmap_to_ruby_hash(map: HashMap<String, Value>) -> Result<RHash, Error> {
-    let hash = RHash::new();
-    for (key, value) in map {
-        hash.aset(key, value)?;
-    }
-    Ok(hash)
-}
 
 #[cfg(test)]
 mod tests {
@@ -199,12 +190,13 @@ mod tests {
         let input = CreateTaskInput {
             name: "test_task".to_string(),
             namespace_id: 1,
-            context: HashMap::new(),
+            context: "{}".to_string(),  // JSON string instead of HashMap
             initiator: Some("test_user".to_string()),
         };
         
         assert_eq!(input.name, "test_task");
         assert_eq!(input.namespace_id, 1);
+        assert_eq!(input.context, "{}");
         assert_eq!(input.initiator, Some("test_user".to_string()));
     }
     
