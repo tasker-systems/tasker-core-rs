@@ -58,82 +58,112 @@ Ruby Call → Direct FFI → Global Lookup → New Resource Creation → Operati
 Ruby Call → OrchestrationManager → Handle → Persistent Resources → Operation
 ```
 
-### 🎯 Current Focus: Handle-Based FFI Architecture Migration  
-**Phase**: Systematic migration to handle-based patterns across all FFI components
-**Goal**: Eliminate global lookups, optimize performance, and create unified FFI architecture
+### 🎯 Current Focus: Milestone-Based Development
+**Status**: Orchestration branch merged to main - transitioning to structured milestone approach
+**Linear Project**: [Tasker Core Ruby Bindings](https://linear.app/tasker-systems/project/tasker-core-ruby-bindings-3e6c7472b199)
+**Current Branch**: `jcoletaylor/tas-20-ruby-ffi-optimization-with-magnus-wrapped-classes`
+**Current Work**: TAS-20 - Ruby FFI Optimization with Magnus wrapped classes
 
-## Development Phases
+## Development Milestones
 
-### ✅ Phase 0: Ruby FFI Mitigation (COMPLETE)
-**Goal**: Restore proper delegation architecture for Ruby FFI integration
-**Timeline**: 1-2 sessions
-**Status**: ✅ **COMPLETE** - All critical issues resolved
+### 🚀 Milestone 1: FFI Performance & Architecture Optimization (IN PROGRESS)
+**Linear Issue**: [TAS-13](https://linear.app/tasker-systems/issue/TAS-13)
+**Timeline**: 2 weeks
+**Priority**: URGENT
+**Status**: 🔄 **IN PROGRESS** - Starting with TAS-20
 
-#### ✅ Session 1: Architecture Fixes (COMPLETE)
-- [x] **Fixed Step Handler Registry**: Proper task configuration-based resolution
-- [x] **Fixed Step Execution Context**: Previous step results from dependencies
-- [x] **Fixed Ruby Object Conversion**: TypedData cloning and Magnus integration
-- [x] **Fixed Compilation Issues**: All trait bounds and missing functions resolved
+#### Active Sub-Issues:
+- **[TAS-20](https://linear.app/tasker-systems/issue/TAS-20)**: Ruby FFI Optimization with Magnus wrapped classes (CURRENT)
+- **[TAS-21](https://linear.app/tasker-systems/issue/TAS-21)**: FFI Shared Architecture Migration
 
-#### ✅ Session 2: TaskConfigFinder Implementation (COMPLETE)
-- [x] **Centralized Configuration Discovery**: Eliminated hardcoded paths in StepExecutor
-- [x] **Registry Integration**: TaskHandlerRegistry enhanced with TaskTemplate storage
-- [x] **File System Fallback**: Multiple search paths with versioned naming support
-- [x] **Ruby Handler Support**: Enable Ruby handlers to register configurations directly
-- [x] **Test Coverage**: All 553 tests passing including comprehensive demo
+#### Goals:
+- FFI call overhead reduced from >1ms to <100μs
+- Zero JSON serialization at FFI boundary
+- Clean architectural separation in `src/ffi/` with shared components
+- All handle-based patterns consolidated for reuse
 
-### 🎯 Phase 1: Ruby Integration Testing (IN PROGRESS)
-**Goal**: Complete validation of Ruby-Rust integration with TaskConfigFinder
-**Timeline**: 2-3 sessions
-**Status**: 🔄 **IN PROGRESS** - TaskConfigFinder foundation complete
+### 📋 Milestone 2: Ruby Integration Testing Completion (PLANNED)
+**Linear Issue**: [TAS-14](https://linear.app/tasker-systems/issue/TAS-14)
+**Timeline**: 1-2 weeks
+**Priority**: URGENT
+**Status**: 📋 **PLANNED**
 
-#### 🔄 Session 1: End-to-End Ruby Testing (CURRENT)
-- [ ] **Ruby Step Handler Workflow**: Test complete Ruby step handler execution
-- [ ] **Configuration Integration**: Validate Ruby handlers can register and use configurations
-- [ ] **Database Integration**: Ensure Ruby handlers work with Rust database operations
-- [ ] **Performance Validation**: Benchmark Ruby-Rust integration performance
-- [ ] **Error Handling**: Test error propagation between Ruby and Rust
+#### Goals:
+- All Ruby binding tests pass without schema violations
+- End-to-end Ruby step handler workflow executes correctly
+- Performance meets 10x improvement target
+- Error handling works seamlessly across Ruby-Rust boundary
 
-#### 📋 Session 2: Production Readiness (PLANNED)
-- [ ] **Comprehensive Testing**: Full test suite for Ruby-Rust integration
-- [ ] **Documentation**: Complete Ruby handler integration documentation
-- [ ] **Performance Benchmarks**: Establish baseline performance metrics
-- [ ] **Error Scenarios**: Test all error conditions and recovery paths
-- [ ] **Production Deployment**: Prepare for production deployment
+### 📋 Milestone 3: Event Publishing System Implementation (PLANNED)
+**Linear Issue**: [TAS-15](https://linear.app/tasker-systems/issue/TAS-15)
+**Timeline**: 1-2 weeks
+**Priority**: URGENT
+**Status**: 📋 **PLANNED**
 
-### 📋 Phase 2: Multi-Language FFI (PLANNED)
-**Goal**: Extend integration to Python and Node.js
+#### Goals:
+- All event publishing placeholders implemented
+- Events flow seamlessly from Rust to Ruby via FFI bridge
+- Rails dry-events integration fully functional
+- Comprehensive monitoring capability enabled
+
+### 📋 Milestone 4: Configuration Management System (PLANNED)
+**Linear Issue**: [TAS-16](https://linear.app/tasker-systems/issue/TAS-16)
+**Timeline**: 1 week
+**Priority**: URGENT
+**Status**: 📋 **PLANNED**
+
+#### Goals:
+- Zero hardcoded values in production code paths
+- All timeouts, limits, and paths configurable via YAML
+- Environment override system fully functional
+- Production deployment ready with tunable parameters
+
+### 📋 Milestone 5: Queue System Integration (PLANNED)
+**Linear Issue**: [TAS-17](https://linear.app/tasker-systems/issue/TAS-17)
+**Timeline**: 1-2 weeks
+**Priority**: HIGH
+**Status**: 📋 **PLANNED**
+
+### 📋 Milestone 6: Integration Testing Infrastructure (PLANNED)
+**Linear Issue**: [TAS-18](https://linear.app/tasker-systems/issue/TAS-18)
+**Timeline**: 2 weeks
+**Priority**: HIGH
+**Status**: 📋 **PLANNED**
+
+### 📋 Milestone 7: Technical Debt & Cleanup (PLANNED)
+**Linear Issue**: [TAS-19](https://linear.app/tasker-systems/issue/TAS-19)
+**Timeline**: 1 week
+**Priority**: MEDIUM
+**Status**: 📋 **PLANNED**
+## Future Phases (Post-Milestone Completion)
+
+### 📋 Multi-Language FFI Support
 **Timeline**: 4-6 weeks
-**Status**: 📋 **PLANNED** - Waiting for Ruby integration completion
+**Status**: 📋 **PLANNED** - After milestone completion
 
-#### 📋 Python Integration (PLANNED)
-- [ ] **PyO3 Bindings**: Python FFI integration with step handler support
-- [ ] **Configuration Discovery**: Python handlers use TaskConfigFinder
-- [ ] **FastAPI Integration**: Complete Python framework integration
-- [ ] **Performance Validation**: Python-Rust performance benchmarks
+#### Python Integration
+- PyO3 Bindings with step handler support
+- Configuration discovery integration
+- FastAPI framework integration
+- Performance validation and benchmarks
 
-#### 📋 Node.js Integration (PLANNED)
-- [ ] **N-API Bindings**: Node.js FFI integration with step handler support
-- [ ] **Configuration Discovery**: Node.js handlers use TaskConfigFinder
-- [ ] **Express Integration**: Complete Node.js framework integration
-- [ ] **Performance Validation**: Node.js-Rust performance benchmarks
+#### Node.js Integration
+- N-API Bindings with step handler support
+- Configuration discovery integration
+- Express framework integration
+- Performance validation and benchmarks
 
-### 📋 Phase 3: Production Optimization (PLANNED)
-**Goal**: Optimize for production deployment
+### 📋 Production Optimization
 **Timeline**: 2-3 weeks
-**Status**: 📋 **PLANNED** - After multi-language FFI completion
+**Status**: 📋 **PLANNED** - After core feature completion
 
-#### 📋 Performance Optimization (PLANNED)
-- [ ] **Benchmarking Suite**: Comprehensive performance measurement
-- [ ] **Memory Optimization**: Reduce memory footprint for FFI operations
-- [ ] **Caching Strategy**: Implement configuration caching for performance
-- [ ] **Async Optimization**: Optimize async operations for throughput
-
-#### 📋 Production Deployment (PLANNED)
-- [ ] **Deployment Scripts**: Automated deployment for all frameworks
-- [ ] **Monitoring Integration**: Production monitoring and alerting
-- [ ] **Documentation**: Complete production deployment documentation
-- [ ] **Security Audit**: Security review of FFI integrations
+- Comprehensive benchmarking suite
+- Memory footprint optimization
+- Configuration caching strategy
+- Async operation optimization
+- Production deployment automation
+- Monitoring and alerting integration
+- Security audit of FFI integrations
 
 ## Critical Dependencies Resolution
 

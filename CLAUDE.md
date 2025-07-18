@@ -328,19 +328,26 @@ handle.register_ffi_handler(data)?;       // Uses handle.orchestration_system
 
 ## Current Working Context
 
-- **Main Branch**: `orchestration`
-- **Development Phase**: Phase 3 (Ruby Integration Testing) - Database Pool Issue Resolution
-- **Current Status**: Database connection pool exhaustion causing test timeouts
-- **Critical Issue**: Multiple components creating separate database pools instead of using shared singleton
-- **Progress Made**: Fixed 5+ separate `PgPool::connect()` calls in performance.rs and factory_wrappers.rs
-- **Current Priority**: Resolve remaining database pool conflicts causing test failures
-- **Next Priorities**:
-  1. Identify remaining sources of database pool creation (possibly in models/ruby_step_sequence.rs)
-  2. Ensure all components use `crate::globals::get_global_database_pool()`
-  3. Validate that orchestration system singleton initialization is working correctly
-  4. Fix final step handler task_id extraction issue once pool issues resolved
-- **Success Criteria**: All tests pass without pool timeout errors, shared database pool used consistently
-- **Test Status**: 69 examples, 3 failures (down from many timeout failures, but pool timeouts persist)
+- **Main Branch**: `main` (orchestration branch merged!)
+- **Current Branch**: `jcoletaylor/tas-20-ruby-ffi-optimization-with-magnus-wrapped-classes`
+- **Linear Project**: [Tasker Core Ruby Bindings](https://linear.app/tasker-systems/project/tasker-core-ruby-bindings-3e6c7472b199)
+- **Current Milestone**: [TAS-13](https://linear.app/tasker-systems/issue/TAS-13) - M1: FFI Performance & Architecture Optimization
+- **Current Issue**: [TAS-20](https://linear.app/tasker-systems/issue/TAS-20) - Ruby FFI Optimization with Magnus wrapped classes
+- **Development Approach**: Milestone-based development with focused 1-2 week sprints
+- **Priority**: Improve FFI legibility and performance first to enable cleaner subsequent work
+
+### Active Work Items
+1. **TAS-20**: Eliminate JSON serialization using Magnus wrapped classes with `free_immediately`
+2. **TAS-21**: Migrate shared FFI components from Ruby bindings to `src/ffi/` for reuse
+
+### Milestone Overview
+1. **M1**: FFI Performance & Architecture (CURRENT) - 2 weeks
+2. **M2**: Ruby Integration Testing - 1-2 weeks
+3. **M3**: Event Publishing System - 1-2 weeks
+4. **M4**: Configuration Management - 1 week
+5. **M5**: Queue System Integration - 1-2 weeks
+6. **M6**: Integration Testing Infrastructure - 2 weeks
+7. **M7**: Technical Debt & Cleanup - 1 week
 
 ## Key File Locations
 
