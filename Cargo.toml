@@ -61,7 +61,7 @@ crossbeam = "0.8"
 smlang = "0.7"
 
 # Configuration
-config = "0.14"
+config = "0.15"
 regex = "1.0"
 
 # Random number generation
