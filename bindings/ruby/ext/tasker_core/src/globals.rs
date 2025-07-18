@@ -5,6 +5,7 @@
 //! on every FFI call.
 
 use std::sync::OnceLock;
+use tracing::{info, debug, warn};
 use tasker_core::events::EventPublisher;
 use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 use tasker_core::orchestration::state_manager::StateManager;
@@ -46,13 +47,13 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
 
-    println!("🔧 CONFIG-DRIVEN POOL: Creating pool with config: max={}, min={}, acquire_timeout={}s",
+    info!("🔧 CONFIG-DRIVEN POOL: Creating pool with config: max={}, min={}, acquire_timeout={}s",
         pool_config.max_connections,
         pool_config.min_connections,
         pool_config.acquire_timeout_seconds);
 
     // Test connection first before creating pool
-    println!("🔍 POOL: Testing connection to {}", database_url);
+    debug!("🔍 POOL: Testing connection to {}", database_url);
     let test_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .acquire_timeout(std::time::Duration::from_secs(5))
@@ -61,11 +62,11 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
         
     match test_pool {
         Ok(pool) => {
-            println!("✅ POOL: Test connection successful");
+            info!("✅ POOL: Test connection successful");
             pool.close().await;
         },
         Err(e) => {
-            println!("❌ POOL: Test connection failed: {}", e);
+            warn!("❌ POOL: Test connection failed: {}", e);
             return Err(e);
         }
     }
@@ -78,12 +79,12 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
         .idle_timeout(std::time::Duration::from_secs(pool_config.idle_timeout_seconds))
         .max_lifetime(std::time::Duration::from_secs(pool_config.max_lifetime_seconds));
         
-    println!("🔍 POOL: Creating pool with options - max: {}, min: {}", 
+    debug!("🔍 POOL: Creating pool with options - max: {}, min: {}", 
         pool_config.max_connections, pool_config.min_connections);
         
     let final_pool = pool_options.connect(&database_url).await?;
     
-    println!("✅ POOL: Created successfully - size: {}, max: {}", 
+    info!("✅ POOL: Created successfully - size: {}, max: {}", 
         final_pool.size(), final_pool.options().get_max_connections());
         
     Ok(final_pool)
@@ -99,12 +100,12 @@ async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgP
 /// 3. Create orchestration system with owned pool
 /// 4. OrchestrationSystem owns the pool, TestingFramework references it
 async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Box<dyn std::error::Error + Send + Sync>> {
-    println!("🎯 UNIFIED ENTRY: Creating orchestration system from configuration");
+    info!("🎯 UNIFIED ENTRY: Creating orchestration system from configuration");
 
     // CRITICAL FIX: Load environment variables from .env.test file
     let is_test = is_test_environment();
-    println!("🔍 ENV CHECK: is_test_environment() = {}", is_test);
-    println!("🔍 ENV CHECK: RAILS_ENV = {:?}, APP_ENV = {:?}, RACK_ENV = {:?}, TASKER_ENV = {:?}", 
+    debug!("🔍 ENV CHECK: is_test_environment() = {}", is_test);
+    debug!("🔍 ENV CHECK: RAILS_ENV = {:?}, APP_ENV = {:?}, RACK_ENV = {:?}, TASKER_ENV = {:?}", 
         std::env::var("RAILS_ENV"), 
         std::env::var("APP_ENV"), 
         std::env::var("RACK_ENV"), 
@@ -124,19 +125,19 @@ async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Bo
             if std::path::Path::new(path).exists() {
                 match dotenvy::from_path(path) {
                     Ok(_) => {
-                        println!("✅ DOTENV: Successfully loaded environment from {}", path);
+                        info!("✅ DOTENV: Successfully loaded environment from {}", path);
                         loaded = true;
                         break;
                     },
                     Err(e) => {
-                        println!("⚠️ DOTENV: Failed to load {}: {}", path, e);
+                        warn!("⚠️ DOTENV: Failed to load {}: {}", path, e);
                     }
                 }
             }
         }
         
         if !loaded {
-            println!("⚠️ DOTENV: No .env.test file found in any expected location");
+            warn!("⚠️ DOTENV: No .env.test file found in any expected location");
         }
     }
 
@@ -145,7 +146,7 @@ async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Bo
     let environment = std::env::var("TASKER_ENV")
         .unwrap_or_else(|_| "development".to_string());
 
-    println!("🔧 UNIFIED CONFIG: Loading configuration for environment: {}", environment);
+    info!("🔧 UNIFIED CONFIG: Loading configuration for environment: {}", environment);
 
     // Load the config file based on environment (tasker-config-{env}.yaml)
     let config_filename = format!("config/tasker-config-{}.yaml", environment);
@@ -157,29 +158,29 @@ async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Bo
         config_filename.to_string()
     };
 
-    println!("🔧 UNIFIED CONFIG: Loading from file: {}", final_config_path);
+    debug!("🔧 UNIFIED CONFIG: Loading from file: {}", final_config_path);
 
     let config_manager = if std::path::Path::new(&final_config_path).exists() {
         // Load from YAML file
         match ConfigurationManager::load_from_file(&final_config_path).await {
             Ok(manager) => {
-                println!("✅ UNIFIED CONFIG: Successfully loaded configuration from {}", final_config_path);
+                info!("✅ UNIFIED CONFIG: Successfully loaded configuration from {}", final_config_path);
                 Arc::new(manager)
             },
             Err(e) => {
-                println!("⚠️  UNIFIED CONFIG: Failed to load config file: {}. Using defaults.", e);
+                warn!("⚠️  UNIFIED CONFIG: Failed to load config file: {}. Using defaults.", e);
                 Arc::new(ConfigurationManager::new())
             }
         }
     } else {
-        println!("⚠️  UNIFIED CONFIG: Config file not found at {}. Using defaults.", final_config_path);
+        warn!("⚠️  UNIFIED CONFIG: Config file not found at {}. Using defaults.", final_config_path);
         Arc::new(ConfigurationManager::new())
     };
 
     // 2. Get database pool configuration from config files (no environment-specific overrides)
     let pool_config = config_manager.system_config().database.pool.clone();
 
-    println!("🔧 UNIFIED CONFIG: Using pool configuration from config files: max={}, min={}, acquire_timeout={}s",
+    debug!("🔧 UNIFIED CONFIG: Using pool configuration from config files: max={}, min={}, acquire_timeout={}s",
         pool_config.max_connections,
         pool_config.min_connections,
         pool_config.acquire_timeout_seconds);
@@ -188,7 +189,7 @@ async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Bo
     let database_pool = create_pool_from_config(&pool_config).await?;
 
     // 5. Create orchestration system components using the owned pool
-    println!("🎯 UNIFIED ENTRY: Creating orchestration components with owned pool");
+    info!("🎯 UNIFIED ENTRY: Creating orchestration components with owned pool");
 
     let event_publisher = EventPublisher::new();
     let sql_function_executor = SqlFunctionExecutor::new(database_pool.clone());
@@ -222,14 +223,14 @@ async fn create_unified_orchestration_system() -> Result<OrchestrationSystem, Bo
         config_manager
     };
 
-    println!("✅ UNIFIED ENTRY: Orchestration system created successfully");
+    info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
     Ok(orchestration_system)
 }
 
 impl OrchestrationSystem {
     /// Create new orchestration system with all required components
     async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        println!("🔍 ORCHESTRATION TRACE: OrchestrationSystem::new() called");
+        debug!("🔍 ORCHESTRATION TRACE: OrchestrationSystem::new() called");
 
         // Load configuration from files instead of using hardcoded values
         let environment = std::env::var("TASKER_ENV")
@@ -242,34 +243,34 @@ impl OrchestrationSystem {
             config_filename.to_string()
         };
 
-        println!("🔍 ORCHESTRATION TRACE: Loading configuration from: {}", final_config_path);
+        debug!("🔍 ORCHESTRATION TRACE: Loading configuration from: {}", final_config_path);
 
         let config_manager = if std::path::Path::new(&final_config_path).exists() {
             match ConfigurationManager::load_from_file(&final_config_path).await {
                 Ok(manager) => {
-                    println!("✅ ORCHESTRATION TRACE: Successfully loaded configuration from {}", final_config_path);
+                    info!("✅ ORCHESTRATION TRACE: Successfully loaded configuration from {}", final_config_path);
                     Arc::new(manager)
                 },
                 Err(e) => {
-                    println!("⚠️  ORCHESTRATION TRACE: Failed to load config file: {}. Using defaults.", e);
+                    warn!("⚠️  ORCHESTRATION TRACE: Failed to load config file: {}. Using defaults.", e);
                     Arc::new(ConfigurationManager::new())
                 }
             }
         } else {
-            println!("⚠️  ORCHESTRATION TRACE: Config file not found at {}. Using defaults.", final_config_path);
+            warn!("⚠️  ORCHESTRATION TRACE: Config file not found at {}. Using defaults.", final_config_path);
             Arc::new(ConfigurationManager::new())
         };
 
         // Get database pool configuration from config files
         let pool_config = config_manager.system_config().database.pool.clone();
         
-        println!("🔍 ORCHESTRATION TRACE: Using pool configuration: max={}, min={}, acquire_timeout={}s", 
+        debug!("🔍 ORCHESTRATION TRACE: Using pool configuration: max={}, min={}, acquire_timeout={}s", 
             pool_config.max_connections, pool_config.min_connections, pool_config.acquire_timeout_seconds);
 
         // Get database connection using configuration values
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        println!("🔍 ORCHESTRATION TRACE: Database URL: {}", database_url);
+        debug!("🔍 ORCHESTRATION TRACE: Database URL: {}", database_url);
 
         // Use configuration values instead of hardcoded values
         let pool_options = sqlx::postgres::PgPoolOptions::new()
@@ -279,9 +280,9 @@ impl OrchestrationSystem {
             .idle_timeout(std::time::Duration::from_secs(pool_config.idle_timeout_seconds))
             .max_lifetime(std::time::Duration::from_secs(pool_config.max_lifetime_seconds));
 
-        println!("🔍 ORCHESTRATION TRACE: Attempting to connect to database for orchestration system");
+        debug!("🔍 ORCHESTRATION TRACE: Attempting to connect to database for orchestration system");
         let database_pool = pool_options.connect(&database_url).await?;
-        println!("🔍 ORCHESTRATION TRACE: Successfully created orchestration system database pool with {} max connections", database_pool.size());
+        info!("🔍 ORCHESTRATION TRACE: Successfully created orchestration system database pool with {} max connections", database_pool.size());
 
         Self::new_with_pool(database_pool).await
     }
@@ -289,7 +290,7 @@ impl OrchestrationSystem {
     /// Create new orchestration system using an existing database pool
     /// CRITICAL: This prevents connection pool exhaustion by reusing the same pool
     async fn new_with_pool(database_pool: PgPool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        println!("🔍 ORCHESTRATION TRACE: OrchestrationSystem::new_with_pool() called with pool size: {}", database_pool.size());
+        debug!("🔍 ORCHESTRATION TRACE: OrchestrationSystem::new_with_pool() called with pool size: {}", database_pool.size());
 
         // Create core components with FFI-compatible configuration
         let mut event_config = tasker_core::events::publisher::EventPublisherConfig::default();
@@ -297,10 +298,10 @@ impl OrchestrationSystem {
         event_config.ffi_enabled = false; // Disable FFI bridge that might use tokio::spawn
         let event_publisher = EventPublisher::with_config(event_config);
         // CRITICAL ISSUE: We're cloning the database pool multiple times during initialization
-        println!("🔍 POOL TRACE: CLONE #1 - Creating SqlFunctionExecutor (pool size: {})", database_pool.size());
+        debug!("🔍 POOL TRACE: CLONE #1 - Creating SqlFunctionExecutor (pool size: {})", database_pool.size());
         let sql_executor = SqlFunctionExecutor::new(database_pool.clone());
 
-        println!("🔍 POOL TRACE: CLONE #2 - Creating StateManager (pool size: {})", database_pool.size());
+        debug!("🔍 POOL TRACE: CLONE #2 - Creating StateManager (pool size: {})", database_pool.size());
         let state_manager = StateManager::new(sql_executor, event_publisher.clone(), database_pool.clone());
 
         let task_handler_registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
@@ -308,7 +309,7 @@ impl OrchestrationSystem {
         // Create config manager
         let config_manager = Arc::new(ConfigurationManager::new());
 
-        println!("🔍 POOL TRACE: CLONE #3 - Creating WorkflowCoordinator (pool size: {})", database_pool.size());
+        debug!("🔍 POOL TRACE: CLONE #3 - Creating WorkflowCoordinator (pool size: {})", database_pool.size());
         // Create workflow coordinator with the shared event publisher
         let workflow_coordinator = WorkflowCoordinator::with_config_manager_and_publisher(
             database_pool.clone(),
@@ -326,7 +327,7 @@ impl OrchestrationSystem {
             task_config_finder.clone()
         );
 
-        println!("🔍 POOL TRACE: CLONE #4 - Creating TaskInitializer (pool size: {})", database_pool.size());
+        debug!("🔍 POOL TRACE: CLONE #4 - Creating TaskInitializer (pool size: {})", database_pool.size());
         // Create task initializer
         let task_initializer = TaskInitializer::with_state_manager(
             database_pool.clone(),
@@ -364,9 +365,9 @@ impl OrchestrationSystem {
 /// - TestingFramework will reference the orchestration system (not be embedded)
 /// - Single initialization path prevents multiple instances
 pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
-    println!("🎯 UNIFIED ENTRY: initialize_unified_orchestration_system called");
+    info!("🎯 UNIFIED ENTRY: initialize_unified_orchestration_system called");
     GLOBAL_ORCHESTRATION_SYSTEM.get_or_init(|| {
-        println!("🎯 UNIFIED ENTRY: Using global runtime for consistent execution context");
+        info!("🎯 UNIFIED ENTRY: Using global runtime for consistent execution context");
         let runtime = get_global_runtime();
         
         Arc::new(runtime.block_on(create_unified_orchestration_system())
@@ -377,14 +378,14 @@ pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
 /// ⚠️ DEPRECATED: Use initialize_unified_orchestration_system() instead
 /// This function is kept for backward compatibility but should be migrated
 pub fn initialize_global_orchestration_system_from_current_runtime() -> Arc<OrchestrationSystem> {
-    println!("⚠️  DEPRECATED: Use initialize_unified_orchestration_system() instead");
+    warn!("⚠️  DEPRECATED: Use initialize_unified_orchestration_system() instead");
     initialize_unified_orchestration_system()
 }
 
 /// ⚠️ DEPRECATED: Use initialize_unified_orchestration_system() instead
 /// Get or initialize the global orchestration system (production version)
 pub fn get_global_orchestration_system() -> Arc<OrchestrationSystem> {
-    println!("⚠️  DEPRECATED: get_global_orchestration_system() - use initialize_unified_orchestration_system() instead");
+    warn!("⚠️  DEPRECATED: get_global_orchestration_system() - use initialize_unified_orchestration_system() instead");
     initialize_unified_orchestration_system()
 }
 
@@ -395,7 +396,7 @@ static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 /// Get or create the global runtime
 fn get_global_runtime() -> &'static tokio::runtime::Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
-        println!("🔧 RUNTIME: Creating global Tokio runtime for consistent execution context");
+        info!("🔧 RUNTIME: Creating global Tokio runtime for consistent execution context");
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(4) // Small number for FFI context
@@ -422,7 +423,7 @@ pub fn get_global_event_publisher() -> EventPublisher {
 /// Get the global database pool through the unified orchestration system
 /// 🎯 UNIFIED ARCHITECTURE: All pool access goes through orchestration system
 pub fn get_global_database_pool() -> PgPool {
-    println!("🔍 POOL TRACE: get_global_database_pool() called - delegating to orchestration system");
+    debug!("🔍 POOL TRACE: get_global_database_pool() called - delegating to orchestration system");
 
     // Get the pool from the unified orchestration system
     let orchestration_system = initialize_unified_orchestration_system();
@@ -434,7 +435,7 @@ pub fn get_global_database_pool() -> PgPool {
 /// Create a temporary database pool for single operations
 /// CRITICAL: This pool should be explicitly closed after use
 pub fn create_temporary_database_pool() -> PgPool {
-    println!("🔍 TEMP POOL TRACE: Creating temporary database pool for single operation");
+    debug!("🔍 TEMP POOL TRACE: Creating temporary database pool for single operation");
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
@@ -468,7 +469,7 @@ pub fn create_temporary_database_pool() -> PgPool {
 
     match rx.recv_timeout(Duration::from_secs(5)) {
         Ok(Ok(pool)) => {
-            println!("🔍 TEMP POOL TRACE: Successfully created temporary database pool with {} connections", pool.size());
+            info!("🔍 TEMP POOL TRACE: Successfully created temporary database pool with {} connections", pool.size());
             pool
         },
         Ok(Err(e)) => panic!("Failed to create temporary database pool: {}", e),
@@ -479,7 +480,7 @@ pub fn create_temporary_database_pool() -> PgPool {
 /// Explicitly close a database pool and wait for all connections to be closed
 /// CRITICAL: This is required for proper connection cleanup per SQLx documentation
 pub fn close_database_pool(pool: PgPool) {
-    println!("🔍 POOL CLOSE TRACE: Explicitly closing database pool with {} connections", pool.size());
+    debug!("🔍 POOL CLOSE TRACE: Explicitly closing database pool with {} connections", pool.size());
 
     use std::sync::mpsc;
     use std::time::Duration;
@@ -494,7 +495,7 @@ pub fn close_database_pool(pool: PgPool) {
 
         rt.block_on(async {
             pool.close().await;
-            println!("🔍 POOL CLOSE TRACE: Database pool explicitly closed");
+            info!("🔍 POOL CLOSE TRACE: Database pool explicitly closed");
         });
 
         // Ignore send errors - receiver may have timed out and been dropped
@@ -502,8 +503,8 @@ pub fn close_database_pool(pool: PgPool) {
     });
 
     match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(()) => println!("🔍 POOL CLOSE TRACE: Pool close completed successfully"),
-        Err(_) => println!("🔍 POOL CLOSE TRACE: Pool close timeout - connections may still be open"),
+        Ok(()) => info!("🔍 POOL CLOSE TRACE: Pool close completed successfully"),
+        Err(_) => warn!("🔍 POOL CLOSE TRACE: Pool close timeout - connections may still be open"),
     }
 }
 
@@ -514,7 +515,7 @@ pub fn get_global_task_handler_registry() -> TaskHandlerRegistry {
 
 /// Registry FFI Functions - moved from registry.rs for consolidation
 
-use crate::context::{json_to_ruby_value, ruby_value_to_json};
+use crate::context::{json_to_ruby_value, ValidationConfig};
 use magnus::{Error, RModule, Ruby, Value, TryConvert};
 use magnus::value::ReprValue;
 use tasker_core::models::core::task_request::TaskRequest;
@@ -541,8 +542,18 @@ pub fn registry_new_wrapper() -> Result<Value, Error> {
 
 /// Register an FFI handler with the core registry
 pub fn register_ffi_handler_wrapper(handler_data_value: Value) -> Result<Value, Error> {
-    let handler_data = ruby_value_to_json(handler_data_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid handler data: {}", e)))?;
+    // Use strict validation for handler registration data
+    let validation_config = ValidationConfig {
+        max_string_length: 200,     // Reasonable for handler names and classes
+        max_array_length: 20,       // Limited arrays for handler configs
+        max_object_depth: 3,        // Handler configs shouldn't be deeply nested
+        max_object_keys: 15,        // Reasonable for handler metadata
+        max_numeric_value: 1e6,     // Reasonable for version numbers and timeouts
+        min_numeric_value: 0.0,     // Non-negative values for handler configs
+    };
+    
+    let handler_data = crate::context::ruby_value_to_json_with_validation(handler_data_value, &validation_config)
+        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Handler data validation failed: {}", e)))?;
 
     let result = execute_async(async {
         // Extract handler registration parameters
@@ -590,8 +601,18 @@ pub fn register_ffi_handler_wrapper(handler_data_value: Value) -> Result<Value, 
 
 /// Find handler using the core registry
 pub fn find_handler_wrapper(task_request_value: Value) -> Result<Value, Error> {
-    let task_request_data = ruby_value_to_json(task_request_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid task request: {}", e)))?;
+    // Use strict validation for task request data
+    let validation_config = ValidationConfig {
+        max_string_length: 500,     // Reasonable for task names and namespaces
+        max_array_length: 50,       // Moderate arrays for task configs
+        max_object_depth: 3,        // Task requests should be relatively flat
+        max_object_keys: 20,        // Reasonable for task request structure
+        max_numeric_value: 1e12,    // Large but reasonable for IDs
+        min_numeric_value: -1e12,
+    };
+    
+    let task_request_data = crate::context::ruby_value_to_json_with_validation(task_request_value, &validation_config)
+        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Task request validation failed: {}", e)))?;
 
     let result: Result<serde_json::Value, String> = execute_async(async {
         // Parse TaskRequest
@@ -664,8 +685,18 @@ pub fn list_handlers_wrapper(namespace_value: Value) -> Result<Value, Error> {
 
 /// Check if a handler exists
 pub fn contains_handler_wrapper(handler_key_value: Value) -> Result<Value, Error> {
-    let handler_key = ruby_value_to_json(handler_key_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid handler key: {}", e)))?;
+    // Use strict validation for handler key data
+    let validation_config = ValidationConfig {
+        max_string_length: 200,     // Reasonable for handler keys
+        max_array_length: 10,       // Small arrays for keys
+        max_object_depth: 2,        // Handler keys should be simple
+        max_object_keys: 5,         // Very limited keys for identification
+        max_numeric_value: 1e6,     // Reasonable for version numbers
+        min_numeric_value: 0.0,     // Non-negative values for versions
+    };
+    
+    let handler_key = crate::context::ruby_value_to_json_with_validation(handler_key_value, &validation_config)
+        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Handler key validation failed: {}", e)))?;
 
     let namespace = handler_key.get("namespace")
         .and_then(|v| v.as_str())

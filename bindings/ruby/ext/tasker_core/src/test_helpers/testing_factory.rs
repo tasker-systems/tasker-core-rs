@@ -12,8 +12,9 @@
 //!
 //! 3. **Same Patterns**: Use identical patterns as Rust integration tests
 
-use crate::context::{json_to_ruby_value, ruby_value_to_json};
+use crate::context::{json_to_ruby_value, ValidationConfig};
 use magnus::{Error, RModule, Value};
+use tracing::{debug, warn};
 
 // Import core models directly (available from main crate)
 use tasker_core::models::{
@@ -74,7 +75,7 @@ impl TestingFactory {
     pub fn new() -> Self {
         // 🎯 CRITICAL FIX: Use existing orchestration system instead of re-initializing
         // This prevents excessive calls to initialize_unified_orchestration_system
-        println!("🔧 TestingFactory::new() - reusing existing orchestration system singleton");
+        debug!("🔧 TestingFactory::new() - reusing existing orchestration system singleton");
         let orchestration_system = crate::globals::get_global_orchestration_system();
         Self {
             orchestration_system: Some(orchestration_system),
@@ -111,6 +112,12 @@ impl TestingFactory {
     /// This method encapsulates all the logic for creating a test task,
     /// including creating dependent entities (named tasks, namespaces) as needed.
     pub async fn create_task(&self, options: serde_json::Value) -> serde_json::Value {
+        // Validate input configuration ranges
+        if let Err(validation_error) = self.validate_task_options(&options) {
+            return json!({
+                "error": format!("Task validation failed: {}", validation_error)
+            });
+        }
         // Extract options
         let task_name = options.get("name").and_then(|v| v.as_str()).unwrap_or("test_task");
         let namespace_name = options.get("namespace").and_then(|v| v.as_str()).unwrap_or("default");
@@ -199,16 +206,22 @@ impl TestingFactory {
     /// This method encapsulates all the logic for creating a test workflow step,
     /// including creating dependent entities (tasks, named steps) as needed.
     pub async fn create_workflow_step(&self, options: serde_json::Value) -> serde_json::Value {
+        // Validate input configuration ranges
+        if let Err(validation_error) = self.validate_workflow_step_options(&options) {
+            return json!({
+                "error": format!("Workflow step validation failed: {}", validation_error)
+            });
+        }
         // Require task_id (don't create dummy tasks)
         let task_id = match options.get("task_id") {
             Some(val) => {
                 // Handle both integer and float representations
                 if let Some(id) = val.as_i64() {
-                    println!("🔍 FACTORY: Using provided task_id (int): {}", id);
+                    debug!("🔍 FACTORY: Using provided task_id (int): {}", id);
                     id
                 } else if let Some(id) = val.as_f64() {
                     let id = id as i64;
-                    println!("🔍 FACTORY: Using provided task_id (float): {}", id);
+                    debug!("🔍 FACTORY: Using provided task_id (float): {}", id);
                     id
                 } else {
                     return json!({
@@ -264,12 +277,12 @@ impl TestingFactory {
             skippable: Some(false),
         };
 
-        println!("🔍 FACTORY: About to create WorkflowStep with task_id: {}", task_id);
+        debug!("🔍 FACTORY: About to create WorkflowStep with task_id: {}", task_id);
 
         // Create workflow step using core model
         match WorkflowStep::create(self.pool(), new_step).await {
             Ok(step) => {
-                println!("🔍 FACTORY: Created WorkflowStep with task_id: {}, expected: {}", step.task_id, task_id);
+                debug!("🔍 FACTORY: Created WorkflowStep with task_id: {}, expected: {}", step.task_id, task_id);
                 json!({
                     "workflow_step_id": step.workflow_step_id,
                     "task_id": step.task_id,
@@ -299,6 +312,12 @@ impl TestingFactory {
     /// - Parallel: (A, B, C) -> D
     /// - Tree: A -> (B -> (D, E), C -> (F, G))
     pub async fn create_complex_workflow(&self, options: serde_json::Value) -> serde_json::Value {
+        // Validate input configuration ranges
+        if let Err(validation_error) = self.validate_complex_workflow_options(&options) {
+            return json!({
+                "error": format!("Complex workflow validation failed: {}", validation_error)
+            });
+        }
         // Extract pattern type (default to linear)
         let pattern = options.get("pattern").and_then(|v| v.as_str()).unwrap_or("linear");
         let task_name = options.get("task_name").and_then(|v| v.as_str()).unwrap_or("complex_workflow");
@@ -570,6 +589,168 @@ impl TestingFactory {
         Ok(step_ids)
     }
 
+    /// Validation methods for configuration ranges
+    fn validate_task_options(&self, options: &serde_json::Value) -> Result<(), String> {
+        // Validate task name length
+        if let Some(name) = options.get("name").and_then(|v| v.as_str()) {
+            if name.is_empty() {
+                return Err("Task name cannot be empty".to_string());
+            }
+            if name.len() > 100 {
+                return Err(format!("Task name length {} exceeds maximum of 100", name.len()));
+            }
+            if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                return Err("Task name can only contain alphanumeric characters, underscores, and hyphens".to_string());
+            }
+        }
+
+        // Validate namespace name
+        if let Some(namespace) = options.get("namespace").and_then(|v| v.as_str()) {
+            if namespace.len() > 50 {
+                return Err(format!("Namespace length {} exceeds maximum of 50", namespace.len()));
+            }
+        }
+
+        // Validate version format
+        if let Some(version) = options.get("version").and_then(|v| v.as_str()) {
+            if !version.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+                return Err("Version can only contain alphanumeric characters, dots, and hyphens".to_string());
+            }
+            if version.len() > 20 {
+                return Err(format!("Version length {} exceeds maximum of 20", version.len()));
+            }
+        }
+
+        // Validate context size if provided
+        if let Some(context) = options.get("context") {
+            if context.is_object() && context.as_object().unwrap().len() > 50 {
+                return Err("Context object cannot have more than 50 keys".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_workflow_step_options(&self, options: &serde_json::Value) -> Result<(), String> {
+        // Validate task_id is present and valid
+        if let Some(task_id_val) = options.get("task_id") {
+            if let Some(task_id) = task_id_val.as_i64() {
+                if task_id <= 0 {
+                    return Err("Task ID must be positive".to_string());
+                }
+                // Note: i64::MAX check is redundant since task_id is already i64, but keeping for consistency
+                if task_id == i64::MAX {
+                    return Err("Task ID cannot be maximum i64 value (reserved)".to_string());
+                }
+            } else if let Some(task_id_float) = task_id_val.as_f64() {
+                if task_id_float <= 0.0 || task_id_float.fract() != 0.0 {
+                    return Err("Task ID must be a positive integer".to_string());
+                }
+            } else {
+                return Err("Task ID must be a number".to_string());
+            }
+        } else {
+            return Err("Task ID is required".to_string());
+        }
+
+        // Validate step name
+        if let Some(name) = options.get("name").and_then(|v| v.as_str()) {
+            if name.is_empty() {
+                return Err("Step name cannot be empty".to_string());
+            }
+            if name.len() > 100 {
+                return Err(format!("Step name length {} exceeds maximum of 100", name.len()));
+            }
+        }
+        if let Some(step_name) = options.get("step_name").and_then(|v| v.as_str()) {
+            if step_name.is_empty() {
+                return Err("Step name cannot be empty".to_string());
+            }
+            if step_name.len() > 100 {
+                return Err(format!("Step name length {} exceeds maximum of 100", step_name.len()));
+            }
+        }
+
+        // Validate dependent system name
+        if let Some(dep_sys) = options.get("dependent_system").and_then(|v| v.as_str()) {
+            if dep_sys.len() > 50 {
+                return Err(format!("Dependent system name length {} exceeds maximum of 50", dep_sys.len()));
+            }
+        }
+
+        // Validate inputs object size
+        if let Some(inputs) = options.get("inputs") {
+            if inputs.is_object() && inputs.as_object().unwrap().len() > 100 {
+                return Err("Inputs object cannot have more than 100 keys".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_complex_workflow_options(&self, options: &serde_json::Value) -> Result<(), String> {
+        // Validate pattern type
+        if let Some(pattern) = options.get("pattern").and_then(|v| v.as_str()) {
+            let valid_patterns = ["linear", "diamond", "parallel", "tree"];
+            if !valid_patterns.contains(&pattern) {
+                return Err(format!("Invalid workflow pattern '{}'. Valid patterns: {}", pattern, valid_patterns.join(", ")));
+            }
+        }
+
+        // Validate task name
+        if let Some(task_name) = options.get("task_name").and_then(|v| v.as_str()) {
+            if task_name.is_empty() {
+                return Err("Task name cannot be empty".to_string());
+            }
+            if task_name.len() > 100 {
+                return Err(format!("Task name length {} exceeds maximum of 100", task_name.len()));
+            }
+        }
+
+        // Validate namespace
+        if let Some(namespace) = options.get("namespace").and_then(|v| v.as_str()) {
+            if namespace.len() > 50 {
+                return Err(format!("Namespace length {} exceeds maximum of 50", namespace.len()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_foundation_options(&self, options: &serde_json::Value) -> Result<(), String> {
+        // Validate step count
+        if let Some(step_count) = options.get("step_count").and_then(|v| v.as_u64()) {
+            if step_count == 0 {
+                return Err("Step count must be positive".to_string());
+            }
+            if step_count > 100 {
+                return Err(format!("Step count {} exceeds maximum of 100", step_count));
+            }
+        }
+
+        // Validate namespace name
+        if let Some(namespace) = options.get("namespace").and_then(|v| v.as_str()) {
+            if namespace.is_empty() {
+                return Err("Namespace cannot be empty".to_string());
+            }
+            if namespace.len() > 50 {
+                return Err(format!("Namespace length {} exceeds maximum of 50", namespace.len()));
+            }
+        }
+
+        // Validate task name
+        if let Some(task_name) = options.get("task_name").and_then(|v| v.as_str()) {
+            if task_name.is_empty() {
+                return Err("Task name cannot be empty".to_string());
+            }
+            if task_name.len() > 100 {
+                return Err(format!("Task name length {} exceeds maximum of 100", task_name.len()));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create test foundation data with the given options
     ///
     /// This method creates a complete test workflow with:
@@ -577,6 +758,12 @@ impl TestingFactory {
     /// - An actual task instance
     /// - Multiple workflow steps with dependencies
     pub async fn create_foundation(&self, options: serde_json::Value) -> serde_json::Value {
+        // Validate input configuration ranges
+        if let Err(validation_error) = self.validate_foundation_options(&options) {
+            return json!({
+                "error": format!("Foundation validation failed: {}", validation_error)
+            });
+        }
         // Extract options with defaults
         let namespace_name = options.get("namespace")
             .and_then(|v| v.as_str())
@@ -688,7 +875,7 @@ impl TestingFactory {
                 };
 
                 if let Err(e) = WorkflowStepEdge::create(self.pool(), edge).await {
-                    println!("Warning: Failed to create edge from {} to {}: {}", prev_id, workflow_step.workflow_step_id, e);
+                    warn!("Failed to create edge from {} to {}: {}", prev_id, workflow_step.workflow_step_id, e);
                 }
             }
 
@@ -895,10 +1082,10 @@ async fn create_dummy_task(pool: &PgPool) -> Result<Task, sqlx::Error> {
 }
 
 pub fn get_global_testing_factory() -> Arc<TestingFactory> {
-  println!("🎯 UNIFIED ENTRY: initialize_global_testing_factory called");
+  debug!("🎯 UNIFIED ENTRY: initialize_global_testing_factory called");
   GLOBAL_TESTING_FACTORY.get_or_init(|| {
       // Use the unified orchestration system to create TestingFactory
-      println!("🎯 UNIFIED ENTRY: Creating TestingFactory from orchestration system");
+      debug!("🎯 UNIFIED ENTRY: Creating TestingFactory from orchestration system");
       let testing_factory = TestingFactory::new();
       Arc::new(testing_factory)
   }).clone()
@@ -908,7 +1095,25 @@ pub fn get_global_testing_factory() -> Arc<TestingFactory> {
 /// Create test task using TestingFactory
 /// FFI wrapper that uses the TestingFactory struct for cleaner architecture
 fn create_test_task_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
-    let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
+    // Use strict validation for test factory inputs
+    let validation_config = ValidationConfig {
+        max_string_length: 1000,    // Stricter for test data
+        max_array_length: 100,      // Reasonable for test scenarios
+        max_object_depth: 5,        // Prevent deeply nested test data
+        max_object_keys: 50,        // Reasonable for test configurations
+        max_numeric_value: 1e12,    // Large but reasonable for test IDs
+        min_numeric_value: -1e12,
+    };
+    
+    let options = match crate::context::ruby_value_to_json_with_validation(options_value, &validation_config) {
+        Ok(opts) => opts,
+        Err(e) => {
+            warn!("Input validation failed for create_test_task: {}", e);
+            return json_to_ruby_value(json!({
+                "error": format!("Input validation failed: {}", e)
+            }));
+        }
+    };
 
     let result = crate::globals::execute_async(async {
         // Get TestingFactory from unified orchestration system
@@ -925,7 +1130,25 @@ fn create_test_task_with_factory_wrapper(options_value: Value) -> Result<Value, 
 /// Create test workflow step using TestingFactory
 /// FFI wrapper that uses the TestingFactory struct for cleaner architecture
 fn create_test_workflow_step_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
-    let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
+    // Use strict validation for test factory inputs
+    let validation_config = ValidationConfig {
+        max_string_length: 1000,
+        max_array_length: 100,
+        max_object_depth: 5,
+        max_object_keys: 50,
+        max_numeric_value: 1e12,
+        min_numeric_value: -1e12,
+    };
+    
+    let options = match crate::context::ruby_value_to_json_with_validation(options_value, &validation_config) {
+        Ok(opts) => opts,
+        Err(e) => {
+            warn!("Input validation failed for create_test_workflow_step: {}", e);
+            return json_to_ruby_value(json!({
+                "error": format!("Input validation failed: {}", e)
+            }));
+        }
+    };
 
     let result = crate::globals::execute_async(async {
         // Get TestingFactory from unified orchestration system
@@ -942,7 +1165,25 @@ fn create_test_workflow_step_with_factory_wrapper(options_value: Value) -> Resul
 /// Create test foundation data using TestingFactory
 /// FFI wrapper that uses the TestingFactory struct for cleaner architecture
 fn create_test_foundation_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
-    let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
+    // Use strict validation for test factory inputs
+    let validation_config = ValidationConfig {
+        max_string_length: 1000,
+        max_array_length: 100,
+        max_object_depth: 5,
+        max_object_keys: 50,
+        max_numeric_value: 1e12,
+        min_numeric_value: -1e12,
+    };
+    
+    let options = match crate::context::ruby_value_to_json_with_validation(options_value, &validation_config) {
+        Ok(opts) => opts,
+        Err(e) => {
+            warn!("Input validation failed for create_test_foundation: {}", e);
+            return json_to_ruby_value(json!({
+                "error": format!("Input validation failed: {}", e)
+            }));
+        }
+    };
 
     let result = crate::globals::execute_async(async {
         // Get TestingFactory from unified orchestration system
@@ -958,7 +1199,25 @@ fn create_test_foundation_with_factory_wrapper(options_value: Value) -> Result<V
 /// Create complex workflow using TestingFactory
 /// FFI wrapper for creating workflows with different patterns (linear, diamond, parallel, tree)
 fn create_complex_workflow_with_factory_wrapper(options_value: Value) -> Result<Value, Error> {
-    let options = ruby_value_to_json(options_value).unwrap_or_else(|_| json!({}));
+    // Use strict validation for test factory inputs
+    let validation_config = ValidationConfig {
+        max_string_length: 1000,
+        max_array_length: 100,
+        max_object_depth: 5,
+        max_object_keys: 50,
+        max_numeric_value: 1e12,
+        min_numeric_value: -1e12,
+    };
+    
+    let options = match crate::context::ruby_value_to_json_with_validation(options_value, &validation_config) {
+        Ok(opts) => opts,
+        Err(e) => {
+            warn!("Input validation failed for create_complex_workflow: {}", e);
+            return json_to_ruby_value(json!({
+                "error": format!("Input validation failed: {}", e)
+            }));
+        }
+    };
 
     let result = crate::globals::execute_async(async {
         // Get TestingFactory from unified orchestration system
@@ -974,7 +1233,7 @@ fn create_complex_workflow_with_factory_wrapper(options_value: Value) -> Result<
 /// Setup the factory singleton - triggers Rust-side singleton initialization
 /// This ensures the `get_global_testing_factory()` singleton is created and ready
 fn setup_factory_singleton_wrapper() -> Result<Value, Error> {
-    println!("🎯 FACTORY SINGLETON: Initializing factory singleton from Ruby coordination");
+    debug!("🎯 FACTORY SINGLETON: Initializing factory singleton from Ruby coordination");
 
     // Trigger the singleton initialization by calling get_global_testing_factory
     let _factory = get_global_testing_factory();

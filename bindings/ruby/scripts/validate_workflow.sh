@@ -85,8 +85,8 @@ fi
 
 # 5. Check matrix configuration
 echo -n "Matrix configuration... "
-if grep -q "os: \[ubuntu-latest, macos-latest\]" "$WORKFLOW_FILE" && \
-   grep -q "ruby: \['3.0', '3.1', '3.2', '3.3'\]" "$WORKFLOW_FILE"; then
+if grep -q "os: \[ubuntu-22.04\]" "$WORKFLOW_FILE" && \
+   grep -q "ruby: \['3.2'\]" "$WORKFLOW_FILE"; then
     print_status "Correct"
 else
     print_error "Matrix configuration issues"

@@ -5,9 +5,10 @@
 //! hooks, receiving simple Ruby arrays/hashes instead of complex Rust types.
 
 use crate::globals::{get_global_orchestration_system, execute_async};
-use crate::context::{json_to_ruby_value, ruby_value_to_json};
+use crate::context::{json_to_ruby_value, ValidationConfig};
 use magnus::value::ReprValue;
 use magnus::{function, method, Error, Module, Object, RModule, Ruby, Value};
+use tracing::debug;
 use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
 use tasker_core::orchestration::task_enqueuer::{TaskEnqueuer, EnqueueRequest, EnqueuePriority};
 use tasker_core::orchestration::config::TaskTemplate;
@@ -29,7 +30,7 @@ impl BaseTaskHandler {
         // 🎯 CRITICAL FIX: Use the singleton orchestration system 
         // This prevents the "37 calls to initialize_unified_orchestration_system" problem
         // by reusing the same orchestration system instance across all BaseTaskHandler instances
-        println!("🔧 BaseTaskHandler::new() - reusing existing orchestration system singleton");
+        debug!("🔧 BaseTaskHandler::new() - reusing existing orchestration system singleton");
         let orchestration_system = get_global_orchestration_system();
 
         Ok(Self {
@@ -40,8 +41,18 @@ impl BaseTaskHandler {
 
     /// Create a new BaseTaskHandler from JSON (for Ruby FFI)
     pub fn new_from_json(task_template_json: Value) -> magnus::error::Result<Self> {
-        let task_template_data = ruby_value_to_json(task_template_json)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Invalid task template: {}", e)))?;
+        // Use strict validation for task template configuration
+        let validation_config = ValidationConfig {
+            max_string_length: 500,     // Reasonable for configuration fields
+            max_array_length: 50,       // Moderate array sizes for configs
+            max_object_depth: 3,        // Task templates shouldn't be deeply nested
+            max_object_keys: 20,        // Reasonable for task template fields
+            max_numeric_value: 1e9,     // Large but reasonable for configuration values
+            min_numeric_value: -1e9,
+        };
+        
+        let task_template_data = crate::context::ruby_value_to_json_with_validation(task_template_json, &validation_config)
+            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task template validation failed: {}", e)))?;
 
         let task_template: TaskTemplate = serde_json::from_value(task_template_data)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskTemplate: {}", e)))?;
@@ -53,9 +64,19 @@ impl BaseTaskHandler {
     pub fn initialize_task(&self, task_request_value: Value) -> magnus::error::Result<Value> {
         let ruby = Ruby::get().unwrap();
 
-        // Convert Ruby value to JSON then to TaskRequest
-        let task_request_json = ruby_value_to_json(task_request_value)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Invalid task request: {}", e)))?;
+        // Use strict validation for task request data
+        let validation_config = ValidationConfig {
+            max_string_length: 1000,    // Reasonable for task request fields
+            max_array_length: 100,      // Moderate array sizes
+            max_object_depth: 4,        // Task requests can be somewhat nested
+            max_object_keys: 30,        // Reasonable for task request structure
+            max_numeric_value: 1e12,    // Large but reasonable for IDs and timestamps
+            min_numeric_value: -1e12,
+        };
+        
+        // Convert Ruby value to JSON then to TaskRequest with validation
+        let task_request_json = crate::context::ruby_value_to_json_with_validation(task_request_value, &validation_config)
+            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task request validation failed: {}", e)))?;
 
         let task_request: TaskRequest = serde_json::from_value(task_request_json)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskRequest: {}", e)))?;

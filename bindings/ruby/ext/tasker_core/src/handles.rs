@@ -15,6 +15,7 @@ use std::time::SystemTime;
 use magnus::{Error, Value, Module, method, function};
 use magnus::TryConvert;
 use serde_json::json;
+use tracing::{info, debug};
 use crate::globals::OrchestrationSystem;
 use crate::test_helpers::testing_factory::TestingFactory;
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
@@ -37,7 +38,7 @@ pub struct OrchestrationHandle {
 impl OrchestrationHandle {
     /// **SINGLE INITIALIZATION POINT** - Creates handle with all resources
     pub fn new() -> Result<Self, String> {
-        println!("🎯 HANDLE ARCHITECTURE: Creating orchestration handle with persistent references");
+        info!("Creating orchestration handle with persistent references");
 
         // Initialize resources ONCE - these will be shared across all operations
         let orchestration_system = crate::globals::initialize_unified_orchestration_system();
@@ -50,7 +51,7 @@ impl OrchestrationHandle {
                 .as_millis()
         );
 
-        println!("✅ HANDLE READY: {} with shared orchestration system and testing factory", handle_id);
+        info!("✅ HANDLE READY: {} with shared orchestration system and testing factory", handle_id);
 
         Ok(Self {
             orchestration_system,
@@ -63,7 +64,7 @@ impl OrchestrationHandle {
     /// **GLOBAL SINGLETON ACCESS** - Get or create the global handle
     pub fn get_global() -> Arc<OrchestrationHandle> {
         GLOBAL_ORCHESTRATION_HANDLE.get_or_init(|| {
-            println!("🎯 GLOBAL HANDLE: Creating singleton OrchestrationHandle");
+            info!("🎯 GLOBAL HANDLE: Creating singleton OrchestrationHandle");
             let handle = OrchestrationHandle::new()
                 .expect("Failed to create global OrchestrationHandle");
             Arc::new(handle)
@@ -106,7 +107,7 @@ impl OrchestrationHandle {
 
     /// Create test task using primitive parameters
     pub fn create_test_task(&self, name: String, namespace: String, initiator: Option<String>) -> Result<Value, Error> {
-        println!("🔍 HANDLE create_test_task: name={}, namespace={}, initiator={:?}", name, namespace, initiator);
+        debug!("🔍 HANDLE create_test_task: name={}, namespace={}, initiator={:?}", name, namespace, initiator);
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
         // Create options JSON from primitives
@@ -140,15 +141,15 @@ impl OrchestrationHandle {
     /// Create test foundation using primitive parameters (no JSON conversion!)
     /// This follows the FFI best practice of using simple primitives at the boundary
     pub fn create_test_foundation_simple(&self, namespace: String, task_name: String) -> Result<Value, Error> {
-        println!("🔍 HANDLE create_test_foundation_simple: namespace={}, task_name={}", namespace, task_name);
+        debug!("🔍 HANDLE create_test_foundation_simple: namespace={}, task_name={}", namespace, task_name);
 
         // Check validation first
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
         // Add pool diagnostics at handle level
-        println!("🔍 HANDLE: About to access database pool");
+        debug!("🔍 HANDLE: About to access database pool");
         let pool = self.database_pool();
-        println!("🔍 HANDLE POOL: size={}, idle={}, max={}",
+        debug!("🔍 HANDLE POOL: size={}, idle={}, max={}",
             pool.size(), pool.num_idle(), pool.options().get_max_connections());
 
         // Create simple options JSON from primitives
@@ -157,21 +158,21 @@ impl OrchestrationHandle {
             "task_name": task_name
         });
 
-        println!("🔍 HANDLE: About to call testing_factory.create_foundation with options: {:?}", options);
+        debug!("🔍 HANDLE: About to call testing_factory.create_foundation with options: {:?}", options);
 
         let result = crate::globals::execute_async(async {
-            println!("🔍 HANDLE ASYNC: Inside async block, about to call testing_factory.create_foundation");
+            debug!("🔍 HANDLE ASYNC: Inside async block, about to call testing_factory.create_foundation");
             self.testing_factory.create_foundation(options).await
         });
 
-        println!("🔍 HANDLE: testing_factory.create_foundation returned: {:?}", result);
+        debug!("🔍 HANDLE: testing_factory.create_foundation returned: {:?}", result);
         json_to_ruby_value(result)
     }
 
     /// Create test task using primitive parameters (no JSON conversion!)
     pub fn create_test_task_simple(&self, namespace: String, task_name: String, version: Option<String>) -> Result<Value, Error> {
         let version = version.unwrap_or_else(|| "0.1.0".to_string());
-        println!("🔍 HANDLE create_test_task_simple: namespace={}, task_name={}, version={}", namespace, task_name, version);
+        debug!("🔍 HANDLE create_test_task_simple: namespace={}, task_name={}, version={}", namespace, task_name, version);
 
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -191,7 +192,7 @@ impl OrchestrationHandle {
     /// Create test task with context using primitive parameters (no JSON conversion!)
     pub fn create_test_task_with_context(&self, namespace: String, task_name: String, context: Value, version: Option<String>) -> Result<Value, Error> {
         let version = version.unwrap_or_else(|| "0.1.0".to_string());
-        println!("🔍 HANDLE create_test_task_with_context: namespace={}, task_name={}, version={}, context={:?}", namespace, task_name, version, context);
+        debug!("🔍 HANDLE create_test_task_with_context: namespace={}, task_name={}, version={}, context={:?}", namespace, task_name, version, context);
 
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -215,7 +216,7 @@ impl OrchestrationHandle {
     /// Create test task with context and initiator using primitive parameters
     pub fn create_test_task_with_context_and_initiator(&self, namespace: String, task_name: String, context: Value, version: Option<String>, initiator: Option<String>) -> Result<Value, Error> {
         let version = version.unwrap_or_else(|| "0.1.0".to_string());
-        println!("🔍 HANDLE create_test_task_with_context_and_initiator: namespace={}, task_name={}, version={}, initiator={:?}, context={:?}", namespace, task_name, version, initiator, context);
+        debug!("🔍 HANDLE create_test_task_with_context_and_initiator: namespace={}, task_name={}, version={}, initiator={:?}, context={:?}", namespace, task_name, version, initiator, context);
 
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -244,7 +245,7 @@ impl OrchestrationHandle {
     /// Create test task with initiator using primitive parameters
     pub fn create_test_task_simple_with_initiator(&self, namespace: String, task_name: String, version: Option<String>, initiator: Option<String>) -> Result<Value, Error> {
         let version = version.unwrap_or_else(|| "0.1.0".to_string());
-        println!("🔍 HANDLE create_test_task_simple_with_initiator: namespace={}, task_name={}, version={}, initiator={:?}", namespace, task_name, version, initiator);
+        debug!("🔍 HANDLE create_test_task_simple_with_initiator: namespace={}, task_name={}, version={}, initiator={:?}", namespace, task_name, version, initiator);
 
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -268,7 +269,7 @@ impl OrchestrationHandle {
 
     /// Create test workflow step using primitive parameters (no JSON conversion!)
     pub fn create_test_workflow_step_simple(&self, task_id: i64, step_name: String) -> Result<Value, Error> {
-        println!("🔍 HANDLE create_test_workflow_step_simple: task_id={}, step_name={}", task_id, step_name);
+        debug!("🔍 HANDLE create_test_workflow_step_simple: task_id={}, step_name={}", task_id, step_name);
 
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -286,7 +287,7 @@ impl OrchestrationHandle {
 
     /// Create complex workflow with dependencies
     pub fn create_complex_workflow(&self, options_value: Value) -> Result<Value, Error> {
-        println!("🔍 HANDLE create_complex_workflow: Creating workflow with pattern");
+        debug!("🔍 HANDLE create_complex_workflow: Creating workflow with pattern");
         
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
@@ -389,8 +390,7 @@ impl OrchestrationHandle {
 
     /// Setup test environment using persistent references
     pub fn setup_test_environment(&self) -> Result<Value, Error> {
-        println!("🔍 HANDLE setup_test_environment: Starting with handle_id: {}", self.handle_id);
-        eprintln!("🔍 HANDLE setup_test_environment: Starting with handle_id: {}", self.handle_id);
+        info!("🔍 HANDLE setup_test_environment: Starting with handle_id: {}", self.handle_id);
         self.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
         let result = crate::globals::execute_async(async {
@@ -531,8 +531,7 @@ pub fn register_handler_registry_functions(module: magnus::RModule) -> Result<()
 /// Wrapper function to create OrchestrationHandle from Ruby
 /// Returns a clone of the global singleton to avoid creating multiple orchestration systems
 fn create_orchestration_handle_wrapper() -> Result<OrchestrationHandle, magnus::Error> {
-    println!("🔍 WRAPPER: create_orchestration_handle_wrapper called");
-    eprintln!("🔍 WRAPPER: create_orchestration_handle_wrapper called");
+    info!("🔍 WRAPPER: create_orchestration_handle_wrapper called");
 
     // Use global singleton to prevent multiple orchestration systems
     let global_handle = OrchestrationHandle::get_global();
@@ -542,8 +541,7 @@ fn create_orchestration_handle_wrapper() -> Result<OrchestrationHandle, magnus::
     let result = OrchestrationHandle::new()
         .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e));
 
-    println!("🔍 WRAPPER: create_orchestration_handle_wrapper returning handle");
-    eprintln!("🔍 WRAPPER: create_orchestration_handle_wrapper returning handle");
+    debug!("🔍 WRAPPER: create_orchestration_handle_wrapper returning handle");
     result
 }
 
@@ -641,15 +639,15 @@ fn create_test_workflow_step_with_factory_wrapper(options_value: Value) -> Resul
 /// This is a wrapper that extracts primitive parameters from the options hash
 /// and calls the simple primitive-based FFI method
 pub fn create_test_foundation_with_factory(handle_id: u64, options_value: Value) -> Result<Value, Error> {
-    println!("🔍 WRAPPER create_test_foundation_with_factory: handle_id={}", handle_id);
+    debug!("🔍 WRAPPER create_test_foundation_with_factory: handle_id={}", handle_id);
 
     // Use global handle singleton - CRITICAL FIX for pool exhaustion
     let handle = OrchestrationHandle::get_global();
-    println!("🔍 WRAPPER: Got global handle: {}", handle.handle_id);
+    debug!("🔍 WRAPPER: Got global handle: {}", handle.handle_id);
 
     // Add pool diagnostics
     let pool = handle.database_pool();
-    println!("🔍 WRAPPER POOL: size={}, idle={}, max={}",
+    debug!("🔍 WRAPPER POOL: size={}, idle={}, max={}",
         pool.size(), pool.num_idle(), pool.options().get_max_connections());
 
     // Extract primitive parameters from Ruby hash using simple string conversion
@@ -679,12 +677,12 @@ pub fn create_test_foundation_with_factory(handle_id: u64, options_value: Value)
         "test_task".to_string()
     };
 
-    println!("🔍 WRAPPER: Extracted namespace={}, task_name={}", namespace, task_name);
+    debug!("🔍 WRAPPER: Extracted namespace={}, task_name={}", namespace, task_name);
 
     // Use handle to perform operation with primitives
-    println!("🔍 WRAPPER: About to call handle.create_test_foundation_simple");
+    debug!("🔍 WRAPPER: About to call handle.create_test_foundation_simple");
     let result = handle.create_test_foundation_simple(namespace, task_name);
-    println!("🔍 WRAPPER: create_test_foundation_simple returned");
+    debug!("🔍 WRAPPER: create_test_foundation_simple returned");
     result
 }
 

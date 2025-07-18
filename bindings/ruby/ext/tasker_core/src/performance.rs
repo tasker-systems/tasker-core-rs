@@ -8,6 +8,7 @@ use magnus::{Error, Module, RArray, RHash, RModule, RString, Ruby, Value};
 use magnus::value::ReprValue;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 use crate::context::json_to_ruby_value;
+use tracing::debug;
 
 /// TaskExecutionContext Ruby class wrapper - mirrors SQL function TaskExecutionContext
 #[derive(Clone, Debug)]
@@ -1473,7 +1474,7 @@ pub fn discover_viable_steps_with_handle_wrapper(
     handle_value: Value,
     task_id: i64,
 ) -> Result<Value, Error> {
-    println!("🎯 REGULAR WRAPPER: discover_viable_steps_with_handle_wrapper called with task_id: {}", task_id);
+    debug!("🎯 REGULAR WRAPPER: discover_viable_steps_with_handle_wrapper called with task_id: {}", task_id);
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
@@ -1746,7 +1747,7 @@ pub fn discover_viable_steps_hash_wrapper(
     handle_value: Value,
     task_id: i64,
 ) -> Result<Value, Error> {
-    println!("🎯 HASH WRAPPER: discover_viable_steps_hash_wrapper called with task_id: {}", task_id);
+    debug!("🎯 HASH WRAPPER: discover_viable_steps_hash_wrapper called with task_id: {}", task_id);
     use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
