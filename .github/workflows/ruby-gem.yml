@@ -109,7 +109,9 @@ jobs:
           echo "Waiting for PostgreSQL..."
           sleep 2
         done
+        cd ../..
         sqlx migrate run
+        cd bindings/ruby
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
         TASKER_ENV: test
