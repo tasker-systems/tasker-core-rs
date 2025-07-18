@@ -58,7 +58,7 @@ dashmap = "6.1"
 crossbeam = "0.8"
 
 # State machine
-smlang = "0.7"
+smlang = "0.8"
 
 # Configuration
 config = "0.14"
