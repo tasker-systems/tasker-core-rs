@@ -62,6 +62,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // These classes eliminate JSON serialization overhead
     // The #[magnus::wrap] attribute with free_immediately handles Ruby class registration
     // CreateTaskInput, TaskMetadata, and FactoryResult are auto-registered when used
+    ffi_converters::TaskMetadata::define(ruby, &module)?;
 
     // Register globals and registry functions
     globals::register_registry_functions(module)?;

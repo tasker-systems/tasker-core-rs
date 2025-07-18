@@ -9,7 +9,7 @@
 //! - Provides proper Ruby GC integration with `free_immediately`
 //! - Reduces FFI call overhead from >1ms to <100μs target
 
-use magnus::{Error, RArray, RHash, RString, Value, IntoValue, TryConvert};
+use magnus::{Error, RArray, RHash, RString, Value, IntoValue, TryConvert, Module};
 use std::collections::HashMap;
 
 /// Trait for converting Ruby hashes to Rust structs without JSON serialization
@@ -60,6 +60,35 @@ pub struct TaskMetadata {
     pub config_schema: Option<String>,
     pub registered_at: Option<String>,
     pub handle_id: Option<String>,
+}
+
+impl TaskMetadata {
+    /// Define the Ruby class in the module
+    pub fn define(ruby: &magnus::Ruby, module: &magnus::RModule) -> Result<(), magnus::Error> {
+        let class = module.define_class("TaskMetadata", ruby.class_object())?;
+        
+        // Define getter methods
+        class.define_method("found", magnus::method!(TaskMetadata::found_getter, 0))?;
+        class.define_method("namespace", magnus::method!(TaskMetadata::namespace_getter, 0))?;
+        class.define_method("name", magnus::method!(TaskMetadata::name_getter, 0))?;
+        class.define_method("version", magnus::method!(TaskMetadata::version_getter, 0))?;
+        class.define_method("ruby_class_name", magnus::method!(TaskMetadata::ruby_class_name_getter, 0))?;
+        class.define_method("config_schema", magnus::method!(TaskMetadata::config_schema_getter, 0))?;
+        class.define_method("registered_at", magnus::method!(TaskMetadata::registered_at_getter, 0))?;
+        class.define_method("handle_id", magnus::method!(TaskMetadata::handle_id_getter, 0))?;
+        
+        Ok(())
+    }
+    
+    // Getter methods for Ruby
+    pub fn found_getter(&self) -> bool { self.found }
+    pub fn namespace_getter(&self) -> String { self.namespace.clone() }
+    pub fn name_getter(&self) -> String { self.name.clone() }
+    pub fn version_getter(&self) -> String { self.version.clone() }
+    pub fn ruby_class_name_getter(&self) -> Option<String> { self.ruby_class_name.clone() }
+    pub fn config_schema_getter(&self) -> Option<String> { self.config_schema.clone() }
+    pub fn registered_at_getter(&self) -> Option<String> { self.registered_at.clone() }
+    pub fn handle_id_getter(&self) -> Option<String> { self.handle_id.clone() }
 }
 
 impl TaskMetadata {
