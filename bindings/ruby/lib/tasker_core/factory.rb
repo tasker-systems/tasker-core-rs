@@ -43,12 +43,13 @@ module TaskerCore
       # @return [Hash] Created workflow step data
       # @raise [TaskerCore::Error] If workflow step creation fails
       def workflow_step(options = {})
-        # Extract primitive parameters from options
-        task_id = options[:task_id] || options['task_id'] || raise(ArgumentError, "task_id is required")
-        step_name = options[:name] || options['name'] || 'test_step'
+        # Validate required parameters
+        unless options[:task_id] || options['task_id']
+          raise ArgumentError, "task_id is required"
+        end
 
-        # Use primitive FFI method
-        handle.create_test_workflow_step_simple(task_id, step_name)
+        # Use full options method to preserve inputs and other parameters
+        handle.create_test_workflow_step(options)
       rescue => e
         raise TaskerCore::Error, "Failed to create workflow step: #{e.message}"
       end

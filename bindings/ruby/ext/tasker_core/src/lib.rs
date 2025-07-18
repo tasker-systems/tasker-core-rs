@@ -82,6 +82,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // 🎯 NEW: Register TestHelpers factory functions that maintain existing Ruby API
     handles::register_test_helpers_factory_functions(module)?;
 
+    // Register root-level performance functions that OrchestrationManager expects
+    performance::register_root_performance_functions(module)?;
+    
     // Register performance monitoring module
     let performance_module = module.define_module("Performance")?;
     performance::register_performance_functions(performance_module)?;

@@ -199,23 +199,34 @@ impl TestingFactory {
     /// This method encapsulates all the logic for creating a test workflow step,
     /// including creating dependent entities (tasks, named steps) as needed.
     pub async fn create_workflow_step(&self, options: serde_json::Value) -> serde_json::Value {
-        // Get or create task_id (mimicking WorkflowStepFactory pattern)
-        let task_id = if let Some(id) = options.get("task_id").and_then(|v| v.as_i64()) {
-            id
-        } else {
-            // Create a dummy task if none provided
-            match create_dummy_task(self.pool()).await {
-                Ok(task) => task.task_id,
-                Err(e) => {
+        // Require task_id (don't create dummy tasks)
+        let task_id = match options.get("task_id") {
+            Some(val) => {
+                // Handle both integer and float representations
+                if let Some(id) = val.as_i64() {
+                    println!("🔍 FACTORY: Using provided task_id (int): {}", id);
+                    id
+                } else if let Some(id) = val.as_f64() {
+                    let id = id as i64;
+                    println!("🔍 FACTORY: Using provided task_id (float): {}", id);
+                    id
+                } else {
                     return json!({
-                        "error": format!("Failed to create task for step: {}", e)
+                        "error": "task_id must be a number"
                     });
                 }
+            },
+            None => {
+                return json!({
+                    "error": "task_id is required for workflow step creation"
+                });
             }
         };
 
-        // Extract step name from options
-        let step_name = options.get("step_name").and_then(|v| v.as_str()).unwrap_or("test_step");
+        // Extract step name from options (check both "name" and "step_name" for compatibility)
+        let step_name = options.get("name").and_then(|v| v.as_str())
+            .or_else(|| options.get("step_name").and_then(|v| v.as_str()))
+            .unwrap_or("test_step");
 
         // Create or find named step using provided name
         let named_step = match create_or_find_named_step(self.pool(), step_name).await {
@@ -243,22 +254,27 @@ impl TestingFactory {
             skippable: Some(false),
         };
 
+        println!("🔍 FACTORY: About to create WorkflowStep with task_id: {}", task_id);
+
         // Create workflow step using core model
         match WorkflowStep::create(self.pool(), new_step).await {
-            Ok(step) => json!({
-                "workflow_step_id": step.workflow_step_id,
-                "task_id": step.task_id,
-                "named_step_id": step.named_step_id,
-                "name": named_step.name,
-                "retryable": step.retryable,
-                "retry_limit": step.retry_limit,
-                "inputs": step.inputs,
-                "results": step.results,
-                "in_process": step.in_process,
-                "processed": step.processed,
-                "skippable": step.skippable,
-                "created_by": "testing_factory"
-            }),
+            Ok(step) => {
+                println!("🔍 FACTORY: Created WorkflowStep with task_id: {}, expected: {}", step.task_id, task_id);
+                json!({
+                    "workflow_step_id": step.workflow_step_id,
+                    "task_id": step.task_id,
+                    "named_step_id": step.named_step_id,
+                    "name": named_step.name,
+                    "retryable": step.retryable,
+                    "retry_limit": step.retry_limit,
+                    "inputs": step.inputs,
+                    "results": step.results,
+                    "in_process": step.in_process,
+                    "processed": step.processed,
+                    "skippable": step.skippable,
+                    "created_by": "testing_factory"
+                })
+            },
             Err(e) => json!({
                 "error": format!("Failed to create workflow step: {}", e)
             })
@@ -277,24 +293,24 @@ impl TestingFactory {
         let pattern = options.get("pattern").and_then(|v| v.as_str()).unwrap_or("linear");
         let task_name = options.get("task_name").and_then(|v| v.as_str()).unwrap_or("complex_workflow");
         let namespace_name = options.get("namespace").and_then(|v| v.as_str()).unwrap_or("default");
-        
+
         // First create the task
         let task_options = json!({
             "name": task_name,
             "namespace": namespace_name,
             "context": options.get("context").cloned().unwrap_or(json!({"workflow_pattern": pattern}))
         });
-        
+
         let task_result = self.create_task(task_options).await;
         if let Some(error) = task_result.get("error") {
             return task_result;
         }
-        
+
         let task_id = match task_result.get("task_id").and_then(|v| v.as_i64()) {
             Some(id) => id,
             None => return json!({"error": "Failed to get task_id from created task"})
         };
-        
+
         // Create steps based on pattern
         let step_ids = match pattern {
             "linear" => self.create_linear_steps(task_id).await,
@@ -303,7 +319,7 @@ impl TestingFactory {
             "tree" => self.create_tree_steps(task_id).await,
             _ => return json!({"error": format!("Unknown workflow pattern: {}", pattern)})
         };
-        
+
         match step_ids {
             Ok(ids) => json!({
                 "task_id": task_id,
@@ -317,15 +333,15 @@ impl TestingFactory {
             })
         }
     }
-    
+
     /// Create linear workflow steps: A -> B -> C -> D
     async fn create_linear_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
-        
+
         for i in 1..=4 {
             let step_name = format!("linear_step_{}", i);
             let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
-            
+
             let new_step = NewWorkflowStep {
                 task_id,
                 named_step_id: named_step.named_step_id,
@@ -337,9 +353,9 @@ impl TestingFactory {
                 })),
                 skippable: Some(false),
             };
-            
+
             let workflow_step = WorkflowStep::create(self.pool(), new_step).await?;
-            
+
             // Create dependency edge from previous step
             if i > 1 {
                 let edge = NewWorkflowStepEdge {
@@ -349,17 +365,17 @@ impl TestingFactory {
                 };
                 WorkflowStepEdge::create(self.pool(), edge).await?;
             }
-            
+
             step_ids.push(workflow_step.workflow_step_id);
         }
-        
+
         Ok(step_ids)
     }
-    
+
     /// Create diamond workflow steps: A -> (B, C) -> D
     async fn create_diamond_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
-        
+
         // Step A (start)
         let step_a = create_or_find_named_step(self.pool(), "diamond_start").await?;
         let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
@@ -371,12 +387,12 @@ impl TestingFactory {
             skippable: Some(false),
         }).await?;
         step_ids.push(ws_a.workflow_step_id);
-        
+
         // Steps B and C (branches)
         for letter in ['b', 'c'].iter() {
             let step_name = format!("diamond_branch_{}", letter);
             let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
-            
+
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
                 named_step_id: named_step.named_step_id,
@@ -385,17 +401,17 @@ impl TestingFactory {
                 inputs: Some(json!({"branch": letter.to_string()})),
                 skippable: Some(false),
             }).await?;
-            
+
             // Create edge from A to B/C
             WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
                 from_step_id: ws_a.workflow_step_id,
                 to_step_id: ws.workflow_step_id,
                 name: "provides".to_string(),
             }).await?;
-            
+
             step_ids.push(ws.workflow_step_id);
         }
-        
+
         // Step D (merge)
         let step_d = create_or_find_named_step(self.pool(), "diamond_merge").await?;
         let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
@@ -406,7 +422,7 @@ impl TestingFactory {
             inputs: Some(json!({"position": "merge"})),
             skippable: Some(false),
         }).await?;
-        
+
         // Create edges from B and C to D
         for i in 1..=2 {
             WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
@@ -415,20 +431,20 @@ impl TestingFactory {
                 name: "provides".to_string(),
             }).await?;
         }
-        
+
         step_ids.push(ws_d.workflow_step_id);
         Ok(step_ids)
     }
-    
+
     /// Create parallel workflow steps: (A, B, C) -> D
     async fn create_parallel_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
-        
+
         // Create parallel steps A, B, C
         for letter in ['a', 'b', 'c'].iter() {
             let step_name = format!("parallel_step_{}", letter);
             let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
-            
+
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
                 named_step_id: named_step.named_step_id,
@@ -437,10 +453,10 @@ impl TestingFactory {
                 inputs: Some(json!({"parallel_branch": letter.to_string()})),
                 skippable: Some(false),
             }).await?;
-            
+
             step_ids.push(ws.workflow_step_id);
         }
-        
+
         // Create merge step D
         let step_d = create_or_find_named_step(self.pool(), "parallel_merge").await?;
         let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
@@ -451,7 +467,7 @@ impl TestingFactory {
             inputs: Some(json!({"position": "merge", "depends_on_count": 3})),
             skippable: Some(false),
         }).await?;
-        
+
         // Create edges from all parallel steps to merge
         for i in 0..3 {
             WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
@@ -460,15 +476,15 @@ impl TestingFactory {
                 name: "provides".to_string(),
             }).await?;
         }
-        
+
         step_ids.push(ws_d.workflow_step_id);
         Ok(step_ids)
     }
-    
+
     /// Create tree workflow steps: A -> (B -> (D, E), C -> (F, G))
     async fn create_tree_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
-        
+
         // Root step A
         let step_a = create_or_find_named_step(self.pool(), "tree_root").await?;
         let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
@@ -480,12 +496,12 @@ impl TestingFactory {
             skippable: Some(false),
         }).await?;
         step_ids.push(ws_a.workflow_step_id);
-        
+
         // Branch steps B and C
         for (i, letter) in ['b', 'c'].iter().enumerate() {
             let step_name = format!("tree_branch_{}", letter);
             let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
-            
+
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
                 named_step_id: named_step.named_step_id,
@@ -494,22 +510,22 @@ impl TestingFactory {
                 inputs: Some(json!({"branch": letter.to_string()})),
                 skippable: Some(false),
             }).await?;
-            
+
             // Edge from A to B/C
             WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
                 from_step_id: ws_a.workflow_step_id,
                 to_step_id: ws.workflow_step_id,
                 name: "provides".to_string(),
             }).await?;
-            
+
             step_ids.push(ws.workflow_step_id);
-            
+
             // Create leaf steps for each branch
             let leaves = if i == 0 { ['d', 'e'] } else { ['f', 'g'] };
             for leaf in leaves.iter() {
                 let leaf_name = format!("tree_leaf_{}", leaf);
                 let leaf_step = create_or_find_named_step(self.pool(), &leaf_name).await?;
-                
+
                 let ws_leaf = WorkflowStep::create(self.pool(), NewWorkflowStep {
                     task_id,
                     named_step_id: leaf_step.named_step_id,
@@ -518,18 +534,18 @@ impl TestingFactory {
                     inputs: Some(json!({"leaf": leaf.to_string()})),
                     skippable: Some(false),
                 }).await?;
-                
+
                 // Edge from branch to leaf
                 WorkflowStepEdge::create(self.pool(), NewWorkflowStepEdge {
                     from_step_id: ws.workflow_step_id,
                     to_step_id: ws_leaf.workflow_step_id,
                     name: "provides".to_string(),
                 }).await?;
-                
+
                 step_ids.push(ws_leaf.workflow_step_id);
             }
         }
-        
+
         Ok(step_ids)
     }
 
@@ -638,7 +654,7 @@ impl TestingFactory {
                     to_step_id: workflow_step.workflow_step_id,
                     name: "provides".to_string(),
                 };
-                
+
                 if let Err(e) = WorkflowStepEdge::create(self.pool(), edge).await {
                     println!("Warning: Failed to create edge from {} to {}: {}", prev_id, workflow_step.workflow_step_id, e);
                 }

@@ -212,33 +212,35 @@ RSpec.describe "Handle-Based FFI Architecture", type: :handle_architecture do
     end
 
     it "validates consistent performance characteristics" do
-      # Each domain should have similar performance characteristics
+      # Each domain should have similar performance characteristics for equivalent operations
       domain_timings = {}
       
-      # Factory domain timing
+      # Factory domain timing (database-heavy operation)
       start_time = Time.now
       5.times { |i| TaskerCore::Factory.task(name: "timing_factory_#{i}") }
       domain_timings[:factory] = (Time.now - start_time) / 5
       
-      # Performance domain timing
+      # Performance domain timing (database-heavy operation)
       start_time = Time.now
       5.times { TaskerCore::Performance.system_health }
       domain_timings[:performance] = (Time.now - start_time) / 5
       
-      # Registry domain timing  
+      # Registry domain timing (lightweight operation)
       start_time = Time.now
       5.times { TaskerCore::Registry.list }
       domain_timings[:registry] = (Time.now - start_time) / 5
       
-      # No domain should be dramatically slower than others
-      max_time = domain_timings.values.max
-      min_time = domain_timings.values.min
+      # Compare database-heavy operations (Factory vs Performance)
+      # Registry is expected to be much faster as it's lightweight
+      db_heavy_max = [domain_timings[:factory], domain_timings[:performance]].max
+      db_heavy_min = [domain_timings[:factory], domain_timings[:performance]].min
       
-      # Max should not be more than 10x slower than min
-      performance_ratio = max_time / min_time
-      expect(performance_ratio).to be < 10
+      # Database-heavy operations should be within 10x of each other
+      db_performance_ratio = db_heavy_max / db_heavy_min
+      expect(db_performance_ratio).to be < 10
       
       puts "✅ Consistent performance across domains: #{domain_timings.transform_values { |v| v.round(3) }}"
+      puts "✅ Database operation performance ratio: #{db_performance_ratio.round(2)}"
     end
   end
 

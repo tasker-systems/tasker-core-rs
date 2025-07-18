@@ -60,6 +60,16 @@ module TaskerCore
         raise TaskerCore::Error, "Failed to discover viable steps: #{e.message}"
       end
 
+      # Alias for backwards compatibility with tests
+      # @param task_id [Integer] Task ID to discover steps for
+      # @return [Array<Hash>] List of viable steps with readiness information
+      # @raise [TaskerCore::Error] If step discovery fails
+      def discover_viable_steps(task_id)
+        viable_steps(task_id)
+      rescue => e
+        raise TaskerCore::Error, "Failed to discover viable steps: #{e.message}"
+      end
+
       # Get handle information for debugging
       # @return [Hash] Handle status and metadata
       def handle_info

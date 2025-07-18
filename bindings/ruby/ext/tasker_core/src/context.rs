@@ -241,14 +241,15 @@ pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error>
             vec.push(json_item);
         }
         Ok(serde_json::Value::Array(vec))
-    } else if let Ok(int) = i64::try_convert(ruby_value) {
-        Ok(serde_json::Value::Number(serde_json::Number::from(int)))
     } else if let Ok(float) = f64::try_convert(ruby_value) {
+        // Try float conversion first to preserve precision for decimals
         if let Some(num) = serde_json::Number::from_f64(float) {
             Ok(serde_json::Value::Number(num))
         } else {
             Ok(serde_json::Value::Null)
         }
+    } else if let Ok(int) = i64::try_convert(ruby_value) {
+        Ok(serde_json::Value::Number(serde_json::Number::from(int)))
     } else if let Ok(bool_val) = bool::try_convert(ruby_value) {
         Ok(serde_json::Value::Bool(bool_val))
     } else {
