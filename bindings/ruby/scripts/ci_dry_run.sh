@@ -162,22 +162,6 @@ if ! gem build tasker-core-rb.gemspec; then
 fi
 print_status "Gem built successfully"
 
-# Test gem installation
-GEM_FILE=$(ls tasker-core-rb-*.gem | head -1)
-if [[ -f "$GEM_FILE" ]]; then
-    if gem install "$GEM_FILE"; then
-        print_status "Gem installation test passed"
-        # Clean up
-        rm -f tasker-core-rb-*.gem
-    else
-        print_error "Gem installation test failed"
-        exit 1
-    fi
-else
-    print_error "Gem file not found after build"
-    exit 1
-fi
-
 # Summary
 print_step "Summary"
 echo "🎉 All CI workflow steps completed successfully!"

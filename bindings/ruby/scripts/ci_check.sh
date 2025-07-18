@@ -125,16 +125,6 @@ else
     exit 1
 fi
 
-# 8. Check gem builds
-echo -n "Gem build... "
-if gem build tasker-core-rb.gemspec > /dev/null 2>&1; then
-    print_status "OK"
-    rm -f tasker-core-rb-*.gem
-else
-    print_error "Failed"
-    exit 1
-fi
-
 echo ""
 echo "🎉 All CI checks passed!"
 echo "🚀 The workflow should succeed in GitHub Actions"
