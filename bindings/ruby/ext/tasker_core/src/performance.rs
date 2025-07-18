@@ -6,7 +6,6 @@
 
 use magnus::{Error, Module, RArray, RHash, RModule, RString, Ruby, Value};
 use magnus::value::ReprValue;
-use sqlx::PgPool;
 use tasker_core::database::sql_functions::SqlFunctionExecutor;
 use crate::context::json_to_ruby_value;
 

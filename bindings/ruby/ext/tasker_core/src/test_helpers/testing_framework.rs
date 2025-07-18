@@ -256,8 +256,8 @@ impl TestingFramework {
 /// These functions provide Ruby FFI access to the TestingFramework
 /// while maintaining proper pool coordination.
 
-use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use magnus::{Error, RModule, Ruby, Value};
+use crate::context::json_to_ruby_value;
+use magnus::{Error, RModule, Value};
 
 /// Create a new TestingFramework instance
 ///
@@ -265,7 +265,7 @@ use magnus::{Error, RModule, Ruby, Value};
 /// and returns a status report for Ruby integration.
 /// ✅ HANDLE-BASED: Create testing framework using OrchestrationHandle
 pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
     let result = crate::globals::execute_async(async {
@@ -297,7 +297,7 @@ pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Resu
 /// using the TestingFramework's managed approach.
 /// ✅ HANDLE-BASED: Setup test environment using OrchestrationHandle
 pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
     let result = crate::globals::execute_async(async {
@@ -331,7 +331,7 @@ pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result
 /// coordinated approach.
 /// ✅ HANDLE-BASED: Cleanup test environment using OrchestrationHandle
 pub fn cleanup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
     let result = crate::globals::execute_async(async {

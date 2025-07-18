@@ -16,7 +16,7 @@ fn publish_simple_event_with_handle_wrapper(
     handle_value: Value,
     event_data_value: Value,
 ) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     
     let event_data = ruby_value_to_json(event_data_value)
@@ -58,7 +58,7 @@ fn publish_orchestration_event_with_handle_wrapper(
     handle_value: Value,
     event_data_value: Value,
 ) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let event_data = ruby_value_to_json(event_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid event data: {}", e)))?;
@@ -159,7 +159,7 @@ fn subscribe_to_events_with_handle_wrapper(
     handle_value: Value,
     subscription_data_value: Value,
 ) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let subscription_data = ruby_value_to_json(subscription_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid subscription data: {}", e)))?;
@@ -197,7 +197,7 @@ fn subscribe_to_events_with_handle_wrapper(
 
 /// ✅ HANDLE-BASED: Get event publisher statistics using OrchestrationHandle
 fn get_event_stats_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let result = execute_async(async {
         // Use handle's persistent event publisher - NO global lookup!
@@ -230,7 +230,7 @@ fn register_external_event_callback_with_handle_wrapper(
     handle_value: Value,
     callback_data_value: Value,
 ) -> Result<Value, Error> {
-    use magnus::{TryConvert, IntoValue};
+    use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
     let callback_data = ruby_value_to_json(callback_data_value)
         .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid callback data: {}", e)))?;

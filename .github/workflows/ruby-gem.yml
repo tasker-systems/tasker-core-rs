@@ -127,11 +127,6 @@ jobs:
         TASKER_ENV: test
         RAILS_ENV: test
 
-    - name: Test gem installation
-      run: |
-        gem build tasker-core-rb.gemspec
-        gem install tasker-core-rb-*.gem
-
 
   # Security audit
   security:

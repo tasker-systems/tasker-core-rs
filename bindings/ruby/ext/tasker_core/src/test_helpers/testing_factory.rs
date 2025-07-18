@@ -13,7 +13,7 @@
 //! 3. **Same Patterns**: Use identical patterns as Rust integration tests
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use magnus::{Error, RModule, Ruby, Value};
+use magnus::{Error, RModule, Value};
 
 // Import core models directly (available from main crate)
 use tasker_core::models::{
@@ -29,7 +29,7 @@ use tasker_core::models::{
     }
 };
 
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use serde_json::json;
 use std::sync::OnceLock;
 use std::sync::Arc;
@@ -223,13 +223,23 @@ impl TestingFactory {
             }
         };
 
+        let dependent_system_name = options.get("dependent_system").and_then(|v| v.as_str()).unwrap_or("default_system");
+        let dependent_system = match create_or_find_dependent_system(self.pool(), dependent_system_name, dependent_system_name).await {
+            Ok(ds) => ds,
+            Err(e) => {
+                return json!({
+                    "error": format!("Failed to create dependent system: {}", e)
+                });
+            }
+        };
+
         // Extract step name from options (check both "name" and "step_name" for compatibility)
         let step_name = options.get("name").and_then(|v| v.as_str())
             .or_else(|| options.get("step_name").and_then(|v| v.as_str()))
             .unwrap_or("test_step");
 
         // Create or find named step using provided name
-        let named_step = match create_or_find_named_step(self.pool(), step_name).await {
+        let named_step = match create_or_find_named_step(self.pool(), step_name, dependent_system.dependent_system_id).await {
             Ok(ns) => ns,
             Err(e) => {
                 return json!({
@@ -293,11 +303,22 @@ impl TestingFactory {
         let pattern = options.get("pattern").and_then(|v| v.as_str()).unwrap_or("linear");
         let task_name = options.get("task_name").and_then(|v| v.as_str()).unwrap_or("complex_workflow");
         let namespace_name = options.get("namespace").and_then(|v| v.as_str()).unwrap_or("default");
+        let version = options.get("version").and_then(|v| v.as_str()).unwrap_or("0.1.0");
+        let dependent_system_name = options.get("dependent_system").and_then(|v| v.as_str()).unwrap_or("default_system");
+        let dependent_system = match create_or_find_dependent_system(self.pool(), dependent_system_name, dependent_system_name).await {
+            Ok(ds) => ds,
+            Err(e) => {
+                return json!({
+                    "error": format!("Failed to create dependent system: {}", e)
+                });
+            }
+        };
 
         // First create the task
         let task_options = json!({
             "name": task_name,
             "namespace": namespace_name,
+            "version": version,
             "context": options.get("context").cloned().unwrap_or(json!({"workflow_pattern": pattern}))
         });
 
@@ -313,10 +334,10 @@ impl TestingFactory {
 
         // Create steps based on pattern
         let step_ids = match pattern {
-            "linear" => self.create_linear_steps(task_id).await,
-            "diamond" => self.create_diamond_steps(task_id).await,
-            "parallel" => self.create_parallel_steps(task_id).await,
-            "tree" => self.create_tree_steps(task_id).await,
+            "linear" => self.create_linear_steps(task_id, dependent_system.dependent_system_id).await,
+            "diamond" => self.create_diamond_steps(task_id, dependent_system.dependent_system_id).await,
+            "parallel" => self.create_parallel_steps(task_id, dependent_system.dependent_system_id).await,
+            "tree" => self.create_tree_steps(task_id, dependent_system.dependent_system_id).await,
             _ => return json!({"error": format!("Unknown workflow pattern: {}", pattern)})
         };
 
@@ -335,12 +356,12 @@ impl TestingFactory {
     }
 
     /// Create linear workflow steps: A -> B -> C -> D
-    async fn create_linear_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    async fn create_linear_steps(&self, task_id: i64, dependent_system_id: i32) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
 
         for i in 1..=4 {
             let step_name = format!("linear_step_{}", i);
-            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            let named_step = create_or_find_named_step(self.pool(), &step_name, dependent_system_id).await?;
 
             let new_step = NewWorkflowStep {
                 task_id,
@@ -373,11 +394,11 @@ impl TestingFactory {
     }
 
     /// Create diamond workflow steps: A -> (B, C) -> D
-    async fn create_diamond_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    async fn create_diamond_steps(&self, task_id: i64, dependent_system_id: i32) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
 
         // Step A (start)
-        let step_a = create_or_find_named_step(self.pool(), "diamond_start").await?;
+        let step_a = create_or_find_named_step(self.pool(), "diamond_start", dependent_system_id).await?;
         let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
             task_id,
             named_step_id: step_a.named_step_id,
@@ -391,7 +412,7 @@ impl TestingFactory {
         // Steps B and C (branches)
         for letter in ['b', 'c'].iter() {
             let step_name = format!("diamond_branch_{}", letter);
-            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            let named_step = create_or_find_named_step(self.pool(), &step_name, dependent_system_id).await?;
 
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
@@ -413,7 +434,7 @@ impl TestingFactory {
         }
 
         // Step D (merge)
-        let step_d = create_or_find_named_step(self.pool(), "diamond_merge").await?;
+        let step_d = create_or_find_named_step(self.pool(), "diamond_merge", dependent_system_id).await?;
         let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
             task_id,
             named_step_id: step_d.named_step_id,
@@ -437,13 +458,13 @@ impl TestingFactory {
     }
 
     /// Create parallel workflow steps: (A, B, C) -> D
-    async fn create_parallel_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    async fn create_parallel_steps(&self, task_id: i64, dependent_system_id: i32) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
 
         // Create parallel steps A, B, C
         for letter in ['a', 'b', 'c'].iter() {
             let step_name = format!("parallel_step_{}", letter);
-            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            let named_step = create_or_find_named_step(self.pool(), &step_name, dependent_system_id).await?;
 
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
@@ -458,7 +479,7 @@ impl TestingFactory {
         }
 
         // Create merge step D
-        let step_d = create_or_find_named_step(self.pool(), "parallel_merge").await?;
+        let step_d = create_or_find_named_step(self.pool(), "parallel_merge", dependent_system_id).await?;
         let ws_d = WorkflowStep::create(self.pool(), NewWorkflowStep {
             task_id,
             named_step_id: step_d.named_step_id,
@@ -482,11 +503,11 @@ impl TestingFactory {
     }
 
     /// Create tree workflow steps: A -> (B -> (D, E), C -> (F, G))
-    async fn create_tree_steps(&self, task_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    async fn create_tree_steps(&self, task_id: i64, dependent_system_id: i32) -> Result<Vec<i64>, sqlx::Error> {
         let mut step_ids = Vec::new();
 
         // Root step A
-        let step_a = create_or_find_named_step(self.pool(), "tree_root").await?;
+        let step_a = create_or_find_named_step(self.pool(), "tree_root", dependent_system_id).await?;
         let ws_a = WorkflowStep::create(self.pool(), NewWorkflowStep {
             task_id,
             named_step_id: step_a.named_step_id,
@@ -500,7 +521,7 @@ impl TestingFactory {
         // Branch steps B and C
         for (i, letter) in ['b', 'c'].iter().enumerate() {
             let step_name = format!("tree_branch_{}", letter);
-            let named_step = create_or_find_named_step(self.pool(), &step_name).await?;
+            let named_step = create_or_find_named_step(self.pool(), &step_name, dependent_system_id).await?;
 
             let ws = WorkflowStep::create(self.pool(), NewWorkflowStep {
                 task_id,
@@ -524,7 +545,7 @@ impl TestingFactory {
             let leaves = if i == 0 { ['d', 'e'] } else { ['f', 'g'] };
             for leaf in leaves.iter() {
                 let leaf_name = format!("tree_leaf_{}", leaf);
-                let leaf_step = create_or_find_named_step(self.pool(), &leaf_name).await?;
+                let leaf_step = create_or_find_named_step(self.pool(), &leaf_name, dependent_system_id).await?;
 
                 let ws_leaf = WorkflowStep::create(self.pool(), NewWorkflowStep {
                     task_id,
@@ -569,6 +590,17 @@ impl TestingFactory {
         let pattern = options.get("pattern")
             .and_then(|v| v.as_str())
             .unwrap_or("linear");
+        let dependent_system_name = options.get("dependent_system")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default_system");
+        let dependent_system = match create_or_find_dependent_system(self.pool(), dependent_system_name, dependent_system_name).await {
+            Ok(ds) => ds,
+            Err(e) => {
+                return json!({
+                    "error": format!("Failed to create dependent system: {}", e)
+                });
+            }
+        };
 
         // Create foundation data
         let namespace = match create_or_find_namespace(self.pool(), namespace_name, "Test namespace created by Ruby helper").await {
@@ -617,7 +649,7 @@ impl TestingFactory {
 
         for i in 1..=step_count {
             let step_name = format!("foundation_step_{}", i);
-            let named_step = match create_or_find_named_step(self.pool(), &step_name).await {
+            let named_step = match create_or_find_named_step(self.pool(), &step_name, dependent_system.dependent_system_id).await {
                 Ok(ns) => ns,
                 Err(e) => {
                     return json!({
@@ -751,7 +783,7 @@ async fn create_or_find_named_task(pool: &PgPool, name: &str, namespace_id: i64,
     NamedTask::create(pool, new_named_task).await
 }
 
-async fn create_or_find_named_step(pool: &PgPool, name: &str) -> Result<NamedStep, sqlx::Error> {
+async fn create_or_find_named_step(pool: &PgPool, name: &str, dependent_system_id: i32) -> Result<NamedStep, sqlx::Error> {
     // Try to find existing step first
     let existing_steps = NamedStep::find_by_name(pool, name).await?;
     if let Some(existing) = existing_steps.first() {
@@ -760,7 +792,7 @@ async fn create_or_find_named_step(pool: &PgPool, name: &str) -> Result<NamedSte
 
     // Create new named step
     let new_named_step = NewNamedStep {
-        dependent_system_id: 1, // Default system ID for testing
+        dependent_system_id: dependent_system_id, // Default system ID for testing
         name: name.to_string(),
         description: Some(format!("Test step: {}", name)),
     };

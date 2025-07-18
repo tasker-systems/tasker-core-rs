@@ -31,7 +31,6 @@ use tasker_core::orchestration::errors::OrchestrationResult;
 use tasker_core::models::core::workflow_step::WorkflowStep;
 use tasker_core::models::core::task::Task;
 use tracing::{debug, warn};
-use sqlx::PgPool;
 
 /// Ruby step handler that implements the Rust StepHandler trait
 ///

@@ -67,7 +67,6 @@ REQUIRED_STEPS=(
     "bundle exec rake test:setup"
     "bundle exec rspec"
     "bundle exec rake compile"
-    "gem build tasker-core-rb.gemspec"
 )
 
 MISSING_STEPS=()

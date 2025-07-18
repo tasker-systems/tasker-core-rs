@@ -3,9 +3,9 @@
 //! **DEVELOPMENT ONLY**: Database migration and cleanup functions for test isolation.
 
 use crate::context::json_to_ruby_value;
-use magnus::{Error, RModule, Ruby, TryConvert, Value};
+use sqlx::Row;
+use magnus::{Error, RModule, TryConvert, Value};
 use tasker_core::database::migrations::DatabaseMigrations;
-use sqlx::{PgPool, Row};
 use std::time::SystemTime;
 
 /// Sequential database setup wrapper - uses single pool for entire operation
