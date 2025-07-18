@@ -62,9 +62,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // These classes eliminate JSON serialization overhead
     // The #[magnus::wrap] attribute with free_immediately handles Ruby class registration
     ffi_converters::TaskMetadata::define(ruby, &module)?;
-    
+
     // Register additional Magnus wrapped classes
-    let ruby = magnus::Ruby::get().unwrap();
     let workflow_step_input_class = module.define_class("WorkflowStepInput", ruby.class_object())?;
     let complex_workflow_input_class = module.define_class("ComplexWorkflowInput", ruby.class_object())?;
     let factory_result_class = module.define_class("FactoryResult", ruby.class_object())?;
@@ -92,7 +91,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // Register root-level performance functions that OrchestrationManager expects
     performance::register_root_performance_functions(module)?;
-    
+
     // Register performance monitoring module
     let performance_module = module.define_module("Performance")?;
     performance::register_performance_functions(performance_module)?;
