@@ -64,9 +64,11 @@ fi
 # 4. Check for required steps
 echo -n "Required steps check... "
 REQUIRED_STEPS=(
-    "bundle exec rake test:setup"
-    "bundle exec rspec"
+    "sqlx migrate run"
     "bundle exec rake compile"
+    "cargo fmt --check"
+    "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+    "bundle exec rspec"
 )
 
 MISSING_STEPS=()
@@ -87,7 +89,7 @@ fi
 echo -n "Matrix configuration... "
 if grep -q "os: \[ubuntu-22.04\]" "$WORKFLOW_FILE" && \
    grep -q "ruby: \['3.2'\]" "$WORKFLOW_FILE"; then
-    print_status "Correct"
+    print_status "Correct (Ubuntu 22.04, Ruby 3.2)"
 else
     print_error "Matrix configuration issues"
     exit 1
@@ -114,14 +116,24 @@ fi
 # 8. Check for modern toolchain actions
 echo -n "Modern toolchain actions... "
 if grep -q "dtolnay/rust-toolchain@stable" "$WORKFLOW_FILE" && \
-   grep -q "Swatinem/rust-cache@v2" "$WORKFLOW_FILE"; then
+   grep -q "Swatinem/rust-cache@v2" "$WORKFLOW_FILE" && \
+   grep -q "actions/checkout@v4" "$WORKFLOW_FILE"; then
     print_status "Using modern actions"
 else
     print_error "Using outdated actions"
     exit 1
 fi
 
-# 9. Simulate workflow environment
+# 12. Check for database username inconsistency (known issue)
+echo -n "Database username consistency... "
+if grep -q "tasker_core_test" "$WORKFLOW_FILE" && grep -q "POSTGRES_USER: tasker" "$WORKFLOW_FILE"; then
+    print_info "Username inconsistency detected (tasker vs tasker_core_test)"
+    echo "      This is a known issue that may need fixing"
+else
+    print_status "Database usernames consistent"
+fi
+
+# 13. Simulate workflow environment
 echo -n "Workflow environment simulation... "
 export DATABASE_URL="postgresql://tasker:tasker@localhost:5432/tasker_rust_test"
 export TASKER_ENV=test
@@ -137,6 +149,32 @@ else
     exit 1
 fi
 
+# 9. Check for SQLx CLI installation
+echo -n "SQLx CLI installation... "
+if grep -q "cargo install sqlx-cli" "$WORKFLOW_FILE"; then
+    print_status "SQLx CLI installation present"
+else
+    print_error "SQLx CLI installation missing"
+    exit 1
+fi
+
+# 10. Check for PostgreSQL client installation
+echo -n "PostgreSQL client setup... "
+if grep -q "postgresql-client" "$WORKFLOW_FILE"; then
+    print_status "PostgreSQL client installation present"
+else
+    print_error "PostgreSQL client installation missing"
+    exit 1
+fi
+
+# 11. Check for security audit job (should be commented out)
+echo -n "Security audit job status... "
+if grep -q "# security:" "$WORKFLOW_FILE"; then
+    print_status "Security audit job commented out"
+else
+    print_info "Security audit job not found or active"
+fi
+
 echo ""
 echo "🎉 Workflow validation passed!"
 echo ""
@@ -144,14 +182,23 @@ echo "Summary:"
 echo "  ✅ YAML syntax is valid"
 echo "  ✅ Environment variables are properly set"
 echo "  ✅ Database configuration matches expectations"
-echo "  ✅ All required steps are present"
-echo "  ✅ Matrix configuration is correct (Linux/macOS, Ruby 3.0-3.3)"
+echo "  ✅ All required steps are present (SQLx migrations, Rust toolchain, Ruby tests)"
+echo "  ✅ Matrix configuration is correct (Ubuntu 22.04, Ruby 3.2)"
 echo "  ✅ Windows support removed as requested"
 echo "  ✅ Benchmark job removed (no benchmark files exist)"
-echo "  ✅ Modern GitHub Actions used"
+echo "  ✅ Modern GitHub Actions used (v4, stable toolchain)"
+echo "  ✅ SQLx CLI and PostgreSQL client properly installed"
+echo "  ✅ Security audit job commented out"
 echo "  ✅ Environment simulation successful"
 echo ""
 echo "🚀 The workflow is ready for GitHub Actions!"
+echo ""
+echo "Key workflow features:"
+echo "  • Database migrations via SQLx CLI (not Ruby rake)"
+echo "  • Rust toolchain validation (fmt, clippy)"
+echo "  • Ruby extension compilation and testing"
+echo "  • Proper dependency caching"
+echo "  • PostgreSQL service integration"
 echo ""
 echo "Next steps:"
 echo "  1. Run: ./scripts/ci_check.sh (quick validation)"

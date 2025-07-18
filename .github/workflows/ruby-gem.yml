@@ -95,19 +95,29 @@ jobs:
         done
         echo "PostgreSQL is ready"
 
-    - name: Build Ruby extension
+    - name: Install PostgreSQL client
       run: |
-        bundle exec rake compile
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
+
+    - name: Install SQLx CLI
+      run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+    - name: Set up database
+      run: |
+        until pg_isready -h localhost -p 5432 -U tasker_core_test; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        sqlx migrate run
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
         TASKER_ENV: test
         RAILS_ENV: test
 
-    - name: Set up Ruby test environment
+    - name: Build Ruby extension
       run: |
-        # Run Ruby-specific test setup (includes schema setup and verification)
-        # This mirrors what developers would run locally
-        bundle exec rake test:setup
+        bundle exec rake compile
       env:
         DATABASE_URL: ${{ env.DATABASE_URL }}
         TASKER_ENV: test
