@@ -1088,11 +1088,11 @@ pub async fn get_task_execution_context(
     handle: &crate::handles::OrchestrationHandle,
     task_id: i64,
 ) -> Result<RubyTaskExecutionContext, Error> {
-    // Validate handle before use
-    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+    // Use validate_or_refresh for production resilience - auto-recover from expired handles
+    let validated_handle = handle.validate_or_refresh().map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Handle validation/refresh failed: {}", e)))?;
 
-    // Use handle's persistent database pool - NO global lookup!
-    let pool = handle.database_pool();
+    // Use validated handle's persistent database pool - NO global lookup!
+    let pool = validated_handle.database_pool();
     let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real Rust function that uses SQL functions for high-performance analysis
@@ -1138,11 +1138,11 @@ pub async fn discover_viable_steps(
     handle: &crate::handles::OrchestrationHandle,
     task_id: i64,
 ) -> Result<RArray, Error> {
-    // Validate handle before use
-    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+    // Use validate_or_refresh for production resilience - auto-recover from expired handles
+    let validated_handle = handle.validate_or_refresh().map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Handle validation/refresh failed: {}", e)))?;
 
-    // Use handle's persistent database pool - NO global lookup!
-    let pool = handle.database_pool();
+    // Use validated handle's persistent database pool - NO global lookup!
+    let pool = validated_handle.database_pool();
     let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real high-performance Rust dependency resolution
@@ -1179,11 +1179,11 @@ pub async fn discover_viable_steps(
 pub async fn get_system_health(
     handle: &crate::handles::OrchestrationHandle,
 ) -> Result<RubySystemHealth, Error> {
-    // Validate handle before use
-    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+    // Use validate_or_refresh for production resilience - auto-recover from expired handles
+    let validated_handle = handle.validate_or_refresh().map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Handle validation/refresh failed: {}", e)))?;
 
-    // Use handle's persistent database pool - NO global lookup!
-    let pool = handle.database_pool();
+    // Use validated handle's persistent database pool - NO global lookup!
+    let pool = validated_handle.database_pool();
     let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Call the real Rust system health function
@@ -1218,13 +1218,13 @@ pub async fn get_analytics_metrics(
     handle: &crate::handles::OrchestrationHandle,
     time_range_hours: Option<i32>,
 ) -> Result<RubyAnalyticsMetrics, Error> {
-    // Validate handle before use
-    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
-    
+    // Use validate_or_refresh for production resilience - auto-recover from expired handles
+    let validated_handle = handle.validate_or_refresh().map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Handle validation/refresh failed: {}", e)))?;
+
     let hours = time_range_hours.unwrap_or(24);
 
-    // Use handle's persistent database pool - NO global lookup!
-    let pool = handle.database_pool();
+    // Use validated handle's persistent database pool - NO global lookup!
+    let pool = validated_handle.database_pool();
     let executor = SqlFunctionExecutor::new(pool.clone());
 
     // Calculate time range for analytics
@@ -1364,11 +1364,11 @@ pub async fn analyze_dependencies(
     handle: &crate::handles::OrchestrationHandle,
     task_id: i64,
 ) -> Result<RubyDependencyAnalysis, Error> {
-    // Validate handle before use
-    handle.validate().map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+    // Use validate_or_refresh for production resilience - auto-recover from expired handles
+    let validated_handle = handle.validate_or_refresh().map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Handle validation/refresh failed: {}", e)))?;
 
-    // Use handle's persistent database pool - NO global lookup or runtime creation!
-    let pool = handle.database_pool();
+    // Use validated handle's persistent database pool - NO global lookup or runtime creation!
+    let pool = validated_handle.database_pool();
     let executor = SqlFunctionExecutor::new(pool.clone());
 
         // Get dependency levels for the task
@@ -1434,11 +1434,11 @@ pub fn analyze_dependencies_with_handle_wrapper(
 ) -> Result<Value, Error> {
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         analyze_dependencies(handle, task_id).await
     });
-    
+
     match result {
         Ok(analysis) => {
             // RubyDependencyAnalysis implements IntoValue via magnus::wrap
@@ -1455,11 +1455,11 @@ pub fn get_task_execution_context_with_handle_wrapper(
 ) -> Result<Value, Error> {
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         get_task_execution_context(handle, task_id).await
     });
-    
+
     match result {
         Ok(context) => {
             // RubyTaskExecutionContext implements IntoValue via magnus::wrap
@@ -1477,11 +1477,11 @@ pub fn discover_viable_steps_with_handle_wrapper(
     debug!("🎯 REGULAR WRAPPER: discover_viable_steps_with_handle_wrapper called with task_id: {}", task_id);
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         discover_viable_steps(handle, task_id).await
     });
-    
+
     match result {
         Ok(steps) => {
             // RArray implements IntoValue
@@ -1497,11 +1497,11 @@ pub fn get_system_health_with_handle_wrapper(
 ) -> Result<Value, Error> {
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         get_system_health(handle).await
     });
-    
+
     match result {
         Ok(health) => {
             // RubySystemHealth implements IntoValue via magnus::wrap
@@ -1518,18 +1518,18 @@ pub fn get_analytics_metrics_with_handle_wrapper(
 ) -> Result<Value, Error> {
     use magnus::{TryConvert, IntoValue};
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     // Extract time_range_hours from Ruby value (can be nil)
     let time_range_hours: Option<i32> = if time_range_hours_value.is_nil() {
         None
     } else {
         Some(TryConvert::try_convert(time_range_hours_value)?)
     };
-    
+
     let result = crate::globals::execute_async(async {
         get_analytics_metrics(handle, time_range_hours).await
     });
-    
+
     match result {
         Ok(metrics) => {
             // RubyAnalyticsMetrics implements IntoValue via magnus::wrap
@@ -1545,11 +1545,18 @@ pub fn get_analytics_metrics_with_handle_wrapper(
 pub fn analyze_dependencies_convenience_wrapper(task_id: i64) -> Result<Value, Error> {
     // Get the singleton OrchestrationHandle
     let handle = crate::handles::OrchestrationHandle::get_global();
-    
-    let result = crate::globals::execute_async(async {
-        analyze_dependencies(&handle, task_id).await
-    });
-    
+
+    let result = match handle {
+        Ok(handle) => {
+            crate::globals::execute_async(async {
+                analyze_dependencies(&handle, task_id).await
+            })
+        },
+        Err(e) => {
+            return Err(Error::new(magnus::exception::runtime_error(), format!("Dependency analysis failed: {}", e)));
+        }
+    };
+
     match result {
         Ok(analysis) => {
             // Return as Hash for Ruby test compatibility
@@ -1581,17 +1588,24 @@ pub fn analyze_dependencies_convenience_wrapper(task_id: i64) -> Result<Value, E
 pub fn discover_viable_steps_convenience_wrapper(task_id: i64) -> Result<Value, Error> {
     // Get the singleton OrchestrationHandle
     let handle = crate::handles::OrchestrationHandle::get_global();
-    
-    let result = crate::globals::execute_async(async {
-        discover_viable_steps(&handle, task_id).await
-    });
-    
+
+    let result = match handle {
+        Ok(handle) => {
+            crate::globals::execute_async(async {
+                discover_viable_steps(&handle, task_id).await
+            })
+        },
+        Err(e) => {
+            return Err(Error::new(magnus::exception::runtime_error(), format!("Discover viable steps failed: {}", e)));
+        }
+    };
+
     match result {
         Ok(steps_array) => {
             // Convert RArray to Ruby Array of Hashes for test compatibility
             let steps_count = steps_array.len();
             let mut steps_json = Vec::new();
-            
+
             for i in 0..steps_count {
                 if let Ok(step_value) = steps_array.entry::<Value>(i as isize) {
                     // If it's a RubyViableStep object, convert it to a hash
@@ -1603,7 +1617,7 @@ pub fn discover_viable_steps_convenience_wrapper(task_id: i64) -> Result<Value, 
                     }));
                 }
             }
-            
+
             json_to_ruby_value(serde_json::json!({
                 "steps": steps_json,
                 "count": steps_count,
@@ -1625,11 +1639,18 @@ pub fn discover_viable_steps_convenience_wrapper(task_id: i64) -> Result<Value, 
 pub fn system_health_convenience_wrapper() -> Result<Value, Error> {
     // Get the singleton OrchestrationHandle
     let handle = crate::handles::OrchestrationHandle::get_global();
-    
-    let result = crate::globals::execute_async(async {
-        get_system_health(&handle).await
-    });
-    
+
+    let result = match handle {
+        Ok(handle) => {
+            crate::globals::execute_async(async {
+                get_system_health(&handle).await
+            })
+        },
+        Err(e) => {
+            return Err(Error::new(magnus::exception::runtime_error(), format!("System health check failed: {}", e)));
+        }
+    };
+
     match result {
         Ok(health) => {
             // Return as Hash for Ruby test compatibility
@@ -1662,11 +1683,11 @@ pub fn system_health_convenience_wrapper() -> Result<Value, Error> {
 pub fn get_system_health_hash_wrapper(handle_value: Value) -> Result<Value, Error> {
     use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         get_system_health(handle).await
     });
-    
+
     match result {
         Ok(health) => {
             // Return as Hash instead of Ruby SystemHealth object
@@ -1702,18 +1723,18 @@ pub fn get_analytics_metrics_hash_wrapper(
 ) -> Result<Value, Error> {
     use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     // Extract time_range_hours from Ruby value (can be nil)
     let time_range_hours: Option<i32> = if time_range_hours_value.is_nil() {
         None
     } else {
         Some(TryConvert::try_convert(time_range_hours_value)?)
     };
-    
+
     let result = crate::globals::execute_async(async {
         get_analytics_metrics(handle, time_range_hours).await
     });
-    
+
     match result {
         Ok(metrics) => {
             // Return as Hash instead of Ruby AnalyticsMetrics object
@@ -1750,17 +1771,17 @@ pub fn discover_viable_steps_hash_wrapper(
     debug!("🎯 HASH WRAPPER: discover_viable_steps_hash_wrapper called with task_id: {}", task_id);
     use magnus::TryConvert;
     let handle: &crate::handles::OrchestrationHandle = TryConvert::try_convert(handle_value)?;
-    
+
     let result = crate::globals::execute_async(async {
         discover_viable_steps(handle, task_id).await
     });
-    
+
     match result {
         Ok(steps_array) => {
             // Convert RArray to Ruby Array of Hashes for test compatibility
             let steps_count = steps_array.len();
             let mut steps_json = Vec::new();
-            
+
             for i in 0..steps_count {
                 if let Ok(step_value) = steps_array.entry::<Value>(i as isize) {
                     // If it's a RubyViableStep object, convert it to a hash
@@ -1773,12 +1794,12 @@ pub fn discover_viable_steps_hash_wrapper(
                     }));
                 }
             }
-            
-            // Return just the array of steps for test compatibility  
+
+            // Return just the array of steps for test compatibility
             json_to_ruby_value(serde_json::Value::Array(steps_json))
         },
         Err(e) => {
-            // Return empty array on error for test compatibility  
+            // Return empty array on error for test compatibility
             json_to_ruby_value(serde_json::Value::Array(vec![]))
         }
     }
@@ -1791,7 +1812,7 @@ pub fn register_root_performance_functions(root_module: RModule) -> Result<(), m
         "discover_viable_steps_with_handle",
         magnus::function!(discover_viable_steps_hash_wrapper, 2),
     )?;
-    
+
     Ok(())
 }
 
@@ -1803,23 +1824,23 @@ pub fn register_performance_functions(performance_module: RModule) -> Result<(),
         "analyze_dependencies_with_handle",
         magnus::function!(analyze_dependencies_with_handle_wrapper, 2),
     )?;
-    
+
     performance_module.define_module_function(
         "get_task_execution_context_with_handle",
         magnus::function!(get_task_execution_context_with_handle_wrapper, 2),
     )?;
-    
+
     performance_module.define_module_function(
         "discover_viable_steps_with_handle",
         magnus::function!(discover_viable_steps_with_handle_wrapper, 2),
     )?;
-    
+
     // ✅ CRITICAL FIX: Register Hash-returning versions for OrchestrationManager compatibility
     performance_module.define_module_function(
         "get_system_health_with_handle",
         magnus::function!(get_system_health_hash_wrapper, 1),
     )?;
-    
+
     performance_module.define_module_function(
         "get_analytics_metrics_with_handle",
         magnus::function!(get_analytics_metrics_hash_wrapper, 2),
@@ -1830,12 +1851,12 @@ pub fn register_performance_functions(performance_module: RModule) -> Result<(),
         "analyze_dependencies",
         magnus::function!(analyze_dependencies_convenience_wrapper, 1),
     )?;
-    
+
     performance_module.define_module_function(
         "discover_viable_steps",
         magnus::function!(discover_viable_steps_convenience_wrapper, 1),
     )?;
-    
+
     performance_module.define_module_function(
         "system_health",
         magnus::function!(system_health_convenience_wrapper, 0),

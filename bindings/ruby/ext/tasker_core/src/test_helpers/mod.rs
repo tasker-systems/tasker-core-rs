@@ -26,17 +26,16 @@ pub mod testing_framework;
 
 use magnus::{Error, Module, RModule};
 
-/// Register test helper functions - always available, Rails gem controls exposure
-pub fn register_test_helper_functions(module: RModule) -> Result<(), Error> {
-    let test_helpers_module = module.define_module("TestHelpers")?;
-    // Register factory wrapper functions
-    testing_factory::register_factory_functions(test_helpers_module)?;
-
+/// Register test helper functions - accepts TestHelpers module directly for proper namespace organization
+pub fn register_test_helper_functions(test_helpers_module: RModule) -> Result<(), Error> {
+    // Register factory wrapper functions directly in TestHelpers module
+    testing_factory::register_factory_functions(&test_helpers_module)?;
 
     // Register database cleanup functions
     database_cleanup::register_cleanup_functions(test_helpers_module)?;
 
-    let testing_framework_module = module.define_module("TestingFramework")?;
+    // Create TestingFramework submodule under TestHelpers
+    let testing_framework_module = test_helpers_module.define_module("TestingFramework")?;
     // Register testing framework functions
     testing_framework::register_testing_framework_functions(testing_framework_module)?;
 

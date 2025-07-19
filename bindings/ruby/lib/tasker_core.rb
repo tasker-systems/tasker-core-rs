@@ -264,6 +264,12 @@ module TaskerCore
       raise TaskerCore::OrchestrationError, "Failed to get analytics: #{e.message}"
     end
 
+    def get_analytics_for_task(task_id)
+      TaskerCore::Analytics.get_analytics_for_task(@database_url, task_id)
+    rescue TaskerCore::DatabaseError => e
+      raise TaskerCore::OrchestrationError, "Failed to get analytics: #{e.message}"
+    end
+
     # Analyze task dependencies for optimization insights
     # @param task_id [Integer] The task ID
     # @return [TaskerCore::DependencyAnalysis] Comprehensive dependency analysis

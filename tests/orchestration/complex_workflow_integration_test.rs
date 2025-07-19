@@ -1,4 +1,4 @@
-use serde_json::{json, Value as JsonValue};
+use serde_json::json;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -8,7 +8,7 @@ use tokio;
 use tasker_core::models::core::task_request::TaskRequest;
 use tasker_core::orchestration::{
     types::StepResult, FrameworkIntegration, OrchestrationError, TaskContext, TaskInitializer,
-    ViableStep, WorkflowCoordinator,
+    WorkflowCoordinator,
 };
 /// Helper function to create a task using TaskInitializer with consistent setup
 async fn create_test_task_with_initializer(
@@ -93,40 +93,6 @@ impl MockFrameworkIntegration {
 
 #[async_trait::async_trait]
 impl FrameworkIntegration for MockFrameworkIntegration {
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        _context: &TaskContext,
-    ) -> Result<StepResult, OrchestrationError> {
-        // Log execution for test validation
-        self.execution_log.lock().unwrap().push(StepExecution {
-            step_id: step.step_id,
-            step_name: step.name.clone(),
-            started_at: chrono::Utc::now(),
-        });
-
-        // Apply configured delay
-        if let Some(delay) = self.step_delays.get(&step.name) {
-            tokio::time::sleep(*delay).await;
-        }
-
-        // Return configured result or default success
-        Ok(self
-            .step_results
-            .get(&step.name)
-            .cloned()
-            .unwrap_or_else(|| StepResult {
-                step_id: step.step_id,
-                status: tasker_core::orchestration::types::StepStatus::Completed,
-                output: json!({"mock": true}),
-                execution_duration: Duration::from_millis(50),
-                error_message: None,
-                retry_after: None,
-                error_code: None,
-                error_context: None,
-            }))
-    }
-
     fn framework_name(&self) -> &'static str {
         "MockFramework"
     }
@@ -146,43 +112,6 @@ impl FrameworkIntegration for MockFrameworkIntegration {
     ) -> Result<(), OrchestrationError> {
         Ok(())
     }
-
-    async fn mark_task_failed(
-        &self,
-        _task_id: i64,
-        _error: &str,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        _step_id: i64,
-        _state: &str,
-        _result: Option<&JsonValue>,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-}
-
-/// Test database setup helper
-#[allow(dead_code)]
-pub async fn setup_test_db() -> PgPool {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://localhost/tasker_test".to_string());
-
-    let pool = PgPool::connect(&database_url).await.unwrap();
-
-    // Run migrations
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-    // Clean up any existing test data
-    sqlx::query("TRUNCATE workflow_step_transitions, task_transitions, workflow_step_edges, workflow_steps, tasks CASCADE")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    pool
 }
 
 #[sqlx::test]

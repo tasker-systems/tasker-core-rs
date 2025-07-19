@@ -487,7 +487,7 @@ impl WorkflowCoordinator {
         let viable_steps_payload = self.events_manager.create_viable_steps_discovered_payload(
             task_id,
             &step_ids,
-            "sequential", // TODO: Determine actual processing mode
+            "concurrent", // TODO: Determine actual processing mode
         );
 
         debug!(

@@ -137,9 +137,7 @@ module TaskerCore
           raise NotImplementedError, 'handle method must be implemented by subclass (Rust handler not available)'
         end
 
-        # Pass both task_id AND the task config for thread-safe, pure functional operation
-        # This ensures each task execution gets its own configuration
-        @rust_handler.handle(task.task_id, @task_config)
+        @rust_handler.handle(task.task_id)
       end
 
       # Delegate other BaseTaskHandler methods to maintain interface compatibility

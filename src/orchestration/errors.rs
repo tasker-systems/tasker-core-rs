@@ -38,7 +38,10 @@ pub enum OrchestrationError {
     },
 
     /// Database operation failed
-    DatabaseError { operation: String, reason: String },
+    DatabaseError {
+        operation: String,
+        reason: String,
+    },
 
     /// State transition failed
     StateTransitionFailed {
@@ -62,7 +65,10 @@ pub enum OrchestrationError {
     },
 
     /// Registry operation failed
-    RegistryError { operation: String, reason: String },
+    RegistryError {
+        operation: String,
+        reason: String,
+    },
 
     /// Handler not found in registry
     HandlerNotFound {
@@ -71,14 +77,28 @@ pub enum OrchestrationError {
         version: String,
     },
 
+    StepHandlerNotFound {
+        step_id: i64,
+        reason: String,
+    },
+
     /// Configuration error
-    ConfigurationError { source: String, reason: String },
+    ConfigurationError {
+        source: String,
+        reason: String,
+    },
 
     /// YAML parsing error
-    YamlParsingError { file_path: String, reason: String },
+    YamlParsingError {
+        file_path: String,
+        reason: String,
+    },
 
     /// Event publishing error
-    EventPublishingError { event_type: String, reason: String },
+    EventPublishingError {
+        event_type: String,
+        reason: String,
+    },
 
     /// SQL function execution error
     SqlFunctionError {
@@ -87,10 +107,15 @@ pub enum OrchestrationError {
     },
 
     /// Step state machine not found
-    StepStateMachineNotFound { step_id: i64 },
+    StepStateMachineNotFound {
+        step_id: i64,
+    },
 
     /// Dependency resolution error
-    DependencyResolutionError { task_id: i64, reason: String },
+    DependencyResolutionError {
+        task_id: i64,
+        reason: String,
+    },
 
     /// Timeout error
     TimeoutError {
@@ -99,13 +124,22 @@ pub enum OrchestrationError {
     },
 
     /// Validation error
-    ValidationError { field: String, reason: String },
+    ValidationError {
+        field: String,
+        reason: String,
+    },
 
     /// FFI bridge error
-    FfiBridgeError { operation: String, reason: String },
+    FfiBridgeError {
+        operation: String,
+        reason: String,
+    },
 
     /// Framework integration error
-    FrameworkIntegrationError { framework: String, reason: String },
+    FrameworkIntegrationError {
+        framework: String,
+        reason: String,
+    },
 
     /// Step execution error (from StepExecutor)
     ExecutionError(ExecutionError),
@@ -378,6 +412,9 @@ impl fmt::Display for OrchestrationError {
             }
             OrchestrationError::ExecutionError(err) => {
                 write!(f, "Step execution error: {err}")
+            }
+            OrchestrationError::StepHandlerNotFound { step_id, reason } => {
+                write!(f, "Step handler not found for step {step_id}: {reason}")
             }
         }
     }

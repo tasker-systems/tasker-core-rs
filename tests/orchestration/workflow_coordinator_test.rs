@@ -2,13 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tasker_core::orchestration::errors::OrchestrationError;
-use tasker_core::orchestration::types::{
-    FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
-};
+use tasker_core::orchestration::types::{FrameworkIntegration, TaskContext};
 use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 use tasker_core::orchestration::TaskOrchestrationResult;
 
 /// Mock framework for testing workflow coordination
+#[allow(dead_code)]
 struct MockWorkflowFramework {
     steps_executed: Arc<tokio::sync::Mutex<Vec<i64>>>,
     should_fail: bool,
@@ -25,46 +24,6 @@ impl MockWorkflowFramework {
 
 #[async_trait::async_trait]
 impl FrameworkIntegration for MockWorkflowFramework {
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        _task_context: &TaskContext,
-    ) -> Result<StepResult, OrchestrationError> {
-        // Track execution
-        let mut executed = self.steps_executed.lock().await;
-        executed.push(step.step_id);
-
-        // Simulate execution
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        let status = if self.should_fail {
-            StepStatus::Failed
-        } else {
-            StepStatus::Completed
-        };
-
-        Ok(StepResult {
-            step_id: step.step_id,
-            status,
-            output: serde_json::json!({
-                "message": format!("Step {} executed by mock framework", step.step_id)
-            }),
-            execution_duration: Duration::from_millis(10),
-            error_message: if self.should_fail {
-                Some("Mock failure".to_string())
-            } else {
-                None
-            },
-            retry_after: None,
-            error_code: if self.should_fail {
-                Some("MOCK_ERROR".to_string())
-            } else {
-                None
-            },
-            error_context: None,
-        })
-    }
-
     fn framework_name(&self) -> &'static str {
         "mock_workflow_framework"
     }
@@ -84,23 +43,6 @@ impl FrameworkIntegration for MockWorkflowFramework {
         &self,
         _task_id: i64,
         _delay: Option<Duration>,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn mark_task_failed(
-        &self,
-        _task_id: i64,
-        _error: &str,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        _step_id: i64,
-        _state: &str,
-        _result: Option<&serde_json::Value>,
     ) -> Result<(), OrchestrationError> {
         Ok(())
     }
