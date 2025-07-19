@@ -33,12 +33,25 @@ mod context;
 mod error_translation;
 mod globals;
 mod handles;  // 🎯 NEW: Handle-based FFI architecture
-mod handlers;
-mod events;
-mod models;
 mod performance;
 mod test_helpers;
 mod types;
+
+// Direct handler imports (simplified from handlers/ module)
+mod handlers {
+    pub mod base_task_handler;
+    pub mod ruby_step_handler;
+}
+
+// Direct model imports (simplified from models/ module)
+mod models {
+    pub mod ruby_task;
+    pub mod ruby_step;
+    pub mod ruby_step_sequence;
+}
+
+// Direct import of event bridge (moved from events/ subdirectory)
+mod event_bridge;
 
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
@@ -75,8 +88,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     let workflow_step_input_class = module.define_class("WorkflowStepInput", ruby.class_object())?;
     let complex_workflow_input_class = module.define_class("ComplexWorkflowInput", ruby.class_object())?;
 
-    // Register event system FFI bridge
-    events::register_event_functions(module)?;
+    // Note: Event functions moved to Events:: namespace for better organization
 
     // Register RubyStepHandler wrapper class
     handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
@@ -96,8 +108,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // 🎯 EVENTS: Organize all event functionality under Events:: namespace
     let events_module = module.define_module("Events")?;
-    events::register_event_functions(events_module)?;
-    events::event_bridge::register_event_functions(events_module)?;
+    event_bridge::register_event_functions(events_module)?;
 
     // 🎯 TESTHELPERS: Organize all testing utilities under TestHelpers:: namespace
     let test_helpers_module = module.define_module("TestHelpers")?;

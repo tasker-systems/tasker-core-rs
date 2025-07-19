@@ -23,7 +23,9 @@
 //! StepExecutor during workflow execution.
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use crate::models::{RubyTask, RubyStep, RubyStepSequence};
+use crate::models::ruby_task::RubyTask;
+use crate::models::ruby_step::RubyStep;
+use crate::models::ruby_step_sequence::RubyStepSequence;
 use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
 use magnus::{Ruby, Value, Error, RModule, Module, Object, function, method};
 use magnus::value::ReprValue;
