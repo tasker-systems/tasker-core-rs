@@ -20,6 +20,7 @@
 //! - Error handling and result processing
 //! - Metrics collection and monitoring
 
+use crate::events::publisher::EventPublisher;
 use crate::orchestration::backoff_calculator::{BackoffCalculator, BackoffContext};
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult, StepExecutionError};
@@ -44,8 +45,11 @@ pub struct StepExecutionOrchestrator {
     /// State machine for step lifecycle management
     state_machine: Option<Arc<StepStateMachine>>,
 
-    /// System events manager for event publishing
+    /// System events manager for event metadata and validation
     events_manager: Option<Arc<SystemEventsManager>>,
+
+    /// Event publisher for actual event publishing
+    event_publisher: Option<EventPublisher>,
 }
 
 impl StepExecutionOrchestrator {
@@ -56,6 +60,7 @@ impl StepExecutionOrchestrator {
             backoff_calculator: None,
             state_machine: None,
             events_manager: None,
+            event_publisher: None,
         }
     }
 
@@ -80,6 +85,17 @@ impl StepExecutionOrchestrator {
     /// Set system events manager for event publishing (mutating version)
     pub fn set_events_manager(&mut self, events_manager: Arc<SystemEventsManager>) {
         self.events_manager = Some(events_manager);
+    }
+
+    /// Set event publisher for actual event publishing
+    pub fn with_event_publisher(mut self, event_publisher: EventPublisher) -> Self {
+        self.event_publisher = Some(event_publisher);
+        self
+    }
+
+    /// Set event publisher for actual event publishing (mutating version)
+    pub fn set_event_publisher(&mut self, event_publisher: EventPublisher) {
+        self.event_publisher = Some(event_publisher);
     }
 
     /// Execute a step with full lifecycle management
@@ -172,14 +188,24 @@ impl StepExecutionOrchestrator {
                 context.step_name
             );
 
-            // TODO: Integrate with EventPublisher to actually publish the event
-            // For now, we just create the payload for validation
+            // Validate the payload first
             if let Err(e) = events_manager.config().validate_event_payload(
                 "step",
                 "before_handle",
                 &before_handle_payload,
             ) {
                 warn!("Event payload validation failed: {}", e);
+                return;
+            }
+
+            // Publish the event if we have a publisher
+            if let Some(ref publisher) = self.event_publisher {
+                if let Err(e) = publisher
+                    .publish("step.before_handle", before_handle_payload)
+                    .await
+                {
+                    warn!("Failed to publish before_handle event: {}", e);
+                }
             }
         }
     }
@@ -324,13 +350,22 @@ impl StepExecutionOrchestrator {
                 );
 
                 debug!("Publishing step completed event for: {}", context.step_name);
-                // TODO: Integrate with EventPublisher to actually publish the event
+
+                // Validate the payload first
                 if let Err(e) = events_manager.config().validate_event_payload(
                     "step",
                     "completed",
                     &completed_payload,
                 ) {
                     warn!("Step completed event validation failed: {}", e);
+                    return;
+                }
+
+                // Publish the event if we have a publisher
+                if let Some(ref publisher) = self.event_publisher {
+                    if let Err(e) = publisher.publish("step.completed", completed_payload).await {
+                        warn!("Failed to publish step completed event: {}", e);
+                    }
                 }
             } else if let Some(error) = &result.error {
                 let failed_payload = events_manager.create_step_failed_payload(
@@ -338,18 +373,27 @@ impl StepExecutionOrchestrator {
                     context.step_id,
                     &context.step_name,
                     &error.to_string(),
-                    "StepExecutionError", // TODO: Get actual error class
+                    error.error_class(),
                     context.attempt_number,
                 );
 
                 debug!("Publishing step failed event for: {}", context.step_name);
-                // TODO: Integrate with EventPublisher to actually publish the event
+
+                // Validate the payload first
                 if let Err(e) = events_manager.config().validate_event_payload(
                     "step",
                     "failed",
                     &failed_payload,
                 ) {
                     warn!("Step failed event validation failed: {}", e);
+                    return;
+                }
+
+                // Publish the event if we have a publisher
+                if let Some(ref publisher) = self.event_publisher {
+                    if let Err(e) = publisher.publish("step.failed", failed_payload).await {
+                        warn!("Failed to publish step failed event: {}", e);
+                    }
                 }
             }
         }
@@ -502,6 +546,7 @@ impl StepExecutionOrchestratorBuilder {
             backoff_calculator: self.backoff_calculator,
             state_machine: self.state_machine,
             events_manager: self.events_manager,
+            event_publisher: None, // Can be set later using set_event_publisher
         }
     }
 }

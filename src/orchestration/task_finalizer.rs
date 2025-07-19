@@ -761,19 +761,29 @@ impl TaskFinalizer {
         }
     }
 
-    // Event publishing methods (placeholder implementations)
+    // Event publishing methods - Real implementations using EventPublisher
     async fn publish_finalization_started(
         &self,
         task_id: i64,
         processed_steps: &[WorkflowStep],
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
-        println!(
-            "TaskFinalizer: Finalization started for task {} with {} processed steps",
-            task_id,
-            processed_steps.len()
-        );
-        // TODO: Implement actual event publishing
+        use serde_json::json;
+
+        // Publish generic event for task finalization started
+        self.event_publisher
+            .publish(
+                "task.finalization.started",
+                json!({
+                    "task_id": task_id,
+                    "processed_steps_count": processed_steps.len(),
+                    "step_ids": processed_steps.iter().map(|s| s.workflow_step_id).collect::<Vec<_>>(),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+            )
+            .await
+            .map_err(|e| FinalizationError::EventPublishing(format!("Failed to publish finalization started event: {e}")))?;
+
         Ok(())
     }
 
@@ -783,12 +793,22 @@ impl TaskFinalizer {
         processed_steps: &[WorkflowStep],
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
-        println!(
-            "TaskFinalizer: Finalization completed for task {} with {} processed steps",
-            task_id,
-            processed_steps.len()
-        );
-        // TODO: Implement actual event publishing
+        use serde_json::json;
+
+        // Publish generic event for task finalization completed
+        self.event_publisher
+            .publish(
+                "task.finalization.completed",
+                json!({
+                    "task_id": task_id,
+                    "processed_steps_count": processed_steps.len(),
+                    "step_ids": processed_steps.iter().map(|s| s.workflow_step_id).collect::<Vec<_>>(),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+            )
+            .await
+            .map_err(|e| FinalizationError::EventPublishing(format!("Failed to publish finalization completed event: {e}")))?;
+
         Ok(())
     }
 
@@ -797,8 +817,42 @@ impl TaskFinalizer {
         task_id: i64,
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
-        println!("TaskFinalizer: Task {task_id} completed successfully");
-        // TODO: Implement actual event publishing
+        use crate::events::types::{Event, OrchestrationEvent, TaskResult};
+        use serde_json::json;
+
+        // Publish structured orchestration event for task completion
+        let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationCompleted {
+            task_id,
+            result: TaskResult::Success,
+            completed_at: chrono::Utc::now(),
+        });
+
+        self.event_publisher
+            .publish_event(event)
+            .await
+            .map_err(|e| {
+                FinalizationError::EventPublishing(format!(
+                    "Failed to publish task completed event: {e}"
+                ))
+            })?;
+
+        // Also publish generic event for broader observability
+        self.event_publisher
+            .publish(
+                "task.completed",
+                json!({
+                    "task_id": task_id,
+                    "status": "success",
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+            )
+            .await
+            .map_err(|e| {
+                FinalizationError::EventPublishing(format!(
+                    "Failed to publish task completed generic event: {e}"
+                ))
+            })?;
+
         Ok(())
     }
 
@@ -807,8 +861,44 @@ impl TaskFinalizer {
         task_id: i64,
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
-        println!("TaskFinalizer: Task {task_id} failed");
-        // TODO: Implement actual event publishing
+        use crate::events::types::{Event, OrchestrationEvent, TaskResult};
+        use serde_json::json;
+
+        // Publish structured orchestration event for task failure
+        let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationCompleted {
+            task_id,
+            result: TaskResult::Failed {
+                error: "Task finalization determined task failed".to_string(),
+            },
+            completed_at: chrono::Utc::now(),
+        });
+
+        self.event_publisher
+            .publish_event(event)
+            .await
+            .map_err(|e| {
+                FinalizationError::EventPublishing(format!(
+                    "Failed to publish task failed event: {e}"
+                ))
+            })?;
+
+        // Also publish generic event for broader observability
+        self.event_publisher
+            .publish(
+                "task.failed",
+                json!({
+                    "task_id": task_id,
+                    "status": "failed",
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+            )
+            .await
+            .map_err(|e| {
+                FinalizationError::EventPublishing(format!(
+                    "Failed to publish task failed generic event: {e}"
+                ))
+            })?;
+
         Ok(())
     }
 
@@ -818,8 +908,26 @@ impl TaskFinalizer {
         _context: &Option<TaskExecutionContext>,
         reason: &str,
     ) -> Result<(), FinalizationError> {
-        println!("TaskFinalizer: Task {task_id} set to pending - {reason}");
-        // TODO: Implement actual event publishing
+        use serde_json::json;
+
+        // Publish generic event for task pending transition
+        self.event_publisher
+            .publish(
+                "task.pending_transition",
+                json!({
+                    "task_id": task_id,
+                    "status": "pending",
+                    "reason": reason,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+            )
+            .await
+            .map_err(|e| {
+                FinalizationError::EventPublishing(format!(
+                    "Failed to publish task pending transition event: {e}"
+                ))
+            })?;
+
         Ok(())
     }
 }
@@ -841,6 +949,9 @@ pub enum FinalizationError {
 
     #[error("Context unavailable for task: {0}")]
     ContextUnavailable(i64),
+
+    #[error("Event publishing error: {0}")]
+    EventPublishing(String),
 }
 
 #[cfg(test)]

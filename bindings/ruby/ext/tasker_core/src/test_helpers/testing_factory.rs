@@ -10,6 +10,7 @@
 
 use magnus::{Error, RModule, Value, function};
 use magnus::error::Result as MagnusResult;
+use std::sync::Arc;
 use tracing::{info, debug};
 use crate::context::ruby_value_to_json;
 use tasker_core::ffi::shared::testing::{SharedTestingFactory, get_global_testing_factory};
@@ -37,7 +38,7 @@ pub fn create_test_task(options: Value) -> MagnusResult<Value> {
     };
 
     // Delegate to shared testing factory
-    let factory = get_global_testing_factory();
+    let factory: Arc<SharedTestingFactory> = get_global_testing_factory();
     let result = factory.create_test_task(input)
         .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test task creation failed: {}", e)))?;
 
@@ -179,7 +180,7 @@ pub fn register_factory_functions(module: &RModule) -> MagnusResult<()> {
 //
 // Previous file contained 1,100+ lines of duplicate logic including:
 // - Complete TestingFactory struct definition (100% duplicate)
-// - Task creation logic (90% duplicate)  
+// - Task creation logic (90% duplicate)
 // - Step creation logic (90% duplicate)
 // - Database pool management (100% duplicate)
 // - Environment setup/cleanup (85% duplicate)

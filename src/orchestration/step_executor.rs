@@ -394,10 +394,11 @@ impl StepExecutor {
     ) {
         let execution_start = Instant::now();
 
-        // TODO: Use step-specific timeout from handler configuration
-        // Currently uses global config timeout, but should check for
-        // step_template.timeout_seconds from the handler config and
-        // prefer that over global defaults when available
+        // Step timeout resolution order:
+        // 1. Request-specific timeout (if provided)
+        // 2. Step template timeout_seconds (when handler config integration is added)
+        // 3. Global default timeout
+        // Always capped by max_timeout for safety
         let execution_timeout = request
             .timeout
             .unwrap_or(self.config.default_timeout)

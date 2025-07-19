@@ -193,6 +193,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
             depends_on_step: None,
             depends_on_steps: None,
             custom_events: None,
+            timeout_seconds: None,
         },
         StepTemplate {
             name: "process".to_string(),
@@ -206,6 +207,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
             depends_on_step: Some("initialize".to_string()),
             depends_on_steps: None,
             custom_events: None,
+            timeout_seconds: None,
         },
         StepTemplate {
             name: "finalize".to_string(),
@@ -219,6 +221,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
             depends_on_step: Some("process".to_string()),
             depends_on_steps: None,
             custom_events: None,
+            timeout_seconds: None,
         },
     ];
 
@@ -335,14 +338,14 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
         WorkflowStep,
         r#"
         INSERT INTO tasker_workflow_steps (
-            task_id, named_step_id, retryable, retry_limit, inputs, skippable, 
-            in_process, processed, processed_at, attempts, last_attempted_at, 
+            task_id, named_step_id, retryable, retry_limit, inputs, skippable,
+            in_process, processed, processed_at, attempts, last_attempted_at,
             backoff_request_seconds, results, created_at, updated_at
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-        RETURNING 
+        RETURNING
             workflow_step_id, task_id, named_step_id, retryable, retry_limit, inputs, skippable,
-            in_process, processed, processed_at, attempts, last_attempted_at, 
+            in_process, processed, processed_at, attempts, last_attempted_at,
             backoff_request_seconds, results, created_at, updated_at
         "#,
         task_id,

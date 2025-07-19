@@ -420,6 +420,18 @@ impl fmt::Display for OrchestrationError {
     }
 }
 
+impl StepExecutionError {
+    /// Get the error class name for event publishing
+    pub fn error_class(&self) -> &'static str {
+        match self {
+            StepExecutionError::Permanent { .. } => "PermanentError",
+            StepExecutionError::Retryable { .. } => "RetryableError",
+            StepExecutionError::Timeout { .. } => "TimeoutError",
+            StepExecutionError::NetworkError { .. } => "NetworkError",
+        }
+    }
+}
+
 impl fmt::Display for StepExecutionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
