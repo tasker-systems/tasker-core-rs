@@ -5,7 +5,7 @@
 use magnus::{prelude::*, Error, Ruby};
 use tasker_core::models::core::workflow_step::WorkflowStep;
 use sqlx::PgPool;
-use crate::models::RubyStep;
+use crate::models::ruby_step::RubyStep;
 
 /// Ruby wrapper for step sequence data
 ///

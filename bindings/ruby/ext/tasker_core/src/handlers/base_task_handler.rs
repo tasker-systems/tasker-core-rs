@@ -4,247 +4,189 @@
 //! Ruby developers can subclass this to implement their task logic in lifecycle
 //! hooks, receiving simple Ruby arrays/hashes instead of complex Rust types.
 
-use crate::globals::{get_global_orchestration_system, execute_async};
-use crate::context::{json_to_ruby_value, ValidationConfig};
-use magnus::value::ReprValue;
-use magnus::{function, method, Error, Module, Object, RModule, Ruby, Value};
-use tracing::debug;
-use tasker_core::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
-use tasker_core::orchestration::task_enqueuer::{TaskEnqueuer, EnqueueRequest, EnqueuePriority};
-use tasker_core::models::core::task_template::TaskTemplate;
+use crate::context::ValidationConfig;
+use magnus::{function, Module, method, Error, RModule, Ruby, Value, Object};
+use crate::types::{TaskHandlerInitializeResult, TaskHandlerHandleResult};
+use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
+use tasker_core::ffi::shared::orchestration_system::execute_async;
 use tasker_core::models::core::task_request::TaskRequest;
-
+use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
+use tasker_core::orchestration::types::TaskOrchestrationResult;
+use tasker_core::orchestration::task_enqueuer::{EnqueuePriority, EnqueueRequest, TaskEnqueuer};
+use tasker_core::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
+use tasker_core::models::core::task::Task;
+use tracing::debug;
 
 /// Ruby wrapper for Rust BaseTaskHandler
 #[magnus::wrap(class = "TaskerCore::BaseTaskHandler")]
 pub struct BaseTaskHandler {
-    /// Task template for this handler
-    task_template: TaskTemplate,
-    /// Reference to the unified orchestration system
-    orchestration_system: std::sync::Arc<crate::globals::OrchestrationSystem>,
+    /// Reference to the shared orchestration handle
+    shared_handle: std::sync::Arc<SharedOrchestrationHandle>,
 }
 
 impl BaseTaskHandler {
-        /// Create a new BaseTaskHandler with a TaskTemplate
-    pub fn new(task_template: TaskTemplate) -> magnus::error::Result<Self> {
-        // 🎯 CRITICAL FIX: Use the singleton orchestration system 
-        // This prevents the "37 calls to initialize_unified_orchestration_system" problem
-        // by reusing the same orchestration system instance across all BaseTaskHandler instances
-        debug!("🔧 BaseTaskHandler::new() - reusing existing orchestration system singleton");
-        let orchestration_system = get_global_orchestration_system();
+    /// Create a new BaseTaskHandler with a TaskTemplate
+    pub fn new() -> magnus::error::Result<Self> {
+        // 🎯 SHARED ARCHITECTURE: Use the global shared handle
+        // This provides access to the shared orchestration system with persistent Arc references
+        debug!("🔧 BaseTaskHandler::new() - using shared orchestration handle");
+        let shared_handle = SharedOrchestrationHandle::get_global();
 
-        Ok(Self {
-            task_template,
-            orchestration_system,
-        })
-    }
-
-    /// Create a new BaseTaskHandler from JSON (for Ruby FFI)
-    pub fn new_from_json(task_template_json: Value) -> magnus::error::Result<Self> {
-        // Use strict validation for task template configuration
-        let validation_config = ValidationConfig {
-            max_string_length: 500,     // Reasonable for configuration fields
-            max_array_length: 50,       // Moderate array sizes for configs
-            max_object_depth: 3,        // Task templates shouldn't be deeply nested
-            max_object_keys: 20,        // Reasonable for task template fields
-            max_numeric_value: 1e9,     // Large but reasonable for configuration values
-            min_numeric_value: -1e9,
-        };
-        
-        let task_template_data = crate::context::ruby_value_to_json_with_validation(task_template_json, &validation_config)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task template validation failed: {}", e)))?;
-
-        // For stateless handler pattern, allow empty config
-        // The actual config will be passed per-call in handle() method
-        let task_template = if task_template_data.is_object() && task_template_data.as_object().map(|o| o.is_empty()).unwrap_or(false) {
-            // Create a minimal valid TaskTemplate for stateless operation
-            TaskTemplate {
-                name: "stateless_handler".to_string(),
-                module_namespace: Some("Stateless".to_string()),
-                task_handler_class: "StatelessHandler".to_string(),
-                namespace_name: "stateless".to_string(),
-                version: "1.0.0".to_string(),
-                default_dependent_system: None,
-                named_steps: vec![],
-                schema: None,
-                step_templates: vec![],
-                environments: None,
-                default_context: None,
-                default_options: None,
-            }
-        } else {
-            // Parse the provided template normally
-            serde_json::from_value(task_template_data)
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskTemplate: {}", e)))?
-        };
-
-        Self::new(task_template)
+        Ok(Self { shared_handle })
     }
 
     /// Initialize task from TaskRequest - this is the critical method from RUBY.md
-    pub fn initialize_task(&self, task_request_value: Value) -> magnus::error::Result<Value> {
+    pub fn initialize_task(&self, task_request_value: Value) -> magnus::error::Result<TaskHandlerInitializeResult> {
         let ruby = Ruby::get().unwrap();
 
         // Use strict validation for task request data
         let validation_config = ValidationConfig {
-            max_string_length: 1000,    // Reasonable for task request fields
-            max_array_length: 100,      // Moderate array sizes
-            max_object_depth: 4,        // Task requests can be somewhat nested
-            max_object_keys: 30,        // Reasonable for task request structure
-            max_numeric_value: 1e12,    // Large but reasonable for IDs and timestamps
+            max_string_length: 1000, // Reasonable for task request fields
+            max_array_length: 100,   // Moderate array sizes
+            max_object_depth: 4,     // Task requests can be somewhat nested
+            max_object_keys: 30,     // Reasonable for task request structure
+            max_numeric_value: 1e12, // Large but reasonable for IDs and timestamps
             min_numeric_value: -1e12,
         };
-        
-        // Convert Ruby value to JSON then to TaskRequest with validation
-        let task_request_json = crate::context::ruby_value_to_json_with_validation(task_request_value, &validation_config)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task request validation failed: {}", e)))?;
 
-        let task_request: TaskRequest = serde_json::from_value(task_request_json)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to parse TaskRequest: {}", e)))?;
+        // Convert Ruby value to JSON then to TaskRequest with validation
+        let task_request_json = crate::context::ruby_value_to_json_with_validation(
+            task_request_value,
+            &validation_config,
+        )
+        .map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Task request validation failed: {}", e),
+            )
+        })?;
+
+        let task_request: TaskRequest = serde_json::from_value(task_request_json).map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to parse TaskRequest: {}", e),
+            )
+        })?;
 
         // Use TaskInitializer to properly initialize the task
-        let orchestration_system = &self.orchestration_system;
-        let result = execute_async(async {
+        let orchestration_system = self.shared_handle.orchestration_system();
+        let result: Result<TaskHandlerInitializeResult, String> = execute_async(async {
             let task_initializer = TaskInitializer::with_state_manager(
-                orchestration_system.database_pool.clone(),
+                orchestration_system.database_pool().clone(),
                 TaskInitializationConfig::default(),
-                orchestration_system.event_publisher.clone()
+                orchestration_system.event_publisher.clone(),
             );
 
-            let initialization_result = task_initializer.create_task_from_request(task_request).await
+            let initialization_result = task_initializer
+                .create_task_from_request(task_request)
+                .await
                 .map_err(|e| format!("Task initialization failed: {}", e))?;
 
             // Get the created task for enqueuing
             let task = tasker_core::models::Task::find_by_id(
-                &orchestration_system.database_pool,
-                initialization_result.task_id
-            ).await.map_err(|e| format!("Failed to load created task: {}", e))?
+                orchestration_system.database_pool(),
+                initialization_result.task_id,
+            )
+            .await
+            .map_err(|e| format!("Failed to load created task: {}", e))?
             .ok_or_else(|| "Created task not found".to_string())?;
 
             // Use TaskEnqueuer to enqueue the task
-            let task_enqueuer = TaskEnqueuer::new(orchestration_system.database_pool.clone());
+            let task_enqueuer = TaskEnqueuer::new(orchestration_system.database_pool().clone());
             let enqueue_request = EnqueueRequest::new(task)
                 .with_reason("Task initialized and ready for processing")
                 .with_priority(EnqueuePriority::Normal);
 
-            task_enqueuer.enqueue(enqueue_request).await
+            task_enqueuer
+                .enqueue(enqueue_request)
+                .await
                 .map_err(|e| format!("Task enqueuing failed: {}", e))?;
 
-            Ok::<serde_json::Value, String>(serde_json::json!({
-                "status": "initialized",
-                "task_id": initialization_result.task_id,
-                "step_count": initialization_result.step_count,
-                "step_mapping": initialization_result.step_mapping,
-                "handler_config_name": initialization_result.handler_config_name
-            }))
+              Ok(TaskHandlerInitializeResult {
+                task_id: initialization_result.task_id,
+                step_count: initialization_result.step_count,
+                step_mapping: initialization_result.step_mapping,
+                handler_config_name: initialization_result.handler_config_name,
+              })
         });
 
         match result {
-            Ok(success_data) => json_to_ruby_value(success_data),
-            Err(error_msg) => {
-                Err(Error::new(magnus::exception::runtime_error(), error_msg))
-            }
+            Ok(success_data) => Ok(success_data),
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
         }
     }
 
     /// Handle task execution by task_id with per-call configuration
     /// This ensures thread safety by accepting config as a parameter rather than storing it
-    pub fn handle(&self, task_id: i64, task_config: Value) -> magnus::error::Result<Value> {
-        let orchestration_system = &self.orchestration_system;
-
-        // Convert Ruby task_config to JSON for logging/future use
-        let _config_json = match crate::context::ruby_value_to_json(task_config) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::warn!("Failed to parse task config: {}, using empty config", e);
-                serde_json::json!({})
-            }
-        };
-
-        // TODO: Pass config through to framework integration when needed
-        // For now, the config is available for future enhancements
+    pub fn handle(&self, task_id: i64) -> magnus::error::Result<TaskHandlerHandleResult> {
+        let orchestration_system = self.shared_handle.orchestration_system();
 
         // Delegate directly to the WorkflowCoordinator from our orchestration system
         let result = execute_async(async {
             let framework_integration = std::sync::Arc::new(BasicRubyFrameworkIntegration::new());
-            let task_result = orchestration_system.workflow_coordinator.execute_task_workflow(task_id, framework_integration).await
+            let task_result = orchestration_system
+                .workflow_coordinator
+                .execute_task_workflow(task_id, framework_integration)
+                .await
                 .map_err(|e| format!("Task execution failed: {}", e))?;
 
-            // Convert TaskOrchestrationResult to JSON
-            let result_json = match task_result {
-                tasker_core::orchestration::types::TaskOrchestrationResult::Complete {
-                    task_id,
-                    steps_executed,
-                    total_execution_time_ms
-                } => serde_json::json!({
-                    "status": "complete",
-                    "task_id": task_id,
-                    "steps_executed": steps_executed,
-                    "total_execution_time_ms": total_execution_time_ms
-                }),
-                tasker_core::orchestration::types::TaskOrchestrationResult::Failed {
-                    task_id,
-                    error,
-                    failed_steps
-                } => serde_json::json!({
-                    "status": "failed",
-                    "task_id": task_id,
-                    "error": error,
-                    "failed_steps": failed_steps
-                }),
-                tasker_core::orchestration::types::TaskOrchestrationResult::InProgress {
-                    task_id,
-                    steps_executed,
-                    next_poll_delay_ms
-                } => serde_json::json!({
-                    "status": "in_progress",
-                    "task_id": task_id,
-                    "steps_executed": steps_executed,
-                    "next_poll_delay_ms": next_poll_delay_ms
-                }),
-                tasker_core::orchestration::types::TaskOrchestrationResult::Blocked {
-                    task_id,
-                    blocking_reason
-                } => serde_json::json!({
-                    "status": "blocked",
-                    "task_id": task_id,
-                    "blocking_reason": blocking_reason
-                })
-            };
-
-            Ok::<serde_json::Value, String>(result_json)
+            // Convert TaskOrchestrationResult to TaskHandlerHandleResult
+            match task_result {
+                TaskOrchestrationResult::Complete { task_id, steps_executed, total_execution_time_ms } => {
+                    Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
+                        status: "complete".to_string(),
+                        task_id,
+                        steps_executed: Some(steps_executed),
+                        total_execution_time_ms: Some(total_execution_time_ms),
+                        failed_steps: None,
+                        blocking_reason: None,
+                        next_poll_delay_ms: None,
+                        error: None,
+                    })
+                },
+                TaskOrchestrationResult::Failed { task_id, error, failed_steps } => {
+                    Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
+                        status: "failed".to_string(),
+                        task_id,
+                        steps_executed: None,
+                        total_execution_time_ms: None,
+                        failed_steps: Some(failed_steps),
+                        blocking_reason: None,
+                        next_poll_delay_ms: None,
+                        error: Some(error),
+                    })
+                },
+                TaskOrchestrationResult::InProgress { task_id, steps_executed, next_poll_delay_ms } => {
+                    Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
+                        status: "in_progress".to_string(),
+                        task_id,
+                        steps_executed: Some(steps_executed),
+                        total_execution_time_ms: None,
+                        failed_steps: None,
+                        blocking_reason: None,
+                        next_poll_delay_ms: Some(next_poll_delay_ms),
+                        error: None,
+                    })
+                },
+                TaskOrchestrationResult::Blocked { task_id, blocking_reason } => {
+                    Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
+                        status: "blocked".to_string(),
+                        task_id,
+                        steps_executed: None,
+                        total_execution_time_ms: None,
+                        failed_steps: None,
+                        blocking_reason: Some(blocking_reason),
+                        next_poll_delay_ms: None,
+                        error: None,
+                    })
+                },
+            }
         });
 
         match result {
-            Ok(success_data) => json_to_ruby_value(success_data),
-            Err(error_msg) => {
-                Err(Error::new(magnus::exception::runtime_error(), error_msg))
-            }
+            Ok(success_data) => Ok(success_data),
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
         }
-    }
-
-    /// Hook for Ruby developers to override - called before task execution
-    pub fn initialize(&self, task_hash: Value) -> magnus::error::Result<Value> {
-        // Default implementation - Ruby subclasses will override this
-        let _ = task_hash; // Silence unused warning
-        let ruby = Ruby::get().unwrap();
-        Ok(ruby.qtrue().as_value())
-    }
-
-    /// Hook for Ruby developers to override - called before task execution
-    pub fn before_execute(&self, task_hash: Value) -> magnus::error::Result<Value> {
-        // Default implementation - Ruby subclasses will override this
-        let _ = task_hash; // Silence unused warning
-        let ruby = Ruby::get().unwrap();
-        Ok(ruby.qtrue().as_value())
-    }
-
-    /// Hook for Ruby developers to override - called after task execution
-    pub fn after_execute(&self, task_hash: Value) -> magnus::error::Result<Value> {
-        // Default implementation - Ruby subclasses will override this
-        let _ = task_hash; // Silence unused warning
-        let ruby = Ruby::get().unwrap();
-        Ok(ruby.qtrue().as_value())
     }
 
     /// Get handler capabilities - simple array of strings
@@ -268,71 +210,89 @@ impl BaseTaskHandler {
 pub fn register_base_task_handler(ruby: &Ruby, module: &RModule) -> magnus::error::Result<()> {
     let class = module.define_class("BaseTaskHandler", ruby.class_object())?;
 
-    class.define_singleton_method("new", function!(BaseTaskHandler::new_from_json, 1))?;
-    class.define_method("initialize_task", method!(BaseTaskHandler::initialize_task, 1))?;
-    class.define_method("handle", method!(BaseTaskHandler::handle, 2))?;  // Now accepts task_id and task_config
-    class.define_method("initialize", method!(BaseTaskHandler::initialize, 1))?;
-    class.define_method("before_execute", method!(BaseTaskHandler::before_execute, 1))?;
-    class.define_method("after_execute", method!(BaseTaskHandler::after_execute, 1))?;
+    class.define_singleton_method("new", function!(BaseTaskHandler::new, 0))?;
+    class.define_method(
+        "initialize_task",
+        method!(BaseTaskHandler::initialize_task, 1),
+    )?;
+    class.define_method("handle", method!(BaseTaskHandler::handle, 1))?;
     class.define_method("capabilities", method!(BaseTaskHandler::capabilities, 0))?;
-    class.define_method("supports_capability?", method!(BaseTaskHandler::supports_capability, 1))?;
+    class.define_method(
+        "supports_capability?",
+        method!(BaseTaskHandler::supports_capability, 1),
+    )?;
 
     Ok(())
 }
 
 /// Basic Ruby framework integration for task execution
-struct BasicRubyFrameworkIntegration;
+struct BasicRubyFrameworkIntegration {
+    shared_handle: std::sync::Arc<SharedOrchestrationHandle>,
+}
 
 impl BasicRubyFrameworkIntegration {
     fn new() -> Self {
-        Self
+        let shared_handle = SharedOrchestrationHandle::get_global();
+
+        Self { shared_handle }
     }
 }
 
 #[async_trait::async_trait]
 impl tasker_core::orchestration::types::FrameworkIntegration for BasicRubyFrameworkIntegration {
-    async fn execute_single_step(
-        &self,
-        step: &tasker_core::orchestration::types::ViableStep,
-        _task_context: &tasker_core::orchestration::types::TaskContext,
-    ) -> Result<tasker_core::orchestration::types::StepResult, tasker_core::orchestration::errors::OrchestrationError> {
-        // Basic implementation - in production this would call back to Ruby handlers
-        Ok(tasker_core::orchestration::types::StepResult {
-            step_id: step.step_id,
-            status: tasker_core::orchestration::types::StepStatus::Completed,
-            output: serde_json::json!({"message": "Basic Ruby framework execution"}),
-            execution_duration: std::time::Duration::from_millis(100),
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
-    }
-
     fn framework_name(&self) -> &'static str {
         "BasicRubyFramework"
     }
 
-    async fn get_task_context(&self, task_id: i64) -> Result<tasker_core::orchestration::types::TaskContext, tasker_core::orchestration::errors::OrchestrationError> {
-        Ok(tasker_core::orchestration::types::TaskContext {
-            task_id,
-            data: serde_json::json!({}),
-            metadata: std::collections::HashMap::new(),
-        })
+    async fn get_task_context(
+        &self,
+        task_id: i64,
+    ) -> Result<
+        tasker_core::orchestration::types::TaskContext,
+        tasker_core::orchestration::errors::OrchestrationError,
+    > {
+        let pool = self.shared_handle.orchestration_system().database_pool();
+        let task_context = TaskExecutionContext::get_for_task(pool, task_id).await?;
+
+        if let Some(task_context) = task_context {
+            Ok(tasker_core::orchestration::types::TaskContext {
+                task_id,
+                data: serde_json::json!({}),
+                metadata: std::collections::HashMap::new(),
+            })
+        } else {
+            Err(
+                tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
+                    operation: "get_task_context".to_string(),
+                    reason: "Task context not found".to_string(),
+                },
+            )
+        }
     }
 
-    async fn enqueue_task(&self, _task_id: i64, _delay: Option<std::time::Duration>) -> Result<(), tasker_core::orchestration::errors::OrchestrationError> {
-        // Basic implementation - no-op
-        Ok(())
-    }
-
-    async fn mark_task_failed(&self, _task_id: i64, _error: &str) -> Result<(), tasker_core::orchestration::errors::OrchestrationError> {
-        // Basic implementation - no-op
-        Ok(())
-    }
-
-    async fn update_step_state(&self, _step_id: i64, _state: &str, _result: Option<&serde_json::Value>) -> Result<(), tasker_core::orchestration::errors::OrchestrationError> {
-        // Basic implementation - no-op
+    async fn enqueue_task(
+        &self,
+        task_id: i64,
+        delay: Option<std::time::Duration>,
+    ) -> Result<(), tasker_core::orchestration::errors::OrchestrationError> {
+        let task_enqueuer = TaskEnqueuer::new(self.shared_handle.orchestration_system().database_pool().clone());
+        let task = Task::find_by_id(self.shared_handle.orchestration_system().database_pool(), task_id).await?;
+        match task {
+            Some(task) => {
+                task_enqueuer.enqueue(EnqueueRequest::new(task)).await.map_err(|e| {
+                    tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
+                        operation: "enqueue_task".to_string(),
+                        reason: e.to_string(),
+                    }
+                })?;
+            }
+            None => {
+                return Err(tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
+                    operation: "enqueue_task".to_string(),
+                    reason: "Task not found".to_string(),
+                });
+            }
+        }
         Ok(())
     }
 }

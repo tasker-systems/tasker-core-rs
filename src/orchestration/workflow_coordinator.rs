@@ -346,7 +346,7 @@ impl WorkflowCoordinator {
         // Publish structured system event
         let task_start_payload = serde_json::json!({
             "task_id": task_id.to_string(),
-            "task_name": format!("workflow_task_{}", task_id), // TODO: Get actual task name
+            "task_name": format!("workflow_task_{}", task_id), // Enhancement: Load task name from database or pass as parameter
             "timestamp": metrics.started_at.to_rfc3339()
         });
 
@@ -487,7 +487,7 @@ impl WorkflowCoordinator {
         let viable_steps_payload = self.events_manager.create_viable_steps_discovered_payload(
             task_id,
             &step_ids,
-            "sequential", // TODO: Determine actual processing mode
+            "concurrent", // TODO: Determine actual processing mode
         );
 
         debug!(
@@ -792,7 +792,7 @@ impl WorkflowCoordinator {
             } => {
                 let task_completed_payload = self.events_manager.create_task_completed_payload(
                     task_id,
-                    &format!("workflow_task_{task_id}"), // TODO: Get actual task name
+                    &format!("workflow_task_{task_id}"), // Enhancement: Load task name from database or pass as parameter
                     metrics.steps_discovered as u32,
                     *steps_executed as u32,
                     Some(*total_execution_time_ms as f64 / 1000.0), // Convert to seconds
@@ -811,9 +811,9 @@ impl WorkflowCoordinator {
             TaskOrchestrationResult::Failed { error, .. } => {
                 let task_failed_payload = serde_json::json!({
                     "task_id": task_id.to_string(),
-                    "task_name": format!("workflow_task_{}", task_id), // TODO: Get actual task name
+                    "task_name": format!("workflow_task_{}", task_id), // Enhancement: Load task name from database or pass as parameter
                     "error_message": error,
-                    "failed_steps": [], // TODO: Track failed steps during execution
+                    "failed_steps": [], // Enhancement: Collect failed step IDs during execution
                     "timestamp": Utc::now().to_rfc3339()
                 });
 

@@ -45,30 +45,60 @@ proptest! {
 }
 
 /// Property-based test for complex DAG operations
+///
+/// NOTE: This test is disabled pending proper async/proptest integration.
+/// Future implementation should test DAG properties with database persistence:
+/// - DAG cycle detection with database constraints
+/// - Concurrent step execution ordering
+/// - Transaction rollback on invalid DAG operations
 #[tokio::test]
-#[ignore] // TODO: Fix async issues with property testing
+#[ignore] // Disabled: requires async/proptest integration
 async fn test_dag_properties_with_database() {
-    // This test needs to be reimplemented with proper async/proptest integration
-    // For now, it's ignored to avoid compilation issues
-    todo!("Implement property-based DAG testing with proper async support");
+    // Future implementation will test:
+    // - Complex DAG patterns persist correctly to database
+    // - Dependency resolution maintains DAG invariants
+    // - Concurrent modifications don't create cycles
+    // - State transitions preserve topological ordering
+
+    panic!("Test disabled - requires async/proptest integration");
 }
 
 /// Property-based test for state transitions
+///
+/// NOTE: This test is disabled pending proper async/proptest integration.
+/// Future implementation should test state machine properties:
+/// - Valid state transitions under all conditions
+/// - Atomic state changes with database persistence
+/// - Rollback behavior on invalid transitions
 #[tokio::test]
-#[ignore] // TODO: Fix async issues with property testing
+#[ignore] // Disabled: requires async/proptest integration
 async fn test_state_transition_properties() {
-    // This test needs to be reimplemented with proper async/proptest integration
-    // For now, it's ignored to avoid compilation issues
-    todo!("Implement property-based state transition testing with proper async support");
+    // Future implementation will test:
+    // - All valid state transitions succeed
+    // - Invalid transitions are properly rejected
+    // - State changes are atomic across database updates
+    // - Concurrent state changes maintain consistency
+
+    panic!("Test disabled - requires async/proptest integration");
 }
 
 /// Property-based test for retry logic
+///
+/// NOTE: This test is disabled pending proper async/proptest integration.
+/// Future implementation should test retry behavior properties:
+/// - Exponential backoff calculations under various conditions
+/// - Retry exhaustion handling
+/// - Context-aware retry strategies
 #[tokio::test]
-#[ignore] // TODO: Fix async issues with property testing
+#[ignore] // Disabled: requires async/proptest integration
 async fn test_retry_logic_properties() {
-    // This test needs to be reimplemented with proper async/proptest integration
-    // For now, it's ignored to avoid compilation issues
-    todo!("Implement property-based retry logic testing with proper async support");
+    // Future implementation will test:
+    // - Backoff calculations produce valid delays
+    // - Retry exhaustion properly terminates retry cycles
+    // - Context-aware strategies adapt to error types
+    // - Concurrent retry attempts don't interfere
+
+    panic!("Test disabled - requires async/proptest integration");
 }
 
 #[cfg(test)]

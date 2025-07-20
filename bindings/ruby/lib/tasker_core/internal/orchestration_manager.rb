@@ -3,10 +3,11 @@
 require 'singleton'
 
 module TaskerCore
-  # Ruby-level wrapper for the unified orchestration system
-  # This provides a singleton pattern at the Ruby level to avoid
-  # re-initializing the orchestration system on every call
-  class OrchestrationManager
+  module Internal
+    # Ruby-level wrapper for the unified orchestration system
+    # This provides a singleton pattern at the Ruby level to avoid
+    # re-initializing the orchestration system on every call
+    class OrchestrationManager
     include Singleton
 
     attr_reader :initialized_at, :status, :logger
@@ -126,7 +127,7 @@ module TaskerCore
     def orchestration_handle
       @orchestration_handle ||= begin
         logger.info "🎯 HANDLE ARCHITECTURE: Creating orchestration handle with persistent references"
-        TaskerCore.create_orchestration_handle
+        TaskerCore::OrchestrationHandle.new
       rescue StandardError => e
         error_msg = "Failed to create orchestration handle: #{e.message}"
         logger.error error_msg
@@ -259,21 +260,22 @@ module TaskerCore
       handle = orchestration_handle
       return nil unless handle
 
-      TaskerCore.create_testing_framework_with_handle(handle)
+      TaskerCore::TestHelpers::TestingFramework.create_testing_framework_with_handle(handle)
     end
 
     def setup_test_environment_with_handle
       handle = orchestration_handle
       return nil unless handle
 
-      TaskerCore.setup_test_environment_with_handle(handle)
+      TaskerCore::TestHelpers::TestingFramework.setup_test_environment_with_handle(handle)
     end
 
     def cleanup_test_environment_with_handle
       handle = orchestration_handle
       return nil unless handle
 
-      TaskerCore.cleanup_test_environment_with_handle(handle)
+      TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
+    end
     end
   end
 end

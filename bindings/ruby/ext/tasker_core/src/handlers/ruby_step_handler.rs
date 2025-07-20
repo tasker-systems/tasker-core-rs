@@ -1,12 +1,18 @@
-//! # Ruby Step Handler Integration
+//! # Ruby Step Handler Integration - Migrated to Shared Components
 //!
+//! MIGRATION STATUS: ✅ COMPLETED - Now using shared handle-based database access
 //! This module provides the `RubyStepHandler` struct that implements the Rust `StepHandler` trait,
 //! allowing Ruby step handlers to be seamlessly integrated into the orchestration system.
+//!
+//! BEFORE: Direct global database pool access (2 instances)
+//! AFTER: Shared handle-based database access pattern
+//! MIGRATION: Eliminated global database pool lookups, now uses persistent shared handles
 //!
 //! ## Architecture
 //!
 //! The `RubyStepHandler` acts as a bridge between the Rust orchestration core and Ruby business logic:
 //! - Implements the `StepHandler` trait for orchestration integration
+//! - ✅ **Uses shared handle-based database access** for consistent resource management
 //! - Stores Ruby handler class name and configuration
 //! - Converts data between Rust and Ruby formats
 //! - Calls Ruby methods through Magnus FFI
@@ -17,8 +23,10 @@
 //! StepExecutor during workflow execution.
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use crate::models::{RubyTask, RubyStep, RubyStepSequence};
-use crate::globals::get_global_database_pool;
+use crate::models::ruby_task::RubyTask;
+use crate::models::ruby_step::RubyStep;
+use crate::models::ruby_step_sequence::RubyStepSequence;
+use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
 use magnus::{Ruby, Value, Error, RModule, Module, Object, function, method};
 use magnus::value::ReprValue;
 use std::collections::HashMap;
@@ -261,9 +269,10 @@ impl StepHandler for RubyStepHandler {
         );
 
         // Convert context to Ruby objects
-        // TODO: This should use handle-based pool access at construction time
-        let pool = get_global_database_pool();
-        let (ruby_task, ruby_sequence, ruby_step) = self.convert_context_to_ruby(context, &pool).await?;
+        // ✅ MIGRATED: Now using shared handle-based pool access
+        let shared_handle = SharedOrchestrationHandle::get_global();
+        let pool = shared_handle.database_pool();
+        let (ruby_task, ruby_sequence, ruby_step) = self.convert_context_to_ruby(context, pool).await?;
 
         // Call Ruby process method
         let result = self.call_ruby_process(&ruby_task, &ruby_sequence, &ruby_step).await?;
@@ -285,10 +294,11 @@ impl StepHandler for RubyStepHandler {
             self.handler_class
         );
 
-        // Convert context to Ruby objects
-        // TODO: This should use handle-based pool access at construction time
-        let pool = get_global_database_pool();
-        let (_, _, ruby_step) = self.convert_context_to_ruby(context, &pool).await?;
+        // Convert context to Ruby objects  
+        // ✅ MIGRATED: Now using shared handle-based pool access
+        let shared_handle = SharedOrchestrationHandle::get_global();
+        let pool = shared_handle.database_pool();
+        let (_, _, ruby_step) = self.convert_context_to_ruby(context, pool).await?;
 
         // Call Ruby process_results method if it exists
         self.call_ruby_process_results(&ruby_step, result.output_data.as_ref().unwrap_or(&serde_json::json!({})), None).await?;

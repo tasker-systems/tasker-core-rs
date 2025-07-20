@@ -329,4 +329,30 @@ impl NamedTask {
 
         Ok(association)
     }
+
+    /// Find existing named task by name/version/namespace or create a new one if it doesn't exist
+    pub async fn find_or_create_by_name_version_namespace(
+        pool: &PgPool,
+        name: &str,
+        version: &str,
+        namespace_id: i64,
+    ) -> Result<NamedTask, sqlx::Error> {
+        // Try to find existing named task first
+        if let Some(existing) =
+            Self::find_by_name_version_namespace(pool, name, version, namespace_id).await?
+        {
+            return Ok(existing);
+        }
+
+        // Create new named task if not found
+        let new_named_task = NewNamedTask {
+            name: name.to_string(),
+            task_namespace_id: namespace_id,
+            description: Some(format!("Auto-created task: {name} v{version}")),
+            version: Some(version.to_string()),
+            configuration: Some(serde_json::json!({"auto_created": true})),
+        };
+
+        Self::create(pool, new_named_task).await
+    }
 }

@@ -14,6 +14,11 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+TASKER_ENV=test
+RAILS_ENV=test
+APP_ENV=test
+RACK_ENV=test
+
 print_status() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_info() { echo -e "${YELLOW}ℹ️  $1${NC}"; }

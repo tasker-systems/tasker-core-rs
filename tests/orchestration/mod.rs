@@ -4,7 +4,6 @@
 
 pub mod complex_workflow_integration_test;
 pub mod config_integration_test;
-pub mod framework_integration_test;
 pub mod state_manager;
 pub mod step_executor_test;
 pub mod step_handler_integration_test;

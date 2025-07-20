@@ -539,24 +539,6 @@ pub struct DefaultFrameworkIntegration;
 
 #[async_trait::async_trait]
 impl FrameworkIntegration for DefaultFrameworkIntegration {
-    async fn execute_single_step(
-        &self,
-        step: &crate::orchestration::types::ViableStep,
-        _task_context: &TaskContext,
-    ) -> Result<crate::orchestration::types::StepResult, OrchestrationError> {
-        // Default implementation just returns success
-        Ok(crate::orchestration::types::StepResult {
-            step_id: step.step_id,
-            status: crate::orchestration::types::StepStatus::Completed,
-            output: serde_json::json!({"message": "Default implementation"}),
-            execution_duration: std::time::Duration::from_millis(100),
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
-    }
-
     fn framework_name(&self) -> &'static str {
         "DefaultFramework"
     }
@@ -573,25 +555,6 @@ impl FrameworkIntegration for DefaultFrameworkIntegration {
         &self,
         _task_id: i64,
         _delay: Option<std::time::Duration>,
-    ) -> Result<(), OrchestrationError> {
-        // Default implementation does nothing (no-op)
-        Ok(())
-    }
-
-    async fn mark_task_failed(
-        &self,
-        _task_id: i64,
-        _error: &str,
-    ) -> Result<(), OrchestrationError> {
-        // Default implementation does nothing (no-op)
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        _step_id: i64,
-        _state: &str,
-        _result: Option<&serde_json::Value>,
     ) -> Result<(), OrchestrationError> {
         // Default implementation does nothing (no-op)
         Ok(())

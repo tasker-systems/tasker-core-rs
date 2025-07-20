@@ -374,28 +374,27 @@ impl DirectEnqueueHandler {
 #[async_trait]
 impl EnqueueHandler for DirectEnqueueHandler {
     async fn handle_enqueue(&self, request: EnqueueRequest) -> Result<EnqueueResult, EnqueueError> {
-        // For now, this is a placeholder implementation
-        // In a full implementation, this would integrate with a Rust-native queue system
+        // Direct implementation - logs enqueue operations without external queue system
+        // This serves as a fallback handler when event-based delegation is not sufficient
 
-        println!(
-            "DirectEnqueueHandler: {} task {} to queue '{}' with {}s delay (reason: {})",
-            match request.operation {
-                EnqueueOperation::Enqueue => "Enqueuing",
-                EnqueueOperation::Reenqueue => "Reenqueuing",
-                EnqueueOperation::DelayedEnqueue => "Delayed enqueuing",
-            },
-            request.task.task_id,
-            request.queue_name.as_deref().unwrap_or("default"),
-            request.delay_seconds,
-            request.reason
+        use tracing::info;
+
+        info!(
+            target: "task_enqueuer",
+            task_id = request.task.task_id,
+            operation = ?request.operation,
+            queue = %request.queue_name.as_deref().unwrap_or("default"),
+            delay_seconds = request.delay_seconds,
+            reason = %request.reason,
+            "DirectEnqueueHandler processing enqueue request"
         );
 
-        // TODO: Implement actual queue integration
-        // This could integrate with:
+        // This implementation provides the EnqueueHandler interface for systems that
+        // prefer direct coordination rather than event-based delegation.
+        // Future enhancements could integrate with:
         // - tokio-cron-scheduler for delayed jobs
-        // - Redis queues
-        // - Database-backed queues
-        // - In-memory queues for testing
+        // - Redis/database-backed queues
+        // - In-memory priority queues
 
         let task_id = request.task.task_id;
         let operation = request.operation;

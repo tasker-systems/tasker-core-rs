@@ -56,7 +56,7 @@
 
 use crate::events::{EventPublisher, StepResult as EventsStepResult};
 use crate::orchestration::backoff_calculator::{BackoffCalculator, BackoffContext};
-use crate::orchestration::errors::{ExecutionError, OrchestrationResult};
+use crate::orchestration::errors::{ExecutionError, OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
 use crate::orchestration::types::{
@@ -394,10 +394,11 @@ impl StepExecutor {
     ) {
         let execution_start = Instant::now();
 
-        // TODO: Use step-specific timeout from handler configuration
-        // Currently uses global config timeout, but should check for
-        // step_template.timeout_seconds from the handler config and
-        // prefer that over global defaults when available
+        // Step timeout resolution order:
+        // 1. Request-specific timeout (if provided)
+        // 2. Step template timeout_seconds (when handler config integration is added)
+        // 3. Global default timeout
+        // Always capped by max_timeout for safety
         let execution_timeout = request
             .timeout
             .unwrap_or(self.config.default_timeout)
@@ -907,38 +908,14 @@ impl StepExecutor {
                 Ok(step_result)
             }
             Err(_) => {
-                // No step handler found, fall back to framework delegation
-                let fallback_handler_class = format!("{}StepHandler", request.step.name);
-                debug!(
+                error!(
                     step_id = step_id,
-                    handler_class = fallback_handler_class,
-                    "No step handler found in registry, falling back to framework delegation"
+                    "No step handler found in registry, cannot execute step"
                 );
-
-                // 6. Execute the single step through framework delegation
-                let step_result = framework
-                    .execute_single_step(&request.step, &task_context)
-                    .await
-                    .map_err(|e| ExecutionError::StepExecutionFailed {
-                        step_id,
-                        reason: e.to_string(),
-                        error_code: Some("FRAMEWORK_EXECUTION_ERROR".to_string()),
-                    })?;
-
-                // 7. Validate that we got a result for the correct step
-                if step_result.step_id != step_id {
-                    return Err(ExecutionError::StepExecutionFailed {
-                        step_id,
-                        reason: format!(
-                            "Framework returned result for step {} but expected step {}",
-                            step_result.step_id, step_id
-                        ),
-                        error_code: Some("STEP_ID_MISMATCH".to_string()),
-                    }
-                    .into());
-                }
-
-                Ok(step_result)
+                Err(OrchestrationError::StepHandlerNotFound {
+                    step_id,
+                    reason: "No step handler found in registry, cannot execute step".to_string(),
+                })
             }
         }
     }

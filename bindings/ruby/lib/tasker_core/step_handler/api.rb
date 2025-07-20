@@ -62,11 +62,10 @@ module TaskerCore
         # Subclasses should override this method to make their specific API calls
         # This base implementation shows the pattern but needs to be customized
 
-        # Example of accessing task context (subclasses would customize this)
-        url_path = step.results&.dig('url_path') || config[:default_path] || '/'
+        url = config[:url] || config['url']
 
         # Make HTTP request using the configured connection
-        response = connection.get(url_path)
+        response = connection.get(url)
 
         # Process response for error classification (automatic retry/permanent error handling)
         process_response(response)
@@ -78,9 +77,8 @@ module TaskerCore
       # Optional result transformation for API responses
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @param process_output [Faraday::Response] Result from process() method
-      # @param initial_results [Object] Previous results if this is a retry
       # @return [Object] Transformed result for storage in step.results
-      def process_results(_step, process_output, _initial_results = nil)
+      def process_results(_step, process_output)
         # Default: Extract response body and status for storage
         # Subclasses can override for custom response processing
         {

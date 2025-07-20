@@ -7,6 +7,7 @@ mod common;
 mod config;
 mod database;
 mod factories;
+mod ffi;
 mod models;
 mod orchestration;
 mod sql_functions;

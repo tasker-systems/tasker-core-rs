@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_core::orchestration::errors::OrchestrationError;
-use tasker_core::orchestration::types::{StepResult, StepStatus, TaskContext, ViableStep};
+use tasker_core::orchestration::types::TaskContext;
 use tasker_core::orchestration::{
     BaseTaskHandler, ConfigurationManager, FrameworkIntegration, TaskExecutionContext, TaskHandler,
     TaskHandlerFactory,
@@ -60,42 +60,13 @@ impl TaskHandler for TestTaskHandler {
 }
 
 /// Test framework integration
+#[allow(dead_code)]
 struct TestFrameworkIntegration {
     pub should_succeed: bool,
 }
 
 #[async_trait::async_trait]
 impl FrameworkIntegration for TestFrameworkIntegration {
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        _task_context: &TaskContext,
-    ) -> Result<StepResult, OrchestrationError> {
-        if self.should_succeed {
-            Ok(StepResult {
-                step_id: step.step_id,
-                status: StepStatus::Completed,
-                output: serde_json::json!({"success": true}),
-                execution_duration: std::time::Duration::from_millis(100),
-                error_message: None,
-                retry_after: None,
-                error_code: None,
-                error_context: None,
-            })
-        } else {
-            Ok(StepResult {
-                step_id: step.step_id,
-                status: StepStatus::Failed,
-                output: serde_json::json!({"success": false}),
-                execution_duration: std::time::Duration::from_millis(100),
-                error_message: Some("Test failure".to_string()),
-                retry_after: None,
-                error_code: Some("TEST_ERROR".to_string()),
-                error_context: None,
-            })
-        }
-    }
-
     fn framework_name(&self) -> &'static str {
         "TestFramework"
     }
@@ -112,23 +83,6 @@ impl FrameworkIntegration for TestFrameworkIntegration {
         &self,
         _task_id: i64,
         _delay: Option<std::time::Duration>,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn mark_task_failed(
-        &self,
-        _task_id: i64,
-        _error: &str,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        _step_id: i64,
-        _state: &str,
-        _result: Option<&serde_json::Value>,
     ) -> Result<(), OrchestrationError> {
         Ok(())
     }

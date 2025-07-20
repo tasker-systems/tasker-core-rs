@@ -5,7 +5,7 @@ require 'json'
 require 'logger'
 require 'singleton'
 require 'digest'
-require_relative 'orchestration_manager'
+require_relative 'internal/orchestration_manager'
 
 module TaskerCore
   class TaskHandler
@@ -46,7 +46,7 @@ module TaskerCore
             task_config_hash = JSON.parse(task_config_json)
 
             # Get BaseTaskHandler from OrchestrationManager (memoized)
-            orchestration_manager = TaskerCore::OrchestrationManager.instance
+            orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
             @rust_handler = orchestration_manager.get_base_task_handler(task_config_hash)
 
             if @rust_handler
@@ -84,7 +84,7 @@ module TaskerCore
           'config_schema' => @task_config
         }
 
-        result = TaskerCore::OrchestrationManager.instance.register_handler(handler_data)
+        result = TaskerCore::Internal::OrchestrationManager.instance.register_handler(handler_data)
 
         if result['status'] == 'registered'
           logger.info "Registered task handler: #{self.class.name} for task: #{handler_data['name']}"
@@ -109,7 +109,7 @@ module TaskerCore
         }
 
         # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
-        result = TaskerCore::OrchestrationManager.instance.handler_exists?(handler_key)
+        result = TaskerCore::Internal::OrchestrationManager.instance.handler_exists?(handler_key)
         result['exists'] == true
       rescue StandardError => e
         logger.error "Error checking handler registration: #{e.message}"
@@ -119,7 +119,7 @@ module TaskerCore
       # Get all registered task handlers
       def self.list_registered_handlers
         # 🎯 HANDLE-BASED: Use OrchestrationManager handle method instead of direct FFI
-        TaskerCore::OrchestrationManager.instance.list_handlers(nil)
+        TaskerCore::Internal::OrchestrationManager.instance.list_handlers(nil)
       rescue StandardError => e
         { 'handlers' => [], 'count' => 0, 'error' => e.message }
       end
@@ -137,9 +137,7 @@ module TaskerCore
           raise NotImplementedError, 'handle method must be implemented by subclass (Rust handler not available)'
         end
 
-        # Pass both task_id AND the task config for thread-safe, pure functional operation
-        # This ensures each task execution gets its own configuration
-        @rust_handler.handle(task.task_id, @task_config)
+        @rust_handler.handle(task.task_id)
       end
 
       # Delegate other BaseTaskHandler methods to maintain interface compatibility

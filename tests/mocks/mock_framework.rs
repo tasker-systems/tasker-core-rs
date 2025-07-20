@@ -128,65 +128,6 @@ impl MockFramework {
 
 #[async_trait]
 impl FrameworkIntegration for MockFramework {
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        task_context: &TaskContext,
-    ) -> Result<StepResult, OrchestrationError> {
-        // Simulate execution delay if configured
-        if let Some(delay) = self.execution_delay {
-            tokio::time::sleep(delay).await;
-        }
-
-        let mut state = self.state.lock().unwrap();
-
-        // Track the execution
-        state.executed_steps.push((step.step_id, step.name.clone()));
-
-        // Check if we have a preconfigured result
-        if let Some(result) = state.step_results.get(&step.step_id) {
-            return Ok(result.clone());
-        }
-
-        // Simulate random failure
-        if self.failure_rate > 0.0 && fastrand::f32() < self.failure_rate {
-            return Ok(StepResult {
-                step_id: step.step_id,
-                status: StepStatus::Failed,
-                output: json!({
-                    "error": "Simulated random failure",
-                    "failure_rate": self.failure_rate,
-                }),
-                execution_duration: Duration::from_millis(100),
-                error_message: Some("Simulated random failure".to_string()),
-                retry_after: Some(Duration::from_secs(5)),
-                error_code: Some("MOCK_RANDOM_FAILURE".to_string()),
-                error_context: Some(HashMap::from([
-                    ("step_name".to_string(), json!(step.name)),
-                    ("task_id".to_string(), json!(task_context.task_id)),
-                ])),
-            });
-        }
-
-        // Default successful execution
-        Ok(StepResult {
-            step_id: step.step_id,
-            status: StepStatus::Completed,
-            output: json!({
-                "processed": true,
-                "step_name": step.name,
-                "task_data": task_context.data,
-                "mock_framework": self.name,
-                "executed_at": Utc::now().to_rfc3339(),
-            }),
-            execution_duration: Duration::from_millis(50),
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
-    }
-
     fn framework_name(&self) -> &'static str {
         // Note: This leaks memory but is fine for tests
         Box::leak(self.name.clone().into_boxed_str())
@@ -204,30 +145,6 @@ impl FrameworkIntegration for MockFramework {
         })
     }
 
-    async fn on_task_start(&self, task_id: i64) -> Result<(), OrchestrationError> {
-        let state = self.state.lock().unwrap();
-
-        // Verify task exists
-        if !state.task_contexts.contains_key(&task_id) {
-            return Err(OrchestrationError::TaskExecutionFailed {
-                task_id,
-                reason: "Task context not found for start operation".to_string(),
-                error_code: Some("TASK_NOT_FOUND".to_string()),
-            });
-        }
-
-        Ok(())
-    }
-
-    async fn on_task_complete(
-        &self,
-        _task_id: i64,
-        _result: &TaskResult,
-    ) -> Result<(), OrchestrationError> {
-        // Mock implementation doesn't need to do anything special
-        Ok(())
-    }
-
     async fn enqueue_task(
         &self,
         task_id: i64,
@@ -236,41 +153,6 @@ impl FrameworkIntegration for MockFramework {
         let mut state = self.state.lock().unwrap();
         state.enqueued_tasks.push((task_id, delay));
         Ok(())
-    }
-
-    async fn mark_task_failed(&self, task_id: i64, error: &str) -> Result<(), OrchestrationError> {
-        let mut state = self.state.lock().unwrap();
-        state.failed_tasks.push((task_id, error.to_string()));
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        step_id: i64,
-        state_name: &str,
-        result: Option<&serde_json::Value>,
-    ) -> Result<(), OrchestrationError> {
-        let mut state = self.state.lock().unwrap();
-        state
-            .step_state_updates
-            .push((step_id, state_name.to_string(), result.cloned()));
-        Ok(())
-    }
-
-    async fn publish_event(&self, event: &OrchestrationEvent) -> Result<(), OrchestrationError> {
-        let mut state = self.state.lock().unwrap();
-        state.published_events.push(event.clone());
-        Ok(())
-    }
-
-    async fn health_check(&self) -> Result<bool, OrchestrationError> {
-        let state = self.state.lock().unwrap();
-        Ok(state.is_healthy)
-    }
-
-    async fn get_config(&self, key: &str) -> Result<Option<serde_json::Value>, OrchestrationError> {
-        let state = self.state.lock().unwrap();
-        Ok(state.config.get(key).cloned())
     }
 }
 
@@ -353,21 +235,5 @@ mod tests {
 
         assert!(result.is_failure());
         assert_eq!(result.error_code, Some("MOCK_RANDOM_FAILURE".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_mock_framework_event_tracking() {
-        let framework = MockFramework::new("test_framework");
-
-        let event = OrchestrationEvent::TaskOrchestrationStarted {
-            task_id: 123,
-            framework: "test".to_string(),
-            started_at: Utc::now(),
-        };
-
-        framework.publish_event(&event).await.unwrap();
-
-        let state = framework.get_state();
-        assert_eq!(state.published_events.len(), 1);
     }
 }

@@ -38,13 +38,12 @@
 //! - [`events`] - Event system foundation
 //! - [`orchestration`] - Workflow orchestration logic
 //! - [`registry`] - Component registration and discovery
-//! - [`client`] - Rust-native task and step handlers
 //! - [`ffi`] - Multi-language FFI bindings
 //!
 //! ## Performance Targets
 //!
 //! - **10-100x faster** than Ruby/Rails equivalents
-//! - **Sub-millisecond** atomic state changes  
+//! - **Sub-millisecond** atomic state changes
 //! - **Memory-safe parallelism** with better resource utilization
 //! - **Zero-cost abstractions** where possible
 //!
@@ -78,7 +77,7 @@
 //! cargo test          # All tests (114+ tests)
 //! ```
 
-pub mod client;
+// pub mod client; // Removed - legacy code superseded by src/ffi/shared
 pub mod constants;
 pub mod database;
 pub mod error;
@@ -92,25 +91,20 @@ pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;
 
+pub use constants::events as system_events;
 pub use constants::{
     status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
     ReenqueueReason, WorkflowEdgeType,
 };
-pub use orchestration::{
-    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
-    TelemetryConfig,
-};
-// Re-export constants events with different name to avoid conflict
-pub use client::{
-    BaseStepHandler, BaseTaskHandler, ExecutionMetadata, RustStepHandler, RustTaskHandler,
-    StepContext, TaskContext,
-};
-pub use constants::events as system_events;
 pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
+pub use orchestration::{
+    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
+    TelemetryConfig,
+};
 pub use registry::{
     EventSubscriber, HandlerCacheStats, HandlerFactory, Plugin, PluginMetadata, PluginRegistry,
     PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,

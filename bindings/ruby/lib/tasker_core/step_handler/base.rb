@@ -38,7 +38,7 @@ module TaskerCore
         # Initialize the Rust RubyStepHandler with composition (delegation pattern)
         begin
           handler_class = self.class.name
-          step_name = extract_step_name_from_class
+          step_name = @config[:name] || @config['name']
           @rust_handler = TaskerCore::RubyStepHandler.new(handler_class, step_name, @config)
           @logger.info 'Successfully created Rust RubyStepHandler instance'
         rescue StandardError => e
@@ -48,23 +48,6 @@ module TaskerCore
 
         # NOTE: Step handlers do not register themselves with the orchestration system
         # They are discovered through task configuration by task handlers
-      end
-
-      # ========================================================================
-      # STEP HANDLER IDENTIFICATION
-      # ========================================================================
-
-      # Extract step name from class name
-      # e.g., "PaymentProcessing::StepHandler::ValidatePaymentHandler" -> "validate_payment"
-      # e.g., "TestStepHandler" -> "test_step"
-      def extract_step_name_from_class
-        class_name = self.class.name.split('::').last
-        # Remove "StepHandler" or "Handler" suffix if present
-        step_name = class_name.sub(/(Step)?Handler$/, '')
-        # Convert to snake_case
-        snake_case = step_name.gsub(/([A-Z])/, '_\1').downcase.sub(/^_/, '')
-        # Handle special case where result is just "test" -> "test_step"
-        snake_case == 'test' ? 'test_step' : snake_case
       end
 
       # ========================================================================
@@ -81,112 +64,17 @@ module TaskerCore
         raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
       end
 
-      # Bridge method for Rust StepHandler trait compatibility
-      # This method is called by the Rust orchestration system and converts
-      # the StepExecutionContext to the Rails-compatible signature
-      # @param context_json [String] JSON representation of StepExecutionContext
-      # @return [String] JSON representation of the result
-      def process_with_context(context_json)
-        # 🎯 HANDLE-BASED: Direct Ruby context conversion instead of FFI bridge
-        # The RubyStepHandler in Rust handles the orchestration integration,
-        # this method provides the Ruby-side processing logic
-
-        # Parse the StepExecutionContext from JSON
-        context = JSON.parse(context_json)
-
-        # Convert context to Rails-compatible objects
-        # Note: This is a simplified conversion - in a full implementation,
-        # we would create proper Task, StepSequence, and WorkflowStep objects
-        mock_task = create_mock_task_from_context(context)
-        mock_sequence = create_mock_sequence_from_context(context)
-        mock_step = create_mock_step_from_context(context)
-
-        # Call the Rails-compatible process method
-        result = process(mock_task, mock_sequence, mock_step)
-
-        # Ensure result is JSON serializable
-        JSON.generate(result)
-      rescue JSON::ParserError => e
-        # Return error in JSON format for parsing errors
-        JSON.generate({
-                        error: {
-                          message: "Invalid JSON context: #{e.message}",
-                          type: e.class.name,
-                          permanent: true,
-                          error_code: 'INVALID_JSON_CONTEXT',
-                          error_category: 'validation'
-                        }
-                      })
-      rescue StandardError => e
-        # Return error in JSON format
-        JSON.generate({
-                        error: {
-                          message: e.message,
-                          type: e.class.name,
-                          permanent: e.is_a?(TaskerCore::PermanentError),
-                          error_code: e.respond_to?(:error_code) ? e.error_code : nil,
-                          error_category: e.respond_to?(:error_category) ? e.error_category : 'unknown'
-                        }
-                      })
-      end
 
       # Optional result transformation method - Rails engine signature
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @param process_output [Object] Result from process() method
-      # @param initial_results [Object] Previous results if this is a retry
       # @return [Object] Transformed result (defaults to process_output)
-      def process_results(_step, process_output, _initial_results = nil)
+      def process_results(_step, process_output)
         # Default implementation returns process output unchanged
         # Rails handlers can override this to transform results before storage
         process_output
       end
 
-      # Bridge method for Rust StepHandler trait compatibility
-      # This method is called by the Rust orchestration system for result processing
-      # @param context_json [String] JSON representation of StepExecutionContext
-      # @param result_json [String] JSON representation of StepResult
-      # @return [String] JSON representation of success/failure
-      def process_results_with_context(context_json, result_json)
-        # The RubyStepHandler is for orchestration-level integration, not direct FFI calls
-        # For now, use manual JSON processing to call the existing process_results method
-
-        # Parse the inputs from JSON - check context first for early error detection
-        JSON.parse(context_json)
-        result = JSON.parse(result_json)
-
-        # TODO: Create Ruby objects from the JSON data
-        # For now, just call the existing process_results method with minimal conversion
-
-        # Extract key data from result
-        process_output = result['output_data'] || {}
-
-        # Call the Rails-compatible process_results method
-        # Note: We're passing simplified parameters since we don't have full models
-        transformed_result = process_results(nil, process_output, nil)
-
-        # Return success response
-        JSON.generate({ status: 'success', transformed_result: transformed_result })
-      rescue JSON::ParserError => e
-        # Return error response for JSON parsing errors
-        JSON.generate({
-                        status: 'error',
-                        error: {
-                          message: e.message,
-                          type: e.class.name,
-                          permanent: true
-                        }
-                      })
-      rescue StandardError => e
-        # Return error response
-        JSON.generate({
-                        status: 'error',
-                        error: {
-                          message: e.message,
-                          type: e.class.name,
-                          permanent: e.is_a?(TaskerCore::PermanentError)
-                        }
-                      })
-      end
 
       # ========================================================================
       # CONFIGURATION AND METADATA
@@ -393,51 +281,6 @@ module TaskerCore
       # Default Rust integration
       def default_rust_integration
         TaskerCore::RailsIntegration.new
-      end
-
-      # 🎯 HANDLE-BASED: Context conversion helpers for process_with_context
-      # These methods convert StepExecutionContext JSON to Rails-compatible objects
-
-      # Create mock Task object from StepExecutionContext
-      def create_mock_task_from_context(context)
-        # Create a simple object that responds to the methods needed by process()
-        OpenStruct.new(
-          task_id: context['task_id'],
-          id: context['task_id'],
-          name: context['task_name'],
-          status: context['task_status'] || 'processing',
-          context_data: context['context_data'] || {},
-          created_at: (Time.parse(context['created_at']) rescue Time.now),
-          updated_at: (Time.parse(context['updated_at']) rescue Time.now)
-        )
-      end
-
-      # Create mock StepSequence object from StepExecutionContext
-      def create_mock_sequence_from_context(context)
-        # Create a simple object that responds to the methods needed by process()
-        OpenStruct.new(
-          total_steps: context['total_steps'] || 1,
-          current_position: context['current_position'] || 0,
-          completed_steps: context['completed_steps'] || 0,
-          failed_steps: context['failed_steps'] || 0,
-          pending_steps: context['pending_steps'] || 1
-        )
-      end
-
-      # Create mock WorkflowStep object from StepExecutionContext
-      def create_mock_step_from_context(context)
-        # Create a simple object that responds to the methods needed by process()
-        OpenStruct.new(
-          id: context['step_id'],
-          workflow_step_id: context['step_id'],
-          name: context['step_name'],
-          status: context['step_status'] || 'pending',
-          step_type: context['step_type'] || 'processing',
-          config: context['step_config'] || {},
-          dependencies: context['dependencies'] || [],
-          created_at: (Time.parse(context['step_created_at']) rescue Time.now),
-          updated_at: (Time.parse(context['step_updated_at']) rescue Time.now)
-        )
       end
     end
   end

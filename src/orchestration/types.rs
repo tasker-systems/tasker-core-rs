@@ -197,17 +197,6 @@ pub enum OrchestrationEvent {
 /// discovery, while frameworks only need to implement individual step execution.
 #[async_trait::async_trait]
 pub trait FrameworkIntegration: Send + Sync {
-    /// Execute a single step
-    ///
-    /// This is the core method that frameworks must implement. The orchestration
-    /// layer will call this method for each individual step that needs execution.
-    /// Concurrency and batch operations are handled by the orchestration core.
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        task_context: &TaskContext,
-    ) -> Result<StepResult, crate::orchestration::errors::OrchestrationError>;
-
     /// Framework name for logging/metrics
     fn framework_name(&self) -> &'static str;
 
@@ -217,69 +206,12 @@ pub trait FrameworkIntegration: Send + Sync {
         task_id: i64,
     ) -> Result<TaskContext, crate::orchestration::errors::OrchestrationError>;
 
-    /// Notify framework of task orchestration starting
-    async fn on_task_start(
-        &self,
-        task_id: i64,
-    ) -> Result<(), crate::orchestration::errors::OrchestrationError> {
-        let _ = task_id;
-        Ok(())
-    }
-
-    /// Notify framework of task orchestration completion
-    async fn on_task_complete(
-        &self,
-        task_id: i64,
-        result: &TaskResult,
-    ) -> Result<(), crate::orchestration::errors::OrchestrationError> {
-        let _ = (task_id, result);
-        Ok(())
-    }
-
     /// Enqueue task back to framework's queue
     async fn enqueue_task(
         &self,
         task_id: i64,
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
-
-    /// Mark task as failed in framework
-    async fn mark_task_failed(
-        &self,
-        task_id: i64,
-        error: &str,
-    ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
-
-    /// Update step state in framework's storage
-    async fn update_step_state(
-        &self,
-        step_id: i64,
-        state: &str,
-        result: Option<&serde_json::Value>,
-    ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
-
-    /// Publish event through framework's event system
-    async fn publish_event(
-        &self,
-        event: &OrchestrationEvent,
-    ) -> Result<(), crate::orchestration::errors::OrchestrationError> {
-        let _ = event;
-        Ok(())
-    }
-
-    /// Check if framework is healthy and ready
-    async fn health_check(&self) -> Result<bool, crate::orchestration::errors::OrchestrationError> {
-        Ok(true)
-    }
-
-    /// Get framework-specific configuration
-    async fn get_config(
-        &self,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>, crate::orchestration::errors::OrchestrationError> {
-        let _ = key;
-        Ok(None)
-    }
 }
 
 /// Task handler trait for registry

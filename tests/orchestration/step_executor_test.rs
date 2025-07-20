@@ -10,9 +10,7 @@ use tasker_core::orchestration::step_executor::{
     ExecutionPriority, StepExecutionRequest, StepExecutor,
 };
 use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
-use tasker_core::orchestration::types::{
-    FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
-};
+use tasker_core::orchestration::types::{FrameworkIntegration, TaskContext, ViableStep};
 use tasker_core::registry::TaskHandlerRegistry;
 
 /// Mock framework integration for testing clean single-step execution architecture
@@ -30,28 +28,6 @@ impl MockFrameworkIntegration {
 
 #[async_trait::async_trait]
 impl FrameworkIntegration for MockFrameworkIntegration {
-    async fn execute_single_step(
-        &self,
-        step: &ViableStep,
-        _task_context: &TaskContext,
-    ) -> Result<StepResult, OrchestrationError> {
-        // Simulate successful single step execution
-        Ok(StepResult {
-            step_id: step.step_id,
-            status: StepStatus::Completed,
-            output: serde_json::json!({
-                "message": "Step executed successfully",
-                "step_name": step.name,
-                "executed_by": self.framework_name
-            }),
-            execution_duration: Duration::from_millis(100),
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
-    }
-
     fn framework_name(&self) -> &'static str {
         self.framework_name
     }
@@ -71,23 +47,6 @@ impl FrameworkIntegration for MockFrameworkIntegration {
         &self,
         _task_id: i64,
         _delay: Option<Duration>,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn mark_task_failed(
-        &self,
-        _task_id: i64,
-        _error: &str,
-    ) -> Result<(), OrchestrationError> {
-        Ok(())
-    }
-
-    async fn update_step_state(
-        &self,
-        _step_id: i64,
-        _state: &str,
-        _result: Option<&serde_json::Value>,
     ) -> Result<(), OrchestrationError> {
         Ok(())
     }

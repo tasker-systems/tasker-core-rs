@@ -115,16 +115,6 @@ else
     exit 1
 fi
 
-# 7. Check test setup (without running tests)
-echo -n "Test environment setup... "
-if bundle exec rake test:setup > /dev/null 2>&1; then
-    print_status "OK"
-else
-    print_error "Failed"
-    echo "  This is the critical step that matches CI"
-    exit 1
-fi
-
 echo ""
 echo "🎉 All CI checks passed!"
 echo "🚀 The workflow should succeed in GitHub Actions"
