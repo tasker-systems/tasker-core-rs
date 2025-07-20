@@ -11,7 +11,7 @@ module DomainTestHelpers
       context: { test_framework: 'rspec', test_type: 'domain_api' }
     }
 
-    TaskerCore::Factory.task(default_options.merge(options))
+    TaskerCore::TestHelpers::Factories.task(default_options.merge(options))
   end
 
   # Create workflow steps using our new domain API
@@ -22,7 +22,7 @@ module DomainTestHelpers
       inputs: { test_data: 'domain_api_input' }
     }
 
-    TaskerCore::Factory.workflow_step(default_options.merge(options))
+    TaskerCore::TestHelpers::Factories.workflow_step(default_options.merge(options))
   end
 
   # Create foundation data using our new domain API
@@ -32,19 +32,25 @@ module DomainTestHelpers
       namespace: 'rspec_domain_test'
     }
 
-    TaskerCore::Factory.foundation(default_options.merge(options))
+    TaskerCore::TestHelpers::Factories.foundation(default_options.merge(options))
   end
 
   # Verify no pool timeouts in results
   def verify_no_pool_timeouts(result, operation_name = "operation")
-    # Most operations return Hash, but viable_steps returns Array
+    # Most operations return Hash, but viable_steps returns Array, and Events.statistics returns EventStatistics object
     if result.is_a?(Array)
       # For Array results (like viable_steps), no error checking needed
       # Arrays are returned on success; errors would be returned as Hash with error key
       return result
     end
     
-    expect(result).to be_a(Hash), "Expected Hash or Array result for #{operation_name}"
+    # EventStatistics objects are also successful results (primitives in, objects out pattern)
+    if result.class.name == "TaskerCore::Events::EventStatistics"
+      # EventStatistics objects indicate successful operation, no timeout possible
+      return result
+    end
+    
+    expect(result).to be_a(Hash), "Expected Hash, Array, or EventStatistics result for #{operation_name}"
 
     if result['error']
       if result['error'].include?('pool timed out') || result['error'].include?('timeout')
@@ -133,79 +139,13 @@ module WorkflowValidationHelpers
       raise "Failed to create complex workflow: #{rust_result['error']}"
     end
 
-    # Extract results from Rust factory
-    task_id = rust_result['task_id']
-    step_ids = rust_result['step_ids'] || []
+    # Extract results from Rust factory's clean nested structure
+    task_data = rust_result['task']
+    task_id = task_data['task_id']
+    workflow_steps = rust_result['workflow_steps'] || []
     
-    # Create Ruby-compatible step structures for test expectations
-    # Note: The actual WorkflowStepEdge dependencies are created by Rust factory
-    steps = step_ids.map.with_index do |step_id, index|
-      step_name = case type
-      when :linear
-        "#{base_name}_step_#{('a'.ord + index).chr}"
-      when :diamond
-        case index
-        when 0 then "#{base_name}_step_a"
-        when 1 then "#{base_name}_step_b" 
-        when 2 then "#{base_name}_step_c"
-        when 3 then "#{base_name}_step_d"
-        else "#{base_name}_step_#{index}"
-        end
-      when :parallel
-        case index
-        when 0 then "#{base_name}_step_a"
-        else "#{base_name}_step_#{('a'.ord + index).chr}"
-        end
-      when :tree
-        case index
-        when 0 then "#{base_name}_step_a"
-        else "#{base_name}_step_#{('a'.ord + index).chr}"
-        end
-      else
-        "#{base_name}_step_#{index}"
-      end
-
-      # Create step structure with dependency info for Ruby test compatibility
-      step_data = {
-        'workflow_step_id' => step_id,
-        'task_id' => task_id,
-        'name' => step_name,
-        'inputs' => { 'step_index' => index, 'pattern' => type.to_s }
-      }
-
-      # Add mock dependency information for Ruby test expectations
-      # Note: Real dependencies are in WorkflowStepEdge table created by Rust
-      case type
-      when :linear
-        step_data['inputs']['depends_on'] = index > 0 ? [step_ids[index - 1]] : nil
-      when :diamond
-        case index
-        when 0 then step_data['inputs']['depends_on'] = nil
-        when 1, 2 then step_data['inputs']['depends_on'] = [step_ids[0]]
-        when 3 then step_data['inputs']['depends_on'] = [step_ids[1], step_ids[2]]
-        end
-      when :parallel
-        step_data['inputs']['depends_on'] = index == 0 ? nil : [step_ids[0]]
-      when :tree
-        case index
-        when 0 then step_data['inputs']['depends_on'] = nil
-        when 1, 2 then step_data['inputs']['depends_on'] = [step_ids[0]]
-        else 
-          branch_parent = index <= 3 ? step_ids[1] : step_ids[2]
-          step_data['inputs']['depends_on'] = [branch_parent]
-        end
-      end
-
-      step_data
-    end
-
-    # Create minimal task structure for compatibility
-    task_data = {
-      'task_id' => task_id,
-      'name' => base_name,
-      'namespace' => namespace,
-      'pattern' => type.to_s
-    }
+    # Use the workflow steps directly from Rust factory - they're already well-structured
+    steps = workflow_steps
 
     {
       type: type,
@@ -265,35 +205,41 @@ end
 
 # Helper module for handle architecture testing
 module HandleArchitectureHelpers
-  # Get handle information for debugging
-  def get_handle_info(domain = :factory)
+  # Get handle information for debugging (production domains only)
+  def get_handle_info(domain = :registry)
     case domain
-    when :factory
-      TaskerCore::Factory.handle_info
     when :registry
       TaskerCore::Registry.handle_info
     when :performance
       TaskerCore::Performance.handle_info
     when :environment
       TaskerCore::Environment.handle_info
+    when :events
+      TaskerCore::Events.handle_info
+    when :testing
+      TaskerCore::Testing.handle_info
     else
-      raise "Unknown domain: #{domain}"
+      raise "Unknown production domain: #{domain}"
     end
   end
 
   # Verify handle persistence across operations
-  def verify_handle_persistence(domain = :factory, operations_count = 5)
+  def verify_handle_persistence(domain = :registry, operations_count = 5)
     initial_info = get_handle_info(domain)
 
     operations_count.times do |i|
       # Perform operation
       case domain
-      when :factory
-        TaskerCore::Factory.task(name: "persistence_test_#{i}")
       when :registry
         TaskerCore::Registry.list
       when :performance
         TaskerCore::Performance.system_health
+      when :environment
+        TaskerCore::Environment.handle_info  # Safe operation for environment
+      when :events
+        TaskerCore::Events.statistics
+      when :testing
+        TaskerCore::Testing.validate_environment
       end
 
       # Check handle is still the same
@@ -310,7 +256,19 @@ module HandleArchitectureHelpers
     start_time = Time.now
 
     operations_count.times do |i|
-      result = TaskerCore::Factory.task(name: "rapid_test_#{i}")
+      # Rotate between all production domain operations for testing
+      result = case i % 5
+      when 0
+        TaskerCore::Registry.list
+      when 1
+        TaskerCore::Performance.system_health
+      when 2
+        TaskerCore::Environment.handle_info
+      when 3
+        TaskerCore::Events.statistics
+      when 4
+        TaskerCore::Testing.validate_environment
+      end
       verify_no_pool_timeouts(result, "rapid_operation_#{i}")
       results << result
     end

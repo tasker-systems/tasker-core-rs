@@ -115,7 +115,7 @@ pub struct CreateTestStepInput {
 /// Test step creation output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestStepOutput {
-    pub step_id: i64,
+    pub workflow_step_id: i64,
     pub task_id: i64,
     pub name: String,
     pub handler_class: String,

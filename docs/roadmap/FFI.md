@@ -235,16 +235,203 @@ tests/ffi/
 **Multi-Language**: Ready for Python, Node.js, WASM, JNI expansion  
 **Production**: Zero technical debt, comprehensive observability
 
+## 🎯 **PHASE 9: COMPREHENSIVE TESTING & LEGACY CLEANUP INITIATIVE (January 2025)**
+
+**Status**: 🔄 **IN PROGRESS** - Comprehensive quality and integration initiative
+**Duration**: 4-6 days  
+**Priority**: **HIGHEST** - Foundation for production deployment
+
+### 📊 **Current Test Status Analysis**
+**Spec Test Results**: 40 examples, 22 failures (55% pass rate)
+**Primary Issues**:
+- **OrchestrationHandleInfo type missing** causing panics
+- **Field name mismatches** (workflow_step_id vs step_id) 
+- **Complex workflow integration failures** (14 tests)
+- **Handle architecture validation issues** (3 tests)
+- **Factory domain field inconsistencies** (5 tests)
+
+### 🎯 **Sub-Phase 9.1: Spec Test Stabilization (Days 1-2)**
+
+**Goal**: Achieve 100% test pass rate with real data creation
+
+**Critical Fixes Required**:
+1. **Type System Alignment**:
+   - Fix `OrchestrationHandleInfo` missing type causing panics
+   - Resolve `workflow_step_id` vs `step_id` field naming consistency
+   - Update Ruby expectations to match Rust FFI output structure
+
+2. **Complex Workflow Integration**:
+   - Fix 14 failing workflow pattern tests (linear, diamond, parallel, tree)
+   - Ensure factory-created workflows have proper dependency structures
+   - Validate step execution readiness algorithms
+
+3. **Handle Architecture Validation**:
+   - Fix handle structure and metadata validation tests
+   - Ensure handle resource sharing tests pass
+   - Validate persistent handle behavior across domain operations
+
+4. **Real Data Creation Validation**:
+   - Ensure all factory operations create actual database records
+   - Validate workflow steps link to real tasks
+   - Confirm complex context data preservation
+
+**Success Criteria**: 40/40 tests passing, sub-second execution times maintained
+
+### 🎯 **Sub-Phase 9.2: Integration Test Design (Days 2-3)**
+
+**Goal**: Build comprehensive integration tests for empty spec files
+
+**Empty Spec Files Identified**:
+```
+spec/handlers/examples/api_example_step_handler.rb      (0 lines)
+spec/handlers/examples/base_example_step_handler.rb     (0 lines)  
+spec/handlers/examples/example_task_handler.rb          (0 lines)
+spec/handlers/step_handler_spec.rb                      (0 lines)
+spec/handlers/task_handler_spec.rb                      (0 lines)
+```
+
+**Integration Test Patterns** (inspired by Rails engine blog tests):
+```ruby
+# spec/handlers/step_handler_spec.rb
+RSpec.describe 'Rust-Ruby Step Handler Integration', type: :integration do
+  describe 'basic step execution' do
+    it 'processes simple API call step' do
+      task = TaskerCore::Factory.task(name: 'api_integration_test')
+      step = TaskerCore::Factory.workflow_step(
+        task_id: task['task_id'],
+        name: 'api_call_step',
+        inputs: { url: 'https://api.example.com/data', method: 'GET' }
+      )
+      
+      # Execute step through Rust FFI
+      result = TaskerCore::Handlers::Steps.process(step['step_id'])
+      
+      # Verify integration worked
+      expect(result['status']).to eq('completed')
+      expect(result['outputs']).to have_key('response_data')
+    end
+  end
+end
+```
+
+**Test Categories to Build**:
+1. **Basic Handler Integration** - Simple Rust↔Ruby step processing
+2. **Complex Workflow Scenarios** - Multi-step task orchestration  
+3. **Error Handling Patterns** - Failure modes and recovery
+4. **Performance Under Load** - Concurrent step processing
+5. **Context Data Flow** - Rich data passing between steps
+
+**Success Criteria**: 5 new integration test suites, realistic workflow scenarios
+
+### 🎯 **Sub-Phase 9.3: Legacy/Deprecated Code Cleanup (Day 3-4)**
+
+**Goal**: Remove all backward compatibility code - build the new thing right
+
+**Legacy References Found**:
+```ruby
+# lib/tasker_core.rb
+require_relative 'tasker_core/events_domain'     # Legacy Events::Domain
+require_relative 'tasker_core/step_handler/base' # Legacy step handler base  
+require_relative 'tasker_core/step_handler/api'  # Legacy step handler API
+require_relative 'tasker_core/task_handler'      # Legacy task handler
+
+# Legacy compatibility aliases (to be deprecated)
+```
+
+**Cleanup Actions**:
+1. **Remove Legacy Compatibility Imports**:
+   - `lib/tasker_core/events.rb` legacy compatibility  
+   - `lib/tasker_core/testing.rb` legacy managers
+   - `lib/tasker_core/registry.rb` TODO comments
+   - Legacy step handler and task handler aliases
+
+2. **Eliminate Backward Compatibility Code**:
+   - No need for migration paths since this is new architecture
+   - Remove transition helpers and legacy aliases
+   - Clean up obsolete configuration patterns
+
+3. **Update Documentation References**:
+   - Remove references to deprecated patterns
+   - Update examples to use current architecture
+   - Clean up roadmap TODOs
+
+**Success Criteria**: Zero legacy references, clean modern architecture only
+
+### 🎯 **Sub-Phase 9.4: Documentation Excellence Review (Days 4-5)**
+
+**Goal**: Ensure docs reflect real, tested, production-ready architecture
+
+**Rust Documentation Review**:
+```bash
+# Areas needing review:
+src/ffi/shared/testing.rs       # Document new find_or_create patterns
+src/ffi/shared/orchestration_system.rs  # Handle architecture docs
+src/models/core/                # Model layer find_or_create methods
+```
+
+**Ruby Yard Documentation Review**:
+```ruby
+# Update yard-docs for:
+lib/tasker_core/factory.rb      # Factory domain with uniqueness patterns
+lib/tasker_core/internal/       # Internal namespace organization
+bindings/ruby/lib/              # FFI boundary documentation
+```
+
+**Documentation Updates Required**:
+1. **Rust Docs**: Update all model `find_or_create` method documentation
+2. **Ruby Yard**: Document new domain APIs and FFI boundaries
+3. **Integration Guides**: Create examples using real, tested patterns
+4. **Architecture Decisions**: Document handle-based patterns and model layer usage
+
+**Success Criteria**: All documentation accurate, no placeholder examples
+
+### 🎯 **Sub-Phase 9.5: Final Integration Validation (Day 5-6)**
+
+**Goal**: End-to-end validation of complete system
+
+**Validation Areas**:
+1. **Full Spec Suite**: 100% test pass rate with realistic scenarios
+2. **Integration Test Coverage**: All empty specs filled with meaningful tests  
+3. **Legacy-Free Codebase**: No backward compatibility or deprecated patterns
+4. **Documentation Accuracy**: All docs reflect tested, working patterns
+5. **Performance Validation**: Model layer improvements maintain sub-100ms targets
+
+**Success Criteria**: Production-ready test suite with comprehensive integration coverage
+
+## 📊 **ENHANCED PHASE 9 SUCCESS METRICS**
+
+**Testing Excellence**:
+- ✅ 40/40 spec tests passing (from 18/40)
+- ✅ 5 new integration test suites covering real workflow scenarios
+- ✅ Sub-second test execution maintained despite increased coverage
+
+**Code Quality**:
+- ✅ Zero legacy/deprecated references throughout codebase
+- ✅ Model layer `find_or_create` patterns documented and tested
+- ✅ Clean, modern architecture without backward compatibility cruft
+
+**Documentation Excellence**:
+- ✅ All Rust docs reflect real implementations (no placeholder examples)
+- ✅ Ruby yard docs cover new domain API structure
+- ✅ Integration guides show tested, working patterns
+
+**Production Readiness**:
+- ✅ Comprehensive integration test coverage validates real-world scenarios
+- ✅ Clean codebase ready for production deployment
+- ✅ Documentation supports confident system operation
+
 ## 🔥 IMMEDIATE NEXT ACTION
 
-**PHASE 8 PRIORITY**: Begin systematic placeholder code elimination, starting with critical production blockers:
-1. State machine integration TODOs
-2. Event publishing placeholders  
-3. Functions returning dummy data
-4. Error translation stubs
+**PHASE 9 PRIORITY**: Begin comprehensive testing and legacy cleanup initiative:
 
-**Principle**: No new architectural work until placeholder foundation is solid.
+**Day 1-2**: Fix critical test failures (OrchestrationHandleInfo, field naming, workflow integration)
+**Day 2-3**: Build integration tests for empty spec files using Rails engine blog patterns  
+**Day 3-4**: Remove all legacy/deprecated code - build new architecture cleanly
+**Day 4-5**: Review and update all documentation for accuracy
+**Day 5-6**: Final validation of complete production-ready system
+
+**Principle**: Build comprehensive, tested, documented foundation before proceeding with new features.
 
 ---
 
-This enhanced roadmap prioritizes elimination of placeholder code before proceeding with architectural improvements, ensuring we build production-ready systems on solid foundations rather than placeholder implementations.
+This Phase 9 initiative ensures we have a rock-solid, comprehensively tested foundation with excellent documentation before expanding the system further. The focus on integration tests and legacy cleanup will provide confidence for production deployment.

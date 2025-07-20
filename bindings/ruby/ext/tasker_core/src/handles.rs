@@ -12,7 +12,7 @@ use std::sync::Arc;
 use magnus::{Error, Value, RModule, method, function, Module, Object};
 use magnus::error::Result as MagnusResult;
 use tracing::{info, debug};
-use crate::context::ruby_value_to_json;
+use crate::context::{ruby_value_to_json, json_to_ruby_value};
 use crate::types::{OrchestrationHandleInfo, RubyAnalyticsMetrics};
 use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
 
@@ -148,18 +148,72 @@ impl OrchestrationHandle {
         let options_json = ruby_value_to_json(options)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert options: {}", e)))?;
 
-        let metadata = tasker_core::ffi::shared::types::HandlerMetadata {
+        let metadata = tasker_core::orchestration::types::HandlerMetadata {
             namespace: options_json.get("namespace").and_then(|v| v.as_str()).unwrap_or("default").to_string(),
             name: options_json.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed").to_string(),
-            version: options_json.get("version").and_then(|v| v.as_str()).unwrap_or("1.0.0").to_string(),
+            version: options_json.get("version").and_then(|v| v.as_str()).unwrap_or("0.1.0").to_string(),
             handler_class: options_json.get("handler_class").and_then(|v| v.as_str()).unwrap_or("DefaultHandler").to_string(),
             config_schema: options_json.get("config_schema").cloned(),
+            registered_at: chrono::Utc::now(),
         };
 
         // Delegate to shared handle
         match self.shared_handle.register_handler(metadata) {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
+        }
+    }
+
+    /// **NEW**: Find handler by namespace, name, and version (delegates to shared handle)
+    pub fn find_handler(&self, task_request: Value) -> MagnusResult<Value> {
+        debug!("🔧 Ruby FFI: find_handler() - delegating to shared handle");
+
+        // Convert Ruby task request to parameters
+        let task_request_json = ruby_value_to_json(task_request)
+            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert task request: {}", e)))?;
+
+        let namespace = task_request_json.get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+        let name = task_request_json.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::new(magnus::exception::runtime_error(), "Task request must include 'name'"))?;
+        let version = task_request_json.get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.1.0");
+
+        // Delegate to shared handle
+        match self.shared_handle.find_handler(namespace, name, version) {
+            Ok(Some(metadata)) => {
+                // Convert HandlerMetadata to Ruby hash
+                let result = serde_json::json!({
+                    "found": true,
+                    "namespace": metadata.namespace,
+                    "name": metadata.name,
+                    "version": metadata.version,
+                    "handler_class": metadata.handler_class,
+                    "config_schema": metadata.config_schema,
+                    "registered_at": metadata.registered_at.to_rfc3339()
+                });
+
+                json_to_ruby_value(result)
+                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+            }
+            Ok(None) => {
+                // Handler not found
+                let result = serde_json::json!({
+                    "found": false,
+                    "namespace": namespace,
+                    "name": name,
+                    "version": version
+                });
+
+                json_to_ruby_value(result)
+                    .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+            }
+            Err(e) => {
+                Err(Error::new(magnus::exception::runtime_error(), format!("Handler lookup failed: {}", e)))
+            }
         }
     }
 
@@ -214,6 +268,7 @@ pub fn register_orchestration_handle(module: &RModule) -> MagnusResult<()> {
 
     // Operations
     class.define_method("register_handler", method!(OrchestrationHandle::register_handler, 1))?;
+    class.define_method("find_handler", method!(OrchestrationHandle::find_handler, 1))?;
     class.define_method("get_analytics", method!(OrchestrationHandle::get_analytics, 1))?;
 
     Ok(())

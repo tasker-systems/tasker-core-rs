@@ -30,7 +30,7 @@ use magnus::{Error, RModule, Value};
 /// ## Migration Benefits
 ///
 /// - **Zero Duplicate Logic**: All factory operations use shared components
-/// - **Handle-Based Access**: Uses SharedOrchestrationHandle for resource management  
+/// - **Handle-Based Access**: Uses SharedOrchestrationHandle for resource management
 /// - **Multi-Language Ready**: Shared components can be used by Python, Node.js, etc.
 /// - **Better Performance**: Single orchestration system, no separate pool creation
 ///
@@ -39,7 +39,7 @@ use magnus::{Error, RModule, Value};
 /// ```rust
 /// // OLD: Direct database operations
 /// let framework = TestingFramework::new(pool).await?;
-/// 
+///
 /// // NEW: Shared component delegation
 /// let shared_factory = get_global_testing_factory();
 /// let result = shared_factory.setup_test_environment()?;
@@ -121,7 +121,7 @@ impl TestingFramework {
 
         // Use shared factory's database pool
         let pool = self.shared_factory.database_pool();
-        
+
         // Simple connectivity test
         let result = crate::globals::execute_async(async {
             sqlx::query_scalar::<_, i32>("SELECT 1")
@@ -129,8 +129,8 @@ impl TestingFramework {
                 .await
         });
 
-        result.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { 
-            format!("Database connectivity failed: {}", e).into() 
+        result.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            format!("Database connectivity failed: {}", e).into()
         })?;
         info!("✅ Database connectivity confirmed using shared factory pool");
         Ok(())
@@ -144,7 +144,7 @@ impl TestingFramework {
         println!("🧪 TESTING FRAMEWORK: Validating test environment");
 
         // Check environment variables
-        let env_vars = ["RAILS_ENV", "APP_ENV", "RACK_ENV"];
+        let env_vars = ["RAILS_ENV", "APP_ENV", "RACK_ENV", "TASKER_ENV"];
         let mut test_env_found = false;
 
         for env_var in env_vars {
@@ -185,12 +185,12 @@ impl TestingFramework {
 /// **MIGRATED**: Create testing framework using shared components
 pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: create_testing_framework_with_handle_wrapper() - using shared components");
-    
+
     let result = match TestingFramework::new() {
         Ok(framework) => {
             // Get pool size from shared factory
             let pool_size = framework.shared_factory().database_pool().size();
-            
+
             json!({
                 "status": "success",
                 "message": "TestingFramework created using shared components",
@@ -212,7 +212,7 @@ pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Resu
 /// **MIGRATED**: Setup test environment using shared components
 pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: setup_test_environment_with_handle_wrapper() - delegating to shared factory");
-    
+
     let result = match TestingFramework::new() {
         Ok(framework) => {
             match framework.setup_test_environment() {
@@ -239,7 +239,7 @@ pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result
 /// **MIGRATED**: Cleanup test environment using shared components
 pub fn cleanup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: cleanup_test_environment_with_handle_wrapper() - delegating to shared factory");
-    
+
     let result = match TestingFramework::new() {
         Ok(framework) => {
             match framework.cleanup_test_environment() {
@@ -293,7 +293,7 @@ pub fn register_testing_framework_functions(module: RModule) -> Result<(), Error
 //
 // Previous file contained 230+ lines of duplicate logic including:
 // - Test environment setup (80% duplicate)
-// - Database connectivity checks (90% duplicate) 
+// - Database connectivity checks (90% duplicate)
 // - Test environment cleanup (85% duplicate)
 // - Foundation data creation (95% duplicate)
 //

@@ -264,7 +264,7 @@ impl SharedTestingFactory {
 
             match WorkflowStep::create(pool, new_step).await {
                 Ok(step) => Ok(TestStepOutput {
-                    step_id: step.workflow_step_id,
+                    workflow_step_id: step.workflow_step_id,
                     task_id: step.task_id,
                     name: input.name,
                     handler_class: input.handler_class.unwrap_or("TestStepHandler".to_string()),

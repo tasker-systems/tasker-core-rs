@@ -3,10 +3,11 @@
 require 'singleton'
 
 module TaskerCore
-  # Ruby-level wrapper for the unified orchestration system
-  # This provides a singleton pattern at the Ruby level to avoid
-  # re-initializing the orchestration system on every call
-  class OrchestrationManager
+  module Internal
+    # Ruby-level wrapper for the unified orchestration system
+    # This provides a singleton pattern at the Ruby level to avoid
+    # re-initializing the orchestration system on every call
+    class OrchestrationManager
     include Singleton
 
     attr_reader :initialized_at, :status, :logger
@@ -274,6 +275,7 @@ module TaskerCore
       return nil unless handle
 
       TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
+    end
     end
   end
 end

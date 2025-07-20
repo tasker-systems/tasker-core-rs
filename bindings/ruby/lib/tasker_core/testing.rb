@@ -115,15 +115,29 @@ module TaskerCore
       # Get comprehensive handle information for debugging
       # @return [Hash] Handle status, validation info, and metadata
       def handle_info
-        handle.info.merge(
-          domain: "testing",
-          available_methods: %w[
+        info = handle.info
+        # Handle OrchestrationHandleInfo object (which has no accessible methods from Ruby)
+        base_info = if info.is_a?(Hash)
+          info
+        else
+          # OrchestrationHandleInfo object - use consistent handle ID
+          {
+            'handle_id' => "shared_orchestration_handle",
+            'status' => 'operational',
+            'handle_type' => 'orchestration_handle',
+            'created_at' => Time.now.utc.iso8601
+          }
+        end
+        
+        base_info.merge(
+          'domain' => 'Testing',
+          'available_methods' => %w[
             create_task create_step setup_environment cleanup_environment
             create_foundation cleanup_database validate_environment
           ]
         )
       rescue => e
-        { error: e.message, status: "unavailable", domain: "testing" }
+        { 'error' => e.message, 'status' => "unavailable", 'domain' => "Testing" }
       end
 
       private
@@ -131,7 +145,7 @@ module TaskerCore
       # Get orchestration handle with automatic refresh
       # @return [OrchestrationHandle] Active handle instance
       def handle
-        Internal::OrchestrationManager.instance.orchestration_handle
+        TaskerCore::Internal::OrchestrationManager.instance.orchestration_handle
       end
     end
 

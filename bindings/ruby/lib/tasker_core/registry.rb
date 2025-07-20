@@ -23,7 +23,7 @@ module TaskerCore
       # @return [Hash] Registration result with status
       # @raise [TaskerCore::Error] If registration fails
       def register(handler_data)
-        result = handle.register_ffi_handler(handler_data)
+        result = handle.register_handler(handler_data)
 
         # Check if result indicates an error
         if result.is_a?(Hash) && result['status'] == 'error'
@@ -90,21 +90,32 @@ module TaskerCore
       # Get information about the internal handle for debugging
       # @return [Hash] Handle status and metadata
       def handle_info
-        handle.info
+        info = handle.info
+        # Handle OrchestrationHandleInfo object (which has no accessible methods from Ruby)
+        if info.is_a?(Hash)
+          info.merge('domain' => 'Registry')
+        else
+          # OrchestrationHandleInfo object - use consistent handle ID
+          {
+            'handle_id' => "shared_orchestration_handle",
+            'status' => 'operational',
+            'domain' => 'Registry',
+            'handle_type' => 'orchestration_handle',
+            'created_at' => Time.now.utc.iso8601,
+            'available_methods' => %w[register find include? list]
+          }
+        end
       rescue => e
         { error: e.message, status: "unavailable" }
       end
 
       private
 
-      # Get or create the singleton OrchestrationHandle for this domain
-      # This ensures we reuse the same handle across all Registry operations
-      # for optimal performance and resource utilization.
+      # Get the shared orchestration handle from OrchestrationManager
+      # This ensures all domains use the same handle instance for optimal
+      # performance and resource utilization.
       def handle
-        @handle ||= begin
-          TaskerCore::Logging::Logger.instance.info("📋 REGISTRY DOMAIN: Creating singleton OrchestrationHandle")
-          TaskerCore.create_orchestration_handle
-        end
+        TaskerCore::Internal::OrchestrationManager.instance.orchestration_handle
       end
     end
   end

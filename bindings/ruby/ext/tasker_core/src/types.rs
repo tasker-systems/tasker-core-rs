@@ -15,7 +15,7 @@
 //! - **Performance**: Maintains <100μs FFI overhead while enabling cross-language operations
 
 use std::collections::HashMap;
-use magnus::{Error, RHash, Module, RModule, Ruby, Value, IntoValue, RArray, RString};
+use magnus::{Error, RHash, Module, Value, IntoValue, RArray, RString};
 use serde::{Deserialize, Serialize};
 
 // Import shared types for conversion functions
@@ -127,7 +127,7 @@ impl ComplexWorkflowInput {
     }
 }
 
-#[magnus::wrap(class = "TaskerCore::Types::OrchestrationHandleInfo", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::OrchestrationHandleInfo", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationHandleInfo {
   pub handle_type: String,
@@ -136,6 +136,38 @@ pub struct OrchestrationHandleInfo {
   pub testing_factory: String,
   pub analytics_manager: String,
   pub event_bridge: String,
+}
+
+impl OrchestrationHandleInfo {
+    /// Get handle type
+    pub fn handle_type(&self) -> String {
+        self.handle_type.clone()
+    }
+
+    /// Get shared handle ID
+    pub fn shared_handle_id(&self) -> String {
+        self.shared_handle_id.clone()
+    }
+
+    /// Get orchestration system status
+    pub fn orchestration_system(&self) -> String {
+        self.orchestration_system.clone()
+    }
+
+    /// Get testing factory status
+    pub fn testing_factory(&self) -> String {
+        self.testing_factory.clone()
+    }
+
+    /// Get analytics manager status
+    pub fn analytics_manager(&self) -> String {
+        self.analytics_manager.clone()
+    }
+
+    /// Get event bridge status
+    pub fn event_bridge(&self) -> String {
+        self.event_bridge.clone()
+    }
 }
 
 #[magnus::wrap(class = "TaskerCore::TaskHandler::InitializeResult", free_immediately)]

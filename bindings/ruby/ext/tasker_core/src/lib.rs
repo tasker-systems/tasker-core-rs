@@ -121,7 +121,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
     let types_module = module.define_module("Types")?;
-    // Note: Type classes are automatically registered via magnus::wrap annotations
+    
+    // Explicitly register OrchestrationHandleInfo class
+    let _orchestration_handle_info_class = module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
 
     Ok(())
 }

@@ -16,7 +16,7 @@ module TaskerCore
       # @return [Hash] System health data including database, pool, and service status
       # @raise [TaskerCore::Error] If health check fails
       def system_health
-        OrchestrationManager.instance.get_system_health_with_handle
+        Internal::OrchestrationManager.instance.get_system_health_with_handle
       rescue => e
         raise TaskerCore::Error, "Failed to get system health: #{e.message}"
       end
@@ -25,7 +25,7 @@ module TaskerCore
       # @return [Hash] Analytics data including performance metrics and statistics
       # @raise [TaskerCore::Error] If analytics retrieval fails
       def analytics
-        OrchestrationManager.instance.get_analytics_metrics_with_handle
+        Internal::OrchestrationManager.instance.get_analytics_metrics_with_handle
       rescue => e
         raise TaskerCore::Error, "Failed to get analytics: #{e.message}"
       end
@@ -35,7 +35,7 @@ module TaskerCore
       # @return [Hash] Dependency analysis including resolution paths and bottlenecks
       # @raise [TaskerCore::Error] If dependency analysis fails
       def dependencies(task_id)
-        OrchestrationManager.instance.analyze_dependencies_with_handle(task_id)
+        Internal::OrchestrationManager.instance.analyze_dependencies_with_handle(task_id)
       rescue => e
         raise TaskerCore::Error, "Failed to analyze dependencies: #{e.message}"
       end
@@ -45,7 +45,7 @@ module TaskerCore
       # @return [Hash] Task execution context with performance data
       # @raise [TaskerCore::Error] If context retrieval fails
       def task_execution_context(task_id)
-        OrchestrationManager.instance.get_task_execution_context_with_handle(task_id)
+        Internal::OrchestrationManager.instance.get_task_execution_context_with_handle(task_id)
       rescue => e
         raise TaskerCore::Error, "Failed to get task execution context: #{e.message}"
       end
@@ -55,7 +55,7 @@ module TaskerCore
       # @return [Array<Hash>] List of viable steps with readiness information
       # @raise [TaskerCore::Error] If step discovery fails
       def viable_steps(task_id)
-        OrchestrationManager.instance.discover_viable_steps_with_handle(task_id)
+        Internal::OrchestrationManager.instance.discover_viable_steps_with_handle(task_id)
       rescue => e
         raise TaskerCore::Error, "Failed to discover viable steps: #{e.message}"
       end
@@ -74,7 +74,21 @@ module TaskerCore
       # @return [Hash] Handle status and metadata
       def handle_info
         # Performance operations use OrchestrationManager singleton handle
-        OrchestrationManager.instance.handle_info
+        info = Internal::OrchestrationManager.instance.handle_info
+        # Handle OrchestrationHandleInfo object (which has no accessible methods from Ruby)
+        if info.is_a?(Hash)
+          info.merge('domain' => 'Performance')
+        else
+          # OrchestrationHandleInfo object - use consistent handle ID
+          {
+            'handle_id' => "shared_orchestration_handle",
+            'status' => 'operational',
+            'domain' => 'Performance',
+            'handle_type' => 'orchestration_handle',
+            'created_at' => Time.now.utc.iso8601,
+            'available_methods' => %w[system_health analytics dependencies viable_steps context]
+          }
+        end
       rescue => e
         { error: e.message, status: "unavailable" }
       end

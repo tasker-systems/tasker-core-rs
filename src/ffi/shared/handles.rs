@@ -12,7 +12,7 @@
 
 use super::errors::*;
 use super::orchestration_system::OrchestrationSystem;
-use super::types::*;
+use crate::orchestration::types::HandlerMetadata;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -240,6 +240,37 @@ impl SharedOrchestrationHandle {
             Ok(_) => Ok(()),
             Err(e) => Err(SharedFFIError::HandlerRegistrationFailed(e.to_string())),
         }
+    }
+
+    /// Find handler by namespace, name, and version
+    pub fn find_handler(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> SharedFFIResult<Option<HandlerMetadata>> {
+        // Use validate_or_refresh for production resilience - auto-recover from expired handles
+        let _validated_handle = self.validate_or_refresh()?;
+
+        // Access the task handler registry directly through orchestration system
+        match self
+            .orchestration_system
+            .task_handler_registry
+            .get_handler_metadata(namespace, name, version)
+        {
+            Ok(metadata) => Ok(Some(metadata)),
+            Err(_) => Ok(None), // Handler not found - return None instead of error for graceful handling
+        }
+    }
+
+    /// Find handler from task request structure
+    pub fn find_handler_from_request(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> SharedFFIResult<Option<HandlerMetadata>> {
+        self.find_handler(namespace, name, version)
     }
 
     // ========================================================================
