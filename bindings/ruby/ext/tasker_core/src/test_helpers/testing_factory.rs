@@ -8,11 +8,12 @@
 //! AFTER: ~100 lines of Magnus FFI wrappers
 //! SAVINGS: 1,100+ lines of duplicate testing code eliminated
 
-use magnus::{Error, RModule, Value, function};
+use magnus::{Error, RModule, Value, function, Ruby, Module};
 use magnus::error::Result as MagnusResult;
+use magnus::value::ReprValue;
 use std::sync::Arc;
 use tracing::{info, debug};
-use crate::context::ruby_value_to_json;
+use crate::context::{ruby_value_to_json, json_to_ruby_value};
 use tasker_core::ffi::shared::testing::{SharedTestingFactory, get_global_testing_factory};
 use tasker_core::ffi::shared::types::*;
 
@@ -20,6 +21,176 @@ use tasker_core::ffi::shared::types::*;
 //
 // All duplicate testing logic has been moved to src/ffi/shared/testing.rs
 // This provides Ruby FFI compatibility while delegating to shared components
+
+// ===== STRUCTURED RUBY RESULT OBJECTS (PRIMITIVES IN, OBJECTS OUT) =====
+
+/// Ruby wrapper for test task results with structured methods
+#[magnus::wrap(class = "TaskerCore::TestHelpers::TestTask")]
+pub struct RubyTestTask {
+    pub task_id: i64,
+    pub namespace: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub status: String,
+    pub context: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+impl RubyTestTask {
+    /// Get task ID
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+
+    /// Get task namespace
+    pub fn namespace(&self) -> String {
+        self.namespace.clone()
+    }
+
+    /// Get task name
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Get task version
+    pub fn version(&self) -> Option<String> {
+        self.version.clone()
+    }
+
+    /// Get task status
+    pub fn status(&self) -> String {
+        self.status.clone()
+    }
+
+    /// Get context as Ruby hash
+    pub fn context(&self) -> MagnusResult<Value> {
+        match &self.context {
+            Some(ctx) => json_to_ruby_value(ctx.clone())
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Context conversion failed: {}", e))),
+            None => Ok(Ruby::get().unwrap().qnil().as_value())
+        }
+    }
+
+    /// Get creation timestamp
+    pub fn created_at(&self) -> String {
+        self.created_at.clone()
+    }
+
+    /// Check if task is complete
+    pub fn is_complete(&self) -> bool {
+        self.status == "completed"
+    }
+
+    /// Check if task is pending
+    pub fn is_pending(&self) -> bool {
+        self.status == "pending"
+    }
+}
+
+/// Ruby wrapper for test step results
+#[magnus::wrap(class = "TaskerCore::TestHelpers::TestStep")]
+pub struct RubyTestStep {
+    pub step_id: i64,
+    pub task_id: i64,
+    pub name: String,
+    pub handler_class: Option<String>,
+    pub status: String,
+    pub dependencies: Vec<i64>,
+    pub config: Option<serde_json::Value>,
+}
+
+impl RubyTestStep {
+    pub fn step_id(&self) -> i64 { self.step_id }
+    pub fn task_id(&self) -> i64 { self.task_id }
+    pub fn name(&self) -> String { self.name.clone() }
+    pub fn handler_class(&self) -> Option<String> { self.handler_class.clone() }
+    pub fn status(&self) -> String { self.status.clone() }
+    pub fn dependencies(&self) -> Vec<i64> { self.dependencies.clone() }
+
+    pub fn config(&self) -> MagnusResult<Value> {
+        match &self.config {
+            Some(cfg) => json_to_ruby_value(cfg.clone())
+                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Config conversion failed: {}", e))),
+            None => Ok(Ruby::get().unwrap().qnil().as_value())
+        }
+    }
+
+    pub fn has_dependencies(&self) -> bool {
+        !self.dependencies.is_empty()
+    }
+}
+
+// ===== IMPROVED FFI FUNCTIONS: PRIMITIVES IN, OBJECTS OUT =====
+
+/// ✅ **OPTIMIZED**: Create test task with primitive inputs and structured object output
+/// Eliminates JSON conversion overhead by accepting direct parameters
+pub fn create_test_task_optimized(
+    namespace: Option<String>,
+    name: Option<String>,
+    version: Option<String>,
+    context_json: Option<String>,
+    initiator: Option<String>
+) -> MagnusResult<RubyTestTask> {
+    debug!("🚀 OPTIMIZED: create_test_task_optimized() - primitives in, objects out");
+
+    // Direct parameter usage - no JSON conversion overhead
+    let input = CreateTestTaskInput {
+        namespace: namespace.unwrap_or_else(|| "test".to_string()),
+        name: name.unwrap_or_else(|| "test_task".to_string()),
+        version,
+        context: context_json.and_then(|json| serde_json::from_str(&json).ok()),
+        initiator,
+    };
+
+    // Delegate to shared testing factory
+    let factory = get_global_testing_factory();
+    let result = factory.create_test_task(input)
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test task creation failed: {}", e)))?;
+
+    // Direct object construction - no JSON round-trip
+    Ok(RubyTestTask {
+        task_id: result.task_id,
+        namespace: result.namespace,
+        name: result.name,
+        version: Some(result.version),
+        status: result.status,
+        context: Some(result.context),
+        created_at: result.created_at,
+    })
+}
+
+/// ✅ **OPTIMIZED**: Create test step with primitive inputs and structured object output
+pub fn create_test_step_optimized(
+    task_id: i64,
+    name: Option<String>,
+    handler_class: Option<String>,
+    dependencies: Option<Vec<i64>>,
+    config_json: Option<String>
+) -> MagnusResult<RubyTestStep> {
+    debug!("🚀 OPTIMIZED: create_test_step_optimized() - primitives in, objects out");
+
+    let input = CreateTestStepInput {
+        task_id,
+        name: name.unwrap_or_else(|| "test_step".to_string()),
+        handler_class,
+        dependencies,
+        config: config_json.and_then(|json| serde_json::from_str(&json).ok()),
+    };
+
+    let factory = get_global_testing_factory();
+    let result = factory.create_test_step(input)
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test step creation failed: {}", e)))?;
+
+    Ok(RubyTestStep {
+        step_id: result.step_id,
+        task_id: result.task_id,
+        name: result.name,
+        handler_class: Some(result.handler_class),
+        status: result.status,
+        dependencies: result.dependencies,
+        config: Some(result.config),
+    })
+}
 
 /// **MIGRATED**: Create test task (delegates to shared testing factory)
 pub fn create_test_task(options: Value) -> MagnusResult<Value> {
@@ -164,13 +335,32 @@ pub fn create_test_foundation(options: Value) -> MagnusResult<Value> {
 pub fn register_factory_functions(module: &RModule) -> MagnusResult<()> {
     info!("🎯 MIGRATED: Registering testing factory functions - delegating to shared components");
 
+    // Legacy JSON-based functions (for backward compatibility)
     module.define_module_function("create_test_task", function!(create_test_task, 1))?;
     module.define_module_function("create_test_step", function!(create_test_step, 1))?;
     module.define_module_function("setup_test_environment", function!(setup_test_environment, 0))?;
     module.define_module_function("cleanup_test_environment", function!(cleanup_test_environment, 0))?;
     module.define_module_function("create_test_foundation", function!(create_test_foundation, 1))?;
 
-    info!("✅ Testing factory functions registered successfully - using shared components");
+    // ✅ NEW: Optimized primitives in, objects out functions
+    module.define_module_function("create_test_task_optimized", function!(create_test_task_optimized, 5))?;
+    module.define_module_function("create_test_step_optimized", function!(create_test_step_optimized, 5))?;
+
+    info!("✅ Testing factory functions registered successfully - using shared components + optimized primitives");
+    Ok(())
+}
+
+/// Register Ruby wrapper classes for structured output objects
+pub fn register_ruby_test_classes(ruby: &Ruby, module: &RModule) -> MagnusResult<()> {
+    info!("🚀 Registering optimized Ruby test classes for structured output");
+
+    // Register TestTask class with structured methods
+    let _test_task_class = module.define_class("TestTask", ruby.class_object())?;
+
+    // Register TestStep class with structured methods
+    let _test_step_class = module.define_class("TestStep", ruby.class_object())?;
+
+    info!("✅ Ruby test classes registered successfully - primitives in, objects out pattern");
     Ok(())
 }
 

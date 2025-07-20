@@ -5,7 +5,7 @@ require 'json'
 require 'logger'
 require 'singleton'
 require 'digest'
-require_relative 'orchestration_manager'
+require_relative 'internal/orchestration_manager'
 
 module TaskerCore
   class TaskHandler

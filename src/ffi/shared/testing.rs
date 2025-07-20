@@ -16,11 +16,8 @@ use tracing::{debug, info};
 
 // Import core models directly (available from main crate)
 use crate::models::{
-    core::{
-        dependent_system::NewDependentSystem, named_step::NewNamedStep, named_task::NewNamedTask,
-        task::NewTask, task_namespace::NewTaskNamespace, workflow_step::NewWorkflowStep,
-    },
-    DependentSystem, NamedStep, NamedTask, Task, TaskNamespace, WorkflowStep,
+    core::{task::NewTask, workflow_step::NewWorkflowStep},
+    NamedStep, NamedTask, Task, TaskNamespace, WorkflowStep,
 };
 
 use serde_json::json;
@@ -175,23 +172,8 @@ impl SharedTestingFactory {
         pool: &PgPool,
         name: &str,
     ) -> Result<TaskNamespace, sqlx::Error> {
-        // Try to find existing namespace
-        if let Ok(Some(namespace)) =
-            sqlx::query_as::<_, TaskNamespace>("SELECT * FROM task_namespaces WHERE name = $1")
-                .bind(name)
-                .fetch_optional(pool)
-                .await
-        {
-            return Ok(namespace);
-        }
-
-        // Create new namespace
-        let new_namespace = NewTaskNamespace {
-            name: name.to_string(),
-            description: Some(format!("Test namespace created by shared factory: {name}")),
-        };
-
-        TaskNamespace::create(pool, new_namespace).await
+        // Use the model's find_or_create method
+        TaskNamespace::find_or_create(pool, name).await
     }
 
     async fn find_or_create_named_task(
@@ -201,29 +183,8 @@ impl SharedTestingFactory {
         namespace_id: i64,
         version: &str,
     ) -> Result<NamedTask, sqlx::Error> {
-        // Try to find existing named task
-        if let Ok(Some(named_task)) = sqlx::query_as::<_, NamedTask>(
-            "SELECT * FROM named_tasks WHERE name = $1 AND task_namespace_id = $2 AND version = $3",
-        )
-        .bind(name)
-        .bind(namespace_id)
-        .bind(version)
-        .fetch_optional(pool)
-        .await
-        {
-            return Ok(named_task);
-        }
-
-        // Create new named task
-        let new_named_task = NewNamedTask {
-            name: name.to_string(),
-            task_namespace_id: namespace_id,
-            description: Some(format!("Test task created by shared factory: {name}")),
-            version: Some(version.to_string()),
-            configuration: Some(json!({"created_by": "shared_testing_factory"})),
-        };
-
-        NamedTask::create(pool, new_named_task).await
+        // Use the model's find_or_create method - 1 line instead of 25!
+        NamedTask::find_or_create_by_name_version_namespace(pool, name, version, namespace_id).await
     }
 
     async fn find_or_create_named_step(
@@ -233,54 +194,8 @@ impl SharedTestingFactory {
         _namespace_id: i64, // Not used in actual schema
         _version: &str,     // Not used in actual schema
     ) -> Result<NamedStep, sqlx::Error> {
-        // Try to find existing named step by name only
-        if let Ok(existing_steps) = NamedStep::find_by_name(pool, name).await {
-            if let Some(existing) = existing_steps.first() {
-                return Ok(existing.clone());
-            }
-        }
-
-        // Ensure dependent system exists for the step
-        let dependent_system = match self
-            .find_or_create_dependent_system(
-                pool,
-                "shared_testing_factory",
-                "Test system for shared testing factory",
-            )
-            .await
-        {
-            Ok(ds) => ds,
-            Err(e) => return Err(e),
-        };
-
-        // Create new named step
-        let new_named_step = NewNamedStep {
-            name: name.to_string(),
-            dependent_system_id: dependent_system.dependent_system_id,
-            description: Some(format!("Test step created by shared factory: {name}")),
-        };
-
-        NamedStep::create(pool, new_named_step).await
-    }
-
-    async fn find_or_create_dependent_system(
-        &self,
-        pool: &PgPool,
-        name: &str,
-        description: &str,
-    ) -> Result<DependentSystem, sqlx::Error> {
-        // Try to find existing dependent system first
-        if let Some(existing) = DependentSystem::find_by_name(pool, name).await? {
-            return Ok(existing);
-        }
-
-        // Create new dependent system
-        let new_dependent_system = NewDependentSystem {
-            name: name.to_string(),
-            description: Some(description.to_string()),
-        };
-
-        DependentSystem::create(pool, new_dependent_system).await
+        // Use the model's find_or_create method - 1 line instead of 35!
+        NamedStep::find_or_create_by_name_simple(pool, name).await
     }
 
     /// Create test workflow step using shared types
@@ -293,12 +208,8 @@ impl SharedTestingFactory {
         execute_async(async {
             let pool = self.database_pool();
 
-            // Verify task exists
-            let task = match sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE task_id = $1")
-                .bind(input.task_id)
-                .fetch_optional(pool)
-                .await
-            {
+            // Verify task exists using model layer (automatically handles correct table names)
+            let task = match Task::find_by_id(pool, input.task_id).await {
                 Ok(Some(t)) => t,
                 Ok(None) => {
                     return Err(SharedFFIError::StepCreationFailed(format!(
@@ -313,14 +224,8 @@ impl SharedTestingFactory {
                 }
             };
 
-            // Get namespace for named step lookup
-            let named_task = match sqlx::query_as::<_, NamedTask>(
-                "SELECT * FROM named_tasks WHERE named_task_id = $1",
-            )
-            .bind(task.named_task_id)
-            .fetch_optional(pool)
-            .await
-            {
+            // Get namespace for named step lookup using model layer
+            let named_task = match NamedTask::find_by_id(pool, task.named_task_id).await {
                 Ok(Some(nt)) => nt,
                 Ok(None) => {
                     return Err(SharedFFIError::StepCreationFailed(

@@ -173,4 +173,20 @@ impl TaskNamespace {
 
         Ok(count.unwrap_or(0) == 0)
     }
+
+    /// Find existing namespace by name or create a new one if it doesn't exist
+    pub async fn find_or_create(pool: &PgPool, name: &str) -> Result<TaskNamespace, sqlx::Error> {
+        // Try to find existing namespace first
+        if let Some(existing) = Self::find_by_name(pool, name).await? {
+            return Ok(existing);
+        }
+
+        // Create new namespace if not found
+        let new_namespace = NewTaskNamespace {
+            name: name.to_string(),
+            description: Some(format!("Auto-created namespace: {name}")),
+        };
+
+        Self::create(pool, new_namespace).await
+    }
 }

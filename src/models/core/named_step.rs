@@ -241,4 +241,57 @@ impl NamedStep {
 
         Ok(steps)
     }
+
+    /// Find existing named step by name or create a new one with dependent system
+    /// This method also ensures the dependent system exists
+    pub async fn find_or_create_by_name(
+        pool: &PgPool,
+        name: &str,
+        dependent_system_name: &str,
+    ) -> Result<NamedStep, sqlx::Error> {
+        // Import the DependentSystem model to use its find_or_create method
+        use crate::models::DependentSystem;
+
+        // First ensure the dependent system exists
+        let dependent_system = DependentSystem::find_or_create_by_name_with_description(
+            pool,
+            dependent_system_name,
+            Some(format!(
+                "Auto-created system for steps: {dependent_system_name}"
+            )),
+        )
+        .await?;
+
+        // Try to find existing named step by system and name
+        if let Some(existing) =
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_id, name).await?
+        {
+            return Ok(existing);
+        }
+
+        // Create new named step if not found
+        let new_step = NewNamedStep {
+            dependent_system_id: dependent_system.dependent_system_id,
+            name: name.to_string(),
+            description: Some(format!("Auto-created step: {name}")),
+        };
+
+        Self::create(pool, new_step).await
+    }
+
+    /// Find existing named step by name only (first match) or create with default dependent system
+    pub async fn find_or_create_by_name_simple(
+        pool: &PgPool,
+        name: &str,
+    ) -> Result<NamedStep, sqlx::Error> {
+        // Try to find any existing step with this name first
+        if let Ok(existing_steps) = Self::find_by_name(pool, name).await {
+            if let Some(existing) = existing_steps.first() {
+                return Ok(existing.clone());
+            }
+        }
+
+        // Create with default dependent system
+        Self::find_or_create_by_name(pool, name, "shared_testing_factory").await
+    }
 }

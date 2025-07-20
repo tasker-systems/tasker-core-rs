@@ -12,7 +12,7 @@ use tracing::debug;
 
 /// TaskExecutionContext Ruby class wrapper - mirrors SQL function TaskExecutionContext
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::TaskExecutionContext", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::TaskExecutionContext", free_immediately, size)]
 pub struct RubyTaskExecutionContext {
     pub task_id: i64,
     pub total_steps: i64,
@@ -271,7 +271,7 @@ impl RubyTaskExecutionContext {
 
 /// ViableStep Ruby class wrapper
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::ViableStep", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::ViableStep", free_immediately, size)]
 pub struct RubyViableStep {
     pub workflow_step_id: i64,
     pub task_id: i64,
@@ -362,7 +362,7 @@ impl RubyViableStep {
 
 /// SystemHealth Ruby class wrapper
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::SystemHealth", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::SystemHealth", free_immediately, size)]
 pub struct RubySystemHealth {
     pub total_tasks: i64,
     pub pending_tasks: i64,
@@ -486,7 +486,7 @@ impl RubySystemHealth {
 
 /// AnalyticsMetrics Ruby class wrapper - mirrors SQL function AnalyticsMetrics
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::AnalyticsMetrics", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::AnalyticsMetrics", free_immediately, size)]
 pub struct RubyAnalyticsMetrics {
     pub active_tasks_count: i32,
     pub total_namespaces_count: i32,
@@ -652,7 +652,7 @@ impl RubyAnalyticsMetrics {
 
 /// SlowestStepAnalysis Ruby class wrapper
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::SlowestStepAnalysis", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::SlowestStepAnalysis", free_immediately, size)]
 pub struct RubySlowestStepAnalysis {
     pub named_step_id: i64,
     pub step_name: String,
@@ -765,7 +765,7 @@ impl RubySlowestStepAnalysis {
 
 /// SlowestTaskAnalysis Ruby class wrapper
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::SlowestTaskAnalysis", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::SlowestTaskAnalysis", free_immediately, size)]
 pub struct RubySlowestTaskAnalysis {
     pub named_task_id: i64,
     pub task_name: String,
@@ -890,7 +890,7 @@ impl RubySlowestTaskAnalysis {
 
 /// DependencyAnalysis Ruby class wrapper - comprehensive dependency analysis result
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::DependencyAnalysis", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::DependencyAnalysis", free_immediately, size)]
 pub struct RubyDependencyAnalysis {
     pub task_id: i64,
     pub has_cycles: bool,
@@ -1038,7 +1038,7 @@ impl RubyDependencyAnalysis {
 
 /// DependencyLevel Ruby class wrapper
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::DependencyLevel", free_immediately, size)]
+#[magnus::wrap(class = "TaskerCore::Performance::DependencyLevel", free_immediately, size)]
 pub struct RubyDependencyLevel {
     pub workflow_step_id: i64,
     pub dependency_level: i32,

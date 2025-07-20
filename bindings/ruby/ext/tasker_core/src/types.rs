@@ -127,7 +127,7 @@ impl ComplexWorkflowInput {
     }
 }
 
-#[magnus::wrap(class = "TaskerCore::OrchestrationHandleInfo", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::Types::OrchestrationHandleInfo", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationHandleInfo {
   pub handle_type: String,
@@ -162,7 +162,7 @@ pub struct TaskHandlerHandleResult {
 
 /// Optimized TaskMetadata response structure using Magnus wrapped classes
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::TaskMetadata", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::Types::TaskMetadata", free_immediately)]
 pub struct TaskMetadata {
     pub found: bool,
     pub namespace: String,
@@ -241,7 +241,7 @@ impl TaskMetadata {
   }
 }
 
-#[magnus::wrap(class = "TaskerCore::AnalyticsMetrics", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::Types::AnalyticsMetrics", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RubyAnalyticsMetrics {
   pub total_tasks: i64,
@@ -275,7 +275,7 @@ pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> 
 
 /// Optimized WorkflowStepInput structure using Magnus wrapped classes
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::WorkflowStepInput", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::Types::WorkflowStepInput", free_immediately)]
 pub struct WorkflowStepInput {
   pub task_id: i64,
   pub name: String,
@@ -313,7 +313,7 @@ impl WorkflowStepInput {
 
 /// Optimized ComplexWorkflowInput structure using Magnus wrapped classes
 #[derive(Clone, Debug)]
-#[magnus::wrap(class = "TaskerCore::ComplexWorkflowInput", free_immediately)]
+#[magnus::wrap(class = "TaskerCore::Types::ComplexWorkflowInput", free_immediately)]
 pub struct ComplexWorkflowInput {
   pub pattern: String,
   pub namespace: String,

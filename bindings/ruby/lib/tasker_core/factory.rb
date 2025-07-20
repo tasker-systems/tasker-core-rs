@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
 require 'logger'
+require 'securerandom'
 
 module TaskerCore
-  # Domain module for test data creation with singleton handle management
+  # Domain module for test data creation with robust uniqueness guarantees
   #
   # This module provides a clean, Ruby-idiomatic API for creating test data
-  # while internally managing a persistent OrchestrationHandle for optimal performance.
+  # with automatic unique naming to prevent database constraint violations.
   #
   # Examples:
   #   task = TaskerCore::Factory.task(name: "payment_processing")
@@ -19,23 +20,19 @@ module TaskerCore
       # @return [Hash] Created task data
       # @raise [TaskerCore::Error] If task creation fails
       def task(options = {})
-        # Extract primitive parameters from options
-        namespace = options[:namespace] || options['namespace'] || 'default'
-        task_name = options[:name] || options['name'] || 'test_task'
-        version = options[:version] || options['version'] || '0.1.0'
-        initiator = options[:initiator] || options['initiator']
-
-        # Check if context is provided
-        if options.key?(:context) || options.key?('context')
-          context = options[:context] || options['context'] || {}
-          # Use context-aware handle method with version and initiator
-          handle.create_test_task_with_context_and_initiator(namespace, task_name, context, version, initiator)
-        else
-          # Use simple handle method with version and initiator
-          handle.create_test_task_simple_with_initiator(namespace, task_name, version, initiator)
-        end
+        # Ensure unique naming to prevent constraint violations
+        enhanced_options = ensure_unique_naming(options)
+        
+        # Use the TestHelpers factory function with enhanced options
+        TaskerCore::TestHelpers.create_test_task(enhanced_options)
       rescue => e
-        raise TaskerCore::Error, "Failed to create task: #{e.message}"
+        # Check if it's a constraint violation and retry with more unique name
+        if e.message.include?("duplicate key value violates unique constraint")
+          retry_options = enhance_uniqueness(enhanced_options)
+          TaskerCore::TestHelpers.create_test_task(retry_options)
+        else
+          raise TaskerCore::Error, "Failed to create task: #{e.message}"
+        end
       end
 
       # Create a test workflow step with the specified options
@@ -48,8 +45,8 @@ module TaskerCore
           raise ArgumentError, "task_id is required"
         end
 
-        # Use full options method to preserve inputs and other parameters
-        handle.create_test_workflow_step(options)
+        # Use the TestHelpers factory function with full options
+        TaskerCore::TestHelpers.create_test_step(options)
       rescue => e
         raise TaskerCore::Error, "Failed to create workflow step: #{e.message}"
       end
@@ -61,44 +58,98 @@ module TaskerCore
       def foundation(options = {})
         puts "🔍 FACTORY.foundation: Called with options: #{options.inspect}"
 
-        # Extract primitive parameters from options
-        namespace = options[:namespace] || options['namespace'] || 'default'
-        task_name = options[:task_name] || options['task_name'] || 'test_task'
+        # Ensure unique naming to prevent constraint violations
+        enhanced_options = ensure_unique_naming(options)
 
-        puts "🔍 FACTORY.foundation: Using namespace=#{namespace}, task_name=#{task_name}"
-        puts "🔍 FACTORY.foundation: About to call handle.create_test_foundation with primitives"
-
-        # Use primitive FFI method (no JSON conversion!)
-        result = handle.create_test_foundation(namespace, task_name)
+        # Use the TestHelpers factory function with enhanced options
+        result = TaskerCore::TestHelpers.create_test_foundation(enhanced_options)
         puts "🔍 FACTORY.foundation: Result: #{result.inspect}"
         result
       rescue => e
-        puts "🔍 FACTORY.foundation: Error: #{e.message}"
-        puts "🔍 FACTORY.foundation: Backtrace: #{e.backtrace.first(3).join(', ')}"
-        raise TaskerCore::Error, "Failed to create foundation: #{e.message}"
+        # Check if it's a constraint violation and retry with more unique name
+        if e.message.include?("duplicate key value violates unique constraint")
+          retry_options = enhance_uniqueness(enhanced_options)
+          result = TaskerCore::TestHelpers.create_test_foundation(retry_options)
+          puts "🔍 FACTORY.foundation: Retry successful with unique naming"
+          result
+        else
+          puts "🔍 FACTORY.foundation: Error: #{e.message}"
+          puts "🔍 FACTORY.foundation: Backtrace: #{e.backtrace.first(3).join(', ')}"
+          raise TaskerCore::Error, "Failed to create foundation: #{e.message}"
+        end
       end
 
-      # Get information about the internal handle for debugging
-      # @return [Hash] Handle status and metadata
+      # Get information about the Factory domain for debugging
+      # @return [Hash] Domain status and metadata
       def handle_info
-        handle.info
-      rescue => e
-        { error: e.message, status: "unavailable" }
+        {
+          domain: "Factory",
+          backend: "TaskerCore::TestHelpers",
+          status: "operational",
+          methods: ["task", "workflow_step", "foundation"],
+          checked_at: Time.now.utc.iso8601
+        }
       end
 
       private
 
-      # Get or create the singleton OrchestrationHandle for this domain
-      # This ensures we reuse the same handle across all Factory operations
-      # for optimal performance and resource utilization.
-      def handle
-        @handle ||= begin
-          TaskerCore::Logging::Logger.instance.info("🏭 FACTORY DOMAIN: Creating singleton OrchestrationHandle")
-          handle = TaskerCore.create_orchestration_handle
-          puts "🔍 FACTORY.handle: Created handle class: #{handle.class}"
-          puts "🔍 FACTORY.handle: Handle methods: #{handle.methods.grep(/foundation/).inspect}"
-          handle
+      # Ensure unique naming for factory operations to prevent constraint violations
+      # @param options [Hash] Original options hash
+      # @return [Hash] Enhanced options with unique naming
+      def ensure_unique_naming(options)
+        enhanced = options.dup
+
+        # Generate unique namespace if not provided or if using common names
+        namespace = enhanced[:namespace] || enhanced['namespace']
+        if namespace.nil? || %w[test default].include?(namespace)
+          enhanced[:namespace] = generate_unique_namespace(namespace || 'test')
         end
+
+        # Generate unique task name if using common names
+        task_name = enhanced[:name] || enhanced['name'] || enhanced[:task_name] || enhanced['task_name']
+        if task_name.nil? || %w[test_task default_task].include?(task_name)
+          base_name = task_name || 'test_task'
+          enhanced[:name] = generate_unique_name(base_name)
+          enhanced[:task_name] = enhanced[:name] # Ensure both keys are set
+        end
+
+        enhanced
+      end
+
+      # Enhance uniqueness further when constraint violations occur
+      # @param options [Hash] Previously enhanced options that still caused conflicts
+      # @return [Hash] Options with maximum uniqueness
+      def enhance_uniqueness(options)
+        enhanced = options.dup
+
+        # Add extra uniqueness to namespace
+        current_namespace = enhanced[:namespace] || enhanced['namespace']
+        enhanced[:namespace] = "#{current_namespace}_retry_#{SecureRandom.hex(3)}"
+
+        # Add extra uniqueness to task name
+        current_name = enhanced[:name] || enhanced['name']
+        enhanced[:name] = "#{current_name}_retry_#{SecureRandom.hex(3)}"
+        enhanced[:task_name] = enhanced[:name]
+
+        enhanced
+      end
+
+      # Generate a unique namespace name
+      # @param base_name [String] Base name for the namespace
+      # @return [String] Unique namespace name
+      def generate_unique_namespace(base_name = 'test')
+        timestamp = Time.now.to_i
+        random_suffix = SecureRandom.hex(4)
+        "#{base_name}_#{timestamp}_#{random_suffix}"
+      end
+
+      # Generate a unique name
+      # @param base_name [String] Base name
+      # @return [String] Unique name
+      def generate_unique_name(base_name = 'test')
+        timestamp = Time.now.to_i
+        random_suffix = SecureRandom.hex(3)
+        "#{base_name}_#{timestamp}_#{random_suffix}"
       end
     end
   end

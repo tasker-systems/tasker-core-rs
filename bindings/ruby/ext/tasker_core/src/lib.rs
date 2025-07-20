@@ -73,22 +73,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     module.define_error("TimeoutError", base_error)?;
     module.define_error("FFIError", base_error)?;
 
-    // Register Ruby wrapper classes for structured return types
-    performance::RubyTaskExecutionContext::define(ruby, &module)?;
-    performance::RubyViableStep::define(ruby, &module)?;
-    performance::RubySystemHealth::define(ruby, &module)?;
-    performance::RubyAnalyticsMetrics::define(ruby, &module)?;
-    performance::RubySlowestStepAnalysis::define(ruby, &module)?;
-    performance::RubySlowestTaskAnalysis::define(ruby, &module)?;
-    performance::RubyDependencyAnalysis::define(ruby, &module)?;
-    performance::RubyDependencyLevel::define(ruby, &module)?;
+    // Ruby wrapper classes will be registered under their proper namespaces below
 
-
-    // Register additional Magnus wrapped classes
-    let workflow_step_input_class = module.define_class("WorkflowStepInput", ruby.class_object())?;
-    let complex_workflow_input_class = module.define_class("ComplexWorkflowInput", ruby.class_object())?;
-
-    // Note: Event functions moved to Events:: namespace for better organization
+    // Note: Magnus-wrapped structs are automatically registered when used
+    // All type classes are properly namespaced (e.g., TaskerCore::Types::WorkflowStepInput)
 
     // Register RubyStepHandler wrapper class
     handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
@@ -105,15 +93,35 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     performance::register_performance_functions(performance_module)?;
     // Register root-level performance functions that OrchestrationManager expects
     performance::register_root_performance_functions(module)?;
+    
+    // ✅ Register Performance classes under TaskerCore::Performance:: namespace
+    performance::RubyTaskExecutionContext::define(ruby, &performance_module)?;
+    performance::RubyViableStep::define(ruby, &performance_module)?;
+    performance::RubySystemHealth::define(ruby, &performance_module)?;
+    performance::RubyAnalyticsMetrics::define(ruby, &performance_module)?;
+    performance::RubySlowestStepAnalysis::define(ruby, &performance_module)?;
+    performance::RubySlowestTaskAnalysis::define(ruby, &performance_module)?;
+    performance::RubyDependencyAnalysis::define(ruby, &performance_module)?;
+    performance::RubyDependencyLevel::define(ruby, &performance_module)?;
 
     // 🎯 EVENTS: Organize all event functionality under Events:: namespace
     let events_module = module.define_module("Events")?;
     event_bridge::register_event_functions(events_module)?;
+    
+    // ✅ NEW: Register optimized Ruby event classes for primitives in, objects out pattern
+    event_bridge::register_ruby_event_classes(ruby, &events_module)?;
 
     // 🎯 TESTHELPERS: Organize all testing utilities under TestHelpers:: namespace
     let test_helpers_module = module.define_module("TestHelpers")?;
     test_helpers::register_test_helper_functions(test_helpers_module)?;
     handles::register_test_helpers_factory_functions(&test_helpers_module)?;
+    
+    // ✅ NEW: Register optimized Ruby test classes for primitives in, objects out pattern
+    test_helpers::testing_factory::register_ruby_test_classes(ruby, &test_helpers_module)?;
+
+    // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
+    let types_module = module.define_module("Types")?;
+    // Note: Type classes are automatically registered via magnus::wrap annotations
 
     Ok(())
 }
