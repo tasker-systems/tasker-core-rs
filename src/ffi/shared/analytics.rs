@@ -353,14 +353,15 @@ impl SharedAnalyticsManager {
             };
 
             // Calculate operation counts and rates
-            let total_operations = (health.total_steps) as i64;
+            let total_operations = health.total_steps;
+            let mut error_rate = 0.0;
+            let percent_failed: f64;
             let successful_operations = health.complete_steps;
             let failed_operations = health.error_steps;
-            let error_rate = if total_operations > 0 {
-                (failed_operations as f64 / total_operations as f64) * 100.0
-            } else {
-                0.0
-            };
+            if total_operations > 0 {
+                percent_failed = failed_operations as f64 / total_operations as f64;
+                error_rate = percent_failed * 100.0;
+            }
 
             // Convert slowest steps to slow operations
             let slowest_operations: Vec<SlowOperation> = slowest_steps
