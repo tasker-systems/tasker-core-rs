@@ -308,6 +308,8 @@ impl TaskHandlerRegistry {
         let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
         let key_string = key.key_string();
 
+        debug!("📝 REGISTRY: Registering FFI handler - namespace='{}', name='{}', version='{}', handler_class='{}', key_string='{}'", namespace, name, version, handler_class, key_string);
+        
         info!(
             namespace = namespace,
             name = name,
@@ -721,7 +723,7 @@ mod tests {
 
         // Register with defaults
         registry
-            .register_ffi_handler("default", "simple_task", "0.1.0", "SimpleTaskHandler", None)
+            .register_ffi_handler("default", "simple_task", "1.0.0", "SimpleTaskHandler", None)
             .await
             .unwrap();
 
@@ -731,7 +733,7 @@ mod tests {
         // Should resolve with defaults
         let metadata = registry.resolve_handler(&request).unwrap();
         assert_eq!(metadata.namespace, "default");
-        assert_eq!(metadata.version, "0.1.0");
+        assert_eq!(metadata.version, "1.0.0");
     }
 
     #[tokio::test]

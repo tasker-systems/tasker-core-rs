@@ -22,35 +22,18 @@ module TaskerCore
       @logger = TaskerCore::Logging::Logger.instance
     end
 
-    # Initialize the unified orchestration system once
-    def initialize_orchestration_system!
-      return @orchestration_system if @initialized
-
-      begin
-        @orchestration_system = TaskerCore.initialize_unified_orchestration_system
+    # Get the orchestration system (handle-based initialization)
+    def orchestration_system
+      # Use handle-based approach - no direct system initialization needed
+      handle = orchestration_handle
+      if handle
         @initialized = true
         @status = 'initialized'
         @initialized_at = defined?(Rails) ? Time.current : Time.now
-
-        logger.info "OrchestrationManager: Unified orchestration system initialized successfully"
-        @orchestration_system
-      rescue StandardError => e
+        @orchestration_system ||= { 'handle_based' => true }
+      else
         @status = 'failed'
-        error_msg = "Failed to initialize unified orchestration system: #{e.message}"
-
-        if defined?(Rails)
-          logger.error error_msg
-        else
-          logger.error error_msg
-        end
-
-        raise e
       end
-    end
-
-    # Get the orchestration system (initializing if needed)
-    def orchestration_system
-      initialize_orchestration_system! unless @initialized
       @orchestration_system
     end
 
@@ -80,26 +63,76 @@ module TaskerCore
       @orchestration_handle = nil  # Reset handle too
     end
 
-    # Delegate common orchestration operations
+    # Delegate common orchestration operations - use handle-based versions
 
     def register_handler(handler_data)
-      orchestration_system # Ensure initialized
-      TaskerCore.register_ffi_handler(handler_data)
+      register_handler_with_handle(handler_data)
     end
 
     def find_handler(task_request)
-      orchestration_system # Ensure initialized
-      TaskerCore.find_handler(task_request)
+      find_handler_with_handle(task_request)
     end
 
     def list_handlers(namespace = nil)
       orchestration_system # Ensure initialized
-      TaskerCore.list_handlers(namespace)
+      # TODO: Implement handle-based list_handlers once available
+      [] # Return empty for now
     end
 
     def handler_exists?(handler_key)
       orchestration_system # Ensure initialized
-      TaskerCore.contains_handler(handler_key)
+      # Check if we can find the handler instead
+      result = find_handler(handler_key)
+      result && result['found']
+    end
+
+    # Get workflow steps for a task with dependency information
+    def get_workflow_steps_for_task(task_id)
+      orchestration_system # Ensure initialized
+      
+      begin
+        # Use handle-based approach to get workflow steps
+        handle = orchestration_handle
+        return nil unless handle
+        
+        # Call Rust FFI method to get steps with dependencies
+        handle.get_task_workflow_steps(task_id)
+      rescue StandardError => e
+        logger.error "Failed to get workflow steps for task #{task_id}: #{e.message}"
+        nil
+      end
+    end
+
+    # Get step dependencies for a specific step
+    def get_step_dependencies(step_id)
+      orchestration_system # Ensure initialized
+      
+      begin
+        handle = orchestration_handle
+        return nil unless handle
+        
+        # Call Rust FFI method to get step dependencies
+        handle.get_step_dependencies(step_id)
+      rescue StandardError => e
+        logger.error "Failed to get dependencies for step #{step_id}: #{e.message}"
+        nil
+      end
+    end
+
+    # Get task metadata (namespace, name, version) for a task
+    def get_task_metadata(task_id)
+      orchestration_system # Ensure initialized
+      
+      begin
+        handle = orchestration_handle
+        return nil unless handle
+        
+        # Call Rust FFI method to get task metadata
+        handle.get_task_metadata(task_id)
+      rescue StandardError => e
+        logger.error "Failed to get metadata for task #{task_id}: #{e.message}"
+        nil
+      end
     end
 
     # 🎯 THREAD-SAFE FIX: Create stateless BaseTaskHandler singleton
@@ -112,10 +145,55 @@ module TaskerCore
       # The config parameter here is ignored - it's only kept for API compatibility
       @stateless_base_task_handler ||= begin
         logger.info "✅ Creating stateless BaseTaskHandler singleton (config passed per-call)"
-        # Pass empty config since the handler is now stateless
-        TaskerCore::BaseTaskHandler.new({})
+        # BaseTaskHandler constructor takes no arguments
+        TaskerCore::BaseTaskHandler.new
       rescue StandardError => e
         error_msg = "Failed to create BaseTaskHandler: #{e.message}"
+        logger.error error_msg
+        nil
+      end
+    end
+
+    # 🎯 STEP PROCESSING: Get BaseTaskHandler for step processing via orchestration system
+    # Ruby step handlers use the same BaseTaskHandler pattern as task handlers for consistency
+    # This provides access to the process_step method for individual step execution
+    def get_step_processor
+      orchestration_system # Ensure initialized
+
+      # Reuse the same BaseTaskHandler singleton for step processing
+      # This ensures consistent orchestration system integration
+      @step_processor ||= begin
+        logger.info "✅ Getting BaseTaskHandler for step processing"
+        get_base_task_handler
+      rescue StandardError => e
+        error_msg = "Failed to get step processor: #{e.message}"
+        logger.error error_msg
+        nil
+      end
+    end
+
+    # 🎯 SHARED STEP EXECUTION: Create shared RubyStepHandler bridge
+    # The RubyStepHandler should be a shared FFI bridge component, not per-step instances
+    # This provides a single bridge for all Ruby step handler execution
+    def get_shared_step_handler
+      orchestration_system # Ensure initialized
+
+      # Create a shared step execution bridge that handles FFI delegation
+      # This is instantiated once and used by all Ruby step handlers
+      @shared_step_handler ||= begin
+        logger.info "✅ Creating shared RubyStepHandler FFI bridge"
+        # RubyStepHandler acts as shared bridge - no per-step configuration needed
+        handle = orchestration_handle
+        if handle
+          # Get step executor from orchestration system
+          step_executor = handle.step_executor if handle.respond_to?(:step_executor)
+          TaskerCore::RubyStepHandler.new("SharedBridge", "shared", step_executor)
+        else
+          logger.error "Failed to get orchestration handle for step handler bridge"
+          nil
+        end
+      rescue StandardError => e
+        error_msg = "Failed to create shared step handler: #{e.message}"
         logger.error error_msg
         nil
       end
@@ -162,7 +240,7 @@ module TaskerCore
       handle = orchestration_handle
       return nil unless handle
 
-      handle.register_ffi_handler(handler_data)
+      handle.register_handler(handler_data)
     end
 
     def find_handler_with_handle(task_request)
@@ -275,6 +353,68 @@ module TaskerCore
       return nil unless handle
 
       TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
+    end
+
+    # ========================================================================
+    # RUBY TASK HANDLER REGISTRY (Ruby-Centric Architecture)
+    # ========================================================================
+
+    # Registry of Ruby TaskHandler instances for direct step execution
+    def ruby_task_handlers
+      @ruby_task_handlers ||= {}
+    end
+
+    # Register a Ruby TaskHandler instance for step execution
+    # @param namespace [String] Task namespace
+    # @param name [String] Task name  
+    # @param version [String] Task version
+    # @param handler [TaskerCore::TaskHandler::Base] TaskHandler instance with pre-instantiated step handlers
+    def register_ruby_task_handler(namespace, name, version, handler)
+      key = "#{namespace}/#{name}/#{version}"
+      ruby_task_handlers[key] = handler
+      @logger&.debug "📝 Registered Ruby TaskHandler: #{key} with #{handler.step_handlers&.size || 0} step handlers"
+      true
+    end
+
+    # Get Ruby TaskHandler for a specific task configuration
+    # @param namespace [String] Task namespace
+    # @param name [String] Task name
+    # @param version [String] Task version
+    # @return [TaskerCore::TaskHandler::Base, nil] TaskHandler instance or nil if not found
+    def get_ruby_task_handler(namespace, name, version)
+      key = "#{namespace}/#{name}/#{version}"
+      ruby_task_handlers[key]
+    end
+
+    # Get Ruby TaskHandler for a specific task_id by looking up task metadata
+    # This is the method called from Rust FFI to find the appropriate handler
+    # @param task_id [Integer] Task ID to find handler for
+    # @return [TaskerCore::TaskHandler::Base, nil] TaskHandler instance or nil if not found
+    def get_task_handler_for_task(task_id)
+      # TODO: Implement task metadata lookup to find namespace/name/version for task_id
+      # For now, return the first available TaskHandler as fallback
+      # In production, this would query the database to get task metadata, then lookup handler
+      
+      if ruby_task_handlers.any?
+        handler = ruby_task_handlers.values.first
+        @logger&.debug "🔍 Found TaskHandler for task_id #{task_id}: #{handler.class.name}"
+        handler
+      else
+        @logger&.warn "⚠️  No TaskHandler found for task_id #{task_id}"
+        nil
+      end
+    end
+
+    # List all registered Ruby TaskHandlers
+    # @return [Hash] Hash of registered handlers by key
+    def list_ruby_task_handlers
+      ruby_task_handlers.keys.map do |key|
+        {
+          key: key,
+          handler_class: ruby_task_handlers[key].class.name,
+          step_handler_count: ruby_task_handlers[key].step_handlers&.size || 0
+        }
+      end
     end
     end
   end

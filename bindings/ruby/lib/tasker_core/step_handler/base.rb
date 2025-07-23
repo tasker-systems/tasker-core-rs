@@ -28,23 +28,17 @@ module TaskerCore
       # This class provides Ruby-specific functionality that wraps around
       # the Rust foundation where event publishing actually happens.
 
-      attr_reader :config, :logger, :rust_integration, :rust_handler
+      attr_reader :config, :logger, :rust_integration, :orchestration_system, :shared_step_handler
 
-      def initialize(config: {}, logger: nil, rust_integration: nil)
+      def initialize(config: {}, logger: nil)
         @config = config || {}
-        @logger = logger || TaskerCore::Logging::Logger.new
-        @rust_integration = rust_integration || default_rust_integration
-
-        # Initialize the Rust RubyStepHandler with composition (delegation pattern)
-        begin
-          handler_class = self.class.name
-          step_name = @config[:name] || @config['name']
-          @rust_handler = TaskerCore::RubyStepHandler.new(handler_class, step_name, @config)
-          @logger.info 'Successfully created Rust RubyStepHandler instance'
-        rescue StandardError => e
-          @logger.error "Failed to create Rust RubyStepHandler: #{e.message}"
-          @rust_handler = nil
-        end
+        @logger = logger || TaskerCore::Logging::Logger.instance
+        # Get shared step handler bridge for FFI delegation
+        # RubyStepHandler should be a shared FFI bridge, not per-step instances
+        orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
+        @shared_step_handler = orchestration_manager.get_shared_step_handler
+        @orchestration_system = orchestration_manager.orchestration_system
+        @logger.info 'Successfully connected to shared step handler bridge'
 
         # NOTE: Step handlers do not register themselves with the orchestration system
         # They are discovered through task configuration by task handlers
@@ -60,19 +54,25 @@ module TaskerCore
       # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
-      def process(task, sequence, step)
-        raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
+      def handle(task, sequence, step)
+        @logger.info "🎯 RUBY_STEP_HANDLER: process() called - handler=#{self.class.name}, task_id=#{extract_attribute(task, :task_id)}, step_name=#{extract_attribute(step, :name)}"
+        @logger.debug "🔍 RUBY_STEP_HANDLER: process() arguments - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
+
+        begin
+          result = process(task, sequence, step)
+          @logger.info "✅ RUBY_STEP_HANDLER: process() completed successfully - handler=#{self.class.name}, result.class=#{result.class}"
+          @logger.debug "🔍 RUBY_STEP_HANDLER: process() result - #{result.inspect}" if result.respond_to?(:inspect)
+          result
+        rescue => e
+          @logger.error "❌ RUBY_STEP_HANDLER: process() failed - handler=#{self.class.name}, error=#{e.class}: #{e.message}"
+          @logger.debug "❌ RUBY_STEP_HANDLER: process() backtrace - #{e.backtrace.first(5).join('\n')}"
+          raise
+        end
       end
 
-
-      # Optional result transformation method - Rails engine signature
-      # @param step [Tasker::WorkflowStep] Current step being processed
-      # @param process_output [Object] Result from process() method
-      # @return [Object] Transformed result (defaults to process_output)
-      def process_results(_step, process_output)
-        # Default implementation returns process output unchanged
-        # Rails handlers can override this to transform results before storage
-        process_output
+      # Template method for subclasses to implement - renamed to avoid confusion
+      def process(task, sequence, step)
+        raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
       end
 
 
@@ -280,7 +280,8 @@ module TaskerCore
 
       # Default Rust integration
       def default_rust_integration
-        TaskerCore::RailsIntegration.new
+        # Return nil - integration is optional
+        nil
       end
     end
   end

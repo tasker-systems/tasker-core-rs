@@ -527,7 +527,7 @@ impl StateManager {
     }
 
     /// Get or create step state machine
-    async fn get_or_create_step_state_machine(
+    pub async fn get_or_create_step_state_machine(
         &self,
         step_id: i64,
     ) -> OrchestrationResult<StepStateMachine> {
@@ -603,6 +603,48 @@ impl StateManager {
             WorkflowStepState::Error => StepEvent::Fail("Step failed".to_string()),
             _ => return Ok(()), // No transition needed
         };
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Complete step with results - stores results in database
+    pub async fn complete_step_with_results(
+        &self,
+        step_id: i64,
+        step_results: Option<serde_json::Value>,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        let event = StepEvent::Complete(step_results);
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Fail step with error information - marks step as failed in database
+    pub async fn fail_step_with_error(
+        &self,
+        step_id: i64,
+        error_message: String,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        let event = StepEvent::Fail(error_message);
 
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {

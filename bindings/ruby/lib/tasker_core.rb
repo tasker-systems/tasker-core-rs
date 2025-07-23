@@ -8,6 +8,10 @@ require 'dry-struct'
 require 'dry-types'
 require 'dry-validation'
 
+# Pre-define TaskerCore module for Magnus
+module TaskerCore
+end
+
 begin
   # Load the compiled Rust extension first (provides base classes)
   require_relative 'tasker_core/tasker_core_rb'
@@ -39,6 +43,7 @@ require_relative 'tasker_core/internal/testing_manager'           # Singleton te
 require_relative 'tasker_core/internal/testing_factory_manager'   # Singleton testing factory manager
 
 # 🎯 NEW: Clean Domain APIs with handle-based optimization
+require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
 require_relative 'tasker_core/factory'           # TaskerCore::Factory domain
 require_relative 'tasker_core/registry'          # TaskerCore::Registry domain
 require_relative 'tasker_core/performance'       # TaskerCore::Performance domain
@@ -49,9 +54,12 @@ require_relative 'tasker_core/environment'       # TaskerCore::Environment domai
 
 # Legacy compatibility - these will be deprecated in favor of domain APIs
 require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)
-require_relative 'tasker_core/step_handler/base' # Legacy step handler base
-require_relative 'tasker_core/step_handler/api'  # Legacy step handler API
-require_relative 'tasker_core/task_handler'      # Legacy task handler
+require_relative 'tasker_core/step_handler/base' # StepHandler::Base
+require_relative 'tasker_core/step_handler/api'  # StepHandler::API
+require_relative 'tasker_core/task_handler/base' # TaskHandler::Base
+require_relative 'tasker_core/task_handler/results' # TaskHandler result classes and wrappers
+require_relative 'tasker_core/test_helpers' # Test helpers for workflow testing
+require_relative 'tasker_core/models' # Models for TaskerCore
 
 module TaskerCore
   # Base error hierarchy
@@ -159,12 +167,12 @@ module TaskerCore
     # Shutdown all systems gracefully
     def shutdown
       puts "Shutting down TaskerCore..."
-      
+
       # Shutdown internal managers
       Internal::OrchestrationManager.instance.shutdown rescue nil
       Internal::TestingManager.shutdown rescue nil
       Internal::TestingFactoryManager.shutdown rescue nil
-      
+
       puts "TaskerCore shutdown complete"
     end
 
@@ -185,7 +193,7 @@ module TaskerCore
           domain.downcase.to_sym,
           {
             available: domain_class.respond_to?(:handle_info),
-            methods: domain_class.respond_to?(:handle_info) ? 
+            methods: domain_class.respond_to?(:handle_info) ?
               domain_class.handle_info[:available_methods] : []
           }
         ]

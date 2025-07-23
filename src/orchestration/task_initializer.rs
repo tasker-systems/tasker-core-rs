@@ -94,6 +94,7 @@ pub struct TaskInitializer {
     config: TaskInitializationConfig,
     event_publisher: Option<EventPublisher>,
     state_manager: Option<StateManager>,
+    registry: Option<std::sync::Arc<crate::registry::TaskHandlerRegistry>>,
 }
 
 impl TaskInitializer {
@@ -104,6 +105,7 @@ impl TaskInitializer {
             config: TaskInitializationConfig::default(),
             event_publisher: None,
             state_manager: None,
+            registry: None,
         }
     }
 
@@ -114,6 +116,7 @@ impl TaskInitializer {
             config,
             event_publisher: None,
             state_manager: None,
+            registry: None,
         }
     }
 
@@ -124,6 +127,7 @@ impl TaskInitializer {
             config: TaskInitializationConfig::default(),
             event_publisher: Some(event_publisher),
             state_manager: None,
+            registry: None,
         }
     }
 
@@ -138,6 +142,7 @@ impl TaskInitializer {
             config,
             event_publisher: Some(event_publisher),
             state_manager: None,
+            registry: None,
         }
     }
 
@@ -155,6 +160,26 @@ impl TaskInitializer {
             config,
             event_publisher: Some(event_publisher),
             state_manager: Some(state_manager),
+            registry: None,
+        }
+    }
+
+    /// Create a TaskInitializer with StateManager and Registry for FFI integration
+    pub fn with_state_manager_and_registry(
+        pool: PgPool,
+        config: TaskInitializationConfig,
+        event_publisher: EventPublisher,
+        registry: std::sync::Arc<crate::registry::TaskHandlerRegistry>,
+    ) -> Self {
+        let sql_executor = SqlFunctionExecutor::new(pool.clone());
+        let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
+
+        Self {
+            pool,
+            config,
+            event_publisher: Some(event_publisher),
+            state_manager: Some(state_manager),
+            registry: Some(registry),
         }
     }
 
@@ -164,24 +189,75 @@ impl TaskInitializer {
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
+        // Construct the full task name in namespace/name format for handler lookup
+        let task_name = format!("{}/{}", task_request.namespace, task_request.name);
+
+        // Store values before moving task_request
+        let namespace = task_request.namespace.clone();
+        let name = task_request.name.clone();
+        let version = task_request.version.clone();
+
+        // Clone the task_request for handler configuration lookup
+        let task_request_for_handler = task_request.clone();
+
+        crate::logging::log_task_operation(
+            "TASK_INITIALIZATION_START",
+            None,
+            Some(&task_name),
+            Some(&namespace),
+            "STARTING",
+            Some(&format!("version={}", version))
+        );
+
         info!(task_name = %task_request.name, "Starting task initialization");
 
         // Use SQLx transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| {
+            crate::logging::log_error(
+                "TaskInitializer",
+                "create_task_from_request",
+                &format!("Failed to begin transaction: {e}"),
+                Some(&task_name)
+            );
             TaskInitializationError::Database(format!("Failed to begin transaction: {e}"))
         })?;
 
-        let task_name = task_request.name.clone();
+        crate::logging::log_database_operation(
+            "TRANSACTION_BEGIN",
+            Some("tasker_tasks"),
+            None,
+            "SUCCESS",
+            None,
+            Some("Atomic task creation transaction started")
+        );
 
         // Create the task within transaction
         let task = self.create_task_record(&mut tx, task_request).await?;
         let task_id = task.task_id;
 
+        crate::logging::log_task_operation(
+            "TASK_RECORD_CREATED",
+            Some(task_id),
+            Some(&task_name),
+            None,
+            "SUCCESS",
+            Some("Task record created in database")
+        );
+
         debug!(task_id = task_id, "Created task record");
 
         // Try to load handler configuration
-        let handler_config = match self.load_handler_configuration(&task_name).await {
+        let handler_config = match self.load_handler_configuration(&task_request_for_handler).await {
             Ok(config) => {
+                crate::logging::log_registry_operation(
+                    "HANDLER_CONFIG_LOADED",
+                    Some(&namespace),
+                    Some(&name),
+                    Some(&version),
+                    "SUCCESS",
+                    Some(&format!("Found {} step templates", config.step_templates.len()))
+                );
+
                 debug!(
                     task_id = task_id,
                     config_name = %task_name,
@@ -191,6 +267,15 @@ impl TaskInitializer {
                 Some(config)
             }
             Err(e) => {
+                crate::logging::log_registry_operation(
+                    "HANDLER_CONFIG_FAILED",
+                    Some(&namespace),
+                    Some(&name),
+                    Some(&version),
+                    "FAILED",
+                    Some(&format!("Registry lookup failed: {}", e))
+                );
+
                 warn!(
                     task_id = task_id,
                     task_name = %task_name,
@@ -202,9 +287,38 @@ impl TaskInitializer {
         };
 
         let (step_count, step_mapping) = if let Some(config) = handler_config.as_ref() {
+            crate::logging::log_task_operation(
+                "WORKFLOW_STEPS_CREATION_START",
+                Some(task_id),
+                Some(&task_name),
+                None,
+                "STARTING",
+                Some(&format!("Creating {} workflow steps", config.step_templates.len()))
+            );
+
             // Create workflow steps and dependencies
-            self.create_workflow_steps(&mut tx, task_id, config).await?
+            let result = self.create_workflow_steps(&mut tx, task_id, config).await?;
+
+            crate::logging::log_task_operation(
+                "WORKFLOW_STEPS_CREATED",
+                Some(task_id),
+                Some(&task_name),
+                None,
+                "SUCCESS",
+                Some(&format!("Created {} workflow steps with dependencies", result.0))
+            );
+
+            result
         } else {
+            crate::logging::log_task_operation(
+                "NO_WORKFLOW_STEPS",
+                Some(task_id),
+                Some(&task_name),
+                None,
+                "INFO",
+                Some("No handler configuration - creating minimal task with no steps")
+            );
+
             // No configuration, no steps
             (0, HashMap::new())
         };
@@ -231,13 +345,15 @@ impl TaskInitializer {
             TaskInitializationError::Database(format!("Failed to commit transaction: {e}"))
         })?;
 
+        // ISSUE RESOLVED: State machine initialization updated to avoid in_process=true
         // Initialize StateManager-based state machines after transaction commit
+        // The method has been fixed to only create state machines without setting in_process=true
         if self.config.initialize_state_machine {
             self.initialize_state_machines_post_transaction(task_id, &step_mapping)
                 .await?;
             debug!(
                 task_id = task_id,
-                "Initialized StateManager-based state machines"
+                "Initialized StateManager-based state machines (without in_process=true)"
             );
         }
 
@@ -247,6 +363,26 @@ impl TaskInitializer {
                 .await?;
         }
 
+        let result = TaskInitializationResult {
+            task_id,
+            step_count,
+            step_mapping: step_mapping.clone(),
+            handler_config_name: handler_config.as_ref().map(|_| task_name.clone()),
+        };
+
+        crate::logging::log_task_operation(
+            "TASK_INITIALIZATION_COMPLETE",
+            Some(task_id),
+            Some(&task_name),
+            None,
+            "SUCCESS",
+            Some(&format!(
+                "Task completed: {} steps, handler_config: {:?}",
+                step_count,
+                result.handler_config_name
+            ))
+        );
+
         info!(
             task_id = task_id,
             step_count = step_count,
@@ -254,12 +390,7 @@ impl TaskInitializer {
             "Task initialization completed successfully"
         );
 
-        Ok(TaskInitializationResult {
-            task_id,
-            step_count,
-            step_mapping,
-            handler_config_name: handler_config.map(|_| task_name),
-        })
+        Ok(result)
     }
 
     /// Create the basic task record
@@ -475,28 +606,28 @@ impl TaskInitializer {
                 WorkflowStep,
                 r#"
                 INSERT INTO tasker_workflow_steps (
-                    task_id, named_step_id, retryable, retry_limit, inputs, skippable, 
-                    in_process, processed, processed_at, attempts, last_attempted_at, 
+                    task_id, named_step_id, retryable, retry_limit, inputs, skippable,
+                    in_process, processed, processed_at, attempts, last_attempted_at,
                     backoff_request_seconds, results, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-                RETURNING 
+                RETURNING
                     workflow_step_id, task_id, named_step_id, retryable, retry_limit, inputs, skippable,
-                    in_process, processed, processed_at, attempts, last_attempted_at, 
+                    in_process, processed, processed_at, attempts, last_attempted_at,
                     backoff_request_seconds, results, created_at, updated_at
                 "#,
                 task_id,
                 named_step.named_step_id,
-                step_template.default_retryable,
-                step_template.default_retry_limit,
+                step_template.default_retryable.unwrap_or(true),
+                step_template.default_retry_limit.unwrap_or(3) as i32,
                 step_template.handler_config,
-                step_template.skippable,
+                step_template.skippable.unwrap_or(false),
                 false, // in_process
                 false, // processed
                 None::<chrono::NaiveDateTime>, // processed_at
-                None::<i32>, // attempts
+                0 as i32, // attempts
                 None::<chrono::NaiveDateTime>, // last_attempted_at
-                None::<i32>, // backoff_request_seconds
+                0 as i32, // backoff_request_seconds
                 None::<serde_json::Value> // results
             )
             .fetch_one(&mut **tx)
@@ -656,21 +787,35 @@ impl TaskInitializer {
             }
         }
 
-        // Initialize step state machines by evaluating their states
+        // Initialize step state machines WITHOUT evaluating state transitions
+        // We don't want to transition steps to InProgress during initialization
+        // as this sets in_process=true, making them ineligible for execution
         for &workflow_step_id in step_mapping.values() {
-            match state_manager.evaluate_step_state(workflow_step_id).await {
-                Ok(result) => {
-                    debug!(
-                        step_id = workflow_step_id,
-                        current_state = %result.current_state,
-                        "Step state machine initialized with StateManager"
-                    );
+            // Simply verify the state machine exists, don't evaluate/transition
+            match state_manager.get_or_create_step_state_machine(workflow_step_id).await {
+                Ok(state_machine) => {
+                    match state_machine.current_state().await {
+                        Ok(current_state) => {
+                            debug!(
+                                step_id = workflow_step_id,
+                                current_state = %current_state,
+                                "Step state machine initialized (no evaluation)"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                step_id = workflow_step_id,
+                                error = %e,
+                                "Failed to get current state from step state machine"
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!(
                         step_id = workflow_step_id,
                         error = %e,
-                        "Failed to initialize step state machine with StateManager, basic initialization completed"
+                        "Failed to initialize step state machine, basic initialization completed"
                     );
                     // Don't fail the entire initialization for StateManager issues
                 }
@@ -680,16 +825,57 @@ impl TaskInitializer {
         Ok(())
     }
 
-    /// Load handler configuration from YAML files
+    /// Load handler configuration from TaskHandlerRegistry
+    /// In FFI integration, handlers register their configuration in the registry
+    /// instead of using YAML file discovery
     async fn load_handler_configuration(
         &self,
-        task_name: &str,
+        task_request: &TaskRequest,
     ) -> Result<HandlerConfiguration, TaskInitializationError> {
-        // TODO: Implement proper YAML configuration loading
-        // For now, return error to indicate no configuration
-        Err(TaskInitializationError::ConfigurationNotFound(
-            task_name.to_string(),
-        ))
+        let task_name = format!("{}/{}", task_request.namespace, task_request.name);
+        // Check if we have access to a registry
+        let registry = self.registry.as_ref()
+            .ok_or_else(|| TaskInitializationError::ConfigurationNotFound(
+                "No TaskHandlerRegistry available - TaskInitializer must be created with registry support".to_string()
+            ))?;
+
+        // Use the namespace and name directly from the TaskRequest
+        let namespace = &task_request.namespace;
+        let name = &task_request.name;
+
+        // Look up the handler metadata using the ACTUAL task request version
+        debug!("🔍 HANDLER LOOKUP: Looking for namespace='{}', name='{}', version='{}'", namespace, name, task_request.version);
+
+        let metadata = registry
+            .get_handler_metadata(namespace, name, &task_request.version)
+            .map_err(|e| TaskInitializationError::ConfigurationNotFound(
+                format!("Handler not found in registry {}/{}: {}", namespace, name, e)
+            ))?;
+
+        // Extract the config_schema from metadata and deserialize it
+        if let Some(config_json) = metadata.config_schema {
+            // Deserialize the JSON config_schema to HandlerConfiguration
+            serde_json::from_value::<HandlerConfiguration>(config_json)
+                .map_err(|e| TaskInitializationError::InvalidConfiguration(
+                    format!("Failed to deserialize handler configuration: {}", e)
+                ))
+        } else {
+            // No config_schema provided - create a minimal configuration
+            Ok(HandlerConfiguration {
+                name: task_name.to_string(),
+                module_namespace: None,
+                task_handler_class: metadata.handler_class,
+                namespace_name: metadata.namespace,
+                version: metadata.version,
+                default_dependent_system: None,
+                named_steps: vec![], // Empty steps means no workflow
+                schema: None,
+                step_templates: vec![], // No step templates
+                environments: None,
+                default_context: None,
+                default_options: None,
+            })
+        }
     }
 
     /// Publish task initialization event

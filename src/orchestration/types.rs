@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+// Import StepExecutionContext from step_handler module
+use crate::orchestration::step_handler::StepExecutionContext;
+
 /// Result of task orchestration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskResult {
@@ -205,6 +208,18 @@ pub trait FrameworkIntegration: Send + Sync {
         &self,
         task_id: i64,
     ) -> Result<TaskContext, crate::orchestration::errors::OrchestrationError>;
+
+    /// Execute step with handler class and configuration from step template
+    /// 
+    /// This method receives handler_class and handler_config from the TaskTemplate
+    /// configuration, allowing the framework to dynamically instantiate and execute
+    /// the appropriate step handler without requiring registry lookup.
+    async fn execute_step_with_handler(
+        &self,
+        context: &StepExecutionContext,
+        handler_class: &str,
+        handler_config: &HashMap<String, serde_json::Value>,
+    ) -> Result<StepResult, crate::orchestration::errors::OrchestrationError>;
 
     /// Enqueue task back to framework's queue
     async fn enqueue_task(

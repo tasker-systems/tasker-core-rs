@@ -59,6 +59,28 @@ impl NamedStep {
         Ok(step)
     }
 
+    /// Find steps by multiple IDs (efficient batch query)
+    pub async fn find_by_ids(pool: &PgPool, ids: &[i32]) -> Result<Vec<NamedStep>, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let steps = sqlx::query_as!(
+            NamedStep,
+            r#"
+            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            FROM tasker_named_steps
+            WHERE named_step_id = ANY($1)
+            ORDER BY named_step_id
+            "#,
+            ids
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
+    }
+
     /// Find steps by dependent system
     pub async fn find_by_system(
         pool: &PgPool,

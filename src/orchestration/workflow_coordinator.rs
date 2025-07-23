@@ -183,6 +183,8 @@ pub struct WorkflowCoordinator {
     state_manager: StateManager,
     /// Publishes orchestration events
     event_publisher: EventPublisher,
+    /// Finalizes tasks when no more viable steps
+    task_finalizer: crate::orchestration::task_finalizer::TaskFinalizer,
     /// Configuration
     config: WorkflowCoordinatorConfig,
     /// Configuration manager for system settings
@@ -227,6 +229,75 @@ impl WorkflowCoordinator {
         Self::with_config_manager_and_publisher(pool, config, config_manager, None)
     }
 
+    /// Create a new workflow coordinator with shared registry
+    ///
+    /// This constructor is specifically designed for shared orchestration systems where
+    /// the TaskHandlerRegistry instance should be shared across components to ensure
+    /// handlers registered via FFI are available during workflow execution.
+    ///
+    /// # Arguments
+    /// * `pool` - Database connection pool
+    /// * `config` - Workflow coordinator configuration
+    /// * `config_manager` - Shared configuration manager
+    /// * `event_publisher` - Shared EventPublisher instance
+    /// * `shared_registry` - Shared TaskHandlerRegistry instance (critical for FFI integration)
+    pub fn with_shared_registry(
+        pool: sqlx::PgPool,
+        config: WorkflowCoordinatorConfig,
+        config_manager: Arc<ConfigurationManager>,
+        event_publisher: crate::events::publisher::EventPublisher,
+        shared_registry: TaskHandlerRegistry,
+    ) -> Self {
+        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
+        let state_manager =
+            StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
+        
+        // Use the provided shared registry instead of creating a new one
+        let registry_arc = Arc::new(shared_registry.clone());
+
+        let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
+            config_manager.clone(),
+            registry_arc.clone(),
+        );
+
+        let step_executor = StepExecutor::new(
+            state_manager.clone(),
+            shared_registry, // Use shared registry for step executor
+            event_publisher.clone(),
+            task_config_finder,
+        );
+        let viable_step_discovery =
+            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
+
+        // Create task finalizer with shared event publisher
+        let task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+            pool,
+            event_publisher.clone(),
+        );
+
+        // Create system events manager - in production this would be loaded from file
+        let events_manager = Arc::new(SystemEventsManager::new(
+            crate::orchestration::system_events::SystemEventsConfig {
+                event_metadata: std::collections::HashMap::new(),
+                state_machine_mappings: crate::orchestration::system_events::StateMachineMappings {
+                    task_transitions: vec![],
+                    step_transitions: vec![],
+                },
+            },
+        ));
+
+        Self {
+            viable_step_discovery,
+            step_executor,
+            state_manager,
+            event_publisher,
+            task_finalizer,
+            config,
+            config_manager,
+            events_manager,
+        }
+    }
+
     /// Create a new workflow coordinator with configuration manager and optional event publisher
     ///
     /// This allows injecting a specific EventPublisher instance (e.g., from global FFI state)
@@ -264,7 +335,13 @@ impl WorkflowCoordinator {
             task_config_finder,
         );
         let viable_step_discovery =
-            ViableStepDiscovery::new(sql_executor, event_publisher.clone(), pool);
+            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
+
+        // Create task finalizer with shared event publisher
+        let task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+            pool,
+            event_publisher.clone(),
+        );
 
         // Create system events manager - in production this would be loaded from file
         let events_manager = Arc::new(SystemEventsManager::new(
@@ -282,6 +359,7 @@ impl WorkflowCoordinator {
             step_executor,
             state_manager,
             event_publisher,
+            task_finalizer,
             config,
             config_manager,
             events_manager,
@@ -528,12 +606,55 @@ impl WorkflowCoordinator {
         *consecutive_empty_discoveries += 1;
 
         if *consecutive_empty_discoveries >= self.config.max_discovery_attempts {
-            debug!(
+            info!(
                 task_id = task_id,
                 attempts = consecutive_empty_discoveries,
-                "No viable steps found after multiple attempts"
+                "No viable steps found after multiple attempts - calling task finalizer"
             );
-            return Ok(DiscoveryResult { should_break: true });
+            
+            // Call TaskFinalizer to determine next action
+            match self.task_finalizer.handle_no_viable_steps(task_id).await {
+                Ok(finalization_result) => {
+                    info!(
+                        task_id = task_id,
+                        action = ?finalization_result.action,
+                        reason = ?finalization_result.reason,
+                        "Task finalization completed"
+                    );
+                    
+                    match finalization_result.action {
+                        crate::orchestration::task_finalizer::FinalizationAction::Reenqueued => {
+                            info!(task_id = task_id, "Task re-enqueued - breaking workflow loop");
+                            return Ok(DiscoveryResult { should_break: true });
+                        },
+                        crate::orchestration::task_finalizer::FinalizationAction::Completed => {
+                            info!(task_id = task_id, "Task completed - breaking workflow loop");
+                            return Ok(DiscoveryResult { should_break: true });
+                        },
+                        crate::orchestration::task_finalizer::FinalizationAction::Failed => {
+                            info!(task_id = task_id, "Task failed - breaking workflow loop");
+                            return Ok(DiscoveryResult { should_break: true });
+                        },
+                        crate::orchestration::task_finalizer::FinalizationAction::Pending => {
+                            info!(task_id = task_id, "Task marked as pending - continuing loop");
+                            *consecutive_empty_discoveries = 0; // Reset counter to continue trying
+                            return Ok(DiscoveryResult { should_break: false });
+                        },
+                        crate::orchestration::task_finalizer::FinalizationAction::NoAction => {
+                            warn!(task_id = task_id, "Task finalizer took no action - breaking loop");
+                            return Ok(DiscoveryResult { should_break: true });
+                        },
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        task_id = task_id,
+                        error = %e,
+                        "Failed to finalize task - breaking workflow loop"
+                    );
+                    return Ok(DiscoveryResult { should_break: true });
+                }
+            }
         }
 
         // Wait before retrying discovery

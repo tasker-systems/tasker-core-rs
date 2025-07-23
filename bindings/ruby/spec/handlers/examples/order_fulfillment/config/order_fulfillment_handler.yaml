@@ -1,0 +1,176 @@
+# Order Fulfillment Task Configuration
+# Complete 4-step e-commerce workflow with inventory, payment, and shipping
+name: process_order
+namespace_name: fulfillment
+version: "1.0.0"
+task_handler_class: OrderFulfillment::OrderFulfillmentHandler
+description: "Complete order fulfillment workflow with inventory, payment, and shipping"
+
+# JSON Schema for task context validation
+schema:
+  type: object
+  required: [customer_info, order_items, payment_info, shipping_info]
+  properties:
+    customer_info:
+      type: object
+      required: [id, email]
+      properties:
+        id: 
+          type: integer
+          description: "Customer unique identifier"
+        email: 
+          type: string
+          format: email
+          description: "Customer email address"
+        tier: 
+          type: string
+          enum: [standard, premium]
+          default: standard
+          description: "Customer tier for optimization handling"
+    order_items:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required: [product_id, quantity, price]
+        properties:
+          product_id: 
+            type: integer
+            description: "Product unique identifier"
+          quantity: 
+            type: integer
+            minimum: 1
+            description: "Quantity to order"
+          price: 
+            type: number
+            minimum: 0
+            description: "Unit price in USD"
+    payment_info:
+      type: object
+      required: [method, token, amount]
+      properties:
+        method: 
+          type: string
+          enum: [credit_card, debit_card, paypal, bank_transfer]
+          description: "Payment method type"
+        token: 
+          type: string
+          description: "Payment token from payment gateway"
+        amount: 
+          type: number
+          minimum: 0
+          description: "Total amount to charge in USD"
+    shipping_info:
+      type: object
+      required: [address, method]
+      properties:
+        address: 
+          type: string
+          description: "Complete shipping address"
+        method: 
+          type: string
+          enum: [standard, express, overnight]
+          default: standard
+          description: "Shipping method"
+
+# Step Templates - Define the 4-step workflow with dependencies
+step_templates:
+  - name: validate_order
+    handler_class: OrderFulfillment::StepHandlers::ValidateOrderHandler
+    description: "Validate order data and customer information"
+    default_retryable: true
+    default_retry_limit: 1
+    depends_on_steps: []
+    handler_config:
+      validation_timeout: 10
+      strict_validation: true
+
+  - name: reserve_inventory
+    handler_class: OrderFulfillment::StepHandlers::ReserveInventoryHandler
+    description: "Reserve inventory items from stock"
+    default_retryable: true
+    default_retry_limit: 3
+    depends_on_steps: [validate_order]
+    handler_config:
+      reservation_timeout: 30
+      allow_backorder: false
+
+  - name: process_payment
+    handler_class: OrderFulfillment::StepHandlers::ProcessPaymentHandler
+    description: "Process customer payment method"
+    default_retryable: true
+    default_retry_limit: 2
+    depends_on_steps: [validate_order, reserve_inventory]
+    handler_config:
+      payment_timeout: 45
+      capture_immediately: true
+
+  - name: ship_order
+    handler_class: OrderFulfillment::StepHandlers::ShipOrderHandler
+    description: "Generate shipping labels and send notifications"
+    default_retryable: true
+    default_retry_limit: 5
+    depends_on_steps: [process_payment]
+    handler_config:
+      shipping_timeout: 60
+      send_notifications: true
+
+# Environment-specific overrides for testing and production
+environments:
+  test:
+    step_overrides:
+      validate_order:
+        handler_config:
+          validation_timeout: 5
+          strict_validation: false
+      reserve_inventory:
+        retry_limit: 1
+        handler_config:
+          reservation_timeout: 10
+      process_payment:
+        retry_limit: 1
+        handler_config:
+          payment_timeout: 15
+      ship_order:
+        retry_limit: 2
+        handler_config:
+          shipping_timeout: 20
+          send_notifications: false
+
+  development:
+    step_overrides:
+      process_payment:
+        handler_config:
+          capture_immediately: false
+      ship_order:
+        handler_config:
+          send_notifications: false
+
+  production:
+    step_overrides:
+      validate_order:
+        handler_config:
+          strict_validation: true
+      reserve_inventory:
+        retry_limit: 5
+        handler_config:
+          allow_backorder: true
+      process_payment:
+        retry_limit: 3
+        handler_config:
+          payment_timeout: 60
+      ship_order:
+        retry_limit: 10
+        handler_config:
+          shipping_timeout: 120
+
+# Handler-specific configuration
+handler_config:
+  timeout: 300
+  retries: 3
+  log_level: info
+  premium_customer_optimizations: true
+  order_validation_rules:
+    max_items_per_order: 50
+    max_order_value: 10000.00
+    min_order_value: 0.01

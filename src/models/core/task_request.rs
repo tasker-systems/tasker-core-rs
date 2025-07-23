@@ -72,7 +72,7 @@ impl Default for TaskRequest {
         Self {
             name: String::new(),
             namespace: "default".to_string(),
-            version: "0.1.0".to_string(),
+            version: "1.0.0".to_string(),
             context: serde_json::json!({}),
             status: "PENDING".to_string(),
             initiator: "UNKNOWN".to_string(),
@@ -344,7 +344,7 @@ mod tests {
     fn test_routing_key_generation() {
         // Test with default version
         let request = TaskRequest::new("order_processing".to_string(), "payments".to_string());
-        assert_eq!(request.routing_key(), "payments/order_processing:0.1.0");
+        assert_eq!(request.routing_key(), "payments/order_processing:1.0.0");
 
         // Test with specific version
         let request_v2 = request.clone().with_version("2.1.0".to_string());
@@ -354,7 +354,7 @@ mod tests {
         let (namespace, name, version) = request.handler_identifier();
         assert_eq!(namespace, "payments");
         assert_eq!(name, "order_processing");
-        assert_eq!(version, "0.1.0"); // Default version from Default impl
+        assert_eq!(version, "1.0.0"); // Default version from Default impl
     }
 
     #[test]

@@ -63,7 +63,6 @@ use crate::orchestration::types::{
     FrameworkIntegration, StepResult, StepStatus, TaskContext, ViableStep,
 };
 use crate::registry::TaskHandlerRegistry;
-use crate::state_machine::events::StepEvent;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -257,31 +256,12 @@ impl StepExecutor {
         let mut sorted_requests = requests;
         sorted_requests.sort_by(|a, b| b.priority.cmp(&a.priority));
 
-        // Execute steps concurrently with tokio::spawn
-        let mut handles = Vec::new();
-        for request in sorted_requests {
-            let executor = self.clone();
-            let framework_clone = framework.clone();
-
-            let handle =
-                tokio::spawn(async move { executor.execute_step(request, framework_clone).await });
-            handles.push(handle);
-        }
-
-        // Collect results
+        // Execute steps sequentially to maintain Ruby thread context
+        // This ensures all Ruby FFI calls happen on the same thread as the LocalSet
         let mut results = Vec::new();
-        for handle in handles {
-            match handle.await {
-                Ok(result) => results.push(result?),
-                Err(e) => {
-                    error!(error = %e, "Step execution task panicked");
-                    return Err(ExecutionError::ConcurrencyError {
-                        step_id: 0, // Unknown step_id due to panic
-                        reason: format!("Task panicked: {e}"),
-                    }
-                    .into());
-                }
-            }
+        for request in sorted_requests {
+            let result = self.execute_step(request, framework.clone()).await?;
+            results.push(result);
         }
 
         info!(
@@ -576,26 +556,40 @@ impl StepExecutor {
         step_result: &StepResult,
         metrics: &StepExecutionMetrics,
     ) -> OrchestrationResult<()> {
-        // Update state based on execution result
-        let _state_event = match step_result.status {
-            StepStatus::Completed => StepEvent::Complete(Some(step_result.output.clone())),
-            StepStatus::Failed => StepEvent::Fail(
-                step_result
-                    .error_message
-                    .clone()
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            ),
-            StepStatus::Retrying => StepEvent::Fail("Retrying after failure".to_string()),
-            StepStatus::Skipped => StepEvent::Complete(Some(serde_json::json!({"skipped": true}))),
-        };
-
-        // Transition step state
-        if let Err(e) = self.state_manager.evaluate_step_state(step_id).await {
-            warn!(
-                step_id = step_id,
-                error = %e,
-                "Failed to update step state after execution"
-            );
+        // Update state based on execution result using the appropriate StateManager method
+        match step_result.status {
+            StepStatus::Completed => {
+                // Use complete_step_with_results to preserve step execution results
+                if let Err(e) = self.state_manager.complete_step_with_results(step_id, Some(step_result.output.clone())).await {
+                    warn!(
+                        step_id = step_id,
+                        error = %e,
+                        "Failed to complete step with results"
+                    );
+                }
+            },
+            StepStatus::Skipped => {
+                // Use complete_step_with_results for skipped steps too
+                let skipped_output = serde_json::json!({"skipped": true});
+                if let Err(e) = self.state_manager.complete_step_with_results(step_id, Some(skipped_output)).await {
+                    warn!(
+                        step_id = step_id,
+                        error = %e,
+                        "Failed to complete skipped step"
+                    );
+                }
+            },
+            StepStatus::Failed | StepStatus::Retrying => {
+                // For failed steps, properly mark them as failed in the database
+                let error_message = step_result.error_message.clone().unwrap_or_else(|| "Step execution failed".to_string());
+                if let Err(e) = self.state_manager.fail_step_with_error(step_id, error_message).await {
+                    warn!(
+                        step_id = step_id,
+                        error = %e,
+                        "Failed to mark step as failed"
+                    );
+                }
+            }
         }
 
         // Publish step execution completed event
@@ -734,88 +728,32 @@ impl StepExecutor {
             }
         };
 
-        // 5. Try to find step template and resolve handler class
-        let step_handler_result = if let Some(ref config) = task_config {
-            // Find the step template by name
-            let step_template = config
+        // 5. Use direct framework integration for step execution when step template is available
+        if let Some(ref config) = task_config {
+            if let Some(template) = config
                 .step_templates
                 .iter()
-                .find(|template| template.name == request.step.name);
-
-            if let Some(template) = step_template {
+                .find(|template| template.name == request.step.name)
+            {
                 let handler_class = &template.handler_class;
 
                 debug!(
                     step_id = step_id,
                     step_name = request.step.name,
                     handler_class = handler_class,
-                    "Found step template with handler class"
+                    "Using direct framework integration for step execution"
                 );
 
-                // Try to get step handler from registry using the handler class from template
-                self.registry.get_step_handler(handler_class)
-            } else {
-                warn!(
-                    step_id = step_id,
-                    step_name = request.step.name,
-                    "Step template not found in task configuration"
-                );
-                // Try fallback with auto-generated handler class name
-                let fallback_handler_class = format!("{}StepHandler", request.step.name);
-                self.registry.get_step_handler(&fallback_handler_class)
-            }
-        } else {
-            // No task configuration, try fallback with auto-generated handler class name
-            let fallback_handler_class = format!("{}StepHandler", request.step.name);
-            self.registry.get_step_handler(&fallback_handler_class)
-        };
-
-        match step_handler_result {
-            Ok(step_handler) => {
-                // We found a step handler, use it to process the step
-                let handler_class = if let Some(config) = &task_config {
-                    config
-                        .step_templates
-                        .iter()
-                        .find(|template| template.name == request.step.name)
-                        .map(|template| template.handler_class.clone())
-                        .unwrap_or_else(|| format!("{}StepHandler", request.step.name))
-                } else {
-                    format!("{}StepHandler", request.step.name)
-                };
-
-                debug!(
-                    step_id = step_id,
-                    handler_class = handler_class,
-                    "Using registered step handler"
-                );
-
-                // Build step configuration from template if available
-                let step_config = if let Some(config) = &task_config {
-                    if let Some(template) = config
-                        .step_templates
-                        .iter()
-                        .find(|template| template.name == request.step.name)
-                    {
-                        // Convert serde_json::Value to HashMap<String, serde_json::Value>
-                        match template.handler_config.clone().unwrap_or_default() {
-                            serde_json::Value::Object(map) => map.into_iter().collect(),
-                            _ => std::collections::HashMap::new(),
-                        }
-                    } else {
-                        std::collections::HashMap::new()
-                    }
-                } else {
-                    std::collections::HashMap::new()
+                // Build step configuration from template
+                let step_config = match template.handler_config.clone().unwrap_or_default() {
+                    serde_json::Value::Object(map) => map.into_iter().collect(),
+                    _ => std::collections::HashMap::new(),
                 };
 
                 // Get timeout from step template or use default
-                // Note: The models::StepTemplate doesn't have timeout_seconds field
-                // We use a default timeout for now
-                let timeout_seconds = 30u64;
+                let timeout_seconds = 30u64; // TODO: Get from template when available
 
-                // Create step execution context with proper configuration
-                // First, load the WorkflowStep object to get its dependencies
+                // Load the WorkflowStep object to get its dependencies
                 let workflow_step = {
                     use crate::models::WorkflowStep;
                     WorkflowStep::find_by_id(self.state_manager.pool(), step_id)
@@ -842,16 +780,17 @@ impl StepExecutor {
                 debug!(
                     step_id = step_id,
                     dependency_count = previous_steps.len(),
-                    "Loaded step dependencies"
+                    "Loaded step dependencies for direct execution"
                 );
 
+                // Create step execution context
                 let execution_context = crate::orchestration::step_handler::StepExecutionContext {
                     step_id,
                     task_id,
                     step_name: request.step.name.clone(),
                     input_data: task_context.data.clone(),
                     previous_steps,
-                    step_config,
+                    step_config: step_config.clone(),
                     attempt_number: request.retry_attempt,
                     max_retry_attempts: request.step.retry_limit as u32,
                     timeout_seconds,
@@ -860,63 +799,44 @@ impl StepExecutor {
                     metadata: std::collections::HashMap::new(),
                 };
 
-                // Call the step handler
-                let output_data = step_handler
-                    .process(&execution_context)
+                // Call framework integration directly with handler class and config
+                let step_result = framework
+                    .execute_step_with_handler(&execution_context, handler_class, &step_config)
                     .await
                     .map_err(|e| ExecutionError::StepExecutionFailed {
                         step_id,
-                        reason: format!("Step handler execution failed: {e}"),
-                        error_code: Some("STEP_HANDLER_ERROR".to_string()),
+                        reason: format!("Framework integration step execution failed: {e}"),
+                        error_code: Some("FRAMEWORK_EXECUTION_ERROR".to_string()),
                     })?;
 
-                // Create successful step result
-                let step_result = StepResult {
-                    step_id,
-                    status: StepStatus::Completed,
-                    output: output_data.clone(),
-                    execution_duration: std::time::Duration::from_millis(100), // TODO: Track actual duration
-                    error_message: None,
-                    retry_after: None,
-                    error_code: None,
-                    error_context: None,
-                };
-
-                // Call process_results hook
-                let step_handler_result = crate::orchestration::step_handler::StepResult {
-                    success: step_result.status == StepStatus::Completed,
-                    output_data: Some(step_result.output.clone()),
-                    error: None,
-                    should_retry: false,
-                    retry_delay: None,
-                    execution_duration: step_result.execution_duration,
-                    metadata: std::collections::HashMap::new(),
-                    events_to_publish: vec![],
-                };
-
-                if let Err(e) = step_handler
-                    .process_results(&execution_context, &step_handler_result)
-                    .await
-                {
-                    warn!(
-                        step_id = step_id,
-                        error = %e,
-                        "Step handler process_results hook failed (non-fatal)"
-                    );
-                }
+                debug!(
+                    step_id = step_id,
+                    status = ?step_result.status,
+                    "Direct framework step execution completed"
+                );
 
                 Ok(step_result)
-            }
-            Err(_) => {
-                error!(
+            } else {
+                warn!(
                     step_id = step_id,
-                    "No step handler found in registry, cannot execute step"
+                    step_name = request.step.name,
+                    "Step template not found in task configuration, cannot execute step"
                 );
                 Err(OrchestrationError::StepHandlerNotFound {
                     step_id,
-                    reason: "No step handler found in registry, cannot execute step".to_string(),
+                    reason: format!("Step template '{}' not found in task configuration", request.step.name),
                 })
             }
+        } else {
+            warn!(
+                step_id = step_id,
+                task_id = task_id,
+                "No task configuration available, cannot execute step"
+            );
+            Err(OrchestrationError::StepHandlerNotFound {
+                step_id,
+                reason: "No task configuration available for step execution".to_string(),
+            })
         }
     }
 

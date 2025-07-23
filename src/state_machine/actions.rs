@@ -369,10 +369,16 @@ fn build_step_event_context(
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
-    // Try to parse event as JSON to extract results
+    // Try to parse event as JSON to extract results from StepEvent::Complete
     if let Ok(event_data) = serde_json::from_str::<Value>(event) {
-        if let Some(results) = event_data.get("results") {
-            return Ok(Some(results.clone()));
+        // StepEvent::Complete serializes as: {"type": "Complete", "data": { results }}
+        if let Some(event_type) = event_data.get("type") {
+            if event_type == "Complete" {
+                // Extract the data field which contains the actual step results
+                if let Some(results) = event_data.get("data") {
+                    return Ok(Some(results.clone()));
+                }
+            }
         }
     }
     Ok(None)

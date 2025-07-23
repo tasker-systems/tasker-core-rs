@@ -460,7 +460,7 @@ impl TaskFinalizer {
                 total_steps: Some(sql_context.total_steps as i32),
                 ready_steps: Some(sql_context.ready_steps as i32),
                 pending_steps: Some(sql_context.pending_steps as i32),
-                in_progress_steps: Some(0), // Not available in SQL context
+                in_progress_steps: Some(sql_context.in_progress_steps as i32),
                 completed_steps: Some(sql_context.completed_steps as i32),
                 failed_steps: Some(sql_context.failed_steps as i32),
                 recommended_action: Some(sql_context.recommended_action),
@@ -493,8 +493,16 @@ impl TaskFinalizer {
             return self.handle_unclear_state(task, None).await;
         };
 
+        // Check for failed steps first, regardless of execution status
+        if let Some(failed_steps) = context.failed_steps {
+            if failed_steps > 0 {
+                println!("TaskFinalizer: Task {task_id} - has {failed_steps} failed steps, marking as error");
+                return self.error_task(task, Some(context)).await;
+            }
+        }
+
         match context.execution_status.as_str() {
-            "all_complete" => {
+            "all_complete" | "finalize_task" => {
                 println!("TaskFinalizer: Task {task_id} - calling complete_task");
                 self.complete_task(task, Some(context)).await
             }

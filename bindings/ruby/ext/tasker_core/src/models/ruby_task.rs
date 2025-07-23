@@ -2,7 +2,7 @@
 //!
 //! Magnus-wrapped Ruby class for Task model access from Ruby code.
 
-use magnus::{prelude::*, Error, Ruby};
+use magnus::{prelude::*, Error, Ruby, RHash, TryConvert};
 use tasker_core::models::core::task::Task;
 
 /// Ruby wrapper for Task model data
@@ -110,16 +110,25 @@ impl RubyTask {
         }
     }
 
-    /// Get context as Ruby value
-    pub fn context(&self) -> Result<magnus::Value, Error> {
+    /// Get context as Ruby hash (for Ruby handler compatibility)
+    pub fn context(&self) -> Result<RHash, Error> {
+        let ruby = Ruby::get().map_err(|e| Error::new(
+            magnus::exception::runtime_error(),
+            format!("Ruby unavailable: {}", e)
+        ))?;
+
         match &self.context {
-            Some(value) => crate::context::json_to_ruby_value(value.clone()),
+            Some(value) => {
+                // Convert JSON to Ruby hash
+                let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
+                TryConvert::try_convert(ruby_value).map_err(|e| Error::new(
+                    magnus::exception::type_error(),
+                    format!("Failed to convert context to hash: {}", e)
+                ))
+            }
             None => {
-                let ruby = Ruby::get().map_err(|e| Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Ruby unavailable: {}", e)
-                ))?;
-                Ok(ruby.qnil().as_value())
+                // Return empty hash if no context
+                Ok(ruby.hash_new())
             }
         }
     }
@@ -137,6 +146,60 @@ impl RubyTask {
     /// Get updated at timestamp
     pub fn updated_at(&self) -> String {
         self.updated_at.clone()
+    }
+
+        /// Get task as Ruby hash
+    pub fn to_h(&self) -> Result<RHash, Error> {
+        let ruby = Ruby::get().map_err(|e| Error::new(
+            magnus::exception::runtime_error(),
+            format!("Ruby unavailable: {}", e)
+        ))?;
+
+        let hash = ruby.hash_new();
+        hash.aset("task_id", self.task_id)?;
+        hash.aset("named_task_id", self.named_task_id)?;
+        hash.aset("complete", self.complete)?;
+        hash.aset("requested_at", self.requested_at.clone())?;
+        hash.aset("initiator", self.initiator.clone())?;
+        hash.aset("source_system", self.source_system.clone())?;
+        hash.aset("reason", self.reason.clone())?;
+
+        // Convert JSON values to Ruby values
+        match &self.bypass_steps {
+            Some(value) => {
+                let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
+                hash.aset("bypass_steps", ruby_value)?;
+            }
+            None => {
+                hash.aset("bypass_steps", ruby.qnil())?;
+            }
+        }
+
+        match &self.tags {
+            Some(value) => {
+                let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
+                hash.aset("tags", ruby_value)?;
+            }
+            None => {
+                hash.aset("tags", ruby.qnil())?;
+            }
+        }
+
+        match &self.context {
+            Some(value) => {
+                let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
+                hash.aset("context", ruby_value)?;
+            }
+            None => {
+                hash.aset("context", ruby.qnil())?;
+            }
+        }
+
+        hash.aset("identity_hash", self.identity_hash.clone())?;
+        hash.aset("created_at", self.created_at.clone())?;
+        hash.aset("updated_at", self.updated_at.clone())?;
+
+        Ok(hash)
     }
 }
 

@@ -83,6 +83,7 @@ pub mod database;
 pub mod error;
 pub mod events;
 pub mod ffi;
+pub mod logging;
 pub mod models;
 pub mod orchestration;
 pub mod registry;

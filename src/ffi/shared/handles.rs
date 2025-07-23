@@ -222,8 +222,8 @@ impl SharedOrchestrationHandle {
         // Use validate_or_refresh for production resilience - auto-recover from expired handles
         let _validated_handle = self.validate_or_refresh()?;
 
-        let result = super::orchestration_system::execute_async(async {
-            // Use handle's orchestration system directly - NO global lookup!
+        let result: Result<(), crate::error::TaskerError> = super::orchestration_system::execute_async(async {
+            // 1. Register FFI handler metadata
             self.orchestration_system
                 .task_handler_registry
                 .register_ffi_handler(
@@ -231,9 +231,57 @@ impl SharedOrchestrationHandle {
                     &metadata.name,
                     &metadata.version,
                     &metadata.handler_class,
-                    metadata.config_schema,
+                    metadata.config_schema.clone(),
                 )
-                .await
+                .await?;
+
+            // 2. 🚀 NEW: Register TaskTemplate if config_schema is provided
+            // This fixes "No task configuration available" errors by ensuring
+            // TaskConfigFinder can find the task template in the registry
+            if let Some(ref config_json) = metadata.config_schema {
+                // Convert JSON config to TaskTemplate
+                match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(config_json.clone()) {
+                    Ok(task_template) => {
+                        // Register the task template so TaskConfigFinder can find it
+                        if let Err(e) = self.orchestration_system
+                            .task_handler_registry
+                            .register_task_template(
+                                &metadata.namespace,
+                                &metadata.name,
+                                &metadata.version,
+                                task_template,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                namespace = metadata.namespace,
+                                name = metadata.name,
+                                version = metadata.version,
+                                error = %e,
+                                "Failed to register task template, step execution may fail"
+                            );
+                        } else {
+                            tracing::info!(
+                                namespace = metadata.namespace,
+                                name = metadata.name,
+                                version = metadata.version,
+                                "Successfully registered task template for TaskConfigFinder"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            namespace = metadata.namespace,
+                            name = metadata.name,
+                            version = metadata.version,
+                            error = %e,
+                            "Failed to parse config_schema as TaskTemplate"
+                        );
+                    }
+                }
+            }
+
+            Ok(())
         });
 
         match result {

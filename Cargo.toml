@@ -49,6 +49,8 @@ anyhow = "1.0"
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+structured-logger = "1.0"
 opentelemetry = "0.27"
 opentelemetry-otlp = "0.27"
 

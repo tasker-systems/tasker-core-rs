@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'errors'
+
 module TaskerCore
   # Domain module for handler management with singleton handle management
   #
@@ -49,6 +51,105 @@ module TaskerCore
       rescue => e
         TaskerCore::Logging::Logger.instance.warn("Handler lookup failed: #{e.message}")
         nil
+      end
+
+      # Find a handler by name and version (alternative API for integration tests)
+      # @param name [String] Handler name with namespace (e.g., "fulfillment/process_order")
+      # @param version [String] Handler version (default: "1.0.0")
+      # @return [Hash, nil] Handler metadata if found, nil otherwise
+      def find_handler(name:, version: "1.0.0")
+        # Parse namespace from name if present
+        if name.include?('/')
+          namespace, handler_name = name.split('/', 2)
+        else
+          namespace = "default"
+          handler_name = name
+        end
+
+        task_request = {
+          namespace: namespace,
+          name: handler_name,
+          version: version
+        }
+
+        find(task_request)
+      end
+
+      # Find handler and create initialized instance for production testing
+      # This combines handler lookup with proper initialization
+      # @param name [String] Handler name with namespace (e.g., "fulfillment/process_order")
+      # @param version [String] Handler version (default: "1.0.0")
+      # @param config_path [String, nil] Optional path to configuration file
+      # @return [Hash] Result with handler lookup and initialized instance
+      # @raise [TaskerCore::Errors::NotFoundError] If handler not found
+      # @raise [TaskerCore::Errors::PermanentError] If initialization fails
+      def find_handler_and_initialize(name:, version: "1.0.0", config_path: nil)
+        # Look up handler in registry
+        handler_lookup = find_handler(name: name, version: version)
+
+        unless handler_lookup && handler_lookup['found']
+          raise TaskerCore::Errors::NotFoundError.new(
+            "Handler not found: #{name}/#{version}",
+            resource_type: 'handler',
+            error_code: 'HANDLER_NOT_FOUND',
+            context: { name: name, version: version }
+          )
+        end
+
+        # Get handler class and create instance
+        handler_class_name = handler_lookup['handler_class']
+
+        begin
+          handler_class = Object.const_get(handler_class_name)
+        rescue NameError => e
+          raise TaskerCore::Errors::NotFoundError.new(
+            "Handler class not found: #{handler_class_name}",
+            resource_type: 'handler_class',
+            error_code: 'HANDLER_CLASS_NOT_FOUND',
+            context: { class_name: handler_class_name, lookup_error: e.message }
+          )
+        end
+
+        # Initialize handler with configuration
+        begin
+          # Load configuration if path provided, otherwise use registry config
+          config = if config_path && File.exist?(config_path)
+                     require 'yaml'
+                     YAML.load_file(config_path)
+                   else
+                     handler_lookup['config_schema'] || {}
+                   end
+
+          # Create handler instance with proper configuration
+          handler_instance = handler_class.new(
+            config: config['handler_config'] || {},
+            task_config: config,
+            task_config_path: config_path
+          )
+
+          # Return both lookup result and initialized instance
+          {
+            'found' => true,
+            'handler_class' => handler_class_name,
+            'handler_instance' => handler_instance,
+            'metadata' => handler_lookup['metadata'] || {},
+            'config_path' => config_path,
+            'namespace' => handler_lookup['namespace'],
+            'name' => handler_lookup['name'],
+            'version' => handler_lookup['version']
+          }
+        rescue StandardError => e
+          raise TaskerCore::Errors::PermanentError.new(
+            "Handler initialization failed: #{e.message}",
+            error_code: 'HANDLER_INITIALIZATION_FAILED',
+            context: {
+              class_name: handler_class_name,
+              config_path: config_path,
+              error_message: e.message,
+              error_class: e.class.name
+            }
+          )
+        end
       end
 
       # Check if a handler exists in the registry

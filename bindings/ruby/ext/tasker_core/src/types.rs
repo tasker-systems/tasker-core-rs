@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use magnus::{Error, RHash, Module, Value, IntoValue, RArray, RString};
 use serde::{Deserialize, Serialize};
+use crate::context::json_to_ruby_value;
 
 // Import shared types for conversion functions
 use tasker_core::ffi::shared::types::*;
@@ -170,16 +171,76 @@ impl OrchestrationHandleInfo {
     }
 }
 
-#[magnus::wrap(class = "TaskerCore::TaskHandler::InitializeResult", free_immediately)]
+// Note: This struct is manually registered in lib.rs as TaskerCore::TaskHandler::InitializeResult
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerInitializeResult {
     pub task_id: i64,
     pub step_count: usize,
     pub step_mapping: HashMap<String, i64>,
     pub handler_config_name: Option<String>,
+    pub workflow_steps: Vec<serde_json::Value>, // Array of step hashes for integration tests
 }
 
-#[magnus::wrap(class = "TaskerCore::TaskHandler::HandleResult", free_immediately)]
+impl TaskHandlerInitializeResult {
+    /// Convert to Ruby hash (simplified FFI approach)
+    pub fn to_ruby_hash(&self) -> Result<magnus::RHash, magnus::Error> {
+        let hash = magnus::RHash::new();
+        hash.aset("task_id", self.task_id)?;
+        hash.aset("step_count", self.step_count)?;
+        hash.aset("step_mapping", self.step_mapping.clone())?;
+        hash.aset("handler_config_name", self.handler_config_name.clone())?;
+        
+        // Convert workflow_steps Vec<serde_json::Value> to Ruby array
+        let ruby_steps = magnus::RArray::new();
+        for step in &self.workflow_steps {
+            let ruby_val = crate::context::json_to_ruby_value(step.clone())?;
+            ruby_steps.push(ruby_val)?;
+        }
+        hash.aset("workflow_steps", ruby_steps)?;
+        
+        Ok(hash)
+    }
+
+    /// Get task_id for Ruby access
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+
+    /// Get step_count for Ruby access
+    pub fn step_count(&self) -> usize {
+        self.step_count
+    }
+
+    /// Get step_mapping for Ruby access
+    pub fn step_mapping(&self) -> HashMap<String, i64> {
+        self.step_mapping.clone()
+    }
+
+    /// Get handler_config_name for Ruby access
+    pub fn handler_config_name(&self) -> Option<String> {
+        self.handler_config_name.clone()
+    }
+
+    /// Get workflow_steps for Ruby access
+    pub fn workflow_steps(&self) -> magnus::error::Result<magnus::RArray> {
+        let array = magnus::RArray::new();
+        for step in &self.workflow_steps {
+            // Convert each JSON value to Ruby value
+            let ruby_val = crate::context::json_to_ruby_value(step.clone())?;
+            array.push(ruby_val)?;
+        }
+        Ok(array)
+    }
+
+    /// Convert to Ruby hash
+    pub fn to_h(&self) -> Result<magnus::Value, Error> {
+      json_to_ruby_value(serde_json::to_value(self).unwrap())
+    }
+}
+
+// Simplified FFI approach - no reader functions needed
+
+// Note: This struct is manually registered in lib.rs as TaskerCore::TaskHandler::HandleResult
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerHandleResult {
     pub status: String,
@@ -190,6 +251,194 @@ pub struct TaskHandlerHandleResult {
     pub blocking_reason: Option<String>,
     pub next_poll_delay_ms: Option<u64>,
     pub error: Option<String>,
+}
+
+impl TaskHandlerHandleResult {
+    /// Get status for Ruby access
+    pub fn status(&self) -> String {
+        self.status.clone()
+    }
+
+    /// Get task_id for Ruby access
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+
+    /// Get steps_executed for Ruby access
+    pub fn steps_executed(&self) -> Option<usize> {
+        self.steps_executed
+    }
+
+    /// Get total_execution_time_ms for Ruby access
+    pub fn total_execution_time_ms(&self) -> Option<u64> {
+        self.total_execution_time_ms
+    }
+
+    /// Get failed_steps for Ruby access
+    pub fn failed_steps(&self) -> Option<Vec<i64>> {
+        self.failed_steps.clone()
+    }
+
+    /// Get blocking_reason for Ruby access
+    pub fn blocking_reason(&self) -> Option<String> {
+        self.blocking_reason.clone()
+    }
+
+    /// Get next_poll_delay_ms for Ruby access
+    pub fn next_poll_delay_ms(&self) -> Option<u64> {
+        self.next_poll_delay_ms
+    }
+
+    /// Get error for Ruby access
+    pub fn error(&self) -> Option<String> {
+        self.error.clone()
+    }
+
+    pub fn to_h(&self) -> Result<magnus::Value, Error> {
+        json_to_ruby_value(serde_json::to_value(self).unwrap())
+    }
+}
+
+/// Result from handle_one_step operation - Enhanced for dependency-aware step testing
+/// 
+/// This struct provides comprehensive information about single-step execution including
+/// dependency status, state transitions, and full execution context for debugging.
+/// 
+/// # Usage
+/// ```rust
+/// let result = base_task_handler.handle_one_step(step_id);
+/// if !result.dependencies_met {
+///     println!("Missing dependencies: {:?}", result.missing_dependencies);
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepHandleResult {
+    /// The ID of the executed workflow step
+    pub step_id: i64,
+    /// The ID of the parent task
+    pub task_id: i64,
+    /// The name of the step (e.g., "validate_order")
+    pub step_name: String,
+    /// Execution status: "completed", "failed", "retrying", "skipped", "dependencies_not_met"
+    pub status: String,
+    /// Time taken to execute the step in milliseconds
+    pub execution_time_ms: u64,
+    /// Step output data (results from the step handler)
+    pub result_data: Option<serde_json::Value>,
+    /// Error message if the step failed
+    pub error_message: Option<String>,
+    /// Number of retry attempts for this step
+    pub retry_count: u32,
+    /// Ruby class name of the step handler that was executed
+    pub handler_class: String,
+    
+    // Dependency tracking for step-by-step testing
+    /// Whether all prerequisite steps have been completed
+    pub dependencies_met: bool,
+    /// Names of dependency steps that are not yet completed
+    pub missing_dependencies: Vec<String>,
+    /// Results from completed dependency steps (step_name -> result_data)
+    pub dependency_results: HashMap<String, serde_json::Value>,
+    
+    // Execution context for debugging
+    /// Step state before execution ("pending", "in_progress", etc.)
+    pub step_state_before: String,
+    /// Step state after execution ("completed", "failed", etc.)
+    pub step_state_after: String,
+    /// Full task context that was available during step execution
+    pub task_context: serde_json::Value,
+}
+
+impl StepHandleResult {
+    /// Check if the step executed successfully
+    pub fn success(&self) -> bool {
+        self.status == "completed"
+    }
+    
+    /// Check if the step failed due to unmet dependencies
+    pub fn dependencies_not_met(&self) -> bool {
+        self.status == "dependencies_not_met"
+    }
+    
+    /// Get step_id for Ruby access
+    pub fn step_id(&self) -> i64 {
+        self.step_id
+    }
+    
+    /// Get task_id for Ruby access
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+    
+    /// Get step_name for Ruby access
+    pub fn step_name(&self) -> String {
+        self.step_name.clone()
+    }
+    
+    /// Get status for Ruby access
+    pub fn status(&self) -> String {
+        self.status.clone()
+    }
+    
+    /// Get execution_time_ms for Ruby access
+    pub fn execution_time_ms(&self) -> u64 {
+        self.execution_time_ms
+    }
+    
+    /// Get result_data for Ruby access
+    pub fn result_data(&self) -> Option<serde_json::Value> {
+        self.result_data.clone()
+    }
+    
+    /// Get error_message for Ruby access
+    pub fn error_message(&self) -> Option<String> {
+        self.error_message.clone()
+    }
+    
+    /// Get retry_count for Ruby access
+    pub fn retry_count(&self) -> u32 {
+        self.retry_count
+    }
+    
+    /// Get handler_class for Ruby access
+    pub fn handler_class(&self) -> String {
+        self.handler_class.clone()
+    }
+    
+    /// Get dependencies_met for Ruby access
+    pub fn dependencies_met(&self) -> bool {
+        self.dependencies_met
+    }
+    
+    /// Get missing_dependencies for Ruby access
+    pub fn missing_dependencies(&self) -> Vec<String> {
+        self.missing_dependencies.clone()
+    }
+    
+    /// Get dependency_results for Ruby access
+    pub fn dependency_results(&self) -> HashMap<String, serde_json::Value> {
+        self.dependency_results.clone()
+    }
+    
+    /// Get step_state_before for Ruby access
+    pub fn step_state_before(&self) -> String {
+        self.step_state_before.clone()
+    }
+    
+    /// Get step_state_after for Ruby access
+    pub fn step_state_after(&self) -> String {
+        self.step_state_after.clone()
+    }
+    
+    /// Get task_context for Ruby access
+    pub fn task_context(&self) -> serde_json::Value {
+        self.task_context.clone()
+    }
+    
+    /// Convert to Ruby hash for FFI
+    pub fn to_h(&self) -> Result<magnus::Value, Error> {
+        json_to_ruby_value(serde_json::to_value(self).unwrap())
+    }
 }
 
 /// Optimized TaskMetadata response structure using Magnus wrapped classes
@@ -288,6 +537,58 @@ pub struct RubyAnalyticsMetrics {
   pub resource_utilization: serde_json::Value,
 }
 
+impl RubyAnalyticsMetrics {
+    /// Get total_tasks for Ruby access
+    pub fn total_tasks(&self) -> i64 {
+        self.total_tasks
+    }
+
+    /// Get completed_tasks for Ruby access
+    pub fn completed_tasks(&self) -> i64 {
+        self.completed_tasks
+    }
+
+    /// Get failed_tasks for Ruby access
+    pub fn failed_tasks(&self) -> i64 {
+        self.failed_tasks
+    }
+
+    /// Get pending_tasks for Ruby access
+    pub fn pending_tasks(&self) -> i64 {
+        self.pending_tasks
+    }
+
+    /// Get average_completion_time_seconds for Ruby access
+    pub fn average_completion_time_seconds(&self) -> f64 {
+        self.average_completion_time_seconds
+    }
+
+    /// Get success_rate_percentage for Ruby access
+    pub fn success_rate_percentage(&self) -> f64 {
+        self.success_rate_percentage
+    }
+
+    /// Get most_common_failure_reason for Ruby access
+    pub fn most_common_failure_reason(&self) -> String {
+        self.most_common_failure_reason.clone()
+    }
+
+    /// Get peak_throughput_tasks_per_hour for Ruby access
+    pub fn peak_throughput_tasks_per_hour(&self) -> i64 {
+        self.peak_throughput_tasks_per_hour
+    }
+
+    /// Get current_load_percentage for Ruby access
+    pub fn current_load_percentage(&self) -> f64 {
+        self.current_load_percentage
+    }
+
+    /// Get resource_utilization for Ruby access
+    pub fn resource_utilization(&self) -> serde_json::Value {
+        self.resource_utilization.clone()
+    }
+}
+
 /// Helper function to convert Vec<i64> to Ruby array
 pub fn vec_i64_to_ruby_array(vec: Vec<i64>) -> Result<RArray, Error> {
   let array = RArray::new();
@@ -369,6 +670,38 @@ pub struct TestTaskResult {
     pub created_at: String,
 }
 
+impl TestTaskResult {
+    /// Get task_id for Ruby access
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+
+    /// Get namespace for Ruby access
+    pub fn namespace(&self) -> String {
+        self.namespace.clone()
+    }
+
+    /// Get name for Ruby access
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Get version for Ruby access
+    pub fn version(&self) -> String {
+        self.version.clone()
+    }
+
+    /// Get step_count for Ruby access
+    pub fn step_count(&self) -> i32 {
+        self.step_count
+    }
+
+    /// Get created_at for Ruby access
+    pub fn created_at(&self) -> String {
+        self.created_at.clone()
+    }
+}
+
 #[magnus::wrap(class = "TaskerCore::TestHelpers::TestStepResult", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestStepResult {
@@ -380,6 +713,38 @@ pub struct TestStepResult {
     pub config: serde_json::Value,
 }
 
+impl TestStepResult {
+    /// Get step_id for Ruby access
+    pub fn step_id(&self) -> i64 {
+        self.step_id
+    }
+
+    /// Get task_id for Ruby access
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+
+    /// Get name for Ruby access
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Get handler_class for Ruby access
+    pub fn handler_class(&self) -> Option<String> {
+        self.handler_class.clone()
+    }
+
+    /// Get dependencies for Ruby access
+    pub fn dependencies(&self) -> Vec<String> {
+        self.dependencies.clone()
+    }
+
+    /// Get config for Ruby access
+    pub fn config(&self) -> serde_json::Value {
+        self.config.clone()
+    }
+}
+
 #[magnus::wrap(class = "TaskerCore::TestHelpers::TestEnvironmentResult", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestEnvironmentResult {
@@ -387,6 +752,28 @@ pub struct TestEnvironmentResult {
     pub message: String,
     pub handle_id: String,
     pub pool_size: u32,
+}
+
+impl TestEnvironmentResult {
+    /// Get status for Ruby access
+    pub fn status(&self) -> String {
+        self.status.clone()
+    }
+
+    /// Get message for Ruby access
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    /// Get handle_id for Ruby access
+    pub fn handle_id(&self) -> String {
+        self.handle_id.clone()
+    }
+
+    /// Get pool_size for Ruby access
+    pub fn pool_size(&self) -> u32 {
+        self.pool_size
+    }
 }
 
 #[magnus::wrap(class = "TaskerCore::TestHelpers::TestFoundationResult", free_immediately)]
@@ -397,6 +784,33 @@ pub struct TestFoundationResult {
     pub named_task: String,
     pub named_step: String,
     pub components: Vec<String>,
+}
+
+impl TestFoundationResult {
+    /// Get foundation_id for Ruby access
+    pub fn foundation_id(&self) -> String {
+        self.foundation_id.clone()
+    }
+
+    /// Get namespace for Ruby access
+    pub fn namespace(&self) -> String {
+        self.namespace.clone()
+    }
+
+    /// Get named_task for Ruby access
+    pub fn named_task(&self) -> String {
+        self.named_task.clone()
+    }
+
+    /// Get named_step for Ruby access
+    pub fn named_step(&self) -> String {
+        self.named_step.clone()
+    }
+
+    /// Get components for Ruby access
+    pub fn components(&self) -> Vec<String> {
+        self.components.clone()
+    }
 }
 
 impl ComplexWorkflowInput {

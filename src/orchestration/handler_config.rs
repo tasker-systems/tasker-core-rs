@@ -3,10 +3,46 @@
 //! Provides YAML-driven configuration for task handlers including step templates,
 //! environment overrides, and schema validation.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use std::collections::HashMap;
 
 use crate::error::{Result, TaskerError};
+
+/// Custom deserializer for numeric values that may be integers or floats in YAML
+/// Converts floats to i32 by truncating (e.g., 0.0 -> 0, 10.5 -> 10)
+fn deserialize_optional_numeric<'de, D>(deserializer: D) -> std::result::Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+    
+    match value {
+        None => Ok(None),
+        Some(serde_yaml::Value::Number(n)) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Some(i as i32))
+            } else if let Some(f) = n.as_f64() {
+                // Truncate floating point to integer
+                Ok(Some(f as i32))
+            } else {
+                Err(D::Error::custom(format!("Invalid numeric value: {}", n)))
+            }
+        }
+        Some(serde_yaml::Value::String(s)) => {
+            // Try to parse string as number
+            s.parse::<i32>()
+                .map(Some)
+                .or_else(|_| s.parse::<f64>().map(|f| Some(f as i32)))
+                .map_err(|_| D::Error::custom(format!("Cannot parse '{}' as numeric", s)))
+        }
+        Some(other) => Err(D::Error::custom(format!(
+            "Expected numeric value, found: {:?}", 
+            other
+        ))),
+    }
+}
 
 /// HandlerConfiguration represents the complete configuration for a task handler
 /// This is loaded from YAML and used by handlers to define their step templates
@@ -31,6 +67,8 @@ pub struct HandlerConfiguration {
     pub default_dependent_system: Option<String>,
 
     /// List of named steps that are valid for this task
+    /// If empty, will be automatically populated from step_templates
+    #[serde(default)]
     pub named_steps: Vec<String>,
 
     /// JSON schema for task input validation
@@ -65,6 +103,7 @@ pub struct StepTemplate {
     pub default_retryable: Option<bool>,
 
     /// The default maximum number of retry attempts
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub default_retry_limit: Option<i32>,
 
     /// Whether this step can be skipped in the workflow
@@ -72,6 +111,7 @@ pub struct StepTemplate {
 
     /// Step-specific timeout in seconds
     /// If not specified, uses the global timeout configuration
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub timeout_seconds: Option<i32>,
 
     /// The class that implements the step's logic
@@ -122,12 +162,14 @@ pub struct StepTemplateOverride {
     pub default_retryable: Option<bool>,
 
     /// Override for retry limit
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub default_retry_limit: Option<i32>,
 
     /// Override for skippable setting
     pub skippable: Option<bool>,
 
     /// Override for timeout_seconds setting
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub timeout_seconds: Option<i32>,
 }
 
@@ -144,8 +186,17 @@ pub struct ResolvedHandlerConfiguration {
 impl HandlerConfiguration {
     /// Load a HandlerConfiguration from YAML content
     pub fn from_yaml(yaml_content: &str) -> Result<Self> {
-        serde_yaml::from_str(yaml_content)
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid YAML: {e}")))
+        let mut config: HandlerConfiguration = serde_yaml::from_str(yaml_content)
+            .map_err(|e| TaskerError::ValidationError(format!("Invalid YAML: {e}")))?;
+        
+        // Auto-populate named_steps from step_templates if it's empty
+        if config.named_steps.is_empty() {
+            config.named_steps = config.step_templates.iter()
+                .map(|st| st.name.clone())
+                .collect();
+        }
+        
+        Ok(config)
     }
 
     /// Load a HandlerConfiguration from a YAML file

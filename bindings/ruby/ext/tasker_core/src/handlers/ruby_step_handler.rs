@@ -39,6 +39,7 @@ use tasker_core::orchestration::errors::OrchestrationResult;
 use tasker_core::models::core::workflow_step::WorkflowStep;
 use tasker_core::models::core::task::Task;
 use tracing::{debug, warn};
+use tasker_core::logging::{log_step_operation, log_ffi_operation, log_error};
 
 /// Ruby step handler that implements the Rust StepHandler trait
 ///
@@ -111,8 +112,17 @@ impl RubyStepHandler {
 
     /// ✅ HANDLE-BASED: Convert StepExecutionContext to Ruby-compatible data using provided pool
     async fn convert_context_to_ruby(&self, context: &StepExecutionContext, pool: &sqlx::PgPool) -> OrchestrationResult<(RubyTask, RubyStepSequence, RubyStep)> {
+        log_step_operation(
+            "CONVERT_CONTEXT_TO_RUBY",
+            Some(context.task_id),
+            Some(context.step_id),
+            Some(&context.step_name),
+            "STARTING",
+            Some(&format!("handler_class={}", self.handler_class))
+        );
 
         // Load Task from database
+        debug!("📂 RUBY_STEP_HANDLER: Loading task from database - task_id={}", context.task_id);
         let task = Task::find_by_id(&pool, context.task_id).await
             .map_err(|e| tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
                 operation: "load_task".to_string(),
@@ -122,8 +132,10 @@ impl RubyStepHandler {
                 operation: "load_task".to_string(),
                 reason: format!("Task {} not found", context.task_id),
             })?;
+        debug!("✅ RUBY_STEP_HANDLER: Task loaded successfully - task_id={}, complete={}", task.task_id, task.complete);
 
         // Load WorkflowStep from database
+        debug!("📂 RUBY_STEP_HANDLER: Loading workflow step from database - step_id={}", context.step_id);
         let workflow_step = WorkflowStep::find_by_id(&pool, context.step_id).await
             .map_err(|e| tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
                 operation: "load_workflow_step".to_string(),
@@ -133,75 +145,132 @@ impl RubyStepHandler {
                 operation: "load_workflow_step".to_string(),
                 reason: format!("WorkflowStep {} not found", context.step_id),
             })?;
+        debug!("✅ RUBY_STEP_HANDLER: WorkflowStep loaded successfully - step_id={}, named_step_id={}, processed={}", 
+               workflow_step.workflow_step_id, workflow_step.named_step_id, workflow_step.processed);
 
         // Get step dependencies
+        debug!("📂 RUBY_STEP_HANDLER: Loading step dependencies - step_id={}", context.step_id);
         let dependencies = workflow_step.get_dependencies(&pool).await
             .map_err(|e| tasker_core::orchestration::errors::OrchestrationError::DatabaseError {
                 operation: "get_dependencies".to_string(),
                 reason: format!("Failed to get dependencies for step {}: {}", context.step_id, e),
             })?;
+        debug!("✅ RUBY_STEP_HANDLER: Dependencies loaded - count={}", dependencies.len());
 
         // Convert to Ruby objects
+        debug!("🔄 RUBY_STEP_HANDLER: Converting to Ruby objects");
         let ruby_task = RubyTask::from_task(&task);
-        let ruby_step = RubyStep::from_workflow_step(&workflow_step);
+        let ruby_step = RubyStep::from_workflow_step_with_name(&workflow_step, &context.step_name);
+        debug!("✅ RUBY_STEP_HANDLER: Ruby task and step created - task_id={}, step_name={}", ruby_task.task_id, ruby_step.name);
 
         // Convert dependencies to RubyStep objects
+        debug!("🔄 RUBY_STEP_HANDLER: Converting {} dependencies to Ruby objects", dependencies.len());
         let ruby_dependencies: Vec<RubyStep> = dependencies
             .iter()
             .map(|dep| RubyStep::from_workflow_step(dep))
             .collect();
+        debug!("✅ RUBY_STEP_HANDLER: Ruby dependencies created - count={}", ruby_dependencies.len());
 
-        let ruby_sequence = RubyStepSequence::new(
-            dependencies.len(),
-            0, // current_position - could be calculated from step state
+        // Create all_steps including dependencies + current step
+        let mut all_steps = ruby_dependencies.clone();
+        all_steps.push(ruby_step.clone());
+        debug!("🔄 RUBY_STEP_HANDLER: Creating step sequence - total_steps={}, current_position={}", 
+               dependencies.len() + 1, dependencies.len());
+
+        let ruby_sequence = RubyStepSequence::new_with_all_steps(
+            dependencies.len() + 1, // total steps including current
+            dependencies.len(), // current_position - current step is last
             ruby_dependencies,
             context.step_id,
+            all_steps,
         );
 
+        debug!("✅ RUBY_STEP_HANDLER: Context conversion complete - ready for Ruby handler call");
         Ok((ruby_task, ruby_sequence, ruby_step))
     }
 
     /// Call Ruby process method
     async fn call_ruby_process(&self, ruby_task: &RubyTask, ruby_sequence: &RubyStepSequence, ruby_step: &RubyStep) -> OrchestrationResult<serde_json::Value> {
+        log_ffi_operation(
+            "CALL_RUBY_PROCESS_METHOD",
+            "RubyStepHandler",
+            "STARTING",
+            Some(&format!("handler_class={}, step_name={}", self.handler_class, self.step_name)),
+            Some(&format!("task_id={}, step_id={}", ruby_task.task_id, ruby_step.workflow_step_id))
+        );
+
+        debug!("📞 RUBY_STEP_HANDLER: Getting Ruby interpreter");
         let ruby = Ruby::get().map_err(|e| {
+            debug!("❌ RUBY_STEP_HANDLER: Failed to get Ruby interpreter - error={}", e);
             tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                 operation: "get_ruby".to_string(),
                 reason: format!("Failed to get Ruby interpreter: {}", e),
             }
         })?;
+        debug!("✅ RUBY_STEP_HANDLER: Ruby interpreter acquired");
 
         // Get the handler class
+        debug!("🏗️  RUBY_STEP_HANDLER: Instantiating Ruby handler - class_name={}", self.handler_class);
         let handler_class: Value = ruby.eval(&format!("{}::new", self.handler_class))
             .map_err(|e| {
+                debug!("❌ RUBY_STEP_HANDLER: Failed to instantiate Ruby handler - class={}, error={}", self.handler_class, e);
                 tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                     operation: "instantiate_handler".to_string(),
                     reason: format!("Failed to instantiate Ruby handler {}: {}", self.handler_class, e),
                 }
             })?;
+        debug!("✅ RUBY_STEP_HANDLER: Ruby handler instantiated successfully - class={}", self.handler_class);
 
         // Convert Ruby objects to Values for method call
         // Note: These types implement IntoValue automatically via #[magnus::wrap]
         // but we need to clone them since we have references and IntoValue requires owned values
+        debug!("🔄 RUBY_STEP_HANDLER: Preparing method arguments - cloning Ruby objects");
         let task_clone = ruby_task.clone();
         let sequence_clone = ruby_sequence.clone();
         let step_clone = ruby_step.clone();
+        debug!("✅ RUBY_STEP_HANDLER: Method arguments prepared");
 
         // Call the process method
+        log_ffi_operation(
+            "RUBY_PROCESS_METHOD_CALL",
+            "RubyStepHandler",
+            "CALLING",
+            Some(&format!("handler_class={}, method=process", self.handler_class)),
+            Some(&format!("task_id={}, step_id={}", ruby_task.task_id, ruby_step.workflow_step_id))
+        );
         let result: Value = handler_class.funcall("process", (task_clone, sequence_clone, step_clone))
             .map_err(|e| {
+                log_error(
+                    "RubyStepHandler",
+                    "call_ruby_process",
+                    &format!("Ruby process method failed - handler_class={}, error={}", self.handler_class, e),
+                    Some(&format!("task_id={}, step_id={}", ruby_task.task_id, ruby_step.workflow_step_id))
+                );
                 tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                     operation: "call_process".to_string(),
                     reason: format!("Failed to call process method on {}: {}", self.handler_class, e),
                 }
             })?;
+        log_ffi_operation(
+            "RUBY_PROCESS_METHOD_CALL",
+            "RubyStepHandler",
+            "SUCCESS",
+            Some(&format!("handler_class={}", self.handler_class)),
+            Some(&format!("task_id={}, step_id={}", ruby_task.task_id, ruby_step.workflow_step_id))
+        );
 
         // Convert result back to JSON
-        ruby_value_to_json(result).map_err(|e| {
+        debug!("🔄 RUBY_STEP_HANDLER: Converting Ruby result to JSON - handler_class={}", self.handler_class);
+        let json_result = ruby_value_to_json(result).map_err(|e| {
+            debug!("❌ RUBY_STEP_HANDLER: Failed to convert result to JSON - handler_class={}, error={}", self.handler_class, e);
             tasker_core::orchestration::errors::OrchestrationError::FfiBridgeError {
                 operation: "convert_result".to_string(),
                 reason: format!("Failed to convert Ruby result to JSON: {}", e),
             }
-        })
+        })?;
+        debug!("✅ RUBY_STEP_HANDLER: Ruby result converted to JSON successfully - handler_class={}", self.handler_class);
+        
+        Ok(json_result)
     }
 
     /// Call Ruby process_results method (optional)
@@ -262,25 +331,38 @@ impl RubyStepHandler {
 impl StepHandler for RubyStepHandler {
     /// Process the step by calling the Ruby handler
     async fn process(&self, context: &StepExecutionContext) -> OrchestrationResult<serde_json::Value> {
-        debug!(
-            "Processing step {} with Ruby handler {}",
-            context.step_name,
-            self.handler_class
+        log_step_operation(
+            "RUBY_STEP_HANDLER_PROCESS",
+            Some(context.task_id),
+            Some(context.step_id),
+            Some(&context.step_name),
+            "STARTING",
+            Some(&format!("handler_class={}", self.handler_class))
         );
 
         // Convert context to Ruby objects
         // ✅ MIGRATED: Now using shared handle-based pool access
+        debug!("📡 STEP_HANDLER_TRAIT: Getting shared orchestration handle");
         let shared_handle = SharedOrchestrationHandle::get_global();
         let pool = shared_handle.database_pool();
+        debug!("✅ STEP_HANDLER_TRAIT: Shared handle and pool acquired");
+        
+        debug!("🔄 STEP_HANDLER_TRAIT: Converting execution context to Ruby objects");
         let (ruby_task, ruby_sequence, ruby_step) = self.convert_context_to_ruby(context, pool).await?;
+        debug!("✅ STEP_HANDLER_TRAIT: Context converted to Ruby objects successfully");
 
         // Call Ruby process method
+        debug!("🚀 STEP_HANDLER_TRAIT: Calling Ruby process method");
         let result = self.call_ruby_process(&ruby_task, &ruby_sequence, &ruby_step).await?;
+        debug!("✅ STEP_HANDLER_TRAIT: Ruby process method completed successfully");
 
-        debug!(
-            "Ruby handler {} completed processing step {}",
-            self.handler_class,
-            context.step_name
+        log_step_operation(
+            "RUBY_STEP_HANDLER_PROCESS",
+            Some(context.task_id),
+            Some(context.step_id),
+            Some(&context.step_name),
+            "SUCCESS",
+            Some(&format!("handler_class={}", self.handler_class))
         );
 
         Ok(result)
@@ -289,19 +371,24 @@ impl StepHandler for RubyStepHandler {
     /// Process results after step completion
     async fn process_results(&self, context: &StepExecutionContext, result: &StepResult) -> OrchestrationResult<()> {
         debug!(
-            "Processing results for step {} with Ruby handler {}",
+            "🔄 STEP_HANDLER_TRAIT: Processing results for step - handler_class={}, step_name={}, success={}",
+            self.handler_class,
             context.step_name,
-            self.handler_class
+            result.success
         );
 
         // Convert context to Ruby objects  
         // ✅ MIGRATED: Now using shared handle-based pool access
+        debug!("📡 STEP_HANDLER_TRAIT: Getting shared handle for process_results");
         let shared_handle = SharedOrchestrationHandle::get_global();
         let pool = shared_handle.database_pool();
         let (_, _, ruby_step) = self.convert_context_to_ruby(context, pool).await?;
+        debug!("✅ STEP_HANDLER_TRAIT: Context converted for process_results");
 
         // Call Ruby process_results method if it exists
+        debug!("📞 STEP_HANDLER_TRAIT: Calling Ruby process_results method if available");
         self.call_ruby_process_results(&ruby_step, result.output_data.as_ref().unwrap_or(&serde_json::json!({})), None).await?;
+        debug!("✅ STEP_HANDLER_TRAIT: Ruby process_results method completed");
 
         Ok(())
     }

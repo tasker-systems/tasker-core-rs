@@ -31,6 +31,7 @@ use magnus::{Error, Module, Ruby};
 
 mod context;
 mod error_translation;
+mod ffi_logging;
 mod globals;
 mod handles;  // 🎯 NEW: Handle-based FFI architecture
 mod performance;
@@ -56,6 +57,11 @@ mod event_bridge;
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
+    // Initialize FFI logger for debugging
+    if let Err(e) = crate::ffi_logging::init_ffi_logger() {
+        eprintln!("Warning: Failed to initialize FFI logger: {}", e);
+    }
+    
     // Define TaskerCore module
     let module = ruby.define_module("TaskerCore")?;
 
@@ -124,6 +130,11 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     
     // Explicitly register OrchestrationHandleInfo class
     let _orchestration_handle_info_class = module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
+    
+    // BaseTaskHandler now returns Ruby hashes instead of wrapped objects
+    // This simplifies FFI and avoids complex class registration issues
+    
+    // 🎯 TASKHANDLER: TaskHandlerInitializeResult now explicitly registered under TaskerCore::
 
     Ok(())
 }
