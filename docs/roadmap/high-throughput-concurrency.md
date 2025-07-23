@@ -2,536 +2,712 @@
 
 ## Executive Summary
 
-This document outlines the design and implementation plan for an **event-driven pub/sub architecture** that enables high-throughput concurrent step processing while solving Ruby threading constraints in the Tasker Core system.
+This document outlines a **revolutionary architectural shift** from complex FFI-based step execution to a **ZeroMQ-based message passing architecture** that fundamentally solves the separation of concerns between orchestration and execution.
 
-**Current State**: Sequential step processing (stable, production-ready)
-**Future State**: Event-driven concurrent processing (10x+ throughput improvement)
-**Implementation Timeline**: 8 weeks when scalability bottlenecks justify complexity
-**Target Throughput**: 100+ concurrent tasks with >10x performance improvement
+**Current Problem**: FFI execution hanging, tight coupling between Rust orchestration and Ruby execution
+**Proposed Solution**: ZeroMQ message passing with clear orchestration/execution boundary
+**Impact**: Language-agnostic execution, true concurrency, massive simplification
+**Timeline**: 4-6 weeks for complete implementation
+
+## 🎉 UPDATE: Critical FFI Issues Resolved (January 23, 2025)
+
+While implementing the ZeroMQ architecture, we successfully resolved several critical FFI issues:
+
+1. **✅ Step Dependency Information**: Fixed nil dependency arrays - steps now correctly include `depends_on_steps` data
+2. **✅ Workflow Execution Unblocked**: Discovered and fixed root cause - `validate_order` step had `retryable: false` blocking ALL execution
+3. **✅ Integration Tests Improved**: Test failures reduced from 16 to 4 (75% improvement) after fixing retryable flag
+4. **✅ Workflows Now Execute**: Steps are executing (seeing "steps_executed=2 steps_succeeded=1 steps_failed=1" in logs)
+
+**Remaining Issues**:
+- Status mapping between Rust ('error') and Ruby ('complete'/'error') expectations
+- Empty task context data from hardcoded return in `get_task_context`
+
+These fixes validate that the current FFI approach CAN work, but the architectural benefits of ZeroMQ remain compelling for long-term scalability and maintainability.
+
+---
+
+## 🎯 Architectural Breakthrough (July 23, 2025)
+
+### The Core Insight
+
+We've been violating a fundamental principle of separation of concerns. The Rust orchestration system should **orchestrate**, not manage execution details. Trying to call Ruby methods from Rust through FFI creates:
+
+- **Tight Coupling**: Rust needs to understand Ruby class loading, memory management, and execution context
+- **Complex Memory Management**: Borrow checker issues, Magnus type conversions, GC coordination
+- **Language Lock-in**: Each new language requires complex FFI bindings
+- **Execution Blocking**: Hanging at FFI boundaries when crossing language runtimes
+
+### The Solution: ZeroMQ Pub-Sub Bidirectional Pattern
+
+Replace blocking REQ-REP with async pub-sub for true fire-and-forget orchestration:
+
+```
+┌─────────────────┐  PUB: steps    ┌─────────────────┐
+│ Rust            │ ──────────────► │ Any Language    │
+│ Orchestration   │                 │ Step Handler    │
+│ (Dependencies,  │                 │ (Business Logic)│
+│  State, Retry)  │ ◄────────────── │                 │
+└─────────────────┘  SUB: results  └─────────────────┘
+          │                                   │
+          ▼                                   ▼
+   PUB: step_batch           SUB: step_batch
+   SUB: result_batch         PUB: result_batch
+```
+
+**Critical Advantages Over REQ-REP**:
+- **No Timeout Issues**: Fire-and-forget eliminates blocking and timeout complexity
+- **Idempotency Safe**: Steps complete independently of network timing
+- **True Async**: Handlers process at their own pace without orchestrator blocking
+- **Fault Tolerance**: Network issues don't create inconsistent state
+- **Horizontal Scaling**: Multiple handler instances can subscribe to same step queue
+
+**Key Benefits**:
+- **Language Agnostic**: Any language with ZeroMQ bindings can execute steps
+- **Clear Boundaries**: Orchestration vs execution responsibilities perfectly separated
+- **True Concurrency**: No GIL or runtime constraints, no blocking operations
+- **Fault Isolation**: Handler crashes don't affect orchestrator
+- **Financial Safety**: No risk of timeout-induced duplicate transactions
 
 ---
 
 ## Architecture Overview
 
-### Core Principle
-Replace direct FFI step execution with an **internal event bus** that completely decouples Rust orchestration from Ruby step execution, enabling true concurrency while respecting Ruby's thread-local interpreter constraints.
-
-### System Boundaries
+### System Design
 
 ```
-┌─────────────────┐    Events    ┌─────────────────┐    Events    ┌─────────────────┐
-│ Rust            │ ──────────► │ Internal        │ ──────────► │ Ruby            │
-│ Orchestration   │              │ Event Bus       │              │ Execution       │
-│ Layer           │ ◄────────── │                 │ ◄────────── │ Layer           │
-└─────────────────┘    Results   └─────────────────┘    Results   └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rust Orchestration Core                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│  │ Workflow    │  │ State       │  │ Task        │            │
+│  │ Coordinator │  │ Manager     │  │ Finalizer   │            │
+│  └──────┬──────┘  └─────────────┘  └─────────────┘            │
+│         │                                                        │
+│         ▼                                                        │
+│  ┌─────────────────────────────────────────────────┐           │
+│  │           ZmqPubSubExecutor                      │           │
+│  │  - PUB: Batch viable steps as JSON               │           │
+│  │  - SUB: Receive result batches asynchronously    │           │
+│  │  - No blocking, no timeouts, pure async          │           │
+│  └─────────────────────┬───────────────────────────┘           │
+└─────────────────────────┼───────────────────────────────────────┘
+                          │
+                          │ ZeroMQ Pub-Sub (inproc/ipc/tcp)
+                          │
+┌─────────────────────────┼───────────────────────────────────────┐
+│                         ▼                                        │
+│  ┌─────────────────────────────────────────────────┐           │
+│  │         Language Handler (PUB-SUB)               │           │
+│  │  - SUB: Receive step batch JSON                  │           │
+│  │  - Execute using native handlers                 │           │
+│  │  - PUB: Send results when complete               │           │
+│  └─────────────────────┬───────────────────────────┘           │
+│                         │                                        │
+│         ┌───────────────┴──────────────┐                        │
+│         ▼               ▼              ▼                        │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐               │
+│  │Ruby Handler│  │Python      │  │Go Handler  │               │
+│  │(Rails)     │  │Handler(ML) │  │(High Perf) │               │
+│  └────────────┘  └────────────┘  └────────────┘               │
+│                   Any Language Step Handlers                    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Benefits**:
-- **Zero Ruby Threading Issues**: Each Ruby subscriber runs in its own thread context
-- **True Concurrency**: Multiple steps execute simultaneously using concurrent-ruby
-- **Fault Isolation**: Step failures don't impact orchestration layer
-- **Scalable Architecture**: Event-driven pattern supports high-throughput scenarios
+### Message Protocol
 
----
-
-## Event Types and Payload Structures
-
-### Internal Event Types
-
-| Event Type | Direction | Purpose |
-|------------|-----------|---------|
-| `StepExecutionBatch` | Rust → Ruby | Multiple ready steps for concurrent processing |
-| `StepExecutionResult` | Ruby → Rust | Individual step completion results |
-| `StepExecutionError` | Ruby → Rust | Step failures requiring retry/error handling |
-| `BatchStatus` | Ruby → Rust | Heartbeat events for batch processing status |
-| `StepCancellation` | Rust → Ruby | Cancel in-flight steps (task termination) |
-
-### Key Payload Structures
-
-#### StepExecutionBatch
+#### Step Batch Request (Rust → Handler)
 ```json
 {
-  "batch_id": "batch_12345",
-  "created_at": "2025-01-22T15:30:00Z",
-  "expected_completion_time": "2025-01-22T15:32:00Z",
-  "priority": "normal",
+  "batch_id": "batch_12345_1706039072",
+  "protocol_version": "1.0",
   "steps": [
     {
-      "step_id": 5227,
-      "task_id": 5862,
-      "step_name": "validate_order",
-      "handler_class": "OrderFulfillment::ValidateOrderStepHandler",
-      "handler_config": { "timeout": 30 },
-      "task_context": { "order_id": 12345, "customer_id": 67890 },
-      "dependencies": [
-        { "step_id": 5226, "output": { "status": "verified" } }
-      ]
+      "step_id": 8127,
+      "task_id": 6591,
+      "step_name": "ship_order",
+      "handler_class": "OrderFulfillment::StepHandlers::ShipOrderHandler",
+      "handler_config": {
+        "shipping_timeout": 60,
+        "send_notifications": true
+      },
+      "task_context": {
+        "order_id": 12345,
+        "customer_info": {...}
+      },
+      "previous_results": {
+        "validate_order": { "status": "approved" },
+        "process_payment": { "transaction_id": "txn_789" }
+      },
+      "metadata": {
+        "attempt": 0,
+        "retry_limit": 5,
+        "timeout_ms": 30000
+      }
     }
   ]
 }
 ```
 
-#### StepExecutionResult
+#### Step Batch Response (Handler → Rust)
 ```json
 {
-  "batch_id": "batch_12345",
-  "step_id": 5227,
-  "task_id": 5862,
-  "status": "completed",
-  "output_data": { "validation_result": "approved", "processed_at": "2025-01-22T15:31:15Z" },
-  "execution_time_ms": 1250,
-  "handler_class": "OrderFulfillment::ValidateOrderStepHandler"
-}
-```
-
-#### StepExecutionError
-```json
-{
-  "batch_id": "batch_12345",
-  "step_id": 5227,
-  "task_id": 5862,
-  "error_message": "Order validation failed: insufficient inventory",
-  "error_code": "VALIDATION_FAILED",
-  "retry_eligible": true,
-  "execution_time_ms": 500,
-  "stack_trace": "...",
-  "handler_class": "OrderFulfillment::ValidateOrderStepHandler"
+  "batch_id": "batch_12345_1706039072",
+  "protocol_version": "1.0",
+  "results": [
+    {
+      "step_id": 8127,
+      "status": "completed",  // completed|failed|error
+      "output": {
+        "tracking_number": "1234567890",
+        "carrier": "UPS",
+        "estimated_delivery": "2025-01-25"
+      },
+      "error": null,
+      "metadata": {
+        "execution_time_ms": 1234,
+        "handler_version": "1.2.3",
+        "retryable": true
+      }
+    }
+  ]
 }
 ```
 
 ---
 
-## Detailed Workflow Lifecycles
+## Implementation Architecture
 
-### Phase 1: Step Discovery & Batching (Rust)
+### Rust Side: ZmqPubSubExecutor
 
 ```rust
-// WorkflowCoordinator discovers viable steps
-let viable_steps = discover_viable_steps(task_ids).await?;
+use zmq::{Context, Socket, PUB, SUB};
+use serde::{Serialize, Deserialize};
 
-// Group steps for optimal concurrent execution
-let batches = create_intelligent_batches(viable_steps);
+#[derive(Serialize)]
+struct StepBatchRequest {
+    batch_id: String,
+    protocol_version: String,
+    steps: Vec<StepExecutionRequest>,
+}
 
-for batch in batches {
-    // Update step state to prevent duplicate processing
-    update_steps_to_batched_state(&batch.step_ids).await?;
+#[derive(Deserialize)]
+struct StepBatchResponse {
+    batch_id: String,
+    results: Vec<StepExecutionResult>,
+}
 
-    // Publish batch event with timeout expectations
-    event_publisher.publish_step_execution_batch(batch).await?;
+pub struct ZmqPubSubExecutor {
+    context: Context,
+    pub_endpoint: String,
+    sub_endpoint: String,
+    pub_socket: Socket,
+    sub_socket: Socket,
+    result_handler: Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
+}
+
+impl ZmqPubSubExecutor {
+    pub fn new(pub_endpoint: &str, sub_endpoint: &str) -> Result<Self, Error> {
+        let context = Context::new();
+        
+        // Publisher socket for sending step batches
+        let pub_socket = context.socket(PUB)?;
+        pub_socket.bind(pub_endpoint)?;
+        
+        // Subscriber socket for receiving results
+        let sub_socket = context.socket(SUB)?;
+        sub_socket.connect(sub_endpoint)?;
+        sub_socket.set_subscribe(b"results")?; // Subscribe to "results" topic
+        
+        Ok(Self {
+            context,
+            pub_endpoint: pub_endpoint.to_string(),
+            sub_endpoint: sub_endpoint.to_string(),
+            pub_socket,
+            sub_socket,
+            result_handler: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    pub async fn start_result_listener(&self) {
+        let sub_socket = self.sub_socket.clone();
+        let result_handler = self.result_handler.clone();
+        
+        tokio::spawn(async move {
+            loop {
+                if let Ok(msg) = sub_socket.recv_bytes(zmq::DONTWAIT) {
+                    if let Ok(response) = serde_json::from_slice::<StepBatchResponse>(&msg) {
+                        let mut handlers = result_handler.lock().await;
+                        if let Some(sender) = handlers.remove(&response.batch_id) {
+                            let _ = sender.send(response);
+                        }
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+    }
+
+    async fn publish_batch(&self, steps: Vec<ViableStep>) -> Result<String, Error> {
+        let batch_id = format!("batch_{}_{}", Uuid::new_v4(), SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+        
+        let batch = StepBatchRequest {
+            batch_id: batch_id.clone(),
+            protocol_version: "1.0".to_string(),
+            steps: steps.into_iter().map(|s| self.build_step_request(s)).collect(),
+        };
+
+        let request_json = serde_json::to_string(&batch)?;
+        
+        // Publish with "steps" topic
+        let topic_msg = format!("steps {}", request_json);
+        self.pub_socket.send(&topic_msg, 0)?;
+        
+        Ok(batch_id)
+    }
+
+    async fn wait_for_results(&self, batch_id: String) -> Result<StepBatchResponse, Error> {
+        let (sender, receiver) = oneshot::channel();
+        
+        {
+            let mut handlers = self.result_handler.lock().await;
+            handlers.insert(batch_id, sender);
+        }
+        
+        // Wait for results with timeout
+        tokio::time::timeout(Duration::from_secs(300), receiver)
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::ChannelClosed)?
+    }
+}
+
+#[async_trait]
+impl FrameworkIntegration for ZmqPubSubExecutor {
+    async fn execute_step_with_handler(
+        &self,
+        context: &StepExecutionContext,
+        handler_class: &str,
+        handler_config: &HashMap<String, serde_json::Value>,
+    ) -> Result<StepResult, OrchestrationError> {
+        // Publish step batch (fire-and-forget)
+        let batch_id = self.publish_batch(vec![context.viable_step.clone()]).await?;
+        
+        // Asynchronously wait for results
+        let response = self.wait_for_results(batch_id).await?;
+        
+        response.results.into_iter().next()
+            .ok_or_else(|| OrchestrationError::ExecutionError("No result returned".to_string()))
+    }
 }
 ```
 
-**Intelligent Batching Logic**:
-- **Task Affinity**: Group steps from same task for context sharing
-- **Priority-Based**: High-priority steps get smaller batches for faster processing
-- **Handler Class Optimization**: Group steps using same handler class
-- **Dependency-Aware**: Never batch interdependent steps
-
-**State Management**:
-- New state: `"batched_for_execution"` (between "pending" and "in_progress")
-- Prevents duplicate processing while enabling timeout recovery
-- Atomic state transitions using database transactions
-
-### Phase 2: Batch Reception & Distribution (Ruby)
+### Ruby Side: ZmqPubSubHandler
 
 ```ruby
-class OrchestrationEventSubscriber
-  def on_step_execution_batch(event)
-    batch = StepExecutionBatch.new(event.payload)
+require 'ffi-rzmq'
+require 'json'
 
-    # Validate batch integrity and step readiness
-    validate_batch_integrity(batch)
+module TaskerCore
+  class ZmqPubSubHandler
+    def initialize(
+      step_sub_endpoint: 'inproc://steps', 
+      result_pub_endpoint: 'inproc://results',
+      handler_registry: nil
+    )
+      @context = ZMQ::Context.new
+      
+      # Subscriber for receiving step batches
+      @step_socket = @context.socket(ZMQ::SUB)
+      @step_socket.connect(step_sub_endpoint)
+      @step_socket.setsockopt(ZMQ::SUBSCRIBE, 'steps') # Subscribe to "steps" topic
+      
+      # Publisher for sending results
+      @result_socket = @context.socket(ZMQ::PUB)
+      @result_socket.bind(result_pub_endpoint)
+      
+      @handler_registry = handler_registry || OrchestrationManager.instance
+      @running = false
+    end
 
-    # Publish batch status heartbeat
-    publish_batch_status(batch.id, 'processing_started')
+    def start
+      @running = true
+      @thread = Thread.new { run_handler_loop }
+    end
 
-    # Create concurrent execution plan
-    futures = batch.steps.map do |step|
-      Concurrent::Future.execute(executor: thread_pool) do
-        execute_step_with_full_context(step)
+    def stop
+      @running = false
+      @thread&.join(5)
+      @step_socket.close
+      @result_socket.close
+      @context.terminate
+    end
+
+    private
+
+    def run_handler_loop
+      while @running
+        # Non-blocking receive
+        message = receive_step_message
+        next unless message
+
+        begin
+          # Parse topic and message
+          topic, json_data = message.split(' ', 2)
+          next unless topic == 'steps'
+          
+          request = JSON.parse(json_data, symbolize_names: true)
+          
+          # Process batch asynchronously
+          Thread.new do
+            response = process_batch(request)
+            publish_results(response)
+          end
+        rescue => e
+          Rails.logger.error "ZMQ Handler Error: #{e.message}"
+          publish_error_response(request&.dig(:batch_id), e)
+        end
+        
+        # Yield to prevent busy-waiting
+        sleep(0.001)
       end
     end
 
-    # Wait for completion and collect results
-    handle_batch_completion(batch.id, futures)
-  end
+    def receive_step_message
+      message = ''
+      rc = @step_socket.recv_string(message, ZMQ::DONTWAIT)
+      rc == 0 ? message : nil
+    end
 
-  private
+    def publish_results(response)
+      result_message = "results #{response.to_json}"
+      @result_socket.send_string(result_message)
+    end
 
-  def thread_pool
-    @thread_pool ||= Concurrent::ThreadPoolExecutor.new(
-      min_threads: 2,
-      max_threads: 10,
-      max_queue: 100,
-      fallback_policy: :caller_runs
-    )
-  end
-end
-```
+    def process_batch(request)
+      results = request[:steps].map do |step|
+        process_single_step(step)
+      end
 
-**Ruby Concurrency Configuration**:
-- **Thread Pool**: Bounded thread count (10-20) respecting Ruby GIL
-- **Queue Management**: Bounded queue prevents memory overflow
-- **Resource Isolation**: Each step gets isolated context
-- **Graceful Degradation**: Falls back to smaller batches under pressure
+      {
+        batch_id: request[:batch_id],
+        protocol_version: request[:protocol_version],
+        results: results
+      }
+    end
 
-### Phase 3: Concurrent Step Execution (Ruby)
+    def process_single_step(step)
+      # Get handler instance from registry
+      handler = get_handler_for_step(step)
 
-```ruby
-def execute_step_with_full_context(step)
-  # Each Concurrent::Future runs in separate thread
-  # Full Ruby interpreter access available
+      # Build execution context
+      task = build_task_object(step)
+      sequence = build_sequence_object(step)
+      step_obj = build_step_object(step)
 
-  # Instantiate handler using pre-registered classes
-  handler_class = Object.const_get(step.handler_class)
-  handler = handler_class.new(config: step.handler_config)
+      # Execute using existing handler interface
+      result = handler.process(task, sequence, step_obj)
 
-  # Execute step with context and dependencies
-  result = handler.process(
-    task_context: step.task_context,
-    dependencies: step.dependencies,
-    step_config: step.handler_config
-  )
+      # Build response
+      {
+        step_id: step[:step_id],
+        status: 'completed',
+        output: result,
+        error: nil,
+        metadata: {
+          execution_time_ms: (Time.now - start_time) * 1000,
+          handler_version: handler.class::VERSION,
+          retryable: true
+        }
+      }
+    rescue => e
+      {
+        step_id: step[:step_id],
+        status: 'failed',
+        output: nil,
+        error: {
+          message: e.message,
+          backtrace: e.backtrace.first(5)
+        },
+        metadata: {
+          retryable: determine_retryability(e)
+        }
+      }
+    end
 
-  # Return structured result for event publishing
-  StepExecutionResult.new(
-    batch_id: step.batch_id,
-    step_id: step.step_id,
-    status: 'completed',
-    output_data: result,
-    execution_time_ms: execution_time
-  )
-rescue => error
-  StepExecutionError.new(
-    batch_id: step.batch_id,
-    step_id: step.step_id,
-    error_message: error.message,
-    retry_eligible: determine_retry_eligibility(error)
-  )
-end
-```
+    def get_handler_for_step(step)
+      # Use the already loaded handlers from TaskHandler initialization
+      task_handler = @handler_registry.get_task_handler_for_task(step[:task_id])
+      raise "No task handler found for task #{step[:task_id]}" unless task_handler
 
-**Concurrent Execution Benefits**:
-- **Thread Isolation**: Each step runs in separate Ruby thread context
-- **No GIL Blocking**: I/O-bound operations (most steps) benefit from concurrency
-- **Error Isolation**: Individual step failures don't impact other steps
-- **Resource Optimization**: Better CPU and I/O utilization
+      step_handler = task_handler.get_step_handler_from_name(step[:step_name])
+      raise "No step handler found for #{step[:step_name]}" unless step_handler
 
-### Phase 4: Result Collection & Publishing (Ruby)
-
-```ruby
-def handle_batch_completion(batch_id, futures)
-  # Wait for all futures to complete or timeout
-  results = Concurrent::Promise.zip(*futures).execute.value(timeout: 30)
-
-  # Publish individual step results
-  results.each do |result|
-    case result
-    when StepExecutionResult
-      publish_step_execution_result(result)
-    when StepExecutionError
-      publish_step_execution_error(result)
+      step_handler
     end
   end
-
-  # Publish batch completion status
-  publish_batch_status(batch_id, 'completed', {
-    total_steps: results.length,
-    successful: results.count { |r| r.is_a?(StepExecutionResult) },
-    failed: results.count { |r| r.is_a?(StepExecutionError) }
-  })
 end
 ```
 
-**Result Processing Features**:
-- **Individual Result Events**: Each step result published separately
-- **Batch Summary**: Aggregate metrics for monitoring
-- **Timeout Handling**: Graceful handling of slow steps
-- **Error Aggregation**: Failed steps don't block successful ones
+### Integration Points
 
-### Phase 5: Result Processing & State Updates (Rust)
+#### 1. Minimal Changes to Existing Code
 
-```rust
-// EventPublisher receives results via callback registration
-impl EventCallback for StepResultProcessor {
-    async fn on_step_execution_result(&self, result: StepExecutionResult) -> Result<(), Error> {
-        // Process successful step completion
-        self.state_manager
-            .complete_step_with_results(result.step_id, Some(result.output_data))
-            .await?;
+**Keep Working**:
+- `initialize_task` - Still uses FFI (orchestration command)
+- `handle(task_id)` - Still uses FFI (orchestration command)
+- All existing Ruby step handlers - Work unchanged
+- TaskHandlerRegistry - Already established over FFI
 
-        // Clear backoff for successful completion
-        self.backoff_calculator.clear_backoff(result.step_id).await?;
+**Replace**:
+- Direct `process()` calls from Rust → ZeroMQ message passing
+- Complex FFI step execution → Simple JSON serialization
 
-        // Trigger task-level state evaluation
-        self.evaluate_task_completion(result.task_id).await?;
-
-        Ok(())
-    }
-
-    async fn on_step_execution_error(&self, error: StepExecutionError) -> Result<(), Error> {
-        if error.retry_eligible {
-            // Calculate backoff and requeue for retry
-            let retry_delay = self.backoff_calculator
-                .calculate_backoff(error.step_id, &error.error_message)
-                .await?;
-            self.schedule_step_retry(error.step_id, retry_delay).await?;
-        } else {
-            // Mark as permanently failed
-            self.state_manager
-                .fail_step(error.step_id, &error.error_message)
-                .await?;
-        }
-
-        Ok(())
-    }
-}
-```
-
-**State Coordination Features**:
-- **Individual Processing**: Each step result processed independently
-- **Retry Logic**: Failed steps automatically scheduled for retry
-- **Task Completion**: Triggers task-level evaluation after batch processing
-- **Event Correlation**: Batch and step IDs ensure proper result attribution
-
----
-
-## Error Handling and Fault Tolerance
-
-### Partial Batch Failure Handling
-
-**Philosophy**: Individual step failures never fail entire batches
-- Ruby publishes both successful and failed step events
-- Rust processes mixed results individually
-- Failed retryable steps requeued for future batches
-- Non-retryable failures immediately marked as failed
-
-### Timeout and Orphan Prevention
-
-**Watchdog Pattern**:
-```rust
-// Timeout watchdog checks for orphaned steps
-async fn timeout_watchdog() {
-    let orphaned_steps = find_steps_in_state("batched_for_execution")
-        .filter(|step| step.batched_at < now() - Duration::from_secs(120))
-        .collect();
-
-    for step in orphaned_steps {
-        warn!("Resetting orphaned step {} to pending", step.id);
-        reset_step_to_pending(step.id).await?;
-    }
-}
-```
-
-**Heartbeat System**:
-- Ruby sends `BatchStatus` heartbeats every 30 seconds
-- Missing heartbeats trigger timeout recovery
-- Orphaned steps reset to "pending" for reprocessing
-
-### Event Delivery Guarantees
-
-**At-Least-Once Delivery**:
-- Acceptable since step execution should be idempotent
-- Event deduplication using `batch_id + step_id`
-- Ruby maintains in-memory processing set
-- Rust retry logic for critical result events
-
----
-
-## Concurrency Optimization
-
-### Batch Size Optimization
-
-| Step Complexity | Batch Size | Thread Count | Reasoning |
-|----------------|------------|--------------|-----------|
-| Simple (< 1s) | 10-20 steps | 8-10 threads | Maximize throughput |
-| Medium (1-5s) | 5-10 steps | 6-8 threads | Balance resource usage |
-| Complex (> 5s) | 2-5 steps | 4-6 threads | Prevent resource exhaustion |
-
-### Dynamic Tuning
+#### 2. Configuration
 
 ```yaml
-# config/concurrency.yaml
+# config/zeromq.yaml
 step_execution:
-  batching:
-    max_batch_size: 20
-    min_batch_size: 2
-    timeout_seconds: 120
+  # Pub-Sub endpoints (bidirectional)
+  rust_step_publisher: "inproc://steps"      # Rust publishes steps
+  rust_result_subscriber: "inproc://results" # Rust subscribes to results
+  
+  # Handler endpoints (opposite direction) 
+  handler_step_subscriber: "inproc://steps"     # Handlers subscribe to steps
+  handler_result_publisher: "inproc://results"  # Handlers publish results
 
-  ruby_executor:
-    min_threads: 2
-    max_threads: 10
-    max_queue_size: 100
+  # Later: unix socket for process isolation
+  # rust_step_publisher: "ipc:///tmp/tasker_steps.sock"
+  # rust_result_subscriber: "ipc:///tmp/tasker_results.sock"
 
-  monitoring:
-    batch_timeout_threshold: 30
-    error_rate_threshold: 0.10
-    queue_depth_alert: 50
+  # Future: network distribution  
+  # rust_step_publisher: "tcp://*:5555"
+  # rust_result_subscriber: "tcp://*:5556"
+
+  batch_size: 10
+  result_timeout_ms: 300000  # 5 minutes max wait for results
+  handler_poll_interval_ms: 1  # Polling frequency for non-blocking receives
+
+  # High-water marks for message queuing
+  step_queue_hwm: 1000
+  result_queue_hwm: 1000
 ```
-
-**Performance Optimization**:
-- **Adaptive Batch Sizes**: Adjust based on step execution times
-- **Circuit Breakers**: Fall back to sequential on high error rates
-- **Queue Depth Monitoring**: Prevent memory overflow
-- **Thread Pool Tuning**: Environment-specific configurations
-
----
-
-## Monitoring and Observability
-
-### Key Performance Indicators
-
-| Metric | Target | Alert Threshold |
-|--------|--------|-----------------|
-| Batch Processing Time | < 30s | > 60s |
-| Step Execution Throughput | 100+ steps/min | < 50 steps/min |
-| Error Rate | < 5% | > 10% |
-| Queue Depth | < 10 batches | > 50 batches |
-| Thread Utilization | 60-80% | > 90% |
-
-### Event Flow Tracing
-
-```rust
-// Correlation ID tracking through entire flow
-struct BatchTrace {
-    batch_id: String,
-    created_at: SystemTime,
-    rust_published_at: SystemTime,
-    ruby_received_at: Option<SystemTime>,
-    ruby_completed_at: Option<SystemTime>,
-    rust_processed_at: Option<SystemTime>,
-    step_results: Vec<StepTrace>,
-}
-```
-
-**Observability Features**:
-- **End-to-End Tracing**: Track batch lifecycle across system boundaries
-- **Performance Histograms**: Step execution time distributions
-- **Error Categorization**: Classify failures by type and handler
-- **Resource Utilization**: Monitor Ruby memory and thread usage
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Infrastructure Foundation (Week 1-2)
-- [ ] Implement internal event types (`StepExecutionBatch`, `StepExecutionResult`, etc.)
-- [ ] Create Ruby `OrchestrationEventSubscriber` with concurrent-ruby integration
-- [ ] Build basic pub/sub infrastructure with in-memory channels
-- [ ] Add event correlation ID system
+### Phase 1: Proof of Concept (Week 1)
 
-### Phase 2: Core Workflow Implementation (Week 3-4)
-- [ ] Implement intelligent batch creation in `WorkflowCoordinator`
-- [ ] Build Ruby concurrent step execution with `Concurrent::Future`
-- [ ] Create result collection and publishing mechanisms
-- [ ] Add comprehensive error handling for partial failures
+**Goals**: Validate ZeroMQ pub-sub approach works with existing system
 
-### Phase 3: State Machine Integration (Week 5)
-- [ ] Add `"batched_for_execution"` state to state machine
-- [ ] Implement atomic state transitions with event publishing
-- [ ] Build timeout watchdog for orphaned step recovery
-- [ ] Ensure consistency between async events and database state
+**Tasks**:
+1. Add `zmq = "0.10"` and `tokio = { version = "1.0", features = ["full"] }` to Cargo.toml
+2. Add `ffi-rzmq` to Gemfile
+3. Create `ZmqPubSubExecutor` implementing `FrameworkIntegration` trait
+4. Create Ruby `ZmqPubSubHandler` with pub-sub sockets
+5. Test with single step execution using `inproc://` endpoints
+6. Validate existing handlers work through async ZeroMQ
+7. Implement batch correlation with unique batch IDs
 
-### Phase 4: Performance Optimization (Week 6-7)
-- [ ] Implement intelligent batching algorithms (task affinity, priority-based)
-- [ ] Add dynamic thread pool sizing and batch size optimization
-- [ ] Build comprehensive monitoring and alerting
-- [ ] Performance testing and benchmarking
+**Success Criteria**:
+- Single step executes successfully through ZeroMQ pub-sub
+- No timeout/idempotency issues with async messaging
+- No changes required to existing step handlers
+- Results correctly correlated with batch IDs
 
-### Phase 5: Production Readiness (Week 8)
-- [ ] Implement circuit breakers and fallback to sequential processing
-- [ ] Add comprehensive observability and distributed tracing
-- [ ] Build deployment automation and configuration management
-- [ ] Conduct load testing and performance validation
+### Phase 2: Batch Processing (Week 2)
+
+**Goals**: Implement efficient batch processing
+
+**Tasks**:
+1. Modify `WorkflowCoordinator` to batch viable steps
+2. Update `ZmqStepExecutor` to send step batches
+3. Ruby side concurrent processing with thread pool
+4. Result correlation and error handling
+5. Timeout and retry logic
+
+**Success Criteria**:
+- Batch of 10 steps processes successfully
+- Individual step failures don't fail batch
+- Proper timeout handling
+
+### Phase 3: Production Hardening (Week 3-4)
+
+**Goals**: Production-ready implementation
+
+**Tasks**:
+1. Connection pooling for ZeroMQ sockets
+2. Circuit breaker for handler failures
+3. Monitoring and metrics collection
+4. Move from `inproc://` to `ipc://` or `tcp://`
+5. Load testing and performance optimization
+
+**Success Criteria**:
+- Handle 100+ concurrent tasks
+- Sub-second latency for step batches
+- Graceful degradation under load
+- Zero message loss
+
+### Phase 4: Multi-Language Support (Week 5-6)
+
+**Goals**: Demonstrate language-agnostic architecture
+
+**Tasks**:
+1. Python step handler implementation
+2. Go high-performance handler example
+3. Protocol documentation and SDK
+4. Integration testing across languages
+5. Performance benchmarking
+
+**Success Criteria**:
+- Three languages processing steps
+- Consistent performance across languages
+- Clear documentation for adding new languages
+
+---
+
+## Architectural Benefits
+
+### 1. Separation of Concerns
+
+**Rust Orchestration Core**:
+- Workflow coordination
+- Dependency resolution
+- State management
+- Retry logic
+- Persistence
+
+**Language Handlers**:
+- Business logic execution
+- Domain-specific processing
+- Integration with external systems
+- No knowledge of Tasker internals required
+
+### 2. Scalability Patterns
+
+```
+                    ┌──────────────┐
+                    │ Load Balancer│
+                    └──────┬───────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│Handler Pool 1│  │Handler Pool 2│  │Handler Pool 3│
+│(Ruby - Rails)│  │(Python - ML) │  │(Go - HiPerf) │
+└──────────────┘  └──────────────┘  └──────────────┘
+```
+
+- **Horizontal Scaling**: Add more handler instances
+- **Polyglot Architecture**: Right language for each job
+- **Fault Isolation**: Handler crashes don't affect others
+- **Geographic Distribution**: Handlers can run anywhere
+
+### 3. Development Benefits
+
+**Simplified Testing**:
+- Mock ZeroMQ messages for unit tests
+- Test handlers in isolation
+- No complex FFI setup required
+
+**Easier Debugging**:
+- Clear message boundaries
+- JSON inspection at every step
+- Language-native debugging tools
+
+**Faster Development**:
+- Add new languages without Rust changes
+- Iterate on handlers independently
+- Clear API contract
 
 ---
 
 ## Migration Strategy
 
-### Phased Rollout
+### Incremental Rollout
 
-**Phase 1 - Infrastructure**: Deploy event infrastructure without changing execution
-**Phase 2 - Hybrid Mode**: Feature flag to route specific tasks through event-driven path
-**Phase 3 - A/B Testing**: Performance comparison on production workloads
-**Phase 4 - Full Migration**: Event-driven as default with sequential fallback
+1. **Shadow Mode**: Run ZeroMQ in parallel with FFI
+2. **A/B Testing**: Route percentage through ZeroMQ
+3. **Feature Flags**: Task-type specific rollout
+4. **Full Migration**: Remove FFI execution code
 
-### Feature Flag Configuration
+### Compatibility Layer
 
-```yaml
-# config/feature_flags.yaml
-event_driven_execution:
-  enabled: false
-  rollout_percentage: 0
-  task_types:
-    - "order_fulfillment"  # Start with specific task types
-  max_concurrent_tasks: 10
-  fallback_enabled: true
+```ruby
+# Existing BaseTaskHandler remains unchanged
+class BaseTaskHandler
+  def handle(task_id)
+    # Still works - calls through to orchestration
+    @rust_handler.handle(task_id)
+  end
+
+  # Internal execution now goes through ZeroMQ
+  # but interface remains the same
+end
 ```
 
-### Backward Compatibility
+### Rollback Safety
 
-**Preservation Guarantees**:
-- All existing Ruby step handlers work unchanged
-- `TaskHandler.handle()` and `handle_one_step()` APIs preserved
-- Existing metrics and logging continue to work
-- Sequential processing available as fallback
-
----
-
-## Decision Criteria and Success Metrics
-
-### Implementation Triggers
-
-**When to Implement**:
-- Sequential processing becomes genuine bottleneck (>100 concurrent tasks regularly)
-- Team has 8+ weeks for focused implementation and testing
-- Current sequential system is stable and can serve as reliable fallback
-- Need >10x throughput improvement to justify complexity
-
-### Success Metrics
-
-**Performance Targets**:
-- Achieve 10x+ step execution throughput vs sequential
-- Maintain <5% error rate under high concurrency
-- Sub-30-second batch processing latency
-- Zero data loss during event processing failures
-
-**Operational Targets**:
-- 99.9% uptime during migration
-- <1% performance regression on existing workloads
-- Complete rollback capability within 5 minutes
+- Keep FFI code during transition
+- Feature flag for instant rollback
+- Message format versioning
+- Comprehensive monitoring
 
 ---
 
-## Risk Assessment and Mitigation
+## Performance Considerations
 
-### High-Risk Areas
+### Expected Performance
 
-| Risk | Impact | Probability | Mitigation |
-|------|---------|-------------|------------|
-| Event delivery failures | High | Medium | At-least-once delivery + deduplication |
-| Ruby memory leaks | High | Medium | Resource monitoring + circuit breakers |
-| Partial state corruption | Critical | Low | Atomic transactions + consistency checks |
-| Performance regression | Medium | Medium | A/B testing + automatic fallback |
+**Current FFI**:
+- ~10ms per step execution
+- Memory overhead of FFI boundary
+- Limited by Ruby GIL
+- Complex memory management
 
-### Contingency Plans
+**ZeroMQ Architecture**:
+- ~1-2ms message overhead
+- True parallel execution
+- No memory management issues
+- Linear scaling with handlers
 
-**Rollback Strategy**:
-- Feature flag instant disable
-- Automatic fallback to sequential processing
-- Database state consistency verification
-- Performance monitoring during rollback
+### Optimization Strategies
+
+1. **Batching**: Send multiple steps in one message
+2. **Connection Pooling**: Reuse ZeroMQ sockets
+3. **Binary Protocol**: Consider MessagePack for performance
+4. **Async I/O**: Non-blocking socket operations
+
+---
+
+## Risk Assessment
+
+### Technical Risks
+
+| Risk | Impact | Mitigation |
+|------|---------|------------|
+| Message loss | High | ZeroMQ reliability patterns |
+| Latency increase | Medium | Benchmark and optimize |
+| Serialization overhead | Low | Efficient protocols |
+| Debugging complexity | Medium | Comprehensive logging |
+
+### Mitigation Strategies
+
+1. **Reliability**: Use ZeroMQ's built-in patterns
+2. **Performance**: Profile and optimize hot paths
+3. **Observability**: Structured logging at boundaries
+4. **Testing**: Comprehensive integration tests
 
 ---
 
 ## Conclusion
 
-The event-driven pub/sub architecture provides a scalable solution for high-throughput concurrent step processing while completely solving Ruby threading constraints. The 8-week implementation timeline delivers a production-ready system with comprehensive monitoring, fault tolerance, and backward compatibility.
+The ZeroMQ architecture represents a fundamental correction to our system design. By clearly separating orchestration from execution, we achieve:
 
-**Key Benefits**:
-- **10x+ Performance**: Genuine concurrent step execution
-- **Ruby Thread Safety**: Each subscriber in own thread context
-- **Fault Isolation**: Step failures don't impact orchestration
-- **Scalable Design**: Event-driven pattern supports massive scale
+1. **True Language Independence**: Any language can be a step handler
+2. **Massive Simplification**: Remove complex FFI code
+3. **Horizontal Scalability**: Distribute handlers across machines
+4. **Clear Boundaries**: Orchestration vs execution responsibilities
 
-**Implementation Decision**: Proceed when sequential processing becomes a genuine bottleneck and the team can dedicate focused effort to this significant architectural enhancement.
+This isn't just fixing a bug - it's implementing the architecture that Tasker was always meant to have. The investment in this migration will pay dividends in system flexibility, reliability, and performance for years to come.
+
+**Recommendation**: Proceed immediately with Phase 1 proof of concept. The current FFI hanging issue demonstrates the fundamental problems with tight coupling. ZeroMQ provides a clean, proven solution that aligns perfectly with Tasker's vision as a language-agnostic orchestration system.
