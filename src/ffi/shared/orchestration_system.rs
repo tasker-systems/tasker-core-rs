@@ -6,6 +6,7 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
+use crate::execution::{BatchPublisher, BatchPublisherConfig};
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::step_executor::StepExecutor;
@@ -17,6 +18,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
+use zmq::Context;
 
 /// Global orchestration system singleton
 static GLOBAL_ORCHESTRATION_SYSTEM: OnceLock<Arc<OrchestrationSystem>> = OnceLock::new();
@@ -31,6 +33,8 @@ pub struct OrchestrationSystem {
     pub task_handler_registry: TaskHandlerRegistry,
     pub step_executor: StepExecutor,
     pub config_manager: Arc<ConfigurationManager>,
+    pub batch_publisher: Option<Arc<BatchPublisher>>,
+    pub zmq_context: Arc<Context>,
 }
 
 /// Check if we're running in a test environment
@@ -234,7 +238,35 @@ async fn create_unified_orchestration_system(
     // The task_initializer already has shared_registry via Arc, so we extract the same instance
     let registry_for_system = (*shared_registry).clone();
 
-    // Create orchestration system with owned pool (NO testing components!)
+    // 6. Initialize ZeroMQ components if enabled
+    let zmq_context = Arc::new(Context::new());
+    let batch_publisher = if config_manager.system_config().zeromq.enabled {
+        info!("🚀 ZeroMQ: Initializing BatchPublisher with configuration");
+        
+        let zeromq_config = &config_manager.system_config().zeromq;
+        let batch_config = BatchPublisherConfig {
+            batch_endpoint: zeromq_config.batch_endpoint.clone(),
+            result_endpoint: zeromq_config.result_endpoint.clone(),
+            send_hwm: zeromq_config.send_hwm,
+            recv_hwm: zeromq_config.recv_hwm,
+        };
+        
+        match BatchPublisher::new(zmq_context.clone(), batch_config) {
+            Ok(publisher) => {
+                info!("✅ ZeroMQ: BatchPublisher initialized successfully");
+                Some(Arc::new(publisher))
+            }
+            Err(e) => {
+                warn!("⚠️  ZeroMQ: Failed to initialize BatchPublisher: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("ℹ️  ZeroMQ: BatchPublisher disabled in configuration");
+        None
+    };
+
+    // Create orchestration system with owned pool and ZeroMQ components
     let orchestration_system = OrchestrationSystem {
         database_pool,
         event_publisher,
@@ -244,6 +276,8 @@ async fn create_unified_orchestration_system(
         task_handler_registry: registry_for_system,
         step_executor,
         config_manager,
+        batch_publisher,
+        zmq_context,
     };
 
     info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
@@ -255,6 +289,21 @@ impl OrchestrationSystem {
     /// This is the new unified way to access the pool instead of global pool functions
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool
+    }
+
+    /// Access the ZeroMQ batch publisher for Ruby communication
+    pub fn batch_publisher(&self) -> Option<&Arc<BatchPublisher>> {
+        self.batch_publisher.as_ref()
+    }
+
+    /// Access the shared ZeroMQ context
+    pub fn zmq_context(&self) -> &Arc<Context> {
+        &self.zmq_context
+    }
+
+    /// Check if ZeroMQ batch processing is enabled and available
+    pub fn is_zeromq_enabled(&self) -> bool {
+        self.batch_publisher.is_some()
     }
 }
 

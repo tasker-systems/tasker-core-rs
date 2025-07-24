@@ -63,6 +63,9 @@ Gem::Specification.new do |spec|
   
   # ZeroMQ support for message passing architecture
   spec.add_dependency 'ffi-rzmq', '~> 2.0'
+  
+  # Concurrent execution support for BatchStepExecutionOrchestrator
+  spec.add_dependency 'concurrent-ruby', '~> 1.2'
 
   # Ensure we have a Rust toolchain for compilation
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'

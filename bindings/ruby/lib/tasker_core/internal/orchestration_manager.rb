@@ -355,6 +355,95 @@ module TaskerCore
       TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
     end
 
+    # 🎯 ZEROMQ BATCH PROCESSING: Cross-language orchestration integration
+    
+    # Get or create BatchStepExecutionOrchestrator with shared ZMQ context
+    def batch_step_orchestrator
+      @batch_step_orchestrator ||= begin
+        handle = orchestration_handle
+        return nil unless handle
+        
+        # Check if ZeroMQ is enabled in Rust configuration
+        return nil unless handle.is_zeromq_enabled
+        
+        # Get ZeroMQ configuration from Rust system
+        zmq_config = handle.zeromq_config
+        
+        logger.info "🚀 Creating BatchStepExecutionOrchestrator with ZeroMQ config from Rust"
+        
+        # Create orchestrator with TCP endpoints from Rust configuration
+        TaskerCore::Orchestration::BatchStepExecutionOrchestrator.new(
+          step_sub_endpoint: zmq_config['batch_endpoint'],
+          result_pub_endpoint: zmq_config['result_endpoint'],
+          max_workers: 10, # Could be configurable
+          handler_registry: self,
+          zmq_context: nil # TCP endpoints don't require shared context
+        )
+      rescue StandardError => e
+        logger.error "Failed to create BatchStepExecutionOrchestrator: #{e.message}"
+        nil
+      end
+    end
+    
+    # Get ZMQ context for Ruby orchestration
+    # Using TCP endpoints, we don't need to share the exact same context as Rust
+    def get_shared_zmq_context
+      handle = orchestration_handle
+      return nil unless handle
+      
+      # For TCP communication, each side can have its own ZMQ context
+      logger.debug "🔗 Creating Ruby ZMQ context for TCP communication with Rust"
+      
+      require 'ffi-rzmq'
+      ZMQ::Context.new
+    rescue StandardError => e
+      logger.error "Failed to create ZMQ context: #{e.message}"
+      nil
+    end
+    
+    # Start ZeroMQ batch processing integration
+    def start_zeromq_integration
+      orchestrator = batch_step_orchestrator
+      return false unless orchestrator
+      
+      logger.info "🎯 Starting ZeroMQ batch processing integration"
+      orchestrator.start
+      true
+    rescue StandardError => e
+      logger.error "Failed to start ZeroMQ integration: #{e.message}"
+      false
+    end
+    
+    # Stop ZeroMQ batch processing integration
+    def stop_zeromq_integration
+      return unless @batch_step_orchestrator
+      
+      logger.info "🛑 Stopping ZeroMQ batch processing integration"
+      @batch_step_orchestrator.stop
+      @batch_step_orchestrator = nil
+    rescue StandardError => e
+      logger.error "Failed to stop ZeroMQ integration: #{e.message}"
+    end
+    
+    # Check if ZeroMQ integration is available and running
+    def zeromq_integration_status
+      handle = orchestration_handle
+      return { enabled: false, reason: 'no_handle' } unless handle
+      
+      return { enabled: false, reason: 'zeromq_disabled' } unless handle.is_zeromq_enabled
+      
+      orchestrator_running = @batch_step_orchestrator&.stats&.dig(:running) || false
+      
+      {
+        enabled: true,
+        orchestrator_running: orchestrator_running,
+        zeromq_config: handle.zeromq_config,
+        orchestrator_stats: @batch_step_orchestrator&.stats
+      }
+    rescue StandardError => e
+      { enabled: false, error: e.message }
+    end
+
     # ========================================================================
     # RUBY TASK HANDLER REGISTRY (Ruby-Centric Architecture)
     # ========================================================================

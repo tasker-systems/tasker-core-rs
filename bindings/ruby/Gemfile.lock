@@ -2,6 +2,7 @@ PATH
   remote: .
   specs:
     tasker-core-rb (0.1.0)
+      concurrent-ruby (~> 1.2)
       dry-events (~> 1.1)
       dry-struct (~> 1.8)
       dry-types (~> 1.8)

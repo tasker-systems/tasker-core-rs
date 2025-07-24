@@ -52,6 +52,7 @@ require_relative 'tasker_core/testing'           # TaskerCore::Testing domain (N
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain (NEW)
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 require_relative 'tasker_core/execution'         # TaskerCore::Execution domain (ZeroMQ step execution)
+require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain (Concurrent batch execution)
 
 # Legacy compatibility - these will be deprecated in favor of domain APIs
 require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)

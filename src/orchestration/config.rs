@@ -116,6 +116,7 @@ pub struct TaskerConfig {
     pub reenqueue: ReenqueueDelays,
     pub events: EventConfig,
     pub cache: CacheConfig,
+    pub zeromq: ZeroMqConfig,
 }
 
 /// Authentication configuration
@@ -392,6 +393,33 @@ impl Default for CacheConfig {
             enabled: true,
             ttl_seconds: 3600,
             max_size: 10000,
+        }
+    }
+}
+
+/// ZeroMQ configuration for batch processing communication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZeroMqConfig {
+    /// Endpoint for publishing batches to Ruby orchestrator (e.g., "inproc://batches")
+    pub batch_endpoint: String,
+    /// Endpoint for receiving results from Ruby orchestrator (e.g., "inproc://results")
+    pub result_endpoint: String,
+    /// High water mark for publishing socket
+    pub send_hwm: i32,
+    /// High water mark for receiving socket
+    pub recv_hwm: i32,
+    /// Whether ZeroMQ batch processing is enabled
+    pub enabled: bool,
+}
+
+impl Default for ZeroMqConfig {
+    fn default() -> Self {
+        Self {
+            batch_endpoint: "tcp://127.0.0.1:5555".to_string(),
+            result_endpoint: "tcp://127.0.0.1:5556".to_string(),
+            send_hwm: 1000,
+            recv_hwm: 1000,
+            enabled: true,
         }
     }
 }
