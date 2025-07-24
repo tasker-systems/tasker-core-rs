@@ -657,6 +657,38 @@ impl StateManager {
         Ok(())
     }
 
+    /// Mark step as in progress - transitions state machine and sets in_process column
+    pub async fn mark_step_in_progress(&self, step_id: i64) -> OrchestrationResult<()> {
+        // 1. Transition state machine to InProgress
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        
+        let event = StepEvent::Start;
+        
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        // 2. Also update the in_process column to true in the database
+        // This provides a direct database flag for queries that need to check processing status
+        sqlx::query!(
+            "UPDATE tasker_workflow_steps SET in_process = true WHERE workflow_step_id = $1",
+            step_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| OrchestrationError::DatabaseError {
+            operation: "mark_step_in_progress".to_string(),
+            reason: format!("Failed to update in_process column for step {}: {}", step_id, e),
+        })?;
+
+        debug!(step_id = step_id, "Marked step as in progress");
+        Ok(())
+    }
+
     /// Process task transition request
     async fn process_task_transition_request(
         &self,

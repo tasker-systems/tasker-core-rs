@@ -705,6 +705,7 @@ impl WorkflowCoordinator {
                 StepStatus::Failed => metrics.steps_failed += 1,
                 StepStatus::Retrying => metrics.steps_retried += 1,
                 StepStatus::Skipped => {} // Don't count skipped
+                StepStatus::InProgress => {} // Steps published but not yet completed (fire-and-forget)
             }
         }
         Ok(())

@@ -71,6 +71,8 @@ pub enum StepStatus {
     Retrying,
     /// Step was skipped
     Skipped,
+    /// Step is in progress (published but not yet completed)
+    InProgress,
 }
 
 /// A step that is ready for execution
@@ -227,6 +229,33 @@ pub trait FrameworkIntegration: Send + Sync {
         task_id: i64,
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
+
+    /// Execute multiple steps as a batch (optional optimization)
+    /// 
+    /// Default implementation falls back to sequential execution of individual steps.
+    /// Frameworks that support true batching (like ZeroMQ) can override this for 
+    /// better performance.
+    async fn execute_step_batch(
+        &self,
+        contexts: Vec<(&StepExecutionContext, &str, &HashMap<String, serde_json::Value>)>,
+    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError> {
+        let mut results = Vec::new();
+        
+        for (context, handler_class, handler_config) in contexts {
+            let result = self.execute_step_with_handler(context, handler_class, handler_config).await?;
+            results.push(result);
+        }
+        
+        Ok(results)
+    }
+
+    /// Check if this framework supports native batch execution
+    /// 
+    /// Returns true if the framework implements optimized batch processing.
+    /// Used by orchestration layer to decide whether to use batch methods.
+    fn supports_batch_execution(&self) -> bool {
+        false // Default: most frameworks don't support batching
+    }
 }
 
 /// Task handler trait for registry

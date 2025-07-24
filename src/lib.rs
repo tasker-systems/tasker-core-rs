@@ -82,6 +82,7 @@ pub mod constants;
 pub mod database;
 pub mod error;
 pub mod events;
+pub mod execution;
 pub mod ffi;
 pub mod logging;
 pub mod models;
@@ -102,6 +103,9 @@ pub use database::{
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
+pub use execution::{
+    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, ZmqPubSubExecutor,
+};
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
     TelemetryConfig,

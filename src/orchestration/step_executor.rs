@@ -589,6 +589,17 @@ impl StepExecutor {
                         "Failed to mark step as failed"
                     );
                 }
+            },
+            StepStatus::InProgress => {
+                // Step has been submitted for execution (fire-and-forget)
+                // Mark step as in progress - actual completion will come from result listener
+                if let Err(e) = self.state_manager.mark_step_in_progress(step_id).await {
+                    warn!(
+                        step_id = step_id,
+                        error = %e,
+                        "Failed to mark step as in progress"
+                    );
+                }
             }
         }
 
