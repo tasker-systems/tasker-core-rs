@@ -1,11 +1,8 @@
 # frozen_string_literal: true
 
-require 'ffi-rzmq'
 require 'json'
 require 'logger'
 require 'concurrent-ruby'
-require 'dry-struct'
-require 'dry-types'
 require 'timeout'
 
 module TaskerCore
@@ -42,60 +39,23 @@ module TaskerCore
         TaskerCore::Logging::Logger.instance
       end
 
-      # Type-safe data structures using dry-struct for validation
-      module Types
-        include Dry.Types()
-      end
-      
-      # Represents a task with its context and metadata
-      class TaskStruct < Dry::Struct
-        attribute :task_id, Types::Integer
-        attribute :context, Types::Hash
-        attribute :metadata, Types::Hash.optional.default({})
-      end
+      # Note: Type structures have been moved to TaskerCore::Types::OrchestrationTypes
+      # for better organization and maintainability
 
-      # Represents step sequence information for coordination
-      class SequenceStruct < Dry::Struct  
-        attribute :sequence_number, Types::Integer
-        attribute :total_steps, Types::Integer
-        attribute :previous_results, Types::Hash
-      end
-
-      # Represents an individual step to be executed
-      class StepStruct < Dry::Struct
-        attribute :step_id, Types::Integer
-        attribute :step_name, Types::String
-        attribute :handler_config, Types::Hash.default({})
-        attribute :timeout_ms, Types::Integer.optional
-        attribute :retry_limit, Types::Integer.optional
-      end
-
-      # @param step_sub_endpoint [String] ZeroMQ endpoint for receiving step batches from Rust
-      # @param result_pub_endpoint [String] ZeroMQ endpoint for publishing results back to Rust
-      # @param max_workers [Integer] Maximum number of concurrent workers
+      # @param config [TaskerCore::Config::ZeroMQConfig] Configuration object
       # @param handler_registry [Object] Registry for resolving step handlers/callables
-      # @param zmq_context [ZMQ::Context] Optional shared ZMQ context (TCP doesn't require sharing)
-      def initialize(
-        step_sub_endpoint: 'tcp://127.0.0.1:5555',
-        result_pub_endpoint: 'tcp://127.0.0.1:5556', 
-        max_workers: 10,
-        handler_registry: nil,
-        zmq_context: nil
-      )
-        @step_sub_endpoint = step_sub_endpoint
-        @result_pub_endpoint = result_pub_endpoint
-        @max_workers = max_workers
+      # @param zmq_orchestrator [ZeromqOrchestrator] Optional pre-configured ZMQ orchestrator
+      def initialize(config: nil, handler_registry: nil, zmq_orchestrator: nil)
+        @config = config || TaskerCore::Config.instance.zeromq
         
-        # Initialize ZeroMQ context and sockets
-        @context = zmq_context
-        @step_socket = nil
-        @result_socket = nil
+        # Compose ZeroMQ orchestrator for socket management
+        @zmq_orchestrator = zmq_orchestrator || ZeromqOrchestrator.new(config: @config)
         
         # Concurrent worker pool for true parallelism
         @worker_pool = Concurrent::ThreadPoolExecutor.new(
-          min_threads: [2, max_workers / 2].min,
-          max_threads: max_workers,
-          max_queue: max_workers * 2,
+          min_threads: [2, @config.max_workers / 2].min,
+          max_threads: @config.max_workers,
+          max_queue: @config.max_workers * 2,
           fallback_policy: :caller_runs,
           name: 'batch-step-executor'
         )
@@ -109,7 +69,7 @@ module TaskerCore
         @batch_futures = Concurrent::Map.new
         @worker_counter = Concurrent::AtomicFixnum.new(0)
         
-        logger.info "BatchStepExecutionOrchestrator initialized with #{@max_workers} max workers"
+        logger.info "BatchStepExecutionOrchestrator initialized with #{@config.max_workers} max workers"
       end
 
       # Start the orchestrator - begins listening for batch messages
@@ -117,11 +77,15 @@ module TaskerCore
       def start
         return if @running
         
-        logger.info "Starting BatchStepExecutionOrchestrator with #{@max_workers} workers"
+        logger.info "Starting BatchStepExecutionOrchestrator with #{@config.max_workers} workers"
         
-        setup_zeromq_sockets
+        @zmq_orchestrator.start
         @running = true
-        @listener_thread = Thread.new { run_batch_listener }
+        
+        # Run batch listener with our message handler
+        @zmq_orchestrator.run_listener do |batch_request|
+          process_batch_with_workers(batch_request)
+        end
         
         logger.info "BatchStepExecutionOrchestrator started successfully"
       end
@@ -135,8 +99,7 @@ module TaskerCore
         logger.info "Stopping BatchStepExecutionOrchestrator"
         @running = false
         
-        # Wait for listener thread to finish
-        @listener_thread&.join(timeout)
+        # Note: ZeroMQ orchestrator handles its own listener thread
         
         # Shutdown worker pool gracefully
         @worker_pool.shutdown
@@ -151,7 +114,8 @@ module TaskerCore
         end
         @batch_futures.clear
         
-        cleanup_zeromq
+        # Stop ZeroMQ orchestrator
+        @zmq_orchestrator.stop(timeout: timeout)
         logger.info "BatchStepExecutionOrchestrator stopped"
       end
 
@@ -160,73 +124,19 @@ module TaskerCore
       def stats
         {
           running: @running,
-          max_workers: @max_workers,
+          max_workers: @config.max_workers,
           active_threads: @worker_pool.length,
           queue_length: @worker_pool.queue_length,
           completed_task_count: @worker_pool.completed_task_count,
           active_batches: @batch_futures.size,
-          worker_counter: @worker_counter.value
+          worker_counter: @worker_counter.value,
+          zeromq: @zmq_orchestrator.stats
         }
       end
 
       private
 
-      # Set up ZeroMQ sockets for dual result pattern communication
-      def setup_zeromq_sockets
-        @context ||= ZMQ::Context.new
-        
-        # Subscribe to step batches from Rust orchestration layer
-        @step_socket = @context.socket(ZMQ::SUB)
-        @step_socket.connect(@step_sub_endpoint)
-        @step_socket.setsockopt(ZMQ::SUBSCRIBE, 'steps')
-        
-        # Publish partial results and batch completions back to Rust
-        @result_socket = @context.socket(ZMQ::PUB)  
-        @result_socket.bind(@result_pub_endpoint)
-        
-        # Allow sockets to establish connections
-        sleep(0.1)
-        
-        logger.debug "ZeroMQ sockets configured: sub=#{@step_sub_endpoint}, pub=#{@result_pub_endpoint}"
-      end
-
-      # Main batch listening loop - runs in background thread
-      def run_batch_listener
-        logger.info "Batch listener started on #{@step_sub_endpoint}"
-        
-        while @running
-          begin
-            message = receive_batch_message
-            
-            if message
-              logger.info "Received ZeroMQ message: #{message[0..100]}..."
-            end
-            
-            next unless message
-
-            batch_request = parse_batch_message(message)
-            
-            if batch_request
-              logger.info "Parsed batch request: batch_id=#{batch_request[:batch_id]}"
-            else
-              logger.warn "Failed to parse batch message"
-            end
-            
-            next unless batch_request
-
-            process_batch_with_workers(batch_request)
-            
-          rescue => e
-            logger.error "Batch listener error: #{e.message}"
-            publish_batch_error(batch_request&.dig(:batch_id), e) if batch_request
-          end
-          
-          # Prevent busy-waiting while allowing responsive shutdown
-          sleep(0.001)
-        end
-        
-        logger.debug "Batch listener stopped"
-      end
+      # Note: ZeroMQ socket setup and batch listening are now handled by ZeromqOrchestrator
 
       # 🚀 Core Innovation: Concurrent Worker Orchestration
       # Creates concurrent futures for each step in the batch
@@ -259,29 +169,10 @@ module TaskerCore
           begin
             logger.debug "#{worker_id} starting step #{step_data[:step_id]} in batch #{batch_id}"
             
-            # Build type-safe data structures
-            task = TaskStruct.new(
-              task_id: step_data[:task_id],
-              context: step_data[:task_context] || {},
-              metadata: step_data.dig(:metadata) || {}
-            )
+            # Create validated structs using factory methods
+            task, sequence, step = create_execution_structs(step_data)
             
-            sequence = SequenceStruct.new(
-              sequence_number: step_data.dig(:metadata, :sequence) || 1,
-              total_steps: step_data.dig(:metadata, :total_steps) || 1,
-              previous_results: step_data[:previous_results] || {}
-            )
-            
-            step = StepStruct.new(
-              step_id: step_data[:step_id],
-              step_name: step_data[:step_name], 
-              handler_config: step_data[:handler_config] || {},
-              timeout_ms: step_data.dig(:metadata, :timeout_ms),
-              retry_limit: step_data.dig(:metadata, :retry_limit)
-            )
-            
-            # 🎯 BREAKING CHANGE: Flexible Callable Interface
-            # Resolve callable object (Proc, Lambda, class, etc.)
+            # Resolve callable object
             callable = resolve_step_callable(step_data)
             
             # Execute step with timeout management
@@ -289,8 +180,11 @@ module TaskerCore
             result = execute_step_with_timeout(callable, task, sequence, step)
             execution_time = ((Time.now - start_time) * 1000).to_i
             
-            # Self-report partial result via ZeroMQ dual pattern
-            publish_partial_result(batch_id, step_data[:step_id], 'completed', result, execution_time, worker_id)
+            # Self-report partial result via ZeroMQ
+            @zmq_orchestrator.publish_partial_result(
+              batch_id, step_data[:step_id], 'completed', 
+              result, execution_time, worker_id
+            )
             
             logger.debug "#{worker_id} completed step #{step_data[:step_id]} in #{execution_time}ms"
             
@@ -304,14 +198,24 @@ module TaskerCore
             
           rescue Timeout::Error => e
             logger.warn "#{worker_id} step #{step_data[:step_id]} timed out in batch #{batch_id}"
-            publish_partial_result(batch_id, step_data[:step_id], 'failed', nil, nil, worker_id, e)
+            @zmq_orchestrator.publish_partial_result(
+              batch_id, step_data[:step_id], 'failed', 
+              nil, nil, worker_id, e
+            )
             { step_id: step_data[:step_id], status: 'failed', error: e, worker_id: worker_id }
             
-          rescue => e
+          rescue StandardError => e
             logger.error "#{worker_id} step #{step_data[:step_id]} failed in batch #{batch_id}: #{e.message}"
-            retryable = determine_retryability(e, step_data[:handler_config])
-            publish_partial_result(batch_id, step_data[:step_id], 'failed', nil, nil, worker_id, e, retryable)
-            { step_id: step_data[:step_id], status: 'failed', error: e, retryable: retryable, worker_id: worker_id }
+            
+            # Send execution metadata for Rust to determine retryability
+            execution_metadata = build_execution_metadata(e, step_data)
+            
+            @zmq_orchestrator.publish_partial_result(
+              batch_id, step_data[:step_id], 'failed', 
+              nil, nil, worker_id, e, execution_metadata[:retryable]
+            )
+            
+            { step_id: step_data[:step_id], status: 'failed', error: e, metadata: execution_metadata, worker_id: worker_id }
           end
         end
       end
@@ -336,10 +240,7 @@ module TaskerCore
         # Check if instance has .call method
         return handler_instance if handler_instance.respond_to?(:call)
         
-        # Legacy fallback: Wrap existing .process method in callable
-        if handler_instance.respond_to?(:process)
-          return ->(task, sequence, step) { handler_instance.process(task, sequence, step) }
-        end
+        # No legacy support - handlers must implement .call
         
         raise "No callable found for handler class: #{handler_class}"
       end
@@ -352,38 +253,97 @@ module TaskerCore
           # Fallback: basic class resolution
           handler_class.constantize.new
         end
-      rescue => e
+      rescue StandardError => e
         raise "Could not resolve handler instance for #{handler_class}: #{e.message}"
       end
 
       # Execute step callable with timeout protection
       def execute_step_with_timeout(callable, task, sequence, step)
-        timeout_seconds = (step.timeout_ms || 30_000) / 1000.0
+        timeout_seconds = step.timeout_seconds
         
         Timeout.timeout(timeout_seconds) do
           callable.call(task, sequence, step)
         end
       end
 
-      # 🚀 Dual Result Pattern: Partial Results via ZeroMQ
-      # Self-reporting mechanism for workers to publish step completion
-      def publish_partial_result(batch_id, step_id, status, result, execution_time, worker_id, error = nil, retryable = true)
-        partial_result = {
-          message_type: 'partial_result',
-          batch_id: batch_id,
-          step_id: step_id,
-          status: status,
-          output: result,
-          execution_time_ms: execution_time,
-          worker_id: worker_id,
-          sequence: 1, # Could be enhanced for multi-sequence steps
-          timestamp: Time.now.utc.iso8601,
-          error: error ? serialize_error(error) : nil,
-          retryable: retryable
-        }
+      # Create validated execution structs from step data
+      # @param step_data [Hash] Raw step data from batch message
+      # @return [Array<TaskStruct, SequenceStruct, StepStruct>] Validated structs
+      def create_execution_structs(step_data)
+        task = Types::StructFactory.create_task(step_data)
+        sequence = Types::StructFactory.create_sequence(step_data)
+        step = Types::StructFactory.create_step(step_data)
         
-        publish_to_results_socket('partial_result', partial_result)
-        logger.debug "Published partial result for step #{step_id} in batch #{batch_id}"
+        [task, sequence, step]
+      rescue ArgumentError => e
+        # If required data is missing, we should fail the step
+        raise PermanentError.new(
+          "Invalid step data: #{e.message}",
+          error_code: 'INVALID_STEP_DATA',
+          error_category: 'validation'
+        )
+      end
+
+      # Build execution metadata for Rust to make retryability decisions
+      # @param error [Exception] The error that occurred
+      # @param step_data [Hash] Step configuration data
+      # @return [Hash] Metadata for Rust TaskFinalizer
+      def build_execution_metadata(error, step_data)
+        {
+          error_type: error.class.name,
+          error_message: error.message,
+          error_category: categorize_error(error),
+          handler_config: step_data[:handler_config] || {},
+          execution_context: {
+            step_name: step_data[:step_name],
+            handler_class: step_data[:handler_class],
+            timeout_ms: step_data.dig(:metadata, :timeout_ms)
+          },
+          retryable: is_error_retryable?(error) # Initial hint, Rust makes final decision
+        }
+      end
+
+      # Categorize error for Rust TaskFinalizer
+      # @param error [Exception] Error to categorize
+      # @return [String] Error category
+      def categorize_error(error)
+        case error
+        when Timeout::Error, Net::TimeoutError
+          'timeout'
+        when PermanentError
+          error.error_category || 'permanent'
+        when RetryableError
+          error.error_category || 'retryable'
+        when ValidationError
+          'validation'
+        when StandardError
+          if error.message.match?(/network|connection|unavailable|service/i)
+            'infrastructure'
+          else
+            'business_logic'
+          end
+        else
+          'unknown'
+        end
+      end
+
+      # Initial retryability hint (Rust makes final decision)
+      # @param error [Exception] Error to check
+      # @return [Boolean] Whether error might be retryable
+      def is_error_retryable?(error)
+        case error
+        when PermanentError
+          false
+        when RetryableError
+          true
+        when Timeout::Error, Net::TimeoutError
+          true
+        when StandardError
+          # Infrastructure errors are typically retryable
+          error.message.match?(/network|connection|timeout|unavailable|service/i)
+        else
+          false
+        end
       end
 
       # 🎯 Future Joining: Batch Completion Coordination
@@ -395,136 +355,24 @@ module TaskerCore
           # Wait for all step futures to complete (with error handling)
           step_results = step_futures.map do |future|
             future.value! # This will raise if the future failed
-          rescue => e
+          rescue StandardError => e
             logger.warn "Step future failed: #{e.message}"
             { step_id: 0, status: 'failed', error: e, worker_id: 'unknown' }
           end
           
-          # Aggregate results for batch completion message
-          completed_steps = step_results.count { |r| r[:status] == 'completed' }
-          failed_steps = step_results.count { |r| r[:status] == 'failed' }
-          total_execution_time = step_results.sum { |r| r[:execution_time] || 0 }
+          # Publish batch completion via ZeroMQ orchestrator
+          @zmq_orchestrator.publish_batch_completion(batch_id, step_results)
           
-          # Create step summaries for Rust reconciliation
-          step_summaries = step_results.map do |result|
-            {
-              step_id: result[:step_id],
-              final_status: result[:status],
-              execution_time_ms: result[:execution_time],
-              worker_id: result[:worker_id] || "unknown"
-            }
-          end
-          
-          # 🎯 Batch Completion Message via ZeroMQ Dual Pattern
-          batch_completion = {
-            message_type: 'batch_completion',
-            batch_id: batch_id,
-            protocol_version: '2.0',
-            total_steps: step_futures.size,
-            completed_steps: completed_steps,
-            failed_steps: failed_steps,
-            in_progress_steps: 0,
-            step_summaries: step_summaries,
-            completed_at: Time.now.utc.iso8601,
-            total_execution_time_ms: total_execution_time
-          }
-          
-          publish_to_results_socket('batch_completion', batch_completion)
-          
-          logger.info "Batch #{batch_id} completed: #{completed_steps} succeeded, #{failed_steps} failed"
-          
-        rescue => e
+        rescue StandardError => e
           logger.error "Error coordinating batch #{batch_id} completion: #{e.message}"
-          publish_batch_error(batch_id, e)
+          @zmq_orchestrator.publish_batch_error(batch_id, e)
         ensure
           # Clean up futures tracking
           @batch_futures.delete(batch_id)
         end
       end
 
-      # Publish message to results socket with proper formatting
-      def publish_to_results_socket(topic, message)
-        full_message = "#{topic} #{message.to_json}"
-        
-        if @result_socket
-          @result_socket.send_string(full_message)
-        else
-          logger.error "Cannot publish #{topic}: result socket not available"
-        end
-      end
-
-      # Determine if an error should trigger a retry
-      def determine_retryability(error, handler_config)
-        # Check handler-specific configuration first
-        return handler_config[:retryable] if handler_config.key?(:retryable)
-        return handler_config['retryable'] if handler_config.key?('retryable')
-        
-        # Smart retryability based on error type
-        case error
-        when Timeout::Error, Net::TimeoutError
-          true
-        when StandardError
-          # Network/infrastructure errors are typically retryable
-          # Business logic errors are typically not retryable
-          error.message.match?(/network|connection|timeout|unavailable|service/i)
-        else
-          false
-        end
-      end
-
-      # Serialize error for JSON transmission
-      def serialize_error(error)
-        {
-          message: error.message,
-          type: error.class.name,
-          backtrace: error.backtrace&.first(5) || []
-        }
-      end
-
-      # Receive batch message from ZeroMQ (non-blocking)
-      def receive_batch_message
-        return nil unless @step_socket
-        
-        message = String.new
-        rc = @step_socket.recv_string(message, ZMQ::DONTWAIT)
-        rc == 0 ? message : nil
-      end
-
-      # Parse received batch message
-      def parse_batch_message(message)
-        topic, json_data = message.split(' ', 2)
-        return nil unless topic == 'steps'
-        
-        JSON.parse(json_data, symbolize_names: true)
-      rescue JSON::ParserError => e
-        logger.error "Failed to parse batch message: #{e.message}"
-        nil
-      end
-
-      # Publish error message for batch processing failure
-      def publish_batch_error(batch_id, error)
-        error_message = {
-          message_type: 'batch_error',
-          batch_id: batch_id,
-          error: serialize_error(error),
-          timestamp: Time.now.utc.iso8601
-        }
-        
-        publish_to_results_socket('batch_error', error_message)
-      end
-
-      # Clean up ZeroMQ resources
-      def cleanup_zeromq
-        @step_socket&.close
-        @result_socket&.close
-        @context&.terminate
-        
-        @step_socket = nil
-        @result_socket = nil
-        @context = nil
-        
-        logger.debug "ZeroMQ resources cleaned up"
-      end
+      # Note: ZeroMQ message handling methods have been moved to ZeromqOrchestrator
     end
   end
 end

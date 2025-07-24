@@ -3,7 +3,12 @@
 # TaskerCore execution namespace for step execution implementations
 module TaskerCore
   module Execution
-    # ZeroMQ-based step execution for language-agnostic orchestration
-    autoload :ZeroMQHandler, 'tasker_core/execution/zeromq_handler'
+    # LEGACY: ZeroMQHandler has been replaced by BatchStepExecutionOrchestrator
+    # 
+    # For modern ZeroMQ-based step execution, use:
+    # - TaskerCore::Orchestration::BatchStepExecutionOrchestrator (concurrent worker pools)
+    # - TaskerCore::Orchestration::ZeromqOrchestrator (socket management)
+    # - TaskerCore::Config (YAML-based configuration)
+    # - TaskerCore::Types (organized type system with validation)
   end
 end

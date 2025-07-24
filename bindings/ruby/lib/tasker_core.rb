@@ -36,6 +36,7 @@ end
 
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
 require_relative 'tasker_core/logging/logger'            # Logging system
+require_relative 'tasker_core/config'                    # Configuration management system
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/internal/orchestration_manager'     # Singleton orchestration manager
@@ -72,6 +73,7 @@ module TaskerCore
   class ValidationError < Error; end
   class TimeoutError < Error; end
   class FFIError < Error; end
+  class ConfigurationError < Error; end
 
   # Step handler error classification (mirrors Rails engine design)
   class ProceduralError < Error; end
