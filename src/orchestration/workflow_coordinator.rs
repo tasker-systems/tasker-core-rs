@@ -251,7 +251,7 @@ impl WorkflowCoordinator {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        
+
         // Use the provided shared registry instead of creating a new one
         let registry_arc = Arc::new(shared_registry.clone());
 
@@ -270,10 +270,11 @@ impl WorkflowCoordinator {
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
         // Create task finalizer with shared event publisher
-        let task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-            pool,
-            event_publisher.clone(),
-        );
+        let task_finalizer =
+            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+                pool,
+                event_publisher.clone(),
+            );
 
         // Create system events manager - in production this would be loaded from file
         let events_manager = Arc::new(SystemEventsManager::new(
@@ -338,10 +339,11 @@ impl WorkflowCoordinator {
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
         // Create task finalizer with shared event publisher
-        let task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-            pool,
-            event_publisher.clone(),
-        );
+        let task_finalizer =
+            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+                pool,
+                event_publisher.clone(),
+            );
 
         // Create system events manager - in production this would be loaded from file
         let events_manager = Arc::new(SystemEventsManager::new(
@@ -611,7 +613,7 @@ impl WorkflowCoordinator {
                 attempts = consecutive_empty_discoveries,
                 "No viable steps found after multiple attempts - calling task finalizer"
             );
-            
+
             // Call TaskFinalizer to determine next action
             match self.task_finalizer.handle_no_viable_steps(task_id).await {
                 Ok(finalization_result) => {
@@ -621,31 +623,42 @@ impl WorkflowCoordinator {
                         reason = ?finalization_result.reason,
                         "Task finalization completed"
                     );
-                    
+
                     match finalization_result.action {
                         crate::orchestration::task_finalizer::FinalizationAction::Reenqueued => {
-                            info!(task_id = task_id, "Task re-enqueued - breaking workflow loop");
+                            info!(
+                                task_id = task_id,
+                                "Task re-enqueued - breaking workflow loop"
+                            );
                             return Ok(DiscoveryResult { should_break: true });
-                        },
+                        }
                         crate::orchestration::task_finalizer::FinalizationAction::Completed => {
                             info!(task_id = task_id, "Task completed - breaking workflow loop");
                             return Ok(DiscoveryResult { should_break: true });
-                        },
+                        }
                         crate::orchestration::task_finalizer::FinalizationAction::Failed => {
                             info!(task_id = task_id, "Task failed - breaking workflow loop");
                             return Ok(DiscoveryResult { should_break: true });
-                        },
+                        }
                         crate::orchestration::task_finalizer::FinalizationAction::Pending => {
-                            info!(task_id = task_id, "Task marked as pending - continuing loop");
+                            info!(
+                                task_id = task_id,
+                                "Task marked as pending - continuing loop"
+                            );
                             *consecutive_empty_discoveries = 0; // Reset counter to continue trying
-                            return Ok(DiscoveryResult { should_break: false });
-                        },
+                            return Ok(DiscoveryResult {
+                                should_break: false,
+                            });
+                        }
                         crate::orchestration::task_finalizer::FinalizationAction::NoAction => {
-                            warn!(task_id = task_id, "Task finalizer took no action - breaking loop");
+                            warn!(
+                                task_id = task_id,
+                                "Task finalizer took no action - breaking loop"
+                            );
                             return Ok(DiscoveryResult { should_break: true });
-                        },
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     error!(
                         task_id = task_id,
@@ -704,7 +717,7 @@ impl WorkflowCoordinator {
                 StepStatus::Completed => metrics.steps_succeeded += 1,
                 StepStatus::Failed => metrics.steps_failed += 1,
                 StepStatus::Retrying => metrics.steps_retried += 1,
-                StepStatus::Skipped => {} // Don't count skipped
+                StepStatus::Skipped => {}    // Don't count skipped
                 StepStatus::InProgress => {} // Steps published but not yet completed (fire-and-forget)
             }
         }

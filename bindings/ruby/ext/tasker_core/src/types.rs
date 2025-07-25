@@ -14,15 +14,14 @@
 //! - **Multi-Language Ready**: Ruby types can be converted to shared types for other bindings
 //! - **Performance**: Maintains <100μs FFI overhead while enabling cross-language operations
 
-use std::collections::HashMap;
-use magnus::{Error, RHash, Module, Value, IntoValue, RArray, RString};
-use serde::{Deserialize, Serialize};
 use crate::context::json_to_ruby_value;
+use magnus::{Error, IntoValue, Module, RArray, RHash, RString, Value};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // Import shared types for conversion functions
 use tasker_core::ffi::shared::types::*;
 use tracing::debug;
-
 
 /// Trait for converting Ruby hashes to Rust structs without JSON serialization
 pub trait FromRHash: Sized {
@@ -131,12 +130,12 @@ impl ComplexWorkflowInput {
 #[magnus::wrap(class = "TaskerCore::OrchestrationHandleInfo", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationHandleInfo {
-  pub handle_type: String,
-  pub shared_handle_id: String,
-  pub orchestration_system: String,
-  pub testing_factory: String,
-  pub analytics_manager: String,
-  pub event_bridge: String,
+    pub handle_type: String,
+    pub shared_handle_id: String,
+    pub orchestration_system: String,
+    pub testing_factory: String,
+    pub analytics_manager: String,
+    pub event_bridge: String,
 }
 
 impl OrchestrationHandleInfo {
@@ -189,7 +188,7 @@ impl TaskHandlerInitializeResult {
         hash.aset("step_count", self.step_count)?;
         hash.aset("step_mapping", self.step_mapping.clone())?;
         hash.aset("handler_config_name", self.handler_config_name.clone())?;
-        
+
         // Convert workflow_steps Vec<serde_json::Value> to Ruby array
         let ruby_steps = magnus::RArray::new();
         for step in &self.workflow_steps {
@@ -197,7 +196,7 @@ impl TaskHandlerInitializeResult {
             ruby_steps.push(ruby_val)?;
         }
         hash.aset("workflow_steps", ruby_steps)?;
-        
+
         Ok(hash)
     }
 
@@ -234,7 +233,7 @@ impl TaskHandlerInitializeResult {
 
     /// Convert to Ruby hash
     pub fn to_h(&self) -> Result<magnus::Value, Error> {
-      json_to_ruby_value(serde_json::to_value(self).unwrap())
+        json_to_ruby_value(serde_json::to_value(self).unwrap())
     }
 }
 
@@ -300,10 +299,10 @@ impl TaskHandlerHandleResult {
 }
 
 /// Result from handle_one_step operation - Enhanced for dependency-aware step testing
-/// 
+///
 /// This struct provides comprehensive information about single-step execution including
 /// dependency status, state transitions, and full execution context for debugging.
-/// 
+///
 /// # Usage
 /// ```rust
 /// let result = base_task_handler.handle_one_step(step_id);
@@ -331,7 +330,7 @@ pub struct StepHandleResult {
     pub retry_count: u32,
     /// Ruby class name of the step handler that was executed
     pub handler_class: String,
-    
+
     // Dependency tracking for step-by-step testing
     /// Whether all prerequisite steps have been completed
     pub dependencies_met: bool,
@@ -339,7 +338,7 @@ pub struct StepHandleResult {
     pub missing_dependencies: Vec<String>,
     /// Results from completed dependency steps (step_name -> result_data)
     pub dependency_results: HashMap<String, serde_json::Value>,
-    
+
     // Execution context for debugging
     /// Step state before execution ("pending", "in_progress", etc.)
     pub step_state_before: String,
@@ -354,87 +353,87 @@ impl StepHandleResult {
     pub fn success(&self) -> bool {
         self.status == "completed"
     }
-    
+
     /// Check if the step failed due to unmet dependencies
     pub fn dependencies_not_met(&self) -> bool {
         self.status == "dependencies_not_met"
     }
-    
+
     /// Get step_id for Ruby access
     pub fn step_id(&self) -> i64 {
         self.step_id
     }
-    
+
     /// Get task_id for Ruby access
     pub fn task_id(&self) -> i64 {
         self.task_id
     }
-    
+
     /// Get step_name for Ruby access
     pub fn step_name(&self) -> String {
         self.step_name.clone()
     }
-    
+
     /// Get status for Ruby access
     pub fn status(&self) -> String {
         self.status.clone()
     }
-    
+
     /// Get execution_time_ms for Ruby access
     pub fn execution_time_ms(&self) -> u64 {
         self.execution_time_ms
     }
-    
+
     /// Get result_data for Ruby access
     pub fn result_data(&self) -> Option<serde_json::Value> {
         self.result_data.clone()
     }
-    
+
     /// Get error_message for Ruby access
     pub fn error_message(&self) -> Option<String> {
         self.error_message.clone()
     }
-    
+
     /// Get retry_count for Ruby access
     pub fn retry_count(&self) -> u32 {
         self.retry_count
     }
-    
+
     /// Get handler_class for Ruby access
     pub fn handler_class(&self) -> String {
         self.handler_class.clone()
     }
-    
+
     /// Get dependencies_met for Ruby access
     pub fn dependencies_met(&self) -> bool {
         self.dependencies_met
     }
-    
+
     /// Get missing_dependencies for Ruby access
     pub fn missing_dependencies(&self) -> Vec<String> {
         self.missing_dependencies.clone()
     }
-    
+
     /// Get dependency_results for Ruby access
     pub fn dependency_results(&self) -> HashMap<String, serde_json::Value> {
         self.dependency_results.clone()
     }
-    
+
     /// Get step_state_before for Ruby access
     pub fn step_state_before(&self) -> String {
         self.step_state_before.clone()
     }
-    
+
     /// Get step_state_after for Ruby access
     pub fn step_state_after(&self) -> String {
         self.step_state_after.clone()
     }
-    
+
     /// Get task_context for Ruby access
     pub fn task_context(&self) -> serde_json::Value {
         self.task_context.clone()
     }
-    
+
     /// Convert to Ruby hash for FFI
     pub fn to_h(&self) -> Result<magnus::Value, Error> {
         json_to_ruby_value(serde_json::to_value(self).unwrap())
@@ -456,85 +455,116 @@ pub struct TaskMetadata {
 }
 
 impl TaskMetadata {
-  /// Define the Ruby class in the module
-  pub fn define(ruby: &magnus::Ruby, module: &magnus::RModule) -> Result<(), magnus::Error> {
-      let class = module.define_class("TaskMetadata", ruby.class_object())?;
+    /// Define the Ruby class in the module
+    pub fn define(ruby: &magnus::Ruby, module: &magnus::RModule) -> Result<(), magnus::Error> {
+        let class = module.define_class("TaskMetadata", ruby.class_object())?;
 
-      // Define getter methods
-      class.define_method("found", magnus::method!(TaskMetadata::found_getter, 0))?;
-      class.define_method("namespace", magnus::method!(TaskMetadata::namespace_getter, 0))?;
-      class.define_method("name", magnus::method!(TaskMetadata::name_getter, 0))?;
-      class.define_method("version", magnus::method!(TaskMetadata::version_getter, 0))?;
-      class.define_method("ruby_class_name", magnus::method!(TaskMetadata::ruby_class_name_getter, 0))?;
-      class.define_method("config_schema", magnus::method!(TaskMetadata::config_schema_getter, 0))?;
-      class.define_method("registered_at", magnus::method!(TaskMetadata::registered_at_getter, 0))?;
-      class.define_method("handle_id", magnus::method!(TaskMetadata::handle_id_getter, 0))?;
+        // Define getter methods
+        class.define_method("found", magnus::method!(TaskMetadata::found_getter, 0))?;
+        class.define_method(
+            "namespace",
+            magnus::method!(TaskMetadata::namespace_getter, 0),
+        )?;
+        class.define_method("name", magnus::method!(TaskMetadata::name_getter, 0))?;
+        class.define_method("version", magnus::method!(TaskMetadata::version_getter, 0))?;
+        class.define_method(
+            "ruby_class_name",
+            magnus::method!(TaskMetadata::ruby_class_name_getter, 0),
+        )?;
+        class.define_method(
+            "config_schema",
+            magnus::method!(TaskMetadata::config_schema_getter, 0),
+        )?;
+        class.define_method(
+            "registered_at",
+            magnus::method!(TaskMetadata::registered_at_getter, 0),
+        )?;
+        class.define_method(
+            "handle_id",
+            magnus::method!(TaskMetadata::handle_id_getter, 0),
+        )?;
 
-      Ok(())
-  }
+        Ok(())
+    }
 
-  // Getter methods for Ruby
-  pub fn found_getter(&self) -> bool { self.found }
-  pub fn namespace_getter(&self) -> String { self.namespace.clone() }
-  pub fn name_getter(&self) -> String { self.name.clone() }
-  pub fn version_getter(&self) -> String { self.version.clone() }
-  pub fn ruby_class_name_getter(&self) -> Option<String> { self.ruby_class_name.clone() }
-  pub fn config_schema_getter(&self) -> Option<String> { self.config_schema.clone() }
-  pub fn registered_at_getter(&self) -> Option<String> { self.registered_at.clone() }
-  pub fn handle_id_getter(&self) -> Option<String> { self.handle_id.clone() }
+    // Getter methods for Ruby
+    pub fn found_getter(&self) -> bool {
+        self.found
+    }
+    pub fn namespace_getter(&self) -> String {
+        self.namespace.clone()
+    }
+    pub fn name_getter(&self) -> String {
+        self.name.clone()
+    }
+    pub fn version_getter(&self) -> String {
+        self.version.clone()
+    }
+    pub fn ruby_class_name_getter(&self) -> Option<String> {
+        self.ruby_class_name.clone()
+    }
+    pub fn config_schema_getter(&self) -> Option<String> {
+        self.config_schema.clone()
+    }
+    pub fn registered_at_getter(&self) -> Option<String> {
+        self.registered_at.clone()
+    }
+    pub fn handle_id_getter(&self) -> Option<String> {
+        self.handle_id.clone()
+    }
 }
 
 impl TaskMetadata {
-  /// Create successful metadata response
-  pub fn found(
-      namespace: String,
-      name: String,
-      version: String,
-      ruby_class_name: String,
-      config_schema: Option<String>,
-      registered_at: String,
-      handle_id: String,
-  ) -> Self {
-      TaskMetadata {
-          found: true,
-          namespace,
-          name,
-          version,
-          ruby_class_name: Some(ruby_class_name),
-          config_schema,
-          registered_at: Some(registered_at),
-          handle_id: Some(handle_id),
-      }
-  }
+    /// Create successful metadata response
+    pub fn found(
+        namespace: String,
+        name: String,
+        version: String,
+        ruby_class_name: String,
+        config_schema: Option<String>,
+        registered_at: String,
+        handle_id: String,
+    ) -> Self {
+        TaskMetadata {
+            found: true,
+            namespace,
+            name,
+            version,
+            ruby_class_name: Some(ruby_class_name),
+            config_schema,
+            registered_at: Some(registered_at),
+            handle_id: Some(handle_id),
+        }
+    }
 
-  /// Create not found metadata response
-  pub fn not_found(namespace: String, name: String, version: String) -> Self {
-      TaskMetadata {
-          found: false,
-          namespace,
-          name,
-          version,
-          ruby_class_name: None,
-          config_schema: None,
-          registered_at: None,
-          handle_id: None,
-      }
-  }
+    /// Create not found metadata response
+    pub fn not_found(namespace: String, name: String, version: String) -> Self {
+        TaskMetadata {
+            found: false,
+            namespace,
+            name,
+            version,
+            ruby_class_name: None,
+            config_schema: None,
+            registered_at: None,
+            handle_id: None,
+        }
+    }
 }
 
 #[magnus::wrap(class = "TaskerCore::Types::AnalyticsMetrics", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RubyAnalyticsMetrics {
-  pub total_tasks: i64,
-  pub completed_tasks: i64,
-  pub failed_tasks: i64,
-  pub pending_tasks: i64,
-  pub average_completion_time_seconds: f64,
-  pub success_rate_percentage: f64,
-  pub most_common_failure_reason: String,
-  pub peak_throughput_tasks_per_hour: i64,
-  pub current_load_percentage: f64,
-  pub resource_utilization: serde_json::Value,
+    pub total_tasks: i64,
+    pub completed_tasks: i64,
+    pub failed_tasks: i64,
+    pub pending_tasks: i64,
+    pub average_completion_time_seconds: f64,
+    pub success_rate_percentage: f64,
+    pub most_common_failure_reason: String,
+    pub peak_throughput_tasks_per_hour: i64,
+    pub current_load_percentage: f64,
+    pub resource_utilization: serde_json::Value,
 }
 
 impl RubyAnalyticsMetrics {
@@ -591,69 +621,73 @@ impl RubyAnalyticsMetrics {
 
 /// Helper function to convert Vec<i64> to Ruby array
 pub fn vec_i64_to_ruby_array(vec: Vec<i64>) -> Result<RArray, Error> {
-  let array = RArray::new();
-  for item in vec {
-      array.push(item)?;
-  }
-  Ok(array)
+    let array = RArray::new();
+    for item in vec {
+        array.push(item)?;
+    }
+    Ok(array)
 }
 
 /// Helper function to convert Option<String> to Ruby value (nil or string)
 pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> {
-  match opt {
-      Some(s) => Ok(RString::new(&s).into_value()),
-      None => Ok(().into_value()), // nil
-  }
+    match opt {
+        Some(s) => Ok(RString::new(&s).into_value()),
+        None => Ok(().into_value()), // nil
+    }
 }
 
 /// Optimized WorkflowStepInput structure using Magnus wrapped classes
 #[derive(Clone, Debug)]
 #[magnus::wrap(class = "TaskerCore::Types::WorkflowStepInput", free_immediately)]
 pub struct WorkflowStepInput {
-  pub task_id: i64,
-  pub name: String,
-  pub dependencies: Vec<String>,
-  pub handler_class: Option<String>,
-  pub config: Option<String>, // JSON string for configuration
+    pub task_id: i64,
+    pub name: String,
+    pub dependencies: Vec<String>,
+    pub handler_class: Option<String>,
+    pub config: Option<String>, // JSON string for configuration
 }
 
 impl WorkflowStepInput {
-  /// Create from Ruby parameters
-  pub fn from_params(
-      task_id: i64,
-      name: String,
-      dependencies: Option<Vec<String>>,
-      handler_class: Option<String>,
-      config: Option<RHash>,
-  ) -> Result<Self, Error> {
-      let config_json = if let Some(cfg) = config {
-          let json_val = crate::context::ruby_value_to_json(cfg.into_value())
-              .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Config conversion failed: {}", e)))?;
-          Some(json_val.to_string())
-      } else {
-          None
-      };
+    /// Create from Ruby parameters
+    pub fn from_params(
+        task_id: i64,
+        name: String,
+        dependencies: Option<Vec<String>>,
+        handler_class: Option<String>,
+        config: Option<RHash>,
+    ) -> Result<Self, Error> {
+        let config_json = if let Some(cfg) = config {
+            let json_val = crate::context::ruby_value_to_json(cfg.into_value()).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Config conversion failed: {e}"),
+                )
+            })?;
+            Some(json_val.to_string())
+        } else {
+            None
+        };
 
-      Ok(WorkflowStepInput {
-          task_id,
-          name,
-          dependencies: dependencies.unwrap_or_default(),
-          handler_class,
-          config: config_json,
-      })
-  }
+        Ok(WorkflowStepInput {
+            task_id,
+            name,
+            dependencies: dependencies.unwrap_or_default(),
+            handler_class,
+            config: config_json,
+        })
+    }
 }
 
 /// Optimized ComplexWorkflowInput structure using Magnus wrapped classes
 #[derive(Clone, Debug)]
 #[magnus::wrap(class = "TaskerCore::Types::ComplexWorkflowInput", free_immediately)]
 pub struct ComplexWorkflowInput {
-  pub pattern: String,
-  pub namespace: String,
-  pub task_name: String,
-  pub step_count: Option<i32>,
-  pub parallel_branches: Option<i32>,
-  pub dependency_depth: Option<i32>,
+    pub pattern: String,
+    pub namespace: String,
+    pub task_name: String,
+    pub step_count: Option<i32>,
+    pub parallel_branches: Option<i32>,
+    pub dependency_depth: Option<i32>,
 }
 
 /// **NEW**: Magnus wrapped types for TestHelpers PORO objects
@@ -745,7 +779,10 @@ impl TestStepResult {
     }
 }
 
-#[magnus::wrap(class = "TaskerCore::TestHelpers::TestEnvironmentResult", free_immediately)]
+#[magnus::wrap(
+    class = "TaskerCore::TestHelpers::TestEnvironmentResult",
+    free_immediately
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestEnvironmentResult {
     pub status: String,
@@ -776,7 +813,10 @@ impl TestEnvironmentResult {
     }
 }
 
-#[magnus::wrap(class = "TaskerCore::TestHelpers::TestFoundationResult", free_immediately)]
+#[magnus::wrap(
+    class = "TaskerCore::TestHelpers::TestFoundationResult",
+    free_immediately
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestFoundationResult {
     pub foundation_id: String,
@@ -814,162 +854,164 @@ impl TestFoundationResult {
 }
 
 impl ComplexWorkflowInput {
-  /// Create from Ruby parameters
-  pub fn from_params(
-      pattern: String,
-      namespace: String,
-      task_name: String,
-      step_count: Option<i32>,
-      parallel_branches: Option<i32>,
-      dependency_depth: Option<i32>,
-  ) -> Result<Self, Error> {
-      Ok(ComplexWorkflowInput {
-          pattern,
-          namespace,
-          task_name,
-          step_count,
-          parallel_branches,
-          dependency_depth,
-      })
-  }
+    /// Create from Ruby parameters
+    pub fn from_params(
+        pattern: String,
+        namespace: String,
+        task_name: String,
+        step_count: Option<i32>,
+        parallel_branches: Option<i32>,
+        dependency_depth: Option<i32>,
+    ) -> Result<Self, Error> {
+        Ok(ComplexWorkflowInput {
+            pattern,
+            namespace,
+            task_name,
+            step_count,
+            parallel_branches,
+            dependency_depth,
+        })
+    }
 }
-
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
-  #[test]
-  fn test_task_metadata_found() {
-      let metadata = TaskMetadata::found(
-          "test_namespace".to_string(),
-          "test_task".to_string(),
-          "v1".to_string(),
-          "TestHandler".to_string(),
-          Some("schema".to_string()),
-          "2023-01-01T00:00:00Z".to_string(),
-          "handle_123".to_string(),
-      );
+    #[test]
+    fn test_task_metadata_found() {
+        let metadata = TaskMetadata::found(
+            "test_namespace".to_string(),
+            "test_task".to_string(),
+            "v1".to_string(),
+            "TestHandler".to_string(),
+            Some("schema".to_string()),
+            "2023-01-01T00:00:00Z".to_string(),
+            "handle_123".to_string(),
+        );
 
-      assert!(metadata.found);
-      assert_eq!(metadata.namespace, "test_namespace");
-      assert_eq!(metadata.ruby_class_name, Some("TestHandler".to_string()));
-  }
+        assert!(metadata.found);
+        assert_eq!(metadata.namespace, "test_namespace");
+        assert_eq!(metadata.ruby_class_name, Some("TestHandler".to_string()));
+    }
 
-  #[test]
-  fn test_task_metadata_not_found() {
-      let metadata = TaskMetadata::not_found(
-          "test_namespace".to_string(),
-          "test_task".to_string(),
-          "v1".to_string(),
-      );
+    #[test]
+    fn test_task_metadata_not_found() {
+        let metadata = TaskMetadata::not_found(
+            "test_namespace".to_string(),
+            "test_task".to_string(),
+            "v1".to_string(),
+        );
 
-      assert!(!metadata.found);
-      assert_eq!(metadata.namespace, "test_namespace");
-      assert_eq!(metadata.ruby_class_name, None);
-  }
+        assert!(!metadata.found);
+        assert_eq!(metadata.namespace, "test_namespace");
+        assert_eq!(metadata.ruby_class_name, None);
+    }
 
-  #[test]
-  fn test_workflow_step_input_creation() {
-      let input = WorkflowStepInput::from_params(
-          123,
-          "test_step".to_string(),
-          Some(vec!["dep1".to_string(), "dep2".to_string()]),
-          Some("TestHandler".to_string()),
-          None,
-      ).unwrap();
+    #[test]
+    fn test_workflow_step_input_creation() {
+        let input = WorkflowStepInput::from_params(
+            123,
+            "test_step".to_string(),
+            Some(vec!["dep1".to_string(), "dep2".to_string()]),
+            Some("TestHandler".to_string()),
+            None,
+        )
+        .unwrap();
 
-      assert_eq!(input.task_id, 123);
-      assert_eq!(input.name, "test_step");
-      assert_eq!(input.dependencies.len(), 2);
-      assert_eq!(input.handler_class, Some("TestHandler".to_string()));
-      assert_eq!(input.config, None);
-  }
+        assert_eq!(input.task_id, 123);
+        assert_eq!(input.name, "test_step");
+        assert_eq!(input.dependencies.len(), 2);
+        assert_eq!(input.handler_class, Some("TestHandler".to_string()));
+        assert_eq!(input.config, None);
+    }
 
-  #[test]
-  fn test_complex_workflow_input_creation() {
-      let input = ComplexWorkflowInput::from_params(
-          "linear".to_string(),
-          "test_namespace".to_string(),
-          "test_workflow".to_string(),
-          Some(5),
-          Some(2),
-          Some(3),
-      ).unwrap();
+    #[test]
+    fn test_complex_workflow_input_creation() {
+        let input = ComplexWorkflowInput::from_params(
+            "linear".to_string(),
+            "test_namespace".to_string(),
+            "test_workflow".to_string(),
+            Some(5),
+            Some(2),
+            Some(3),
+        )
+        .unwrap();
 
-      assert_eq!(input.pattern, "linear");
-      assert_eq!(input.namespace, "test_namespace");
-      assert_eq!(input.step_count, Some(5));
-      assert_eq!(input.parallel_branches, Some(2));
-      assert_eq!(input.dependency_depth, Some(3));
-  }
+        assert_eq!(input.pattern, "linear");
+        assert_eq!(input.namespace, "test_namespace");
+        assert_eq!(input.step_count, Some(5));
+        assert_eq!(input.parallel_branches, Some(2));
+        assert_eq!(input.dependency_depth, Some(3));
+    }
 
-  #[test]
-  fn test_shared_type_conversion_workflow_step() {
-      let workflow_input = WorkflowStepInput::from_params(
-          123,
-          "test_step".to_string(),
-          Some(vec!["dep1".to_string()]),
-          Some("TestHandler".to_string()),
-          None,
-      ).unwrap();
+    #[test]
+    fn test_shared_type_conversion_workflow_step() {
+        let workflow_input = WorkflowStepInput::from_params(
+            123,
+            "test_step".to_string(),
+            Some(vec!["dep1".to_string()]),
+            Some("TestHandler".to_string()),
+            None,
+        )
+        .unwrap();
 
-      let shared_input = workflow_input.to_shared_step_input();
-      assert_eq!(shared_input.task_id, 123);
-      assert_eq!(shared_input.name, "test_step");
-      assert_eq!(shared_input.handler_class, Some("TestHandler".to_string()));
-  }
+        let shared_input = workflow_input.to_shared_step_input();
+        assert_eq!(shared_input.task_id, 123);
+        assert_eq!(shared_input.name, "test_step");
+        assert_eq!(shared_input.handler_class, Some("TestHandler".to_string()));
+    }
 
-  #[test]
-  fn test_shared_type_conversion_analytics() {
-      let ruby_analytics = RubyAnalyticsMetrics {
-          total_tasks: 100,
-          completed_tasks: 95,
-          failed_tasks: 5,
-          pending_tasks: 0,
-          current_load_percentage: 0.5,
-          resource_utilization: serde_json::json!({}),
-          average_completion_time_seconds: 120.5,
-          success_rate_percentage: 95.2,
-          most_common_failure_reason: "timeout".to_string(),
-          peak_throughput_tasks_per_hour: 1000,
-      };
+    #[test]
+    fn test_shared_type_conversion_analytics() {
+        let ruby_analytics = RubyAnalyticsMetrics {
+            total_tasks: 100,
+            completed_tasks: 95,
+            failed_tasks: 5,
+            pending_tasks: 0,
+            current_load_percentage: 0.5,
+            resource_utilization: serde_json::json!({}),
+            average_completion_time_seconds: 120.5,
+            success_rate_percentage: 95.2,
+            most_common_failure_reason: "timeout".to_string(),
+            peak_throughput_tasks_per_hour: 1000,
+        };
 
-      let shared_analytics = ruby_analytics.to_shared_analytics();
-      assert_eq!(shared_analytics.average_completion_time_seconds, 120.5);
-      assert_eq!(shared_analytics.success_rate_percentage, 95.2);
-      assert_eq!(shared_analytics.most_common_failure_reason, "timeout");
-      assert_eq!(shared_analytics.peak_throughput_tasks_per_hour, 1000);
-      assert_eq!(shared_analytics.total_tasks, 100);
-      assert_eq!(shared_analytics.completed_tasks, 95);
-      assert_eq!(shared_analytics.failed_tasks, 5);
-      assert_eq!(shared_analytics.pending_tasks, 0);
-      assert_eq!(shared_analytics.current_load_percentage, 0.5);
-      assert_eq!(shared_analytics.resource_utilization, serde_json::json!({}));
-  }
+        let shared_analytics = ruby_analytics.to_shared_analytics();
+        assert_eq!(shared_analytics.average_completion_time_seconds, 120.5);
+        assert_eq!(shared_analytics.success_rate_percentage, 95.2);
+        assert_eq!(shared_analytics.most_common_failure_reason, "timeout");
+        assert_eq!(shared_analytics.peak_throughput_tasks_per_hour, 1000);
+        assert_eq!(shared_analytics.total_tasks, 100);
+        assert_eq!(shared_analytics.completed_tasks, 95);
+        assert_eq!(shared_analytics.failed_tasks, 5);
+        assert_eq!(shared_analytics.pending_tasks, 0);
+        assert_eq!(shared_analytics.current_load_percentage, 0.5);
+        assert_eq!(shared_analytics.resource_utilization, serde_json::json!({}));
+    }
 
-  #[test]
-  fn test_test_helpers_poro_objects() {
-      let task_result = TestTaskResult {
-          task_id: 123,
-          namespace: "test".to_string(),
-          name: "test_task".to_string(),
-          version: "v1".to_string(),
-          step_count: 5,
-          created_at: "2023-01-01T00:00:00Z".to_string(),
-      };
-      assert_eq!(task_result.task_id, 123);
-      assert_eq!(task_result.namespace, "test");
+    #[test]
+    fn test_test_helpers_poro_objects() {
+        let task_result = TestTaskResult {
+            task_id: 123,
+            namespace: "test".to_string(),
+            name: "test_task".to_string(),
+            version: "v1".to_string(),
+            step_count: 5,
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+        };
+        assert_eq!(task_result.task_id, 123);
+        assert_eq!(task_result.namespace, "test");
 
-      let env_result = TestEnvironmentResult {
-          status: "success".to_string(),
-          message: "Environment ready".to_string(),
-          handle_id: "handle_123".to_string(),
-          pool_size: 10,
-      };
-      assert_eq!(env_result.status, "success");
-      assert_eq!(env_result.pool_size, 10);
-  }
+        let env_result = TestEnvironmentResult {
+            status: "success".to_string(),
+            message: "Environment ready".to_string(),
+            handle_id: "handle_123".to_string(),
+            pool_size: 10,
+        };
+        assert_eq!(env_result.status, "success");
+        assert_eq!(env_result.pool_size, 10);
+    }
 }
 
 // =====  ENHANCEMENT COMPLETE =====

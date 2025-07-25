@@ -1,21 +1,24 @@
 use crate::execution::message_protocols::{
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
-    ResultMessage,
+    ResultMessage, StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
 };
 use crate::models::{
-    Task, TaskExecutionContext,
     core::{
-        step_execution_batch::{StepExecutionBatch, NewStepExecutionBatch},
-        step_execution_batch_step::{StepExecutionBatchStep, NewStepExecutionBatchStep},  
-        step_execution_batch_received_result::{StepExecutionBatchReceivedResult, NewStepExecutionBatchReceivedResult},
-        step_execution_batch_transition::{StepExecutionBatchTransition, NewStepExecutionBatchTransition},
+        step_execution_batch::{NewStepExecutionBatch, StepExecutionBatch},
+        step_execution_batch_received_result::{
+            NewStepExecutionBatchReceivedResult, StepExecutionBatchReceivedResult,
+        },
+        step_execution_batch_step::{NewStepExecutionBatchStep, StepExecutionBatchStep},
+        step_execution_batch_transition::{
+            NewStepExecutionBatchTransition, StepExecutionBatchTransition,
+        },
     },
+    Task, TaskExecutionContext,
 };
 use crate::orchestration::{
-    errors::{OrchestrationError, ExecutionError},
-    step_handler::StepExecutionContext,
+    errors::{ExecutionError, OrchestrationError},
     state_manager::StateManager,
-    types::{StepResult, StepStatus, TaskContext, FrameworkIntegration},
+    step_handler::StepExecutionContext,
+    types::{FrameworkIntegration, StepResult, StepStatus, TaskContext},
 };
 use async_trait::async_trait;
 use sqlx::PgPool;
@@ -41,9 +44,18 @@ enum MessageReceiveResult {
 
 /// Result of parsing a received message
 enum MessageParseResult {
-    PartialResult { batch_id: String, message: ResultMessage },
-    BatchCompletion { batch_id: String, message: ResultMessage },
-    LegacyResult { batch_id: String, response: StepBatchResponse },
+    PartialResult {
+        batch_id: String,
+        message: ResultMessage,
+    },
+    BatchCompletion {
+        batch_id: String,
+        message: ResultMessage,
+    },
+    LegacyResult {
+        batch_id: String,
+        response: StepBatchResponse,
+    },
     WrongTopic(String),
     Error(String),
 }
@@ -52,14 +64,20 @@ enum MessageParseResult {
 #[derive(Debug, Clone)]
 struct BatchTracker {
     batch_id: String,
+    /// Total steps count - will be used for progress tracking and completion detection
+    #[allow(dead_code)]
     total_steps: u32,
     partial_results: HashMap<i64, ResultMessage>, // step_id -> partial result
-    expected_sequences: HashMap<i64, u32>, // step_id -> expected sequence number
+    expected_sequences: HashMap<i64, u32>,        // step_id -> expected sequence number
     batch_complete: bool,
+    /// Batch creation timestamp - will be used for timeout detection and metrics
+    #[allow(dead_code)]
     created_at: std::time::Instant,
 }
 
 impl BatchTracker {
+    /// Create new batch tracker - will be used for batch lifecycle management
+    #[allow(dead_code)]
     fn new(batch_id: String, total_steps: u32) -> Self {
         Self {
             batch_id,
@@ -92,88 +110,111 @@ impl BatchTracker {
         }
     }
 
-    /// Check if batch is complete based on partial results
+    /// Check if batch is complete based on partial results - will be used for result reconciliation
+    #[allow(dead_code)]
     fn is_complete(&self) -> bool {
         self.partial_results.len() as u32 >= self.total_steps || self.batch_complete
     }
 }
 
 /// ZeroMQ pub-sub executor for language-agnostic step execution
-/// 
+///
 /// This executor implements fire-and-forget step execution using ZeroMQ pub-sub pattern:
 /// - Publishes step batches to "steps" topic
 /// - Subscribes to "results" topic for async result collection
 /// - Correlates results using unique batch IDs
 /// - Eliminates timeout/idempotency issues of REQ-REP pattern
 pub struct ZmqPubSubExecutor {
+    /// ZMQ context - will be used for socket lifecycle management and cleanup
+    #[allow(dead_code)]
     context: Context,
+    /// Publisher endpoint - needed for reconnection and configuration display
+    #[allow(dead_code)]
     pub_endpoint: String,
+    /// Subscriber endpoint - needed for reconnection and configuration display
+    #[allow(dead_code)]
     sub_endpoint: String,
     pub_socket: Socket,
+    /// Result handlers for async response correlation - will be used for REQ-REP pattern fallback
+    #[allow(dead_code)]
     result_handlers: Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
+    /// Batch trackers for progress monitoring - will be used for dual result pattern reconciliation
+    #[allow(dead_code)]
     batch_trackers: Arc<Mutex<HashMap<String, BatchTracker>>>,
     pool: PgPool,
+    /// State manager for step transitions - will be used for result processing integration
+    #[allow(dead_code)]
     state_manager: StateManager,
     _result_listener_handle: tokio::task::JoinHandle<()>,
 }
 
 impl ZmqPubSubExecutor {
     /// Create new ZeroMQ pub-sub executor
-    /// 
+    ///
     /// # Arguments
     /// * `pub_endpoint` - ZeroMQ endpoint for publishing steps (e.g., "inproc://steps")
     /// * `sub_endpoint` - ZeroMQ endpoint for subscribing to results (e.g., "inproc://results")
     /// * `pool` - Database connection pool for loading task data
     /// * `state_manager` - StateManager for immediate step state updates
-    pub async fn new(pub_endpoint: &str, sub_endpoint: &str, pool: PgPool, state_manager: StateManager) -> Result<Self, OrchestrationError> {
+    pub async fn new(
+        pub_endpoint: &str,
+        sub_endpoint: &str,
+        pool: PgPool,
+        state_manager: StateManager,
+    ) -> Result<Self, OrchestrationError> {
         let context = Context::new();
-        
+
         // Publisher socket for sending step batches
-        let pub_socket = context.socket(PUB)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+        let pub_socket = context.socket(PUB).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: 0,
-                reason: format!("Failed to create PUB socket: {}", e),
+                reason: format!("Failed to create PUB socket: {e}"),
                 error_code: Some("ZMQ_PUB_CREATE_FAILED".to_string()),
-            }))?;
-        pub_socket.bind(pub_endpoint)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+            })
+        })?;
+        pub_socket.bind(pub_endpoint).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: 0,
-                reason: format!("Failed to bind PUB socket to {}: {}", pub_endpoint, e),
+                reason: format!("Failed to bind PUB socket to {pub_endpoint}: {e}"),
                 error_code: Some("ZMQ_PUB_BIND_FAILED".to_string()),
-            }))?;
-        
+            })
+        })?;
+
         // Subscriber socket for receiving results
-        let sub_socket = context.socket(SUB)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+        let sub_socket = context.socket(SUB).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: 0,
-                reason: format!("Failed to create SUB socket: {}", e),
+                reason: format!("Failed to create SUB socket: {e}"),
                 error_code: Some("ZMQ_SUB_CREATE_FAILED".to_string()),
-            }))?;
-        sub_socket.connect(sub_endpoint)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+            })
+        })?;
+        sub_socket.connect(sub_endpoint).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: 0,
-                reason: format!("Failed to connect SUB socket to {}: {}", sub_endpoint, e),
+                reason: format!("Failed to connect SUB socket to {sub_endpoint}: {e}"),
                 error_code: Some("ZMQ_SUB_CONNECT_FAILED".to_string()),
-            }))?;
-        sub_socket.set_subscribe(b"results")
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+            })
+        })?;
+        sub_socket.set_subscribe(b"results").map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: 0,
-                reason: format!("Failed to subscribe to 'results' topic: {}", e),
+                reason: format!("Failed to subscribe to 'results' topic: {e}"),
                 error_code: Some("ZMQ_SUB_SUBSCRIBE_FAILED".to_string()),
-            }))?;
-        
+            })
+        })?;
+
         let result_handlers = Arc::new(Mutex::new(HashMap::new()));
         let batch_trackers = Arc::new(Mutex::new(HashMap::new()));
-        
+
         // Start background task to listen for results (takes ownership of sub_socket)
         let result_listener_handle = Self::start_result_listener(
-            result_handlers.clone(), 
-            batch_trackers.clone(), 
+            result_handlers.clone(),
+            batch_trackers.clone(),
             sub_socket,
             state_manager.clone(),
-            pool.clone()
+            pool.clone(),
         );
-        
+
         Ok(Self {
             context,
             pub_endpoint: pub_endpoint.to_string(),
@@ -186,7 +227,7 @@ impl ZmqPubSubExecutor {
             _result_listener_handle: result_listener_handle,
         })
     }
-    
+
     /// Start background task to listen for result messages
     fn start_result_listener(
         result_handlers: Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
@@ -197,11 +238,18 @@ impl ZmqPubSubExecutor {
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             tracing::info!("Starting ZeroMQ result listener with dual message support");
-            
+
             loop {
                 match Self::receive_message_from_socket(&sub_socket) {
                     MessageReceiveResult::Success(msg_bytes) => {
-                        Self::handle_received_message(msg_bytes, &result_handlers, &batch_trackers, &state_manager, &pool).await;
+                        Self::handle_received_message(
+                            msg_bytes,
+                            &result_handlers,
+                            &batch_trackers,
+                            &state_manager,
+                            &pool,
+                        )
+                        .await;
                     }
                     MessageReceiveResult::NoMessage => {
                         // Small sleep to prevent busy-waiting
@@ -241,10 +289,18 @@ impl ZmqPubSubExecutor {
     ) {
         match Self::parse_message(msg_bytes) {
             MessageParseResult::PartialResult { batch_id, message } => {
-                Self::handle_partial_result(batch_id, message, batch_trackers, state_manager, pool).await;
+                Self::handle_partial_result(batch_id, message, batch_trackers, state_manager, pool)
+                    .await;
             }
             MessageParseResult::BatchCompletion { batch_id, message } => {
-                Self::handle_batch_completion(batch_id, message, batch_trackers, result_handlers, pool).await;
+                Self::handle_batch_completion(
+                    batch_id,
+                    message,
+                    batch_trackers,
+                    result_handlers,
+                    pool,
+                )
+                .await;
             }
             MessageParseResult::LegacyResult { batch_id, response } => {
                 Self::route_result_to_handler(batch_id, response, result_handlers).await;
@@ -269,7 +325,11 @@ impl ZmqPubSubExecutor {
         // Split topic from message content
         let (topic, json_data) = match msg_str.split_once(' ') {
             Some((t, j)) => (t, j),
-            None => return MessageParseResult::Error("Malformed message (no topic separator)".to_string()),
+            None => {
+                return MessageParseResult::Error(
+                    "Malformed message (no topic separator)".to_string(),
+                )
+            }
         };
 
         // Check if this is a results message
@@ -279,24 +339,22 @@ impl ZmqPubSubExecutor {
 
         // Try to parse as new dual message format first
         match serde_json::from_str::<ResultMessage>(json_data) {
-            Ok(message) => {
-                match &message {
-                    ResultMessage::PartialResult { batch_id, .. } => {
-                        tracing::debug!("Received partial result for batch: {}", batch_id);
-                        MessageParseResult::PartialResult { 
-                            batch_id: batch_id.clone(), 
-                            message 
-                        }
-                    }
-                    ResultMessage::BatchCompletion { batch_id, .. } => {
-                        tracing::debug!("Received batch completion for batch: {}", batch_id);
-                        MessageParseResult::BatchCompletion { 
-                            batch_id: batch_id.clone(), 
-                            message 
-                        }
+            Ok(message) => match &message {
+                ResultMessage::PartialResult { batch_id, .. } => {
+                    tracing::debug!("Received partial result for batch: {}", batch_id);
+                    MessageParseResult::PartialResult {
+                        batch_id: batch_id.clone(),
+                        message,
                     }
                 }
-            }
+                ResultMessage::BatchCompletion { batch_id, .. } => {
+                    tracing::debug!("Received batch completion for batch: {}", batch_id);
+                    MessageParseResult::BatchCompletion {
+                        batch_id: batch_id.clone(),
+                        message,
+                    }
+                }
+            },
             Err(_) => {
                 // Fallback to legacy format for backward compatibility
                 match serde_json::from_str::<StepBatchResponse>(json_data) {
@@ -307,7 +365,7 @@ impl ZmqPubSubExecutor {
                     }
                     Err(e) => {
                         tracing::error!("Failed to parse result message: {}", e);
-                        MessageParseResult::Error(format!("JSON parsing failed: {}", e))
+                        MessageParseResult::Error(format!("JSON parsing failed: {e}"))
                     }
                 }
             }
@@ -322,7 +380,16 @@ impl ZmqPubSubExecutor {
         state_manager: &StateManager,
         pool: &PgPool,
     ) {
-        if let ResultMessage::PartialResult { step_id, status, output, error, execution_time_ms, worker_id, .. } = &message {
+        if let ResultMessage::PartialResult {
+            step_id,
+            status,
+            output,
+            error,
+            execution_time_ms,
+            worker_id,
+            ..
+        } = &message
+        {
             tracing::info!(
                 "Processing partial result for step {} in batch {}: status={} worker={} exec_time={}ms",
                 step_id, batch_id, status, worker_id, execution_time_ms
@@ -331,20 +398,26 @@ impl ZmqPubSubExecutor {
             // Phase 2.3 - Update step state immediately using StateManager
             let state_update_result = match status.as_str() {
                 "completed" => {
-                    state_manager.complete_step_with_results(*step_id, output.clone()).await
+                    state_manager
+                        .complete_step_with_results(*step_id, output.clone())
+                        .await
                 }
                 "failed" => {
                     let error_message = error
                         .as_ref()
                         .map(|e| e.message.clone())
                         .unwrap_or_else(|| "Step execution failed".to_string());
-                    state_manager.fail_step_with_error(*step_id, error_message).await
+                    state_manager
+                        .fail_step_with_error(*step_id, error_message)
+                        .await
                 }
-                "in_progress" => {
-                    state_manager.mark_step_in_progress(*step_id).await
-                }
+                "in_progress" => state_manager.mark_step_in_progress(*step_id).await,
                 _ => {
-                    tracing::warn!("Unknown status '{}' for step {}, skipping state update", status, step_id);
+                    tracing::warn!(
+                        "Unknown status '{}' for step {}, skipping state update",
+                        status,
+                        step_id
+                    );
                     Ok(())
                 }
             };
@@ -354,22 +427,29 @@ impl ZmqPubSubExecutor {
                 Ok(()) => {
                     tracing::debug!(
                         "Successfully updated step {} state to '{}' via StateManager",
-                        step_id, status
+                        step_id,
+                        status
                     );
                 }
                 Err(e) => {
                     tracing::error!(
                         "Failed to update step {} state to '{}': {}",
-                        step_id, status, e
+                        step_id,
+                        status,
+                        e
                     );
                 }
             }
 
             // Save partial result to audit ledger
-            if let Err(e) = Self::save_partial_result_to_audit_ledger(pool, &batch_id, *step_id, &message).await {
+            if let Err(e) =
+                Self::save_partial_result_to_audit_ledger(pool, &batch_id, *step_id, &message).await
+            {
                 tracing::error!(
                     "Failed to save partial result to audit ledger for step {} in batch {}: {}",
-                    step_id, batch_id, e
+                    step_id,
+                    batch_id,
+                    e
                 );
             }
 
@@ -388,20 +468,24 @@ impl ZmqPubSubExecutor {
         batch_id: String,
         message: ResultMessage,
         batch_trackers: &Arc<Mutex<HashMap<String, BatchTracker>>>,
-        result_handlers: &Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
+        _result_handlers: &Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
         pool: &PgPool,
     ) {
         if let ResultMessage::BatchCompletion { step_summaries, .. } = &message {
             tracing::info!(
                 "Processing batch completion for batch {} with {} step summaries",
-                batch_id, step_summaries.len()
+                batch_id,
+                step_summaries.len()
             );
 
             // Save batch completion to audit ledger
-            if let Err(e) = Self::save_batch_completion_to_audit_ledger(pool, &batch_id, &message).await {
+            if let Err(e) =
+                Self::save_batch_completion_to_audit_ledger(pool, &batch_id, &message).await
+            {
                 tracing::error!(
                     "Failed to save batch completion to audit ledger for batch {}: {}",
-                    batch_id, e
+                    batch_id,
+                    e
                 );
             }
 
@@ -409,9 +493,9 @@ impl ZmqPubSubExecutor {
             if let Some(mut tracker) = trackers.remove(&batch_id) {
                 // Phase 2.2 - Reconciliation logic: Compare step_summaries with tracked partial results
                 Self::perform_batch_reconciliation(&batch_id, step_summaries, &tracker).await;
-                
+
                 tracker.batch_complete = true;
-                
+
                 // Batch completion tracked and reconciled - ready for final processing
                 tracing::info!("Batch {} marked as complete", batch_id);
             } else {
@@ -427,19 +511,26 @@ impl ZmqPubSubExecutor {
         result_handlers: &Arc<Mutex<HashMap<String, oneshot::Sender<StepBatchResponse>>>>,
     ) {
         let mut handlers = result_handlers.lock().await;
-        
+
         if let Some(sender) = handlers.remove(&batch_id) {
             // Send the response to the waiting caller
-            if let Err(_) = sender.send(response) {
-                tracing::warn!("Failed to send result to waiting handler for batch {}", batch_id);
+            if sender.send(response).is_err() {
+                tracing::warn!(
+                    "Failed to send result to waiting handler for batch {}",
+                    batch_id
+                );
             }
         } else {
             tracing::warn!("Received results for unknown batch: {}", batch_id);
         }
     }
-    
+
     /// Publish step batch to ZeroMQ with fire-and-forget semantics
-    async fn publish_batch(&self, steps: Vec<StepExecutionRequest>, step_context: Option<&StepExecutionContext>) -> Result<String, OrchestrationError> {
+    async fn publish_batch(
+        &self,
+        steps: Vec<StepExecutionRequest>,
+        step_context: Option<&StepExecutionContext>,
+    ) -> Result<String, OrchestrationError> {
         let batch_uuid = StepExecutionBatch::generate_batch_uuid();
         let batch_id = format!(
             "batch_{}_{}",
@@ -449,7 +540,7 @@ impl ZmqPubSubExecutor {
                 .unwrap_or_default()
                 .as_secs()
         );
-        
+
         // Get step_id for error context - use from context if available, otherwise from first step
         let error_step_id = step_context
             .map(|ctx| ctx.step_id)
@@ -457,49 +548,73 @@ impl ZmqPubSubExecutor {
             .unwrap_or(0);
 
         // Create database records before publishing to ZeroMQ
-        let database_batch_id = self.create_batch_with_database_records(&batch_id, &batch_uuid, &steps, step_context).await
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
-                step_id: error_step_id,
-                reason: format!("Failed to create batch database records: {}", e),
-                error_code: Some("BATCH_DATABASE_CREATE_FAILED".to_string()),
-            }))?;
+        let database_batch_id = self
+            .create_batch_with_database_records(&batch_id, &batch_uuid, &steps, step_context)
+            .await
+            .map_err(|e| {
+                OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+                    step_id: error_step_id,
+                    reason: format!("Failed to create batch database records: {e}"),
+                    error_code: Some("BATCH_DATABASE_CREATE_FAILED".to_string()),
+                })
+            })?;
 
         let batch = StepBatchRequest::new(batch_id.clone(), steps);
 
-        let request_json = serde_json::to_string(&batch)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+        let request_json = serde_json::to_string(&batch).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: error_step_id,
-                reason: format!("Failed to serialize step batch: {}", e),
+                reason: format!("Failed to serialize step batch: {e}"),
                 error_code: Some("ZMQ_SERIALIZATION_FAILED".to_string()),
-            }))?;
-        
+            })
+        })?;
+
         // Publish with "steps" topic
-        let topic_msg = format!("steps {}", request_json);
-        self.pub_socket.send(&topic_msg, 0)
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+        let topic_msg = format!("steps {request_json}");
+        self.pub_socket.send(&topic_msg, 0).map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: error_step_id,
-                reason: format!("Failed to publish step batch to ZeroMQ: {}", e),
+                reason: format!("Failed to publish step batch to ZeroMQ: {e}"),
                 error_code: Some("ZMQ_PUBLISH_FAILED".to_string()),
-            }))?;
-        
+            })
+        })?;
+
         // Update batch state to 'published' after successful ZeroMQ publishing
-        self.update_batch_state(database_batch_id, "created", "published", "zmq_publish_success").await
-            .map_err(|e| OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
+        self.update_batch_state(
+            database_batch_id,
+            "created",
+            "published",
+            "zmq_publish_success",
+        )
+        .await
+        .map_err(|e| {
+            OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                 step_id: error_step_id,
-                reason: format!("Failed to update batch state to published: {}", e),
+                reason: format!("Failed to update batch state to published: {e}"),
                 error_code: Some("BATCH_STATE_UPDATE_FAILED".to_string()),
-            }))?;
-        
-        tracing::debug!("Published step batch {} with {} steps (database_batch_id: {})", batch_id, batch.steps.len(), database_batch_id);
-        
+            })
+        })?;
+
+        tracing::debug!(
+            "Published step batch {} with {} steps (database_batch_id: {})",
+            batch_id,
+            batch.steps.len(),
+            database_batch_id
+        );
+
         Ok(batch_id)
     }
-    
-    
+
     /// Convert orchestration context to ZeroMQ step execution request
-    async fn build_step_request(&self, context: &StepExecutionContext, handler_class: &str) -> Result<StepExecutionRequest, OrchestrationError> {
+    async fn build_step_request(
+        &self,
+        context: &StepExecutionContext,
+        handler_class: &str,
+    ) -> Result<StepExecutionRequest, OrchestrationError> {
         // Extract previous step results from the previous_steps field with proper step names
-        let previous_results = self.extract_previous_step_results_with_names(context).await?;
+        let previous_results = self
+            .extract_previous_step_results_with_names(context)
+            .await?;
 
         Ok(StepExecutionRequest::new(
             context.step_id,
@@ -514,32 +629,38 @@ impl ZmqPubSubExecutor {
         ))
     }
 
-    
     /// Extract previous step results with proper step names from database
-    async fn extract_previous_step_results_with_names(&self, context: &StepExecutionContext) -> Result<HashMap<String, serde_json::Value>, OrchestrationError> {
+    async fn extract_previous_step_results_with_names(
+        &self,
+        context: &StepExecutionContext,
+    ) -> Result<HashMap<String, serde_json::Value>, OrchestrationError> {
         let mut previous_results = HashMap::new();
-        
+
         if context.previous_steps.is_empty() {
             return Ok(previous_results);
         }
-        
+
         // Get step names from database for meaningful keys
-        let step_names = self.resolve_step_names(&context.previous_steps)
+        let step_names = self
+            .resolve_step_names(&context.previous_steps)
             .await
-            .map_err(|e| OrchestrationError::ExecutionError(
-                crate::orchestration::errors::ExecutionError::StepExecutionFailed {
-                    step_id: context.step_id,
-                    reason: format!("Failed to resolve step names: {}", e),
-                    error_code: Some("STEP_NAME_RESOLUTION_FAILED".to_string()),
-                }
-            ))?;
-        
+            .map_err(|e| {
+                OrchestrationError::ExecutionError(
+                    crate::orchestration::errors::ExecutionError::StepExecutionFailed {
+                        step_id: context.step_id,
+                        reason: format!("Failed to resolve step names: {e}"),
+                        error_code: Some("STEP_NAME_RESOLUTION_FAILED".to_string()),
+                    },
+                )
+            })?;
+
         for previous_step in &context.previous_steps {
             // Use the resolved step name or fallback to generic ID
-            let step_name = step_names.get(&previous_step.workflow_step_id)
+            let step_name = step_names
+                .get(&previous_step.workflow_step_id)
                 .cloned()
                 .unwrap_or_else(|| format!("step_{}", previous_step.workflow_step_id));
-            
+
             // Extract the results from the WorkflowStep if available
             if let Some(results) = &previous_step.results {
                 previous_results.insert(step_name, results.clone());
@@ -548,32 +669,33 @@ impl ZmqPubSubExecutor {
                 previous_results.insert(step_name, serde_json::Value::Null);
             }
         }
-        
+
         tracing::debug!(
             "Extracted {} previous step results with names for step {} in task {}",
             previous_results.len(),
             context.step_id,
             context.task_id
         );
-        
+
         Ok(previous_results)
     }
-    
+
     /// Resolve step names from database for better result keys
-    /// 
+    ///
     /// This method would look up the actual step names from the tasker_named_steps table
     /// to provide meaningful keys in the previous_results HashMap instead of generic
     /// step_N identifiers. This is important for handlers that need to access specific
     /// previous step outputs by name.
-    async fn resolve_step_names(&self, workflow_steps: &[crate::models::WorkflowStep]) -> Result<HashMap<i64, String>, sqlx::Error> {
+    async fn resolve_step_names(
+        &self,
+        workflow_steps: &[crate::models::WorkflowStep],
+    ) -> Result<HashMap<i64, String>, sqlx::Error> {
         if workflow_steps.is_empty() {
             return Ok(HashMap::new());
         }
-        
-        let named_step_ids: Vec<i32> = workflow_steps.iter()
-            .map(|ws| ws.named_step_id)
-            .collect();
-            
+
+        let named_step_ids: Vec<i32> = workflow_steps.iter().map(|ws| ws.named_step_id).collect();
+
         let name_mappings = sqlx::query!(
             r#"
             SELECT named_step_id, name 
@@ -584,20 +706,26 @@ impl ZmqPubSubExecutor {
         )
         .fetch_all(&self.pool)
         .await?;
-        
+
         let mut step_names = HashMap::new();
         for workflow_step in workflow_steps {
-            if let Some(named_step) = name_mappings.iter().find(|ns| ns.named_step_id == workflow_step.named_step_id) {
+            if let Some(named_step) = name_mappings
+                .iter()
+                .find(|ns| ns.named_step_id == workflow_step.named_step_id)
+            {
                 step_names.insert(workflow_step.workflow_step_id, named_step.name.clone());
             } else {
                 // Fallback to generic name if not found
-                step_names.insert(workflow_step.workflow_step_id, format!("step_{}", workflow_step.workflow_step_id));
+                step_names.insert(
+                    workflow_step.workflow_step_id,
+                    format!("step_{}", workflow_step.workflow_step_id),
+                );
             }
         }
-        
+
         Ok(step_names)
     }
-    
+
     /// Create database records for batch execution tracking
     async fn create_batch_with_database_records(
         &self,
@@ -607,14 +735,16 @@ impl ZmqPubSubExecutor {
         step_context: Option<&StepExecutionContext>,
     ) -> Result<i64, sqlx::Error> {
         // Get task_id and handler_class from first step or context
-        let task_id = step_context.map(|ctx| ctx.task_id)
+        let task_id = step_context
+            .map(|ctx| ctx.task_id)
             .or_else(|| steps.first().map(|s| s.task_id))
             .ok_or_else(|| sqlx::Error::RowNotFound)?;
-            
-        let handler_class = steps.first()
+
+        let handler_class = steps
+            .first()
             .map(|s| s.handler_class.clone())
             .unwrap_or_else(|| UNKNOWN_HANDLER_CLASS.to_string());
-        
+
         // Create main batch record
         let new_batch = NewStepExecutionBatch {
             task_id,
@@ -629,10 +759,10 @@ impl ZmqPubSubExecutor {
                 "created_by": "ZmqPubSubExecutor"
             })),
         };
-        
+
         let batch_record = StepExecutionBatch::create(&self.pool, new_batch).await?;
         let database_batch_id = batch_record.batch_id;
-        
+
         // Create HABTM join table entries for each step
         let mut batch_steps = Vec::new();
         for (index, step) in steps.iter().enumerate() {
@@ -646,13 +776,13 @@ impl ZmqPubSubExecutor {
                     "zeromq_batch_id": batch_id
                 })),
             };
-            
+
             batch_steps.push(new_batch_step);
         }
-        
+
         // Use batch creation for better performance
         StepExecutionBatchStep::create_batch(&self.pool, batch_steps).await?;
-        
+
         // Create initial state transition: created
         let initial_transition = NewStepExecutionBatchTransition {
             batch_id: database_batch_id,
@@ -665,17 +795,19 @@ impl ZmqPubSubExecutor {
             })),
             sort_key: 1,
         };
-        
+
         StepExecutionBatchTransition::create(&self.pool, initial_transition).await?;
-        
+
         tracing::debug!(
             "Created batch database records: batch_id={}, uuid={}, steps={}",
-            database_batch_id, batch_uuid, steps.len()
+            database_batch_id,
+            batch_uuid,
+            steps.len()
         );
-        
+
         Ok(database_batch_id)
     }
-    
+
     /// Update batch state with transition tracking
     async fn update_batch_state(
         &self,
@@ -691,7 +823,7 @@ impl ZmqPubSubExecutor {
         )
         .fetch_one(&self.pool)
         .await?;
-        
+
         let new_transition = NewStepExecutionBatchTransition {
             batch_id,
             from_state: Some(from_state.to_string()),
@@ -703,17 +835,20 @@ impl ZmqPubSubExecutor {
             })),
             sort_key: current_max_sort_key.max_sort_key.unwrap_or(0) + 1,
         };
-        
+
         StepExecutionBatchTransition::create(&self.pool, new_transition).await?;
-        
+
         tracing::debug!(
             "Updated batch {} state: {} -> {} via {}",
-            batch_id, from_state, to_state, event_name
+            batch_id,
+            from_state,
+            to_state,
+            event_name
         );
-        
+
         Ok(())
     }
-    
+
     /// Save partial result to audit ledger for forensic analysis
     async fn save_partial_result_to_audit_ledger(
         pool: &PgPool,
@@ -734,7 +869,7 @@ impl ZmqPubSubExecutor {
         )
         .fetch_optional(pool)
         .await?;
-        
+
         let batch_step_id = match batch_step {
             Some(record) => record.batch_step_id,
             None => {
@@ -745,14 +880,15 @@ impl ZmqPubSubExecutor {
                 return Ok(());
             }
         };
-        
-        if let ResultMessage::PartialResult { 
-            worker_id, 
-            sequence, 
-            status, 
-            execution_time_ms, 
-            .. 
-        } = message {
+
+        if let ResultMessage::PartialResult {
+            worker_id,
+            sequence,
+            status,
+            execution_time_ms,
+            ..
+        } = message
+        {
             let new_result = NewStepExecutionBatchReceivedResult {
                 batch_step_id,
                 message_type: "partial_result".to_string(),
@@ -765,18 +901,21 @@ impl ZmqPubSubExecutor {
                 processed_at: Some(chrono::Utc::now().naive_utc()),
                 processing_errors: None,
             };
-            
+
             StepExecutionBatchReceivedResult::create(pool, new_result).await?;
-            
+
             tracing::debug!(
                 "Saved partial result to audit ledger: batch={} step={} worker={} seq={}",
-                batch_id, step_id, worker_id, sequence
+                batch_id,
+                step_id,
+                worker_id,
+                sequence
             );
         }
-        
+
         Ok(())
     }
-    
+
     /// Save batch completion to audit ledger for reconciliation analysis
     async fn save_batch_completion_to_audit_ledger(
         pool: &PgPool,
@@ -798,7 +937,7 @@ impl ZmqPubSubExecutor {
         )
         .fetch_optional(pool)
         .await?;
-        
+
         let batch_step_id = match batch_steps {
             Some(record) => record.batch_step_id,
             None => {
@@ -809,43 +948,52 @@ impl ZmqPubSubExecutor {
                 return Ok(());
             }
         };
-        
-        if let ResultMessage::BatchCompletion { 
+
+        if let ResultMessage::BatchCompletion {
             total_steps,
             completed_steps,
             failed_steps,
             step_summaries,
-            .. 
-        } = message {
+            ..
+        } = message
+        {
             let new_result = NewStepExecutionBatchReceivedResult {
                 batch_step_id,
                 message_type: "batch_completion".to_string(),
                 worker_id: Some(BATCH_ORCHESTRATOR_WORKER_ID.to_string()),
                 sequence_number: None, // Batch completion doesn't have sequence
-                status: None, // Batch completion has aggregate status
+                status: None,          // Batch completion has aggregate status
                 execution_time_ms: {
-                    let total: i64 = step_summaries.iter()
+                    let total: i64 = step_summaries
+                        .iter()
                         .filter_map(|s| s.execution_time_ms)
                         .sum();
-                    if total > 0 { Some(total) } else { None }
+                    if total > 0 {
+                        Some(total)
+                    } else {
+                        None
+                    }
                 },
                 raw_message_json: serde_json::to_value(message)
                     .unwrap_or_else(|_| serde_json::json!({"error": "serialization_failed"})),
                 processed_at: Some(chrono::Utc::now().naive_utc()),
                 processing_errors: None,
             };
-            
+
             StepExecutionBatchReceivedResult::create(pool, new_result).await?;
-            
+
             tracing::debug!(
                 "Saved batch completion to audit ledger: batch={} total={} completed={} failed={}",
-                batch_id, total_steps, completed_steps, failed_steps
+                batch_id,
+                total_steps,
+                completed_steps,
+                failed_steps
             );
         }
-        
+
         Ok(())
     }
-    
+
     /// Perform reconciliation between batch completion step summaries and tracked partial results
     async fn perform_batch_reconciliation(
         batch_id: &str,
@@ -853,26 +1001,34 @@ impl ZmqPubSubExecutor {
         tracker: &BatchTracker,
     ) {
         let mut discrepancies_found = 0;
-        
+
         tracing::debug!(
             "Starting reconciliation for batch {} with {} step summaries and {} partial results",
-            batch_id, step_summaries.len(), tracker.partial_results.len()
+            batch_id,
+            step_summaries.len(),
+            tracker.partial_results.len()
         );
-        
+
         for summary in step_summaries {
             let step_id = summary.step_id;
-            
+
             match tracker.partial_results.get(&step_id) {
                 Some(partial_result) => {
                     // Compare partial result with summary data
                     let partial_status = match partial_result {
-                        crate::execution::message_protocols::ResultMessage::PartialResult { status, .. } => status,
+                        crate::execution::message_protocols::ResultMessage::PartialResult {
+                            status,
+                            ..
+                        } => status,
                         _ => {
-                            tracing::warn!("Found non-partial result in partial_results for step {}", step_id);
+                            tracing::warn!(
+                                "Found non-partial result in partial_results for step {}",
+                                step_id
+                            );
                             continue;
                         }
                     };
-                    
+
                     if partial_status != &summary.final_status {
                         discrepancies_found += 1;
                         tracing::warn!(
@@ -882,7 +1038,8 @@ impl ZmqPubSubExecutor {
                     } else {
                         tracing::debug!(
                             "Step {} status reconciled successfully: '{}'",
-                            step_id, summary.final_status
+                            step_id,
+                            summary.final_status
                         );
                     }
                 }
@@ -890,46 +1047,63 @@ impl ZmqPubSubExecutor {
                     discrepancies_found += 1;
                     tracing::warn!(
                         "Missing partial result for step {} in batch {} (summary status: '{}')",
-                        step_id, batch_id, summary.final_status
+                        step_id,
+                        batch_id,
+                        summary.final_status
                     );
                 }
             }
         }
-        
+
         // Check for partial results without corresponding summaries
-        for (step_id, _) in &tracker.partial_results {
+        for step_id in tracker.partial_results.keys() {
             if !step_summaries.iter().any(|s| s.step_id == *step_id) {
                 discrepancies_found += 1;
                 tracing::warn!(
                     "Found partial result for step {} without corresponding summary in batch {}",
-                    step_id, batch_id
+                    step_id,
+                    batch_id
                 );
             }
         }
-        
+
         if discrepancies_found == 0 {
-            tracing::info!("Batch {} reconciliation successful - all {} steps consistent", batch_id, step_summaries.len());
+            tracing::info!(
+                "Batch {} reconciliation successful - all {} steps consistent",
+                batch_id,
+                step_summaries.len()
+            );
         } else {
             tracing::error!(
                 "Batch {} reconciliation found {} discrepancies out of {} steps",
-                batch_id, discrepancies_found, step_summaries.len()
+                batch_id,
+                discrepancies_found,
+                step_summaries.len()
             );
-            
+
             // Reconciliation discrepancies logged - consider implementing alerts in production
         }
     }
-    
-    /// Convert ZeroMQ result to orchestration StepResult
-    fn convert_result(&self, zmq_result: StepExecutionResult) -> Result<StepResult, OrchestrationError> {
+
+    /// Convert ZMQ step result to orchestration StepResult - will be used for result processing
+    #[allow(dead_code)]
+    fn convert_result(
+        &self,
+        zmq_result: StepExecutionResult,
+    ) -> Result<StepResult, OrchestrationError> {
         let status = match zmq_result.status.as_str() {
             "completed" => StepStatus::Completed,
             "failed" => StepStatus::Failed,
             "error" => StepStatus::Failed, // Map error to failed for now
-            _ => return Err(OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
-                step_id: zmq_result.step_id,
-                reason: format!("Unknown step result status: {}", zmq_result.status),
-                error_code: Some("UNKNOWN_STATUS".to_string()),
-            })),
+            _ => {
+                return Err(OrchestrationError::ExecutionError(
+                    ExecutionError::StepExecutionFailed {
+                        step_id: zmq_result.step_id,
+                        reason: format!("Unknown step result status: {}", zmq_result.status),
+                        error_code: Some("UNKNOWN_STATUS".to_string()),
+                    },
+                ))
+            }
         };
 
         let error_message = zmq_result.error.as_ref().map(|e| e.message.clone());
@@ -960,7 +1134,7 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
             .await
             .map_err(|e| OrchestrationError::TaskExecutionFailed {
                 task_id,
-                reason: format!("Database error loading task: {}", e),
+                reason: format!("Database error loading task: {e}"),
                 error_code: Some("DATABASE_ERROR".to_string()),
             })?
             .ok_or_else(|| OrchestrationError::TaskExecutionFailed {
@@ -974,44 +1148,65 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
             .await
             .map_err(|e| OrchestrationError::TaskExecutionFailed {
                 task_id,
-                reason: format!("Error loading task execution context: {}", e),
+                reason: format!("Error loading task execution context: {e}"),
                 error_code: Some("CONTEXT_LOAD_ERROR".to_string()),
             })?;
 
         // Build metadata from multiple sources
         let mut metadata = HashMap::new();
-        
+
         // Add basic task metadata
         if let Some(initiator) = task.initiator {
-            metadata.insert("initiator".to_string(), serde_json::Value::String(initiator));
+            metadata.insert(
+                "initiator".to_string(),
+                serde_json::Value::String(initiator),
+            );
         }
         if let Some(source_system) = task.source_system {
-            metadata.insert("source_system".to_string(), serde_json::Value::String(source_system));
+            metadata.insert(
+                "source_system".to_string(),
+                serde_json::Value::String(source_system),
+            );
         }
         if let Some(reason) = task.reason {
             metadata.insert("reason".to_string(), serde_json::Value::String(reason));
         }
-        
+
         // Add tags from JSONB field
-        if let Some(tags) = task.tags {
-            if let serde_json::Value::Object(tag_map) = tags {
-                for (key, value) in tag_map {
-                    metadata.insert(format!("tag_{}", key), value);
-                }
+        if let Some(serde_json::Value::Object(tag_map)) = task.tags {
+            for (key, value) in tag_map {
+                metadata.insert(format!("tag_{key}"), value);
             }
         }
-        
+
         // Add execution context metadata if available
         if let Some(ctx) = execution_context {
-            metadata.insert("total_steps".to_string(), serde_json::Value::Number(ctx.total_steps.into()));
-            metadata.insert("ready_steps".to_string(), serde_json::Value::Number(ctx.ready_steps.into()));
-            metadata.insert("completed_steps".to_string(), serde_json::Value::Number(ctx.completed_steps.into()));
-            metadata.insert("execution_status".to_string(), serde_json::Value::String(ctx.execution_status));
-            metadata.insert("health_status".to_string(), serde_json::Value::String(ctx.health_status));
+            metadata.insert(
+                "total_steps".to_string(),
+                serde_json::Value::Number(ctx.total_steps.into()),
+            );
+            metadata.insert(
+                "ready_steps".to_string(),
+                serde_json::Value::Number(ctx.ready_steps.into()),
+            );
+            metadata.insert(
+                "completed_steps".to_string(),
+                serde_json::Value::Number(ctx.completed_steps.into()),
+            );
+            metadata.insert(
+                "execution_status".to_string(),
+                serde_json::Value::String(ctx.execution_status),
+            );
+            metadata.insert(
+                "health_status".to_string(),
+                serde_json::Value::String(ctx.health_status),
+            );
         }
 
         // Extract context data from JSONB field
-        let data = task.context.unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        let data = task
+            .context
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
         Ok(TaskContext {
             task_id,
@@ -1020,7 +1215,11 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
         })
     }
 
-    async fn enqueue_task(&self, _task_id: i64, _delay: Option<Duration>) -> Result<(), OrchestrationError> {
+    async fn enqueue_task(
+        &self,
+        _task_id: i64,
+        _delay: Option<Duration>,
+    ) -> Result<(), OrchestrationError> {
         // ZeroMQ executor doesn't handle task enqueueing directly
         // This would be delegated to another system
         Ok(())
@@ -1028,13 +1227,20 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
 
     async fn execute_step_batch(
         &self,
-        contexts: Vec<(&StepExecutionContext, &str, &HashMap<String, serde_json::Value>)>,
+        contexts: Vec<(
+            &StepExecutionContext,
+            &str,
+            &HashMap<String, serde_json::Value>,
+        )>,
     ) -> Result<Vec<StepResult>, OrchestrationError> {
         if contexts.is_empty() {
             return Ok(Vec::new());
         }
 
-        tracing::info!("Publishing batch of {} steps to ZeroMQ (fire-and-forget)", contexts.len());
+        tracing::info!(
+            "Publishing batch of {} steps to ZeroMQ (fire-and-forget)",
+            contexts.len()
+        );
 
         // Build step requests for all contexts in the batch
         let mut step_requests = Vec::new();
@@ -1044,7 +1250,9 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
         }
 
         // Publish entire batch as single ZeroMQ message (fire-and-forget)
-        let _batch_id = self.publish_batch(step_requests, contexts.first().map(|(ctx, _, _)| *ctx)).await?;
+        let _batch_id = self
+            .publish_batch(step_requests, contexts.first().map(|(ctx, _, _)| *ctx))
+            .await?;
 
         // Create "in_progress" results for all steps since publish succeeded
         let mut results = Vec::new();
@@ -1061,40 +1269,15 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
             });
         }
 
-        tracing::info!("Successfully published {} steps to ZeroMQ, marked as in-progress", results.len());
+        tracing::info!(
+            "Successfully published {} steps to ZeroMQ, marked as in-progress",
+            results.len()
+        );
         Ok(results)
     }
 
     fn supports_batch_execution(&self) -> bool {
         true // ZeroMQ executor supports native batching
-    }
-
-    async fn execute_step_with_handler(
-        &self,
-        context: &StepExecutionContext,
-        handler_class: &str,
-        _handler_config: &HashMap<String, serde_json::Value>,
-    ) -> Result<StepResult, OrchestrationError> {
-        tracing::info!("Publishing single step {} to ZeroMQ (fire-and-forget)", context.step_id);
-
-        // Build step request from context with real handler class
-        let step_request = self.build_step_request(context, handler_class).await?;
-        
-        // Publish step batch (fire-and-forget)  
-        let _batch_id = self.publish_batch(vec![step_request], Some(context)).await?;
-        
-        // Return in-progress result since publish succeeded
-        // The actual result will come from the background result listener
-        Ok(StepResult {
-            step_id: context.step_id,
-            status: StepStatus::InProgress, // Mark as in-progress after successful publish
-            output: serde_json::Value::Null, // No output yet - will come from result listener
-            execution_duration: Duration::from_millis(0), // Publish duration is negligible
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
     }
 }
 
@@ -1105,9 +1288,9 @@ unsafe impl Sync for ZmqPubSubExecutor {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestration::step_handler::StepExecutionContext;
+    // use crate::orchestration::step_handler::StepExecutionContext; // Unused import
     use std::collections::HashMap;
-    
+
     #[tokio::test]
     async fn test_message_protocol_serialization() {
         // This test doesn't actually need a ZmqPubSubExecutor, just tests the message protocols
@@ -1122,21 +1305,18 @@ mod tests {
             3,
             30000,
         );
-        
+
         let batch = StepBatchRequest::new("test_batch".to_string(), vec![step_request]);
-        
+
         // Test serialization
         let json = serde_json::to_string(&batch).expect("Should serialize");
         assert!(json.contains("test_batch"));
         assert!(json.contains("test_step"));
-        
+
         // Test deserialization would work
-        let result = StepExecutionResult::success(
-            123,
-            serde_json::json!({"completed": true}),
-            1500,
-        );
-        
+        let result =
+            StepExecutionResult::success(123, serde_json::json!({"completed": true}), 1500);
+
         let response = StepBatchResponse::new("test_batch".to_string(), vec![result]);
         let response_json = serde_json::to_string(&response).expect("Should serialize");
         assert!(response_json.contains("completed"));

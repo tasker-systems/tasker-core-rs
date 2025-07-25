@@ -2,7 +2,7 @@
 //!
 //! Magnus-wrapped Ruby class for Task model access from Ruby code.
 
-use magnus::{prelude::*, Error, Ruby, RHash, TryConvert};
+use magnus::{prelude::*, Error, RHash, Ruby, TryConvert};
 use tasker_core::models::core::task::Task;
 
 /// Ruby wrapper for Task model data
@@ -34,7 +34,10 @@ impl RubyTask {
             task_id: task.task_id,
             named_task_id: task.named_task_id,
             complete: task.complete,
-            requested_at: task.requested_at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string(),
+            requested_at: task
+                .requested_at
+                .format("%Y-%m-%dT%H:%M:%S%.6fZ")
+                .to_string(),
             initiator: task.initiator.clone(),
             source_system: task.source_system.clone(),
             reason: task.reason.clone(),
@@ -87,10 +90,12 @@ impl RubyTask {
         match &self.bypass_steps {
             Some(value) => crate::context::json_to_ruby_value(value.clone()),
             None => {
-                let ruby = Ruby::get().map_err(|e| Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Ruby unavailable: {}", e)
-                ))?;
+                let ruby = Ruby::get().map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Ruby unavailable: {e}"),
+                    )
+                })?;
                 Ok(ruby.qnil().as_value())
             }
         }
@@ -101,10 +106,12 @@ impl RubyTask {
         match &self.tags {
             Some(value) => crate::context::json_to_ruby_value(value.clone()),
             None => {
-                let ruby = Ruby::get().map_err(|e| Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Ruby unavailable: {}", e)
-                ))?;
+                let ruby = Ruby::get().map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Ruby unavailable: {e}"),
+                    )
+                })?;
                 Ok(ruby.qnil().as_value())
             }
         }
@@ -112,19 +119,23 @@ impl RubyTask {
 
     /// Get context as Ruby hash (for Ruby handler compatibility)
     pub fn context(&self) -> Result<RHash, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
 
         match &self.context {
             Some(value) => {
                 // Convert JSON to Ruby hash
                 let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
-                TryConvert::try_convert(ruby_value).map_err(|e| Error::new(
-                    magnus::exception::type_error(),
-                    format!("Failed to convert context to hash: {}", e)
-                ))
+                TryConvert::try_convert(ruby_value).map_err(|e| {
+                    Error::new(
+                        magnus::exception::type_error(),
+                        format!("Failed to convert context to hash: {e}"),
+                    )
+                })
             }
             None => {
                 // Return empty hash if no context
@@ -148,12 +159,14 @@ impl RubyTask {
         self.updated_at.clone()
     }
 
-        /// Get task as Ruby hash
+    /// Get task as Ruby hash
     pub fn to_h(&self) -> Result<RHash, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
 
         let hash = ruby.hash_new();
         hash.aset("task_id", self.task_id)?;

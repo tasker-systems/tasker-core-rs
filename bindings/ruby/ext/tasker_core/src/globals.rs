@@ -8,11 +8,11 @@
 //! AFTER: ~60 lines of thin Ruby FFI wrappers
 //! SAVINGS: 700+ lines of duplicate code eliminated
 
+use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::debug;
 use tasker_core::events::EventPublisher;
 use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
-use sqlx::PgPool;
+use tracing::debug;
 
 // ===== RUBY FFI THIN WRAPPERS OVER SHARED COMPONENTS =====
 //
@@ -29,21 +29,29 @@ pub type OrchestrationSystem = tasker_core::ffi::shared::orchestration_system::O
 /// MIGRATED: Now delegates to SharedOrchestrationHandle
 pub fn get_global_orchestration_system() -> Arc<OrchestrationSystem> {
     debug!("🔧 Ruby FFI: get_global_orchestration_system() - delegating to shared handle");
-    SharedOrchestrationHandle::get_global().orchestration_system().clone()
+    SharedOrchestrationHandle::get_global()
+        .orchestration_system()
+        .clone()
 }
 
 /// Get the global database pool through the shared orchestration system
 /// MIGRATED: Now delegates to SharedOrchestrationHandle
 pub fn get_global_database_pool() -> PgPool {
     debug!("🔧 Ruby FFI: get_global_database_pool() - delegating to shared handle");
-    SharedOrchestrationHandle::get_global().orchestration_system().database_pool().clone()
+    SharedOrchestrationHandle::get_global()
+        .orchestration_system()
+        .database_pool()
+        .clone()
 }
 
 /// Get the global event publisher through the shared orchestration system
 /// MIGRATED: Now delegates to SharedOrchestrationHandle
 pub fn get_global_event_publisher() -> EventPublisher {
     debug!("🔧 Ruby FFI: get_global_event_publisher() - delegating to shared handle");
-    SharedOrchestrationHandle::get_global().orchestration_system().event_publisher.clone()
+    SharedOrchestrationHandle::get_global()
+        .orchestration_system()
+        .event_publisher
+        .clone()
 }
 
 /// Execute async operation using shared execute_async

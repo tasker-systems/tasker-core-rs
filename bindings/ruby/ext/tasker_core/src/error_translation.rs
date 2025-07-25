@@ -21,72 +21,104 @@ use tracing::debug;
 /// **MIGRATED**: Convert SharedFFIError to appropriate Ruby exceptions
 /// This is the primary error conversion function for shared error types
 pub fn shared_error_to_ruby(error: SharedFFIError) -> Error {
-    debug!("🔧 Ruby FFI: Converting SharedFFIError to Ruby exception: {:?}", error);
-    
+    debug!(
+        "🔧 Ruby FFI: Converting SharedFFIError to Ruby exception: {:?}",
+        error
+    );
+
     match error {
-        SharedFFIError::OrchestrationInitializationFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Orchestration initialization failed: {}", msg))
-        },
-        SharedFFIError::HandleValidationFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Handle validation failed: {}", msg))
-        },
-        SharedFFIError::DatabaseError(msg) => {
-            database_error(msg)
-        },
-        SharedFFIError::TaskCreationFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Task creation failed: {}", msg))
-        },
-        SharedFFIError::StepCreationFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Step creation failed: {}", msg))
-        },
-        SharedFFIError::HandlerRegistrationFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Handler registration failed: {}", msg))
-        },
-        SharedFFIError::HandlerLookupFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Handler lookup failed: {}", msg))
-        },
-        SharedFFIError::EventPublishingFailed(msg) => {
-            Error::new(exception::standard_error(), format!("Event publishing failed: {}", msg))
-        },
-        SharedFFIError::TypeConversionFailed(msg) => {
-            Error::new(exception::type_error(), format!("Type conversion failed: {}", msg))
-        },
-        SharedFFIError::InvalidInput(msg) => {
-            validation_error(msg)
-        },
-        SharedFFIError::Internal(msg) => {
-            Error::new(exception::standard_error(), format!("Internal error: {}", msg))
-        },
+        SharedFFIError::OrchestrationInitializationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Orchestration initialization failed: {msg}"),
+        ),
+        SharedFFIError::HandleValidationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Handle validation failed: {msg}"),
+        ),
+        SharedFFIError::DatabaseError(msg) => database_error(msg),
+        SharedFFIError::TaskCreationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Task creation failed: {msg}"),
+        ),
+        SharedFFIError::StepCreationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Step creation failed: {msg}"),
+        ),
+        SharedFFIError::HandlerRegistrationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Handler registration failed: {msg}"),
+        ),
+        SharedFFIError::HandlerLookupFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Handler lookup failed: {msg}"),
+        ),
+        SharedFFIError::EventPublishingFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Event publishing failed: {msg}"),
+        ),
+        SharedFFIError::TypeConversionFailed(msg) => Error::new(
+            exception::type_error(),
+            format!("Type conversion failed: {msg}"),
+        ),
+        SharedFFIError::InvalidInput(msg) => validation_error(msg),
+        SharedFFIError::Internal(msg) => Error::new(
+            exception::standard_error(),
+            format!("Internal error: {msg}"),
+        ),
+        SharedFFIError::ZeroMqError(msg) => Error::new(
+            exception::standard_error(),
+            format!("ZeroMQ error: {msg}"),
+        ),
+        SharedFFIError::ZeroMqNotEnabled(msg) => Error::new(
+            exception::standard_error(),
+            format!("ZeroMQ not enabled: {msg}"),
+        ),
+        SharedFFIError::SerializationError(msg) => Error::new(
+            exception::standard_error(),
+            format!("Serialization error: {msg}"),
+        ),
+        SharedFFIError::InvalidBatchData(msg) => validation_error(msg),
     }
 }
 
 /// **MIGRATED**: Translate legacy error types to appropriate Ruby exceptions (delegates to shared types)
 pub fn translate_error(error_message: &str, error_type: &str) -> Error {
-    debug!("🔧 Ruby FFI: Translating legacy error type '{}' to shared error", error_type);
-    
+    debug!(
+        "🔧 Ruby FFI: Translating legacy error type '{}' to shared error",
+        error_type
+    );
+
     let shared_error = match error_type {
         "database" => SharedFFIError::DatabaseError(error_message.to_string()),
         "validation" => SharedFFIError::InvalidInput(error_message.to_string()),
-        "timeout" => SharedFFIError::Internal(format!("Timeout error: {}", error_message)),
-        "ffi" => SharedFFIError::Internal(format!("FFI error: {}", error_message)),
-        "state_transition" => SharedFFIError::Internal(format!("State transition error: {}", error_message)),
+        "timeout" => SharedFFIError::Internal(format!("Timeout error: {error_message}")),
+        "ffi" => SharedFFIError::Internal(format!("FFI error: {error_message}")),
+        "state_transition" => {
+            SharedFFIError::Internal(format!("State transition error: {error_message}"))
+        }
         "task_creation" => SharedFFIError::TaskCreationFailed(error_message.to_string()),
         "step_creation" => SharedFFIError::StepCreationFailed(error_message.to_string()),
-        "handler_registration" => SharedFFIError::HandlerRegistrationFailed(error_message.to_string()),
+        "handler_registration" => {
+            SharedFFIError::HandlerRegistrationFailed(error_message.to_string())
+        }
         "handler_lookup" => SharedFFIError::HandlerLookupFailed(error_message.to_string()),
         "event_publishing" => SharedFFIError::EventPublishingFailed(error_message.to_string()),
         "handle_validation" => SharedFFIError::HandleValidationFailed(error_message.to_string()),
-        "orchestration_init" => SharedFFIError::OrchestrationInitializationFailed(error_message.to_string()),
-        _ => SharedFFIError::Internal(format!("Orchestration error: {}", error_message)),
+        "orchestration_init" => {
+            SharedFFIError::OrchestrationInitializationFailed(error_message.to_string())
+        }
+        _ => SharedFFIError::Internal(format!("Orchestration error: {error_message}")),
     };
-    
+
     shared_error_to_ruby(shared_error)
 }
 
 /// **MIGRATED**: Translate generic Rust errors to Ruby FFI errors (uses shared types)
 pub fn translate_generic_error(rust_error: &dyn std::error::Error) -> Error {
     debug!("🔧 Ruby FFI: Translating generic Rust error to shared error");
-    shared_error_to_ruby(SharedFFIError::Internal(format!("FFI error: {}", rust_error)))
+    shared_error_to_ruby(SharedFFIError::Internal(format!(
+        "FFI error: {rust_error}"
+    )))
 }
 
 /// Create a Ruby validation error
@@ -111,7 +143,7 @@ pub fn database_error(message: String) -> Error {
 }
 
 // ============================================================================
-// STEP HANDLER ERROR CLASSIFICATION (Enhanced with Shared Error Integration)  
+// STEP HANDLER ERROR CLASSIFICATION (Enhanced with Shared Error Integration)
 // ============================================================================
 
 /// **ENHANCED**: Error classification now integrated with SharedFFIError types

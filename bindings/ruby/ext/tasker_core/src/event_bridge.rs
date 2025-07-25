@@ -9,9 +9,9 @@
 //! SAVINGS: 150+ lines of duplicate event code eliminated
 
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
-use magnus::{Error, RModule, Ruby, Value, function, Module};
 use magnus::error::Result as MagnusResult;
 use magnus::value::ReprValue;
+use magnus::{function, Error, Module, RModule, Ruby, Value};
 use tasker_core::ffi::shared::event_bridge::get_global_event_bridge;
 use tasker_core::ffi::shared::types::*;
 use tracing::{debug, info};
@@ -52,9 +52,13 @@ impl RubyEventResult {
     /// Get metadata as Ruby hash
     pub fn metadata(&self) -> MagnusResult<Value> {
         match &self.metadata {
-            Some(meta) => json_to_ruby_value(meta.clone())
-                .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Metadata conversion failed: {}", e))),
-            None => Ok(Ruby::get().unwrap().qnil().as_value())
+            Some(meta) => json_to_ruby_value(meta.clone()).map_err(|e| {
+                Error::new(
+                    Ruby::get().unwrap().exception_runtime_error(),
+                    format!("Metadata conversion failed: {e}"),
+                )
+            }),
+            None => Ok(Ruby::get().unwrap().qnil().as_value()),
         }
     }
 
@@ -82,19 +86,39 @@ pub struct RubyEventStatistics {
 }
 
 impl RubyEventStatistics {
-    pub fn total_events_published(&self) -> u64 { self.total_events_published }
-    pub fn average_events_per_minute(&self) -> f64 { self.average_events_per_minute }
-    pub fn peak_events_per_minute(&self) -> u64 { self.peak_events_per_minute }
-    pub fn callback_success_rate(&self) -> f64 { self.callback_success_rate }
-    pub fn failed_callbacks(&self) -> u64 { self.failed_callbacks }
-    pub fn active_language_bindings(&self) -> Vec<String> { self.active_language_bindings.clone() }
+    pub fn total_events_published(&self) -> u64 {
+        self.total_events_published
+    }
+    pub fn average_events_per_minute(&self) -> f64 {
+        self.average_events_per_minute
+    }
+    pub fn peak_events_per_minute(&self) -> u64 {
+        self.peak_events_per_minute
+    }
+    pub fn callback_success_rate(&self) -> f64 {
+        self.callback_success_rate
+    }
+    pub fn failed_callbacks(&self) -> u64 {
+        self.failed_callbacks
+    }
+    pub fn active_language_bindings(&self) -> Vec<String> {
+        self.active_language_bindings.clone()
+    }
 
     /// Get events by type as Ruby hash
     pub fn events_by_type(&self) -> MagnusResult<Value> {
-        let hash_json = serde_json::to_value(&self.events_by_type)
-            .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Events by type conversion failed: {}", e)))?;
-        json_to_ruby_value(hash_json)
-            .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert to Ruby hash: {}", e)))
+        let hash_json = serde_json::to_value(&self.events_by_type).map_err(|e| {
+            Error::new(
+                Ruby::get().unwrap().exception_runtime_error(),
+                format!("Events by type conversion failed: {e}"),
+            )
+        })?;
+        json_to_ruby_value(hash_json).map_err(|e| {
+            Error::new(
+                Ruby::get().unwrap().exception_runtime_error(),
+                format!("Failed to convert to Ruby hash: {e}"),
+            )
+        })
     }
 
     /// Get overall health status
@@ -119,15 +143,17 @@ pub fn publish_simple_event_optimized(
     event_name: String,
     payload_json: Option<String>,
     source: Option<String>,
-    metadata_json: Option<String>
+    metadata_json: Option<String>,
 ) -> MagnusResult<RubyEventResult> {
     debug!("🚀 OPTIMIZED: publish_simple_event_optimized() - primitives in, objects out");
 
     // Direct parameter usage - no JSON conversion overhead
-    let payload = payload_json.and_then(|json| serde_json::from_str(&json).ok())
+    let payload = payload_json
+        .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let mut metadata = metadata_json.and_then(|json| serde_json::from_str(&json).ok())
+    let mut metadata = metadata_json
+        .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
 
     // Add source to metadata
@@ -144,8 +170,12 @@ pub fn publish_simple_event_optimized(
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let _result = event_bridge.publish_event(shared_event)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Event publishing failed: {}", e)))?;
+    event_bridge.publish_event(shared_event).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Event publishing failed: {e}"),
+        )
+    })?;
 
     // Direct object construction - no JSON round-trip
     Ok(RubyEventResult {
@@ -163,14 +193,16 @@ pub fn publish_orchestration_event_optimized(
     namespace: Option<String>,
     version: Option<String>,
     data_json: Option<String>,
-    context_json: Option<String>
+    context_json: Option<String>,
 ) -> MagnusResult<RubyEventResult> {
     debug!("🚀 OPTIMIZED: publish_orchestration_event_optimized() - primitives in, objects out");
 
-    let data = data_json.and_then(|json| serde_json::from_str(&json).ok())
+    let data = data_json
+        .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let context = context_json.and_then(|json| serde_json::from_str(&json).ok())
+    let context = context_json
+        .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| serde_json::json!({"language": "ruby", "framework": "rails"}));
 
     // Create structured event for shared event bridge
@@ -187,15 +219,23 @@ pub fn publish_orchestration_event_optimized(
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let _result = event_bridge.publish_structured_event(structured_event)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Structured event publishing failed: {}", e)))?;
+    event_bridge
+        .publish_structured_event(structured_event)
+        .map_err(|e| {
+            Error::new(
+                Ruby::get().unwrap().exception_runtime_error(),
+                format!("Structured event publishing failed: {e}"),
+            )
+        })?;
 
     Ok(RubyEventResult {
         status: "published".to_string(),
         event_name: event_type,
         event_id: Some(format!("orch_evt_{}", uuid::Uuid::new_v4())),
         published_at: chrono::Utc::now().to_rfc3339(),
-        metadata: Some(serde_json::json!({"type": "orchestration", "source": "ruby_ffi_optimized"})),
+        metadata: Some(
+            serde_json::json!({"type": "orchestration", "source": "ruby_ffi_optimized"}),
+        ),
     })
 }
 
@@ -205,8 +245,12 @@ pub fn get_event_statistics_optimized() -> MagnusResult<RubyEventStatistics> {
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let stats = event_bridge.get_event_statistics()
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Event statistics failed: {}", e)))?;
+    let stats = event_bridge.get_event_statistics().map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Event statistics failed: {e}"),
+        )
+    })?;
 
     // Direct object construction - no JSON conversion
     Ok(RubyEventStatistics {
@@ -227,16 +271,23 @@ fn publish_simple_event_with_handle_wrapper(
 ) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: publish_simple_event_with_handle_wrapper() - delegating to shared event bridge");
 
-    let event_data = ruby_value_to_json(event_data_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid event data: {}", e)))?;
+    let event_data = ruby_value_to_json(event_data_value).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Invalid event data: {e}"),
+        )
+    })?;
 
-    let event_name = event_data.get("name")
+    let event_name = event_data
+        .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("anonymous_event");
-    let payload = event_data.get("payload")
+    let payload = event_data
+        .get("payload")
         .cloned()
         .unwrap_or(serde_json::json!({}));
-    let metadata = event_data.get("metadata")
+    let metadata = event_data
+        .get("metadata")
         .cloned()
         .unwrap_or(serde_json::json!({"source": "ruby_ffi"}));
 
@@ -249,8 +300,12 @@ fn publish_simple_event_with_handle_wrapper(
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let result = event_bridge.publish_event(shared_event)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Event publishing failed: {}", e)))?;
+    event_bridge.publish_event(shared_event).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Event publishing failed: {e}"),
+        )
+    })?;
 
     // Convert result to Ruby hash
     let ruby_result = serde_json::json!({
@@ -259,8 +314,12 @@ fn publish_simple_event_with_handle_wrapper(
         "published_at": chrono::Utc::now().to_rfc3339()
     });
 
-    json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert result: {}", e)))
+    json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Publish a structured orchestration event (delegates to shared event bridge)
@@ -270,16 +329,23 @@ fn publish_orchestration_event_with_handle_wrapper(
 ) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: publish_orchestration_event_with_handle_wrapper() - delegating to shared event bridge");
 
-    let event_data = ruby_value_to_json(event_data_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid event data: {}", e)))?;
+    let event_data = ruby_value_to_json(event_data_value).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Invalid event data: {e}"),
+        )
+    })?;
 
-    let event_type = event_data.get("event_type")
+    let event_type = event_data
+        .get("event_type")
         .and_then(|v| v.as_str())
         .unwrap_or("orchestration_event");
-    let namespace = event_data.get("namespace")
+    let namespace = event_data
+        .get("namespace")
         .and_then(|v| v.as_str())
         .unwrap_or("tasker_orchestration");
-    let version = event_data.get("version")
+    let version = event_data
+        .get("version")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -297,8 +363,14 @@ fn publish_orchestration_event_with_handle_wrapper(
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let result = event_bridge.publish_structured_event(structured_event)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Structured event publishing failed: {}", e)))?;
+    event_bridge
+        .publish_structured_event(structured_event)
+        .map_err(|e| {
+            Error::new(
+                Ruby::get().unwrap().exception_runtime_error(),
+                format!("Structured event publishing failed: {e}"),
+            )
+        })?;
 
     // Convert result to Ruby hash
     let ruby_result = serde_json::json!({
@@ -308,8 +380,12 @@ fn publish_orchestration_event_with_handle_wrapper(
         "published_at": chrono::Utc::now().to_rfc3339()
     });
 
-    json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert result: {}", e)))
+    json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Subscribe to events (delegates to shared event bridge)
@@ -319,10 +395,15 @@ fn subscribe_to_events_with_handle_wrapper(
 ) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: subscribe_to_events_with_handle_wrapper() - delegating to shared event bridge");
 
-    let subscription_data = ruby_value_to_json(subscription_data_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid subscription data: {}", e)))?;
+    let subscription_data = ruby_value_to_json(subscription_data_value).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Invalid subscription data: {e}"),
+        )
+    })?;
 
-    let event_pattern = subscription_data.get("event_pattern")
+    let event_pattern = subscription_data
+        .get("event_pattern")
         .and_then(|v| v.as_str())
         .unwrap_or("*");
 
@@ -338,18 +419,28 @@ fn subscribe_to_events_with_handle_wrapper(
         "note": "Subscription registered with shared event bridge"
     });
 
-    json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert result: {}", e)))
+    json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Get event statistics (delegates to shared event bridge)
 fn get_event_stats_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: get_event_stats_with_handle_wrapper() - delegating to shared event bridge");
+    debug!(
+        "🔧 Ruby FFI: get_event_stats_with_handle_wrapper() - delegating to shared event bridge"
+    );
 
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
-    let stats = event_bridge.get_event_statistics()
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Event statistics failed: {}", e)))?;
+    let stats = event_bridge.get_event_statistics().map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Event statistics failed: {e}"),
+        )
+    })?;
 
     // Convert EventStatistics to Ruby hash
     let ruby_result = serde_json::json!({
@@ -363,8 +454,12 @@ fn get_event_stats_with_handle_wrapper(handle_value: Value) -> Result<Value, Err
         "source": "shared_event_bridge"
     });
 
-    json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert result: {}", e)))
+    json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Register external event callback (delegates to shared event bridge)
@@ -374,10 +469,15 @@ fn register_external_event_callback_with_handle_wrapper(
 ) -> Result<Value, Error> {
     debug!("🔧 Ruby FFI: register_external_event_callback_with_handle_wrapper() - delegating to shared event bridge");
 
-    let callback_data = ruby_value_to_json(callback_data_value)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Invalid callback data: {}", e)))?;
+    let callback_data = ruby_value_to_json(callback_data_value).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Invalid callback data: {e}"),
+        )
+    })?;
 
-    let callback_name = callback_data.get("callback_name")
+    let callback_name = callback_data
+        .get("callback_name")
         .and_then(|v| v.as_str())
         .unwrap_or("ruby_callback");
 
@@ -394,8 +494,12 @@ fn register_external_event_callback_with_handle_wrapper(
         "note": "Callback registration acknowledged by shared event bridge"
     });
 
-    json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(Ruby::get().unwrap().exception_runtime_error(), format!("Failed to convert result: {}", e)))
+    json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            Ruby::get().unwrap().exception_runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Register event functions - delegating to shared event bridge

@@ -222,67 +222,71 @@ impl SharedOrchestrationHandle {
         // Use validate_or_refresh for production resilience - auto-recover from expired handles
         let _validated_handle = self.validate_or_refresh()?;
 
-        let result: Result<(), crate::error::TaskerError> = super::orchestration_system::execute_async(async {
-            // 1. Register FFI handler metadata
-            self.orchestration_system
-                .task_handler_registry
-                .register_ffi_handler(
-                    &metadata.namespace,
-                    &metadata.name,
-                    &metadata.version,
-                    &metadata.handler_class,
-                    metadata.config_schema.clone(),
-                )
-                .await?;
+        let result: Result<(), crate::error::TaskerError> =
+            super::orchestration_system::execute_async(async {
+                // 1. Register FFI handler metadata
+                self.orchestration_system
+                    .task_handler_registry
+                    .register_ffi_handler(
+                        &metadata.namespace,
+                        &metadata.name,
+                        &metadata.version,
+                        &metadata.handler_class,
+                        metadata.config_schema.clone(),
+                    )
+                    .await?;
 
-            // 2. 🚀 NEW: Register TaskTemplate if config_schema is provided
-            // This fixes "No task configuration available" errors by ensuring
-            // TaskConfigFinder can find the task template in the registry
-            if let Some(ref config_json) = metadata.config_schema {
-                // Convert JSON config to TaskTemplate
-                match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(config_json.clone()) {
-                    Ok(task_template) => {
-                        // Register the task template so TaskConfigFinder can find it
-                        if let Err(e) = self.orchestration_system
-                            .task_handler_registry
-                            .register_task_template(
-                                &metadata.namespace,
-                                &metadata.name,
-                                &metadata.version,
-                                task_template,
-                            )
-                            .await
-                        {
+                // 2. 🚀 NEW: Register TaskTemplate if config_schema is provided
+                // This fixes "No task configuration available" errors by ensuring
+                // TaskConfigFinder can find the task template in the registry
+                if let Some(ref config_json) = metadata.config_schema {
+                    // Convert JSON config to TaskTemplate
+                    match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(
+                        config_json.clone(),
+                    ) {
+                        Ok(task_template) => {
+                            // Register the task template so TaskConfigFinder can find it
+                            if let Err(e) = self
+                                .orchestration_system
+                                .task_handler_registry
+                                .register_task_template(
+                                    &metadata.namespace,
+                                    &metadata.name,
+                                    &metadata.version,
+                                    task_template,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    namespace = metadata.namespace,
+                                    name = metadata.name,
+                                    version = metadata.version,
+                                    error = %e,
+                                    "Failed to register task template, step execution may fail"
+                                );
+                            } else {
+                                tracing::info!(
+                                    namespace = metadata.namespace,
+                                    name = metadata.name,
+                                    version = metadata.version,
+                                    "Successfully registered task template for TaskConfigFinder"
+                                );
+                            }
+                        }
+                        Err(e) => {
                             tracing::warn!(
                                 namespace = metadata.namespace,
                                 name = metadata.name,
                                 version = metadata.version,
                                 error = %e,
-                                "Failed to register task template, step execution may fail"
-                            );
-                        } else {
-                            tracing::info!(
-                                namespace = metadata.namespace,
-                                name = metadata.name,
-                                version = metadata.version,
-                                "Successfully registered task template for TaskConfigFinder"
+                                "Failed to parse config_schema as TaskTemplate"
                             );
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            namespace = metadata.namespace,
-                            name = metadata.name,
-                            version = metadata.version,
-                            error = %e,
-                            "Failed to parse config_schema as TaskTemplate"
-                        );
-                    }
                 }
-            }
 
-            Ok(())
-        });
+                Ok(())
+            });
 
         match result {
             Ok(_) => Ok(()),
@@ -352,14 +356,19 @@ impl SharedOrchestrationHandle {
         if let Some(batch_publisher) = self.orchestration_system.batch_publisher() {
             // Convert JSON to BatchMessage
             let batch_message: crate::execution::BatchMessage = serde_json::from_value(batch_data)
-                .map_err(|e| SharedFFIError::InvalidBatchData(format!("Failed to parse batch data: {}", e)))?;
+                .map_err(|e| {
+                    SharedFFIError::InvalidBatchData(format!("Failed to parse batch data: {e}"))
+                })?;
 
-            batch_publisher.publish_batch(batch_message)
-                .map_err(|e| SharedFFIError::ZeroMqError(format!("Failed to publish batch: {}", e)))?;
-                
+            batch_publisher.publish_batch(batch_message).map_err(|e| {
+                SharedFFIError::ZeroMqError(format!("Failed to publish batch: {e}"))
+            })?;
+
             Ok(())
         } else {
-            Err(SharedFFIError::ZeroMqNotEnabled("ZeroMQ batch processing is not enabled".to_string()))
+            Err(SharedFFIError::ZeroMqNotEnabled(
+                "ZeroMQ batch processing is not enabled".to_string(),
+            ))
         }
     }
 
@@ -369,27 +378,35 @@ impl SharedOrchestrationHandle {
 
         if let Some(batch_publisher) = self.orchestration_system.batch_publisher() {
             let mut results = Vec::new();
-            
+
             // Collect all available results (non-blocking)
             while let Ok(Some(result)) = batch_publisher.receive_result() {
-                let result_json = serde_json::to_value(result)
-                    .map_err(|e| SharedFFIError::SerializationError(format!("Failed to serialize result: {}", e)))?;
+                let result_json = serde_json::to_value(result).map_err(|e| {
+                    SharedFFIError::SerializationError(format!("Failed to serialize result: {e}"))
+                })?;
                 results.push(result_json);
             }
-            
+
             Ok(results)
         } else {
-            Err(SharedFFIError::ZeroMqNotEnabled("ZeroMQ batch processing is not enabled".to_string()))
+            Err(SharedFFIError::ZeroMqNotEnabled(
+                "ZeroMQ batch processing is not enabled".to_string(),
+            ))
         }
     }
 
     /// Get ZeroMQ configuration information
     pub fn zeromq_config(&self) -> SharedFFIResult<serde_json::Value> {
         let _validated_handle = self.validate_or_refresh()?;
-        
-        let zeromq_config = &self.orchestration_system.config_manager.system_config().zeromq;
-        serde_json::to_value(zeromq_config)
-            .map_err(|e| SharedFFIError::SerializationError(format!("Failed to serialize ZeroMQ config: {}", e)))
+
+        let zeromq_config = &self
+            .orchestration_system
+            .config_manager
+            .system_config()
+            .zeromq;
+        serde_json::to_value(zeromq_config).map_err(|e| {
+            SharedFFIError::SerializationError(format!("Failed to serialize ZeroMQ config: {e}"))
+        })
     }
 
     /// Get access to the shared ZMQ context for cross-language socket communication

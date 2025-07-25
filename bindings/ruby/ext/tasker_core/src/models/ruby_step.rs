@@ -2,9 +2,9 @@
 //!
 //! Magnus-wrapped Ruby class for WorkflowStep model access from Ruby code.
 
-use magnus::{prelude::*, Error, Ruby, RHash, TryConvert};
-use tasker_core::models::core::workflow_step::WorkflowStep;
+use magnus::{prelude::*, Error, RHash, Ruby, TryConvert};
 use std::sync::{Arc, RwLock};
+use tasker_core::models::core::workflow_step::WorkflowStep;
 
 /// Ruby wrapper for WorkflowStep model data
 ///
@@ -55,9 +55,13 @@ impl RubyStep {
             retry_limit: step.retry_limit,
             in_process: step.in_process,
             processed: step.processed,
-            processed_at: step.processed_at.map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
+            processed_at: step
+                .processed_at
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
             attempts: step.attempts,
-            last_attempted_at: step.last_attempted_at.map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
+            last_attempted_at: step
+                .last_attempted_at
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
             backoff_request_seconds: step.backoff_request_seconds,
             inputs: step.inputs.clone(),
             results: Arc::new(RwLock::new(step.results.clone())),
@@ -132,10 +136,12 @@ impl RubyStep {
         match &self.inputs {
             Some(value) => crate::context::json_to_ruby_value(value.clone()),
             None => {
-                let ruby = Ruby::get().map_err(|e| Error::new(
-                    magnus::exception::runtime_error(),
-                    format!("Ruby unavailable: {}", e)
-                ))?;
+                let ruby = Ruby::get().map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Ruby unavailable: {e}"),
+                    )
+                })?;
                 Ok(ruby.qnil().as_value())
             }
         }
@@ -143,23 +149,29 @@ impl RubyStep {
 
     /// Get results as Ruby hash (for Ruby handler compatibility)
     pub fn results(&self) -> Result<RHash, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
 
-        let results_ref = self.results.read().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Failed to read results lock: {}", e)
-        ))?;
+        let results_ref = self.results.read().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to read results lock: {e}"),
+            )
+        })?;
         match results_ref.as_ref() {
             Some(value) => {
                 // Convert JSON to Ruby hash
                 let ruby_value = crate::context::json_to_ruby_value(value.clone())?;
-                TryConvert::try_convert(ruby_value).map_err(|e| Error::new(
-                    magnus::exception::type_error(),
-                    format!("Failed to convert results to hash: {}", e)
-                ))
+                TryConvert::try_convert(ruby_value).map_err(|e| {
+                    Error::new(
+                        magnus::exception::type_error(),
+                        format!("Failed to convert results to hash: {e}"),
+                    )
+                })
             }
             None => {
                 // Return empty hash if no results
@@ -172,13 +184,15 @@ impl RubyStep {
     pub fn set_results(&self, new_results: RHash) -> Result<(), Error> {
         // Convert Ruby hash to JSON Value
         let json_value = crate::context::ruby_value_to_json(new_results.as_value())?;
-        
+
         // Update the RwLock
-        *self.results.write().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Failed to write results lock: {}", e)
-        ))? = Some(json_value);
-        
+        *self.results.write().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to write results lock: {e}"),
+            )
+        })? = Some(json_value);
+
         Ok(())
     }
 
@@ -191,10 +205,12 @@ impl RubyStep {
         } else {
             // If not a hash, convert to JSON and store
             let json_value = crate::context::ruby_value_to_json(new_results)?;
-            *self.results.write().map_err(|e| Error::new(
-                magnus::exception::runtime_error(),
-                format!("Failed to write results lock: {}", e)
-            ))? = Some(json_value);
+            *self.results.write().map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Failed to write results lock: {e}"),
+                )
+            })? = Some(json_value);
             Ok(())
         }
     }
@@ -216,10 +232,12 @@ impl RubyStep {
 
     /// Get step as Ruby hash
     pub fn to_h(&self) -> Result<RHash, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
 
         let hash = ruby.hash_new();
         hash.aset("workflow_step_id", self.workflow_step_id)?;
@@ -250,10 +268,12 @@ impl RubyStep {
         }
 
         // Handle results JSON - read from RwLock
-        let results_ref = self.results.read().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Failed to read results lock: {}", e)
-        ))?;
+        let results_ref = self.results.read().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to read results lock: {e}"),
+            )
+        })?;
         match results_ref.as_ref() {
             Some(value) => {
                 let ruby_value = crate::context::json_to_ruby_value(value.clone())?;

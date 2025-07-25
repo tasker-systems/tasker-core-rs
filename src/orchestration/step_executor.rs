@@ -560,36 +560,51 @@ impl StepExecutor {
         match step_result.status {
             StepStatus::Completed => {
                 // Use complete_step_with_results to preserve step execution results
-                if let Err(e) = self.state_manager.complete_step_with_results(step_id, Some(step_result.output.clone())).await {
+                if let Err(e) = self
+                    .state_manager
+                    .complete_step_with_results(step_id, Some(step_result.output.clone()))
+                    .await
+                {
                     warn!(
                         step_id = step_id,
                         error = %e,
                         "Failed to complete step with results"
                     );
                 }
-            },
+            }
             StepStatus::Skipped => {
                 // Use complete_step_with_results for skipped steps too
                 let skipped_output = serde_json::json!({"skipped": true});
-                if let Err(e) = self.state_manager.complete_step_with_results(step_id, Some(skipped_output)).await {
+                if let Err(e) = self
+                    .state_manager
+                    .complete_step_with_results(step_id, Some(skipped_output))
+                    .await
+                {
                     warn!(
                         step_id = step_id,
                         error = %e,
                         "Failed to complete skipped step"
                     );
                 }
-            },
+            }
             StepStatus::Failed | StepStatus::Retrying => {
                 // For failed steps, properly mark them as failed in the database
-                let error_message = step_result.error_message.clone().unwrap_or_else(|| "Step execution failed".to_string());
-                if let Err(e) = self.state_manager.fail_step_with_error(step_id, error_message).await {
+                let error_message = step_result
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "Step execution failed".to_string());
+                if let Err(e) = self
+                    .state_manager
+                    .fail_step_with_error(step_id, error_message)
+                    .await
+                {
                     warn!(
                         step_id = step_id,
                         error = %e,
                         "Failed to mark step as failed"
                     );
                 }
-            },
+            }
             StepStatus::InProgress => {
                 // Step has been submitted for execution (fire-and-forget)
                 // Mark step as in progress - actual completion will come from result listener
@@ -810,20 +825,29 @@ impl StepExecutor {
                     metadata: std::collections::HashMap::new(),
                 };
 
-                // Call framework integration directly with handler class and config
-                let step_result = framework
-                    .execute_step_with_handler(&execution_context, handler_class, &step_config)
+                // Call framework integration with batch execution (single step batch)
+                let step_results = framework
+                    .execute_step_batch(vec![(&execution_context, handler_class, &step_config)])
                     .await
                     .map_err(|e| ExecutionError::StepExecutionFailed {
                         step_id,
-                        reason: format!("Framework integration step execution failed: {e}"),
+                        reason: format!("Framework integration batch execution failed: {e}"),
                         error_code: Some("FRAMEWORK_EXECUTION_ERROR".to_string()),
                     })?;
+
+                // Extract the single result from the batch
+                let step_result = step_results.into_iter().next().ok_or_else(|| {
+                    ExecutionError::StepExecutionFailed {
+                        step_id,
+                        reason: "Framework integration returned empty batch results".to_string(),
+                        error_code: Some("EMPTY_BATCH_RESULT".to_string()),
+                    }
+                })?;
 
                 debug!(
                     step_id = step_id,
                     status = ?step_result.status,
-                    "Direct framework step execution completed"
+                    "Direct framework batch step execution completed"
                 );
 
                 Ok(step_result)
@@ -835,7 +859,10 @@ impl StepExecutor {
                 );
                 Err(OrchestrationError::StepHandlerNotFound {
                     step_id,
-                    reason: format!("Step template '{}' not found in task configuration", request.step.name),
+                    reason: format!(
+                        "Step template '{}' not found in task configuration",
+                        request.step.name
+                    ),
                 })
             }
         } else {

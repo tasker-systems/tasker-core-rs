@@ -309,7 +309,7 @@ impl TaskHandlerRegistry {
         let key_string = key.key_string();
 
         debug!("📝 REGISTRY: Registering FFI handler - namespace='{}', name='{}', version='{}', handler_class='{}', key_string='{}'", namespace, name, version, handler_class, key_string);
-        
+
         info!(
             namespace = namespace,
             name = name,

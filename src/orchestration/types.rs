@@ -211,18 +211,6 @@ pub trait FrameworkIntegration: Send + Sync {
         task_id: i64,
     ) -> Result<TaskContext, crate::orchestration::errors::OrchestrationError>;
 
-    /// Execute step with handler class and configuration from step template
-    /// 
-    /// This method receives handler_class and handler_config from the TaskTemplate
-    /// configuration, allowing the framework to dynamically instantiate and execute
-    /// the appropriate step handler without requiring registry lookup.
-    async fn execute_step_with_handler(
-        &self,
-        context: &StepExecutionContext,
-        handler_class: &str,
-        handler_config: &HashMap<String, serde_json::Value>,
-    ) -> Result<StepResult, crate::orchestration::errors::OrchestrationError>;
-
     /// Enqueue task back to framework's queue
     async fn enqueue_task(
         &self,
@@ -230,31 +218,27 @@ pub trait FrameworkIntegration: Send + Sync {
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
 
-    /// Execute multiple steps as a batch (optional optimization)
-    /// 
-    /// Default implementation falls back to sequential execution of individual steps.
-    /// Frameworks that support true batching (like ZeroMQ) can override this for 
-    /// better performance.
+    /// Execute multiple steps as a batch
+    ///
+    /// All frameworks must implement batch execution. Individual step execution is no
+    /// longer supported - steps are always executed as batches, even if the batch
+    /// contains only one step.
     async fn execute_step_batch(
         &self,
-        contexts: Vec<(&StepExecutionContext, &str, &HashMap<String, serde_json::Value>)>,
-    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError> {
-        let mut results = Vec::new();
-        
-        for (context, handler_class, handler_config) in contexts {
-            let result = self.execute_step_with_handler(context, handler_class, handler_config).await?;
-            results.push(result);
-        }
-        
-        Ok(results)
-    }
+        contexts: Vec<(
+            &StepExecutionContext,
+            &str,
+            &HashMap<String, serde_json::Value>,
+        )>,
+    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError>;
 
     /// Check if this framework supports native batch execution
-    /// 
-    /// Returns true if the framework implements optimized batch processing.
-    /// Used by orchestration layer to decide whether to use batch methods.
+    ///
+    /// All frameworks now support batch execution since individual step execution
+    /// has been removed. This method can be used to distinguish between frameworks
+    /// that implement true parallelism vs sequential batch processing.
     fn supports_batch_execution(&self) -> bool {
-        false // Default: most frameworks don't support batching
+        true // All frameworks must support batch execution
     }
 }
 

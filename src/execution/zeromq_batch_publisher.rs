@@ -7,7 +7,7 @@
 //! of the ZeroMQ pub-sub communication pattern.
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, warn};
 use zmq::{Context, Socket, SocketType};
 
@@ -69,7 +69,7 @@ pub struct ResultMessage {
     pub worker_id: Option<String>,
     pub error: Option<serde_json::Value>,
     pub retryable: Option<bool>,
-    
+
     // Batch completion fields
     pub total_steps: Option<usize>,
     pub completed_steps: Option<usize>,
@@ -80,11 +80,17 @@ pub struct ResultMessage {
 
 /// ZeroMQ batch publisher for communicating with Ruby orchestrator
 pub struct BatchPublisher {
+    /// ZMQ context - currently unused but needed for future socket management and cleanup
+    #[allow(dead_code)]
     context: Arc<Context>,
-    batch_socket: Socket,
-    result_socket: Socket,
+    batch_socket: Arc<Mutex<Socket>>,
+    result_socket: Arc<Mutex<Socket>>,
     config: BatchPublisherConfig,
 }
+
+// SAFETY: BatchPublisher is safe to send/sync because all ZMQ operations are protected by Mutex
+unsafe impl Send for BatchPublisher {}
+unsafe impl Sync for BatchPublisher {}
 
 impl BatchPublisher {
     /// Create a new batch publisher with shared ZMQ context
@@ -97,7 +103,7 @@ impl BatchPublisher {
         // Create batch publishing socket (PUB) - Rust owns this
         let batch_socket = context.socket(SocketType::PUB)?;
         batch_socket.set_sndhwm(config.send_hwm)?;
-        
+
         // Bind to batch endpoint - Ruby will connect to this
         batch_socket.bind(&config.batch_endpoint)?;
         info!("✅ Batch socket bound to: {}", config.batch_endpoint);
@@ -105,12 +111,12 @@ impl BatchPublisher {
         // Create result subscribing socket (SUB) - connects to Ruby's PUB socket
         let result_socket = context.socket(SocketType::SUB)?;
         result_socket.set_rcvhwm(config.recv_hwm)?;
-        
+
         // Subscribe to all result message types
         result_socket.set_subscribe(b"partial_result")?;
         result_socket.set_subscribe(b"batch_completion")?;
         result_socket.set_subscribe(b"batch_error")?;
-        
+
         // Connect to Ruby result endpoint
         result_socket.connect(&config.result_endpoint)?;
         info!("✅ Result socket connected to: {}", config.result_endpoint);
@@ -120,22 +126,21 @@ impl BatchPublisher {
 
         Ok(Self {
             context,
-            batch_socket,
-            result_socket,
+            batch_socket: Arc::new(Mutex::new(batch_socket)),
+            result_socket: Arc::new(Mutex::new(result_socket)),
             config,
         })
     }
 
     /// Publish a batch message to Ruby BatchStepExecutionOrchestrator
     pub fn publish_batch(&self, batch: BatchMessage) -> Result<(), zmq::Error> {
-        let message_json = serde_json::to_string(&batch)
-            .map_err(|e| {
-                error!("Failed to serialize batch message: {}", e);
-                zmq::Error::EPROTO
-            })?;
+        let message_json = serde_json::to_string(&batch).map_err(|e| {
+            error!("Failed to serialize batch message: {}", e);
+            zmq::Error::EPROTO
+        })?;
 
-        let full_message = format!("steps {}", message_json);
-        
+        let full_message = format!("steps {message_json}");
+
         debug!(
             "📤 Publishing batch {} with {} steps ({} bytes)",
             batch.batch_id,
@@ -143,30 +148,31 @@ impl BatchPublisher {
             full_message.len()
         );
 
-        self.batch_socket.send(&full_message, 0)?;
-        
-        info!(
-            "✅ Published batch {} successfully",
-            batch.batch_id
-        );
+        let batch_socket = self.batch_socket.lock().unwrap();
+        batch_socket.send(&full_message, 0)?;
+
+        info!("✅ Published batch {} successfully", batch.batch_id);
 
         Ok(())
     }
 
     /// Receive result messages from Ruby (non-blocking)
     pub fn receive_result(&self) -> Result<Option<ResultMessage>, zmq::Error> {
-        match self.result_socket.recv_string(zmq::DONTWAIT) {
-            Ok(message) => {
-                debug!("📥 Received result message: {}", &message[..100.min(message.len())]);
-                
+        let result_socket = self.result_socket.lock().unwrap();
+        match result_socket.recv_string(zmq::DONTWAIT) {
+            Ok(Ok(message)) => {
+                debug!(
+                    "📥 Received result message: {}",
+                    &message[..100.min(message.len())]
+                );
+
                 // Parse the message (format: "topic json_data")
-                if let Some((topic, json_data)) = message.split_once(' ') {
+                if let Some((_topic, json_data)) = message.split_once(' ') {
                     match serde_json::from_str::<ResultMessage>(json_data) {
                         Ok(result) => {
                             debug!(
                                 "✅ Parsed result message: type={}, batch_id={}",
-                                result.message_type,
-                                result.batch_id
+                                result.message_type, result.batch_id
                             );
                             Ok(Some(result))
                         }
@@ -179,6 +185,10 @@ impl BatchPublisher {
                     warn!("Invalid result message format: missing topic separator");
                     Err(zmq::Error::EPROTO)
                 }
+            }
+            Ok(Err(_bytes)) => {
+                warn!("Received non-UTF8 result message");
+                Err(zmq::Error::EPROTO)
             }
             Err(zmq::Error::EAGAIN) => {
                 // No message available (non-blocking)
@@ -206,8 +216,8 @@ impl BatchPublisher {
 impl Drop for BatchPublisher {
     fn drop(&mut self) {
         debug!("🧹 Cleaning up BatchPublisher sockets");
-        let _ = self.batch_socket.close();
-        let _ = self.result_socket.close();
+        // ZMQ sockets are automatically cleaned up when dropped
+        // The explicit close() method doesn't exist in current zmq crate version
     }
 }
 
@@ -264,23 +274,21 @@ mod tests {
             batch_id: "test_batch_123".to_string(),
             protocol_version: "2.0".to_string(),
             created_at: "2025-01-24T12:00:00Z".to_string(),
-            steps: vec![
-                StepData {
-                    step_id: 1001,
-                    task_id: 500,
-                    step_name: "validate_order".to_string(),
-                    handler_class: "OrderValidator".to_string(),
-                    handler_config: serde_json::json!({"timeout_seconds": 30}),
-                    task_context: serde_json::json!({"order_id": "order_123"}),
-                    previous_results: serde_json::json!({}),
-                    metadata: serde_json::json!({"sequence": 1, "total_steps": 2}),
-                }
-            ],
+            steps: vec![StepData {
+                step_id: 1001,
+                task_id: 500,
+                step_name: "validate_order".to_string(),
+                handler_class: "OrderValidator".to_string(),
+                handler_config: serde_json::json!({"timeout_seconds": 30}),
+                task_context: serde_json::json!({"order_id": "order_123"}),
+                previous_results: serde_json::json!({}),
+                metadata: serde_json::json!({"sequence": 1, "total_steps": 2}),
+            }],
         };
 
         let serialized = serde_json::to_string(&batch).unwrap();
         let deserialized: BatchMessage = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(batch.batch_id, deserialized.batch_id);
         assert_eq!(batch.steps.len(), deserialized.steps.len());
         assert_eq!(batch.steps[0].step_id, deserialized.steps[0].step_id);
@@ -299,7 +307,7 @@ mod tests {
         }"#;
 
         let result: ResultMessage = serde_json::from_str(result_json).unwrap();
-        
+
         assert_eq!(result.message_type, "partial_result");
         assert_eq!(result.batch_id, "test_batch_123");
         assert_eq!(result.step_id, Some(1001));

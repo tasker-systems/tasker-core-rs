@@ -6,8 +6,8 @@
 use magnus::r_hash::ForEach;
 use magnus::value::ReprValue;
 use magnus::{Error, IntoValue, RHash, RString, TryConvert, Value};
-use tracing::{debug, warn};
 use std::collections::HashMap;
+use tracing::{debug, warn};
 
 /// Ruby wrapper for the Rust StepContext
 ///
@@ -26,8 +26,22 @@ pub struct StepContext {
 }
 
 impl StepContext {
-    pub fn new(step_id: i64, task_id: i64, step_name: String, input_data: serde_json::Value) -> Self {
-        Self { step_id, task_id, step_name, input_data, previous_results: HashMap::new(), attempt_number: 0, is_retry: false, can_retry: false }
+    pub fn new(
+        step_id: i64,
+        task_id: i64,
+        step_name: String,
+        input_data: serde_json::Value,
+    ) -> Self {
+        Self {
+            step_id,
+            task_id,
+            step_name,
+            input_data,
+            previous_results: HashMap::new(),
+            attempt_number: 0,
+            is_retry: false,
+            can_retry: false,
+        }
     }
 
     // Ruby-friendly accessor methods
@@ -70,7 +84,7 @@ impl StepContext {
 
     pub fn get_previous_result(&self, step_name: RString) -> Result<Option<Value>, Error> {
         let step_name_str = unsafe { step_name.as_str() }?;
-          match self.previous_results.get(step_name_str) {
+        match self.previous_results.get(step_name_str) {
             Some(value) => Ok(Some(json_to_ruby_value(value.clone())?)),
             None => Ok(None),
         }
@@ -101,8 +115,22 @@ pub struct TaskContext {
 }
 
 impl TaskContext {
-    pub fn new(task_id: i64, task_name: String, namespace: String, input_data: serde_json::Value, status: String) -> Self {
-        Self { task_id, task_name, namespace, input_data, status, is_retry: false, can_retry: false }
+    pub fn new(
+        task_id: i64,
+        task_name: String,
+        namespace: String,
+        input_data: serde_json::Value,
+        status: String,
+    ) -> Self {
+        Self {
+            task_id,
+            task_name,
+            namespace,
+            input_data,
+            status,
+            is_retry: false,
+            can_retry: false,
+        }
     }
 
     // Ruby-friendly accessor methods
@@ -160,50 +188,76 @@ impl Default for ValidationConfig {
 }
 
 /// Validate and sanitize JSON inputs
-fn validate_json_value(value: &serde_json::Value, config: &ValidationConfig, current_depth: usize) -> Result<(), String> {
+fn validate_json_value(
+    value: &serde_json::Value,
+    config: &ValidationConfig,
+    current_depth: usize,
+) -> Result<(), String> {
     if current_depth > config.max_object_depth {
-        return Err(format!("JSON depth exceeds maximum of {}", config.max_object_depth));
+        return Err(format!(
+            "JSON depth exceeds maximum of {}",
+            config.max_object_depth
+        ));
     }
 
     match value {
         serde_json::Value::String(s) => {
             if s.len() > config.max_string_length {
-                return Err(format!("String length {} exceeds maximum of {}", s.len(), config.max_string_length));
+                return Err(format!(
+                    "String length {} exceeds maximum of {}",
+                    s.len(),
+                    config.max_string_length
+                ));
             }
             // Check for potentially malicious content
             if s.contains("\x00") || s.contains("\r\n\r\n") {
                 return Err("String contains potentially malicious content".to_string());
             }
-        },
+        }
         serde_json::Value::Number(n) => {
             if let Some(f) = n.as_f64() {
                 if f > config.max_numeric_value || f < config.min_numeric_value {
-                    return Err(format!("Numeric value {} outside allowed range [{}, {}]", f, config.min_numeric_value, config.max_numeric_value));
+                    return Err(format!(
+                        "Numeric value {} outside allowed range [{}, {}]",
+                        f, config.min_numeric_value, config.max_numeric_value
+                    ));
                 }
                 if f.is_infinite() || f.is_nan() {
                     return Err("Numeric value is infinite or NaN".to_string());
                 }
             }
-        },
+        }
         serde_json::Value::Array(arr) => {
             if arr.len() > config.max_array_length {
-                return Err(format!("Array length {} exceeds maximum of {}", arr.len(), config.max_array_length));
+                return Err(format!(
+                    "Array length {} exceeds maximum of {}",
+                    arr.len(),
+                    config.max_array_length
+                ));
             }
             for item in arr {
                 validate_json_value(item, config, current_depth + 1)?;
             }
-        },
+        }
         serde_json::Value::Object(obj) => {
             if obj.len() > config.max_object_keys {
-                return Err(format!("Object key count {} exceeds maximum of {}", obj.len(), config.max_object_keys));
+                return Err(format!(
+                    "Object key count {} exceeds maximum of {}",
+                    obj.len(),
+                    config.max_object_keys
+                ));
             }
             for (key, val) in obj {
                 if key.len() > config.max_string_length {
-                    return Err(format!("Object key length {} exceeds maximum of {}", key.len(), config.max_string_length));
+                    return Err(format!(
+                        "Object key length {} exceeds maximum of {}",
+                        key.len(),
+                        config.max_string_length
+                    ));
                 }
                 validate_json_value(val, config, current_depth + 1)?;
             }
-        },
+        }
         _ => {}
     }
     Ok(())
@@ -215,8 +269,10 @@ pub fn ruby_value_to_json(ruby_value: Value) -> Result<serde_json::Value, Error>
 }
 
 /// Convert Ruby Value to serde_json::Value with custom validation
-pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &ValidationConfig) -> Result<serde_json::Value, Error> {
-
+pub fn ruby_value_to_json_with_validation(
+    ruby_value: Value,
+    config: &ValidationConfig,
+) -> Result<serde_json::Value, Error> {
     let json_value = if ruby_value.is_nil() {
         serde_json::Value::Null
     } else if let Some(string) = RString::from_value(ruby_value) {
@@ -225,7 +281,11 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         if s.len() > config.max_string_length {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                format!("String length {} exceeds maximum of {}", s.len(), config.max_string_length)
+                format!(
+                    "String length {} exceeds maximum of {}",
+                    s.len(),
+                    config.max_string_length
+                ),
             ));
         }
         serde_json::Value::String(s.to_string())
@@ -234,7 +294,11 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         if hash.len() > config.max_object_keys {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                format!("Hash key count {} exceeds maximum of {}", hash.len(), config.max_object_keys)
+                format!(
+                    "Hash key count {} exceeds maximum of {}",
+                    hash.len(),
+                    config.max_object_keys
+                ),
             ));
         }
 
@@ -254,9 +318,12 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
                     Ok(s) => {
                         debug!("🔍 CONTEXT: Converted key to string: {}", s);
                         s
-                    },
+                    }
                     Err(e) => {
-                        debug!("🔍 CONTEXT: Failed to convert key to string: {:?}, skipping", e);
+                        debug!(
+                            "🔍 CONTEXT: Failed to convert key to string: {:?}, skipping",
+                            e
+                        );
                         // Skip unknown key types
                         return Ok(ForEach::Continue);
                     }
@@ -267,12 +334,19 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
             if key_string.len() > config.max_string_length {
                 return Err(Error::new(
                     magnus::exception::arg_error(),
-                    format!("Hash key length {} exceeds maximum of {}", key_string.len(), config.max_string_length)
+                    format!(
+                        "Hash key length {} exceeds maximum of {}",
+                        key_string.len(),
+                        config.max_string_length
+                    ),
                 ));
             }
 
             let json_value = ruby_value_to_json_with_validation(value, config)?;
-            debug!("🔍 CONTEXT: Inserting key '{}' with value: {:?}", key_string, json_value);
+            debug!(
+                "🔍 CONTEXT: Inserting key '{}' with value: {:?}",
+                key_string, json_value
+            );
             map.insert(key_string, json_value);
             Ok(ForEach::Continue)
         })?;
@@ -283,7 +357,11 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         if array.len() > config.max_array_length {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                format!("Array length {} exceeds maximum of {}", array.len(), config.max_array_length)
+                format!(
+                    "Array length {} exceeds maximum of {}",
+                    array.len(),
+                    config.max_array_length
+                ),
             ));
         }
 
@@ -298,13 +376,16 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         if float > config.max_numeric_value || float < config.min_numeric_value {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                format!("Numeric value {} outside allowed range [{}, {}]", float, config.min_numeric_value, config.max_numeric_value)
+                format!(
+                    "Numeric value {} outside allowed range [{}, {}]",
+                    float, config.min_numeric_value, config.max_numeric_value
+                ),
             ));
         }
         if float.is_infinite() || float.is_nan() {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                "Numeric value is infinite or NaN".to_string()
+                "Numeric value is infinite or NaN".to_string(),
             ));
         }
 
@@ -320,7 +401,10 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         if int_as_float > config.max_numeric_value || int_as_float < config.min_numeric_value {
             return Err(Error::new(
                 magnus::exception::arg_error(),
-                format!("Integer value {} outside allowed range [{}, {}]", int, config.min_numeric_value, config.max_numeric_value)
+                format!(
+                    "Integer value {} outside allowed range [{}, {}]",
+                    int, config.min_numeric_value, config.max_numeric_value
+                ),
             ));
         }
 
@@ -332,8 +416,11 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
         let string_repr = format!("{ruby_value:?}");
         if string_repr.len() > config.max_string_length {
             warn!("Unsupported Ruby value representation exceeds length limit, truncating");
-            let truncated = string_repr.chars().take(config.max_string_length).collect::<String>();
-            serde_json::Value::String(format!("{}...[truncated]", truncated))
+            let truncated = string_repr
+                .chars()
+                .take(config.max_string_length)
+                .collect::<String>();
+            serde_json::Value::String(format!("{truncated}...[truncated]"))
         } else {
             serde_json::Value::String(string_repr)
         }
@@ -343,7 +430,7 @@ pub fn ruby_value_to_json_with_validation(ruby_value: Value, config: &Validation
     if let Err(validation_error) = validate_json_value(&json_value, config, 0) {
         return Err(Error::new(
             magnus::exception::arg_error(),
-            format!("JSON validation failed: {}", validation_error)
+            format!("JSON validation failed: {validation_error}"),
         ));
     }
 

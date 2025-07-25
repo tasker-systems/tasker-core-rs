@@ -206,7 +206,7 @@ impl TaskInitializer {
             Some(&task_name),
             Some(&namespace),
             "STARTING",
-            Some(&format!("version={}", version))
+            Some(&format!("version={version}")),
         );
 
         info!(task_name = %task_request.name, "Starting task initialization");
@@ -217,7 +217,7 @@ impl TaskInitializer {
                 "TaskInitializer",
                 "create_task_from_request",
                 &format!("Failed to begin transaction: {e}"),
-                Some(&task_name)
+                Some(&task_name),
             );
             TaskInitializationError::Database(format!("Failed to begin transaction: {e}"))
         })?;
@@ -228,7 +228,7 @@ impl TaskInitializer {
             None,
             "SUCCESS",
             None,
-            Some("Atomic task creation transaction started")
+            Some("Atomic task creation transaction started"),
         );
 
         // Create the task within transaction
@@ -241,13 +241,16 @@ impl TaskInitializer {
             Some(&task_name),
             None,
             "SUCCESS",
-            Some("Task record created in database")
+            Some("Task record created in database"),
         );
 
         debug!(task_id = task_id, "Created task record");
 
         // Try to load handler configuration
-        let handler_config = match self.load_handler_configuration(&task_request_for_handler).await {
+        let handler_config = match self
+            .load_handler_configuration(&task_request_for_handler)
+            .await
+        {
             Ok(config) => {
                 crate::logging::log_registry_operation(
                     "HANDLER_CONFIG_LOADED",
@@ -255,7 +258,10 @@ impl TaskInitializer {
                     Some(&name),
                     Some(&version),
                     "SUCCESS",
-                    Some(&format!("Found {} step templates", config.step_templates.len()))
+                    Some(&format!(
+                        "Found {} step templates",
+                        config.step_templates.len()
+                    )),
                 );
 
                 debug!(
@@ -273,7 +279,7 @@ impl TaskInitializer {
                     Some(&name),
                     Some(&version),
                     "FAILED",
-                    Some(&format!("Registry lookup failed: {}", e))
+                    Some(&format!("Registry lookup failed: {e}")),
                 );
 
                 warn!(
@@ -293,7 +299,10 @@ impl TaskInitializer {
                 Some(&task_name),
                 None,
                 "STARTING",
-                Some(&format!("Creating {} workflow steps", config.step_templates.len()))
+                Some(&format!(
+                    "Creating {} workflow steps",
+                    config.step_templates.len()
+                )),
             );
 
             // Create workflow steps and dependencies
@@ -305,7 +314,10 @@ impl TaskInitializer {
                 Some(&task_name),
                 None,
                 "SUCCESS",
-                Some(&format!("Created {} workflow steps with dependencies", result.0))
+                Some(&format!(
+                    "Created {} workflow steps with dependencies",
+                    result.0
+                )),
             );
 
             result
@@ -316,7 +328,7 @@ impl TaskInitializer {
                 Some(&task_name),
                 None,
                 "INFO",
-                Some("No handler configuration - creating minimal task with no steps")
+                Some("No handler configuration - creating minimal task with no steps"),
             );
 
             // No configuration, no steps
@@ -378,9 +390,8 @@ impl TaskInitializer {
             "SUCCESS",
             Some(&format!(
                 "Task completed: {} steps, handler_config: {:?}",
-                step_count,
-                result.handler_config_name
-            ))
+                step_count, result.handler_config_name
+            )),
         );
 
         info!(
@@ -792,25 +803,26 @@ impl TaskInitializer {
         // as this sets in_process=true, making them ineligible for execution
         for &workflow_step_id in step_mapping.values() {
             // Simply verify the state machine exists, don't evaluate/transition
-            match state_manager.get_or_create_step_state_machine(workflow_step_id).await {
-                Ok(state_machine) => {
-                    match state_machine.current_state().await {
-                        Ok(current_state) => {
-                            debug!(
-                                step_id = workflow_step_id,
-                                current_state = %current_state,
-                                "Step state machine initialized (no evaluation)"
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                step_id = workflow_step_id,
-                                error = %e,
-                                "Failed to get current state from step state machine"
-                            );
-                        }
+            match state_manager
+                .get_or_create_step_state_machine(workflow_step_id)
+                .await
+            {
+                Ok(state_machine) => match state_machine.current_state().await {
+                    Ok(current_state) => {
+                        debug!(
+                            step_id = workflow_step_id,
+                            current_state = %current_state,
+                            "Step state machine initialized (no evaluation)"
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!(
+                            step_id = workflow_step_id,
+                            error = %e,
+                            "Failed to get current state from step state machine"
+                        );
+                    }
+                },
                 Err(e) => {
                     warn!(
                         step_id = workflow_step_id,
@@ -844,21 +856,27 @@ impl TaskInitializer {
         let name = &task_request.name;
 
         // Look up the handler metadata using the ACTUAL task request version
-        debug!("🔍 HANDLER LOOKUP: Looking for namespace='{}', name='{}', version='{}'", namespace, name, task_request.version);
+        debug!(
+            "🔍 HANDLER LOOKUP: Looking for namespace='{}', name='{}', version='{}'",
+            namespace, name, task_request.version
+        );
 
         let metadata = registry
             .get_handler_metadata(namespace, name, &task_request.version)
-            .map_err(|e| TaskInitializationError::ConfigurationNotFound(
-                format!("Handler not found in registry {}/{}: {}", namespace, name, e)
-            ))?;
+            .map_err(|e| {
+                TaskInitializationError::ConfigurationNotFound(format!(
+                    "Handler not found in registry {namespace}/{name}: {e}"
+                ))
+            })?;
 
         // Extract the config_schema from metadata and deserialize it
         if let Some(config_json) = metadata.config_schema {
             // Deserialize the JSON config_schema to HandlerConfiguration
-            serde_json::from_value::<HandlerConfiguration>(config_json)
-                .map_err(|e| TaskInitializationError::InvalidConfiguration(
-                    format!("Failed to deserialize handler configuration: {}", e)
+            serde_json::from_value::<HandlerConfiguration>(config_json).map_err(|e| {
+                TaskInitializationError::InvalidConfiguration(format!(
+                    "Failed to deserialize handler configuration: {e}"
                 ))
+            })
         } else {
             // No config_schema provided - create a minimal configuration
             Ok(HandlerConfiguration {

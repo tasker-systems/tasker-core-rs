@@ -189,6 +189,8 @@ impl StepBatchResponse {
 }
 
 impl StepExecutionRequest {
+    /// Constructor with all required fields - clippy allows many args for data constructors
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         step_id: i64,
         task_id: i64,
@@ -219,11 +221,7 @@ impl StepExecutionRequest {
 }
 
 impl StepExecutionResult {
-    pub fn success(
-        step_id: i64,
-        output: serde_json::Value,
-        execution_time_ms: i64,
-    ) -> Self {
+    pub fn success(step_id: i64, output: serde_json::Value, execution_time_ms: i64) -> Self {
         Self {
             step_id,
             status: "completed".to_string(),
@@ -315,7 +313,12 @@ mod tests {
 
         let deserialized: ResultMessage = serde_json::from_str(&json).expect("Should deserialize");
         match deserialized {
-            ResultMessage::PartialResult { batch_id, step_id, worker_id, .. } => {
+            ResultMessage::PartialResult {
+                batch_id,
+                step_id,
+                worker_id,
+                ..
+            } => {
                 assert_eq!(batch_id, "batch_123");
                 assert_eq!(step_id, 456);
                 assert_eq!(worker_id, "worker_1");
@@ -327,18 +330,22 @@ mod tests {
     #[test]
     fn test_batch_completion_serialization() {
         let step_summaries = vec![
-            StepSummary::new(456, "completed".to_string(), Some(1500), Some("worker_1".to_string())),
-            StepSummary::new(457, "failed".to_string(), Some(800), Some("worker_2".to_string())),
+            StepSummary::new(
+                456,
+                "completed".to_string(),
+                Some(1500),
+                Some("worker_1".to_string()),
+            ),
+            StepSummary::new(
+                457,
+                "failed".to_string(),
+                Some(800),
+                Some("worker_2".to_string()),
+            ),
         ];
 
-        let batch_completion = ResultMessage::batch_completion(
-            "batch_123".to_string(),
-            2,
-            1,
-            1,
-            0,
-            step_summaries,
-        );
+        let batch_completion =
+            ResultMessage::batch_completion("batch_123".to_string(), 2, 1, 1, 0, step_summaries);
 
         let json = serde_json::to_string(&batch_completion).expect("Should serialize");
         assert!(json.contains("BatchCompletion"));
@@ -347,7 +354,13 @@ mod tests {
 
         let deserialized: ResultMessage = serde_json::from_str(&json).expect("Should deserialize");
         match deserialized {
-            ResultMessage::BatchCompletion { batch_id, total_steps, completed_steps, failed_steps, .. } => {
+            ResultMessage::BatchCompletion {
+                batch_id,
+                total_steps,
+                completed_steps,
+                failed_steps,
+                ..
+            } => {
                 assert_eq!(batch_id, "batch_123");
                 assert_eq!(total_steps, 2);
                 assert_eq!(completed_steps, 1);
@@ -387,7 +400,7 @@ mod tests {
                 let err = error.unwrap();
                 assert_eq!(err.message, "Connection timeout");
                 assert_eq!(err.error_type, Some("NetworkError".to_string()));
-                assert_eq!(err.retryable, true);
+                assert!(err.retryable);
             }
             _ => panic!("Should deserialize as PartialResult"),
         }

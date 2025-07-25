@@ -3,18 +3,12 @@
 //! Environment-aware structured logging that outputs to both console and files
 //! for debugging complex async workflows and FFI operations.
 
+use chrono::Utc;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
 use std::sync::OnceLock;
-use chrono::Utc;
-use tracing_subscriber::{
-    fmt,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    Layer,
-    EnvFilter,
-};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 static LOGGER_INITIALIZED: OnceLock<()> = OnceLock::new();
 
@@ -23,7 +17,7 @@ pub fn init_structured_logging() {
     LOGGER_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
         let log_level = get_log_level(&environment);
-        
+
         // Create log directory if it doesn't exist
         let log_dir = PathBuf::from("log");
         if !log_dir.exists() {
@@ -33,11 +27,11 @@ pub fn init_structured_logging() {
         // Generate log file name with environment, PID, and timestamp
         let pid = process::id();
         let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
-        let log_filename = format!("{}.{}.{}.log", environment, pid, timestamp);
+        let log_filename = format!("{environment}.{pid}.{timestamp}.log");
         let log_path = log_dir.join(log_filename);
 
         // Initialize tracing with both console and file output
-        let file_appender = tracing_appender::rolling::never(&log_dir, format!("{}.{}.{}.log", environment, pid, timestamp));
+        let file_appender = tracing_appender::rolling::never(&log_dir, format!("{environment}.{pid}.{timestamp}.log"));
         let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
 
         // Try to initialize tracing subscriber, but don't panic if one already exists
@@ -60,9 +54,9 @@ pub fn init_structured_logging() {
                     .json()
                     .with_filter(EnvFilter::new(log_level))
             );
-            
+
         // Use try_init to avoid panic if global subscriber already set
-        if let Err(_) = subscriber.try_init() {
+        if subscriber.try_init().is_err() {
             // A global subscriber is already set (likely from FFI bindings)
             // This is not an error - continue normally
             tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
@@ -203,12 +197,7 @@ pub fn log_database_operation(
 }
 
 /// Log error with full context
-pub fn log_error(
-    component: &str,
-    operation: &str,
-    error: &str,
-    context: Option<&str>,
-) {
+pub fn log_error(component: &str, operation: &str, error: &str, context: Option<&str>) {
     tracing::error!(
         component = %component,
         operation = %operation,

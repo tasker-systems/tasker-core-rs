@@ -1,21 +1,21 @@
 // ZeroMQ Rust-Ruby Integration Test
 // Tests the complete ZeroMQ pub-sub flow between Rust ZmqPubSubExecutor and Ruby ZeroMQHandler
 
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use serde_json::json;
 
 use tasker_core::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor;
-use tasker_core::orchestration::types::StepExecutionContext;
 use tasker_core::models::core::{Task, WorkflowStep};
 use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
 use tasker_core::orchestration::step_handler::StepHandler;
+use tasker_core::orchestration::types::StepExecutionContext;
 use tasker_core::orchestration::FrameworkIntegration;
 
 /// Test ZeroMQ integration between Rust executor and Ruby handler
-/// 
+///
 /// This test requires the Ruby ZeroMQ handler to be running. To run this test:
 /// 1. Start Ruby handler: `ruby test_zeromq_communication.rb`
 /// 2. Run this test: `cargo test zeromq_rust_ruby_integration`
@@ -23,11 +23,11 @@ use tasker_core::orchestration::FrameworkIntegration;
 #[ignore] // Ignored by default since it requires external Ruby process
 async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔬 Starting ZeroMQ Rust-Ruby Integration Test");
-    
+
     // Test configuration - must match Ruby handler endpoints
     let step_pub_endpoint = "inproc://test_integration_steps";
     let result_sub_endpoint = "inproc://test_integration_results";
-    
+
     println!("📍 Using endpoints:");
     println!("   Steps: {}", step_pub_endpoint);
     println!("   Results: {}", result_sub_endpoint);
@@ -37,8 +37,9 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
     let executor = ZmqPubSubExecutor::new(
         step_pub_endpoint.to_string(),
         result_sub_endpoint.to_string(),
-    ).await?;
-    
+    )
+    .await?;
+
     println!("   ✅ ZmqPubSubExecutor created successfully");
 
     // Create test data
@@ -99,21 +100,25 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
 
     println!("\n2. Testing step execution through ZeroMQ...");
     println!("   📋 Task ID: {}", task.id);
-    println!("   📋 Step: {} (ID: {})", workflow_step.step_name, workflow_step.id);
+    println!(
+        "   📋 Step: {} (ID: {})",
+        workflow_step.step_name, workflow_step.id
+    );
 
     // Execute step through ZeroMQ
     println!("   📤 Executing step through ZmqPubSubExecutor...");
-    
+
     let execution_result = timeout(
         Duration::from_secs(10), // 10 second timeout
-        executor.execute_step(Arc::new(MockStepHandler), step_context)
-    ).await;
+        executor.execute_step(Arc::new(MockStepHandler), step_context),
+    )
+    .await;
 
     match execution_result {
         Ok(Ok(result)) => {
             println!("   ✅ Step execution successful!");
             println!("   📋 Result: {}", serde_json::to_string_pretty(&result)?);
-            
+
             // Validate result structure
             assert!(result.is_object(), "Result should be a JSON object");
             if let Some(message) = result.get("message") {
@@ -122,7 +127,7 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
             if let Some(timestamp) = result.get("timestamp") {
                 println!("   📋 Timestamp: {}", timestamp);
             }
-            
+
             println!("\n🎉 ZeroMQ Rust-Ruby integration working perfectly!");
         }
         Ok(Err(e)) => {
@@ -138,7 +143,7 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
     }
 
     println!("\n3. Testing framework integration methods...");
-    
+
     // Test framework name
     let framework_name = executor.framework_name();
     println!("   📋 Framework: {}", framework_name);
@@ -176,7 +181,7 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
     println!("- ✅ Message protocol compatibility confirmed");
     println!("- ✅ Bidirectional pub-sub communication functional");
     println!("- ✅ Framework integration methods working");
-    
+
     Ok(())
 }
 
@@ -185,15 +190,16 @@ async fn test_zeromq_rust_ruby_integration() -> Result<(), Box<dyn std::error::E
 #[ignore] // Ignored by default since it requires external Ruby process
 async fn test_zeromq_batch_processing() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔬 Starting ZeroMQ Batch Processing Test");
-    
+
     let step_pub_endpoint = "inproc://batch_test_steps";
     let result_sub_endpoint = "inproc://batch_test_results";
-    
+
     let executor = ZmqPubSubExecutor::new(
         step_pub_endpoint.to_string(),
         result_sub_endpoint.to_string(),
-    ).await?;
-    
+    )
+    .await?;
+
     println!("   ✅ ZmqPubSubExecutor created for batch test");
 
     // Create multiple test steps
@@ -257,19 +263,23 @@ async fn test_zeromq_batch_processing() -> Result<(), Box<dyn std::error::Error>
         steps.push(step_context);
     }
 
-    println!("   📋 Created {} test steps for batch processing", steps.len());
+    println!(
+        "   📋 Created {} test steps for batch processing",
+        steps.len()
+    );
 
     // Execute all steps concurrently
     println!("   📤 Executing batch steps concurrently...");
-    
+
     let mut handles = Vec::new();
     for (i, step_context) in steps.into_iter().enumerate() {
         let executor_clone = executor.clone();
         let handle = tokio::spawn(async move {
             let result = timeout(
                 Duration::from_secs(5),
-                executor_clone.execute_step(Arc::new(MockStepHandler), step_context)
-            ).await;
+                executor_clone.execute_step(Arc::new(MockStepHandler), step_context),
+            )
+            .await;
             (i, result)
         });
         handles.push(handle);
@@ -278,7 +288,7 @@ async fn test_zeromq_batch_processing() -> Result<(), Box<dyn std::error::Error>
     // Wait for all steps to complete
     let mut successful = 0;
     let mut failed = 0;
-    
+
     for handle in handles {
         match handle.await? {
             (i, Ok(Ok(result))) => {
@@ -313,7 +323,7 @@ async fn test_zeromq_batch_processing() -> Result<(), Box<dyn std::error::Error>
 #[cfg(test)]
 mod test_helpers {
     use super::*;
-    
+
     /// Create a Ruby ZeroMQ handler communication test script
     /// This function generates the Ruby script that should be run alongside these tests
     pub fn generate_ruby_test_script() -> String {
@@ -438,7 +448,8 @@ rescue Interrupt
   context.terminate
   puts "✅ All handlers stopped"
 end
-"#.to_string()
+"#
+        .to_string()
     }
 
     #[test]

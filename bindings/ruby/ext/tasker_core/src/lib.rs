@@ -33,7 +33,7 @@ mod context;
 mod error_translation;
 mod ffi_logging;
 mod globals;
-mod handles;  // 🎯 NEW: Handle-based FFI architecture
+mod handles; // 🎯 NEW: Handle-based FFI architecture
 mod performance;
 mod test_helpers;
 mod types;
@@ -46,9 +46,9 @@ mod handlers {
 
 // Direct model imports (simplified from models/ module)
 mod models {
-    pub mod ruby_task;
     pub mod ruby_step;
     pub mod ruby_step_sequence;
+    pub mod ruby_task;
 }
 
 // Direct import of event bridge (moved from events/ subdirectory)
@@ -59,16 +59,19 @@ mod event_bridge;
 fn init(ruby: &Ruby) -> Result<(), Error> {
     // Initialize FFI logger for debugging
     if let Err(e) = crate::ffi_logging::init_ffi_logger() {
-        eprintln!("Warning: Failed to initialize FFI logger: {}", e);
+        eprintln!("Warning: Failed to initialize FFI logger: {e}");
     }
-    
+
     // Define TaskerCore module
     let module = ruby.define_module("TaskerCore")?;
 
     // Define version constants
     module.const_set("RUST_VERSION", env!("CARGO_PKG_VERSION"))?;
     module.const_set("STATUS", "ffi_bridges_restored")?;
-    module.const_set("FEATURES", "singleton_resources,core_delegation,performance_optimization")?;
+    module.const_set(
+        "FEATURES",
+        "singleton_resources,core_delegation,performance_optimization",
+    )?;
 
     // Define error hierarchy
     let base_error = module.define_error("Error", ruby.exception_standard_error())?;
@@ -85,10 +88,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // All type classes are properly namespaced (e.g., TaskerCore::Types::WorkflowStepInput)
 
     // Register RubyStepHandler wrapper class
-    handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
+    handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
 
     // Register task handler bridge functions
-    handlers::base_task_handler::register_base_task_handler(&ruby, &module)?;
+    handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
 
     // 🎯 CORE: Register handle-based FFI functions at root level
     handles::register_handle_functions(&module)?;
@@ -99,7 +102,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     performance::register_performance_functions(performance_module)?;
     // Register root-level performance functions that OrchestrationManager expects
     performance::register_root_performance_functions(module)?;
-    
+
     // ✅ Register Performance classes under TaskerCore::Performance:: namespace
     performance::RubyTaskExecutionContext::define(ruby, &performance_module)?;
     performance::RubyViableStep::define(ruby, &performance_module)?;
@@ -113,7 +116,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // 🎯 EVENTS: Organize all event functionality under Events:: namespace
     let events_module = module.define_module("Events")?;
     event_bridge::register_event_functions(events_module)?;
-    
+
     // ✅ NEW: Register optimized Ruby event classes for primitives in, objects out pattern
     event_bridge::register_ruby_event_classes(ruby, &events_module)?;
 
@@ -121,19 +124,20 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     let test_helpers_module = module.define_module("TestHelpers")?;
     test_helpers::register_test_helper_functions(test_helpers_module)?;
     handles::register_test_helpers_factory_functions(&test_helpers_module)?;
-    
+
     // ✅ NEW: Register optimized Ruby test classes for primitives in, objects out pattern
     test_helpers::testing_factory::register_ruby_test_classes(ruby, &test_helpers_module)?;
 
     // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
     let types_module = module.define_module("Types")?;
-    
+
     // Explicitly register OrchestrationHandleInfo class
-    let _orchestration_handle_info_class = module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
-    
+    let _orchestration_handle_info_class =
+        module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
+
     // BaseTaskHandler now returns Ruby hashes instead of wrapped objects
     // This simplifies FFI and avoids complex class registration issues
-    
+
     // 🎯 TASKHANDLER: TaskHandlerInitializeResult now explicitly registered under TaskerCore::
 
     Ok(())

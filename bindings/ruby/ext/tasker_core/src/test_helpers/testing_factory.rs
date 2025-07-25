@@ -8,15 +8,15 @@
 //! AFTER: ~100 lines of Magnus FFI wrappers
 //! SAVINGS: 1,100+ lines of duplicate testing code eliminated
 
-use magnus::{Error, RModule, Value, function, Ruby, Module};
+use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use magnus::error::Result as MagnusResult;
 use magnus::value::ReprValue;
+use magnus::{function, Error, Module, RModule, Ruby, Value};
 use std::sync::Arc;
-use tracing::{info, debug};
-use crate::context::{ruby_value_to_json, json_to_ruby_value};
-use tasker_core::ffi::shared::testing::{SharedTestingFactory, get_global_testing_factory};
+use tasker_core::ffi::shared::testing::{get_global_testing_factory, SharedTestingFactory};
 use tasker_core::ffi::shared::types::*;
-use tasker_core::models::core::workflow_step_edge::{WorkflowStepEdge, NewWorkflowStepEdge};
+use tasker_core::models::core::workflow_step_edge::{NewWorkflowStepEdge, WorkflowStepEdge};
+use tracing::{debug, info};
 
 // ===== RUBY FFI TESTING FACTORY WRAPPER OVER SHARED COMPONENTS =====
 //
@@ -66,9 +66,13 @@ impl RubyTestTask {
     /// Get context as Ruby hash
     pub fn context(&self) -> MagnusResult<Value> {
         match &self.context {
-            Some(ctx) => json_to_ruby_value(ctx.clone())
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Context conversion failed: {}", e))),
-            None => Ok(Ruby::get().unwrap().qnil().as_value())
+            Some(ctx) => json_to_ruby_value(ctx.clone()).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Context conversion failed: {e}"),
+                )
+            }),
+            None => Ok(Ruby::get().unwrap().qnil().as_value()),
         }
     }
 
@@ -101,18 +105,34 @@ pub struct RubyTestStep {
 }
 
 impl RubyTestStep {
-    pub fn step_id(&self) -> i64 { self.step_id }
-    pub fn task_id(&self) -> i64 { self.task_id }
-    pub fn name(&self) -> String { self.name.clone() }
-    pub fn handler_class(&self) -> Option<String> { self.handler_class.clone() }
-    pub fn status(&self) -> String { self.status.clone() }
-    pub fn dependencies(&self) -> Vec<i64> { self.dependencies.clone() }
+    pub fn step_id(&self) -> i64 {
+        self.step_id
+    }
+    pub fn task_id(&self) -> i64 {
+        self.task_id
+    }
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+    pub fn handler_class(&self) -> Option<String> {
+        self.handler_class.clone()
+    }
+    pub fn status(&self) -> String {
+        self.status.clone()
+    }
+    pub fn dependencies(&self) -> Vec<i64> {
+        self.dependencies.clone()
+    }
 
     pub fn config(&self) -> MagnusResult<Value> {
         match &self.config {
-            Some(cfg) => json_to_ruby_value(cfg.clone())
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Config conversion failed: {}", e))),
-            None => Ok(Ruby::get().unwrap().qnil().as_value())
+            Some(cfg) => json_to_ruby_value(cfg.clone()).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Config conversion failed: {e}"),
+                )
+            }),
+            None => Ok(Ruby::get().unwrap().qnil().as_value()),
         }
     }
 
@@ -130,7 +150,7 @@ pub fn create_test_task_optimized(
     name: Option<String>,
     version: Option<String>,
     context_json: Option<String>,
-    initiator: Option<String>
+    initiator: Option<String>,
 ) -> MagnusResult<RubyTestTask> {
     debug!("🚀 OPTIMIZED: create_test_task_optimized() - primitives in, objects out");
 
@@ -145,8 +165,12 @@ pub fn create_test_task_optimized(
 
     // Delegate to shared testing factory
     let factory = get_global_testing_factory();
-    let result = factory.create_test_task(input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test task creation failed: {}", e)))?;
+    let result = factory.create_test_task(input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test task creation failed: {e}"),
+        )
+    })?;
 
     // Direct object construction - no JSON round-trip
     Ok(RubyTestTask {
@@ -166,7 +190,7 @@ pub fn create_test_step_optimized(
     name: Option<String>,
     handler_class: Option<String>,
     dependencies: Option<Vec<i64>>,
-    config_json: Option<String>
+    config_json: Option<String>,
 ) -> MagnusResult<RubyTestStep> {
     debug!("🚀 OPTIMIZED: create_test_step_optimized() - primitives in, objects out");
 
@@ -179,8 +203,12 @@ pub fn create_test_step_optimized(
     };
 
     let factory = get_global_testing_factory();
-    let result = factory.create_test_step(input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test step creation failed: {}", e)))?;
+    let result = factory.create_test_step(input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test step creation failed: {e}"),
+        )
+    })?;
 
     Ok(RubyTestStep {
         step_id: result.workflow_step_id,
@@ -198,21 +226,43 @@ pub fn create_test_task(options: Value) -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: create_test_task() - delegating to shared testing factory");
 
     // Convert Ruby options to shared types
-    let options_json = ruby_value_to_json(options)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert options: {}", e)))?;
+    let options_json = ruby_value_to_json(options).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert options: {e}"),
+        )
+    })?;
 
     let input = CreateTestTaskInput {
-        namespace: options_json.get("namespace").and_then(|v| v.as_str()).unwrap_or("test").to_string(),
-        name: options_json.get("name").and_then(|v| v.as_str()).unwrap_or("test_task").to_string(),
-        version: options_json.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        namespace: options_json
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test")
+            .to_string(),
+        name: options_json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test_task")
+            .to_string(),
+        version: options_json
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         context: options_json.get("context").cloned(),
-        initiator: options_json.get("initiator").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        initiator: options_json
+            .get("initiator")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
     };
 
     // Delegate to shared testing factory
     let factory: Arc<SharedTestingFactory> = get_global_testing_factory();
-    let result = factory.create_test_task(input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test task creation failed: {}", e)))?;
+    let result = factory.create_test_task(input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test task creation failed: {e}"),
+        )
+    })?;
 
     // Convert result to Ruby hash
     let ruby_result = serde_json::json!({
@@ -225,41 +275,61 @@ pub fn create_test_task(options: Value) -> MagnusResult<Value> {
         "created_at": result.created_at
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Create test workflow step (delegates to shared testing factory)
 pub fn create_test_step(options: Value) -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: create_test_step() - delegating to shared testing factory");
 
-    let options_json = ruby_value_to_json(options)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert options: {}", e)))?;
-
+    let options_json = ruby_value_to_json(options).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert options: {e}"),
+        )
+    })?;
 
     let input = CreateTestStepInput {
-        task_id: options_json.get("task_id")
+        task_id: options_json
+            .get("task_id")
             .and_then(|v| {
                 // Try as integer first, then as float that can be converted, then as string that can be parsed
-                v.as_i64().or_else(|| {
-                    v.as_f64().map(|f| f as i64)
-                }).or_else(|| {
-                    v.as_str().and_then(|s| s.parse::<i64>().ok())
-                })
+                v.as_i64()
+                    .or_else(|| v.as_f64().map(|f| f as i64))
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
             })
             .unwrap_or(1),
-        name: options_json.get("name").and_then(|v| v.as_str()).unwrap_or("test_step").to_string(),
-        handler_class: options_json.get("handler_class").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        dependencies: options_json.get("dependencies")
+        name: options_json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test_step")
+            .to_string(),
+        handler_class: options_json
+            .get("handler_class")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        dependencies: options_json
+            .get("dependencies")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect()),
-        config: options_json.get("config").cloned()
+        config: options_json
+            .get("config")
+            .cloned()
             .or_else(|| options_json.get("inputs").cloned()),
     };
 
     let factory = get_global_testing_factory();
-    let result = factory.create_test_step(input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test step creation failed: {}", e)))?;
+    let result = factory.create_test_step(input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test step creation failed: {e}"),
+        )
+    })?;
 
     let ruby_result = serde_json::json!({
         "workflow_step_id": result.workflow_step_id,
@@ -271,8 +341,12 @@ pub fn create_test_step(options: Value) -> MagnusResult<Value> {
         "inputs": result.config  // Test expects 'inputs' not 'config'
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Setup test environment (delegates to shared testing factory)
@@ -280,8 +354,12 @@ pub fn setup_test_environment() -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: setup_test_environment() - delegating to shared testing factory");
 
     let factory = get_global_testing_factory();
-    let result = factory.setup_test_environment()
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test environment setup failed: {}", e)))?;
+    let result = factory.setup_test_environment().map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test environment setup failed: {e}"),
+        )
+    })?;
 
     let ruby_result = serde_json::json!({
         "status": result.status,
@@ -290,8 +368,12 @@ pub fn setup_test_environment() -> MagnusResult<Value> {
         "pool_size": result.pool_size
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Cleanup test environment (delegates to shared testing factory)
@@ -299,8 +381,12 @@ pub fn cleanup_test_environment() -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: cleanup_test_environment() - delegating to shared testing factory");
 
     let factory = get_global_testing_factory();
-    let result = factory.cleanup_test_environment()
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test environment cleanup failed: {}", e)))?;
+    let result = factory.cleanup_test_environment().map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test environment cleanup failed: {e}"),
+        )
+    })?;
 
     let ruby_result = serde_json::json!({
         "status": result.status,
@@ -309,26 +395,50 @@ pub fn cleanup_test_environment() -> MagnusResult<Value> {
         "pool_size": result.pool_size
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **MIGRATED**: Create test foundation (delegates to shared testing factory)
 pub fn create_test_foundation(options: Value) -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: create_test_foundation() - delegating to shared testing factory");
 
-    let options_json = ruby_value_to_json(options)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert options: {}", e)))?;
+    let options_json = ruby_value_to_json(options).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert options: {e}"),
+        )
+    })?;
 
     let input = CreateTestFoundationInput {
-        namespace: options_json.get("namespace").and_then(|v| v.as_str()).unwrap_or("test").to_string(),
-        task_name: options_json.get("task_name").and_then(|v| v.as_str()).unwrap_or("test_task").to_string(),
-        step_name: options_json.get("step_name").and_then(|v| v.as_str()).unwrap_or("test_step").to_string(),
+        namespace: options_json
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test")
+            .to_string(),
+        task_name: options_json
+            .get("task_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test_task")
+            .to_string(),
+        step_name: options_json
+            .get("step_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("test_step")
+            .to_string(),
     };
 
     let factory = get_global_testing_factory();
-    let result = factory.create_test_foundation(input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Test foundation creation failed: {}", e)))?;
+    let result = factory.create_test_foundation(input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Test foundation creation failed: {e}"),
+        )
+    })?;
 
     let ruby_result = serde_json::json!({
         "foundation_id": result.foundation_id,
@@ -339,33 +449,59 @@ pub fn create_test_foundation(options: Value) -> MagnusResult<Value> {
         "components": result.components
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// **NEW**: Create complex workflow with factory patterns (delegates to shared testing factory)
 pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Value> {
     debug!("🔧 Ruby FFI: create_complex_workflow_with_factory() - delegating to shared testing factory");
 
-    let options_json = ruby_value_to_json(options)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert options: {}", e)))?;
+    let options_json = ruby_value_to_json(options).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert options: {e}"),
+        )
+    })?;
 
     // Extract pattern and workflow parameters
-    let pattern = options_json.get("pattern").and_then(|v| v.as_str()).unwrap_or("linear");
-    let task_name = options_json.get("task_name").and_then(|v| v.as_str()).unwrap_or("complex_workflow");
-    let namespace = options_json.get("namespace").and_then(|v| v.as_str()).unwrap_or("workflow_test");
-    let context = options_json.get("context").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let pattern = options_json
+        .get("pattern")
+        .and_then(|v| v.as_str())
+        .unwrap_or("linear");
+    let task_name = options_json
+        .get("task_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("complex_workflow");
+    let namespace = options_json
+        .get("namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("workflow_test");
+    let context = options_json
+        .get("context")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
 
     // First create the foundation (namespace + named task + named step)
     let foundation_input = CreateTestFoundationInput {
         namespace: namespace.to_string(),
         task_name: task_name.to_string(),
-        step_name: format!("{}_step", task_name),
+        step_name: format!("{task_name}_step"),
     };
 
     let factory = get_global_testing_factory();
-    let foundation_result = factory.create_test_foundation(foundation_input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Foundation creation failed: {}", e)))?;
+    let foundation_result = factory
+        .create_test_foundation(foundation_input)
+        .map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Foundation creation failed: {e}"),
+            )
+        })?;
 
     // Then create the main task instance
     let task_input = CreateTestTaskInput {
@@ -376,8 +512,12 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
         initiator: Some("complex_workflow_factory".to_string()),
     };
 
-    let task_result = factory.create_test_task(task_input)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Task creation failed: {}", e)))?;
+    let task_result = factory.create_test_task(task_input).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Task creation failed: {e}"),
+        )
+    })?;
 
     // Create workflow steps based on pattern
     let step_count = match pattern {
@@ -390,7 +530,7 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
 
     let mut workflow_steps: Vec<serde_json::Value> = Vec::new();
     let mut step_ids = Vec::new();
-    
+
     // First, create all the workflow steps
     for i in 0..step_count {
         let step_input = CreateTestStepInput {
@@ -405,8 +545,12 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
             })),
         };
 
-        let step_result = factory.create_test_step(step_input)
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Step {} creation failed: {}", i + 1, e)))?;
+        let step_result = factory.create_test_step(step_input).map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Step {} creation failed: {}", i + 1, e),
+            )
+        })?;
 
         step_ids.push(step_result.workflow_step_id);
         let step_json = serde_json::json!({
@@ -433,12 +577,17 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                     to_step_id: step_ids[i],
                     name: format!("linear_edge_{}_{}", i, i + 1),
                 };
-                
+
                 let pool_clone = pool.clone();
                 crate::globals::execute_async(async move {
                     WorkflowStepEdge::create(&pool_clone, edge).await
                 })
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Linear edge creation failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Linear edge creation failed: {e}"),
+                    )
+                })?;
 
                 // Update dependencies in the workflow_steps JSON
                 if let Some(step) = workflow_steps.get_mut(i) {
@@ -446,7 +595,7 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                     step["inputs"]["depends_on"] = serde_json::json!([step_ids[i - 1]]);
                 }
             }
-        },
+        }
         "diamond" => {
             // Diamond: A → B,C → D (branching and merging)
             // A → B
@@ -455,7 +604,7 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                 to_step_id: step_ids[1],
                 name: "diamond_edge_a_b".to_string(),
             };
-            // A → C  
+            // A → C
             let edge_ac = NewWorkflowStepEdge {
                 from_step_id: step_ids[0],
                 to_step_id: step_ids[2],
@@ -479,7 +628,12 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                 crate::globals::execute_async(async move {
                     WorkflowStepEdge::create(&pool_clone, edge).await
                 })
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Diamond edge creation failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Diamond edge creation failed: {e}"),
+                    )
+                })?;
             }
 
             // Update dependencies in workflow_steps JSON
@@ -488,8 +642,9 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
             workflow_steps[2]["dependencies"] = serde_json::json!([step_ids[0]]);
             workflow_steps[2]["inputs"]["depends_on"] = serde_json::json!([step_ids[0]]);
             workflow_steps[3]["dependencies"] = serde_json::json!([step_ids[1], step_ids[2]]);
-            workflow_steps[3]["inputs"]["depends_on"] = serde_json::json!([step_ids[1], step_ids[2]]);
-        },
+            workflow_steps[3]["inputs"]["depends_on"] =
+                serde_json::json!([step_ids[1], step_ids[2]]);
+        }
         "parallel" => {
             // Parallel: A → B,C,D (multiple parallel branches from single root)
             for i in 1..step_count {
@@ -498,18 +653,23 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                     to_step_id: step_ids[i],
                     name: format!("parallel_edge_a_{}", i + 1),
                 };
-                
+
                 let pool_clone = pool.clone();
                 crate::globals::execute_async(async move {
                     WorkflowStepEdge::create(&pool_clone, edge).await
                 })
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Parallel edge creation failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Parallel edge creation failed: {e}"),
+                    )
+                })?;
 
                 // Update dependencies in workflow_steps JSON
                 workflow_steps[i]["dependencies"] = serde_json::json!([step_ids[0]]);
                 workflow_steps[i]["inputs"]["depends_on"] = serde_json::json!([step_ids[0]]);
             }
-        },
+        }
         "tree" => {
             // Tree: A → B,C → D,E,F (hierarchical branching)
             // A → B
@@ -548,7 +708,12 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
                 crate::globals::execute_async(async move {
                     WorkflowStepEdge::create(&pool_clone, edge).await
                 })
-                .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Tree edge creation failed: {}", e)))?;
+                .map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Tree edge creation failed: {e}"),
+                    )
+                })?;
             }
 
             // Update dependencies in workflow_steps JSON
@@ -562,7 +727,7 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
             workflow_steps[4]["inputs"]["depends_on"] = serde_json::json!([step_ids[2]]);
             workflow_steps[5]["dependencies"] = serde_json::json!([step_ids[1]]);
             workflow_steps[5]["inputs"]["depends_on"] = serde_json::json!([step_ids[1]]);
-        },
+        }
         _ => {
             // Default: no edges for unknown patterns
         }
@@ -592,8 +757,12 @@ pub fn create_complex_workflow_with_factory(options: Value) -> MagnusResult<Valu
         "created_by": "shared_complex_workflow_factory"
     });
 
-    crate::context::json_to_ruby_value(ruby_result)
-        .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to convert result: {}", e)))
+    crate::context::json_to_ruby_value(ruby_result).map_err(|e| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to convert result: {e}"),
+        )
+    })
 }
 
 /// Register testing factory functions with Ruby
@@ -603,16 +772,34 @@ pub fn register_factory_functions(module: &RModule) -> MagnusResult<()> {
     // Legacy JSON-based functions (for backward compatibility)
     module.define_module_function("create_test_task", function!(create_test_task, 1))?;
     module.define_module_function("create_test_step", function!(create_test_step, 1))?;
-    module.define_module_function("setup_test_environment", function!(setup_test_environment, 0))?;
-    module.define_module_function("cleanup_test_environment", function!(cleanup_test_environment, 0))?;
-    module.define_module_function("create_test_foundation", function!(create_test_foundation, 1))?;
+    module.define_module_function(
+        "setup_test_environment",
+        function!(setup_test_environment, 0),
+    )?;
+    module.define_module_function(
+        "cleanup_test_environment",
+        function!(cleanup_test_environment, 0),
+    )?;
+    module.define_module_function(
+        "create_test_foundation",
+        function!(create_test_foundation, 1),
+    )?;
 
     // ✅ NEW: Complex workflow factory function
-    module.define_module_function("create_complex_workflow_with_factory", function!(create_complex_workflow_with_factory, 1))?;
+    module.define_module_function(
+        "create_complex_workflow_with_factory",
+        function!(create_complex_workflow_with_factory, 1),
+    )?;
 
     // ✅ NEW: Optimized primitives in, objects out functions
-    module.define_module_function("create_test_task_optimized", function!(create_test_task_optimized, 5))?;
-    module.define_module_function("create_test_step_optimized", function!(create_test_step_optimized, 5))?;
+    module.define_module_function(
+        "create_test_task_optimized",
+        function!(create_test_task_optimized, 5),
+    )?;
+    module.define_module_function(
+        "create_test_step_optimized",
+        function!(create_test_step_optimized, 5),
+    )?;
 
     info!("✅ Testing factory functions registered successfully - using shared components + optimized primitives + complex workflows");
     Ok(())

@@ -2,10 +2,10 @@
 //!
 //! Magnus-wrapped Ruby class for step sequence data access from Ruby code.
 
-use magnus::{prelude::*, Error, Ruby};
-use tasker_core::models::core::workflow_step::WorkflowStep;
-use sqlx::PgPool;
 use crate::models::ruby_step::RubyStep;
+use magnus::{prelude::*, Error, Ruby};
+use sqlx::PgPool;
+use tasker_core::models::core::workflow_step::WorkflowStep;
 
 /// Ruby wrapper for step sequence data
 ///
@@ -25,30 +25,38 @@ impl RubyStepSequence {
     /// Create a new RubyStepSequence from a WorkflowStep and its dependencies
     /// DEPRECATED: This method uses meaningless fallback names and should not be used.
     /// Use from_workflow_step_with_step_names() instead to ensure proper step name resolution.
-    pub async fn from_workflow_step(step: &WorkflowStep, pool: &PgPool) -> Result<Self, sqlx::Error> {
+    pub async fn from_workflow_step(
+        step: &WorkflowStep,
+        pool: &PgPool,
+    ) -> Result<Self, sqlx::Error> {
         // Try to get the real step name from the database
         let named_step = tasker_core::models::NamedStep::find_by_id(pool, step.named_step_id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
-        
+
         Self::from_workflow_step_with_name(step, &named_step.name, pool).await
     }
 
     /// Create a new RubyStepSequence from a WorkflowStep with an explicit name
-    pub async fn from_workflow_step_with_name(step: &WorkflowStep, step_name: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
+    pub async fn from_workflow_step_with_name(
+        step: &WorkflowStep,
+        step_name: &str,
+        pool: &PgPool,
+    ) -> Result<Self, sqlx::Error> {
         Self::from_workflow_step_with_step_names(step, step_name, None, pool).await
     }
 
     /// Create a new RubyStepSequence from a WorkflowStep with step name mapping for all steps
     pub async fn from_workflow_step_with_step_names(
-        step: &WorkflowStep, 
-        step_name: &str, 
-        step_name_mapping: Option<std::collections::HashMap<i32, String>>, 
-        pool: &PgPool
+        step: &WorkflowStep,
+        step_name: &str,
+        step_name_mapping: Option<std::collections::HashMap<i32, String>>,
+        pool: &PgPool,
     ) -> Result<Self, sqlx::Error> {
         let dependencies = step.get_dependencies(pool).await?;
-        let ruby_dependencies: Vec<RubyStep> = dependencies.iter()
-            .map(|dep| RubyStep::from_workflow_step(dep))
+        let ruby_dependencies: Vec<RubyStep> = dependencies
+            .iter()
+            .map(RubyStep::from_workflow_step)
             .collect();
 
         // Get ALL workflow steps for this task (not just dependencies)
@@ -65,11 +73,10 @@ impl RubyStepSequence {
                 // Resolve step name from mapping - fallback patterns are NOT ALLOWED
                 // Every named_step_id MUST have a meaningful name from the task template
                 let resolved_name = if let Some(ref mapping) = step_name_mapping {
-                    mapping.get(&ws.named_step_id)
+                    mapping
+                        .get(&ws.named_step_id)
                         .cloned()
-                        .ok_or_else(|| {
-                            sqlx::Error::RowNotFound
-                        })?
+                        .ok_or_else(|| sqlx::Error::RowNotFound)?
                 } else {
                     return Err(sqlx::Error::RowNotFound);
                 };
@@ -79,7 +86,8 @@ impl RubyStepSequence {
         }
 
         // Find current step position in the sequence
-        let current_position = all_workflow_steps.iter()
+        let current_position = all_workflow_steps
+            .iter()
             .position(|ws| ws.workflow_step_id == step.workflow_step_id)
             .unwrap_or(0);
 
@@ -93,11 +101,16 @@ impl RubyStepSequence {
     }
 
     /// Create a new RubyStepSequence with explicit values
-    pub fn new(total_steps: usize, current_position: usize, dependencies: Vec<RubyStep>, current_step_id: i64) -> Self {
+    pub fn new(
+        total_steps: usize,
+        current_position: usize,
+        dependencies: Vec<RubyStep>,
+        current_step_id: i64,
+    ) -> Self {
         // For compatibility, create all_steps from dependencies for now
         // TODO: This should be updated to receive all steps properly
         let all_steps = dependencies.clone();
-        
+
         Self {
             total_steps,
             current_position,
@@ -108,7 +121,13 @@ impl RubyStepSequence {
     }
 
     /// Create a new RubyStepSequence with all steps included
-    pub fn new_with_all_steps(total_steps: usize, current_position: usize, dependencies: Vec<RubyStep>, current_step_id: i64, all_steps: Vec<RubyStep>) -> Self {
+    pub fn new_with_all_steps(
+        total_steps: usize,
+        current_position: usize,
+        dependencies: Vec<RubyStep>,
+        current_step_id: i64,
+        all_steps: Vec<RubyStep>,
+    ) -> Self {
         Self {
             total_steps,
             current_position,
@@ -130,10 +149,12 @@ impl RubyStepSequence {
 
     /// Get dependencies as Ruby array of RubyStep objects
     pub fn dependencies(&self) -> Result<magnus::Value, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
         let array = ruby.ary_new_capa(self.dependencies.len());
 
         for ruby_step in &self.dependencies {
@@ -148,10 +169,12 @@ impl RubyStepSequence {
     /// Get all steps as Ruby array (for Ruby handler compatibility)
     /// This includes dependencies + current step, which is what Ruby handlers expect
     pub fn steps(&self) -> Result<magnus::Value, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
         let array = ruby.ary_new_capa(self.all_steps.len());
 
         for ruby_step in &self.all_steps {
@@ -199,10 +222,12 @@ impl RubyStepSequence {
 
     /// Get step sequence as Ruby hash
     pub fn to_h(&self) -> Result<magnus::RHash, Error> {
-        let ruby = Ruby::get().map_err(|e| Error::new(
-            magnus::exception::runtime_error(),
-            format!("Ruby unavailable: {}", e)
-        ))?;
+        let ruby = Ruby::get().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Ruby unavailable: {e}"),
+            )
+        })?;
 
         let hash = ruby.hash_new();
         hash.aset("total_steps", self.total_steps)?;

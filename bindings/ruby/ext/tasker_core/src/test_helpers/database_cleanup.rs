@@ -19,37 +19,36 @@
 
 use crate::context::json_to_ruby_value;
 use magnus::{Error, RModule, TryConvert, Value};
-use tracing::debug;
 use tasker_core::ffi::shared::database_cleanup::get_global_database_cleanup;
+use tracing::debug;
 
 /// **MIGRATED**: Run all migrations using shared database cleanup
 fn run_migrations_wrapper(database_url_value: Value) -> Result<Value, Error> {
     let database_url: String = match String::try_convert(database_url_value) {
         Ok(url) => url,
-        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string(),
     };
 
     debug!("🔧 Ruby FFI: run_migrations_wrapper() - delegating to shared database cleanup");
 
     let result = crate::globals::execute_async(async {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
 
         // Get shared database cleanup instance
         match get_global_database_cleanup() {
-            Ok(cleanup) => {
-                match cleanup.run_migrations(&database_url).await {
-                    Ok(result) => result,
-                    Err(e) => {
-                        serde_json::json!({
-                            "status": "error",
-                            "error": format!("Migration failed: {}", e),
-                            "error_type": "shared_migration_failure",
-                            "database_url": database_url
-                        })
-                    }
+            Ok(cleanup) => match cleanup.run_migrations(&database_url).await {
+                Ok(result) => result,
+                Err(e) => {
+                    serde_json::json!({
+                        "status": "error",
+                        "error": format!("Migration failed: {}", e),
+                        "error_type": "shared_migration_failure",
+                        "database_url": database_url
+                    })
                 }
-            }
+            },
             Err(e) => {
                 serde_json::json!({
                     "status": "error",
@@ -68,7 +67,7 @@ fn run_migrations_wrapper(database_url_value: Value) -> Result<Value, Error> {
 fn drop_schema_wrapper(database_url_value: Value) -> Result<Value, Error> {
     let database_url: String = match String::try_convert(database_url_value) {
         Ok(url) => url,
-        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string(),
     };
 
     debug!("🔧 Ruby FFI: drop_schema_wrapper() - delegating to shared database cleanup");
@@ -76,19 +75,17 @@ fn drop_schema_wrapper(database_url_value: Value) -> Result<Value, Error> {
     let result = crate::globals::execute_async(async {
         // Get shared database cleanup instance
         match get_global_database_cleanup() {
-            Ok(cleanup) => {
-                match cleanup.drop_schema(&database_url).await {
-                    Ok(result) => result,
-                    Err(e) => {
-                        serde_json::json!({
-                            "status": "error",
-                            "error": format!("Schema drop failed: {}", e),
-                            "error_type": "shared_schema_drop_failure", 
-                            "database_url": database_url
-                        })
-                    }
+            Ok(cleanup) => match cleanup.drop_schema(&database_url).await {
+                Ok(result) => result,
+                Err(e) => {
+                    serde_json::json!({
+                        "status": "error",
+                        "error": format!("Schema drop failed: {}", e),
+                        "error_type": "shared_schema_drop_failure",
+                        "database_url": database_url
+                    })
                 }
-            }
+            },
             Err(e) => {
                 serde_json::json!({
                     "status": "error",
@@ -107,7 +104,7 @@ fn drop_schema_wrapper(database_url_value: Value) -> Result<Value, Error> {
 fn list_database_tables_wrapper(database_url_value: Value) -> Result<Value, Error> {
     let database_url: String = match String::try_convert(database_url_value) {
         Ok(url) => url,
-        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        Err(_) => "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string(),
     };
 
     debug!("🔧 Ruby FFI: list_database_tables_wrapper() - delegating to shared database cleanup");
@@ -115,19 +112,17 @@ fn list_database_tables_wrapper(database_url_value: Value) -> Result<Value, Erro
     let result = crate::globals::execute_async(async {
         // Get shared database cleanup instance
         match get_global_database_cleanup() {
-            Ok(cleanup) => {
-                match cleanup.list_database_tables(&database_url).await {
-                    Ok(result) => result,
-                    Err(e) => {
-                        serde_json::json!({
-                            "status": "error",
-                            "error": format!("Table listing failed: {}", e),
-                            "error_type": "shared_table_listing_failure",
-                            "database_url": database_url
-                        })
-                    }
+            Ok(cleanup) => match cleanup.list_database_tables(&database_url).await {
+                Ok(result) => result,
+                Err(e) => {
+                    serde_json::json!({
+                        "status": "error",
+                        "error": format!("Table listing failed: {}", e),
+                        "error_type": "shared_table_listing_failure",
+                        "database_url": database_url
+                    })
                 }
-            }
+            },
             Err(e) => {
                 serde_json::json!({
                     "status": "error",
@@ -151,10 +146,7 @@ pub fn register_cleanup_functions(module: RModule) -> Result<(), Error> {
         magnus::function!(run_migrations_wrapper, 1),
     )?;
 
-    module.define_module_function(
-        "drop_schema",
-        magnus::function!(drop_schema_wrapper, 1),
-    )?;
+    module.define_module_function("drop_schema", magnus::function!(drop_schema_wrapper, 1))?;
 
     module.define_module_function(
         "list_database_tables",
@@ -171,7 +163,7 @@ pub fn register_cleanup_functions(module: RModule) -> Result<(), Error> {
 //
 // Previous file contained 270+ lines of broken code including:
 // - create_temporary_database_pool() - FUNCTION DIDN'T EXIST ❌
-// - close_database_pool() - FUNCTION DIDN'T EXIST ❌  
+// - close_database_pool() - FUNCTION DIDN'T EXIST ❌
 // - Pool management for every operation (connection exhaustion risk)
 // - Duplicate SQL operations across language bindings
 // - No handle-based architecture integration

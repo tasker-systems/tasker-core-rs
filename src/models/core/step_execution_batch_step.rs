@@ -135,7 +135,10 @@ impl StepExecutionBatchStep {
     }
 
     /// Create a new batch-step relationship
-    pub async fn create(pool: &PgPool, new_batch_step: NewStepExecutionBatchStep) -> Result<Self, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_batch_step: NewStepExecutionBatchStep,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Self,
             r#"
@@ -181,7 +184,7 @@ impl StepExecutionBatchStep {
             )
             .fetch_one(&mut *tx)
             .await?;
-            
+
             created_steps.push(created);
         }
 

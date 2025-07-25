@@ -20,8 +20,8 @@
 //! 3. **Thin Wrappers**: Functions should be minimal FFI wrappers that convert
 //!    Ruby arguments to Rust and call the existing factory methods
 
-pub mod testing_factory;
 pub mod database_cleanup;
+pub mod testing_factory;
 pub mod testing_framework;
 
 use magnus::{Error, Module, RModule};

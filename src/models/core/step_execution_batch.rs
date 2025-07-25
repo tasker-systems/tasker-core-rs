@@ -125,7 +125,10 @@ impl StepExecutionBatch {
     }
 
     /// Find a batch by its UUID (primary lookup for ZeroMQ correlation)
-    pub async fn find_by_uuid(pool: &PgPool, batch_uuid: &str) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn find_by_uuid(
+        pool: &PgPool,
+        batch_uuid: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Self,
             r#"
@@ -142,7 +145,10 @@ impl StepExecutionBatch {
     }
 
     /// Create a new batch
-    pub async fn create(pool: &PgPool, new_batch: NewStepExecutionBatch) -> Result<Self, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        new_batch: NewStepExecutionBatch,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Self,
             r#"
@@ -244,10 +250,10 @@ mod tests {
     fn test_batch_uuid_generation() {
         let uuid1 = StepExecutionBatch::generate_batch_uuid();
         let uuid2 = StepExecutionBatch::generate_batch_uuid();
-        
+
         // Should generate unique UUIDs
         assert_ne!(uuid1, uuid2);
-        
+
         // Should be valid UUID format
         assert!(Uuid::parse_str(&uuid1).is_ok());
         assert!(Uuid::parse_str(&uuid2).is_ok());

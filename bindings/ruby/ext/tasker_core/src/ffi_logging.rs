@@ -1,5 +1,5 @@
 //! FFI-specific logging module to debug data flow across the FFI boundary
-//! 
+//!
 //! This module provides structured logging that writes to a file to help debug
 //! issues where data appears to be lost when crossing the FFI boundary.
 
@@ -7,7 +7,7 @@ use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 use structured_logger::Builder;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 static FFI_LOGGER: OnceLock<Arc<Mutex<Box<dyn Write + Send>>>> = OnceLock::new();
 
@@ -23,7 +23,7 @@ pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
     create_dir_all(log_dir)?;
 
     // Create/open log file with append mode
-    let log_path = format!("{}/tasker_ffi_{}.log", log_dir, environment);
+    let log_path = format!("{log_dir}/tasker_ffi_{environment}.log");
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -32,15 +32,14 @@ pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
     // Wrap the file writer in Arc<Mutex<>> for thread safety
     let writer: Box<dyn Write + Send> = Box::new(file);
     let shared_writer = Arc::new(Mutex::new(writer));
-    
+
     // Store a clone for direct writing
     let writer_clone = shared_writer.clone();
     FFI_LOGGER.set(writer_clone).ok();
 
     // Initialize the structured logger - using simple initialization
     // Ignore errors if logger is already initialized
-    let _ = Builder::with_level("debug")
-        .try_init();
+    let _ = Builder::with_level("debug").try_init();
 
     info!("FFI Logger initialized - writing to {}", log_path);
     Ok(())
@@ -49,12 +48,15 @@ pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
 /// Log a debug message directly to the FFI log file
 pub fn log_ffi_debug(component: &str, message: &str) {
     debug!(target: "ffi", component = component, "{}", message);
-    
+
     // Also write directly to ensure it's captured
     if let Some(logger) = FFI_LOGGER.get() {
         if let Ok(mut writer) = logger.lock() {
             let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let _ = writeln!(writer, "[{}] [DEBUG] [{}] {}", timestamp, component, message);
+            let _ = writeln!(
+                writer,
+                "[{timestamp}] [DEBUG] [{component}] {message}"
+            );
             let _ = writer.flush();
         }
     }
@@ -62,7 +64,11 @@ pub fn log_ffi_debug(component: &str, message: &str) {
 
 /// Log task initialization data for debugging
 pub fn log_task_init_data(stage: &str, data: &serde_json::Value) {
-    let message = format!("Task initialization - {}: {}", stage, serde_json::to_string_pretty(data).unwrap_or_else(|_| "SERIALIZATION_ERROR".to_string()));
+    let message = format!(
+        "Task initialization - {}: {}",
+        stage,
+        serde_json::to_string_pretty(data).unwrap_or_else(|_| "SERIALIZATION_ERROR".to_string())
+    );
     log_ffi_debug("initialize_task", &message);
 }
 
@@ -80,22 +86,24 @@ pub fn log_task_init_result(result: &crate::types::TaskHandlerInitializeResult) 
 /// Log Magnus value inspection
 pub fn log_magnus_value(stage: &str, value: magnus::Value) {
     use magnus::value::ReprValue;
-    
+
     let inspect_result: Result<String, _> = value.funcall("inspect", ());
-    let class_name: Result<String, _> = value.funcall("class", ()).and_then(|c: magnus::Value| c.funcall("name", ()));
-    
+    let class_name: Result<String, _> = value
+        .funcall("class", ())
+        .and_then(|c: magnus::Value| c.funcall("name", ()));
+
     let message = format!(
-        "Magnus value at {}: class={}, inspect={}", 
+        "Magnus value at {}: class={}, inspect={}",
         stage,
         class_name.unwrap_or_else(|_| "UNKNOWN".to_string()),
         inspect_result.unwrap_or_else(|_| "INSPECT_FAILED".to_string())
     );
-    
+
     log_ffi_debug("magnus_inspection", &message);
 }
 
 /// Log raw FFI boundary crossing
 pub fn log_ffi_boundary(direction: &str, component: &str, data: &str) {
-    let message = format!("FFI {} - {}: {}", direction, component, data);
+    let message = format!("FFI {direction} - {component}: {data}");
     log_ffi_debug("ffi_boundary", &message);
 }

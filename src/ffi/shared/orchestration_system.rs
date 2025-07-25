@@ -11,7 +11,7 @@ use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::step_executor::StepExecutor;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
-use crate::orchestration::task_initializer::{TaskInitializer, TaskInitializationConfig};
+use crate::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
 use crate::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
 use crate::registry::TaskHandlerRegistry;
 use sqlx::PgPool;
@@ -120,7 +120,7 @@ async fn create_unified_orchestration_system(
 ) -> Result<OrchestrationSystem, Box<dyn std::error::Error + Send + Sync>> {
     // Initialize structured logging first
     crate::logging::init_structured_logging();
-    
+
     info!("🎯 UNIFIED ENTRY: Creating orchestration system from configuration");
 
     // CRITICAL FIX: Load environment variables from .env.test file
@@ -205,7 +205,9 @@ async fn create_unified_orchestration_system(
         event_publisher.clone(),
         database_pool.clone(),
     );
-    let shared_registry = Arc::new(TaskHandlerRegistry::with_event_publisher(event_publisher.clone()));
+    let shared_registry = Arc::new(TaskHandlerRegistry::with_event_publisher(
+        event_publisher.clone(),
+    ));
     let workflow_coordinator = WorkflowCoordinator::with_shared_registry(
         database_pool.clone(),
         WorkflowCoordinatorConfig::default(),
@@ -221,10 +223,7 @@ async fn create_unified_orchestration_system(
     );
 
     // Create config finder
-    let task_config_finder = TaskConfigFinder::new(
-        config_manager.clone(),
-        shared_registry.clone(),
-    );
+    let task_config_finder = TaskConfigFinder::new(config_manager.clone(), shared_registry.clone());
 
     let step_executor = StepExecutor::new(
         state_manager.clone(),
@@ -242,7 +241,7 @@ async fn create_unified_orchestration_system(
     let zmq_context = Arc::new(Context::new());
     let batch_publisher = if config_manager.system_config().zeromq.enabled {
         info!("🚀 ZeroMQ: Initializing BatchPublisher with configuration");
-        
+
         let zeromq_config = &config_manager.system_config().zeromq;
         let batch_config = BatchPublisherConfig {
             batch_endpoint: zeromq_config.batch_endpoint.clone(),
@@ -250,7 +249,7 @@ async fn create_unified_orchestration_system(
             send_hwm: zeromq_config.send_hwm,
             recv_hwm: zeromq_config.recv_hwm,
         };
-        
+
         match BatchPublisher::new(zmq_context.clone(), batch_config) {
             Ok(publisher) => {
                 info!("✅ ZeroMQ: BatchPublisher initialized successfully");
@@ -356,7 +355,7 @@ where
 {
     // CRITICAL FIX: Always use the same global runtime to avoid pool context issues
     let runtime = get_global_runtime();
-    
+
     // RUBY THREADING FIX: Use LocalSet to maintain Ruby thread context for spawn_local
     // This ensures that spawn_local tasks have access to the Ruby interpreter
     let local = tokio::task::LocalSet::new();

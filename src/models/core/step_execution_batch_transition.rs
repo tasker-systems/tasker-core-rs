@@ -67,7 +67,7 @@ use sqlx::{FromRow, PgPool};
 ///
 /// The `most_recent` flag enables O(1) current state lookups:
 /// ```sql
-/// SELECT * FROM transitions 
+/// SELECT * FROM transitions
 /// WHERE batch_id = ? AND most_recent = true
 /// ```
 ///
@@ -119,21 +119,24 @@ pub enum BatchState {
     Cancelled,
 }
 
-impl BatchState {
-    /// Parse from string representation
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for BatchState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "created" => Some(Self::Created),
-            "published" => Some(Self::Published),
-            "executing" => Some(Self::Executing),
-            "completed" => Some(Self::Completed),
-            "failed" => Some(Self::Failed),
-            "timeout" => Some(Self::Timeout),
-            "cancelled" => Some(Self::Cancelled),
-            _ => None,
+            "created" => Ok(Self::Created),
+            "published" => Ok(Self::Published),
+            "executing" => Ok(Self::Executing),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "timeout" => Ok(Self::Timeout),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!("Invalid batch state: {s}")),
         }
     }
+}
 
+impl BatchState {
     /// Convert to string representation
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -370,7 +373,7 @@ mod tests {
         assert!(!BatchState::Created.is_terminal());
         assert!(!BatchState::Published.is_terminal());
         assert!(!BatchState::Executing.is_terminal());
-        
+
         assert!(BatchState::Completed.is_terminal());
         assert!(BatchState::Failed.is_terminal());
         assert!(BatchState::Timeout.is_terminal());

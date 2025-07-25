@@ -560,32 +560,38 @@ impl FrameworkIntegration for DefaultFrameworkIntegration {
         Ok(())
     }
 
-    async fn execute_step_with_handler(
+    async fn execute_step_batch(
         &self,
-        context: &crate::orchestration::step_handler::StepExecutionContext,
-        handler_class: &str,
-        _handler_config: &std::collections::HashMap<String, serde_json::Value>,
-    ) -> Result<crate::orchestration::types::StepResult, OrchestrationError> {
+        contexts: Vec<(
+            &crate::orchestration::step_handler::StepExecutionContext,
+            &str,
+            &std::collections::HashMap<String, serde_json::Value>,
+        )>,
+    ) -> Result<Vec<crate::orchestration::types::StepResult>, OrchestrationError> {
         use crate::orchestration::types::{StepResult, StepStatus};
         use std::time::Duration;
 
-        // Default implementation returns a successful result with placeholder data
+        // Default implementation returns successful results for all steps with placeholder data
         // This is used for testing and fallback scenarios
-        Ok(StepResult {
-            step_id: context.step_id,
-            status: StepStatus::Completed,
-            output: serde_json::json!({
-                "status": "completed",
-                "handler_class": handler_class,
-                "message": "Default implementation - step completed successfully",
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            }),
-            execution_duration: Duration::from_millis(1),
-            error_message: None,
-            retry_after: None,
-            error_code: None,
-            error_context: None,
-        })
+        let mut results = Vec::new();
+        for (context, handler_class, _handler_config) in contexts {
+            results.push(StepResult {
+                step_id: context.step_id,
+                status: StepStatus::Completed,
+                output: serde_json::json!({
+                    "status": "completed",
+                    "handler_class": handler_class,
+                    "message": "Default batch implementation - step completed successfully",
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+                execution_duration: Duration::from_millis(1),
+                error_message: None,
+                retry_after: None,
+                error_code: None,
+                error_context: None,
+            });
+        }
+        Ok(results)
     }
 }
 

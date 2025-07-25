@@ -661,9 +661,9 @@ impl StateManager {
     pub async fn mark_step_in_progress(&self, step_id: i64) -> OrchestrationResult<()> {
         // 1. Transition state machine to InProgress
         let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
-        
+
         let event = StepEvent::Start;
-        
+
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
@@ -682,7 +682,7 @@ impl StateManager {
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
             operation: "mark_step_in_progress".to_string(),
-            reason: format!("Failed to update in_process column for step {}: {}", step_id, e),
+            reason: format!("Failed to update in_process column for step {step_id}: {e}"),
         })?;
 
         debug!(step_id = step_id, "Marked step as in progress");

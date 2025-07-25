@@ -4,21 +4,23 @@
 //! TaskTemplate represents the complete task configuration including step templates,
 //! environment-specific overrides, and validation schemas.
 
-use serde::{Deserialize, Serialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 use crate::error::{Result, TaskerError};
 
 /// Custom deserializer for numeric values that may be integers or floats in YAML
 /// Converts floats to i32 by truncating (e.g., 0.0 -> 0, 10.5 -> 10)
-fn deserialize_optional_numeric<'de, D>(deserializer: D) -> std::result::Result<Option<i32>, D::Error>
+fn deserialize_optional_numeric<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<i32>, D::Error>
 where
     D: Deserializer<'de>,
 {
     use serde::de::Error;
-    
+
     let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
-    
+
     match value {
         None => Ok(None),
         Some(serde_yaml::Value::Number(n)) => {
@@ -28,7 +30,7 @@ where
                 // Truncate floating point to integer
                 Ok(Some(f as i32))
             } else {
-                Err(D::Error::custom(format!("Invalid numeric value: {}", n)))
+                Err(D::Error::custom(format!("Invalid numeric value: {n}")))
             }
         }
         Some(serde_yaml::Value::String(s)) => {
@@ -36,11 +38,10 @@ where
             s.parse::<i32>()
                 .map(Some)
                 .or_else(|_| s.parse::<f64>().map(|f| Some(f as i32)))
-                .map_err(|_| D::Error::custom(format!("Cannot parse '{}' as numeric", s)))
+                .map_err(|_| D::Error::custom(format!("Cannot parse '{s}' as numeric")))
         }
         Some(other) => Err(D::Error::custom(format!(
-            "Expected numeric value, found: {:?}", 
-            other
+            "Expected numeric value, found: {other:?}"
         ))),
     }
 }
@@ -180,14 +181,16 @@ impl TaskTemplate {
     pub fn from_yaml(yaml_content: &str) -> Result<Self> {
         let mut template: TaskTemplate = serde_yaml::from_str(yaml_content)
             .map_err(|e| TaskerError::ValidationError(format!("Invalid YAML: {e}")))?;
-        
+
         // Auto-populate named_steps from step_templates if it's empty
         if template.named_steps.is_empty() {
-            template.named_steps = template.step_templates.iter()
+            template.named_steps = template
+                .step_templates
+                .iter()
                 .map(|st| st.name.clone())
                 .collect();
         }
-        
+
         Ok(template)
     }
 

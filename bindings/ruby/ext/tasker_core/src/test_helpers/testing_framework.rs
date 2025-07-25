@@ -15,12 +15,12 @@
 //! - **SharedOrchestrationHandle**: Handle-based resource management
 //! - **Ruby Wrappers**: Magnus type conversion and method registration only
 
-use tasker_core::ffi::shared::testing::get_global_testing_factory;
 use crate::context::json_to_ruby_value;
+use magnus::{Error, RModule, Value};
 use serde_json::json;
 use std::sync::Arc;
+use tasker_core::ffi::shared::testing::get_global_testing_factory;
 use tracing::{debug, info};
-use magnus::{Error, RModule, Value};
 
 /// **MIGRATED**: TestingFramework - Now delegates to shared testing factory
 ///
@@ -75,7 +75,9 @@ impl TestingFramework {
     }
 
     /// **MIGRATED**: Setup test environment (delegates to shared factory)
-    pub fn setup_test_environment(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn setup_test_environment(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         debug!("🔧 Ruby FFI: setup_test_environment() - delegating to shared factory");
 
         // Step 1: Environment validation
@@ -84,8 +86,10 @@ impl TestingFramework {
         }
 
         // Step 2: Delegate to shared factory
-        let result = self.shared_factory.setup_test_environment()
-            .map_err(|e| format!("Shared factory setup failed: {}", e))?;
+        let result = self
+            .shared_factory
+            .setup_test_environment()
+            .map_err(|e| format!("Shared factory setup failed: {e}"))?;
 
         // Convert to Ruby-compatible JSON
         Ok(json!({
@@ -98,12 +102,16 @@ impl TestingFramework {
     }
 
     /// **MIGRATED**: Cleanup test environment (delegates to shared factory)
-    pub fn cleanup_test_environment(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn cleanup_test_environment(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         debug!("🔧 Ruby FFI: cleanup_test_environment() - delegating to shared factory");
 
         // Delegate to shared factory
-        let result = self.shared_factory.cleanup_test_environment()
-            .map_err(|e| format!("Shared factory cleanup failed: {}", e))?;
+        let result = self
+            .shared_factory
+            .cleanup_test_environment()
+            .map_err(|e| format!("Shared factory cleanup failed: {e}"))?;
 
         // Convert to Ruby-compatible JSON
         Ok(json!({
@@ -116,7 +124,9 @@ impl TestingFramework {
     }
 
     /// **MIGRATED**: Check database connectivity using shared factory pool
-    pub fn check_database_connectivity(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn check_database_connectivity(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!("🔧 Ruby FFI: check_database_connectivity() - using shared factory pool");
 
         // Use shared factory's database pool
@@ -130,7 +140,7 @@ impl TestingFramework {
         });
 
         result.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-            format!("Database connectivity failed: {}", e).into()
+            format!("Database connectivity failed: {e}").into()
         })?;
         info!("✅ Database connectivity confirmed using shared factory pool");
         Ok(())
@@ -151,19 +161,24 @@ impl TestingFramework {
             if let Ok(value) = std::env::var(env_var) {
                 if value.to_lowercase() == "test" {
                     test_env_found = true;
-                    println!("✅ TESTING FRAMEWORK: Test environment confirmed via {}", env_var);
+                    println!(
+                        "✅ TESTING FRAMEWORK: Test environment confirmed via {env_var}"
+                    );
                     break;
                 }
             }
         }
 
         if !test_env_found {
-            return Err("Test environment validation failed - no test environment variable found".into());
+            return Err(
+                "Test environment validation failed - no test environment variable found".into(),
+            );
         }
 
         // Check database URL
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
 
         if !database_url.contains("test") && !database_url.contains("_test") {
             if std::env::var("FORCE_ACCEPT_DB_URL").is_ok() {
@@ -197,7 +212,7 @@ pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Resu
                 "pool_connections": pool_size,
                 "source": "shared_testing_factory"
             })
-        },
+        }
         Err(e) => {
             json!({
                 "status": "error",
@@ -211,18 +226,18 @@ pub fn create_testing_framework_with_handle_wrapper(handle_value: Value) -> Resu
 
 /// **MIGRATED**: Setup test environment using shared components
 pub fn setup_test_environment_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: setup_test_environment_with_handle_wrapper() - delegating to shared factory");
+    debug!(
+        "🔧 Ruby FFI: setup_test_environment_with_handle_wrapper() - delegating to shared factory"
+    );
 
     let result = match TestingFramework::new() {
-        Ok(framework) => {
-            match framework.setup_test_environment() {
-                Ok(success_result) => success_result,
-                Err(e) => {
-                    json!({
-                        "status": "error",
-                        "error": format!("Test environment setup failed: {}", e)
-                    })
-                }
+        Ok(framework) => match framework.setup_test_environment() {
+            Ok(success_result) => success_result,
+            Err(e) => {
+                json!({
+                    "status": "error",
+                    "error": format!("Test environment setup failed: {}", e)
+                })
             }
         },
         Err(e) => {
@@ -241,15 +256,13 @@ pub fn cleanup_test_environment_with_handle_wrapper(handle_value: Value) -> Resu
     debug!("🔧 Ruby FFI: cleanup_test_environment_with_handle_wrapper() - delegating to shared factory");
 
     let result = match TestingFramework::new() {
-        Ok(framework) => {
-            match framework.cleanup_test_environment() {
-                Ok(success_result) => success_result,
-                Err(e) => {
-                    json!({
-                        "status": "error",
-                        "error": format!("Test environment cleanup failed: {}", e)
-                    })
-                }
+        Ok(framework) => match framework.cleanup_test_environment() {
+            Ok(success_result) => success_result,
+            Err(e) => {
+                json!({
+                    "status": "error",
+                    "error": format!("Test environment cleanup failed: {}", e)
+                })
             }
         },
         Err(e) => {

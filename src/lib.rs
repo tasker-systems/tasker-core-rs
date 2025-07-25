@@ -104,7 +104,8 @@ pub use database::{
 };
 pub use error::{Result, TaskerError};
 pub use execution::{
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, ZmqPubSubExecutor,
+    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
+    ZmqPubSubExecutor,
 };
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,

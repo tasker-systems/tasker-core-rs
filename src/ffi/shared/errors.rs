@@ -40,6 +40,18 @@ pub enum SharedFFIError {
 
     /// Internal error
     Internal(String),
+
+    /// ZeroMQ operation failed
+    ZeroMqError(String),
+
+    /// ZeroMQ not enabled/available
+    ZeroMqNotEnabled(String),
+
+    /// Serialization/Deserialization failed
+    SerializationError(String),
+
+    /// Invalid batch data
+    InvalidBatchData(String),
 }
 
 impl fmt::Display for SharedFFIError {
@@ -77,6 +89,18 @@ impl fmt::Display for SharedFFIError {
             }
             SharedFFIError::Internal(msg) => {
                 write!(f, "Internal error: {msg}")
+            }
+            SharedFFIError::ZeroMqError(msg) => {
+                write!(f, "ZeroMQ error: {msg}")
+            }
+            SharedFFIError::ZeroMqNotEnabled(msg) => {
+                write!(f, "ZeroMQ not enabled: {msg}")
+            }
+            SharedFFIError::SerializationError(msg) => {
+                write!(f, "Serialization error: {msg}")
+            }
+            SharedFFIError::InvalidBatchData(msg) => {
+                write!(f, "Invalid batch data: {msg}")
             }
         }
     }
