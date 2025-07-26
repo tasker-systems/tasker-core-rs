@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative 'internal/orchestration_manager'
+require_relative 'orchestration/orchestration_manager'
 
 module TaskerCore
   # Clean Events Domain API
-  # 
+  #
   # This provides a clean, Ruby-idiomatic API for all event operations
   # following the proven Factory/Registry pattern with handle-based optimization.
   #
@@ -25,7 +25,7 @@ module TaskerCore
       def publish(name:, payload: nil, source: nil, metadata: nil)
         payload_json = payload.is_a?(String) ? payload : payload&.to_json
         metadata_json = metadata.is_a?(String) ? metadata : metadata&.to_json
-        
+
         handle.publish_simple_event_optimized(name, payload_json, source, metadata_json)
       rescue => e
         raise TaskerCore::Error, "Failed to publish event '#{name}': #{e.message}"
@@ -42,7 +42,7 @@ module TaskerCore
       def publish_orchestration(type:, namespace: nil, version: nil, data: nil, context: nil)
         data_json = data.is_a?(String) ? data : data&.to_json
         context_json = context.is_a?(String) ? context : context&.to_json
-        
+
         handle.publish_orchestration_event_optimized(type, namespace, version, data_json, context_json)
       rescue => e
         raise TaskerCore::Error, "Failed to publish orchestration event '#{type}': #{e.message}"
@@ -98,7 +98,7 @@ module TaskerCore
             'created_at' => Time.now.utc.iso8601
           }
         end
-        
+
         base_info.merge(
           'domain' => 'events',
           'available_methods' => %w[
@@ -138,7 +138,7 @@ module TaskerCore
     require_relative 'events/subscribers/base_subscriber'
     require_relative 'events/subscribers/error_surfacing_subscriber'
     require_relative 'events/concerns/event_based_transitions'
-    
+
     # Provide Domain module for backward compatibility
     require_relative 'events_domain'
     # Note: Domain module is defined in events_domain.rb

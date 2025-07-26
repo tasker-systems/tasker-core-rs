@@ -2,6 +2,7 @@
 
 require 'singleton'
 
+
 module TaskerCore
   module Internal
     # Ruby-level wrapper for the unified orchestration system
@@ -10,7 +11,7 @@ module TaskerCore
     class OrchestrationManager
     include Singleton
 
-    attr_reader :initialized_at, :status, :logger
+    attr_reader :initialized_at, :status, :logger, :batch_step_orchestrator, :base_task_handler
 
     def initialize
       @initialized = false
@@ -19,26 +20,37 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # 🎯 Memoized BaseTaskHandler
       @orchestration_handle = nil  # 🎯 NEW: Handle-based FFI architecture
+      @batch_step_orchestrator = nil
       @logger = TaskerCore::Logging::Logger.instance
     end
 
     # Get the orchestration system (handle-based initialization)
     def orchestration_system
       # Use handle-based approach - no direct system initialization needed
-      handle = orchestration_handle
-      if handle
+      if orchestration_handle && !@initialized
         @initialized = true
         @status = 'initialized'
         @initialized_at = defined?(Rails) ? Time.current : Time.now
         @orchestration_system ||= { 'handle_based' => true }
-      else
-        @status = 'failed'
+        @batch_step_orchestrator = TaskerCore::Orchestration::BatchStepExecutionOrchestrator.new(
+          orchestration_manager: self
+        )
+        
+        # Automatically start ZeroMQ integration for production-level service
+        start_zeromq_integration
       end
+      
+      unless @orchestration_system
+        raise TaskerCore::Errors::OrchestrationError, 'Orchestration system not initialized'
+      end
+      
       @orchestration_system
     end
 
     # Check if the orchestration system is initialized
     def initialized?
+      # Trigger initialization if not already done
+      orchestration_system
       @initialized && @orchestration_system
     end
 
@@ -61,6 +73,7 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # Reset memoized handler too
       @orchestration_handle = nil  # Reset handle too
+      @batch_step_orchestrator.stop && @batch_step_orchestrator = nil
     end
 
     # Delegate common orchestration operations - use handle-based versions
@@ -86,53 +99,128 @@ module TaskerCore
       result && result['found']
     end
 
-    # Get workflow steps for a task with dependency information
+    # Provide a handler registry for the batch step orchestrator
+    # This acts as a bridge between the ZeroMQ executor and the shared TaskHandlerRegistry
+    # Uses the existing TaskerCore::Registry which already delegates to the shared registry
+    def handler_registry
+      @handler_registry ||= RegistryAdapter.new
+    end
+
+    # Simple adapter to make TaskerCore::Registry compatible with BatchStepExecutionOrchestrator
+    class RegistryAdapter
+      # Get callable for step execution by delegating to TaskerCore::Registry
+      def get_callable_for_class(handler_class)
+        logger.debug "Looking up callable for handler class: #{handler_class}"
+        
+        # Try to find and instantiate the handler
+        handler_instance = get_handler_instance(handler_class)
+        
+        # Return the handler if it has a .call method (new callable interface)
+        return handler_instance if handler_instance&.respond_to?(:call)
+        
+        # If it has a .process method, wrap it for backward compatibility
+        if handler_instance&.respond_to?(:process)
+          logger.debug "Wrapping .process method for handler: #{handler_class}"
+          return create_process_wrapper(handler_instance)
+        end
+        
+        logger.warn "No callable found for handler class: #{handler_class}"
+        nil
+      end
+
+      # Get handler instance by using TaskerCore::Registry
+      def get_handler_instance(handler_class)
+        logger.debug "Getting handler instance for: #{handler_class}"
+        
+        begin
+          # Try direct class instantiation first
+          klass = handler_class.to_s.constantize
+          instance = klass.new
+          logger.debug "Successfully instantiated handler: #{handler_class}"
+          instance
+        rescue NameError => e
+          logger.warn "Could not instantiate handler class #{handler_class}: #{e.message}"
+          nil
+        rescue StandardError => e
+          logger.error "Error instantiating #{handler_class}: #{e.message}"
+          nil
+        end
+      end
+
+      private
+
+      def logger
+        TaskerCore::Logging::Logger.instance
+      end
+
+      # Create a wrapper that adapts .process method to .call interface
+      def create_process_wrapper(handler_instance)
+        ->(task, sequence, step) do
+          begin
+            handler_instance.process(task, sequence, step)
+          rescue ArgumentError => e
+            logger.warn "Process method argument mismatch for #{handler_instance.class.name}: #{e.message}"
+            
+            # Try with just the task if that's what the handler expects
+            if handler_instance.method(:process).arity == 1
+              handler_instance.process(task)
+            else
+              raise e
+            end
+          end
+        end
+      end
+    end
+
+    # OBSOLETE: Individual workflow step inspection incompatible with ZeroMQ batch architecture
+    # Dependencies are resolved automatically by Rust orchestration during batch execution
     def get_workflow_steps_for_task(task_id)
       orchestration_system # Ensure initialized
-      
-      begin
-        # Use handle-based approach to get workflow steps
-        handle = orchestration_handle
-        return nil unless handle
-        
-        # Call Rust FFI method to get steps with dependencies
-        handle.get_task_workflow_steps(task_id)
-      rescue StandardError => e
-        logger.error "Failed to get workflow steps for task #{task_id}: #{e.message}"
-        nil
-      end
+
+      logger.warn(
+        "get_workflow_steps_for_task is obsolete in ZeroMQ architecture. " +
+        "Individual step inspection is incompatible with batch processing. " +
+        "Use TaskerCore.create_orchestration_handle.create_test_task instead."
+      )
+
+      logger.debug("Legacy get_workflow_steps_for_task called: task_id=#{task_id}")
+
+      # Return nil to indicate method is obsolete
+      nil
     end
 
-    # Get step dependencies for a specific step
+    # OBSOLETE: Individual step dependency inspection incompatible with ZeroMQ batch architecture
+    # Dependencies are validated automatically by Rust orchestration during batch execution
     def get_step_dependencies(step_id)
       orchestration_system # Ensure initialized
-      
-      begin
-        handle = orchestration_handle
-        return nil unless handle
-        
-        # Call Rust FFI method to get step dependencies
-        handle.get_step_dependencies(step_id)
-      rescue StandardError => e
-        logger.error "Failed to get dependencies for step #{step_id}: #{e.message}"
-        nil
-      end
+
+      logger.warn(
+        "get_step_dependencies is obsolete in ZeroMQ architecture. " +
+        "Individual step dependency checking is incompatible with batch processing. " +
+        "Dependencies are resolved automatically during Rust batch orchestration."
+      )
+
+      logger.debug("Legacy get_step_dependencies called: step_id=#{step_id}")
+
+      # Return nil to indicate method is obsolete
+      nil
     end
 
-    # Get task metadata (namespace, name, version) for a task
+    # OBSOLETE: Individual task metadata inspection incompatible with ZeroMQ batch architecture
+    # Task metadata is managed automatically by orchestration system registry
     def get_task_metadata(task_id)
       orchestration_system # Ensure initialized
-      
-      begin
-        handle = orchestration_handle
-        return nil unless handle
-        
-        # Call Rust FFI method to get task metadata
-        handle.get_task_metadata(task_id)
-      rescue StandardError => e
-        logger.error "Failed to get metadata for task #{task_id}: #{e.message}"
-        nil
-      end
+
+      logger.warn(
+        "get_task_metadata is obsolete in ZeroMQ architecture. " +
+        "Task metadata is managed automatically by orchestration system registry. " +
+        "Use TaskerCore::Registry methods for handler discovery instead."
+      )
+
+      logger.debug("Legacy get_task_metadata called: task_id=#{task_id}")
+
+      # Return nil to indicate method is obsolete
+      nil
     end
 
     # 🎯 THREAD-SAFE FIX: Create stateless BaseTaskHandler singleton
@@ -207,9 +295,9 @@ module TaskerCore
         logger.info "🎯 HANDLE ARCHITECTURE: Creating orchestration handle with persistent references"
         TaskerCore::OrchestrationHandle.new
       rescue StandardError => e
-        error_msg = "Failed to create orchestration handle: #{e.message}"
+        error_msg = "Failed to create orchestration handle: #{e.class.name}: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
         logger.error error_msg
-        nil
+        raise TaskerCore::Errors::OrchestrationError, error_msg
       end
     end
 
@@ -355,57 +443,27 @@ module TaskerCore
       TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
     end
 
-    # 🎯 ZEROMQ BATCH PROCESSING: Cross-language orchestration integration
-    
-    # Get or create BatchStepExecutionOrchestrator with shared ZMQ context
-    def batch_step_orchestrator
-      @batch_step_orchestrator ||= begin
-        handle = orchestration_handle
-        return nil unless handle
-        
-        # Check if ZeroMQ is enabled in Rust configuration
-        return nil unless handle.is_zeromq_enabled
-        
-        # Get ZeroMQ configuration from Rust system
-        zmq_config = handle.zeromq_config
-        
-        logger.info "🚀 Creating BatchStepExecutionOrchestrator with ZeroMQ config from Rust"
-        
-        # Create orchestrator with TCP endpoints from Rust configuration
-        TaskerCore::Orchestration::BatchStepExecutionOrchestrator.new(
-          step_sub_endpoint: zmq_config['batch_endpoint'],
-          result_pub_endpoint: zmq_config['result_endpoint'],
-          max_workers: 10, # Could be configurable
-          handler_registry: self,
-          zmq_context: nil # TCP endpoints don't require shared context
-        )
-      rescue StandardError => e
-        logger.error "Failed to create BatchStepExecutionOrchestrator: #{e.message}"
-        nil
-      end
-    end
-    
     # Get ZMQ context for Ruby orchestration
     # Using TCP endpoints, we don't need to share the exact same context as Rust
     def get_shared_zmq_context
       handle = orchestration_handle
       return nil unless handle
-      
+
       # For TCP communication, each side can have its own ZMQ context
       logger.debug "🔗 Creating Ruby ZMQ context for TCP communication with Rust"
-      
-      require 'ffi-rzmq'
+
+
       ZMQ::Context.new
     rescue StandardError => e
       logger.error "Failed to create ZMQ context: #{e.message}"
       nil
     end
-    
+
     # Start ZeroMQ batch processing integration
     def start_zeromq_integration
       orchestrator = batch_step_orchestrator
       return false unless orchestrator
-      
+
       logger.info "🎯 Starting ZeroMQ batch processing integration"
       orchestrator.start
       true
@@ -413,31 +471,47 @@ module TaskerCore
       logger.error "Failed to start ZeroMQ integration: #{e.message}"
       false
     end
-    
+
     # Stop ZeroMQ batch processing integration
     def stop_zeromq_integration
       return unless @batch_step_orchestrator
-      
+
       logger.info "🛑 Stopping ZeroMQ batch processing integration"
       @batch_step_orchestrator.stop
       @batch_step_orchestrator = nil
     rescue StandardError => e
       logger.error "Failed to stop ZeroMQ integration: #{e.message}"
     end
-    
+
     # Check if ZeroMQ integration is available and running
     def zeromq_integration_status
       handle = orchestration_handle
       return { enabled: false, reason: 'no_handle' } unless handle
-      
-      return { enabled: false, reason: 'zeromq_disabled' } unless handle.is_zeromq_enabled
-      
+
+      # Check ZeroMQ enabled status with error handling
+      zeromq_enabled = begin
+        handle.is_zeromq_enabled
+      rescue StandardError => e
+        logger.debug "ZeroMQ status check failed: #{e.message}"
+        false
+      end
+
+      return { enabled: false, reason: 'zeromq_disabled' } unless zeromq_enabled
+
       orchestrator_running = @batch_step_orchestrator&.stats&.dig(:running) || false
-      
+
+      # Get ZeroMQ config with error handling
+      zeromq_config = begin
+        handle.zeromq_config
+      rescue StandardError => e
+        logger.debug "ZeroMQ config retrieval failed: #{e.message}"
+        {}
+      end
+
       {
         enabled: true,
-        orchestrator_running: orchestrator_running,
-        zeromq_config: handle.zeromq_config,
+        running: orchestrator_running,
+        zeromq_config: zeromq_config,
         orchestrator_stats: @batch_step_orchestrator&.stats
       }
     rescue StandardError => e
@@ -455,7 +529,7 @@ module TaskerCore
 
     # Register a Ruby TaskHandler instance for step execution
     # @param namespace [String] Task namespace
-    # @param name [String] Task name  
+    # @param name [String] Task name
     # @param version [String] Task version
     # @param handler [TaskerCore::TaskHandler::Base] TaskHandler instance with pre-instantiated step handlers
     def register_ruby_task_handler(namespace, name, version, handler)
@@ -483,7 +557,7 @@ module TaskerCore
       # TODO: Implement task metadata lookup to find namespace/name/version for task_id
       # For now, return the first available TaskHandler as fallback
       # In production, this would query the database to get task metadata, then lookup handler
-      
+
       if ruby_task_handlers.any?
         handler = ruby_task_handlers.values.first
         @logger&.debug "🔍 Found TaskHandler for task_id #{task_id}: #{handler.class.name}"

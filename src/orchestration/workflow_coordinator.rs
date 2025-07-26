@@ -33,7 +33,7 @@
 //! use tasker_core::orchestration::types::FrameworkIntegration;
 //! use std::sync::Arc;
 //!
-//! # async fn example(pool: sqlx::PgPool, framework: Arc<dyn FrameworkIntegration>) -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! // Create the workflow coordinator
 //! let coordinator = WorkflowCoordinator::new(pool);
 //!
@@ -60,15 +60,14 @@
 //! ```
 
 use crate::events::{
-    Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent, TaskResult,
+    Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent,
 };
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
-use crate::orchestration::step_executor::{ExecutionPriority, StepExecutionRequest, StepExecutor};
 use crate::orchestration::system_events::SystemEventsManager;
 use crate::orchestration::types::TaskOrchestrationResult;
-use crate::orchestration::types::{FrameworkIntegration, StepResult, StepStatus, ViableStep};
+use crate::orchestration::types::{StepResult, StepStatus, ViableStep};
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
 use crate::registry::TaskHandlerRegistry;
 use chrono::Utc;
@@ -178,7 +177,6 @@ pub struct WorkflowCoordinator {
     /// Discovers viable steps for execution
     viable_step_discovery: ViableStepDiscovery,
     /// Executes individual steps
-    step_executor: StepExecutor,
     /// Manages state transitions
     state_manager: StateManager,
     /// Publishes orchestration events
@@ -191,6 +189,8 @@ pub struct WorkflowCoordinator {
     config_manager: Arc<ConfigurationManager>,
     /// System events manager for structured event publishing
     events_manager: Arc<SystemEventsManager>,
+    /// ZeroMQ pub-sub executor for comprehensive batch execution with database tracking
+    zmq_pub_sub_executor: Option<Arc<crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor>>,
 }
 
 impl WorkflowCoordinator {
@@ -246,26 +246,15 @@ impl WorkflowCoordinator {
         config: WorkflowCoordinatorConfig,
         config_manager: Arc<ConfigurationManager>,
         event_publisher: crate::events::publisher::EventPublisher,
-        shared_registry: TaskHandlerRegistry,
+        _shared_registry: TaskHandlerRegistry,
     ) -> Self {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
-        // Use the provided shared registry instead of creating a new one
-        let registry_arc = Arc::new(shared_registry.clone());
+        // Use the provided shared registry directly
 
-        let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
-            config_manager.clone(),
-            registry_arc.clone(),
-        );
 
-        let step_executor = StepExecutor::new(
-            state_manager.clone(),
-            shared_registry, // Use shared registry for step executor
-            event_publisher.clone(),
-            task_config_finder,
-        );
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
@@ -289,13 +278,13 @@ impl WorkflowCoordinator {
 
         Self {
             viable_step_discovery,
-            step_executor,
             state_manager,
             event_publisher,
             task_finalizer,
             config,
             config_manager,
             events_manager,
+            zmq_pub_sub_executor: None,
         }
     }
 
@@ -321,20 +310,9 @@ impl WorkflowCoordinator {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
-        let registry_arc = Arc::new(registry.clone());
+        let _registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
 
-        let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
-            config_manager.clone(),
-            registry_arc.clone(),
-        );
 
-        let step_executor = StepExecutor::new(
-            state_manager.clone(),
-            registry,
-            event_publisher.clone(),
-            task_config_finder,
-        );
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
@@ -358,41 +336,119 @@ impl WorkflowCoordinator {
 
         Self {
             viable_step_discovery,
-            step_executor,
             state_manager,
             event_publisher,
             task_finalizer,
             config,
             config_manager,
             events_manager,
+            zmq_pub_sub_executor: None,
+        }
+    }
+
+    /// Create a new workflow coordinator with shared BatchPublisher for ZeroMQ integration
+    ///
+    /// This constructor is specifically designed for OrchestrationSystem integration where
+    /// the BatchPublisher instance should be shared to avoid ZeroMQ socket conflicts.
+    ///
+    /// # Arguments
+    /// * `pool` - Database connection pool
+    /// * `config` - Workflow coordinator configuration
+    /// * `config_manager` - Shared configuration manager
+    /// * `event_publisher` - Shared EventPublisher instance
+    /// * `shared_registry` - Shared TaskHandlerRegistry instance
+    /// * `zmq_pub_sub_executor` - Shared ZmqPubSubExecutor for comprehensive batch execution
+    pub fn with_zmq_pub_sub_executor(
+        pool: sqlx::PgPool,
+        config: WorkflowCoordinatorConfig,
+        config_manager: Arc<ConfigurationManager>,
+        event_publisher: crate::events::publisher::EventPublisher,
+        _shared_registry: TaskHandlerRegistry,
+        zmq_pub_sub_executor: Arc<crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor>,
+    ) -> Self {
+        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
+        let state_manager =
+            StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
+
+        // Use the provided shared registry directly
+
+        // let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
+        //     config_manager.clone(),
+        //     registry_arc.clone(),
+        // );
+
+        let viable_step_discovery =
+            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
+
+        // Create task finalizer with shared event publisher
+        let task_finalizer =
+            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+                pool,
+                event_publisher.clone(),
+            );
+
+        // Create system events manager - in production this would be loaded from file
+        let events_manager = Arc::new(SystemEventsManager::new(
+            crate::orchestration::system_events::SystemEventsConfig {
+                event_metadata: std::collections::HashMap::new(),
+                state_machine_mappings: crate::orchestration::system_events::StateMachineMappings {
+                    task_transitions: vec![],
+                    step_transitions: vec![],
+                },
+            },
+        ));
+
+        Self {
+            viable_step_discovery,
+            state_manager,
+            event_publisher,
+            task_finalizer,
+            config,
+            config_manager,
+            events_manager,
+            zmq_pub_sub_executor: Some(zmq_pub_sub_executor),
         }
     }
 
     /// Execute a complete task workflow
-    #[instrument(skip(self, framework), fields(task_id = task_id))]
+    ///
+    /// In batch execution architecture, this method:
+    /// 1. Publishes viable steps to ZeroMQ as fire-and-forget batches
+    /// 2. Returns when no more steps are immediately ready for execution
+    /// 3. Does NOT finalize the workflow - that happens via the result listener
+    #[instrument(skip(self), fields(task_id = task_id))]
     pub async fn execute_task_workflow(
         &self,
         task_id: i64,
-        framework: Arc<dyn FrameworkIntegration>,
     ) -> OrchestrationResult<TaskOrchestrationResult> {
         info!(task_id = task_id, "Starting task workflow execution");
 
-        let workflow_start = Instant::now();
         let mut metrics = self.initialize_workflow_metrics(task_id).await?;
 
         // Publish workflow started event
-        self.publish_workflow_started_event(task_id, &framework, &metrics)
+        self.publish_workflow_started_event(task_id, &metrics)
             .await?;
 
         // Transition task to in_progress if needed
         self.ensure_task_in_progress(task_id).await?;
 
-        // Execute main orchestration loop
-        self.execute_orchestration_loop(task_id, framework, &mut metrics, workflow_start)
-            .await?;
+        // Execute main orchestration loop - publishes batches and returns
+        self.execute_step_batch_publication(task_id, &mut metrics).await?;
 
-        // Finalize workflow execution
-        self.finalize_workflow(task_id, metrics).await
+        // Return Published result - finalization happens via result listener
+        info!(task_id = task_id,
+              steps_discovered = metrics.steps_discovered,
+              steps_published = metrics.steps_executed,
+              "Workflow orchestration complete - batches published to ZeroMQ");
+
+        Ok(TaskOrchestrationResult::Published {
+            task_id,
+            viable_steps_discovered: metrics.steps_discovered,
+            steps_published: metrics.steps_executed,
+            batch_id: None, // TODO: Get actual batch ID from ZmqPubSubExecutor
+            publication_time_ms: metrics.execution_duration.as_millis() as u64,
+            next_poll_delay_ms: 1000, // 1 second delay before next check
+        })
     }
 
     /// Initialize workflow execution metrics
@@ -420,7 +476,6 @@ impl WorkflowCoordinator {
     async fn publish_workflow_started_event(
         &self,
         task_id: i64,
-        framework: &Arc<dyn FrameworkIntegration>,
         metrics: &WorkflowExecutionMetrics,
     ) -> OrchestrationResult<()> {
         // Publish structured system event
@@ -446,7 +501,7 @@ impl WorkflowCoordinator {
             .publish_event(Event::orchestration(
                 EventsOrchestrationEvent::TaskOrchestrationStarted {
                     task_id,
-                    framework: framework.framework_name().to_string(),
+                    framework: "fire_and_forget_zeromq".to_string(),
                     started_at: metrics.started_at,
                 },
             ))
@@ -455,43 +510,42 @@ impl WorkflowCoordinator {
     }
 
     /// Execute the main orchestration loop
-    async fn execute_orchestration_loop(
+    async fn execute_step_batch_publication(
         &self,
         task_id: i64,
-        framework: Arc<dyn FrameworkIntegration>,
-        metrics: &mut WorkflowExecutionMetrics,
-        workflow_start: Instant,
-    ) -> OrchestrationResult<()> {
+        metrics: &mut WorkflowExecutionMetrics
+    ) -> OrchestrationResult<DiscoveryResult> {
         let mut total_steps_executed = 0;
         let mut consecutive_empty_discoveries = 0;
+        let workflow_start = Instant::now();
 
+        // Main discovery and execution loop - continues until should_break or limits reached
         loop {
-            // Check execution limits
-            if self
-                .should_stop_execution(task_id, workflow_start, total_steps_executed)
-                .await?
-            {
-                break;
+            // Check execution limits first
+            if self.should_stop_execution(task_id, workflow_start, total_steps_executed).await? {
+                info!(task_id = task_id, "Stopping execution due to limits reached");
+                return Ok(DiscoveryResult { should_break: true });
             }
 
             // Discover and process viable steps
             let discovery_result = self
                 .discover_and_process_steps(
                     task_id,
-                    framework.clone(),
                     metrics,
                     &mut total_steps_executed,
                     &mut consecutive_empty_discoveries,
                 )
                 .await?;
 
-            // Break if no more steps to process
+            // CRITICAL FIX: Check should_break field and exit loop if needed
             if discovery_result.should_break {
-                break;
+                info!(task_id = task_id, "Breaking workflow loop as requested by discovery result");
+                return Ok(discovery_result);
             }
-        }
 
-        Ok(())
+            // Continue loop for next discovery iteration
+            debug!(task_id = task_id, "Continuing workflow loop - no break condition met");
+        }
     }
 
     /// Check if execution should stop due to limits
@@ -528,7 +582,6 @@ impl WorkflowCoordinator {
     async fn discover_and_process_steps(
         &self,
         task_id: i64,
-        framework: Arc<dyn FrameworkIntegration>,
         metrics: &mut WorkflowExecutionMetrics,
         total_steps_executed: &mut usize,
         consecutive_empty_discoveries: &mut u32,
@@ -567,7 +620,11 @@ impl WorkflowCoordinator {
         let viable_steps_payload = self.events_manager.create_viable_steps_discovered_payload(
             task_id,
             &step_ids,
-            "concurrent", // TODO: Determine actual processing mode
+            &self
+                .config_manager
+                .system_config()
+                .execution
+                .processing_mode,
         );
 
         debug!(
@@ -588,7 +645,6 @@ impl WorkflowCoordinator {
         self.execute_discovered_steps(
             task_id,
             viable_steps,
-            framework,
             metrics,
             total_steps_executed,
         )
@@ -682,7 +738,6 @@ impl WorkflowCoordinator {
         &self,
         task_id: i64,
         viable_steps: Vec<ViableStep>,
-        framework: Arc<dyn FrameworkIntegration>,
         metrics: &mut WorkflowExecutionMetrics,
         total_steps_executed: &mut usize,
     ) -> OrchestrationResult<()> {
@@ -690,7 +745,7 @@ impl WorkflowCoordinator {
 
         for batch in viable_steps.chunks(self.config.step_batch_size) {
             let batch_results = self
-                .execute_step_batch(task_id, batch.to_vec(), framework.clone())
+                .execute_step_batch(task_id, batch.to_vec())
                 .await?;
 
             // Process results and update metrics
@@ -786,200 +841,92 @@ impl WorkflowCoordinator {
         Ok(steps)
     }
 
-    /// Execute a batch of steps concurrently
+    /// Execute a batch of steps using ZmqPubSubExecutor with comprehensive database tracking
     async fn execute_step_batch(
         &self,
         task_id: i64,
         steps: Vec<ViableStep>,
-        framework: Arc<dyn FrameworkIntegration>,
     ) -> OrchestrationResult<Vec<StepResult>> {
-        // Get task context once for all steps
-        let task_context = framework.get_task_context(task_id).await?;
-
-        // Create execution requests
-        let requests: Vec<StepExecutionRequest> = steps
-            .into_iter()
-            .map(|step| StepExecutionRequest {
-                step,
-                task_context: task_context.clone(),
-                timeout: None, // Use default from StepExecutor config
-                priority: ExecutionPriority::Normal,
-                retry_attempt: 0,
-            })
-            .collect();
-
-        // Execute steps concurrently
-        self.step_executor
-            .execute_steps_concurrent(requests, framework)
-            .await
-    }
-
-    /// Finalize workflow execution
-    async fn finalize_workflow(
-        &self,
-        task_id: i64,
-        mut metrics: WorkflowExecutionMetrics,
-    ) -> OrchestrationResult<TaskOrchestrationResult> {
-        metrics.completed_at = Some(Utc::now());
-        metrics.total_duration = Some(
-            metrics
-                .completed_at
-                .unwrap()
-                .signed_duration_since(metrics.started_at)
-                .to_std()
-                .unwrap_or_default(),
-        );
-
-        // Evaluate final task state
-        let task_evaluation = self.state_manager.evaluate_task_state(task_id).await?;
-
-        info!(
+        tracing::info!(
             task_id = task_id,
-            state = %task_evaluation.current_state,
-            steps_executed = metrics.steps_executed,
-            steps_succeeded = metrics.steps_succeeded,
-            steps_failed = metrics.steps_failed,
-            duration_ms = metrics.total_duration.map(|d| d.as_millis()).unwrap_or(0),
-            "Workflow execution completed"
+            step_count = steps.len(),
+            "WorkflowCoordinator: Starting ZeroMQ batch execution with comprehensive tracking"
         );
 
-        // Determine result based on current state and execution metrics
-        let result = match task_evaluation.current_state.as_str() {
-            "complete" => TaskOrchestrationResult::Complete {
-                task_id,
-                steps_executed: metrics.steps_executed,
-                total_execution_time_ms: metrics
-                    .total_duration
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0),
-            },
-            "error" => {
-                TaskOrchestrationResult::Failed {
-                    task_id,
-                    error: format!(
-                        "Task failed with {} failed steps out of {} executed",
-                        metrics.steps_failed, metrics.steps_executed
-                    ),
-                    failed_steps: vec![], // Would need to track these during execution
+        // Check if we have a ZmqPubSubExecutor configured
+        let zmq_executor = match &self.zmq_pub_sub_executor {
+            Some(executor) => executor,
+            None => return Err(crate::orchestration::errors::OrchestrationError::ExecutionError(
+                crate::orchestration::errors::ExecutionError::StepExecutionFailed {
+                    step_id: 0,
+                    reason: "No ZmqPubSubExecutor configured".to_string(),
+                    error_code: Some("NO_ZMQ_EXECUTOR".to_string()),
                 }
-            }
-            "pending" | "in_progress" => {
-                // Task is still in progress - use configuration-driven delays
-                let system_config = self.config_manager.system_config();
-                let next_poll_delay = if metrics.steps_discovered == 0 {
-                    // No steps found, use waiting_for_dependencies delay
-                    system_config
-                        .backoff
-                        .reenqueue_delays
-                        .get("waiting_for_dependencies")
-                        .copied()
-                        .unwrap_or(45)
-                        * 1000 // Convert to milliseconds
-                } else {
-                    // Steps were found, use processing delay
-                    system_config
-                        .backoff
-                        .reenqueue_delays
-                        .get("processing")
-                        .copied()
-                        .unwrap_or(10)
-                        * 1000 // Convert to milliseconds
-                };
-
-                TaskOrchestrationResult::InProgress {
-                    task_id,
-                    steps_executed: metrics.steps_executed,
-                    next_poll_delay_ms: next_poll_delay as u64,
-                }
-            }
-            _ => {
-                // Unknown state, treat as blocked
-                TaskOrchestrationResult::Blocked {
-                    task_id,
-                    blocking_reason: format!(
-                        "Task in unexpected state: {}",
-                        task_evaluation.current_state
-                    ),
-                }
-            }
+            ))
         };
 
-        // Publish completion event with appropriate TaskResult
-        let task_result = match &result {
-            TaskOrchestrationResult::Complete { .. } => TaskResult::Success,
-            TaskOrchestrationResult::Failed { error, .. } => TaskResult::Failed {
-                error: error.clone(),
-            },
-            TaskOrchestrationResult::InProgress { .. } => {
-                TaskResult::Success // For in-progress, we don't publish completion yet
-            }
-            TaskOrchestrationResult::Blocked { .. } => TaskResult::Failed {
-                error: "Task blocked".to_string(),
-            },
-        };
+        // Extract step IDs from ViableStep objects
+        // ZmqPubSubExecutor.publish_batch() will handle all the complex logic of:
+        // - Loading step execution contexts from database
+        // - Resolving handler metadata and step names
+        // - Loading task configuration and step templates 
+        // - Loading previous step results with proper step names
+        // - Database batch tracking and audit trails
+        
+        let step_ids: Vec<i64> = steps.iter().map(|step| step.step_id).collect();
 
-        // Publish structured system events based on task completion state
-        match &result {
-            TaskOrchestrationResult::Complete {
-                steps_executed,
-                total_execution_time_ms,
-                ..
-            } => {
-                let task_completed_payload = self.events_manager.create_task_completed_payload(
-                    task_id,
-                    &format!("workflow_task_{task_id}"), // Enhancement: Load task name from database or pass as parameter
-                    metrics.steps_discovered as u32,
-                    *steps_executed as u32,
-                    Some(*total_execution_time_ms as f64 / 1000.0), // Convert to seconds
+        // Delegate to ZmqPubSubExecutor for sophisticated batch publishing with database tracking
+        let batch_id = zmq_executor
+            .publish_batch(step_ids, task_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    task_id = task_id,
+                    error = %e,
+                    "Failed to publish batch via ZmqPubSubExecutor"
                 );
+                // OrchestrationError is already returned by publish_batch
+                e
+            })?;
 
-                info!(task_id = task_id, "Publishing task.completed event");
+        tracing::info!(
+            task_id = task_id,
+            batch_id = %batch_id,
+            step_count = steps.len(),
+            "Successfully published batch to ZeroMQ - fire and forget"
+        );
 
-                if let Err(e) = self.events_manager.config().validate_event_payload(
-                    "task",
-                    "completed",
-                    &task_completed_payload,
-                ) {
-                    warn!(task_id = task_id, error = %e, "Task completed event validation failed");
-                }
-            }
-            TaskOrchestrationResult::Failed { error, .. } => {
-                let task_failed_payload = serde_json::json!({
-                    "task_id": task_id.to_string(),
-                    "task_name": format!("workflow_task_{}", task_id), // Enhancement: Load task name from database or pass as parameter
-                    "error_message": error,
-                    "failed_steps": [], // Enhancement: Collect failed step IDs during execution
-                    "timestamp": Utc::now().to_rfc3339()
-                });
-
-                info!(task_id = task_id, "Publishing task.failed event");
-
-                if let Err(e) = self.events_manager.config().validate_event_payload(
-                    "task",
-                    "failed",
-                    &task_failed_payload,
-                ) {
-                    warn!(task_id = task_id, error = %e, "Task failed event validation failed");
-                }
-            }
-            _ => {
-                // In progress or blocked - no completion event needed
-            }
+        // Return placeholder results indicating steps were published (fire-and-forget)
+        // Actual execution results will be processed asynchronously by the result listener
+        let mut results = Vec::with_capacity(steps.len());
+        for step in &steps {
+            results.push(StepResult {
+                step_id: step.step_id,
+                status: crate::orchestration::types::StepStatus::InProgress,
+                output: serde_json::json!({
+                    "status": "published",
+                    "message": "Step published to ZeroMQ batch processing system",
+                    "batch_id": batch_id,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "note": "Actual execution results will be processed asynchronously"
+                }),
+                execution_duration: std::time::Duration::from_millis(1), // Minimal time for publishing
+                error_message: None,
+                retry_after: None,
+                error_code: None,
+                error_context: None,
+            });
         }
 
-        // Publish original orchestration event for backward compatibility
-        self.event_publisher
-            .publish_event(Event::orchestration(
-                EventsOrchestrationEvent::TaskOrchestrationCompleted {
-                    task_id,
-                    result: task_result,
-                    completed_at: Utc::now(),
-                },
-            ))
-            .await?;
-
-        Ok(result)
+        Ok(results)
     }
+
+    // NOTE: finalize_workflow method removed in fire-and-forget architecture
+    // Task finalization is now handled by:
+    // 1. TaskFinalizer in partial result processing (ZmqPubSubExecutor::handle_partial_result)
+    // 2. TaskFinalizer in batch completion processing (ZmqPubSubExecutor::handle_batch_completion)
+    // This eliminates redundant finalization logic and centralizes it in the appropriate
+    // execution paths where actual step results determine task completion status.
 }
 
 #[cfg(test)]

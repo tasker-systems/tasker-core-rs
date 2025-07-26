@@ -54,7 +54,7 @@ module TaskerCore
       # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
-      def handle(task, sequence, step)
+      def call(task, sequence, step)
         @logger.info "🎯 RUBY_STEP_HANDLER: process() called - handler=#{self.class.name}, task_id=#{extract_attribute(task, :task_id)}, step_name=#{extract_attribute(step, :name)}"
         @logger.debug "🔍 RUBY_STEP_HANDLER: process() arguments - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
 
@@ -63,7 +63,7 @@ module TaskerCore
           @logger.info "✅ RUBY_STEP_HANDLER: process() completed successfully - handler=#{self.class.name}, result.class=#{result.class}"
           @logger.debug "🔍 RUBY_STEP_HANDLER: process() result - #{result.inspect}" if result.respond_to?(:inspect)
           result
-        rescue => e
+        rescue StandardError => e
           @logger.error "❌ RUBY_STEP_HANDLER: process() failed - handler=#{self.class.name}, error=#{e.class}: #{e.message}"
           @logger.debug "❌ RUBY_STEP_HANDLER: process() backtrace - #{e.backtrace.first(5).join('\n')}"
           raise

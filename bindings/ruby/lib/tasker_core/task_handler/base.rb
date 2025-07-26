@@ -5,7 +5,7 @@ require 'json'
 require 'logger'
 require 'singleton'
 require 'digest'
-require_relative '../internal/orchestration_manager'
+require_relative '../orchestration/orchestration_manager'
 require_relative 'results'
 
 module TaskerCore
@@ -160,7 +160,8 @@ module TaskerCore
           task_id: result_hash['task_id'],
           status: result_hash['status'],
           completed_steps: result_hash['steps_executed'],
-          error_message: result_hash['error']
+          error_message: result_hash['error'],
+          steps_published: result_hash['steps_published']
         )
       end
 
@@ -284,13 +285,13 @@ module TaskerCore
       def process_step_with_handler(task_hash, sequence_hash, step_hash)
         # Convert FFI hashes to simple wrapper objects using OpenStruct for compatibility
         require 'ostruct'
-        
+
         # Create task object with method access
         task = OpenStruct.new(task_hash)
-        
+
         # Create step object with method access
         step = OpenStruct.new(step_hash)
-        
+
         # Create sequence object with steps method
         sequence = OpenStruct.new(sequence_hash)
         # Convert steps array to objects with method access
@@ -381,6 +382,80 @@ module TaskerCore
           ruby_version: RUBY_VERSION,
           created_at: Time.now.iso8601
         }
+      end
+
+      # ========================================================================
+      # FIRE-AND-FORGET QUERY METHODS
+      # ========================================================================
+      # These methods provide low-latency database queries for validating
+      # step execution results after fire-and-forget ZeroMQ processing.
+
+      # Get all WorkflowStep records for a task
+      # 
+      # This method provides direct database access to workflow step data,
+      # essential for validating step status after fire-and-forget execution.
+      # 
+      # @param task_id [Integer] The task ID to query steps for
+      # @return [Array<Hash>] Array of step hashes with full step data including results
+      # 
+      # @example
+      #   steps = handler.get_steps_for_task(task_id)
+      #   validate_step = steps.find { |s| s['name'] == 'validate_order' }
+      #   expect(validate_step['processed']).to be true
+      #   expect(validate_step['results']).to include('customer_id' => 12345)
+      def get_steps_for_task(task_id)
+        unless @rust_handler
+          raise NotImplementedError, 'get_steps_for_task requires Rust handler (not available)'
+        end
+        raise TaskerCore::ValidationError, 'task_id is required' unless task_id
+        raise TaskerCore::ValidationError, 'task_id must be an integer' unless task_id.is_a?(Integer)
+        
+        @rust_handler.get_steps_for_task(task_id)
+      end
+
+      # Get TaskExecutionContext for a task
+      # 
+      # This provides comprehensive task execution context including
+      # step readiness, dependencies, and execution metadata.
+      # 
+      # @param task_id [Integer] The task ID to get context for
+      # @return [Hash] Task execution context data
+      # 
+      # @example
+      #   context = handler.get_task_execution_context(task_id)
+      #   expect(context['task_id']).to eq(task_id)
+      #   expect(context['processing_priority']).to be_present
+      def get_task_execution_context(task_id)
+        unless @rust_handler
+          raise NotImplementedError, 'get_task_execution_context requires Rust handler (not available)'
+        end
+        raise TaskerCore::ValidationError, 'task_id is required' unless task_id
+        raise TaskerCore::ValidationError, 'task_id must be an integer' unless task_id.is_a?(Integer)
+        
+        @rust_handler.get_task_execution_context(task_id)
+      end
+
+      # Get step readiness status for all steps in a task
+      # 
+      # This provides detailed step-by-step readiness analysis including
+      # dependency satisfaction, retry eligibility, and execution readiness.
+      # 
+      # @param task_id [Integer] The task ID to analyze step status for
+      # @return [Array<Hash>] Array of step status hashes with readiness details
+      # 
+      # @example
+      #   statuses = handler.get_step_status_for_task(task_id)
+      #   validate_status = statuses.find { |s| s['step_name'] == 'validate_order' }
+      #   expect(validate_status['ready_for_execution']).to be true
+      #   expect(validate_status['dependencies_satisfied']).to be true
+      def get_step_status_for_task(task_id)
+        unless @rust_handler
+          raise NotImplementedError, 'get_step_status_for_task requires Rust handler (not available)'
+        end
+        raise TaskerCore::ValidationError, 'task_id is required' unless task_id
+        raise TaskerCore::ValidationError, 'task_id must be an integer' unless task_id.is_a?(Integer)
+        
+        @rust_handler.get_step_status_for_task(task_id)
       end
 
       # Get configuration schema for validation

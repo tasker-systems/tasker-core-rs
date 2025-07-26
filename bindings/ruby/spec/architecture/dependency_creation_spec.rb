@@ -5,7 +5,7 @@ require 'yaml'
 
 RSpec.describe 'Task Dependency Creation', type: :architecture do
   let(:config_path) do
-    File.expand_path('handlers/examples/order_fulfillment/config/order_fulfillment_handler.yaml', __dir__)
+    File.expand_path('../handlers/examples/order_fulfillment/config/order_fulfillment_handler.yaml', __dir__)
   end
 
   let(:config) { YAML.load_file(config_path) }

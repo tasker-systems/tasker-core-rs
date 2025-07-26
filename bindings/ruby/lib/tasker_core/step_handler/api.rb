@@ -74,21 +74,6 @@ module TaskerCore
         response
       end
 
-      # Optional result transformation for API responses
-      # @param step [Tasker::WorkflowStep] Current step being processed
-      # @param process_output [Faraday::Response] Result from process() method
-      # @return [Object] Transformed result for storage in step.results
-      def process_results(_step, process_output)
-        # Default: Extract response body and status for storage
-        # Subclasses can override for custom response processing
-        {
-          status_code: process_output.status,
-          response_body: process_output.body,
-          response_headers: process_output.headers.to_h,
-          success: process_output.success?
-        }
-      end
-
       # ========================================================================
       # CONVENIENCE HTTP METHODS (additional helpers)
       # ========================================================================

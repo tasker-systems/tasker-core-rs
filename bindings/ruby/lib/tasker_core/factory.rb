@@ -2,7 +2,7 @@
 
 require 'logger'
 require 'securerandom'
-require_relative 'internal/orchestration_manager'
+require_relative 'orchestration/orchestration_manager'
 
 module TaskerCore
   module TestHelpers
@@ -25,7 +25,7 @@ module TaskerCore
       def task(options = {})
         # Ensure unique naming to prevent constraint violations
         enhanced_options = ensure_unique_naming(options)
-        
+
         # Use the TestHelpers factory function with enhanced options
         TaskerCore::TestHelpers.create_test_task(enhanced_options)
       rescue => e
@@ -97,7 +97,7 @@ module TaskerCore
       def handle_info
         {
           domain: "Factory",
-          backend: "TaskerCore::TestHelpers", 
+          backend: "TaskerCore::TestHelpers",
           status: "operational",
           methods: ["task", "workflow_step", "foundation"],
           checked_at: Time.now.utc.iso8601,

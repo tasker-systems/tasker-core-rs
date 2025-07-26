@@ -371,6 +371,20 @@ pub fn ruby_value_to_json_with_validation(
             vec.push(json_item);
         }
         serde_json::Value::Array(vec)
+    } else if let Ok(int) = i64::try_convert(ruby_value) {
+        // Validate integer range (cast to f64 for range check)
+        let int_as_float = int as f64;
+        if int_as_float > config.max_numeric_value || int_as_float < config.min_numeric_value {
+            return Err(Error::new(
+                magnus::exception::arg_error(),
+                format!(
+                    "Integer value {} outside allowed range [{}, {}]",
+                    int, config.min_numeric_value, config.max_numeric_value
+                ),
+            ));
+        }
+
+        serde_json::Value::Number(serde_json::Number::from(int))
     } else if let Ok(float) = f64::try_convert(ruby_value) {
         // Validate numeric range
         if float > config.max_numeric_value || float < config.min_numeric_value {
@@ -389,26 +403,12 @@ pub fn ruby_value_to_json_with_validation(
             ));
         }
 
-        // Try float conversion first to preserve precision for decimals
+        // Try float conversion to preserve precision for decimals
         if let Some(num) = serde_json::Number::from_f64(float) {
             serde_json::Value::Number(num)
         } else {
             serde_json::Value::Null
         }
-    } else if let Ok(int) = i64::try_convert(ruby_value) {
-        // Validate integer range (cast to f64 for range check)
-        let int_as_float = int as f64;
-        if int_as_float > config.max_numeric_value || int_as_float < config.min_numeric_value {
-            return Err(Error::new(
-                magnus::exception::arg_error(),
-                format!(
-                    "Integer value {} outside allowed range [{}, {}]",
-                    int, config.min_numeric_value, config.max_numeric_value
-                ),
-            ));
-        }
-
-        serde_json::Value::Number(serde_json::Number::from(int))
     } else if let Ok(bool_val) = bool::try_convert(ruby_value) {
         serde_json::Value::Bool(bool_val)
     } else {

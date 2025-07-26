@@ -7,6 +7,9 @@ require 'dry-events'
 require 'dry-struct'
 require 'dry-types'
 require 'dry-validation'
+require 'concurrent-ruby'
+require 'timeout'
+require 'ffi-rzmq'
 
 # Pre-define TaskerCore module for Magnus
 module TaskerCore
@@ -39,7 +42,7 @@ require_relative 'tasker_core/logging/logger'            # Logging system
 require_relative 'tasker_core/config'                    # Configuration management system
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
-require_relative 'tasker_core/internal/orchestration_manager'     # Singleton orchestration manager
+require_relative 'tasker_core/orchestration/orchestration_manager'     # Singleton orchestration manager
 require_relative 'tasker_core/internal/testing_manager'           # Singleton testing manager
 require_relative 'tasker_core/internal/testing_factory_manager'   # Singleton testing factory manager
 
@@ -52,7 +55,6 @@ require_relative 'tasker_core/events'            # TaskerCore::Events domain (NE
 require_relative 'tasker_core/testing'           # TaskerCore::Testing domain (NEW)
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain (NEW)
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
-require_relative 'tasker_core/execution'         # TaskerCore::Execution domain (ZeroMQ step execution)
 require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain (Concurrent batch execution)
 
 # Legacy compatibility - these will be deprecated in favor of domain APIs
@@ -125,6 +127,12 @@ module TaskerCore
 
   # Main access point for system health and status
   class << self
+    # Create a new orchestration handle for task processing
+    # @return [TaskerCore::OrchestrationHandle] Handle for orchestration operations
+    def create_orchestration_handle
+      Internal::OrchestrationManager.instance.orchestration_handle
+    end
+
     # Check if TaskerCore is ready for use
     # @return [Hash] System status and readiness info
     def status
@@ -233,7 +241,7 @@ module TaskerCore
 
   # Legacy compatibility aliases (to be deprecated)
   # These provide access to internal managers for backward compatibility
-  autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
+  autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
   autoload :TestingManager, 'tasker_core/internal/testing_manager'
   autoload :TestingFactoryManager, 'tasker_core/internal/testing_factory_manager'
 end

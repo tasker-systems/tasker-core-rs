@@ -6,11 +6,9 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
-use crate::execution::{BatchPublisher, BatchPublisherConfig};
+use crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor;
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
-use crate::orchestration::step_executor::StepExecutor;
-use crate::orchestration::task_config_finder::TaskConfigFinder;
 use crate::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
 use crate::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
 use crate::registry::TaskHandlerRegistry;
@@ -30,10 +28,9 @@ pub struct OrchestrationSystem {
     pub workflow_coordinator: WorkflowCoordinator,
     pub state_manager: StateManager,
     pub task_initializer: TaskInitializer,
-    pub task_handler_registry: TaskHandlerRegistry,
-    pub step_executor: StepExecutor,
+    pub task_handler_registry: Arc<TaskHandlerRegistry>,
     pub config_manager: Arc<ConfigurationManager>,
-    pub batch_publisher: Option<Arc<BatchPublisher>>,
+    pub zmq_pub_sub_executor: Option<Arc<ZmqPubSubExecutor>>,
     pub zmq_context: Arc<Context>,
 }
 
@@ -208,13 +205,73 @@ async fn create_unified_orchestration_system(
     let shared_registry = Arc::new(TaskHandlerRegistry::with_event_publisher(
         event_publisher.clone(),
     ));
-    let workflow_coordinator = WorkflowCoordinator::with_shared_registry(
-        database_pool.clone(),
-        WorkflowCoordinatorConfig::default(),
-        config_manager.clone(),
-        event_publisher.clone(),
-        (*shared_registry).clone(),
-    );
+
+    // Store shared registry Arc for system storage
+    let registry_for_system = shared_registry.clone();
+
+    // Initialize ZeroMQ components if enabled
+    let zmq_context = Arc::new(Context::new());
+    let zmq_pub_sub_executor = if config_manager.system_config().zeromq.enabled {
+        info!("🚀 ZeroMQ: Initializing ZmqPubSubExecutor with configuration");
+
+        let zeromq_config = &config_manager.system_config().zeromq;
+
+        // Create TaskFinalizer for ZmqPubSubExecutor
+        let zmq_task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+            database_pool.clone(),
+            event_publisher.clone(),
+        );
+        
+        // Create StateManager for ZmqPubSubExecutor
+        let zmq_state_manager = StateManager::new(
+            sql_function_executor.clone(),
+            event_publisher.clone(),
+            database_pool.clone(),
+        );
+        
+        match ZmqPubSubExecutor::new(
+            &zeromq_config.batch_endpoint,
+            &zeromq_config.result_endpoint,
+            database_pool.clone(),
+            zmq_state_manager,
+            zmq_task_finalizer,
+            shared_registry.clone(),
+        ).await {
+            Ok(executor) => {
+                info!("✅ ZeroMQ: ZmqPubSubExecutor initialized successfully");
+                Some(Arc::new(executor))
+            }
+            Err(e) => {
+                warn!("⚠️  ZeroMQ: Failed to initialize ZmqPubSubExecutor: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("ℹ️  ZeroMQ: ZmqPubSubExecutor disabled in configuration");
+        None
+    };
+
+    // Create WorkflowCoordinator with ZmqPubSubExecutor if available
+    let workflow_coordinator = if let Some(ref zmq_executor) = zmq_pub_sub_executor {
+        info!("🚀 ZeroMQ: Creating WorkflowCoordinator with ZmqPubSubExecutor");
+        WorkflowCoordinator::with_zmq_pub_sub_executor(
+            database_pool.clone(),
+            WorkflowCoordinatorConfig::default(),
+            config_manager.clone(),
+            event_publisher.clone(),
+            shared_registry.as_ref().clone(),
+            zmq_executor.clone(),
+        )
+    } else {
+        info!("ℹ️  ZeroMQ: Creating WorkflowCoordinator without ZmqPubSubExecutor");
+        WorkflowCoordinator::with_shared_registry(
+            database_pool.clone(),
+            WorkflowCoordinatorConfig::default(),
+            config_manager.clone(),
+            event_publisher.clone(),
+            shared_registry.as_ref().clone(),
+        )
+    };
     let task_initializer = TaskInitializer::with_state_manager_and_registry(
         database_pool.clone(),
         TaskInitializationConfig::default(),
@@ -222,48 +279,8 @@ async fn create_unified_orchestration_system(
         shared_registry.clone(),
     );
 
-    // Create config finder
-    let task_config_finder = TaskConfigFinder::new(config_manager.clone(), shared_registry.clone());
 
-    let step_executor = StepExecutor::new(
-        state_manager.clone(),
-        (*shared_registry).clone(),
-        event_publisher.clone(),
-        task_config_finder,
-    );
 
-    // CRITICAL: Both the task_initializer and task_handler_registry MUST reference
-    // the exact same TaskHandlerRegistry instance, not clones.
-    // The task_initializer already has shared_registry via Arc, so we extract the same instance
-    let registry_for_system = (*shared_registry).clone();
-
-    // 6. Initialize ZeroMQ components if enabled
-    let zmq_context = Arc::new(Context::new());
-    let batch_publisher = if config_manager.system_config().zeromq.enabled {
-        info!("🚀 ZeroMQ: Initializing BatchPublisher with configuration");
-
-        let zeromq_config = &config_manager.system_config().zeromq;
-        let batch_config = BatchPublisherConfig {
-            batch_endpoint: zeromq_config.batch_endpoint.clone(),
-            result_endpoint: zeromq_config.result_endpoint.clone(),
-            send_hwm: zeromq_config.send_hwm,
-            recv_hwm: zeromq_config.recv_hwm,
-        };
-
-        match BatchPublisher::new(zmq_context.clone(), batch_config) {
-            Ok(publisher) => {
-                info!("✅ ZeroMQ: BatchPublisher initialized successfully");
-                Some(Arc::new(publisher))
-            }
-            Err(e) => {
-                warn!("⚠️  ZeroMQ: Failed to initialize BatchPublisher: {}", e);
-                None
-            }
-        }
-    } else {
-        info!("ℹ️  ZeroMQ: BatchPublisher disabled in configuration");
-        None
-    };
 
     // Create orchestration system with owned pool and ZeroMQ components
     let orchestration_system = OrchestrationSystem {
@@ -273,9 +290,8 @@ async fn create_unified_orchestration_system(
         state_manager,
         task_initializer,
         task_handler_registry: registry_for_system,
-        step_executor,
         config_manager,
-        batch_publisher,
+        zmq_pub_sub_executor,
         zmq_context,
     };
 
@@ -290,9 +306,9 @@ impl OrchestrationSystem {
         &self.database_pool
     }
 
-    /// Access the ZeroMQ batch publisher for Ruby communication
-    pub fn batch_publisher(&self) -> Option<&Arc<BatchPublisher>> {
-        self.batch_publisher.as_ref()
+    /// Access the ZeroMQ pub-sub executor for comprehensive batch execution
+    pub fn zmq_pub_sub_executor(&self) -> Option<&Arc<ZmqPubSubExecutor>> {
+        self.zmq_pub_sub_executor.as_ref()
     }
 
     /// Access the shared ZeroMQ context
@@ -302,7 +318,7 @@ impl OrchestrationSystem {
 
     /// Check if ZeroMQ batch processing is enabled and available
     pub fn is_zeromq_enabled(&self) -> bool {
-        self.batch_publisher.is_some()
+        self.zmq_pub_sub_executor.is_some()
     }
 }
 
@@ -382,7 +398,7 @@ pub fn get_global_database_pool() -> PgPool {
 }
 
 /// Get the global task handler registry
-pub fn get_global_task_handler_registry() -> TaskHandlerRegistry {
+pub fn get_global_task_handler_registry() -> Arc<TaskHandlerRegistry> {
     initialize_unified_orchestration_system()
         .task_handler_registry
         .clone()

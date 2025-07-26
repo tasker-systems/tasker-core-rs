@@ -1,11 +1,9 @@
 pub mod message_protocols;
-pub mod zeromq_batch_publisher;
 pub mod zeromq_pub_sub_executor;
 
 pub use message_protocols::{
     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
 };
-pub use zeromq_batch_publisher::{
-    BatchMessage, BatchPublisher, BatchPublisherConfig, ResultMessage, StepData,
-};
+// Note: BatchMessage, BatchPublisher, etc. have been replaced by ZmqPubSubExecutor
+// which provides superior database integration and comprehensive batch tracking
 pub use zeromq_pub_sub_executor::ZmqPubSubExecutor;

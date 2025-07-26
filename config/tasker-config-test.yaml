@@ -62,6 +62,8 @@ backoff:
   buffer_seconds: 5
 
 execution:
+  environment: "test"           # Required environment field
+  processing_mode: "zeromq"     # Use ZeroMQ processing - REQUIRED
   max_concurrent_tasks: 10    # Reduced for test environment
   max_concurrent_steps: 50    # Reduced for test environment
   default_timeout_seconds: 300  # Reduced for faster tests
@@ -83,3 +85,10 @@ cache:
   enabled: true
   ttl_seconds: 3600
   max_size: 10000
+
+zeromq:
+  enabled: true
+  batch_endpoint: "tcp://127.0.0.1:6555"    # Rust binds here to publish steps (completely separate from Ruby)
+  result_endpoint: "tcp://127.0.0.1:6556"   # Rust connects here to receive results (completely separate from Ruby)
+  send_hwm: 1000
+  recv_hwm: 1000

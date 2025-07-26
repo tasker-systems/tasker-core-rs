@@ -323,6 +323,8 @@ pub struct ExecutionConfig {
     pub step_execution_timeout_seconds: u64,
     pub max_discovery_attempts: u32,
     pub step_batch_size: usize,
+    pub processing_mode: String,
+    pub environment: String,
 }
 
 impl Default for ExecutionConfig {
@@ -334,6 +336,8 @@ impl Default for ExecutionConfig {
             step_execution_timeout_seconds: 300,
             max_discovery_attempts: 3,
             step_batch_size: 10,
+            processing_mode: "concurrent".to_string(),
+            environment: "development".to_string(),
         }
     }
 }

@@ -349,43 +349,17 @@ impl SharedOrchestrationHandle {
         Ok(self.orchestration_system.is_zeromq_enabled())
     }
 
-    /// Publish a batch message to Ruby BatchStepExecutionOrchestrator
-    pub fn publish_batch(&self, batch_data: serde_json::Value) -> SharedFFIResult<()> {
-        let _validated_handle = self.validate_or_refresh()?;
-
-        if let Some(batch_publisher) = self.orchestration_system.batch_publisher() {
-            // Convert JSON to BatchMessage
-            let batch_message: crate::execution::BatchMessage = serde_json::from_value(batch_data)
-                .map_err(|e| {
-                    SharedFFIError::InvalidBatchData(format!("Failed to parse batch data: {e}"))
-                })?;
-
-            batch_publisher.publish_batch(batch_message).map_err(|e| {
-                SharedFFIError::ZeroMqError(format!("Failed to publish batch: {e}"))
-            })?;
-
-            Ok(())
-        } else {
-            Err(SharedFFIError::ZeroMqNotEnabled(
-                "ZeroMQ batch processing is not enabled".to_string(),
-            ))
-        }
-    }
 
     /// Receive result messages from Ruby (non-blocking)
     pub fn receive_results(&self) -> SharedFFIResult<Vec<serde_json::Value>> {
         let _validated_handle = self.validate_or_refresh()?;
 
-        if let Some(batch_publisher) = self.orchestration_system.batch_publisher() {
-            let mut results = Vec::new();
-
-            // Collect all available results (non-blocking)
-            while let Ok(Some(result)) = batch_publisher.receive_result() {
-                let result_json = serde_json::to_value(result).map_err(|e| {
-                    SharedFFIError::SerializationError(format!("Failed to serialize result: {e}"))
-                })?;
-                results.push(result_json);
-            }
+        // TODO: Update for ZmqPubSubExecutor integration
+        // The handles.rs file needs to be updated to work with ZmqPubSubExecutor
+        // instead of the old BatchPublisher interface
+        let results = Vec::new();
+        
+        if self.orchestration_system.zmq_pub_sub_executor().is_some() {
 
             Ok(results)
         } else {

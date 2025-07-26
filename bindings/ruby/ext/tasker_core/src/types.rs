@@ -240,13 +240,21 @@ impl TaskHandlerInitializeResult {
 // Simplified FFI approach - no reader functions needed
 
 // Note: This struct is manually registered in lib.rs as TaskerCore::TaskHandler::HandleResult
+// Updated for fire-and-forget ZeroMQ architecture with meaningful information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerHandleResult {
     pub status: String,
     pub task_id: i64,
-    pub steps_executed: Option<usize>,
+    // Fire-and-forget specific fields
+    pub viable_steps_discovered: Option<usize>,
+    pub steps_published: Option<usize>,
+    pub batch_id: Option<String>,
+    pub publication_time_ms: Option<u64>,
+    // Async completion fields (populated by result listener)
+    pub steps_completed: Option<usize>,
     pub total_execution_time_ms: Option<u64>,
     pub failed_steps: Option<Vec<i64>>,
+    // Status fields
     pub blocking_reason: Option<String>,
     pub next_poll_delay_ms: Option<u64>,
     pub error: Option<String>,
@@ -263,21 +271,44 @@ impl TaskHandlerHandleResult {
         self.task_id
     }
 
-    /// Get steps_executed for Ruby access
-    pub fn steps_executed(&self) -> Option<usize> {
-        self.steps_executed
+    // Fire-and-forget specific accessors
+    /// Get viable_steps_discovered for Ruby access
+    pub fn viable_steps_discovered(&self) -> Option<usize> {
+        self.viable_steps_discovered
     }
 
-    /// Get total_execution_time_ms for Ruby access
+    /// Get steps_published for Ruby access  
+    pub fn steps_published(&self) -> Option<usize> {
+        self.steps_published
+    }
+
+    /// Get batch_id for Ruby access
+    pub fn batch_id(&self) -> Option<String> {
+        self.batch_id.clone()
+    }
+
+    /// Get publication_time_ms for Ruby access
+    pub fn publication_time_ms(&self) -> Option<u64> {
+        self.publication_time_ms
+    }
+
+    // Async completion accessors
+    /// Get steps_completed for Ruby access (async results)
+    pub fn steps_completed(&self) -> Option<usize> {
+        self.steps_completed
+    }
+
+    /// Get total_execution_time_ms for Ruby access (async results)
     pub fn total_execution_time_ms(&self) -> Option<u64> {
         self.total_execution_time_ms
     }
 
-    /// Get failed_steps for Ruby access
+    /// Get failed_steps for Ruby access (async results)
     pub fn failed_steps(&self) -> Option<Vec<i64>> {
         self.failed_steps.clone()
     }
 
+    // Status accessors
     /// Get blocking_reason for Ruby access
     pub fn blocking_reason(&self) -> Option<String> {
         self.blocking_reason.clone()
@@ -291,6 +322,11 @@ impl TaskHandlerHandleResult {
     /// Get error for Ruby access
     pub fn error(&self) -> Option<String> {
         self.error.clone()
+    }
+
+    /// Legacy accessor for backward compatibility - maps to steps_published
+    pub fn steps_executed(&self) -> Option<usize> {
+        self.steps_published
     }
 
     pub fn to_h(&self) -> Result<magnus::Value, Error> {

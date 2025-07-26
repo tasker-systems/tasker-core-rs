@@ -36,6 +36,23 @@ development:
     result_timeout_ms: 30000        # 30 seconds for development
     handler_poll_interval_ms: 10    # More frequent polling
 
+# Test environment - isolated and predictable
+test:
+  step_execution:
+    # TCP endpoints for cross-language communication between Rust and Ruby
+    # Rust side (publishes steps, subscribes to results)
+    rust_step_publisher: "tcp://127.0.0.1:8555"
+    rust_result_subscriber: "tcp://127.0.0.1:8556"
+    # Ruby side (subscribes to steps, publishes results)
+    handler_step_subscriber: "tcp://127.0.0.1:8555"
+    handler_result_publisher: "tcp://127.0.0.1:8556"
+    
+    # Test settings optimized for test suite performance
+    max_workers: 3                  # Minimal workers for tests
+    result_timeout_ms: 10000        # 10 seconds max for tests
+    handler_poll_interval_ms: 5     # Quick polling for test responsiveness
+    batch_size: 3                   # Small batches for test isolation
+
 # Production settings
 production:
   step_execution:

@@ -100,10 +100,17 @@ module TaskerCore
         message = String.new
         rc = @step_socket.recv_string(message, ZMQ::DONTWAIT)
         
-        return nil unless rc == 0
-        
-        logger.debug "Received ZeroMQ message: #{message[0..100]}..."
-        parse_batch_message(message)
+        # Enhanced debug logging to track message reception
+        if rc == 0
+          logger.info "🔥 ZEROMQ RECEIVE SUCCESS: Got message (#{message.length} chars): #{message[0..200]}..."
+          parse_batch_message(message)
+        elsif rc == ZMQ::EAGAIN
+          # No message available (expected in non-blocking mode)
+          nil
+        else
+          logger.warn "🚨 ZEROMQ RECEIVE ERROR: rc=#{rc}"
+          nil
+        end
       end
 
       # Publish partial result message via dual result pattern
@@ -194,13 +201,20 @@ module TaskerCore
         @listener_thread = Thread.new do
           logger.info "Batch listener started on #{@config.step_sub_endpoint}"
           
+          poll_count = 0
           while @running
             begin
               batch_request = receive_batch_message
               
               if batch_request
-                logger.info "Parsed batch request: batch_id=#{batch_request[:batch_id]}"
+                logger.info "✅ BATCH RECEIVED: batch_id=#{batch_request[:batch_id]}, steps=#{batch_request[:steps]&.size || 0}"
                 message_handler.call(batch_request)
+              else
+                # Increment poll count for debugging
+                poll_count += 1
+                if poll_count % 1000 == 0  # Log every 1000 polls (roughly every second with 1ms interval)
+                  logger.debug "⏰ ZEROMQ POLLING: #{poll_count} polls completed, no messages received"
+                end
               end
               
             rescue StandardError => e
@@ -212,7 +226,7 @@ module TaskerCore
             sleep(@config.poll_interval_ms / 1000.0)
           end
           
-          logger.debug "Batch listener stopped"
+          logger.info "Batch listener stopped after #{poll_count} polls"
         end
       end
 
@@ -230,13 +244,31 @@ module TaskerCore
         
         # Publish partial results and batch completions back to Rust
         @result_socket = @context.socket(ZMQ::PUB)
-        @result_socket.bind(@config.result_pub_endpoint)
+        
+        # 🎯 CRITICAL: Implement proper error handling for port binding conflicts
+        # This addresses the user's requirement to "throw an error on startup if ports cannot be bound to"
+        bind_result = @result_socket.bind(@config.result_pub_endpoint)
+        if bind_result != 0
+          error_msg = "CRITICAL ZeroMQ ERROR: Failed to bind PUB socket to #{@config.result_pub_endpoint}. " \
+                      "Port already in use. This indicates competing ZeroMQ systems. " \
+                      "Check for other TaskerCore instances or conflicting services on this port."
+          logger.error error_msg
+          
+          # Clean up the socket we couldn't bind
+          @result_socket&.close
+          @step_socket&.close
+          @context&.terminate unless @zmq_context
+          
+          # Throw a clear, intentional error as requested by the user
+          raise RuntimeError, error_msg
+        end
+        
         @result_socket.setsockopt(ZMQ::SNDHWM, @config.result_queue_hwm)
         
         # Allow sockets to establish connections
         sleep(0.1)
         
-        logger.debug "ZeroMQ sockets configured: sub=#{@config.step_sub_endpoint}, pub=#{@config.result_pub_endpoint}"
+        logger.info "✅ ZeroMQ sockets configured successfully: sub=#{@config.step_sub_endpoint}, pub=#{@config.result_pub_endpoint}"
       end
 
       # Parse received batch message

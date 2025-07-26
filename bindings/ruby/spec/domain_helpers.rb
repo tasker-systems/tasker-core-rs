@@ -3,6 +3,64 @@ require_relative '../lib/tasker_core'
 
 # Helper module for domain API testing
 module DomainTestHelpers
+  # 🎯 SINGLETON ZEROMQ ORCHESTRATION ACCESS
+  # These methods provide access to the singleton orchestration components
+  # initialized in spec_helper.rb to prevent socket binding conflicts
+  
+  # Get the singleton orchestration manager
+  # @return [TaskerCore::Internal::OrchestrationManager] Singleton manager instance
+  def get_singleton_orchestration_manager
+    if $test_orchestration_manager
+      $test_orchestration_manager
+    else
+      # Fallback to instance if global not set (shouldn't happen in properly configured tests)
+      puts "⚠️  Using fallback OrchestrationManager.instance - singleton may not be initialized"
+      TaskerCore::Internal::OrchestrationManager.instance
+    end
+  end
+  
+  # Get the singleton orchestration handle  
+  # @return [TaskerCore::OrchestrationHandle] Singleton handle instance
+  def get_singleton_orchestration_handle
+    if $test_orchestration_handle
+      $test_orchestration_handle
+    else
+      # Fallback to manager's handle if global not set
+      manager = get_singleton_orchestration_manager
+      manager.orchestration_handle
+    end
+  end
+  
+  # Check if singleton ZeroMQ integration is available and running
+  # @return [Hash] Status information about ZeroMQ integration
+  def singleton_zeromq_status
+    manager = get_singleton_orchestration_manager
+    manager.zeromq_integration_status
+  end
+  
+  # Verify singleton orchestration is properly initialized
+  # This should be called at the start of integration tests to ensure proper setup
+  def verify_singleton_orchestration_ready
+    manager = get_singleton_orchestration_manager
+    
+    expect(manager).not_to be_nil
+    expect(manager.initialized?).to be(true), "OrchestrationManager should be initialized"
+    
+    handle = get_singleton_orchestration_handle
+    expect(handle).not_to be_nil, "OrchestrationHandle should be available"
+    
+    # Check ZeroMQ status
+    status = singleton_zeromq_status
+    if status[:enabled]
+      puts "✅ Singleton ZeroMQ orchestration verified and ready"
+      puts "   Running: #{status[:running]}"
+      puts "   Config: #{status[:zeromq_config]&.keys&.join(', ') || 'default'}"
+    else
+      puts "ℹ️  ZeroMQ integration not enabled - reason: #{status[:reason]}"
+    end
+    
+    { manager: manager, handle: handle, zeromq_status: status }
+  end
   # Create tasks using our new domain API
   def create_task_via_domain_api(options = {})
     default_options = {

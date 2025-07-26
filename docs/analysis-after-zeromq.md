@@ -4,12 +4,14 @@
 
 This analysis was conducted following the major architectural transformation to ZeroMQ-based concurrent orchestration. The purpose is to identify orphaned components, redundant functionality, and cleanup opportunities after replacing the legacy sequential execution model with the modern BatchStepExecutionOrchestrator architecture.
 
+**UPDATE (January 2025)**: Fire-and-forget architecture completion - framework parameter elimination and dead code cleanup successfully completed. Analysis updated to reflect current state.
+
 ### Analysis Methodology
 
 1. **Complete File Inventory**: Catalog all 405 version-controlled files
 2. **File-by-File Analysis**: Document purpose, status, and architectural relevance
 3. **Entry Point Flow Tracing**: Map data flow through 4 primary system interfaces
-4. **Orphan Identification**: Compare files against active architectural flows  
+4. **Orphan Identification**: Compare files against active architectural flows
 5. **Cleanup Recommendations**: Prioritize removal/refactoring by safety and impact
 
 ### Evaluation Criteria
@@ -152,12 +154,12 @@ tasker-core-rs/
 **Dependencies**: Used by BatchStepExecutionOrchestrator, integrates with Config system
 **Analysis**: Clean separation of concerns for ZeroMQ operations. Essential component of modern architecture.
 
-#### `src/execution/zeromq_batch_publisher.rs`
-**Status**: ✅ **Core/Active** - Rust-side ZeroMQ batch publishing
-**Purpose**: TCP-based batch publishing to Ruby orchestrator with structured message protocols
-**Current Relevance**: Essential - Rust side of ZeroMQ communication for high-throughput batch execution
+#### `src/execution/zeromq_pub_sub_executor.rs`
+**Status**: ✅ **Core/Active** - Rust-side ZeroMQ execution coordinator
+**Purpose**: High-level orchestration interface that coordinates batch publishing and result reception with fire-and-forget architecture
+**Current Relevance**: Essential - Rust side of ZeroMQ communication for high-throughput batch execution without framework dependencies
 **Dependencies**: Integrated with OrchestrationSystem, uses message protocols from execution module
-**Analysis**: Critical component for cross-language communication. Handles Rust→Ruby batch publishing.
+**Analysis**: Critical component for cross-language communication. Handles Rust→Ruby batch execution in fire-and-forget mode.
 
 #### `src/execution/zeromq_pub_sub_executor.rs`
 **Status**: ✅ **Core/Active** - ZeroMQ execution coordinator
@@ -214,12 +216,12 @@ tasker-core-rs/
 
 ### Legacy and Deprecated Components
 
-#### `bindings/ruby/lib/tasker_core/execution.rb`
-**Status**: 🔄 **Deprecated** - Legacy namespace with migration guidance
-**Purpose**: Previously contained ZeroMQHandler, now serves as migration guide to modern architecture
-**Current Relevance**: Documentation only - contains migration instructions to BatchStepExecutionOrchestrator
-**Dependencies**: None - all functionality migrated to orchestration namespace
-**Analysis**: This is properly deprecated with clear migration guidance. Safe for eventual removal after migration period.
+#### `bindings/ruby/lib/tasker_core/execution.rb` (REMOVED)
+**Status**: ✅ **Successfully Removed** - Legacy namespace migration complete
+**Purpose**: Previously contained ZeroMQHandler, was deprecated with migration guidance to modern architecture
+**Current Relevance**: N/A - has been successfully removed from codebase
+**Dependencies**: None - all functionality successfully migrated to orchestration namespace
+**Analysis**: Deprecation and removal completed successfully. Migration to BatchStepExecutionOrchestrator architecture is complete.
 
 ### Database and Model Layer
 
@@ -270,7 +272,7 @@ sequenceDiagram
     participant SH as SharedOrchestrationHandle
     participant TI as TaskInitializer
     participant DB as PostgreSQL
-    
+
     App->>OM: TaskerCore.initialize_task(config)
     OM->>OM: Get singleton instance
     OM->>Handle: orchestration_handle
@@ -289,7 +291,7 @@ sequenceDiagram
 
 **Key Components**:
 - `OrchestrationManager.rb`: Ruby singleton managing handle lifecycle
-- `handles.rs`: Magnus FFI wrappers delegating to shared components  
+- `handles.rs`: Magnus FFI wrappers delegating to shared components
 - `SharedOrchestrationHandle`: Persistent Arc references eliminating global lookups
 - `TaskInitializer`: Rust task creation with database persistence
 
@@ -301,25 +303,25 @@ sequenceDiagram
 
 ### Entry Point 2: handle(task_id) (Ruby task processing)
 
-**Flow Description**: Workflow execution coordination through WorkflowCoordinator and ZeroMQ
+**Flow Description**: Fire-and-forget workflow execution coordination through WorkflowCoordinator and ZeroMQ (framework-agnostic)
 
 ```mermaid
 sequenceDiagram
     participant App as Ruby Application
-    participant OM as OrchestrationManager  
+    participant OM as OrchestrationManager
     participant Handle as OrchestrationHandle (Ruby)
     participant FFI as Rust FFI
     participant WC as WorkflowCoordinator
-    participant ZMQ as BatchPublisher
+    participant ZMQ as ZmqPubSubExecutor
     participant BSEO as BatchStepExecutionOrchestrator
     participant Workers as Ruby Worker Pool
-    
+
     App->>OM: handle(task_id)
     OM->>Handle: orchestration_handle
     Handle->>FFI: execute_task_workflow(task_id)
-    FFI->>WC: execute_task_workflow(task_id, framework)
+    FFI->>WC: execute_task_workflow(task_id)
     WC->>WC: discover_viable_steps(task_id)
-    WC->>ZMQ: publish_batch(batch_data)
+    WC->>ZMQ: execute_step_batch(batch_data)
     ZMQ-->>BSEO: TCP ZeroMQ batch message
     BSEO->>Workers: distribute_steps_to_workers()
     Workers->>Workers: execute_step_handlers_concurrently()
@@ -355,7 +357,7 @@ sequenceDiagram
     participant Analytics as Analytics System
     participant DB as PostgreSQL
     participant Models as Insights Models
-    
+
     App->>Handle: get_analytics_metrics()
     Handle->>FFI: get_analytics_metrics()
     FFI->>Analytics: SharedOrchestrationHandle.analytics
@@ -366,7 +368,7 @@ sequenceDiagram
     Analytics-->>FFI: Performance data
     FFI-->>Handle: RubyAnalyticsMetrics conversion
     Handle-->>App: Performance hash with metrics
-    
+
     App->>Handle: get_system_health_counts()
     Handle->>FFI: get_system_health_counts()
     FFI->>Analytics: system_health_counts()
@@ -398,42 +400,42 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant WC as WorkflowCoordinator
-    participant BP as BatchPublisher (Rust)
+    participant BP as ZmqPubSubExecutor (Rust)
     participant TCP1 as TCP :5555 (Batch Channel)
     participant BSEO as BatchStepExecutionOrchestrator
-    participant ZO as ZeromqOrchestrator  
+    participant ZO as ZeromqOrchestrator
     participant Workers as Concurrent Workers
     participant TCP2 as TCP :5556 (Result Channel)
     participant SM as StateManager
     participant DB as PostgreSQL
-    
-    WC->>BP: publish_batch(batch_data)
+
+    WC->>BP: execute_step_batch(batch_data)
     BP->>TCP1: PUB socket: batch message
     TCP1-->>BSEO: SUB socket: receives batch
     BSEO->>ZO: process_batch_message()
     ZO->>Workers: distribute_to_worker_pool()
-    
+
     par Concurrent Step Execution
         Workers->>Workers: execute_step_handler_1()
         Workers->>TCP2: publish_partial_result(step_1)
-        Workers->>Workers: execute_step_handler_2() 
+        Workers->>Workers: execute_step_handler_2()
         Workers->>TCP2: publish_partial_result(step_2)
         Workers->>Workers: execute_step_handler_N()
         Workers->>TCP2: publish_partial_result(step_N)
     end
-    
+
     TCP2-->>BP: SUB socket: partial results
     BP->>SM: mark_step_complete/failed()
     SM->>DB: UPDATE workflow_steps state
-    
+
     Workers->>TCP2: publish_batch_completion()
     TCP2-->>BP: SUB socket: batch complete
     BP->>WC: batch_execution_complete()
-    WC->>WC: finalize_task_if_ready()
+    WC->>WC: task_finalizer_handles_completion()
 ```
 
 **Key Components**:
-- `BatchPublisher`: Rust-side TCP socket management (PUB/SUB pattern)
+- `ZmqPubSubExecutor`: Rust-side TCP socket management (PUB/SUB pattern)
 - `BatchStepExecutionOrchestrator`: Ruby concurrent orchestration with ThreadPoolExecutor
 - `ZeromqOrchestrator`: Socket lifecycle and message handling
 - `StateManager`: Real-time state updates from partial results
@@ -531,8 +533,10 @@ Based on the entry point flow analysis, we can now identify components that are:
 
 ### Summary of Orphan Analysis
 
-**Confirmed Safe for Removal**: 4 components
-- Legacy execution.rb namespace (migration guidance only)
+**Successfully Removed**: 1 component
+- ✅ Legacy execution.rb namespace (migration completed)
+
+**Confirmed Safe for Removal**: 3 components
 - Utility debug scripts (development tools)
 - Property-based test TODOs (documented future work)
 
@@ -543,7 +547,7 @@ Based on the entry point flow analysis, we can now identify components that are:
 
 **Critical to Preserve**: All entry-point related components
 - All FFI boundary files
-- All ZeroMQ architecture components  
+- All ZeroMQ architecture components
 - All modern orchestration components
 - All database models and migrations
 - All test infrastructure
@@ -561,12 +565,12 @@ Based on the entry point flow analysis, we can now identify components that are:
 **Risk**: Low - not referenced in any production flows
 **Timeline**: Can be done immediately
 
-#### 2. Document Legacy Migration Path 🟢
+#### 2. Legacy Migration Completed ✅
 **Target**: `bindings/ruby/lib/tasker_core/execution.rb`
-**Action**: Add deprecation timeline and consider removal after 6+ months
-**Rationale**: Serves only as migration guidance, functionality fully replaced
-**Risk**: Low - contains no executable code, only documentation
-**Timeline**: Mark for removal Q3 2025
+**Action**: ✅ COMPLETED - Successfully removed from codebase
+**Rationale**: Migration to BatchStepExecutionOrchestrator architecture completed successfully
+**Risk**: None - removal completed without issues
+**Timeline**: ✅ Completed July 2025
 
 ### Medium-Term Analysis (Medium Risk)
 
@@ -616,7 +620,7 @@ Based on the entry point flow analysis, we can now identify components that are:
 - `bindings/ruby/ext/tasker_core/src/` - Magnus FFI wrappers
 - `bindings/ruby/lib/tasker_core/internal/` - Ruby handle management
 
-#### ✅ ZeroMQ Production Architecture  
+#### ✅ ZeroMQ Production Architecture
 - `src/execution/zeromq_*` - Rust-side ZeroMQ components
 - `bindings/ruby/lib/tasker_core/orchestration/` - Ruby orchestration
 - `src/models/core/step_execution_batch*` - Batch tracking models
@@ -634,7 +638,7 @@ Based on the entry point flow analysis, we can now identify components that are:
 ### Implementation Strategy
 
 1. **Phase 1** (🟢 Low Risk): Archive utilities, document legacy migration timeline
-2. **Phase 2** (🟡 Medium Risk): Analyze insights models and configuration templates  
+2. **Phase 2** (🟡 Medium Risk): Analyze insights models and configuration templates
 3. **Phase 3** (🟠 Monitoring): Establish quarterly architectural review process
 4. **Ongoing**: Preserve all critical architecture components identified in flow analysis
 
@@ -670,7 +674,7 @@ Based on the entry point flow analysis, we can now identify components that are:
 
 **BEFORE** (Legacy Architecture):
 - Sequential step processing with hardcoded endpoints
-- Global lookup patterns causing connection pool exhaustion  
+- Global lookup patterns causing connection pool exhaustion
 - JSON serialization across FFI boundaries
 - Scattered configuration and duplicate handler logic
 
@@ -679,6 +683,8 @@ Based on the entry point flow analysis, we can now identify components that are:
 - Handle-based FFI with persistent Arc references
 - Hash-based FFI returns with Ruby object wrappers
 - Configuration-driven with organized type system
+- Fire-and-forget execution without framework dependencies
+- Dead code elimination completed (framework parameters, unused methods, compilation warnings resolved)
 
 ### Cleanup Impact Assessment
 
@@ -708,5 +714,5 @@ Based on the entry point flow analysis, we can now identify components that are:
 
 ---
 
-*Analysis completed January 24, 2025*  
+*Analysis completed January 24, 2025*
 *Architecture assessment: ✅ **Production Ready** with minimal cleanup needed*

@@ -12,6 +12,9 @@ module TaskerCore
     # Maps to the comprehensive error system in Rust orchestration/errors.rs
     class ProceduralError < Error; end
 
+    # Raised when there are orchestration-related issues in TaskerCore
+    class OrchestrationError < Error; end
+
     # Error indicating a step failed but should be retried with backoff
     # Maps to Rust StepExecutionError::Retryable
     #

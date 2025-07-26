@@ -64,159 +64,122 @@ RSpec.describe TaskerCore::TestHelpers::StepTestHelpers do
     end
   end
 
-  describe '#get_steps_in_dependency_order' do
-    context 'when FFI methods are not yet implemented' do
-      it 'handles missing FFI implementation gracefully' do
-        steps = get_steps_in_dependency_order(task_id)
-        
-        # Should return empty array when FFI method not implemented
+  describe '#get_steps_in_dependency_order (MODERNIZED - ZeroMQ Architecture)' do
+    it 'returns deprecation warning and compatibility data for modern ZeroMQ architecture' do
+      steps = get_steps_in_dependency_order(task_id)
+      
+      # Should return minimal compatibility array with modern architecture guidance
+      expect(steps).to be_an(Array)
+      
+      # In modern architecture, we get minimal compatibility data with step mock
+      if steps.any?
+        step = steps.first
+        expect(step).to be_a(Hash)
+        expect(step).to have_key(:id)
+        expect(step).to have_key(:name)
+        expect(step).to have_key(:state)
+        expect(step[:name]).to eq("workflow_batch_execution")
+        expect(step[:state]).to eq("zeromq_managed")
+      end
+    end
+
+    it 'handles invalid task_id gracefully with empty array' do
+      expect {
+        steps = get_steps_in_dependency_order(99999)
         expect(steps).to be_an(Array)
-        # May be empty until FFI implementation is complete
-      end
+        expect(steps).to be_empty
+      }.not_to raise_error
     end
 
-    context 'when called with invalid task_id' do
-      it 'handles non-existent task gracefully' do
-        expect {
-          steps = get_steps_in_dependency_order(99999)
-          expect(steps).to be_an(Array)
-          expect(steps).to be_empty
-        }.not_to raise_error
-      end
-    end
-
-    context 'when FFI methods are implemented (future)' do
-      it 'returns properly structured step information' do
-        steps = get_steps_in_dependency_order(task_id)
-        
-        # Each step should have the expected structure
-        steps.each do |step|
-          expect(step).to be_a(Hash)
-          expect(step).to have_key(:id)
-          expect(step).to have_key(:name)
-          expect(step).to have_key(:dependencies)
-          expect(step).to have_key(:state)
-          expect(step).to have_key(:retryable)
-          
-          expect(step[:id]).to be_a(Integer)
-          expect(step[:name]).to be_a(String)
-          expect(step[:dependencies]).to be_an(Array)
-          expect(step[:state]).to be_a(String)
-          expect(step[:retryable]).to be_in([true, false])
-        end
-      end
-
-      it 'returns steps in proper dependency order (topological sort)' do
-        steps = get_steps_in_dependency_order(task_id)
-        
-        # Verify topological ordering: dependencies appear before dependents
-        step_positions = {}
-        steps.each_with_index do |step, index|
-          step_positions[step[:name]] = index
-        end
-        
-        steps.each do |step|
-          step[:dependencies].each do |dep_name|
-            if step_positions[dep_name]
-              expect(step_positions[dep_name]).to be < step_positions[step[:name]],
-                "Dependency #{dep_name} should appear before #{step[:name]} in the sorted order"
-            end
-          end
-        end
-      end
+    it 'logs deprecation warning about obsolete step-by-step inspection' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:warn)
+        .with(/get_steps_in_dependency_order is obsolete in ZeroMQ architecture/)
+      
+      get_steps_in_dependency_order(task_id)
     end
   end
 
-  describe '#execute_steps_up_to' do
-    context 'when target step does not exist' do
-      it 'returns error information' do
-        result = execute_steps_up_to(task_id, "nonexistent_step", handler_instance)
-        
-        expect(result).to be_a(Hash)
-        expect(result).to have_key(:executed_steps)
-        expect(result).to have_key(:already_completed)
-        expect(result).to have_key(:failed_steps)
-        expect(result).to have_key(:target_ready)
-        expect(result).to have_key(:error)
-        
-        expect(result[:target_ready]).to be(false)
-        expect(result[:error]).to include("not found")
-      end
+  describe '#execute_steps_up_to (MODERNIZED - ZeroMQ Architecture)' do
+    it 'returns compatibility response indicating ZeroMQ batch management' do
+      result = execute_steps_up_to(task_id, "validate_order", handler_instance)
+      
+      expect(result).to be_a(Hash)
+      expect(result).to have_key(:executed_steps)
+      expect(result).to have_key(:already_completed)
+      expect(result).to have_key(:failed_steps)
+      expect(result).to have_key(:target_ready)
+      expect(result).to have_key(:error)
+      expect(result).to have_key(:modern_approach)
+      
+      expect(result[:target_ready]).to be(false)
+      expect(result[:error]).to include("ZeroMQ batch orchestration")
+      expect(result[:modern_approach]).to have_key(:architecture)
+      expect(result[:modern_approach][:architecture]).to include("ZeroMQ batch execution")
     end
 
-    context 'when no handler is provided and cannot find one' do
-      it 'returns error about missing handler' do
-        result = execute_steps_up_to(99999, "some_step")
-        
-        expect(result[:target_ready]).to be(false)
-        expect(result[:error]).to include("No handler found")
-      end
+    it 'logs deprecation warning about obsolete manual step execution' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:warn)
+        .with(/execute_steps_up_to is obsolete in ZeroMQ architecture/)
+      
+      execute_steps_up_to(task_id, "some_step")
     end
 
-    context 'when FFI methods are implemented (future)' do
-      it 'returns comprehensive execution summary' do
-        # This will work once FFI methods are implemented
-        result = execute_steps_up_to(task_id, "validate_order", handler_instance)
-        
-        expect(result).to have_key(:executed_steps)
-        expect(result).to have_key(:already_completed)
-        expect(result).to have_key(:failed_steps)
-        expect(result).to have_key(:target_ready)
-        
-        expect(result[:executed_steps]).to be_an(Array)
-        expect(result[:already_completed]).to be_an(Array)
-        expect(result[:failed_steps]).to be_an(Array)
-        expect(result[:target_ready]).to be_in([true, false])
-      end
+    it 'logs debug information about legacy method usage' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:debug)
+        .with(/Legacy execute_steps_up_to called: task_id=\d+, target_step=validate_order/)
+      
+      execute_steps_up_to(task_id, "validate_order")
     end
   end
 
-  describe '#step_ready_for_execution?' do
-    context 'when FFI methods are not implemented' do
-      it 'handles missing implementation gracefully' do
-        expect {
-          result = step_ready_for_execution?(123)
-          expect(result).to be_a(Hash)
-          expect(result).to have_key(:ready)
-          expect(result).to have_key(:missing_dependencies)
-          expect(result).to have_key(:completed_dependencies)
-          expect(result).to have_key(:step_state)
-        }.not_to raise_error
-      end
+  describe '#step_ready_for_execution? (MODERNIZED - ZeroMQ Architecture)' do
+    it 'returns compatibility response indicating ZeroMQ management' do
+      result = step_ready_for_execution?(123)
+      
+      expect(result).to be_a(Hash)
+      expect(result).to have_key(:ready)
+      expect(result).to have_key(:missing_dependencies)
+      expect(result).to have_key(:completed_dependencies)
+      expect(result).to have_key(:step_state)
+      expect(result).to have_key(:error)
+      expect(result).to have_key(:modern_approach)
+      
+      expect(result[:ready]).to be(false)
+      expect(result[:step_state]).to eq("zeromq_managed")
+      expect(result[:error]).to include("ZeroMQ batch orchestration")
     end
 
-    context 'when called with invalid step_id' do
-      it 'handles errors gracefully' do
-        result = step_ready_for_execution?(99999)
-        
-        expect(result[:ready]).to be(false)
-        expect(result).to have_key(:error)
-      end
+    it 'logs deprecation warning about obsolete step readiness checking' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:warn)
+        .with(/step_ready_for_execution\? is obsolete in ZeroMQ architecture/)
+      
+      step_ready_for_execution?(123)
     end
   end
 
-  describe '#find_step_by_name' do
-    it 'returns nil when step not found' do
-      step = find_step_by_name(task_id, "nonexistent_step")
+  describe '#find_step_by_name (MODERNIZED - ZeroMQ Architecture)' do
+    it 'always returns nil with deprecation warning in modern architecture' do
+      step = find_step_by_name(task_id, "validate_order")
       expect(step).to be_nil
     end
 
-    context 'when FFI methods are implemented (future)' do
-      it 'finds step by name when it exists' do
-        step = find_step_by_name(task_id, "validate_order")
-        
-        if step # Only test if FFI returns data
-          expect(step).to be_a(Hash)
-          expect(step[:name]).to eq("validate_order")
-          expect(step[:id]).to be_a(Integer)
-          expect(step[:state]).to be_a(String)
-        end
-      end
+    it 'logs deprecation warning about obsolete individual step lookup' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:warn)
+        .with(/find_step_by_name is obsolete in ZeroMQ architecture/)
+      
+      find_step_by_name(task_id, "validate_order")
+    end
+
+    it 'logs debug information about legacy method usage' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:debug)
+        .with(/Legacy find_step_by_name called: task_id=\d+, step_name=validate_order/)
+      
+      find_step_by_name(task_id, "validate_order")
     end
   end
 
-  describe '#get_task_step_summary' do
-    it 'returns summary structure even when steps are empty' do
+  describe '#get_task_step_summary (MODERNIZED - ZeroMQ Architecture)' do
+    it 'returns compatibility summary indicating ZeroMQ management' do
       summary = get_task_step_summary(task_id)
       
       expect(summary).to be_a(Hash)
@@ -226,60 +189,57 @@ RSpec.describe TaskerCore::TestHelpers::StepTestHelpers do
       expect(summary).to have_key(:failed_steps)
       expect(summary).to have_key(:ready_steps)
       expect(summary).to have_key(:blocked_steps)
+      expect(summary).to have_key(:zeromq_managed)
+      expect(summary).to have_key(:error)
+      expect(summary).to have_key(:modern_approach)
       
-      expect(summary[:total_steps]).to be >= 0
-      expect(summary[:completed_steps]).to be >= 0
-      expect(summary[:pending_steps]).to be >= 0
-      expect(summary[:failed_steps]).to be >= 0
-      expect(summary[:ready_steps]).to be_an(Array)
-      expect(summary[:blocked_steps]).to be_an(Array)
+      # In modern architecture, all counts are 0 (obsolete concept)
+      expect(summary[:total_steps]).to eq(0)
+      expect(summary[:completed_steps]).to eq(0)
+      expect(summary[:pending_steps]).to eq(0)
+      expect(summary[:failed_steps]).to eq(0)
+      expect(summary[:ready_steps]).to be_empty
+      expect(summary[:blocked_steps]).to be_empty
+      expect(summary[:zeromq_managed]).to be(true)
+      expect(summary[:error]).to include("ZeroMQ batch orchestration")
     end
 
-    context 'when FFI methods are implemented (future)' do
-      it 'provides accurate step counts and categorization' do
-        summary = get_task_step_summary(task_id)
-        
-        # Verify mathematical consistency
-        total = summary[:completed_steps] + summary[:pending_steps] + summary[:failed_steps]
-        expect(total).to eq(summary[:total_steps])
-        
-        # Ready and blocked steps should be subsets of pending
-        ready_and_blocked = summary[:ready_steps].length + summary[:blocked_steps].length
-        expect(ready_and_blocked).to be <= summary[:pending_steps]
-      end
+    it 'logs deprecation warning about obsolete step summaries' do
+      expect(TaskerCore::Logging::Logger.instance).to receive(:warn)
+        .with(/get_task_step_summary is obsolete in ZeroMQ architecture/)
+      
+      get_task_step_summary(task_id)
     end
   end
 
-  describe 'private helper methods' do
-    describe '#topological_sort' do
-      it 'handles circular dependencies gracefully' do
-        # Create steps with circular dependency
+  describe 'private helper methods (MODERNIZED - ZeroMQ Architecture)' do
+    describe '#topological_sort (OBSOLETE)' do
+      it 'returns input as-is with debug logging in modern architecture' do
         circular_steps = [
           { name: 'step_a', dependencies: ['step_b'] },
           { name: 'step_b', dependencies: ['step_c'] },
-          { name: 'step_c', dependencies: ['step_a'] } # Circular!
+          { name: 'step_c', dependencies: ['step_a'] }
         ]
         
-        # Should fall back to original order on circular dependency
-        expect {
-          result = send(:topological_sort, circular_steps)
-          expect(result).to eq(circular_steps) # Falls back to original
-        }.not_to raise_error
+        expect(TaskerCore::Logging::Logger.instance).to receive(:debug)
+          .with(/topological_sort is obsolete/)
+        
+        result = send(:topological_sort, circular_steps)
+        expect(result).to eq(circular_steps) # Returns input as-is
       end
 
-      it 'correctly sorts simple dependency chain' do
+      it 'handles any input gracefully in modern architecture' do
         steps = [
           { name: 'step_c', dependencies: ['step_a', 'step_b'] },
           { name: 'step_a', dependencies: [] },
           { name: 'step_b', dependencies: ['step_a'] }
         ]
         
-        result = send(:topological_sort, steps)
+        expect(TaskerCore::Logging::Logger.instance).to receive(:debug)
+          .with(/topological_sort is obsolete/)
         
-        # step_a should come first (no dependencies)
-        # step_b should come second (depends on step_a)
-        # step_c should come last (depends on both)
-        expect(result.map { |s| s[:name] }).to eq(['step_a', 'step_b', 'step_c'])
+        result = send(:topological_sort, steps)
+        expect(result).to eq(steps) # Returns input as-is in modern architecture
       end
     end
   end
@@ -294,6 +254,35 @@ RSpec.describe TaskerCore::TestHelpers::StepTestHelpers do
       expect {
         get_steps_in_dependency_order(nil)
       }.not_to raise_error
+    end
+  end
+
+  describe 'Modern ZeroMQ Architecture Guidance' do
+    it 'demonstrates modern task creation and batch execution approach' do
+      # MODERN APPROACH: Use orchestration handle for task creation
+      handle = TaskerCore.create_orchestration_handle
+      expect(handle).not_to be_nil
+      
+      # Task creation with batch execution happens automatically
+      # Individual step inspection is obsolete - use batch results instead
+      task_result = handle.create_test_task({
+        "task_name" => "OrderFulfillmentTaskHandler",
+        "step_count" => 4,
+        "pattern" => "linear"
+      })
+      
+      # Verify modern approach provides task-level information
+      expect(task_result.task_id).to be > 0
+      expect(task_result.step_count).to be > 0
+    end
+
+    it 'shows ZeroMQ integration status and capabilities' do
+      # Check ZeroMQ integration status
+      manager = TaskerCore::Internal::OrchestrationManager.instance
+      status = manager.zeromq_integration_status
+      
+      expect(status).to have_key(:enabled)
+      # ZeroMQ integration provides modern batch processing capabilities
     end
   end
 end

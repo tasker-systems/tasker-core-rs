@@ -845,9 +845,8 @@ impl Task {
 
     /// Get state machine for this task (Rails: state_machine) - memoized
     /// TODO: Implement TaskStateMachine integration
-    pub fn state_machine(&self) -> String {
-        // Placeholder - would return TaskStateMachine instance
-        format!("TaskStateMachine(task_id: {})", self.task_id)
+    pub fn state_machine(&self) -> TaskStateMachine {
+        TaskStateMachine::new(self.task_id)
     }
 
     /// Get current task status via state machine (Rails: status)
@@ -1397,4 +1396,89 @@ impl Task {
 
         Ok(result.count.unwrap_or(0))
     }
+}
+
+/// Task State Machine - Provides structured access to task state management
+///
+/// This wraps the existing database-driven state management system and provides
+/// a clean interface for state operations without complex state machine classes.
+#[derive(Debug, Clone)]
+pub struct TaskStateMachine {
+    pub task_id: i64,
+}
+
+impl TaskStateMachine {
+    /// Create a new state machine instance for a task
+    pub fn new(task_id: i64) -> Self {
+        Self { task_id }
+    }
+
+    /// Get the current state of the task
+    pub async fn current_state(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"
+            SELECT to_state
+            FROM tasker_task_transitions
+            WHERE task_id = $1 AND most_recent = true
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            self.task_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row.map(|r| r.to_state))
+    }
+
+    /// Get the current status (same as current_state but with default)
+    pub async fn status(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
+        match self.current_state(pool).await? {
+            Some(state) => Ok(state),
+            None => Ok("pending".to_string()),
+        }
+    }
+
+    /// Check if the task can transition to a given state
+    pub async fn can_transition_to(
+        &self,
+        _pool: &PgPool,
+        _to_state: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // For now, return true since the existing system handles validation
+        // In a full implementation, this would check state machine rules
+        Ok(true)
+    }
+
+    /// Get all transitions for this task
+    pub async fn transitions(&self, pool: &PgPool) -> Result<Vec<TaskTransition>, sqlx::Error> {
+        let transitions = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            SELECT task_id, from_state, to_state, 
+                   metadata, sort_key, most_recent, created_at, updated_at
+            FROM tasker_task_transitions
+            WHERE task_id = $1
+            ORDER BY sort_key ASC
+            "#,
+            self.task_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(transitions)
+    }
+}
+
+/// Task transition record for state machine operations
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TaskTransition {
+    pub task_id: i64,
+    pub from_state: Option<String>,
+    pub to_state: String,
+    pub metadata: Option<serde_json::Value>,
+    pub sort_key: i32,
+    pub most_recent: bool,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
 }

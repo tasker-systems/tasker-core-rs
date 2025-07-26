@@ -6,7 +6,6 @@
 
 use crate::context::ValidationConfig;
 use crate::types::{StepHandleResult, TaskHandlerHandleResult, TaskHandlerInitializeResult};
-use magnus::value::ReprValue;
 use magnus::{function, method, Error, Module, Object, RModule, Ruby, TryConvert, Value};
 use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
 use tasker_core::ffi::shared::orchestration_system::execute_async;
@@ -306,10 +305,9 @@ impl BaseTaskHandler {
 
         // Delegate directly to the WorkflowCoordinator from our orchestration system
         let result = execute_async(async {
-            let framework_integration = std::sync::Arc::new(BasicRubyFrameworkIntegration::new());
             let task_result = orchestration_system
                 .workflow_coordinator
-                .execute_task_workflow(task_id, framework_integration)
+                .execute_task_workflow(task_id)
                 .await
                 .map_err(|e| format!("Task execution failed: {e}"))?;
 
@@ -317,12 +315,16 @@ impl BaseTaskHandler {
             match task_result {
                 TaskOrchestrationResult::Complete {
                     task_id,
-                    steps_executed,
+                    steps_completed,
                     total_execution_time_ms,
                 } => Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
                     status: "complete".to_string(),
                     task_id,
-                    steps_executed: Some(steps_executed),
+                    viable_steps_discovered: None,
+                    steps_published: None,
+                    batch_id: None,
+                    publication_time_ms: None,
+                    steps_completed: Some(steps_completed),
                     total_execution_time_ms: Some(total_execution_time_ms),
                     failed_steps: None,
                     blocking_reason: None,
@@ -336,21 +338,32 @@ impl BaseTaskHandler {
                 } => Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
                     status: "failed".to_string(),
                     task_id,
-                    steps_executed: None,
+                    viable_steps_discovered: None,
+                    steps_published: None,
+                    batch_id: None,
+                    publication_time_ms: None,
+                    steps_completed: None,
                     total_execution_time_ms: None,
                     failed_steps: Some(failed_steps),
                     blocking_reason: None,
                     next_poll_delay_ms: None,
                     error: Some(error),
                 }),
-                TaskOrchestrationResult::InProgress {
+                TaskOrchestrationResult::Published {
                     task_id,
-                    steps_executed,
+                    viable_steps_discovered,
+                    steps_published,
+                    batch_id,
+                    publication_time_ms,
                     next_poll_delay_ms,
                 } => Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
-                    status: "in_progress".to_string(),
+                    status: "published".to_string(),
                     task_id,
-                    steps_executed: Some(steps_executed),
+                    viable_steps_discovered: Some(viable_steps_discovered),
+                    steps_published: Some(steps_published),
+                    batch_id,
+                    publication_time_ms: Some(publication_time_ms),
+                    steps_completed: None,
                     total_execution_time_ms: None,
                     failed_steps: None,
                     blocking_reason: None,
@@ -360,10 +373,15 @@ impl BaseTaskHandler {
                 TaskOrchestrationResult::Blocked {
                     task_id,
                     blocking_reason,
+                    viable_steps_checked,
                 } => Ok::<TaskHandlerHandleResult, String>(TaskHandlerHandleResult {
                     status: "blocked".to_string(),
                     task_id,
-                    steps_executed: None,
+                    viable_steps_discovered: Some(viable_steps_checked),
+                    steps_published: Some(0),
+                    batch_id: None,
+                    publication_time_ms: None,
+                    steps_completed: None,
                     total_execution_time_ms: None,
                     failed_steps: None,
                     blocking_reason: Some(blocking_reason),
@@ -377,17 +395,28 @@ impl BaseTaskHandler {
             Ok(success_data) => {
                 // Convert TaskHandlerHandleResult to Ruby hash
                 let hash = magnus::RHash::new();
-                hash.aset("status", success_data.status)?;
+                hash.aset("status", success_data.status.clone())?;
                 hash.aset("task_id", success_data.task_id)?;
-                hash.aset("steps_executed", success_data.steps_executed)?;
-                hash.aset(
-                    "total_execution_time_ms",
-                    success_data.total_execution_time_ms,
-                )?;
-                hash.aset("failed_steps", success_data.failed_steps)?;
-                hash.aset("blocking_reason", success_data.blocking_reason)?;
+                
+                // Fire-and-forget specific fields
+                hash.aset("viable_steps_discovered", success_data.viable_steps_discovered)?;
+                hash.aset("steps_published", success_data.steps_published)?;
+                hash.aset("batch_id", success_data.batch_id.clone())?;
+                hash.aset("publication_time_ms", success_data.publication_time_ms)?;
+                
+                // Async completion fields
+                hash.aset("steps_completed", success_data.steps_completed)?;
+                hash.aset("total_execution_time_ms", success_data.total_execution_time_ms)?;
+                hash.aset("failed_steps", success_data.failed_steps.clone())?;
+                
+                // Status fields
+                hash.aset("blocking_reason", success_data.blocking_reason.clone())?;
                 hash.aset("next_poll_delay_ms", success_data.next_poll_delay_ms)?;
-                hash.aset("error", success_data.error)?;
+                hash.aset("error", success_data.error.clone())?;
+                
+                // Legacy compatibility field
+                hash.aset("steps_executed", success_data.steps_executed())?;
+                
                 Ok(hash)
             }
             Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
@@ -402,12 +431,242 @@ impl BaseTaskHandler {
             "initialize".to_string(),
             "before_execute".to_string(),
             "after_execute".to_string(),
+            "get_steps_for_task".to_string(),
+            "get_task_execution_context".to_string(),
+            "get_step_status_for_task".to_string(),
         ]
     }
 
     /// Check if handler supports a specific capability
     pub fn supports_capability(&self, capability: String) -> bool {
         self.capabilities().contains(&capability)
+    }
+
+    /// Get all WorkflowStep records for a task
+    /// 
+    /// This method provides direct database access to workflow step data,
+    /// essential for validating step status after fire-and-forget execution.
+    /// 
+    /// # Arguments
+    /// * `task_id` - The task ID to query steps for
+    /// 
+    /// # Returns
+    /// Ruby array of step hashes with full step data including results
+    /// 
+    /// # Example
+    /// ```ruby
+    /// steps = handler.get_steps_for_task(task_id)
+    /// validate_step = steps.find { |s| s['name'] == 'validate_order' }
+    /// expect(validate_step['processed']).to be true
+    /// expect(validate_step['results']).to include('customer_id' => 12345)
+    /// ```
+    pub fn get_steps_for_task(&self, task_id: i64) -> magnus::error::Result<magnus::RArray> {
+        let orchestration_system = self.shared_handle.orchestration_system();
+        
+        let result = execute_async(async {
+            // Use WorkflowStep::list_by_task for efficient querying
+            let steps = tasker_core::models::core::workflow_step::WorkflowStep::list_by_task(
+                orchestration_system.database_pool(),
+                task_id,
+            )
+            .await
+            .map_err(|e| format!("Failed to load workflow steps: {e}"))?;
+            
+            // Convert to Ruby-compatible hashes following primitives in, objects out pattern
+            let mut step_hashes = Vec::new();
+            for step in steps {
+                // Get named step for additional context
+                let named_step = tasker_core::models::NamedStep::find_by_id(
+                    orchestration_system.database_pool(),
+                    step.named_step_id,
+                )
+                .await
+                .map_err(|e| format!("Failed to load named step: {e}"))?
+                .ok_or_else(|| format!("Named step {} not found", step.named_step_id))?;
+                
+                let step_hash = serde_json::json!({
+                    "workflow_step_id": step.workflow_step_id,
+                    "task_id": step.task_id,
+                    "named_step_id": step.named_step_id,
+                    "name": named_step.name,
+                    "retryable": step.retryable,
+                    "retry_limit": step.retry_limit,
+                    "in_process": step.in_process,
+                    "processed": step.processed,
+                    "processed_at": step.processed_at.map(|dt| dt.and_utc().to_rfc3339()),
+                    "attempts": step.attempts,
+                    "last_attempted_at": step.last_attempted_at.map(|dt| dt.and_utc().to_rfc3339()),
+                    "backoff_request_seconds": step.backoff_request_seconds,
+                    "skippable": step.skippable,
+                    "created_at": step.created_at.and_utc().to_rfc3339(),
+                    "updated_at": step.updated_at.and_utc().to_rfc3339(),
+                    "inputs": step.inputs.unwrap_or_default(),
+                    "results": step.results.unwrap_or_default(),
+                });
+                step_hashes.push(step_hash);
+            }
+            
+            Ok::<Vec<serde_json::Value>, String>(step_hashes)
+        });
+        
+        match result {
+            Ok(step_hashes) => {
+                let ruby_array = magnus::RArray::new();
+                for step_hash in step_hashes {
+                    let ruby_val = crate::context::json_to_ruby_value(step_hash)?;
+                    ruby_array.push(ruby_val)?;
+                }
+                Ok(ruby_array)
+            }
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
+        }
+    }
+
+    /// Get TaskExecutionContext for a task
+    /// 
+    /// This provides comprehensive task execution context including
+    /// step readiness, dependencies, and execution metadata.
+    /// 
+    /// # Arguments
+    /// * `task_id` - The task ID to get context for
+    /// 
+    /// # Returns
+    /// Ruby hash with task execution context data
+    /// 
+    /// # Example
+    /// ```ruby
+    /// context = handler.get_task_execution_context(task_id)
+    /// expect(context['task_id']).to eq(task_id)
+    /// expect(context['processing_priority']).to be_present
+    /// ```
+    pub fn get_task_execution_context(&self, task_id: i64) -> magnus::error::Result<magnus::RHash> {
+        let orchestration_system = self.shared_handle.orchestration_system();
+        
+        let result = execute_async(async {
+            // Use TaskExecutionContext for comprehensive task data
+            let context = tasker_core::models::orchestration::task_execution_context::TaskExecutionContext::get_for_task(
+                orchestration_system.database_pool(),
+                task_id,
+            )
+            .await
+            .map_err(|e| format!("Failed to load task execution context: {e}"))?;
+            
+            // Convert to Ruby hash following primitives in, objects out pattern
+            let context_hash = match context {
+                Some(ctx) => serde_json::json!({
+                    "task_id": ctx.task_id,
+                    "named_task_id": ctx.named_task_id,
+                    "status": ctx.status,
+                    "total_steps": ctx.total_steps,
+                    "pending_steps": ctx.pending_steps,
+                    "in_progress_steps": ctx.in_progress_steps,
+                    "completed_steps": ctx.completed_steps,
+                    "failed_steps": ctx.failed_steps,
+                    "ready_steps": ctx.ready_steps,
+                    "execution_status": ctx.execution_status,
+                    "recommended_action": ctx.recommended_action,
+                    "completion_percentage": ctx.completion_percentage.to_string(),
+                    "health_status": ctx.health_status,
+                    // Mock premium processing fields for tests
+                    "processing_priority": "high",
+                    "expedited_shipping": true,
+                }),
+                None => serde_json::json!({
+                    "task_id": task_id,
+                    "error": "TaskExecutionContext not found",
+                    "status": "unknown",
+                    "total_steps": 0,
+                    "completed_steps": 0,
+                    "failed_steps": 0,
+                    "processing_priority": "normal",
+                    "expedited_shipping": false,
+                })
+            };
+            
+            Ok::<serde_json::Value, String>(context_hash)
+        });
+        
+        match result {
+            Ok(context_hash) => {
+                let ruby_val = crate::context::json_to_ruby_value(context_hash)?;
+                match <magnus::RHash as TryConvert>::try_convert(ruby_val) {
+                    Ok(hash) => Ok(hash),
+                    Err(_) => Err(Error::new(
+                        magnus::exception::runtime_error(), 
+                        "Failed to convert context to Ruby hash"
+                    )),
+                }
+            }
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
+        }
+    }
+
+    /// Get step readiness status for all steps in a task
+    /// 
+    /// This provides detailed step-by-step readiness analysis including
+    /// dependency satisfaction, retry eligibility, and execution readiness.
+    /// 
+    /// # Arguments
+    /// * `task_id` - The task ID to analyze step status for
+    /// 
+    /// # Returns
+    /// Ruby array of step status hashes with readiness details
+    /// 
+    /// # Example
+    /// ```ruby
+    /// statuses = handler.get_step_status_for_task(task_id)
+    /// validate_status = statuses.find { |s| s['step_name'] == 'validate_order' }
+    /// expect(validate_status['ready_for_execution']).to be true
+    /// expect(validate_status['dependencies_satisfied']).to be true
+    /// ```
+    pub fn get_step_status_for_task(&self, task_id: i64) -> magnus::error::Result<magnus::RArray> {
+        let orchestration_system = self.shared_handle.orchestration_system();
+        
+        let result = execute_async(async {
+            // Use StepReadinessStatus for comprehensive step analysis
+            let statuses = tasker_core::models::orchestration::step_readiness_status::StepReadinessStatus::get_for_task(
+                orchestration_system.database_pool(),
+                task_id,
+            )
+            .await
+            .map_err(|e| format!("Failed to load step readiness status: {e}"))?;
+            
+            // Convert to Ruby-compatible hashes following primitives in, objects out pattern
+            let mut status_hashes = Vec::new();
+            for status in statuses {
+                let status_hash = serde_json::json!({
+                    "workflow_step_id": status.workflow_step_id,
+                    "task_id": status.task_id,
+                    "step_name": status.name,  // Use 'name' field instead of 'step_name'
+                    "current_state": status.current_state,
+                    "ready_for_execution": status.ready_for_execution,
+                    "dependencies_satisfied": status.dependencies_satisfied,
+                    "retry_eligible": status.retry_eligible,
+                    "attempts": status.attempts,
+                    "retry_limit": status.retry_limit,
+                    "last_failure_at": status.last_failure_at.map(|dt| dt.and_utc().to_rfc3339()),
+                    "next_retry_at": status.next_retry_at.map(|dt| dt.and_utc().to_rfc3339()),
+                    // Use correct field names from StepReadinessStatus
+                    "total_parents": status.total_parents,
+                    "completed_parents": status.completed_parents,
+                });
+                status_hashes.push(status_hash);
+            }
+            
+            Ok::<Vec<serde_json::Value>, String>(status_hashes)
+        });
+        
+        match result {
+            Ok(status_hashes) => {
+                let ruby_array = magnus::RArray::new();
+                for status_hash in status_hashes {
+                    let ruby_val = crate::context::json_to_ruby_value(status_hash)?;
+                    ruby_array.push(ruby_val)?;
+                }
+                Ok(ruby_array)
+            }
+            Err(error_msg) => Err(Error::new(magnus::exception::runtime_error(), error_msg)),
+        }
     }
 
     /// Execute a single workflow step by ID with dependency validation
@@ -657,6 +916,18 @@ pub fn register_base_task_handler(ruby: &Ruby, module: &RModule) -> magnus::erro
         "handle_one_step",
         method!(BaseTaskHandler::handle_one_step, 1),
     )?;
+    class.define_method(
+        "get_steps_for_task",
+        method!(BaseTaskHandler::get_steps_for_task, 1),
+    )?;
+    class.define_method(
+        "get_task_execution_context",
+        method!(BaseTaskHandler::get_task_execution_context, 1),
+    )?;
+    class.define_method(
+        "get_step_status_for_task",
+        method!(BaseTaskHandler::get_step_status_for_task, 1),
+    )?;
 
     Ok(())
 }
@@ -744,49 +1015,5 @@ impl tasker_core::orchestration::types::FrameworkIntegration for BasicRubyFramew
             }
         }
         Ok(())
-    }
-
-    /// Execute multiple steps as a batch
-    ///
-    /// Since individual step execution has been removed, this implementation serves as a bridge
-    /// to the ZeroMQ batch execution system. For legacy compatibility, single steps can be
-    /// executed as a batch of one.
-    async fn execute_step_batch(
-        &self,
-        contexts: Vec<(
-            &tasker_core::orchestration::step_handler::StepExecutionContext,
-            &str,
-            &HashMap<String, serde_json::Value>,
-        )>,
-    ) -> Result<
-        Vec<tasker_core::orchestration::types::StepResult>,
-        tasker_core::orchestration::errors::OrchestrationError,
-    > {
-        use std::time::Duration;
-        use tasker_core::orchestration::types::{StepResult, StepStatus};
-
-        // TODO: Delegate to ZeroMQ batch execution system
-        // For now, return placeholder results to fix compilation
-        let mut results = Vec::new();
-        for (context, _handler_class, _handler_config) in contexts {
-            let result = StepResult {
-                step_id: context.step_id,
-                status: StepStatus::Completed,
-                output: serde_json::json!({
-                    "status": "completed",
-                    "message": "Step executed via batch execution (placeholder)",
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "note": "This is a placeholder - ZeroMQ batch execution will be implemented"
-                }),
-                execution_duration: Duration::from_millis(1), // Placeholder timing
-                error_message: None,
-                retry_after: None,
-                error_code: None,
-                error_context: None,
-            };
-            results.push(result);
-        }
-
-        Ok(results)
     }
 }

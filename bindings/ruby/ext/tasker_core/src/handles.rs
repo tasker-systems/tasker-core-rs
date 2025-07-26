@@ -378,25 +378,6 @@ impl OrchestrationHandle {
         }
     }
 
-    /// **NEW**: Publish batch message to Ruby BatchStepExecutionOrchestrator
-    pub fn publish_batch(&self, batch_data: Value) -> MagnusResult<bool> {
-        debug!("🔧 Ruby FFI: publish_batch() - delegating to shared handle");
-
-        let batch_json = ruby_value_to_json(batch_data).map_err(|e| {
-            Error::new(
-                magnus::exception::runtime_error(),
-                format!("Failed to convert batch data: {e}"),
-            )
-        })?;
-
-        match self.shared_handle.publish_batch(batch_json) {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                debug!("Batch publishing failed: {}", e);
-                Ok(false)
-            }
-        }
-    }
 
     /// **NEW**: Receive result messages from Ruby (non-blocking)
     pub fn receive_results(&self) -> MagnusResult<Value> {
@@ -480,10 +461,6 @@ pub fn register_orchestration_handle(module: &RModule) -> MagnusResult<()> {
         method!(OrchestrationHandle::zeromq_config, 0),
     )?;
     class.define_method("zmq_context", method!(OrchestrationHandle::zmq_context, 0))?;
-    class.define_method(
-        "publish_batch",
-        method!(OrchestrationHandle::publish_batch, 1),
-    )?;
     class.define_method(
         "receive_results",
         method!(OrchestrationHandle::receive_results, 0),

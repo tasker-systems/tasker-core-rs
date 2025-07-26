@@ -294,6 +294,13 @@ pub enum ExecutionError {
 
     /// Retry limit exceeded
     RetryLimitExceeded { step_id: i64, max_attempts: u32 },
+    
+    /// Batch creation failed during ZeroMQ publishing
+    BatchCreationFailed {
+        batch_id: String,
+        reason: String,
+        error_code: Option<String>,
+    },
 }
 
 // Implement Display for all error types
@@ -637,6 +644,16 @@ impl fmt::Display for ExecutionError {
                 write!(
                     f,
                     "Step {step_id} exceeded retry limit of {max_attempts} attempts"
+                )
+            }
+            ExecutionError::BatchCreationFailed {
+                batch_id,
+                reason,
+                error_code,
+            } => {
+                write!(
+                    f,
+                    "Batch creation failed for batch {batch_id}: {reason} (code: {error_code:?})"
                 )
             }
         }

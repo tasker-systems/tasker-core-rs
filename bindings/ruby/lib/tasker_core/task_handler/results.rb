@@ -48,13 +48,14 @@ module TaskerCore
 
     # Result from handle operation
     class HandleResult
-      attr_reader :task_id, :status, :completed_steps, :error_message
+      attr_reader :task_id, :status, :completed_steps, :error_message, :steps_published
 
-      def initialize(task_id:, status:, completed_steps:, error_message: nil)
+      def initialize(task_id:, status:, completed_steps:, error_message: nil, steps_published: nil)
         @task_id = task_id
         @status = status
         @completed_steps = completed_steps
         @error_message = error_message
+        @steps_published = steps_published
       end
 
       def success?
@@ -66,7 +67,8 @@ module TaskerCore
           'task_id' => task_id,
           'status' => status,
           'completed_steps' => completed_steps,
-          'error_message' => error_message
+          'error_message' => error_message,
+          'steps_published' => steps_published
         }.compact
       end
     end

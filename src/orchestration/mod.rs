@@ -12,7 +12,6 @@
 //! ## Core Components
 //!
 //! - **WorkflowCoordinator**: Main orchestration engine that coordinates task execution lifecycle
-//! - **StepExecutor**: Individual step execution and lifecycle management within orchestration core
 //! - **ViableStepDiscovery**: Uses SQL functions to determine which steps are ready for execution
 //! - **StateManager**: Manages state transitions using SQL functions for evaluation
 //! - **EventPublisher**: Publishes orchestration events across FFI boundaries
@@ -38,7 +37,6 @@ pub mod errors;
 pub mod handler_config;
 pub mod state_manager;
 pub mod step_execution_orchestrator;
-pub mod step_executor;
 pub mod step_handler;
 pub mod system_events;
 pub mod task_config_finder;
@@ -54,10 +52,6 @@ pub mod workflow_coordinator;
 pub use backoff_calculator::{
     BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
     BackoffType,
-};
-pub use step_executor::{
-    ExecutionPriority, ExecutionStats, RetryConfig, StepExecutionConfig, StepExecutionMetrics,
-    StepExecutionRequest, StepExecutor,
 };
 pub use task_enqueuer::{
     DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,

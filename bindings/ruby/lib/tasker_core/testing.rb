@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative 'internal/orchestration_manager'
+require_relative 'orchestration/orchestration_manager'
 
 module TaskerCore
   # Clean Testing Domain API
-  # 
+  #
   # This provides a clean, Ruby-idiomatic API for all testing operations
   # following the proven Factory/Registry pattern with optimized FFI boundaries.
   #
@@ -25,7 +25,7 @@ module TaskerCore
       # @raise [TaskerCore::Error] If task creation fails
       def create_task(namespace: nil, name: nil, version: nil, context: nil, initiator: nil)
         context_json = context.is_a?(String) ? context : context&.to_json
-        
+
         handle.create_test_task_optimized(namespace, name, version, context_json, initiator)
       rescue => e
         raise TaskerCore::Error, "Failed to create test task: #{e.message}"
@@ -41,7 +41,7 @@ module TaskerCore
       # @raise [TaskerCore::Error] If step creation fails
       def create_step(task_id:, name: nil, handler_class: nil, dependencies: nil, config: nil)
         config_json = config.is_a?(String) ? config : config&.to_json
-        
+
         handle.create_test_step_optimized(task_id, name, handler_class, dependencies, config_json)
       rescue => e
         raise TaskerCore::Error, "Failed to create test step for task #{task_id}: #{e.message}"
@@ -77,7 +77,7 @@ module TaskerCore
           task_name: task_name || "test_task",
           step_name: step_name || "test_step"
         }
-        
+
         handle.create_test_foundation(foundation_options)
       rescue => e
         raise TaskerCore::Error, "Failed to create test foundation: #{e.message}"
@@ -97,7 +97,7 @@ module TaskerCore
       def validate_environment
         setup_result = setup_environment
         handle_status = handle_info
-        
+
         {
           status: "healthy",
           environment: setup_result,
@@ -105,10 +105,10 @@ module TaskerCore
           validated_at: Time.now.utc.iso8601
         }
       rescue => e
-        { 
-          status: "unhealthy", 
-          error: e.message, 
-          validated_at: Time.now.utc.iso8601 
+        {
+          status: "unhealthy",
+          error: e.message,
+          validated_at: Time.now.utc.iso8601
         }
       end
 
@@ -128,7 +128,7 @@ module TaskerCore
             'created_at' => Time.now.utc.iso8601
           }
         end
-        
+
         base_info.merge(
           'domain' => 'Testing',
           'available_methods' => %w[
@@ -152,7 +152,7 @@ module TaskerCore
     # Legacy compatibility - import existing testing managers for transition
     require_relative 'internal/testing_manager'
     require_relative 'internal/testing_factory_manager'
-    
+
     # Provide Manager classes for backward compatibility during transition
     Manager = TestingManager
     FactoryManager = TestingFactoryManager

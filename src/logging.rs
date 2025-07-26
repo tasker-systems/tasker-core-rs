@@ -83,8 +83,19 @@ fn get_environment() -> String {
         .unwrap_or_else(|_| "development".to_string())
 }
 
-/// Get log level based on environment
+/// Get log level based on environment variables or environment defaults
 fn get_log_level(environment: &str) -> String {
+    // First check for explicit LOG_LEVEL environment variable
+    if let Ok(level) = std::env::var("LOG_LEVEL") {
+        return level.to_lowercase();
+    }
+    
+    // Then check for RUST_LOG environment variable
+    if let Ok(level) = std::env::var("RUST_LOG") {
+        return level.to_lowercase();
+    }
+    
+    // Fall back to environment-based defaults
     match environment {
         "test" => "debug".to_string(),
         "development" => "debug".to_string(),
@@ -222,9 +233,28 @@ mod tests {
 
     #[test]
     fn test_log_level_mapping() {
+        // Remove environment variables first
+        std::env::remove_var("LOG_LEVEL");
+        std::env::remove_var("RUST_LOG");
+        
+        // Test default environment-based levels
         assert_eq!(get_log_level("test"), "debug");
         assert_eq!(get_log_level("development"), "debug");
         assert_eq!(get_log_level("production"), "info");
         assert_eq!(get_log_level("unknown"), "debug");
+        
+        // Test LOG_LEVEL environment variable override
+        std::env::set_var("LOG_LEVEL", "INFO");
+        assert_eq!(get_log_level("test"), "info");
+        assert_eq!(get_log_level("development"), "info");
+        
+        // Test RUST_LOG environment variable override (lower priority than LOG_LEVEL)
+        std::env::remove_var("LOG_LEVEL");
+        std::env::set_var("RUST_LOG", "WARN");
+        assert_eq!(get_log_level("test"), "warn");
+        
+        // Clean up
+        std::env::remove_var("LOG_LEVEL");
+        std::env::remove_var("RUST_LOG");
     }
 }

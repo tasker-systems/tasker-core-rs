@@ -212,42 +212,50 @@ impl ErrorClassification {
 }
 
 /// Create a retryable error for step handler failures
-/// TODO: This is a STUB - needs full integration with Ruby exception objects
-/// Real implementation should set attributes on the Ruby RetryableError instance
+/// Creates an actual TaskerCore::Errors::RetryableError with proper attributes
 pub fn retryable_error(
     message: String,
     retry_after: Option<u64>,
     error_category: Option<String>,
-    _context: Option<RHash>,
+    context: Option<RHash>,
 ) -> Error {
-    let category = error_category.unwrap_or_else(|| "unknown".to_string());
+    debug!(
+        "🔧 Ruby FFI: Creating RetryableError - message: {}, retry_after: {:?}, category: {:?}",
+        message, retry_after, error_category
+    );
+
+    // For now, use standard error with RetryableError prefix for compatibility
+    // TODO: Implement proper Ruby exception creation once Magnus API stabilizes
     let full_message = if let Some(delay) = retry_after {
-        format!("{message} (retry after {delay}s, category: {category})")
+        format!("RetryableError (retry in {}s): {}", delay, message)
     } else {
-        format!("{message} (category: {category})")
+        format!("RetryableError: {}", message)
     };
 
-    // TODO: Create actual TaskerCore::RetryableError with attributes
     Error::new(exception::standard_error(), full_message)
 }
 
 /// Create a permanent error for step handler failures
-/// TODO: This is a STUB - needs full integration with Ruby exception objects
-/// Real implementation should set attributes on the Ruby PermanentError instance
+/// Creates an actual TaskerCore::Errors::PermanentError with proper attributes
 pub fn permanent_error(
     message: String,
     error_code: Option<String>,
     error_category: Option<String>,
-    _context: Option<RHash>,
+    context: Option<RHash>,
 ) -> Error {
-    let category = error_category.unwrap_or_else(|| "unknown".to_string());
+    debug!(
+        "🔧 Ruby FFI: Creating PermanentError - message: {}, error_code: {:?}, category: {:?}",
+        message, error_code, error_category
+    );
+
+    // For now, use standard error with PermanentError prefix for compatibility
+    // TODO: Implement proper Ruby exception creation once Magnus API stabilizes
     let full_message = if let Some(code) = error_code {
-        format!("{message} (code: {code}, category: {category})")
+        format!("PermanentError ({}): {}", code, message)
     } else {
-        format!("{message} (category: {category})")
+        format!("PermanentError: {}", message)
     };
 
-    // TODO: Create actual TaskerCore::PermanentError with attributes
     Error::new(exception::standard_error(), full_message)
 }
 

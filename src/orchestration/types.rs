@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 // Import StepExecutionContext from step_handler module
-use crate::orchestration::step_handler::StepExecutionContext;
 
 /// Result of task orchestration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,20 +217,6 @@ pub trait FrameworkIntegration: Send + Sync {
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
 
-    /// Execute multiple steps as a batch
-    ///
-    /// All frameworks must implement batch execution. Individual step execution is no
-    /// longer supported - steps are always executed as batches, even if the batch
-    /// contains only one step.
-    async fn execute_step_batch(
-        &self,
-        contexts: Vec<(
-            &StepExecutionContext,
-            &str,
-            &HashMap<String, serde_json::Value>,
-        )>,
-    ) -> Result<Vec<StepResult>, crate::orchestration::errors::OrchestrationError>;
-
     /// Check if this framework supports native batch execution
     ///
     /// All frameworks now support batch execution since individual step execution
@@ -304,30 +289,34 @@ impl StepResult {
     }
 }
 
-/// Result of task orchestration (moved from coordinator.rs)
+/// Result of task orchestration - Updated for fire-and-forget ZeroMQ architecture
 #[derive(Debug)]
 pub enum TaskOrchestrationResult {
-    /// Task completed successfully
+    /// Task completed successfully (from async result processing)
     Complete {
         task_id: i64,
-        steps_executed: usize,
+        steps_completed: usize,
         total_execution_time_ms: u64,
     },
-    /// Task failed due to step failures
+    /// Task failed due to step failures (from async result processing)
     Failed {
         task_id: i64,
         error: String,
         failed_steps: Vec<i64>,
     },
-    /// Task is still in progress, should be re-queued
-    InProgress {
+    /// Fire-and-forget: Steps published to ZeroMQ, execution continuing asynchronously
+    Published {
         task_id: i64,
-        steps_executed: usize,
+        viable_steps_discovered: usize,
+        steps_published: usize,
+        batch_id: Option<String>,
+        publication_time_ms: u64,
         next_poll_delay_ms: u64,
     },
     /// Task is blocked waiting for dependencies
     Blocked {
         task_id: i64,
         blocking_reason: String,
+        viable_steps_checked: usize,
     },
 }

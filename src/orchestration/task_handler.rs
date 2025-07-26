@@ -309,7 +309,7 @@ impl BaseTaskHandler {
         }
 
         // Execute the workflow using WorkflowCoordinator
-        let framework = self.framework_integration.as_ref().ok_or_else(|| {
+        let _framework = self.framework_integration.as_ref().ok_or_else(|| {
             OrchestrationError::ConfigurationError {
                 source: "BaseTaskHandler".to_string(),
                 reason: "No framework integration configured".to_string(),
@@ -318,7 +318,7 @@ impl BaseTaskHandler {
 
         let result = self
             .workflow_coordinator
-            .execute_task_workflow(context.task_id, framework.clone())
+            .execute_task_workflow(context.task_id)
             .await?;
 
         // Call after_execute hook
@@ -421,13 +421,13 @@ impl BaseTaskHandler {
 
         let annotations = match result {
             TaskOrchestrationResult::Complete {
-                steps_executed,
+                steps_completed,
                 total_execution_time_ms,
                 ..
             } => {
                 serde_json::json!({
                     "status": "complete",
-                    "steps_executed": steps_executed,
+                    "steps_completed": steps_completed,
                     "execution_time_ms": total_execution_time_ms,
                     "completed_at": chrono::Utc::now().to_rfc3339(),
                 })
@@ -444,14 +444,18 @@ impl BaseTaskHandler {
                     "failed_at": chrono::Utc::now().to_rfc3339(),
                 })
             }
-            TaskOrchestrationResult::InProgress {
-                steps_executed,
+            TaskOrchestrationResult::Published {
+                steps_published,
                 next_poll_delay_ms,
+                batch_id,
+                publication_time_ms,
                 ..
             } => {
                 serde_json::json!({
-                    "status": "in_progress",
-                    "steps_executed": steps_executed,
+                    "status": "published",
+                    "steps_published": steps_published,
+                    "batch_id": batch_id,
+                    "publication_time_ms": publication_time_ms,
                     "next_poll_delay_ms": next_poll_delay_ms,
                     "last_update": chrono::Utc::now().to_rfc3339(),
                 })
@@ -558,40 +562,6 @@ impl FrameworkIntegration for DefaultFrameworkIntegration {
     ) -> Result<(), OrchestrationError> {
         // Default implementation does nothing (no-op)
         Ok(())
-    }
-
-    async fn execute_step_batch(
-        &self,
-        contexts: Vec<(
-            &crate::orchestration::step_handler::StepExecutionContext,
-            &str,
-            &std::collections::HashMap<String, serde_json::Value>,
-        )>,
-    ) -> Result<Vec<crate::orchestration::types::StepResult>, OrchestrationError> {
-        use crate::orchestration::types::{StepResult, StepStatus};
-        use std::time::Duration;
-
-        // Default implementation returns successful results for all steps with placeholder data
-        // This is used for testing and fallback scenarios
-        let mut results = Vec::new();
-        for (context, handler_class, _handler_config) in contexts {
-            results.push(StepResult {
-                step_id: context.step_id,
-                status: StepStatus::Completed,
-                output: serde_json::json!({
-                    "status": "completed",
-                    "handler_class": handler_class,
-                    "message": "Default batch implementation - step completed successfully",
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                }),
-                execution_duration: Duration::from_millis(1),
-                error_message: None,
-                retry_after: None,
-                error_code: None,
-                error_context: None,
-            });
-        }
-        Ok(results)
     }
 }
 

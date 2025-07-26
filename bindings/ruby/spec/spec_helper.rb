@@ -33,11 +33,25 @@ RSpec.configure do |config|
     else
       puts "✅ Test environment setup successful"
     end
+
+    # 🎯 SINGLETON ZEROMQ ORCHESTRATION SETUP
+    # Initialize singleton orchestration system and ZeroMQ components to prevent
+    # "Address already in use" errors from multiple socket bindings during test runs
+    puts "🔗 Initializing singleton ZeroMQ orchestration system"
+
+    begin
+      # Create singleton orchestration manager (this creates the handle and orchestration system)
+      orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
+      orchestration_manager.orchestration_system
+    rescue StandardError => e
+      puts "⚠️  Singleton ZeroMQ setup failed: #{e.message}"
+      puts "   Tests will continue but may encounter socket binding conflicts"
+      puts "   Error: #{e.class.name}: #{e.message}"
+    end
   end
 
   config.after(:suite) do
     puts "🧹 Cleaning up test environment using TaskerCore::Environment"
-
     # Cleanup test environment through our new domain API
     result = TaskerCore::Environment.cleanup_test
 
@@ -118,17 +132,6 @@ class Hash
   end
 end
 
-# Mock Rails logger for testing
-module Rails
-  class << self
-    def logger
-      @logger ||= Logger.new($stdout).tap do |log|
-        log.level = Logger::INFO
-      end
-    end
-  end
-end
-
 # Mock Time.current for Rails compatibility
 class Time
   def self.current
@@ -140,13 +143,6 @@ end
 begin
   # Load core TaskerCore module
   require_relative '../lib/tasker_core'
-
-  # Load TaskerCore components that our tests need
-  require_relative '../lib/tasker_core/types'
-  require_relative '../lib/tasker_core/errors'
-  require_relative '../lib/tasker_core/registry'
-  require_relative '../lib/tasker_core/task_handler/base'
-  require_relative '../lib/tasker_core/step_handler/base'
 
   puts "✅ TaskerCore loaded successfully"
 rescue LoadError => e

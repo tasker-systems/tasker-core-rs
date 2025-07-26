@@ -86,18 +86,32 @@ impl ViableStepDiscovery {
 
         debug!(
             task_id = task_id,
-            candidate_steps = readiness_statuses.len(),
-            "Retrieved step readiness statuses"
+            total_statuses = readiness_statuses.len(),
+            "Retrieved step readiness statuses from SQL function"
         );
+        
+        // Log each status for debugging
+        for status in &readiness_statuses {
+            debug!(
+                task_id = task_id,
+                step_name = %status.name,
+                current_state = %status.current_state,
+                ready_for_execution = status.ready_for_execution,
+                dependencies_satisfied = status.dependencies_satisfied,
+                retry_eligible = status.retry_eligible,
+                attempts = status.attempts,
+                retry_limit = status.retry_limit,
+                total_parents = status.total_parents,
+                completed_parents = status.completed_parents,
+                "Step readiness status details"
+            );
+        }
 
-        // 2. Filter to ready steps using SQL function results
+        // 2. Filter to only steps that are ready for execution
+        // SQL function returns all steps but marks readiness - we only want the ready ones
         let candidate_steps: Vec<_> = readiness_statuses
             .into_iter()
-            .filter(|status| {
-                status.ready_for_execution
-                    && status.dependencies_satisfied
-                    && status.current_state != "complete" // Not completed
-            })
+            .filter(|status| status.ready_for_execution)
             .collect();
 
         debug!(

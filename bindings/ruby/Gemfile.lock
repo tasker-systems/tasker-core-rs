@@ -216,6 +216,7 @@ GEM
       hashdiff (>= 0.4.0, < 2.0.0)
     yard (0.9.37)
     zeitwerk (2.7.3)
+    zmq (2.1.4)
 
 PLATFORMS
   arm64-darwin-24
@@ -241,6 +242,7 @@ DEPENDENCIES
   timecop (~> 0.9)
   webmock (~> 3.18)
   yard (~> 0.9)
+  zmq
 
 BUNDLED WITH
    2.5.23

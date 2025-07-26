@@ -39,9 +39,11 @@ development:
 # Test environment - isolated and predictable
 test:
   step_execution:
-    # Dedicated test ports to avoid conflicts
-    handler_step_subscriber: "tcp://127.0.0.1:8777"
-    handler_result_publisher: "tcp://127.0.0.1:8778"
+    # 🎯 COMPLETELY SEPARATE PORTS: Avoid any conflicts with Rust orchestration
+    # Ruby uses completely different ports from Rust to prevent binding conflicts
+    # Ruby subscribes to steps, publishes results - no competition with Rust
+    handler_step_subscriber: "tcp://127.0.0.1:8555"
+    handler_result_publisher: "tcp://127.0.0.1:8556"
     
     # Test settings optimized for test suite performance
     max_workers: 3                  # Minimal workers for tests
