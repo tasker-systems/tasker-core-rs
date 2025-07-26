@@ -6,7 +6,7 @@ require 'concurrent-ruby'
 
 module TaskerCore
   module Orchestration
-    # ZeroMQ orchestration class responsible for socket management, 
+    # ZeroMQ orchestration class responsible for socket management,
     # message handling, and cross-language communication with Rust.
     #
     # This class encapsulates all ZeroMQ-specific functionality, including:
@@ -32,16 +32,16 @@ module TaskerCore
       def initialize(config: nil, zmq_context: nil)
         @config = config || TaskerCore::Config.instance.zeromq
         @zmq_context = zmq_context
-        
+
         # Socket management
         @context = nil
         @step_socket = nil
         @result_socket = nil
-        
+
         # State management
         @running = false
         @listener_thread = nil
-        
+
         logger.info "ZeromqOrchestrator initialized with config: #{@config.to_debug_info}"
       end
 
@@ -49,11 +49,11 @@ module TaskerCore
       # @return [void]
       def start
         return if @running
-        
+
         logger.info "Starting ZeromqOrchestrator"
         setup_sockets
         @running = true
-        
+
         logger.info "ZeromqOrchestrator started successfully"
       end
 
@@ -62,13 +62,13 @@ module TaskerCore
       # @return [void]
       def stop(timeout: 10)
         return unless @running
-        
+
         logger.info "Stopping ZeromqOrchestrator"
         @running = false
-        
+
         # Wait for listener thread if running independently
         @listener_thread&.join(timeout) if @listener_thread
-        
+
         cleanup_sockets
         logger.info "ZeromqOrchestrator stopped"
       end
@@ -95,20 +95,29 @@ module TaskerCore
       # Receive a batch message from the step socket (non-blocking)
       # @return [Hash, nil] Parsed batch request or nil if no message
       def receive_batch_message
+        logger.debug "PETEDEBUG: we are in receive_batch_message"
+        logger.info "SOCKET_INFO: Receiving batch message from #{@config.step_sub_endpoint}"
         return nil unless @step_socket && @running
-        
+
+        logger.debug "PETEDEBUG: we are in receive_batch_message after checking if the socket is connected"
         message = String.new
         rc = @step_socket.recv_string(message, ZMQ::DONTWAIT)
-        
+        logger.debug "PETEDEBUG: we are in receive_batch_message after receiving the message"
+        logger.info "SOCKET_INFO: rc is #{rc} and message is #{message}"
+
         # Enhanced debug logging to track message reception
         if rc == 0
+          logger.debug "PETEDEBUG: we are in receive_batch_message after receiving the message"
           logger.info "🔥 ZEROMQ RECEIVE SUCCESS: Got message (#{message.length} chars): #{message[0..200]}..."
           parse_batch_message(message)
+          logger.debug "PETEDEBUG: we are in receive_batch_message after parsing the message, returning the message #{message}"
         elsif rc == ZMQ::EAGAIN
           # No message available (expected in non-blocking mode)
+          logger.debug "PETEDEBUG: we are in receive_batch_message after receiving the message, but in EAGAIN"
           nil
         else
-          logger.warn "🚨 ZEROMQ RECEIVE ERROR: rc=#{rc}"
+          logger.debug "PETEDEBUG: we are in receive_batch_message after receiving the message, rc is #{rc}"
+          logger.warn "SOCKET_INFO: 🚨 ZEROMQ RECEIVE ERROR: rc=#{rc}"
           nil
         end
       end
@@ -136,20 +145,20 @@ module TaskerCore
           error: error ? serialize_error(error) : nil,
           retryable: retryable
         }
-        
+
         publish_to_results_socket('partial_result', partial_result)
         logger.debug "Published partial result for step #{step_id} in batch #{batch_id}"
       end
 
       # Publish batch completion message
-      # @param batch_id [String] Batch identifier  
+      # @param batch_id [String] Batch identifier
       # @param step_results [Array<Hash>] Results from all steps
       def publish_batch_completion(batch_id, step_results)
         # Aggregate results for batch completion message
         completed_steps = step_results.count { |r| r[:status] == 'completed' }
         failed_steps = step_results.count { |r| r[:status] == 'failed' }
         total_execution_time = step_results.sum { |r| r[:execution_time] || 0 }
-        
+
         # Create step summaries for Rust reconciliation
         step_summaries = step_results.map do |result|
           {
@@ -159,7 +168,7 @@ module TaskerCore
             worker_id: result[:worker_id] || "unknown"
           }
         end
-        
+
         # Batch completion message via ZeroMQ dual pattern
         batch_completion = {
           message_type: 'batch_completion',
@@ -173,7 +182,7 @@ module TaskerCore
           completed_at: Time.now.utc.iso8601,
           total_execution_time_ms: total_execution_time
         }
-        
+
         publish_to_results_socket('batch_completion', batch_completion)
         logger.info "Batch #{batch_id} completed: #{completed_steps} succeeded, #{failed_steps} failed"
       end
@@ -188,7 +197,7 @@ module TaskerCore
           error: serialize_error(error),
           timestamp: Time.now.utc.iso8601
         }
-        
+
         publish_to_results_socket('batch_error', error_message)
         logger.error "Published batch error for #{batch_id}: #{error.message}"
       end
@@ -197,35 +206,43 @@ module TaskerCore
       # @param message_handler [Proc] Block to handle received batch messages
       def run_listener(&message_handler)
         raise ArgumentError, "Message handler block required" unless block_given?
-        
+
+        logger.debug "PETEDEBUG: we are in run_listener"
+
         @listener_thread = Thread.new do
           logger.info "Batch listener started on #{@config.step_sub_endpoint}"
-          
+          logger.debug "PETEDEBUG: we are in run_listener after starting the listener thread, listening to #{@config.step_sub_endpoint}"
+
           poll_count = 0
           while @running
             begin
               batch_request = receive_batch_message
-              
+
               if batch_request
+                logger.debug "PETEDEBUG: we are in run_listener after receiving a batch request, #{batch_request.inspect}"
                 logger.info "✅ BATCH RECEIVED: batch_id=#{batch_request[:batch_id]}, steps=#{batch_request[:steps]&.size || 0}"
                 message_handler.call(batch_request)
+                logger.debug "PETEDEBUG: we are in run_listener after calling the message handler"
               else
                 # Increment poll count for debugging
                 poll_count += 1
                 if poll_count % 1000 == 0  # Log every 1000 polls (roughly every second with 1ms interval)
                   logger.debug "⏰ ZEROMQ POLLING: #{poll_count} polls completed, no messages received"
+                  logger.debug "PETEDEBUG: we are in run_listener after polling, poll_count is #{poll_count}"
                 end
               end
-              
+
             rescue StandardError => e
               logger.error "Batch listener error: #{e.message}"
+              logger.debug "PETEDEBUG: we are in run_listener after the error, #{e.message}"
               publish_batch_error(batch_request&.dig(:batch_id), e) if batch_request
             end
-            
+
             # Prevent busy-waiting while allowing responsive shutdown
             sleep(@config.poll_interval_ms / 1000.0)
+            logger.debug "PETEDEBUG: we are in run_listener after sleeping, poll_count is #{poll_count}"
           end
-          
+
           logger.info "Batch listener stopped after #{poll_count} polls"
         end
       end
@@ -235,16 +252,15 @@ module TaskerCore
       # Set up ZeroMQ sockets using configuration
       def setup_sockets
         @context = @zmq_context || ZMQ::Context.new
-        
+
         # Subscribe to step batches from Rust orchestration layer
         @step_socket = @context.socket(ZMQ::SUB)
         @step_socket.connect(@config.step_sub_endpoint)
         @step_socket.setsockopt(ZMQ::SUBSCRIBE, 'steps')
         @step_socket.setsockopt(ZMQ::RCVHWM, @config.step_queue_hwm)
-        
+
         # Publish partial results and batch completions back to Rust
         @result_socket = @context.socket(ZMQ::PUB)
-        
         # 🎯 CRITICAL: Implement proper error handling for port binding conflicts
         # This addresses the user's requirement to "throw an error on startup if ports cannot be bound to"
         bind_result = @result_socket.bind(@config.result_pub_endpoint)
@@ -253,21 +269,25 @@ module TaskerCore
                       "Port already in use. This indicates competing ZeroMQ systems. " \
                       "Check for other TaskerCore instances or conflicting services on this port."
           logger.error error_msg
-          
+
           # Clean up the socket we couldn't bind
           @result_socket&.close
           @step_socket&.close
           @context&.terminate unless @zmq_context
-          
+
           # Throw a clear, intentional error as requested by the user
           raise RuntimeError, error_msg
         end
-        
+
         @result_socket.setsockopt(ZMQ::SNDHWM, @config.result_queue_hwm)
-        
+
+        logger.info "SOCKET_INFO: ZeroMQ context created from config: #{@config.to_debug_info}"
+        logger.info "SOCKET_INFO: ZeroMQ result socket bound to #{@config.result_pub_endpoint}"
+        logger.info "SOCKET_INFO: ZeroMQ step socket bound to #{@config.step_sub_endpoint}"
+
         # Allow sockets to establish connections
         sleep(0.1)
-        
+
         logger.info "✅ ZeroMQ sockets configured successfully: sub=#{@config.step_sub_endpoint}, pub=#{@config.result_pub_endpoint}"
       end
 
@@ -277,7 +297,7 @@ module TaskerCore
       def parse_batch_message(message)
         topic, json_data = message.split(' ', 2)
         return nil unless topic == 'steps'
-        
+
         JSON.parse(json_data, symbolize_names: true)
       rescue JSON::ParserError => e
         logger.error "Failed to parse batch message: #{e.message}"
@@ -291,7 +311,7 @@ module TaskerCore
         return unless @result_socket
 
         full_message = "#{topic} #{message.to_json}"
-        
+
         begin
           @result_socket.send_string(full_message)
         rescue StandardError => e
@@ -314,14 +334,14 @@ module TaskerCore
       def cleanup_sockets
         @step_socket&.close
         @result_socket&.close
-        
+
         # Only terminate context if we created it
         @context&.terminate unless @zmq_context
-        
+
         @step_socket = nil
         @result_socket = nil
         @context = nil
-        
+
         logger.debug "ZeroMQ resources cleaned up"
       end
     end

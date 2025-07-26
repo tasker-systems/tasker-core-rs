@@ -294,7 +294,7 @@ pub enum ExecutionError {
 
     /// Retry limit exceeded
     RetryLimitExceeded { step_id: i64, max_attempts: u32 },
-    
+
     /// Batch creation failed during ZeroMQ publishing
     BatchCreationFailed {
         batch_id: String,

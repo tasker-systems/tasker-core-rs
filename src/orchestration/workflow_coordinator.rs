@@ -59,9 +59,7 @@
 //! # }
 //! ```
 
-use crate::events::{
-    Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent,
-};
+use crate::events::{Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent};
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
@@ -170,6 +168,7 @@ pub struct WorkflowExecutionMetrics {
 #[derive(Debug)]
 struct DiscoveryResult {
     should_break: bool,
+    batch_results: Option<Vec<StepResult>>,
 }
 
 /// Main workflow coordinator that orchestrates task execution
@@ -254,7 +253,6 @@ impl WorkflowCoordinator {
 
         // Use the provided shared registry directly
 
-
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
 
@@ -311,7 +309,6 @@ impl WorkflowCoordinator {
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
         let _registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
-
 
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
@@ -433,13 +430,16 @@ impl WorkflowCoordinator {
         self.ensure_task_in_progress(task_id).await?;
 
         // Execute main orchestration loop - publishes batches and returns
-        self.execute_step_batch_publication(task_id, &mut metrics).await?;
+        self.execute_step_batch_publication(task_id, &mut metrics)
+            .await?;
 
         // Return Published result - finalization happens via result listener
-        info!(task_id = task_id,
-              steps_discovered = metrics.steps_discovered,
-              steps_published = metrics.steps_executed,
-              "Workflow orchestration complete - batches published to ZeroMQ");
+        info!(
+            task_id = task_id,
+            steps_discovered = metrics.steps_discovered,
+            steps_published = metrics.steps_executed,
+            "Workflow orchestration complete - batches published to ZeroMQ"
+        );
 
         Ok(TaskOrchestrationResult::Published {
             task_id,
@@ -513,69 +513,20 @@ impl WorkflowCoordinator {
     async fn execute_step_batch_publication(
         &self,
         task_id: i64,
-        metrics: &mut WorkflowExecutionMetrics
+        metrics: &mut WorkflowExecutionMetrics,
     ) -> OrchestrationResult<DiscoveryResult> {
-        let mut total_steps_executed = 0;
         let mut consecutive_empty_discoveries = 0;
-        let workflow_start = Instant::now();
+        // Discover and process viable steps
+        let batch_results = self
+            .discover_and_process_steps(task_id, metrics, &mut consecutive_empty_discoveries)
+            .await?;
+        // Continue loop for next discovery iteration
+        debug!(
+            task_id = task_id,
+            "Continuing workflow loop - no break condition met"
+        );
 
-        // Main discovery and execution loop - continues until should_break or limits reached
-        loop {
-            // Check execution limits first
-            if self.should_stop_execution(task_id, workflow_start, total_steps_executed).await? {
-                info!(task_id = task_id, "Stopping execution due to limits reached");
-                return Ok(DiscoveryResult { should_break: true });
-            }
-
-            // Discover and process viable steps
-            let discovery_result = self
-                .discover_and_process_steps(
-                    task_id,
-                    metrics,
-                    &mut total_steps_executed,
-                    &mut consecutive_empty_discoveries,
-                )
-                .await?;
-
-            // CRITICAL FIX: Check should_break field and exit loop if needed
-            if discovery_result.should_break {
-                info!(task_id = task_id, "Breaking workflow loop as requested by discovery result");
-                return Ok(discovery_result);
-            }
-
-            // Continue loop for next discovery iteration
-            debug!(task_id = task_id, "Continuing workflow loop - no break condition met");
-        }
-    }
-
-    /// Check if execution should stop due to limits
-    async fn should_stop_execution(
-        &self,
-        task_id: i64,
-        workflow_start: Instant,
-        total_steps_executed: usize,
-    ) -> OrchestrationResult<bool> {
-        // Check if we've exceeded max duration
-        if workflow_start.elapsed() > self.config.max_workflow_duration {
-            warn!(
-                task_id = task_id,
-                duration_secs = workflow_start.elapsed().as_secs(),
-                "Workflow exceeded maximum duration"
-            );
-            return Ok(true);
-        }
-
-        // Check if we've executed too many steps
-        if total_steps_executed >= self.config.max_steps_per_run {
-            info!(
-                task_id = task_id,
-                steps_executed = total_steps_executed,
-                "Reached maximum steps per run"
-            );
-            return Ok(true);
-        }
-
-        Ok(false)
+        Ok(batch_results)
     }
 
     /// Discover viable steps and process them
@@ -583,7 +534,6 @@ impl WorkflowCoordinator {
         &self,
         task_id: i64,
         metrics: &mut WorkflowExecutionMetrics,
-        total_steps_executed: &mut usize,
         consecutive_empty_discoveries: &mut u32,
     ) -> OrchestrationResult<DiscoveryResult> {
         // Discover viable steps
@@ -607,9 +557,11 @@ impl WorkflowCoordinator {
 
         // Handle empty discovery
         if viable_steps.is_empty() {
-            return self
+            let discovery_result = self
                 .handle_empty_discovery(task_id, consecutive_empty_discoveries)
-                .await;
+                .await?;
+
+            return Ok(discovery_result);
         }
 
         // Reset counter when we find steps
@@ -642,16 +594,13 @@ impl WorkflowCoordinator {
         }
 
         // Execute the discovered steps
-        self.execute_discovered_steps(
-            task_id,
-            viable_steps,
-            metrics,
-            total_steps_executed,
-        )
-        .await?;
+        let batch_results = self
+            .execute_discovered_steps(task_id, viable_steps, metrics)
+            .await?;
 
         Ok(DiscoveryResult {
             should_break: false,
+            batch_results: Some(batch_results),
         })
     }
 
@@ -686,15 +635,24 @@ impl WorkflowCoordinator {
                                 task_id = task_id,
                                 "Task re-enqueued - breaking workflow loop"
                             );
-                            return Ok(DiscoveryResult { should_break: true });
+                            return Ok(DiscoveryResult {
+                                should_break: true,
+                                batch_results: None,
+                            });
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Completed => {
                             info!(task_id = task_id, "Task completed - breaking workflow loop");
-                            return Ok(DiscoveryResult { should_break: true });
+                            return Ok(DiscoveryResult {
+                                should_break: true,
+                                batch_results: None,
+                            });
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Failed => {
                             info!(task_id = task_id, "Task failed - breaking workflow loop");
-                            return Ok(DiscoveryResult { should_break: true });
+                            return Ok(DiscoveryResult {
+                                should_break: true,
+                                batch_results: None,
+                            });
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Pending => {
                             info!(
@@ -704,6 +662,7 @@ impl WorkflowCoordinator {
                             *consecutive_empty_discoveries = 0; // Reset counter to continue trying
                             return Ok(DiscoveryResult {
                                 should_break: false,
+                                batch_results: None,
                             });
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::NoAction => {
@@ -711,7 +670,10 @@ impl WorkflowCoordinator {
                                 task_id = task_id,
                                 "Task finalizer took no action - breaking loop"
                             );
-                            return Ok(DiscoveryResult { should_break: true });
+                            return Ok(DiscoveryResult {
+                                should_break: true,
+                                batch_results: None,
+                            });
                         }
                     }
                 }
@@ -721,7 +683,10 @@ impl WorkflowCoordinator {
                         error = %e,
                         "Failed to finalize task - breaking workflow loop"
                     );
-                    return Ok(DiscoveryResult { should_break: true });
+                    return Ok(DiscoveryResult {
+                        should_break: true,
+                        batch_results: None,
+                    });
                 }
             }
         }
@@ -730,6 +695,7 @@ impl WorkflowCoordinator {
         tokio::time::sleep(self.config.discovery_retry_delay).await;
         Ok(DiscoveryResult {
             should_break: false,
+            batch_results: None,
         })
     }
 
@@ -739,44 +705,13 @@ impl WorkflowCoordinator {
         task_id: i64,
         viable_steps: Vec<ViableStep>,
         metrics: &mut WorkflowExecutionMetrics,
-        total_steps_executed: &mut usize,
-    ) -> OrchestrationResult<()> {
+    ) -> OrchestrationResult<Vec<StepResult>> {
         let execution_start = Instant::now();
 
-        for batch in viable_steps.chunks(self.config.step_batch_size) {
-            let batch_results = self
-                .execute_step_batch(task_id, batch.to_vec())
-                .await?;
-
-            // Process results and update metrics
-            self.process_batch_results(batch_results, metrics, total_steps_executed)
-                .await?;
-        }
+        let batch_results = self.execute_step_batch(task_id, viable_steps).await?;
 
         metrics.execution_duration += execution_start.elapsed();
-        Ok(())
-    }
-
-    /// Process batch execution results and update metrics
-    async fn process_batch_results(
-        &self,
-        batch_results: Vec<StepResult>,
-        metrics: &mut WorkflowExecutionMetrics,
-        total_steps_executed: &mut usize,
-    ) -> OrchestrationResult<()> {
-        for result in batch_results {
-            metrics.steps_executed += 1;
-            *total_steps_executed += 1;
-
-            match result.status {
-                StepStatus::Completed => metrics.steps_succeeded += 1,
-                StepStatus::Failed => metrics.steps_failed += 1,
-                StepStatus::Retrying => metrics.steps_retried += 1,
-                StepStatus::Skipped => {}    // Don't count skipped
-                StepStatus::InProgress => {} // Steps published but not yet completed (fire-and-forget)
-            }
-        }
-        Ok(())
+        Ok(batch_results)
     }
 
     /// Get current workflow health summary
@@ -856,23 +791,27 @@ impl WorkflowCoordinator {
         // Check if we have a ZmqPubSubExecutor configured
         let zmq_executor = match &self.zmq_pub_sub_executor {
             Some(executor) => executor,
-            None => return Err(crate::orchestration::errors::OrchestrationError::ExecutionError(
-                crate::orchestration::errors::ExecutionError::StepExecutionFailed {
-                    step_id: 0,
-                    reason: "No ZmqPubSubExecutor configured".to_string(),
-                    error_code: Some("NO_ZMQ_EXECUTOR".to_string()),
-                }
-            ))
+            None => {
+                return Err(
+                    crate::orchestration::errors::OrchestrationError::ExecutionError(
+                        crate::orchestration::errors::ExecutionError::StepExecutionFailed {
+                            step_id: 0,
+                            reason: "No ZmqPubSubExecutor configured".to_string(),
+                            error_code: Some("NO_ZMQ_EXECUTOR".to_string()),
+                        },
+                    ),
+                )
+            }
         };
 
         // Extract step IDs from ViableStep objects
         // ZmqPubSubExecutor.publish_batch() will handle all the complex logic of:
         // - Loading step execution contexts from database
         // - Resolving handler metadata and step names
-        // - Loading task configuration and step templates 
+        // - Loading task configuration and step templates
         // - Loading previous step results with proper step names
         // - Database batch tracking and audit trails
-        
+
         let step_ids: Vec<i64> = steps.iter().map(|step| step.step_id).collect();
 
         // Delegate to ZmqPubSubExecutor for sophisticated batch publishing with database tracking

@@ -9,7 +9,7 @@ module OrderFulfillment
         # Extract and validate all required inputs
         payment_inputs = extract_and_validate_inputs(task, sequence, step)
 
-        logger.info "PETEDEBUG: 🔍 ProcessPaymentHandler: Processing payment - task_id=#{task.task_id}, amount=$#{payment_inputs[:amount_to_charge]}"
+        logger.info "🔍 ProcessPaymentHandler: Processing payment - task_id=#{task.task_id}, amount=$#{payment_inputs[:amount_to_charge]}"
 
         # Process payment through payment gateway
         payment_results = process_payment_transaction(payment_inputs)
@@ -30,7 +30,7 @@ module OrderFulfillment
 
       def extract_and_validate_inputs(task, sequence, step)
         # Get order validation results
-        logger.info "PETEDEBUG: 🔍 ProcessPaymentHandler: Extracting and validating inputs - task=#{task.to_h}, sequence=#{sequence.to_h}, step=#{step.to_h}"
+        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs - task=#{task.to_h}, sequence=#{sequence.to_h}, step=#{step.to_h}"
         validate_order_step = sequence.steps.find { |s| s.name == 'validate_order' }
         reserve_inventory_step = sequence.steps.find { |s| s.name == 'reserve_inventory' }
 

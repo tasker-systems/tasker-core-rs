@@ -87,8 +87,14 @@ cache:
   max_size: 10000
 
 zeromq:
+  # Pub-Sub endpoints (bidirectional)
+  batch_endpoint: "tcp://127.0.0.1:8555"  # Rust publishes steps
+  result_endpoint: "tcp://127.0.0.1:8556" # Rust subscribes to results
+
+  # High-water marks for message queuing
+  send_hwm: 1000              # Max queued step messages
+  recv_hwm: 1000            # Max queued result messages
+
   enabled: true
-  batch_endpoint: "tcp://127.0.0.1:6555"    # Rust binds here to publish steps (completely separate from Ruby)
-  result_endpoint: "tcp://127.0.0.1:6556"   # Rust connects here to receive results (completely separate from Ruby)
-  send_hwm: 1000
-  recv_hwm: 1000
+
+  poll_interval_ms: 1000 # 1 second

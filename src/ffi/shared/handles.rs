@@ -349,7 +349,6 @@ impl SharedOrchestrationHandle {
         Ok(self.orchestration_system.is_zeromq_enabled())
     }
 
-
     /// Receive result messages from Ruby (non-blocking)
     pub fn receive_results(&self) -> SharedFFIResult<Vec<serde_json::Value>> {
         let _validated_handle = self.validate_or_refresh()?;
@@ -358,9 +357,8 @@ impl SharedOrchestrationHandle {
         // The handles.rs file needs to be updated to work with ZmqPubSubExecutor
         // instead of the old BatchPublisher interface
         let results = Vec::new();
-        
-        if self.orchestration_system.zmq_pub_sub_executor().is_some() {
 
+        if self.orchestration_system.zmq_pub_sub_executor().is_some() {
             Ok(results)
         } else {
             Err(SharedFFIError::ZeroMqNotEnabled(

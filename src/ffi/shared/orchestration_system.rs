@@ -217,18 +217,19 @@ async fn create_unified_orchestration_system(
         let zeromq_config = &config_manager.system_config().zeromq;
 
         // Create TaskFinalizer for ZmqPubSubExecutor
-        let zmq_task_finalizer = crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-            database_pool.clone(),
-            event_publisher.clone(),
-        );
-        
+        let zmq_task_finalizer =
+            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            );
+
         // Create StateManager for ZmqPubSubExecutor
         let zmq_state_manager = StateManager::new(
             sql_function_executor.clone(),
             event_publisher.clone(),
             database_pool.clone(),
         );
-        
+
         match ZmqPubSubExecutor::new(
             &zeromq_config.batch_endpoint,
             &zeromq_config.result_endpoint,
@@ -236,7 +237,9 @@ async fn create_unified_orchestration_system(
             zmq_state_manager,
             zmq_task_finalizer,
             shared_registry.clone(),
-        ).await {
+        )
+        .await
+        {
             Ok(executor) => {
                 info!("✅ ZeroMQ: ZmqPubSubExecutor initialized successfully");
                 Some(Arc::new(executor))
@@ -278,9 +281,6 @@ async fn create_unified_orchestration_system(
         event_publisher.clone(),
         shared_registry.clone(),
     );
-
-
-
 
     // Create orchestration system with owned pool and ZeroMQ components
     let orchestration_system = OrchestrationSystem {

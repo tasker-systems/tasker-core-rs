@@ -26,8 +26,11 @@ module TaskerCore
 
     # Get the orchestration system (handle-based initialization)
     def orchestration_system
+      logger.debug "PETEDEBUG: orchestration_system called, initialized=#{@initialized}"
+      
       # Use handle-based approach - no direct system initialization needed
       if orchestration_handle && !@initialized
+        logger.debug "PETEDEBUG: Initializing orchestration system with ZeroMQ integration"
         @initialized = true
         @status = 'initialized'
         @initialized_at = defined?(Rails) ? Time.current : Time.now
@@ -37,7 +40,9 @@ module TaskerCore
         )
         
         # Automatically start ZeroMQ integration for production-level service
+        logger.debug "PETEDEBUG: About to start ZeroMQ integration"
         start_zeromq_integration
+        logger.debug "PETEDEBUG: ZeroMQ integration start completed"
       end
       
       unless @orchestration_system
@@ -461,14 +466,19 @@ module TaskerCore
 
     # Start ZeroMQ batch processing integration
     def start_zeromq_integration
+      logger.debug "PETEDEBUG: start_zeromq_integration called"
       orchestrator = batch_step_orchestrator
+      logger.debug "PETEDEBUG: batch_step_orchestrator = #{orchestrator.inspect}"
       return false unless orchestrator
 
       logger.info "🎯 Starting ZeroMQ batch processing integration"
+      logger.debug "PETEDEBUG: About to call orchestrator.start"
       orchestrator.start
+      logger.debug "PETEDEBUG: orchestrator.start completed successfully"
       true
     rescue StandardError => e
       logger.error "Failed to start ZeroMQ integration: #{e.message}"
+      logger.debug "PETEDEBUG: ZeroMQ integration failed: #{e.class.name}: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
       false
     end
 

@@ -89,7 +89,7 @@ impl ViableStepDiscovery {
             total_statuses = readiness_statuses.len(),
             "Retrieved step readiness statuses from SQL function"
         );
-        
+
         // Log each status for debugging
         for status in &readiness_statuses {
             debug!(

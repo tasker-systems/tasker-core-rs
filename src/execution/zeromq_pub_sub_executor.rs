@@ -297,8 +297,15 @@ impl ZmqPubSubExecutor {
     ) {
         match Self::parse_message(msg_bytes) {
             MessageParseResult::PartialResult { batch_id, message } => {
-                Self::handle_partial_result(batch_id, message, batch_trackers, state_manager, pool, task_finalizer)
-                    .await;
+                Self::handle_partial_result(
+                    batch_id,
+                    message,
+                    batch_trackers,
+                    state_manager,
+                    pool,
+                    task_finalizer,
+                )
+                .await;
             }
             MessageParseResult::BatchCompletion { batch_id, message } => {
                 Self::handle_batch_completion(
@@ -427,7 +434,7 @@ impl ZmqPubSubExecutor {
                         step_id,
                         status
                     );
-                    
+
                     // CRITICAL FIX: Check if this step completion triggers task finalization
                     // We'll check if there are any more viable steps for this task
                     // If not, we can trigger task finalization even on partial result
@@ -435,16 +442,17 @@ impl ZmqPubSubExecutor {
                         "Step {} completed via partial result - checking for task finalization",
                         step_id
                     );
-                    
+
                     // Get task_id from step_id and check for finalization
                     match crate::models::WorkflowStep::find_by_id(pool, *step_id).await {
                         Ok(Some(workflow_step)) => {
                             let task_id = workflow_step.task_id;
                             tracing::debug!(
                                 "Found task {} for step {} - checking for task finalization",
-                                task_id, step_id
+                                task_id,
+                                step_id
                             );
-                            
+
                             // Check if task has any remaining viable steps
                             match task_finalizer.handle_no_viable_steps(task_id).await {
                                 Ok(finalization_result) => {
@@ -543,35 +551,42 @@ impl ZmqPubSubExecutor {
 
                 // Batch completion tracked and reconciled - ready for final processing
                 tracing::info!("Batch {} marked as complete", batch_id);
-                
+
                 // TODO: Check for missing steps in database and update them
                 tracing::debug!(
                     "TODO: Should check for steps in batch {} that haven't been recorded in database yet",
                     batch_id
                 );
-                
+
                 // CRITICAL FIX: Get task_id from batch and check for task finalization
-                if let Ok(Some(step_execution_batch)) = StepExecutionBatch::find_by_uuid(pool, &batch_id).await {
+                if let Ok(Some(step_execution_batch)) =
+                    StepExecutionBatch::find_by_uuid(pool, &batch_id).await
+                {
                     // Get task_id from the batch record
                     let task_id = step_execution_batch.task_id;
-                    
+
                     tracing::info!(
                         "Checking if batch {} completion for task {} triggers task finalization",
-                        batch_id, task_id
+                        batch_id,
+                        task_id
                     );
-                    
+
                     // CRITICAL: Check if task has any remaining viable steps
                     match task_finalizer.handle_no_viable_steps(task_id).await {
                         Ok(finalization_result) => {
                             tracing::info!(
                                 "Task {} finalization result: action={:?}, reason={:?}",
-                                task_id, finalization_result.action, finalization_result.reason
+                                task_id,
+                                finalization_result.action,
+                                finalization_result.reason
                             );
                         }
                         Err(e) => {
                             tracing::error!(
                                 "Failed to finalize task {} after batch {} completion: {}",
-                                task_id, batch_id, e
+                                task_id,
+                                batch_id,
+                                e
                             );
                         }
                     }
@@ -581,7 +596,7 @@ impl ZmqPubSubExecutor {
                         batch_id
                     );
                 }
-                
+
                 // TODO: Publish event for batch reconciliation discrepancies
                 tracing::debug!(
                     "TODO: Should publish events for any reconciliation discrepancies found in batch {}",
@@ -592,7 +607,6 @@ impl ZmqPubSubExecutor {
             }
         }
     }
-
 
     /// Publish step batch to ZeroMQ with fire-and-forget semantics
     pub async fn publish_batch(
@@ -608,7 +622,7 @@ impl ZmqPubSubExecutor {
         // CRITICAL FIX: Build proper StepExecutionRequest objects instead of using placeholder data
         let mut step_execution_requests = Vec::new();
         let mut workflow_steps = Vec::new();
-        
+
         // First, load all WorkflowStep objects
         for step_id in &step_ids {
             let workflow_step = crate::models::WorkflowStep::find_by_id(&self.pool, *step_id)
@@ -629,7 +643,7 @@ impl ZmqPubSubExecutor {
                 })?;
             workflow_steps.push(workflow_step);
         }
-        
+
         // Load task context for step execution requests
         let task = crate::models::Task::find_by_id(&self.pool, task_id)
             .await
@@ -650,13 +664,14 @@ impl ZmqPubSubExecutor {
 
         // Convert task context to JSON for step execution
         let task_context = task.context.unwrap_or_else(|| serde_json::json!({}));
-        
-        // Resolve handler classes using TaskHandlerRegistry  
+
+        // Resolve handler classes using TaskHandlerRegistry
         let step_handler_classes = self.resolve_step_names(&workflow_steps).await?;
-        
+
         // Build step execution requests using the existing methods
         for workflow_step in &workflow_steps {
-            let handler_class = step_handler_classes.get(&workflow_step.workflow_step_id)
+            let handler_class = step_handler_classes
+                .get(&workflow_step.workflow_step_id)
                 .ok_or_else(|| {
                     OrchestrationError::ExecutionError(ExecutionError::StepExecutionFailed {
                         step_id: workflow_step.workflow_step_id,
@@ -664,7 +679,7 @@ impl ZmqPubSubExecutor {
                         error_code: Some("HANDLER_CLASS_NOT_FOUND".to_string()),
                     })
                 })?;
-            
+
             // Create StepExecutionContext from WorkflowStep and task data
             let step_execution_context = crate::orchestration::step_handler::StepExecutionContext {
                 step_id: workflow_step.workflow_step_id,
@@ -677,7 +692,7 @@ impl ZmqPubSubExecutor {
                     )
                     .fetch_optional(&self.pool)
                     .await;
-                    
+
                     match step_name_result {
                         Ok(Some(row)) => row.name,
                         _ => format!("step_{}", workflow_step.workflow_step_id), // Fallback
@@ -689,7 +704,11 @@ impl ZmqPubSubExecutor {
                     match workflow_step.get_dependencies(&self.pool).await {
                         Ok(dependencies) => dependencies,
                         Err(e) => {
-                            tracing::warn!("Failed to load dependencies for step {}: {}", workflow_step.workflow_step_id, e);
+                            tracing::warn!(
+                                "Failed to load dependencies for step {}: {}",
+                                workflow_step.workflow_step_id,
+                                e
+                            );
                             Vec::new()
                         }
                     }
@@ -698,19 +717,25 @@ impl ZmqPubSubExecutor {
                     // For now, load default step configuration
                     // TODO: Integrate with TaskConfigFinder to load step configuration from YAML templates
                     // based on the handler_class and step template configuration
-                    tracing::debug!("Loading default configuration for handler class: {}", handler_class);
+                    tracing::debug!(
+                        "Loading default configuration for handler class: {}",
+                        handler_class
+                    );
                     std::collections::HashMap::new()
                 },
                 attempt_number: workflow_step.attempts.unwrap_or(0) as u32,
                 max_retry_attempts: workflow_step.retry_limit.unwrap_or(0) as u32,
                 timeout_seconds: 300, // 5 minutes default timeout
                 is_retryable: workflow_step.retryable,
-                environment: std::env::var("RAILS_ENV").unwrap_or_else(|_| "development".to_string()),
+                environment: std::env::var("RAILS_ENV")
+                    .unwrap_or_else(|_| "development".to_string()),
                 metadata: std::collections::HashMap::new(),
             };
-            
+
             // Use the existing build_step_request method
-            let step_request = self.build_step_request(&step_execution_context, handler_class).await?;
+            let step_request = self
+                .build_step_request(&step_execution_context, handler_class)
+                .await?;
             step_execution_requests.push(step_request);
         }
 
@@ -864,7 +889,7 @@ impl ZmqPubSubExecutor {
 
         // Get task_id from first workflow step (all steps in batch have same task_id)
         let task_id = workflow_steps[0].task_id;
-        
+
         // Load task with orchestration metadata
         let task = crate::models::Task::find_by_id(&self.pool, task_id)
             .await
@@ -874,7 +899,8 @@ impl ZmqPubSubExecutor {
                         step_id: task_id,
                         reason: format!("Failed to load task for handler resolution: {e}"),
                         error_code: Some("TASK_LOAD_FAILED".to_string()),
-                    })
+                    },
+                )
             })?
             .ok_or_else(|| {
                 crate::orchestration::errors::OrchestrationError::ExecutionError(
@@ -882,22 +908,23 @@ impl ZmqPubSubExecutor {
                         step_id: task_id,
                         reason: "Task not found".to_string(),
                         error_code: Some("TASK_NOT_FOUND".to_string()),
-                    })
+                    },
+                )
             })?;
 
-        let task_for_orchestration = task.for_orchestration(&self.pool)
-            .await
-            .map_err(|e| {
-                crate::orchestration::errors::OrchestrationError::ExecutionError(
-                    crate::orchestration::errors::ExecutionError::StepExecutionFailed {
-                        step_id: task_id,
-                        reason: format!("Failed to load task orchestration metadata: {e}"),
-                        error_code: Some("TASK_ORCHESTRATION_LOAD_FAILED".to_string()),
-                    })
-            })?;
+        let task_for_orchestration = task.for_orchestration(&self.pool).await.map_err(|e| {
+            crate::orchestration::errors::OrchestrationError::ExecutionError(
+                crate::orchestration::errors::ExecutionError::StepExecutionFailed {
+                    step_id: task_id,
+                    reason: format!("Failed to load task orchestration metadata: {e}"),
+                    error_code: Some("TASK_ORCHESTRATION_LOAD_FAILED".to_string()),
+                },
+            )
+        })?;
 
         // Use TaskHandlerRegistry to resolve handler metadata
-        let handler_metadata = self.task_handler_registry
+        let handler_metadata = self
+            .task_handler_registry
             .get_handler_metadata(
                 &task_for_orchestration.namespace_name,
                 &task_for_orchestration.task_name,
@@ -909,7 +936,8 @@ impl ZmqPubSubExecutor {
                         step_id: task_id,
                         reason: format!("Failed to resolve handler metadata: {e}"),
                         error_code: Some("HANDLER_METADATA_RESOLUTION_FAILED".to_string()),
-                    })
+                    },
+                )
             })?;
 
         // Return the handler class for all steps in this task batch
@@ -1432,7 +1460,6 @@ impl FrameworkIntegration for ZmqPubSubExecutor {
         // This would be delegated to another system
         Ok(())
     }
-
 
     fn supports_batch_execution(&self) -> bool {
         true // ZeroMQ executor supports native batching

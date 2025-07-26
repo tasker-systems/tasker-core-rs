@@ -16,7 +16,7 @@ module TaskerCore
   #   zmq_config = config.zeromq
   #   puts zmq_config.step_sub_endpoint
   #
-  # @example Override config directory 
+  # @example Override config directory
   #   TaskerCore::Config.config_directory = "/path/to/my/app/config"
   #   config = TaskerCore::Config.instance
   #
@@ -31,7 +31,7 @@ module TaskerCore
 
     # Default configuration directory - can be overridden by user applications
     DEFAULT_CONFIG_DIR = File.expand_path("../../../../config", __dir__).freeze
-    
+
     attr_accessor :config_directory, :environment
     attr_reader :loaded_config
 
@@ -50,19 +50,19 @@ module TaskerCore
     # Load and parse the ZeroMQ configuration file
     def load_config!
       config_file = find_config_file
-      
+
       unless config_file && File.exist?(config_file)
         raise ConfigurationError, "Configuration file not found. Looked for: #{config_file}"
       end
 
       @loaded_config = YAML.load_file(config_file)
-      
+
       # Validate configuration structure
       validate_config!
-      
+
       # Initialize ZeroMQ config from loaded data
       @zeromq_config = nil # Reset to force reload
-      
+
       @loaded_config
     rescue Psych::SyntaxError => e
       raise ConfigurationError, "Invalid YAML in configuration file #{config_file}: #{e.message}"
@@ -78,10 +78,10 @@ module TaskerCore
     # Get the current effective configuration (loaded + environment overrides)
     def effective_config
       load_config! unless @loaded_config
-      
+
       base_config = @loaded_config.dup
       env_config = @loaded_config[@environment]
-      
+
       if env_config
         deep_merge(base_config, env_config)
       else
@@ -91,24 +91,17 @@ module TaskerCore
 
     # Find the configuration file, checking multiple possible locations
     def find_config_file
-      possible_files = [
-        File.join(@config_directory, 'zeromq.yaml'),
-        File.join(@config_directory, 'zeromq.yml'), 
-        File.join(@config_directory, 'tasker_zeromq.yaml'),
-        File.join(@config_directory, 'tasker_zeromq.yml'),
-        File.join(@config_directory, 'tasker.yaml'),
-        File.join(@config_directory, 'tasker.yml')
-      ]
-      
-      possible_files.find { |file| File.exist?(file) }
+      default_config_file = File.join(@config_directory, 'tasker-config.yaml')
+      environment_config_file = File.join(@config_directory, "tasker-config-#{@environment}.yaml")
+      [default_config_file, environment_config_file].find { |file| File.exist?(file) }
     end
 
     # Validate the loaded configuration has required structure
     def validate_config!
       return unless @loaded_config
-      
-      unless @loaded_config.key?('step_execution') || @loaded_config[@environment]&.key?('step_execution')
-        raise ConfigurationError, "Configuration must contain 'step_execution' section"
+
+      unless @loaded_config.key?('zeromq') || @loaded_config[@environment]&.key?('zeromq')
+        raise ConfigurationError, "Configuration must contain 'zeromq' section"
       end
     end
 
@@ -129,45 +122,39 @@ module TaskerCore
 
       def initialize(config_instance)
         @config_instance = config_instance
+        @zeromq_config = config_instance.effective_config.fetch('zeromq', {})
       end
 
       # Get step subscriber endpoint (Ruby receives step batches from Rust)
       def step_sub_endpoint
-        step_config.fetch('handler_step_subscriber', tcp_defaults[:step_sub_endpoint])
+        @zeromq_config.fetch('batch_endpoint', tcp_defaults[:step_sub_endpoint])
       end
 
-      # Get result publisher endpoint (Ruby publishes results back to Rust)  
+      # Get result publisher endpoint (Ruby publishes results back to Rust)
       def result_pub_endpoint
-        step_config.fetch('handler_result_publisher', tcp_defaults[:result_pub_endpoint])
+        @zeromq_config.fetch('result_endpoint', tcp_defaults[:result_pub_endpoint])
       end
 
       # Get maximum number of concurrent workers
       def max_workers
-        step_config.fetch('max_workers', 10)
+        @zeromq_config.fetch('max_workers', 10)
       end
 
       # Get batch size for step processing
       def batch_size
-        step_config.fetch('batch_size', 10)
+        @zeromq_config.fetch('batch_size', 10)
       end
-
-      # Get result timeout in milliseconds
-      def result_timeout_ms
-        step_config.fetch('result_timeout_ms', 300_000)
-      end
-
-      # Get polling interval in milliseconds
-      def poll_interval_ms
-        step_config.fetch('handler_poll_interval_ms', 1)
-      end
-
       # Get high-water mark settings
       def step_queue_hwm
-        step_config.fetch('step_queue_hwm', 1000)
+        @zeromq_config.fetch('send_hwm', 1000)
       end
 
       def result_queue_hwm
-        step_config.fetch('result_queue_hwm', 1000)
+        @zeromq_config.fetch('recv_hwm', 1000)
+      end
+
+      def poll_interval_ms
+        @zeromq_config.fetch('poll_interval_ms', 1000)
       end
 
       # Convert to hash for FFI compatibility
@@ -177,10 +164,8 @@ module TaskerCore
           result_pub_endpoint: result_pub_endpoint,
           max_workers: max_workers,
           batch_size: batch_size,
-          result_timeout_ms: result_timeout_ms,
-          poll_interval_ms: poll_interval_ms,
-          step_queue_hwm: step_queue_hwm,
-          result_queue_hwm: result_queue_hwm
+          step_hwm: step_hwm,
+          result_hwm: result_hwm
         }
       end
 
@@ -197,12 +182,6 @@ module TaskerCore
       end
 
       private
-
-      # Get the step_execution configuration section
-      def step_config
-        effective = @config_instance.effective_config
-        effective.dig('step_execution') || {}
-      end
 
       # Default TCP endpoints for cross-language communication
       def tcp_defaults
