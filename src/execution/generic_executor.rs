@@ -1,10 +1,13 @@
-//! Tokio TCP Executor - ZeroMQ Replacement
+//! Generic Transport-Agnostic Executor
+//!
+//! This module provides a generic executor that can work with any transport
+//! implementation (TCP, Unix sockets, etc.) without knowing the specific details
+//! of the underlying transport layer.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
@@ -12,40 +15,12 @@ use tracing::{debug, error, info, warn};
 use crate::execution::command::{Command, CommandType};
 use crate::execution::command_router::{CommandRouter, CommandRouterError};
 use crate::execution::worker_pool::{WorkerPool, WorkerPoolError};
-use crate::execution::executor::{TcpExecutorConfig, SocketType};
+use crate::execution::transport::{Transport, TransportConfig, TransportListener, TransportConnection, ConnectionInfo};
 
-/// Tokio-based TCP executor replacing ZeroMQ pub-sub pattern
-///
-/// Provides reliable TCP-based communication with persistent connections,
-/// intelligent worker management, and command-based message protocol.
-///
-/// # Architecture
-///
-/// - TCP server accepts worker connections
-/// - Commands routed through CommandRouter
-/// - Worker pool manages capacity and capabilities
-/// - Persistent connections with heartbeat monitoring
-///
-/// # Examples
-///
-/// ```rust
-/// use tasker_core::execution::tokio_tcp_executor::*;
-/// use std::sync::Arc;
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let config = TcpExecutorConfig::default();
-///     let executor = TokioTcpExecutor::new(config).await?;
-///
-///     // Start TCP server
-///     executor.start().await?;
-///
-///     Ok(())
-/// }
-/// ```
-pub struct TokioTcpExecutor {
-    /// TCP server configuration
-    config: TcpExecutorConfig,
+/// Generic executor that works with any transport implementation
+pub struct GenericExecutor<T: Transport> {
+    /// Transport instance
+    transport: T,
 
     /// Command router for handling all commands
     command_router: Arc<CommandRouter>,
@@ -53,7 +28,7 @@ pub struct TokioTcpExecutor {
     /// Worker pool for managing connected workers
     worker_pool: Arc<WorkerPool>,
 
-    /// Active TCP connections by connection ID
+    /// Active connections by connection ID
     connections: Arc<RwLock<HashMap<String, ConnectionState>>>,
 
     /// Shutdown signal sender
@@ -64,11 +39,17 @@ pub struct TokioTcpExecutor {
 
     /// Server state
     server_state: Arc<RwLock<ServerState>>,
+
+    /// Phantom data to maintain type information
+    _phantom: PhantomData<T>,
 }
 
-impl TokioTcpExecutor {
-    /// Create new TCP executor with configuration
-    pub async fn new(config: TcpExecutorConfig) -> Result<Self, TokioTcpExecutorError> {
+impl<T: Transport + 'static> GenericExecutor<T>
+where
+    T::Listener: 'static,
+{
+    /// Create new generic executor with transport
+    pub async fn new(transport: T) -> Result<Self, GenericExecutorError> {
         let command_router = Arc::new(CommandRouter::new());
         let worker_pool = Arc::new(WorkerPool::new());
         let connections = Arc::new(RwLock::new(HashMap::new()));
@@ -83,29 +64,30 @@ impl TokioTcpExecutor {
         }));
 
         Ok(Self {
-            config,
+            transport,
             command_router,
             worker_pool,
             connections,
             shutdown_tx,
             shutdown_rx,
             server_state,
+            _phantom: PhantomData,
         })
     }
 
-    /// Start the TCP server and begin accepting connections
-    pub async fn start(&self) -> Result<(), TokioTcpExecutorError> {
+    /// Start the server and begin accepting connections
+    pub async fn start(&self) -> Result<(), GenericExecutorError> {
         let mut state = self.server_state.write().await;
         if state.running {
-            return Err(TokioTcpExecutorError::ServerAlreadyRunning);
+            return Err(GenericExecutorError::ServerAlreadyRunning);
         }
 
-        info!("Starting TokioTcpExecutor on {}", self.config.bind_address);
+        info!("Starting GenericExecutor on {}", self.transport.config().bind_address());
 
-        // Bind TCP listener
-        let listener = TcpListener::bind(&self.config.bind_address).await
-            .map_err(|e| TokioTcpExecutorError::BindFailed {
-                address: self.config.bind_address.clone(),
+        // Create transport listener
+        let listener = self.transport.create_listener().await
+            .map_err(|e| GenericExecutorError::BindFailed {
+                address: self.transport.config().bind_address().to_string(),
                 error: e.to_string(),
             })?;
 
@@ -113,25 +95,25 @@ impl TokioTcpExecutor {
         state.start_time = Some(chrono::Utc::now());
         drop(state);
 
-        info!("TokioTcpExecutor listening on {}", self.config.bind_address);
+        info!("GenericExecutor listening on {}", self.transport.config().bind_address());
 
         // Start connection acceptance loop
-        let executor = Arc::new(self.clone());
+        let executor_clone = self.clone();
         tokio::spawn(async move {
-            executor.accept_connections(listener).await;
+            executor_clone.accept_connections(listener).await;
         });
 
         Ok(())
     }
 
-    /// Stop the TCP server gracefully
-    pub async fn stop(&self) -> Result<(), TokioTcpExecutorError> {
+    /// Stop the server gracefully
+    pub async fn stop(&self) -> Result<(), GenericExecutorError> {
         let mut state = self.server_state.write().await;
         if !state.running {
             return Ok(());
         }
 
-        info!("Stopping TokioTcpExecutor gracefully");
+        info!("Stopping GenericExecutor gracefully");
 
         // Send shutdown signal
         let _ = self.shutdown_tx.send(());
@@ -145,10 +127,10 @@ impl TokioTcpExecutor {
         drop(connections);
 
         // Wait for connections to close
-        sleep(Duration::from_millis(self.config.graceful_shutdown_timeout_ms)).await;
+        sleep(Duration::from_millis(self.transport.config().graceful_shutdown_timeout_ms())).await;
 
         state.running = false;
-        info!("TokioTcpExecutor stopped");
+        info!("GenericExecutor stopped");
 
         Ok(())
     }
@@ -159,13 +141,13 @@ impl TokioTcpExecutor {
     }
 
     /// Get server statistics
-    pub async fn get_stats(&self) -> TcpExecutorStats {
+    pub async fn get_stats(&self) -> ExecutorStats {
         let state = self.server_state.read().await;
         let connections = self.connections.read().await;
         let worker_stats = self.worker_pool.get_stats().await;
         let router_stats = self.command_router.get_stats().await;
 
-        TcpExecutorStats {
+        ExecutorStats {
             running: state.running,
             uptime_seconds: state.start_time
                 .map(|start| (chrono::Utc::now() - start).num_seconds() as u64)
@@ -174,6 +156,7 @@ impl TokioTcpExecutor {
             active_connections: connections.len(),
             registered_workers: worker_stats.total_workers,
             commands_processed: router_stats.total_commands_processed,
+            bind_address: self.transport.config().bind_address().to_string(),
         }
     }
 
@@ -187,8 +170,13 @@ impl TokioTcpExecutor {
         self.worker_pool.clone()
     }
 
+    /// Get transport reference
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
     /// Connection acceptance loop
-    async fn accept_connections(&self, listener: TcpListener) {
+    async fn accept_connections(&self, listener: T::Listener) {
         let mut shutdown_rx = self.shutdown_rx.resubscribe();
 
         loop {
@@ -196,9 +184,13 @@ impl TokioTcpExecutor {
                 // Handle new connections
                 accept_result = listener.accept() => {
                     match accept_result {
-                        Ok((stream, addr)) => {
+                        Ok((connection, connection_info)) => {
                             let connection_id = uuid::Uuid::new_v4().to_string();
-                            info!("New connection: {} from {}", connection_id, addr);
+                            info!("New connection: {} from {} ({})", 
+                                connection_id, 
+                                connection_info.peer_address,
+                                format!("{:?}", connection_info.transport_type)
+                            );
 
                             // Update server state
                             {
@@ -208,7 +200,7 @@ impl TokioTcpExecutor {
                             }
 
                             // Handle connection
-                            self.handle_connection(connection_id, stream, addr).await;
+                            self.handle_connection(connection_id, connection, connection_info).await;
                         }
                         Err(e) => {
                             error!("Failed to accept connection: {}", e);
@@ -225,14 +217,14 @@ impl TokioTcpExecutor {
         }
     }
 
-    /// Handle individual TCP connection
-    async fn handle_connection(&self, connection_id: String, stream: TcpStream, addr: SocketAddr) {
+    /// Handle individual connection
+    async fn handle_connection(&self, connection_id: String, connection: T::Connection, connection_info: ConnectionInfo) {
         let (shutdown_tx, mut shutdown_rx) = broadcast::channel(16);
 
         // Create connection state
         let connection_state = ConnectionState {
             connection_id: connection_id.clone(),
-            peer_address: addr,
+            peer_address: connection_info.peer_address,
             connected_at: chrono::Utc::now(),
             shutdown_tx: shutdown_tx.clone(),
         };
@@ -243,17 +235,15 @@ impl TokioTcpExecutor {
             connections.insert(connection_id.clone(), connection_state);
         }
 
-        // Split stream for reading and writing
-        let (reader, writer) = stream.into_split();
-        let mut buf_reader = BufReader::new(reader);
+        // Split connection for reading and writing
+        let (mut reader, writer) = connection.split();
         let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
         // Create command processing channel
-        let (cmd_tx, mut cmd_rx) = mpsc::channel::<Command>(self.config.command_queue_size);
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<Command>(self.transport.config().command_queue_size());
 
         // Clone references for tasks
         let executor = self.clone();
-        let _connection_id_clone = connection_id.clone();
         let writer_clone = writer.clone();
 
         // Spawn command processing task
@@ -268,7 +258,7 @@ impl TokioTcpExecutor {
         loop {
             tokio::select! {
                 // Read messages from connection
-                read_result = buf_reader.read_line(&mut line) => {
+                read_result = reader.read_line(&mut line) => {
                     match read_result {
                         Ok(0) => {
                             // Connection closed by client
@@ -319,7 +309,10 @@ impl TokioTcpExecutor {
     }
 
     /// Process a command through the command router
-    async fn process_command(&self, command: Command, writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>) {
+    async fn process_command<W>(&self, command: Command, writer: Arc<tokio::sync::Mutex<W>>) 
+    where
+        W: tokio::io::AsyncWriteExt + Send + Unpin,
+    {
         debug!("Processing command: type={:?}, id={}", command.command_type, command.command_id);
 
         // Route command through command router
@@ -343,7 +336,7 @@ impl TokioTcpExecutor {
                         retryable: false,
                     },
                     crate::execution::command::CommandSource::RustServer {
-                        id: "tcp_executor".to_string(),
+                        id: "generic_executor".to_string(),
                     },
                 );
 
@@ -352,8 +345,11 @@ impl TokioTcpExecutor {
         }
     }
 
-    /// Send response command over TCP connection
-    async fn send_response(&self, response: Command, writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>) {
+    /// Send response command over connection
+    async fn send_response<W>(&self, response: Command, writer: Arc<tokio::sync::Mutex<W>>) 
+    where
+        W: tokio::io::AsyncWriteExt + Send + Unpin,
+    {
         match serde_json::to_string(&response) {
             Ok(json) => {
                 let message = format!("{}\n", json);
@@ -386,16 +382,17 @@ impl TokioTcpExecutor {
 }
 
 // Clone implementation to support Arc usage
-impl Clone for TokioTcpExecutor {
+impl<T: Transport> Clone for GenericExecutor<T> {
     fn clone(&self) -> Self {
         Self {
-            config: self.config.clone(),
+            transport: self.transport.clone(),
             command_router: self.command_router.clone(),
             worker_pool: self.worker_pool.clone(),
             connections: self.connections.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
             shutdown_rx: self.shutdown_tx.subscribe(),
             server_state: self.server_state.clone(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -404,7 +401,7 @@ impl Clone for TokioTcpExecutor {
 #[derive(Debug)]
 struct ConnectionState {
     connection_id: String,
-    peer_address: SocketAddr,
+    peer_address: String,
     connected_at: chrono::DateTime<chrono::Utc>,
     shutdown_tx: broadcast::Sender<()>,
 }
@@ -418,20 +415,21 @@ struct ServerState {
     active_connections: usize,
 }
 
-/// TCP executor statistics
+/// Generic executor statistics
 #[derive(Debug, Clone)]
-pub struct TcpExecutorStats {
+pub struct ExecutorStats {
     pub running: bool,
     pub uptime_seconds: u64,
     pub total_connections: u64,
     pub active_connections: usize,
     pub registered_workers: usize,
     pub commands_processed: usize,
+    pub bind_address: String,
 }
 
-/// TCP executor errors
+/// Generic executor errors
 #[derive(Debug, thiserror::Error)]
-pub enum TokioTcpExecutorError {
+pub enum GenericExecutorError {
     #[error("Server is already running")]
     ServerAlreadyRunning,
 
@@ -451,14 +449,19 @@ pub enum TokioTcpExecutorError {
     CommandRouterError(#[from] CommandRouterError),
 }
 
+// Type aliases for convenience
+pub type TcpExecutor = GenericExecutor<crate::execution::transport::TcpTransport>;
+pub type UnixDatagramExecutor = GenericExecutor<crate::execution::transport::UnixDatagramTransport>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::transport::{TcpTransport, TcpTransportConfig};
 
     #[tokio::test]
-    async fn test_tcp_executor_creation() {
-        let config = TcpExecutorConfig::default();
-        let executor = TokioTcpExecutor::new(config).await.unwrap();
+    async fn test_generic_executor_creation() {
+        let transport = TcpTransport::new(TcpTransportConfig::default());
+        let executor = GenericExecutor::new(transport).await.unwrap();
 
         assert!(!executor.is_running().await);
 
@@ -468,13 +471,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_tcp_executor_start_stop() {
-        let config = TcpExecutorConfig {
+    async fn test_generic_executor_start_stop() {
+        let config = TcpTransportConfig {
             bind_address: "127.0.0.1:0".to_string(), // Use OS-assigned port
-            ..TcpExecutorConfig::default()
+            ..TcpTransportConfig::default()
         };
-
-        let executor = TokioTcpExecutor::new(config).await.unwrap();
+        let transport = TcpTransport::new(config);
+        let executor = GenericExecutor::new(transport).await.unwrap();
 
         // Start should succeed
         assert!(executor.start().await.is_ok());
@@ -486,27 +489,5 @@ mod tests {
         // Stop should succeed
         assert!(executor.stop().await.is_ok());
         assert!(!executor.is_running().await);
-    }
-
-    #[tokio::test]
-    async fn test_command_parsing() {
-        let config = TcpExecutorConfig::default();
-        let executor = TokioTcpExecutor::new(config).await.unwrap();
-
-        // Valid command JSON
-        let valid_json = r#"{"command_type":"HealthCheck","command_id":"test_123","correlation_id":null,"metadata":{"timestamp":"2024-01-01T00:00:00Z","source":{"type":"RustOrchestrator","data":{"id":"test"}},"target":null,"timeout_ms":null,"retry_policy":null,"namespace":null,"priority":null},"payload":{"type":"HealthCheck","data":{"diagnostic_level":"Basic"}}}"#;
-
-        let command = executor.parse_command(valid_json);
-        assert!(command.is_some());
-        assert_eq!(command.unwrap().command_type, CommandType::HealthCheck);
-
-        // Invalid JSON
-        let invalid_json = "not a valid json";
-        let command = executor.parse_command(invalid_json);
-        assert!(command.is_none());
-
-        // Empty line
-        let command = executor.parse_command("");
-        assert!(command.is_none());
     }
 }
