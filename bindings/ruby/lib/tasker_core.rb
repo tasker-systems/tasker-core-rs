@@ -9,7 +9,6 @@ require 'dry-types'
 require 'dry-validation'
 require 'concurrent-ruby'
 require 'timeout'
-require 'ffi-rzmq'
 
 # Pre-define TaskerCore module for Magnus
 module TaskerCore
@@ -56,6 +55,7 @@ require_relative 'tasker_core/testing'           # TaskerCore::Testing domain (N
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain (NEW)
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain (Concurrent batch execution)
+require_relative 'tasker_core/embedded_server'   # TaskerCore::EmbeddedServer for single-process deployments
 
 # Legacy compatibility - these will be deprecated in favor of domain APIs
 require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)

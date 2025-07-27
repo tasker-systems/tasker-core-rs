@@ -41,11 +41,11 @@ pub enum SharedFFIError {
     /// Internal error
     Internal(String),
 
-    /// ZeroMQ operation failed
-    ZeroMqError(String),
+    /// TCP executor operation failed
+    TcpExecutorError(String),
 
-    /// ZeroMQ not enabled/available
-    ZeroMqNotEnabled(String),
+    /// TCP executor not enabled/available
+    TcpExecutorNotAvailable(String),
 
     /// Serialization/Deserialization failed
     SerializationError(String),
@@ -90,11 +90,11 @@ impl fmt::Display for SharedFFIError {
             SharedFFIError::Internal(msg) => {
                 write!(f, "Internal error: {msg}")
             }
-            SharedFFIError::ZeroMqError(msg) => {
-                write!(f, "ZeroMQ error: {msg}")
+            SharedFFIError::TcpExecutorError(msg) => {
+                write!(f, "TCP executor error: {msg}")
             }
-            SharedFFIError::ZeroMqNotEnabled(msg) => {
-                write!(f, "ZeroMQ not enabled: {msg}")
+            SharedFFIError::TcpExecutorNotAvailable(msg) => {
+                write!(f, "TCP executor not available: {msg}")
             }
             SharedFFIError::SerializationError(msg) => {
                 write!(f, "Serialization error: {msg}")

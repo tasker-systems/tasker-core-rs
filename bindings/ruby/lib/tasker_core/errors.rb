@@ -257,5 +257,46 @@ module TaskerCore
         'FFIError'
       end
     end
+
+    # Error indicating embedded server operation failed
+    # Maps to Rust ServerError types
+    #
+    # Use this error when embedded server operations fail:
+    # - Server startup failures
+    # - Server shutdown failures
+    # - Configuration errors
+    # - Runtime errors
+    # - Server already running/not running
+    #
+    # @example Basic server error
+    #   raise TaskerCore::Errors::ServerError, "Failed to start embedded server"
+    #
+    # @example With server operation context
+    #   raise TaskerCore::Errors::ServerError.new(
+    #     "Server startup failed",
+    #     operation: 'start',
+    #     context: { bind_address: '127.0.0.1:8080', error_code: 'ADDRESS_IN_USE' }
+    #   )
+    class ServerError < Error
+      # @return [String, nil] Server operation that failed
+      attr_reader :operation
+
+      # @return [Hash] Additional context for error monitoring and debugging
+      attr_reader :context
+
+      # @param message [String] Error message
+      # @param operation [String, nil] Server operation that failed (start, stop, config, etc.)
+      # @param context [Hash] Additional context for monitoring
+      def initialize(message, operation: nil, context: {})
+        super(message)
+        @operation = operation
+        @context = context
+      end
+
+      # Get the error class name for Rust FFI compatibility
+      def error_class
+        'ServerError'
+      end
+    end
   end
 end

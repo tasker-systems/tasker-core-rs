@@ -7,6 +7,7 @@ require 'dry-types'
 require_relative 'types/task_types'
 require_relative 'types/step_types'
 require_relative 'types/orchestration_types'
+require_relative 'types/execution_types'
 
 module TaskerCore
   # Centralized type definitions for TaskerCore domain objects
@@ -48,5 +49,13 @@ module TaskerCore
     
     # Factory methods for orchestration types
     StructFactory = OrchestrationTypes::StructFactory
+    
+    # Execution-related types (TCP executor responses)
+    HealthCheckResponse = ExecutionTypes::HealthCheckResponse
+    WorkerRegistrationResponse = ExecutionTypes::WorkerRegistrationResponse
+    HeartbeatResponse = ExecutionTypes::HeartbeatResponse
+    WorkerUnregistrationResponse = ExecutionTypes::WorkerUnregistrationResponse
+    ErrorResponse = ExecutionTypes::ErrorResponse
+    ResponseFactory = ExecutionTypes::ResponseFactory
   end
 end

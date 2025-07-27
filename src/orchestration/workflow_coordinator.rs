@@ -65,7 +65,7 @@ use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
 use crate::orchestration::system_events::SystemEventsManager;
 use crate::orchestration::types::TaskOrchestrationResult;
-use crate::orchestration::types::{StepResult, StepStatus, ViableStep};
+use crate::orchestration::types::{StepResult, ViableStep};
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
 use crate::registry::TaskHandlerRegistry;
 use chrono::Utc;

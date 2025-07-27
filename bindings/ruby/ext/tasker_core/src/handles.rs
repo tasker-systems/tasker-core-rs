@@ -305,78 +305,40 @@ impl OrchestrationHandle {
     }
 
     // ========================================================================
-    // ZEROMQ BATCH PROCESSING METHODS (for Ruby orchestration integration)
+    // TCP EXECUTOR BATCH PROCESSING METHODS (for Ruby orchestration integration)
     // ========================================================================
 
-    /// **NEW**: Check if ZeroMQ batch processing is enabled
-    pub fn is_zeromq_enabled(&self) -> MagnusResult<bool> {
-        debug!("🔧 Ruby FFI: is_zeromq_enabled() - delegating to shared handle");
+    /// **NEW**: Check if TCP executor is enabled and available
+    pub fn is_tcp_executor_enabled(&self) -> MagnusResult<bool> {
+        debug!("🔧 Ruby FFI: is_tcp_executor_enabled() - delegating to shared handle");
 
-        match self.shared_handle.is_zeromq_enabled() {
+        match self.shared_handle.is_tcp_executor_enabled() {
             Ok(enabled) => Ok(enabled),
             Err(e) => {
-                debug!("ZeroMQ status check failed: {}", e);
+                debug!("TCP executor status check failed: {}", e);
                 Ok(false)
             }
         }
     }
 
-    /// **NEW**: Get ZeroMQ configuration from Rust system
-    pub fn zeromq_config(&self) -> MagnusResult<Value> {
-        debug!("🔧 Ruby FFI: zeromq_config() - delegating to shared handle");
+    /// **NEW**: Get TCP executor configuration from Rust system
+    pub fn tcp_executor_config(&self) -> MagnusResult<Value> {
+        debug!("🔧 Ruby FFI: tcp_executor_config() - delegating to shared handle");
 
-        match self.shared_handle.zeromq_config() {
+        match self.shared_handle.tcp_executor_config() {
             Ok(config_json) => json_to_ruby_value(config_json).map_err(|e| {
                 Error::new(
                     magnus::exception::runtime_error(),
-                    format!("Failed to convert ZeroMQ config: {e}"),
+                    format!("Failed to convert TCP executor config: {e}"),
                 )
             }),
             Err(e) => Err(Error::new(
                 magnus::exception::runtime_error(),
-                format!("Failed to get ZeroMQ config: {e}"),
+                format!("Failed to get TCP executor config: {e}"),
             )),
         }
     }
 
-    /// **NEW**: Get ZMQ context information for cross-language coordination
-    /// Using TCP endpoints, Ruby creates its own context but coordinates with Rust configuration
-    pub fn zmq_context(&self) -> MagnusResult<Value> {
-        debug!("🔧 Ruby FFI: zmq_context() - providing ZMQ context info for TCP communication");
-
-        match self.shared_handle.zmq_context() {
-            Ok(context) => {
-                // Provide context availability information for TCP-based communication
-                let context_info = serde_json::json!({
-                    "context_available": true,
-                    "context_id": format!("{:p}", context.as_ref()),
-                    "communication_mode": "tcp",
-                    "message": "Rust ZMQ context available - Ruby should create separate context for TCP sockets"
-                });
-
-                json_to_ruby_value(context_info).map_err(|e| {
-                    Error::new(
-                        magnus::exception::runtime_error(),
-                        format!("Failed to convert ZMQ context info: {e}"),
-                    )
-                })
-            }
-            Err(e) => {
-                let error_info = serde_json::json!({
-                    "context_available": false,
-                    "communication_mode": "tcp",
-                    "error": e.to_string()
-                });
-
-                json_to_ruby_value(error_info).map_err(|e2| {
-                    Error::new(
-                        magnus::exception::runtime_error(),
-                        format!("Failed to convert error info: {e2}"),
-                    )
-                })
-            }
-        }
-    }
 
 
     /// **NEW**: Receive result messages from Ruby (non-blocking)
@@ -451,16 +413,15 @@ pub fn register_orchestration_handle(module: &RModule) -> MagnusResult<()> {
         method!(OrchestrationHandle::get_analytics, 1),
     )?;
 
-    // ZeroMQ batch processing methods
+    // TCP executor batch processing methods
     class.define_method(
-        "is_zeromq_enabled",
-        method!(OrchestrationHandle::is_zeromq_enabled, 0),
+        "is_tcp_executor_enabled",
+        method!(OrchestrationHandle::is_tcp_executor_enabled, 0),
     )?;
     class.define_method(
-        "zeromq_config",
-        method!(OrchestrationHandle::zeromq_config, 0),
+        "tcp_executor_config",
+        method!(OrchestrationHandle::tcp_executor_config, 0),
     )?;
-    class.define_method("zmq_context", method!(OrchestrationHandle::zmq_context, 0))?;
     class.define_method(
         "receive_results",
         method!(OrchestrationHandle::receive_results, 0),

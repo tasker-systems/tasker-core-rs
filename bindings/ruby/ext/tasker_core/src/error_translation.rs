@@ -65,13 +65,13 @@ pub fn shared_error_to_ruby(error: SharedFFIError) -> Error {
             exception::standard_error(),
             format!("Internal error: {msg}"),
         ),
-        SharedFFIError::ZeroMqError(msg) => Error::new(
+        SharedFFIError::TcpExecutorError(msg) => Error::new(
             exception::standard_error(),
-            format!("ZeroMQ error: {msg}"),
+            format!("TCP executor error: {msg}"),
         ),
-        SharedFFIError::ZeroMqNotEnabled(msg) => Error::new(
+        SharedFFIError::TcpExecutorNotAvailable(msg) => Error::new(
             exception::standard_error(),
-            format!("ZeroMQ not enabled: {msg}"),
+            format!("TCP executor not available: {msg}"),
         ),
         SharedFFIError::SerializationError(msg) => Error::new(
             exception::standard_error(),

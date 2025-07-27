@@ -8,7 +8,6 @@ PATH
       dry-types (~> 1.8)
       dry-validation (~> 1.10)
       faraday (~> 2.12.2)
-      ffi-rzmq (~> 2.0)
       json-schema (~> 2.4, >= 2.4.0)
       logger (~> 1.6)
       rb_sys (~> 0.9.39)
@@ -85,10 +84,6 @@ GEM
       net-http (>= 0.5.0)
     ffi (1.17.2-arm64-darwin)
     ffi (1.17.2-x86_64-linux-gnu)
-    ffi-rzmq (2.0.7)
-      ffi-rzmq-core (>= 1.0.7)
-    ffi-rzmq-core (1.0.7)
-      ffi
     formatador (1.1.1)
     guard (2.19.1)
       formatador (>= 0.2.4)

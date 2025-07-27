@@ -54,6 +54,9 @@ mod models {
 // Direct import of event bridge (moved from events/ subdirectory)
 mod event_bridge;
 
+// FFI embedded TCP executor
+mod embedded_tcp_executor;
+
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
@@ -139,6 +142,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // This simplifies FFI and avoids complex class registration issues
 
     // 🎯 TASKHANDLER: TaskHandlerInitializeResult now explicitly registered under TaskerCore::
+
+    // 🎯 EMBEDDED TCP EXECUTOR: Register embedded server control for single-process deployments
+    embedded_tcp_executor::init_embedded_tcp_executor(&module)?;
 
     Ok(())
 }

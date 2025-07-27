@@ -11,7 +11,7 @@ module TaskerCore
     class OrchestrationManager
     include Singleton
 
-    attr_reader :initialized_at, :status, :logger, :batch_step_orchestrator, :base_task_handler
+    attr_reader :initialized_at, :status, :logger, :base_task_handler
 
     def initialize
       @initialized = false
@@ -20,35 +20,28 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # 🎯 Memoized BaseTaskHandler
       @orchestration_handle = nil  # 🎯 NEW: Handle-based FFI architecture
-      @batch_step_orchestrator = nil
       @logger = TaskerCore::Logging::Logger.instance
     end
 
     # Get the orchestration system (handle-based initialization)
     def orchestration_system
-      logger.debug "PETEDEBUG: orchestration_system called, initialized=#{@initialized}"
-      
       # Use handle-based approach - no direct system initialization needed
       if orchestration_handle && !@initialized
-        logger.debug "PETEDEBUG: Initializing orchestration system with ZeroMQ integration"
+        logger.debug "Initializing orchestration system with TCP architecture"
         @initialized = true
         @status = 'initialized'
         @initialized_at = defined?(Rails) ? Time.current : Time.now
-        @orchestration_system ||= { 'handle_based' => true }
-        @batch_step_orchestrator = TaskerCore::Orchestration::BatchStepExecutionOrchestrator.new(
-          orchestration_manager: self
-        )
-        
-        # Automatically start ZeroMQ integration for production-level service
-        logger.debug "PETEDEBUG: About to start ZeroMQ integration"
-        start_zeromq_integration
-        logger.debug "PETEDEBUG: ZeroMQ integration start completed"
+        @orchestration_system ||= { 'handle_based' => true, 'architecture' => 'tcp' }
+
+        # NOTE: No batch orchestrator or ZeroMQ integration needed with TCP architecture
+        # TCP executor handles all orchestration internally via embedded server
+        logger.debug "TCP orchestration system initialized"
       end
-      
+
       unless @orchestration_system
         raise TaskerCore::Errors::OrchestrationError, 'Orchestration system not initialized'
       end
-      
+
       @orchestration_system
     end
 
@@ -78,7 +71,7 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # Reset memoized handler too
       @orchestration_handle = nil  # Reset handle too
-      @batch_step_orchestrator.stop && @batch_step_orchestrator = nil
+      # NOTE: No batch orchestrator to stop with TCP architecture
     end
 
     # Delegate common orchestration operations - use handle-based versions
@@ -116,19 +109,19 @@ module TaskerCore
       # Get callable for step execution by delegating to TaskerCore::Registry
       def get_callable_for_class(handler_class)
         logger.debug "Looking up callable for handler class: #{handler_class}"
-        
+
         # Try to find and instantiate the handler
         handler_instance = get_handler_instance(handler_class)
-        
+
         # Return the handler if it has a .call method (new callable interface)
         return handler_instance if handler_instance&.respond_to?(:call)
-        
+
         # If it has a .process method, wrap it for backward compatibility
         if handler_instance&.respond_to?(:process)
           logger.debug "Wrapping .process method for handler: #{handler_class}"
           return create_process_wrapper(handler_instance)
         end
-        
+
         logger.warn "No callable found for handler class: #{handler_class}"
         nil
       end
@@ -136,7 +129,7 @@ module TaskerCore
       # Get handler instance by using TaskerCore::Registry
       def get_handler_instance(handler_class)
         logger.debug "Getting handler instance for: #{handler_class}"
-        
+
         begin
           # Try direct class instantiation first
           klass = handler_class.to_s.constantize
@@ -165,7 +158,7 @@ module TaskerCore
             handler_instance.process(task, sequence, step)
           rescue ArgumentError => e
             logger.warn "Process method argument mismatch for #{handler_instance.class.name}: #{e.message}"
-            
+
             # Try with just the task if that's what the handler expects
             if handler_instance.method(:process).arity == 1
               handler_instance.process(task)
@@ -177,14 +170,14 @@ module TaskerCore
       end
     end
 
-    # OBSOLETE: Individual workflow step inspection incompatible with ZeroMQ batch architecture
-    # Dependencies are resolved automatically by Rust orchestration during batch execution
+    # OBSOLETE: Individual workflow step inspection incompatible with TCP architecture
+    # Dependencies are resolved automatically by Rust orchestration via TCP executor
     def get_workflow_steps_for_task(task_id)
       orchestration_system # Ensure initialized
 
       logger.warn(
-        "get_workflow_steps_for_task is obsolete in ZeroMQ architecture. " +
-        "Individual step inspection is incompatible with batch processing. " +
+        "get_workflow_steps_for_task is obsolete in TCP architecture. " +
+        "Individual step inspection is incompatible with TCP executor batch processing. " +
         "Use TaskerCore.create_orchestration_handle.create_test_task instead."
       )
 
@@ -194,15 +187,15 @@ module TaskerCore
       nil
     end
 
-    # OBSOLETE: Individual step dependency inspection incompatible with ZeroMQ batch architecture
-    # Dependencies are validated automatically by Rust orchestration during batch execution
+    # OBSOLETE: Individual step dependency inspection incompatible with TCP architecture
+    # Dependencies are validated automatically by Rust orchestration via TCP executor
     def get_step_dependencies(step_id)
       orchestration_system # Ensure initialized
 
       logger.warn(
-        "get_step_dependencies is obsolete in ZeroMQ architecture. " +
-        "Individual step dependency checking is incompatible with batch processing. " +
-        "Dependencies are resolved automatically during Rust batch orchestration."
+        "get_step_dependencies is obsolete in TCP architecture. " +
+        "Individual step dependency checking is incompatible with TCP executor batch processing. " +
+        "Dependencies are resolved automatically during Rust TCP orchestration."
       )
 
       logger.debug("Legacy get_step_dependencies called: step_id=#{step_id}")
@@ -211,13 +204,13 @@ module TaskerCore
       nil
     end
 
-    # OBSOLETE: Individual task metadata inspection incompatible with ZeroMQ batch architecture
+    # OBSOLETE: Individual task metadata inspection incompatible with TCP architecture
     # Task metadata is managed automatically by orchestration system registry
     def get_task_metadata(task_id)
       orchestration_system # Ensure initialized
 
       logger.warn(
-        "get_task_metadata is obsolete in ZeroMQ architecture. " +
+        "get_task_metadata is obsolete in TCP architecture. " +
         "Task metadata is managed automatically by orchestration system registry. " +
         "Use TaskerCore::Registry methods for handler discovery instead."
       )
@@ -448,81 +441,34 @@ module TaskerCore
       TaskerCore::TestHelpers::TestingFramework.cleanup_test_environment_with_handle(handle)
     end
 
-    # Get ZMQ context for Ruby orchestration
-    # Using TCP endpoints, we don't need to share the exact same context as Rust
-    def get_shared_zmq_context
-      handle = orchestration_handle
-      return nil unless handle
-
-      # For TCP communication, each side can have its own ZMQ context
-      logger.debug "🔗 Creating Ruby ZMQ context for TCP communication with Rust"
-
-
-      ZMQ::Context.new
-    rescue StandardError => e
-      logger.error "Failed to create ZMQ context: #{e.message}"
-      nil
-    end
-
-    # Start ZeroMQ batch processing integration
-    def start_zeromq_integration
-      logger.debug "PETEDEBUG: start_zeromq_integration called"
-      orchestrator = batch_step_orchestrator
-      logger.debug "PETEDEBUG: batch_step_orchestrator = #{orchestrator.inspect}"
-      return false unless orchestrator
-
-      logger.info "🎯 Starting ZeroMQ batch processing integration"
-      logger.debug "PETEDEBUG: About to call orchestrator.start"
-      orchestrator.start
-      logger.debug "PETEDEBUG: orchestrator.start completed successfully"
-      true
-    rescue StandardError => e
-      logger.error "Failed to start ZeroMQ integration: #{e.message}"
-      logger.debug "PETEDEBUG: ZeroMQ integration failed: #{e.class.name}: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
-      false
-    end
-
-    # Stop ZeroMQ batch processing integration
-    def stop_zeromq_integration
-      return unless @batch_step_orchestrator
-
-      logger.info "🛑 Stopping ZeroMQ batch processing integration"
-      @batch_step_orchestrator.stop
-      @batch_step_orchestrator = nil
-    rescue StandardError => e
-      logger.error "Failed to stop ZeroMQ integration: #{e.message}"
-    end
-
-    # Check if ZeroMQ integration is available and running
-    def zeromq_integration_status
+    # TCP integration status - replaces ZeroMQ status
+    def tcp_integration_status
       handle = orchestration_handle
       return { enabled: false, reason: 'no_handle' } unless handle
 
-      # Check ZeroMQ enabled status with error handling
-      zeromq_enabled = begin
-        handle.is_zeromq_enabled
+      # Check TCP executor enabled status with error handling
+      tcp_enabled = begin
+        handle.is_tcp_executor_enabled
       rescue StandardError => e
-        logger.debug "ZeroMQ status check failed: #{e.message}"
+        logger.debug "TCP executor status check failed: #{e.message}"
         false
       end
 
-      return { enabled: false, reason: 'zeromq_disabled' } unless zeromq_enabled
+      return { enabled: false, reason: 'tcp_executor_disabled' } unless tcp_enabled
 
-      orchestrator_running = @batch_step_orchestrator&.stats&.dig(:running) || false
-
-      # Get ZeroMQ config with error handling
-      zeromq_config = begin
-        handle.zeromq_config
+      # Get TCP executor config with error handling
+      tcp_config = begin
+        handle.tcp_executor_config
       rescue StandardError => e
-        logger.debug "ZeroMQ config retrieval failed: #{e.message}"
+        logger.debug "TCP executor config retrieval failed: #{e.message}"
         {}
       end
 
       {
         enabled: true,
-        running: orchestrator_running,
-        zeromq_config: zeromq_config,
-        orchestrator_stats: @batch_step_orchestrator&.stats
+        running: true, # TCP executor manages its own lifecycle
+        architecture: 'tcp',
+        tcp_config: tcp_config
       }
     rescue StandardError => e
       { enabled: false, error: e.message }

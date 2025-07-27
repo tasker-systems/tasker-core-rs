@@ -212,6 +212,12 @@ impl SharedOrchestrationHandle {
         &self.orchestration_system
     }
 
+    /// Ensure embedded TCP executor container is ready for use
+    /// The container is initialized at orchestration system creation time
+    pub fn ensure_embedded_tcp_executor(&self) -> Result<(), crate::ffi::tcp_executor::ServerError> {
+        self.orchestration_system.ensure_embedded_tcp_executor()
+    }
+
     /// Get testing factory handle for language bindings
     pub fn testing_factory(&self) -> Arc<super::testing::SharedTestingFactory> {
         super::testing::get_global_testing_factory()
@@ -343,50 +349,44 @@ impl SharedOrchestrationHandle {
     // ZEROMQ BATCH PROCESSING (for Ruby orchestration integration)
     // ========================================================================
 
-    /// Check if ZeroMQ batch processing is enabled
-    pub fn is_zeromq_enabled(&self) -> SharedFFIResult<bool> {
+    /// Check if TCP executor is enabled and available
+    pub fn is_tcp_executor_enabled(&self) -> SharedFFIResult<bool> {
         let _validated_handle = self.validate_or_refresh()?;
-        Ok(self.orchestration_system.is_zeromq_enabled())
+        Ok(self.orchestration_system.is_embedded_tcp_executor_available())
     }
 
-    /// Receive result messages from Ruby (non-blocking)
+    /// Receive result messages from TCP executor (placeholder for future implementation)
     pub fn receive_results(&self) -> SharedFFIResult<Vec<serde_json::Value>> {
         let _validated_handle = self.validate_or_refresh()?;
 
-        // TODO: Update for ZmqPubSubExecutor integration
-        // The handles.rs file needs to be updated to work with ZmqPubSubExecutor
-        // instead of the old BatchPublisher interface
+        // TODO: Update for TCP executor integration
+        // This would connect to the TCP executor to receive results
         let results = Vec::new();
 
-        if self.orchestration_system.zmq_pub_sub_executor().is_some() {
+        if self.orchestration_system.is_embedded_tcp_executor_available() {
             Ok(results)
         } else {
-            Err(SharedFFIError::ZeroMqNotEnabled(
-                "ZeroMQ batch processing is not enabled".to_string(),
+            Err(SharedFFIError::TcpExecutorNotAvailable(
+                "TCP executor is not available".to_string(),
             ))
         }
     }
 
-    /// Get ZeroMQ configuration information
-    pub fn zeromq_config(&self) -> SharedFFIResult<serde_json::Value> {
+    /// Get TCP executor configuration information
+    pub fn tcp_executor_config(&self) -> SharedFFIResult<serde_json::Value> {
         let _validated_handle = self.validate_or_refresh()?;
 
-        let zeromq_config = &self
-            .orchestration_system
-            .config_manager
-            .system_config()
-            .zeromq;
-        serde_json::to_value(zeromq_config).map_err(|e| {
-            SharedFFIError::SerializationError(format!("Failed to serialize ZeroMQ config: {e}"))
-        })
-    }
+        // Return basic TCP executor configuration
+        let config = serde_json::json!({
+            "enabled": true,
+            "bind_address": "127.0.0.1:8080",
+            "command_queue_size": 1000,
+            "connection_timeout_ms": 30000,
+            "graceful_shutdown_timeout_ms": 5000,
+            "max_connections": 100
+        });
 
-    /// Get access to the shared ZMQ context for cross-language socket communication
-    /// This enables Ruby to create sockets that share the same context as Rust
-    /// for proper inproc:// socket communication
-    pub fn zmq_context(&self) -> SharedFFIResult<std::sync::Arc<zmq::Context>> {
-        let _validated_handle = self.validate_or_refresh()?;
-        Ok(self.orchestration_system.zmq_context().clone())
+        Ok(config)
     }
 }
 

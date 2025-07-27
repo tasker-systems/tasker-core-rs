@@ -6,7 +6,7 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
-use crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor;
+use crate::ffi::tcp_executor::EmbeddedTcpExecutor;
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
@@ -16,7 +16,6 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
-use zmq::Context;
 
 /// Global orchestration system singleton
 static GLOBAL_ORCHESTRATION_SYSTEM: OnceLock<Arc<OrchestrationSystem>> = OnceLock::new();
@@ -30,8 +29,7 @@ pub struct OrchestrationSystem {
     pub task_initializer: TaskInitializer,
     pub task_handler_registry: Arc<TaskHandlerRegistry>,
     pub config_manager: Arc<ConfigurationManager>,
-    pub zmq_pub_sub_executor: Option<Arc<ZmqPubSubExecutor>>,
-    pub zmq_context: Arc<Context>,
+    pub embedded_tcp_executor: Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>>,
 }
 
 /// Check if we're running in a test environment
@@ -209,72 +207,15 @@ async fn create_unified_orchestration_system(
     // Store shared registry Arc for system storage
     let registry_for_system = shared_registry.clone();
 
-    // Initialize ZeroMQ components if enabled
-    let zmq_context = Arc::new(Context::new());
-    let zmq_pub_sub_executor = if config_manager.system_config().zeromq.enabled {
-        info!("🚀 ZeroMQ: Initializing ZmqPubSubExecutor with configuration");
-
-        let zeromq_config = &config_manager.system_config().zeromq;
-
-        // Create TaskFinalizer for ZmqPubSubExecutor
-        let zmq_task_finalizer =
-            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                database_pool.clone(),
-                event_publisher.clone(),
-            );
-
-        // Create StateManager for ZmqPubSubExecutor
-        let zmq_state_manager = StateManager::new(
-            sql_function_executor.clone(),
-            event_publisher.clone(),
-            database_pool.clone(),
-        );
-
-        match ZmqPubSubExecutor::new(
-            &zeromq_config.batch_endpoint,
-            &zeromq_config.result_endpoint,
-            database_pool.clone(),
-            zmq_state_manager,
-            zmq_task_finalizer,
-            shared_registry.clone(),
-        )
-        .await
-        {
-            Ok(executor) => {
-                info!("✅ ZeroMQ: ZmqPubSubExecutor initialized successfully");
-                Some(Arc::new(executor))
-            }
-            Err(e) => {
-                warn!("⚠️  ZeroMQ: Failed to initialize ZmqPubSubExecutor: {}", e);
-                None
-            }
-        }
-    } else {
-        info!("ℹ️  ZeroMQ: ZmqPubSubExecutor disabled in configuration");
-        None
-    };
-
-    // Create WorkflowCoordinator with ZmqPubSubExecutor if available
-    let workflow_coordinator = if let Some(ref zmq_executor) = zmq_pub_sub_executor {
-        info!("🚀 ZeroMQ: Creating WorkflowCoordinator with ZmqPubSubExecutor");
-        WorkflowCoordinator::with_zmq_pub_sub_executor(
-            database_pool.clone(),
-            WorkflowCoordinatorConfig::default(),
-            config_manager.clone(),
-            event_publisher.clone(),
-            shared_registry.as_ref().clone(),
-            zmq_executor.clone(),
-        )
-    } else {
-        info!("ℹ️  ZeroMQ: Creating WorkflowCoordinator without ZmqPubSubExecutor");
-        WorkflowCoordinator::with_shared_registry(
-            database_pool.clone(),
-            WorkflowCoordinatorConfig::default(),
-            config_manager.clone(),
-            event_publisher.clone(),
-            shared_registry.as_ref().clone(),
-        )
-    };
+    // Create WorkflowCoordinator with shared registry (TCP-based orchestration)
+    info!("🚀 TCP: Creating WorkflowCoordinator with TCP-based orchestration");
+    let workflow_coordinator = WorkflowCoordinator::with_shared_registry(
+        database_pool.clone(),
+        WorkflowCoordinatorConfig::default(),
+        config_manager.clone(),
+        event_publisher.clone(),
+        shared_registry.as_ref().clone(),
+    );
     let task_initializer = TaskInitializer::with_state_manager_and_registry(
         database_pool.clone(),
         TaskInitializationConfig::default(),
@@ -282,7 +223,11 @@ async fn create_unified_orchestration_system(
         shared_registry.clone(),
     );
 
-    // Create orchestration system with owned pool and ZeroMQ components
+    // Create orchestration system with owned pool and TCP-based components
+    // Initialize embedded TCP executor container now so it can be used later
+    let embedded_tcp_executor_container = Some(Arc::new(std::sync::Mutex::new(None)));
+    info!("✅ ORCHESTRATION: Embedded TCP executor container initialized");
+    
     let orchestration_system = OrchestrationSystem {
         database_pool,
         event_publisher,
@@ -291,8 +236,7 @@ async fn create_unified_orchestration_system(
         task_initializer,
         task_handler_registry: registry_for_system,
         config_manager,
-        zmq_pub_sub_executor,
-        zmq_context,
+        embedded_tcp_executor: embedded_tcp_executor_container,
     };
 
     info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
@@ -306,19 +250,27 @@ impl OrchestrationSystem {
         &self.database_pool
     }
 
-    /// Access the ZeroMQ pub-sub executor for comprehensive batch execution
-    pub fn zmq_pub_sub_executor(&self) -> Option<&Arc<ZmqPubSubExecutor>> {
-        self.zmq_pub_sub_executor.as_ref()
+
+    /// Access the embedded TCP executor reference
+    pub fn embedded_tcp_executor(&self) -> &Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>> {
+        &self.embedded_tcp_executor
     }
 
-    /// Access the shared ZeroMQ context
-    pub fn zmq_context(&self) -> &Arc<Context> {
-        &self.zmq_context
+    /// Check if embedded TCP executor is available
+    pub fn is_embedded_tcp_executor_available(&self) -> bool {
+        self.embedded_tcp_executor.is_some()
     }
 
-    /// Check if ZeroMQ batch processing is enabled and available
-    pub fn is_zeromq_enabled(&self) -> bool {
-        self.zmq_pub_sub_executor.is_some()
+    /// Ensure the embedded TCP executor container is ready
+    /// The container is now initialized at creation time, so this just validates it exists
+    pub fn ensure_embedded_tcp_executor(&self) -> Result<(), crate::ffi::tcp_executor::ServerError> {
+        if self.embedded_tcp_executor.is_some() {
+            Ok(())
+        } else {
+            Err(crate::ffi::tcp_executor::ServerError::ConfigurationError(
+                "Embedded TCP executor container was not initialized".to_string()
+            ))
+        }
     }
 }
 
