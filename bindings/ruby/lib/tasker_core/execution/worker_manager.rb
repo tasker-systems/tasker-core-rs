@@ -1,24 +1,27 @@
 # frozen_string_literal: true
 
+require 'logger'
 require_relative 'command_client'
+require_relative 'command_listener'
+require_relative 'batch_execution_handler'
+require_relative '../types/execution_types'
 
 module TaskerCore
   module Execution
-    # High-level Ruby worker management for Rust Command Executor integration
+    # Ruby wrapper for Rust-backed WorkerManager
     #
-    # Provides an easy-to-use interface for Ruby workers to register with
-    # the Rust orchestration system, maintain heartbeats, and handle
-    # lifecycle management.
+    # This class provides a Ruby-friendly interface to the Rust-backed worker manager,
+    # providing unified worker lifecycle management while eliminating Ruby dependencies.
     #
     # @example Simple worker registration
     #   manager = WorkerManager.new(
     #     worker_id: 'payment_processor_1',
     #     supported_namespaces: ['payments', 'billing']
     #   )
-    #   
+    #
     #   manager.start
     #   # Worker is now registered and sending heartbeats
-    #   
+    #
     #   manager.stop
     #
     # @example Custom configuration
@@ -26,8 +29,8 @@ module TaskerCore
     #     worker_id: 'inventory_worker',
     #     max_concurrent_steps: 20,
     #     supported_namespaces: ['inventory', 'shipping'],
-    #     executor_host: 'rust-orchestrator.local',
-    #     executor_port: 9090,
+    #     server_host: 'rust-orchestrator.local',
+    #     server_port: 9090,
     #     heartbeat_interval: 15
     #   )
     #
@@ -37,24 +40,23 @@ module TaskerCore
       DEFAULT_STEP_TIMEOUT_MS = 30000
       DEFAULT_HEARTBEAT_INTERVAL = 30 # seconds
       DEFAULT_SUPPORTS_RETRIES = true
+      DEFAULT_NAMESPACE = 'default'
 
       attr_reader :worker_id, :max_concurrent_steps, :supported_namespaces,
                   :step_timeout_ms, :supports_retries, :heartbeat_interval,
-                  :command_client, :running, :heartbeat_thread, :current_load,
-                  :custom_capabilities
+                  :running, :current_load, :custom_capabilities, :rust_manager
 
-      def initialize(worker_id:, supported_namespaces:, 
+      def initialize(worker_id:, supported_namespaces: nil,
                      max_concurrent_steps: DEFAULT_MAX_CONCURRENT_STEPS,
                      step_timeout_ms: DEFAULT_STEP_TIMEOUT_MS,
                      supports_retries: DEFAULT_SUPPORTS_RETRIES,
                      heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
-                     executor_host: CommandClient::DEFAULT_HOST,
-                     executor_port: CommandClient::DEFAULT_PORT,
-                     timeout: CommandClient::DEFAULT_TIMEOUT,
                      custom_capabilities: {},
-                     logger: nil)
+                     server_host: 'localhost',
+                     server_port: 8080)
         @worker_id = worker_id
-        @supported_namespaces = Array(supported_namespaces)
+        # Auto-discover namespaces if not explicitly provided
+        @supported_namespaces = supported_namespaces || discover_registered_namespaces
         @max_concurrent_steps = max_concurrent_steps
         @step_timeout_ms = step_timeout_ms
         @supports_retries = supports_retries
@@ -62,20 +64,39 @@ module TaskerCore
         @custom_capabilities = custom_capabilities
         @current_load = 0
         @running = false
-        @heartbeat_thread = nil
         @load_mutex = Mutex.new
 
-        @command_client = CommandClient.new(
-          host: executor_host,
-          port: executor_port,
-          timeout: timeout,
-          logger: logger
-        )
+        @logger = begin
+          TaskerCore::Logging::Logger.instance
+        rescue StandardError => e
+          # Fallback logger if TaskerCore logger fails
+          puts "WorkerManager: TaskerCore logger failed: #{e.message}, using fallback"
+          Logger.new($stdout).tap do |log|
+            log.level = Logger::INFO
+            log.formatter = proc { |severity, datetime, progname, msg|
+              "[#{datetime}] WorkerManager #{severity}: #{msg}\n"
+            }
+          end
+        end
+        
+        # Debug: Verify logger is not nil
+        if @logger.nil?
+          puts "CRITICAL: @logger is still nil after initialization!"
+          @logger = Logger.new($stdout)
+        end
 
-        @logger = logger || default_logger
+        # Create Rust-backed worker manager
+        manager_config = {
+          server_host: server_host,
+          server_port: server_port,
+          heartbeat_interval_seconds: heartbeat_interval,
+          worker_namespace: @supported_namespaces.first || DEFAULT_NAMESPACE
+        }
+
+        @rust_manager = TaskerCore::WorkerManager.new_with_config(manager_config)
       end
 
-      # Start worker - register with Rust orchestrator and begin heartbeats
+      # Start worker - initialize as worker and register with Rust orchestrator
       #
       # @return [Boolean] true if started successfully
       # @raise [WorkerError] if startup fails
@@ -83,20 +104,34 @@ module TaskerCore
         return true if running?
 
         begin
-          @logger.info("Starting worker #{@worker_id}")
-          
-          # Connect to Rust executor
-          @command_client.connect
-          
-          # Register worker
-          response = register_worker
+          @logger.info("Starting Rust-backed worker #{@worker_id}")
+
+          # Initialize as worker (connects to server)
+          success = @rust_manager.initialize_as_worker
+          unless success
+            raise WorkerError, "Failed to initialize worker connection"
+          end
+
+          @logger.info("Worker initialized, registering with orchestrator")
+
+          # Register worker with enhanced capabilities
+          enhanced_capabilities = @custom_capabilities.merge(
+            'ruby_worker' => true,
+            'supports_execute_batch' => true,
+            'manager_type' => 'rust_backed'
+          )
+
+          response = register_worker_with_rust(enhanced_capabilities)
           @logger.info("Worker registered successfully: #{response}")
-          
-          # Start heartbeat thread
-          start_heartbeat_thread
-          
+
+          # Start automatic heartbeat
+          heartbeat_success = @rust_manager.start_heartbeat(@worker_id, @heartbeat_interval)
+          unless heartbeat_success
+            @logger.warn("Failed to start automatic heartbeat, will send manual heartbeats")
+          end
+
           @running = true
-          @logger.info("Worker #{@worker_id} started successfully")
+          @logger.info("Rust-backed worker #{@worker_id} started successfully")
           true
         rescue StandardError => e
           @logger.error("Failed to start worker #{@worker_id}: #{e.message}")
@@ -113,25 +148,17 @@ module TaskerCore
         return true unless running?
 
         begin
-          @logger.info("Stopping worker #{@worker_id}: #{reason}")
-          
-          # Stop heartbeat thread
-          stop_heartbeat_thread
-          
+          @logger.info("Stopping Rust-backed worker #{@worker_id}: #{reason}")
+
+          # Stop automatic heartbeat
+          @rust_manager.stop_heartbeat
+
           # Unregister worker
-          if @command_client.connected?
-            response = @command_client.unregister_worker(
-              worker_id: @worker_id,
-              reason: reason
-            )
-            @logger.info("Worker unregistered: #{response}")
-          end
-          
-          # Cleanup
-          cleanup
-          
+          response = @rust_manager.unregister_worker(@worker_id, reason)
+          @logger.info("Worker unregistered: #{response}")
+
           @running = false
-          @logger.info("Worker #{@worker_id} stopped successfully")
+          @logger.info("Rust-backed worker #{@worker_id} stopped successfully")
           true
         rescue StandardError => e
           @logger.error("Error stopping worker #{@worker_id}: #{e.message}")
@@ -170,120 +197,168 @@ module TaskerCore
       #
       # @return [Hash] Current worker stats
       def stats
-        {
-          worker_id: @worker_id,
-          running: running?,
-          current_load: @current_load,
-          max_concurrent_steps: @max_concurrent_steps,
-          available_capacity: [@max_concurrent_steps - @current_load, 0].max,
-          load_percentage: (@current_load.to_f / @max_concurrent_steps * 100).round(1),
-          supported_namespaces: @supported_namespaces,
-          supports_retries: @supports_retries
-        }
+        begin
+          # Get stats from Rust manager
+          rust_stats = @rust_manager.get_statistics
+          manager_status = @rust_manager.get_status
+
+          # Combine Ruby and Rust statistics
+          base_stats = {
+            worker_id: @worker_id,
+            running: running?,
+            current_load: @current_load,
+            max_concurrent_steps: @max_concurrent_steps,
+            available_capacity: [@max_concurrent_steps - @current_load, 0].max,
+            load_percentage: (@current_load.to_f / @max_concurrent_steps * 100).round(1),
+            supported_namespaces: @supported_namespaces,
+            supports_retries: @supports_retries,
+            manager_type: 'rust_backed'
+          }
+
+          # Merge with Rust statistics
+          base_stats.merge(
+            rust_statistics: rust_stats,
+            rust_status: manager_status
+          )
+        rescue StandardError => e
+          @logger.warn("Failed to get Rust statistics: #{e.message}")
+          # Return basic Ruby statistics as fallback
+          {
+            worker_id: @worker_id,
+            running: running?,
+            current_load: @current_load,
+            max_concurrent_steps: @max_concurrent_steps,
+            error: "Failed to get Rust stats: #{e.message}"
+          }
+        end
       end
 
       # Send immediate heartbeat (useful for testing or manual updates)
       #
-      # @return [Hash] Heartbeat response
+      # @return [TaskerCore::Types::ExecutionTypes::HeartbeatResponse] Typed heartbeat response
       def send_heartbeat
         ensure_running!
-        
+
         current_load = @load_mutex.synchronize { @current_load }
-        system_stats = collect_system_stats
-        
-        @command_client.send_heartbeat(
-          worker_id: @worker_id,
-          current_load: current_load,
-          system_stats: system_stats
-        )
+
+        begin
+          raw_response = @rust_manager.send_heartbeat(@worker_id, current_load)
+          @logger.debug("Manual heartbeat sent for worker #{@worker_id}")
+          
+          # Convert raw response to typed HeartbeatResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          @logger.error("Manual heartbeat failed: #{e.message}")
+          raise WorkerError, "Heartbeat failed: #{e.message}"
+        end
       end
 
       # Check connection health
       #
       # @return [Boolean] true if healthy
       def healthy?
-        running? && @command_client.connected?
+        running? && rust_manager_healthy?
+      end
+
+      # Get detailed health information
+      #
+      # @return [Hash] Health details
+      def health_details
+        begin
+          status = @rust_manager.get_status
+          stats = @rust_manager.get_statistics
+          
+          {
+            healthy: healthy?,
+            running: running?,
+            rust_status: status,
+            rust_statistics: stats,
+            current_load: @current_load,
+            max_capacity: @max_concurrent_steps
+          }
+        rescue StandardError => e
+          {
+            healthy: false,
+            error: e.message,
+            running: @running,
+            current_load: @current_load
+          }
+        end
       end
 
       private
 
-      # Register worker with Rust orchestrator
+      # Auto-discover namespaces from registered TaskHandlers
       #
-      # @return [Hash] Registration response
-      def register_worker
-        @command_client.register_worker(
+      # @return [Array<String>] List of namespaces from registered handlers
+      def discover_registered_namespaces
+        begin
+          # Get all registered handlers from the orchestration system
+          handlers_result = TaskerCore::TaskHandler::Base.list_registered_handlers
+          
+          if handlers_result && handlers_result['handlers']
+            namespaces = []
+            handlers_result['handlers'].each do |handler|
+              # Handle both string keys and symbol keys
+              namespace = handler['namespace'] || handler[:namespace] || 'default'
+              namespaces << namespace unless namespaces.include?(namespace)
+            end
+            
+            # Always include 'default' as fallback
+            namespaces << 'default' unless namespaces.include?('default')
+            
+            @logger.info("Auto-discovered namespaces for worker #{@worker_id}: #{namespaces}")
+            return namespaces
+          end
+        rescue StandardError => e
+          @logger.warn("Failed to auto-discover namespaces: #{e.message}")
+          @logger.debug("Error details: #{e.class.name}: #{e.message}")
+          @logger.debug("Backtrace: #{e.backtrace.first(3).join(', ')}")
+        end
+        
+        # Fallback to default namespace
+        @logger.info("Using default namespace for worker #{@worker_id}")
+        [DEFAULT_NAMESPACE]
+      end
+
+      # Register worker using Rust manager
+      #
+      # @param enhanced_capabilities [Hash] Worker capabilities
+      # @return [TaskerCore::Types::ExecutionTypes::WorkerRegistrationResponse] Typed registration response
+      def register_worker_with_rust(enhanced_capabilities)
+        options = {
           worker_id: @worker_id,
           max_concurrent_steps: @max_concurrent_steps,
           supported_namespaces: @supported_namespaces,
-          step_timeout_ms: @step_timeout_ms,
-          supports_retries: @supports_retries,
           language_runtime: 'ruby',
           version: RUBY_VERSION,
-          custom_capabilities: @custom_capabilities
-        )
+          custom_capabilities: enhanced_capabilities
+        }
+
+        raw_response = @rust_manager.register_worker(options)
+        # Convert raw response to typed WorkerRegistrationResponse
+        TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
       end
 
-      # Start heartbeat thread
-      def start_heartbeat_thread
-        return if @heartbeat_thread&.alive?
-
-        @heartbeat_thread = Thread.new do
-          Thread.current.name = "heartbeat-#{@worker_id}"
-          
-          loop do
-            break unless running?
-            
-            begin
-              send_heartbeat
-              @logger.debug("Heartbeat sent for worker #{@worker_id}")
-            rescue StandardError => e
-              @logger.error("Heartbeat failed for worker #{@worker_id}: #{e.message}")
-              # Continue heartbeat attempts - don't fail worker for single heartbeat failure
-            end
-            
-            sleep(@heartbeat_interval)
-          end
-        end
-      end
-
-      # Stop heartbeat thread
-      def stop_heartbeat_thread
-        return unless @heartbeat_thread
-
-        @heartbeat_thread.kill if @heartbeat_thread.alive?
-        @heartbeat_thread.join(5) # Wait up to 5 seconds for graceful shutdown
-        @heartbeat_thread = nil
-      end
-
-      # Collect system statistics
+      # Check if Rust manager is healthy
       #
-      # @return [Hash, nil] System stats or nil if unavailable
-      def collect_system_stats
+      # @return [Boolean] true if healthy
+      def rust_manager_healthy?
         begin
-          # Basic system stats - could be enhanced with more detailed metrics
-          {
-            cpu_usage_percent: 0.0, # Placeholder - could use system calls
-            memory_usage_mb: (Process.memory_usage[:rss] / 1024 / 1024).round,
-            active_connections: 1, # Connection to Rust executor
-            uptime_seconds: (Time.now - start_time).to_i
-          }
-        rescue StandardError => e
-          @logger.warn("Failed to collect system stats: #{e.message}")
-          nil
+          status = @rust_manager.get_status
+          status && status['status'] != 'Error'
+        rescue StandardError
+          false
         end
-      end
-
-      # Get worker start time
-      #
-      # @return [Time] Start time
-      def start_time
-        @start_time ||= Time.now
       end
 
       # Cleanup resources
       def cleanup
-        stop_heartbeat_thread
-        @command_client.disconnect
+        begin
+          @rust_manager.stop_heartbeat if @rust_manager
+        rescue StandardError => e
+          @logger.warn("Error during cleanup: #{e.message}")
+        end
       end
 
       # Ensure worker is running
@@ -291,18 +366,6 @@ module TaskerCore
       # @raise [WorkerError] if not running
       def ensure_running!
         raise WorkerError, "Worker not running" unless running?
-      end
-
-      # Create default logger
-      #
-      # @return [Logger] Default logger
-      def default_logger
-        logger = Logger.new(STDOUT)
-        logger.level = Logger::INFO
-        logger.formatter = proc do |severity, datetime, progname, msg|
-          "[#{datetime}] Worker[#{@worker_id}] #{severity}: #{msg}\n"
-        end
-        logger
       end
     end
 

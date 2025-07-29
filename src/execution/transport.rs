@@ -15,19 +15,19 @@ use tokio::net::{TcpListener, TcpStream, UnixDatagram};
 pub trait Transport: Send + Sync + Debug + Clone {
     /// The type of the listener for this transport
     type Listener: TransportListener<Connection = Self::Connection> + Send + Sync;
-    
+
     /// The type of connection for this transport
     type Connection: TransportConnection + Send + Sync;
-    
+
     /// The configuration type for this transport
     type Config: TransportConfig + Send + Sync + Clone;
-    
+
     /// Create a new transport instance with the given configuration
     fn new(config: Self::Config) -> Self;
-    
+
     /// Create a listener that can accept connections
     async fn create_listener(&self) -> io::Result<Self::Listener>;
-    
+
     /// Get the transport configuration
     fn config(&self) -> &Self::Config;
 }
@@ -36,7 +36,7 @@ pub trait Transport: Send + Sync + Debug + Clone {
 #[async_trait]
 pub trait TransportListener: Send + Sync {
     type Connection: TransportConnection + Send + Sync;
-    
+
     /// Accept a new connection
     async fn accept(&self) -> io::Result<(Self::Connection, ConnectionInfo)>;
 }
@@ -46,7 +46,7 @@ pub trait TransportListener: Send + Sync {
 pub trait TransportConnection: Send + Sync {
     type Reader: AsyncBufReadExt + Send + Unpin;
     type Writer: AsyncWriteExt + Send + Unpin;
-    
+
     /// Split the connection into separate reader and writer
     fn split(self) -> (Self::Reader, Self::Writer);
 }
@@ -55,16 +55,16 @@ pub trait TransportConnection: Send + Sync {
 pub trait TransportConfig: Send + Sync + Clone + Debug {
     /// Get the bind address or path for this transport
     fn bind_address(&self) -> &str;
-    
+
     /// Get the connection timeout in milliseconds
     fn connection_timeout_ms(&self) -> u64;
-    
+
     /// Get the command queue size
     fn command_queue_size(&self) -> usize;
-    
+
     /// Get the maximum number of connections
     fn max_connections(&self) -> usize;
-    
+
     /// Get the graceful shutdown timeout in milliseconds
     fn graceful_shutdown_timeout_ms(&self) -> u64;
 }
@@ -115,19 +115,19 @@ impl TransportConfig for TcpTransportConfig {
     fn bind_address(&self) -> &str {
         &self.bind_address
     }
-    
+
     fn connection_timeout_ms(&self) -> u64 {
         self.connection_timeout_ms
     }
-    
+
     fn command_queue_size(&self) -> usize {
         self.command_queue_size
     }
-    
+
     fn max_connections(&self) -> usize {
         self.max_connections
     }
-    
+
     fn graceful_shutdown_timeout_ms(&self) -> u64 {
         self.graceful_shutdown_timeout_ms
     }
@@ -148,16 +148,16 @@ impl Transport for TcpTransport {
     type Listener = TcpTransportListener;
     type Connection = TcpTransportConnection;
     type Config = TcpTransportConfig;
-    
+
     fn new(config: Self::Config) -> Self {
         Self { config }
     }
-    
+
     async fn create_listener(&self) -> io::Result<Self::Listener> {
         let listener = TcpListener::bind(&self.config.bind_address).await?;
         Ok(TcpTransportListener { listener })
     }
-    
+
     fn config(&self) -> &Self::Config {
         &self.config
     }
@@ -166,7 +166,7 @@ impl Transport for TcpTransport {
 #[async_trait]
 impl TransportListener for TcpTransportListener {
     type Connection = TcpTransportConnection;
-    
+
     async fn accept(&self) -> io::Result<(Self::Connection, ConnectionInfo)> {
         let (stream, addr) = self.listener.accept().await?;
         let connection = TcpTransportConnection { stream };
@@ -182,7 +182,7 @@ impl TransportListener for TcpTransportListener {
 impl TransportConnection for TcpTransportConnection {
     type Reader = BufReader<tokio::net::tcp::OwnedReadHalf>;
     type Writer = tokio::net::tcp::OwnedWriteHalf;
-    
+
     fn split(self) -> (Self::Reader, Self::Writer) {
         let (reader, writer) = self.stream.into_split();
         (BufReader::new(reader), writer)
@@ -221,19 +221,19 @@ impl TransportConfig for UnixDatagramTransportConfig {
     fn bind_address(&self) -> &str {
         &self.socket_path
     }
-    
+
     fn connection_timeout_ms(&self) -> u64 {
         self.connection_timeout_ms
     }
-    
+
     fn command_queue_size(&self) -> usize {
         self.command_queue_size
     }
-    
+
     fn max_connections(&self) -> usize {
         self.max_connections
     }
-    
+
     fn graceful_shutdown_timeout_ms(&self) -> u64 {
         self.graceful_shutdown_timeout_ms
     }
@@ -290,19 +290,19 @@ impl Transport for UnixDatagramTransport {
     type Listener = UnixDatagramListener;
     type Connection = UnixDatagramConnection;
     type Config = UnixDatagramTransportConfig;
-    
+
     fn new(config: Self::Config) -> Self {
         Self { config }
     }
-    
+
     async fn create_listener(&self) -> io::Result<Self::Listener> {
         // Remove existing socket file if it exists
         let _ = std::fs::remove_file(&self.config.socket_path);
-        
+
         let socket = UnixDatagram::bind(&self.config.socket_path)?;
         Ok(UnixDatagramListener { socket })
     }
-    
+
     fn config(&self) -> &Self::Config {
         &self.config
     }
@@ -311,32 +311,33 @@ impl Transport for UnixDatagramTransport {
 #[async_trait]
 impl TransportListener for UnixDatagramListener {
     type Connection = UnixDatagramConnection;
-    
+
     async fn accept(&self) -> io::Result<(Self::Connection, ConnectionInfo)> {
         // For Unix datagram sockets, we need to receive the first message
         // to establish the "connection" (really just the peer address)
         let mut buf = vec![0; 8192];
         let (_len, peer_addr) = self.socket.recv_from(&mut buf).await?;
-        
+
         // Create a new socket for this "connection"
-        let temp_path = format!("{}.{}", 
+        let temp_path = format!(
+            "{}.{}",
             std::env::temp_dir().join("tasker_worker").display(),
             uuid::Uuid::new_v4()
         );
-let client_socket = UnixDatagram::bind(&temp_path)?;
+        let client_socket = UnixDatagram::bind(&temp_path)?;
         client_socket.connect(&peer_addr.as_pathname().unwrap())?;
-        
+
         let peer_addr_for_info = format!("{:?}", peer_addr);
         let connection = UnixDatagramConnection {
             socket: client_socket,
             peer_addr: Some(peer_addr.into()),
         };
-        
+
         let info = ConnectionInfo {
             peer_address: peer_addr_for_info,
             transport_type: TransportType::UnixDatagram,
         };
-        
+
         Ok((connection, info))
     }
 }
@@ -345,7 +346,7 @@ let client_socket = UnixDatagram::bind(&temp_path)?;
 impl TransportConnection for UnixDatagramConnection {
     type Reader = UnixDatagramReader;
     type Writer = UnixDatagramWriter;
-    
+
     fn split(self) -> (Self::Reader, Self::Writer) {
         let socket = std::sync::Arc::new(self.socket);
         let reader = UnixDatagramReader {
@@ -368,7 +369,7 @@ impl tokio::io::AsyncRead for UnixDatagramReader {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<io::Result<()>> {
         use std::task::Poll;
-        
+
         let mut temp_buffer = vec![0; buf.remaining()];
         match self.socket.try_recv(&mut temp_buffer) {
             Ok(len) => {
@@ -384,7 +385,6 @@ impl tokio::io::AsyncRead for UnixDatagramReader {
     }
 }
 
-
 #[async_trait]
 impl tokio::io::AsyncWrite for UnixDatagramWriter {
     fn poll_write(
@@ -394,13 +394,11 @@ impl tokio::io::AsyncWrite for UnixDatagramWriter {
     ) -> std::task::Poll<io::Result<usize>> {
         match self.socket.try_send(buf) {
             Ok(len) => std::task::Poll::Ready(Ok(len)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                std::task::Poll::Pending
-            }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => std::task::Poll::Pending,
             Err(e) => std::task::Poll::Ready(Err(e)),
         }
     }
-    
+
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
@@ -408,7 +406,7 @@ impl tokio::io::AsyncWrite for UnixDatagramWriter {
         // Unix datagram sockets don't need explicit flushing
         std::task::Poll::Ready(Ok(()))
     }
-    
+
     fn poll_shutdown(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,

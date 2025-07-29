@@ -145,8 +145,6 @@ pub fn publish_simple_event_optimized(
     source: Option<String>,
     metadata_json: Option<String>,
 ) -> MagnusResult<RubyEventResult> {
-    debug!("🚀 OPTIMIZED: publish_simple_event_optimized() - primitives in, objects out");
-
     // Direct parameter usage - no JSON conversion overhead
     let payload = payload_json
         .and_then(|json| serde_json::from_str(&json).ok())
@@ -195,8 +193,6 @@ pub fn publish_orchestration_event_optimized(
     data_json: Option<String>,
     context_json: Option<String>,
 ) -> MagnusResult<RubyEventResult> {
-    debug!("🚀 OPTIMIZED: publish_orchestration_event_optimized() - primitives in, objects out");
-
     let data = data_json
         .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| serde_json::json!({}));
@@ -241,8 +237,6 @@ pub fn publish_orchestration_event_optimized(
 
 /// ✅ **OPTIMIZED**: Get event statistics with structured object output
 pub fn get_event_statistics_optimized() -> MagnusResult<RubyEventStatistics> {
-    debug!("🚀 OPTIMIZED: get_event_statistics_optimized() - structured objects out");
-
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
     let stats = event_bridge.get_event_statistics().map_err(|e| {
@@ -269,8 +263,6 @@ fn publish_simple_event_with_handle_wrapper(
     handle_value: Value,
     event_data_value: Value,
 ) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: publish_simple_event_with_handle_wrapper() - delegating to shared event bridge");
-
     let event_data = ruby_value_to_json(event_data_value).map_err(|e| {
         Error::new(
             Ruby::get().unwrap().exception_runtime_error(),
@@ -327,8 +319,6 @@ fn publish_orchestration_event_with_handle_wrapper(
     handle_value: Value,
     event_data_value: Value,
 ) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: publish_orchestration_event_with_handle_wrapper() - delegating to shared event bridge");
-
     let event_data = ruby_value_to_json(event_data_value).map_err(|e| {
         Error::new(
             Ruby::get().unwrap().exception_runtime_error(),
@@ -393,8 +383,6 @@ fn subscribe_to_events_with_handle_wrapper(
     handle_value: Value,
     subscription_data_value: Value,
 ) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: subscribe_to_events_with_handle_wrapper() - delegating to shared event bridge");
-
     let subscription_data = ruby_value_to_json(subscription_data_value).map_err(|e| {
         Error::new(
             Ruby::get().unwrap().exception_runtime_error(),
@@ -429,10 +417,6 @@ fn subscribe_to_events_with_handle_wrapper(
 
 /// **MIGRATED**: Get event statistics (delegates to shared event bridge)
 fn get_event_stats_with_handle_wrapper(handle_value: Value) -> Result<Value, Error> {
-    debug!(
-        "🔧 Ruby FFI: get_event_stats_with_handle_wrapper() - delegating to shared event bridge"
-    );
-
     // Delegate to shared event bridge
     let event_bridge = get_global_event_bridge();
     let stats = event_bridge.get_event_statistics().map_err(|e| {
@@ -467,8 +451,6 @@ fn register_external_event_callback_with_handle_wrapper(
     handle_value: Value,
     callback_data_value: Value,
 ) -> Result<Value, Error> {
-    debug!("🔧 Ruby FFI: register_external_event_callback_with_handle_wrapper() - delegating to shared event bridge");
-
     let callback_data = ruby_value_to_json(callback_data_value).map_err(|e| {
         Error::new(
             Ruby::get().unwrap().exception_runtime_error(),

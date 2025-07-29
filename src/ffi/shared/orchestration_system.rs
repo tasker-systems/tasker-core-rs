@@ -6,12 +6,17 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
+use crate::execution::command_handlers::batch_execution_sender::{
+    BatchExecutionSender, BatchSenderConfig,
+};
+use crate::execution::command_router::CommandRouter;
 use crate::ffi::tcp_executor::EmbeddedTcpExecutor;
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
 use crate::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
 use crate::registry::TaskHandlerRegistry;
+use crate::services::worker_selection_service::WorkerSelectionService;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -30,6 +35,8 @@ pub struct OrchestrationSystem {
     pub task_handler_registry: Arc<TaskHandlerRegistry>,
     pub config_manager: Arc<ConfigurationManager>,
     pub embedded_tcp_executor: Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>>,
+    pub batch_execution_sender: Arc<BatchExecutionSender>,
+    pub command_router: Arc<CommandRouter>,
 }
 
 /// Check if we're running in a test environment
@@ -207,14 +214,38 @@ async fn create_unified_orchestration_system(
     // Store shared registry Arc for system storage
     let registry_for_system = shared_registry.clone();
 
-    // Create WorkflowCoordinator with shared registry (TCP-based orchestration)
-    info!("🚀 TCP: Creating WorkflowCoordinator with TCP-based orchestration");
-    let workflow_coordinator = WorkflowCoordinator::with_shared_registry(
+    // Create TCP command infrastructure components first
+    info!("🚀 TCP: Creating TCP command infrastructure (CommandRouter, BatchExecutionSender)");
+
+    let command_router = Arc::new(CommandRouter::with_database_audit(database_pool.clone()));
+
+    // Create WorkerSelectionService for database-backed worker routing
+    let worker_selection_service = Arc::new(WorkerSelectionService::new(
+        database_pool.clone(),
+        "orchestration_system".to_string(), // Use a descriptive core instance ID
+    ));
+
+    // Create BatchExecutionSender with TCP infrastructure and database-backed worker selection
+    let batch_execution_sender = Arc::new(BatchExecutionSender::new(
+        worker_selection_service,
+        command_router.clone(),
+        database_pool.clone(),
+        BatchSenderConfig::default(),
+    ));
+
+    info!(
+        "✅ TCP: BatchExecutionSender created successfully with database-backed worker selection"
+    );
+
+    // Create WorkflowCoordinator with BatchExecutionSender (TCP-based orchestration)
+    info!("🚀 TCP: Creating WorkflowCoordinator with BatchExecutionSender integration");
+    let workflow_coordinator = WorkflowCoordinator::with_batch_execution_sender(
         database_pool.clone(),
         WorkflowCoordinatorConfig::default(),
         config_manager.clone(),
         event_publisher.clone(),
         shared_registry.as_ref().clone(),
+        batch_execution_sender.clone(),
     );
     let task_initializer = TaskInitializer::with_state_manager_and_registry(
         database_pool.clone(),
@@ -227,7 +258,7 @@ async fn create_unified_orchestration_system(
     // Initialize embedded TCP executor container now so it can be used later
     let embedded_tcp_executor_container = Some(Arc::new(std::sync::Mutex::new(None)));
     info!("✅ ORCHESTRATION: Embedded TCP executor container initialized");
-    
+
     let orchestration_system = OrchestrationSystem {
         database_pool,
         event_publisher,
@@ -237,6 +268,8 @@ async fn create_unified_orchestration_system(
         task_handler_registry: registry_for_system,
         config_manager,
         embedded_tcp_executor: embedded_tcp_executor_container,
+        batch_execution_sender,
+        command_router,
     };
 
     info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
@@ -250,9 +283,10 @@ impl OrchestrationSystem {
         &self.database_pool
     }
 
-
     /// Access the embedded TCP executor reference
-    pub fn embedded_tcp_executor(&self) -> &Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>> {
+    pub fn embedded_tcp_executor(
+        &self,
+    ) -> &Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>> {
         &self.embedded_tcp_executor
     }
 
@@ -263,12 +297,14 @@ impl OrchestrationSystem {
 
     /// Ensure the embedded TCP executor container is ready
     /// The container is now initialized at creation time, so this just validates it exists
-    pub fn ensure_embedded_tcp_executor(&self) -> Result<(), crate::ffi::tcp_executor::ServerError> {
+    pub fn ensure_embedded_tcp_executor(
+        &self,
+    ) -> Result<(), crate::ffi::tcp_executor::ServerError> {
         if self.embedded_tcp_executor.is_some() {
             Ok(())
         } else {
             Err(crate::ffi::tcp_executor::ServerError::ConfigurationError(
-                "Embedded TCP executor container was not initialized".to_string()
+                "Embedded TCP executor container was not initialized".to_string(),
             ))
         }
     }
@@ -305,7 +341,7 @@ pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
 static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 /// Get or create the global runtime
-fn get_global_runtime() -> &'static tokio::runtime::Runtime {
+pub fn get_global_runtime() -> &'static tokio::runtime::Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
         info!("🔧 RUNTIME: Creating global Tokio runtime for consistent execution context");
         tokio::runtime::Builder::new_multi_thread()

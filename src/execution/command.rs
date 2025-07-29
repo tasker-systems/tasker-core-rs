@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::orchestration::TaskContext;
 use crate::models::WorkflowStep;
+use crate::models::core::task_request::TaskRequest;
+
 
 /// Unified command structure for all cross-language communication
-/// 
+///
 /// Replaces ZeroMQ topic-based messaging with structured command protocol
 /// that supports request/response correlation, timeout handling, and
 /// intelligent routing based on worker capabilities.
@@ -43,27 +44,23 @@ use crate::models::WorkflowStep;
 pub struct Command {
     /// Type of command being executed
     pub command_type: CommandType,
-    
+
     /// Unique identifier for this command
     pub command_id: String,
-    
+
     /// Optional correlation ID for request/response tracking
     pub correlation_id: Option<String>,
-    
+
     /// Command metadata for routing and execution
     pub metadata: CommandMetadata,
-    
+
     /// The actual command payload
     pub payload: CommandPayload,
 }
 
 impl Command {
     /// Create a new command with generated ID and current timestamp
-    pub fn new(
-        command_type: CommandType,
-        payload: CommandPayload,
-        source: CommandSource,
-    ) -> Self {
+    pub fn new(command_type: CommandType, payload: CommandPayload, source: CommandSource) -> Self {
         Self {
             command_type,
             command_id: Uuid::new_v4().to_string(),
@@ -105,25 +102,32 @@ impl Command {
 pub enum CommandType {
     // Task management operations
     InitializeTask,
-    
-    // Step execution operations  
+
+    // Step execution operations
     ExecuteBatch,
-    
+
+    // Task readiness operations
+    TryTaskIfReady,
+
     // Result reporting
     ReportPartialResult,
     ReportBatchCompletion,
-    
+
     // Worker lifecycle management
     RegisterWorker,
     UnregisterWorker,
     WorkerHeartbeat,
-    
+
+    // Task handler registration
+    RegisterTaskHandler,
+    UnregisterTaskHandler,
+
     // System operations
     HealthCheck,
-    
+
     // Generic FFI operation (future migration path)
     FfiOperation,
-    
+
     // Response types
     Success,
     Error,
@@ -131,7 +135,11 @@ pub enum CommandType {
     WorkerUnregistered,
     HeartbeatAcknowledged,
     BatchExecuted,
+    TaskInitialized,
+    TaskReadinessResult,
     HealthCheckResult,
+    TaskHandlerRegistered,
+    TaskHandlerUnregistered,
 }
 
 /// Command metadata for routing and execution control
@@ -139,22 +147,22 @@ pub enum CommandType {
 pub struct CommandMetadata {
     /// When this command was created
     pub timestamp: DateTime<Utc>,
-    
+
     /// Source of the command
     pub source: CommandSource,
-    
+
     /// Optional target for routing
     pub target: Option<CommandTarget>,
-    
+
     /// Command timeout in milliseconds
     pub timeout_ms: Option<u64>,
-    
+
     /// Retry policy for failed commands
     pub retry_policy: Option<RetryPolicy>,
-    
+
     /// Namespace for capability-based routing
     pub namespace: Option<String>,
-    
+
     /// Command priority for queue management
     pub priority: Option<CommandPriority>,
 }
@@ -234,13 +242,13 @@ pub enum CommandPriority {
 pub struct RetryPolicy {
     /// Maximum number of retry attempts
     pub max_attempts: u32,
-    
+
     /// Initial delay between retries in milliseconds
     pub initial_delay_ms: u64,
-    
+
     /// Backoff multiplier for exponential backoff
     pub backoff_multiplier: f64,
-    
+
     /// Maximum delay between retries in milliseconds
     pub max_delay_ms: u64,
 }
@@ -262,16 +270,21 @@ impl Default for RetryPolicy {
 pub enum CommandPayload {
     /// Initialize a new task with workflow steps
     InitializeTask {
-        task_context: TaskContext,
-        workflow_steps: Vec<WorkflowStep>,
+        task_request: TaskRequest,
     },
-    
+
     /// Execute a batch of workflow steps
     ExecuteBatch {
         batch_id: String,
         steps: Vec<StepExecutionRequest>,
+        task_template: crate::models::core::task_template::TaskTemplate,
     },
-    
+
+    /// Try to process a task if it has ready steps
+    TryTaskIfReady {
+        task_id: i64,
+    },
+
     /// Report partial result from step execution
     ReportPartialResult {
         batch_id: String,
@@ -280,49 +293,57 @@ pub enum CommandPayload {
         execution_time_ms: u64,
         worker_id: String,
     },
-    
+
     /// Report batch completion with all step summaries
     ReportBatchCompletion {
         batch_id: String,
         step_summaries: Vec<StepSummary>,
         total_execution_time_ms: u64,
     },
-    
+
     /// Register worker with capabilities
     RegisterWorker {
         worker_capabilities: WorkerCapabilities,
     },
-    
+
     /// Unregister worker
-    UnregisterWorker {
-        worker_id: String,
-        reason: String,
-    },
-    
+    UnregisterWorker { worker_id: String, reason: String },
+
     /// Worker heartbeat with current status
     WorkerHeartbeat {
         worker_id: String,
         current_load: usize,
         system_stats: Option<SystemStats>,
     },
-    
+
     /// Health check request
-    HealthCheck {
-        diagnostic_level: HealthCheckLevel,
+    HealthCheck { diagnostic_level: HealthCheckLevel },
+
+    /// Register task handler with namespace and capabilities
+    RegisterTaskHandler {
+        worker_id: String,
+        task_handler_info: TaskHandlerInfo,
     },
-    
+
+    /// Unregister task handler
+    UnregisterTaskHandler {
+        worker_id: String,
+        namespace: String,
+        handler_name: String,
+    },
+
     /// Generic FFI operation for future migration
     FfiOperation {
         method: String,
         args: serde_json::Value,
     },
-    
+
     /// Success response
     Success {
         message: String,
         data: Option<serde_json::Value>,
     },
-    
+
     /// Error response
     Error {
         error_type: String,
@@ -330,21 +351,21 @@ pub enum CommandPayload {
         details: Option<HashMap<String, serde_json::Value>>,
         retryable: bool,
     },
-    
+
     /// Worker registration acknowledgment
     WorkerRegistered {
         worker_id: String,
         assigned_pool: String,
         queue_position: usize,
     },
-    
+
     /// Worker unregistration acknowledgment
     WorkerUnregistered {
         worker_id: String,
         unregistered_at: String,
         reason: String,
     },
-    
+
     /// Worker heartbeat acknowledgment
     HeartbeatAcknowledged {
         worker_id: String,
@@ -352,14 +373,32 @@ pub enum CommandPayload {
         status: String,
         next_heartbeat_in: Option<u32>,
     },
-    
+
     /// Batch execution acknowledgment
     BatchExecuted {
         batch_id: String,
         assigned_worker: String,
         estimated_completion_ms: u64,
     },
-    
+
+    /// Task initialization result
+    TaskInitialized {
+        task_id: i64,
+        success: bool,
+        step_count: usize,
+        workflow_steps: serde_json::Value,
+        error_message: Option<String>,
+    },
+
+    /// Task readiness result
+    TaskReadinessResult {
+        task_id: i64,
+        ready: bool,
+        batch_info: Option<TaskBatchInfo>,
+        ready_steps_count: usize,
+        error_message: Option<String>,
+    },
+
     /// Health check result
     HealthCheckResult {
         status: String,
@@ -368,24 +407,48 @@ pub enum CommandPayload {
         active_commands: usize,
         diagnostics: Option<serde_json::Value>,
     },
+
+    /// Task handler registration acknowledgment
+    TaskHandlerRegistered {
+        worker_id: String,
+        namespace: String,
+        handler_name: String,
+        version: String,
+        registered_at: String,
+    },
+
+    /// Task handler unregistration acknowledgment
+    TaskHandlerUnregistered {
+        worker_id: String,
+        namespace: String,
+        handler_name: String,
+        unregistered_at: String,
+    },
 }
 
 /// Step execution request for batch processing
+///
+/// Contains all context needed for Ruby workers to execute workflow steps,
+/// including task context, handler configuration, and dependency results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepExecutionRequest {
     pub step_id: i64,
+    pub task_id: i64,
     pub step_name: String,
-    pub step_context: HashMap<String, serde_json::Value>,
-    pub dependencies: Vec<StepDependency>,
-    pub timeout_ms: Option<u64>,
+    pub handler_class: String,
+    pub handler_config: HashMap<String, serde_json::Value>,
+    pub task_context: serde_json::Value,
+    pub previous_results: HashMap<String, serde_json::Value>,
+    pub metadata: StepRequestMetadata,
 }
 
-/// Step dependency information
+/// Metadata for step execution request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepDependency {
-    pub step_id: i64,
-    pub step_name: String,
-    pub result: Option<serde_json::Value>,
+pub struct StepRequestMetadata {
+    pub attempt: i32,
+    pub retry_limit: i32,
+    pub timeout_ms: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Step execution result
@@ -435,6 +498,43 @@ pub struct WorkerCapabilities {
     pub language_runtime: String,
     pub version: String,
     pub custom_capabilities: HashMap<String, serde_json::Value>,
+    // Connection information
+    pub connection_info: Option<WorkerConnectionInfo>,
+    // Runtime information
+    pub runtime_info: Option<WorkerRuntimeInfo>,
+}
+
+/// Worker connection information for transport availability
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerConnectionInfo {
+    pub host: String,
+    pub port: u16,
+    pub listener_port: Option<u16>,
+    pub transport_type: String, // "tcp", "unix", etc.
+    pub protocol_version: Option<String>,
+}
+
+/// Worker runtime information for metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerRuntimeInfo {
+    pub language_runtime: Option<String>,
+    pub language_version: Option<String>,
+    pub hostname: Option<String>,
+    pub pid: Option<u32>,
+    pub started_at: Option<String>,
+}
+
+/// Task handler information for registration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskHandlerInfo {
+    pub namespace: String,
+    pub handler_name: String,
+    pub version: String,
+    pub handler_class: String,
+    pub supported_step_types: Vec<String>,
+    pub handler_config: HashMap<String, serde_json::Value>,
+    pub timeout_ms: u64,
+    pub supports_retries: bool,
 }
 
 /// System statistics for worker health monitoring
@@ -452,6 +552,15 @@ pub enum HealthCheckLevel {
     Basic,
     Detailed,
     Full,
+}
+
+/// Task batch information for readiness results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskBatchInfo {
+    pub batch_id: String,
+    pub estimated_steps: usize,
+    pub publication_time_ms: u64,
+    pub next_poll_delay_ms: u64,
 }
 
 /// Command result for tracking execution outcomes
@@ -497,7 +606,7 @@ mod tests {
         let source = CommandSource::RustOrchestrator {
             id: "coord_1".to_string(),
         };
-        
+
         let payload = CommandPayload::RegisterWorker {
             worker_capabilities: WorkerCapabilities {
                 worker_id: "worker_123".to_string(),
@@ -508,11 +617,13 @@ mod tests {
                 language_runtime: "ruby".to_string(),
                 version: "3.1.0".to_string(),
                 custom_capabilities: HashMap::new(),
+                connection_info: None,
+                runtime_info: None,
             },
         };
 
         let command = Command::new(CommandType::RegisterWorker, payload, source);
-        
+
         assert_eq!(command.command_type, CommandType::RegisterWorker);
         assert!(!command.command_id.is_empty());
         assert!(command.correlation_id.is_none());
@@ -524,7 +635,7 @@ mod tests {
         let original_source = CommandSource::RubyWorker {
             id: "worker_123".to_string(),
         };
-        
+
         let original_payload = CommandPayload::RegisterWorker {
             worker_capabilities: WorkerCapabilities {
                 worker_id: "worker_123".to_string(),
@@ -535,15 +646,21 @@ mod tests {
                 language_runtime: "ruby".to_string(),
                 version: "3.1.0".to_string(),
                 custom_capabilities: HashMap::new(),
+                connection_info: None,
+                runtime_info: None,
             },
         };
 
-        let original_command = Command::new(CommandType::RegisterWorker, original_payload, original_source);
+        let original_command = Command::new(
+            CommandType::RegisterWorker,
+            original_payload,
+            original_source,
+        );
 
         let response_source = CommandSource::RustServer {
             id: "server_main".to_string(),
         };
-        
+
         let response_payload = CommandPayload::WorkerRegistered {
             worker_id: "worker_123".to_string(),
             assigned_pool: "default".to_string(),
@@ -558,7 +675,10 @@ mod tests {
 
         assert_eq!(response.command_type, CommandType::WorkerRegistered);
         assert!(response.is_response());
-        assert_eq!(response.original_command_id(), Some(original_command.command_id.as_str()));
+        assert_eq!(
+            response.original_command_id(),
+            Some(original_command.command_id.as_str())
+        );
     }
 
     #[test]
@@ -566,18 +686,33 @@ mod tests {
         let source = CommandSource::RustOrchestrator {
             id: "coord_1".to_string(),
         };
-        
+
         let payload = CommandPayload::ExecuteBatch {
             batch_id: "batch_789".to_string(),
             steps: vec![],
+            task_template: crate::models::core::task_template::TaskTemplate {
+                name: "test_task".to_string(),
+                module_namespace: Some("TestModule".to_string()),
+                task_handler_class: "TestHandler".to_string(),
+                namespace_name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                default_dependent_system: None,
+                named_steps: vec![],
+                step_templates: std::collections::HashMap::new(),
+                schema: None,
+                environments: None,
+                default_context: None,
+                default_options: None,
+            },
         };
 
         let command = Command::new(CommandType::ExecuteBatch, payload, source);
-        
+
         // Test JSON serialization/deserialization
         let json = serde_json::to_string(&command).expect("Failed to serialize command");
-        let deserialized: Command = serde_json::from_str(&json).expect("Failed to deserialize command");
-        
+        let deserialized: Command =
+            serde_json::from_str(&json).expect("Failed to deserialize command");
+
         assert_eq!(command.command_type, deserialized.command_type);
         assert_eq!(command.command_id, deserialized.command_id);
     }

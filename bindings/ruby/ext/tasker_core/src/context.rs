@@ -7,7 +7,7 @@ use magnus::r_hash::ForEach;
 use magnus::value::ReprValue;
 use magnus::{Error, IntoValue, RHash, RString, TryConvert, Value};
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use tracing::{warn};
 
 /// Ruby wrapper for the Rust StepContext
 ///
@@ -303,27 +303,19 @@ pub fn ruby_value_to_json_with_validation(
         }
 
         let mut map = serde_json::Map::new();
-        debug!("🔍 CONTEXT: Processing hash with {} entries", hash.len());
         hash.foreach(|key: Value, value: Value| -> Result<ForEach, Error> {
-            debug!("🔍 CONTEXT: Processing key: {:?}, value: {:?}", key, value);
             // Handle both string keys and symbol keys
             let key_string = if let Some(key_str) = RString::from_value(key) {
                 // String key
                 let s = unsafe { key_str.as_str() }?.to_string();
-                debug!("🔍 CONTEXT: Found string key: {}", s);
                 s
             } else {
                 // Try to call to_s on any key (symbols, etc)
                 match key.funcall::<&str, (), String>("to_s", ()) {
                     Ok(s) => {
-                        debug!("🔍 CONTEXT: Converted key to string: {}", s);
                         s
                     }
                     Err(e) => {
-                        debug!(
-                            "🔍 CONTEXT: Failed to convert key to string: {:?}, skipping",
-                            e
-                        );
                         // Skip unknown key types
                         return Ok(ForEach::Continue);
                     }
@@ -343,14 +335,9 @@ pub fn ruby_value_to_json_with_validation(
             }
 
             let json_value = ruby_value_to_json_with_validation(value, config)?;
-            debug!(
-                "🔍 CONTEXT: Inserting key '{}' with value: {:?}",
-                key_string, json_value
-            );
             map.insert(key_string, json_value);
             Ok(ForEach::Continue)
         })?;
-        debug!("🔍 CONTEXT: Final map has {} entries", map.len());
         serde_json::Value::Object(map)
     } else if let Some(array) = magnus::RArray::from_value(ruby_value) {
         // Validate array length

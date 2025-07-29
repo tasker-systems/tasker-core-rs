@@ -333,6 +333,242 @@ impl ViableStepDiscovery {
             },
         })
     }
+
+    /// Build complete StepExecutionRequest objects with all necessary context
+    ///
+    /// This method loads the complete task context, handler configurations, and dependency results
+    /// needed for Ruby workers to execute workflow steps. It addresses the critical TODO in
+    /// WorkflowCoordinator::convert_viable_steps_to_execution_requests by providing a proper
+    /// implementation that loads real data instead of placeholder values.
+    ///
+    /// # Arguments
+    /// * `task_id` - The task ID to load context for
+    /// * `viable_steps` - The viable steps discovered for execution
+    /// * `task_handler_registry` - Registry to resolve handler class names and configurations
+    ///
+    /// # Returns
+    /// Vector of complete StepExecutionRequest objects with:
+    /// - Handler class name from task configuration
+    /// - Handler configuration from task templates
+    /// - Task context (parameters, metadata)
+    /// - Previous step results with proper naming
+    /// - Step metadata like retry limits and timeouts
+    pub async fn build_step_execution_requests(
+        &self,
+        task_id: i64,
+        viable_steps: &[ViableStep],
+        task_handler_registry: &crate::registry::TaskHandlerRegistry,
+    ) -> OrchestrationResult<Vec<crate::execution::command::StepExecutionRequest>> {
+        use crate::execution::command::{StepExecutionRequest, StepRequestMetadata};
+        use crate::models::core::task::Task;
+
+        if viable_steps.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Filter viable steps to ensure dependencies are satisfied (safety check)
+        // While the SQL query should only return steps with satisfied dependencies,
+        // this provides an additional safety layer for data integrity
+        let viable_steps_filtered: Vec<_> = viable_steps
+            .iter()
+            .filter(|step| step.dependencies_satisfied)
+            .collect();
+
+        if viable_steps_filtered.len() != viable_steps.len() {
+            warn!(
+                task_id = task_id,
+                original_count = viable_steps.len(),
+                filtered_count = viable_steps_filtered.len(),
+                "Some viable steps had unsatisfied dependencies and were filtered out"
+            );
+        }
+
+        if viable_steps_filtered.is_empty() {
+            debug!(
+                task_id = task_id,
+                "No viable steps remaining after dependency satisfaction filter"
+            );
+            return Ok(vec![]);
+        }
+
+        debug!(
+            task_id = task_id,
+            step_count = viable_steps_filtered.len(),
+            "Building complete step execution requests with full context"
+        );
+
+        // 1. Load the task with orchestration metadata (namespace, name, version)
+        let task = Task::find_by_id(&self.pool, task_id)
+            .await
+            .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| DiscoveryError::TaskNotFound { task_id })?;
+
+        let task_for_orchestration = task
+            .for_orchestration(&self.pool)
+            .await
+            .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
+
+        debug!(
+            task_id = task_id,
+            task_name = %task_for_orchestration.task_name,
+            namespace = %task_for_orchestration.namespace_name,
+            version = %task_for_orchestration.task_version,
+            "Loaded task orchestration metadata"
+        );
+
+        // 2. Get task template to resolve handler configurations (fail-fast if not found)
+        let task_template = task_handler_registry
+            .get_task_template(
+                &task_for_orchestration.namespace_name,
+                &task_for_orchestration.task_name,
+                &task_for_orchestration.task_version,
+            )
+            .map_err(|e| DiscoveryError::ConfigurationError {
+                entity_type: "task_template".to_string(),
+                entity_id: format!(
+                    "{}/{}/{}",
+                    task_for_orchestration.namespace_name,
+                    task_for_orchestration.task_name,
+                    task_for_orchestration.task_version
+                ),
+                reason: e.to_string(),
+            })?;
+
+        debug!(
+            task_id = task_id,
+            "Found task template for handler configuration"
+        );
+
+        let mut execution_requests = Vec::with_capacity(viable_steps_filtered.len());
+
+        for step in viable_steps_filtered {
+            debug!(
+                task_id = task_id,
+                step_id = step.step_id,
+                step_name = %step.name,
+                "Building execution request for step"
+            );
+
+            // 3. Load step template configuration (fail-fast if not found)
+            let step_template = task_template
+                .step_templates
+                .iter()
+                .find(|st| st.name == step.name)
+                .ok_or_else(|| DiscoveryError::ConfigurationError {
+                    entity_type: "step_template".to_string(),
+                    entity_id: format!(
+                        "{} (in task {}/{}/{})",
+                        step.name,
+                        task_for_orchestration.namespace_name,
+                        task_for_orchestration.task_name,
+                        task_for_orchestration.task_version
+                    ),
+                    reason: "Step template not found in task configuration".to_string(),
+                })?;
+
+            debug!(
+                step_id = step.step_id,
+                handler_class = %step_template.handler_class,
+                "Found step template configuration"
+            );
+
+            let handler_class = step_template.handler_class.clone();
+            let handler_config = step_template
+                .handler_config
+                .as_ref()
+                .and_then(|v| v.as_object())
+                .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default();
+            let timeout_ms = step_template
+                .handler_config
+                .as_ref()
+                .and_then(|config| config.get("timeout_ms"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000u64);
+
+            // 4. Load previous step results (dependencies)
+            let previous_results = self
+                .load_step_dependencies(step.step_id)
+                .await
+                .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
+
+            debug!(
+                step_id = step.step_id,
+                dependency_count = previous_results.len(),
+                "Loaded step dependency results"
+            );
+
+            // 5. Build the execution request with all context
+            let request = StepExecutionRequest {
+                step_id: step.step_id,
+                task_id,
+                step_name: step.name.clone(),
+                handler_class,
+                handler_config,
+                task_context: task_for_orchestration
+                    .task
+                    .context
+                    .clone()
+                    .unwrap_or(serde_json::json!({})),
+                previous_results,
+                metadata: StepRequestMetadata {
+                    attempt: step.attempts,
+                    retry_limit: step.retry_limit,
+                    timeout_ms: timeout_ms as i64,
+                    created_at: chrono::Utc::now(),
+                },
+            };
+
+            execution_requests.push(request);
+        }
+
+        info!(
+            task_id = task_id,
+            request_count = execution_requests.len(),
+            "Built complete step execution requests with full context"
+        );
+
+        Ok(execution_requests)
+    }
+
+    /// Load previous step results for dependencies
+    ///
+    /// This helper method loads the results from completed dependency steps and builds
+    /// a map of step_name -> result_data for use by the current step.
+    async fn load_step_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>, sqlx::Error> {
+        use crate::models::core::workflow_step::WorkflowStep;
+
+        // Load the current step to get its dependencies
+        let current_step = WorkflowStep::find_by_id(&self.pool, step_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+
+        // Get dependency steps
+        let dependency_steps = current_step.get_dependencies(&self.pool).await?;
+
+        let mut previous_results = std::collections::HashMap::new();
+
+        for dep_step in dependency_steps {
+            // Load the step name from named_steps table
+            let step_name = sqlx::query!(
+                "SELECT name FROM tasker_named_steps WHERE named_step_id = $1",
+                dep_step.named_step_id
+            )
+            .fetch_one(&self.pool)
+            .await?
+            .name;
+
+            // Use the step's results if available, otherwise empty object
+            let result_data = dep_step.results.unwrap_or(serde_json::json!({}));
+
+            previous_results.insert(step_name, result_data);
+        }
+
+        Ok(previous_results)
+    }
 }
 
 /// Summary of task readiness status for monitoring

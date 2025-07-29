@@ -1,0 +1,258 @@
+# frozen_string_literal: true
+
+require 'logger'
+
+module TaskerCore
+  module Execution
+    # Ruby wrapper for Rust-backed CommandClient
+    #
+    # This class provides a Ruby-friendly interface to the Rust-backed command client,
+    # eliminating Ruby socket dependencies while maintaining API compatibility.
+    #
+    # @example Basic usage
+    #   client = RustCommandClient.new(host: 'localhost', port: 8080)
+    #   client.connect
+    #
+    #   response = client.register_worker(
+    #     worker_id: 'ruby_worker_1',
+    #     max_concurrent_steps: 10,
+    #     supported_namespaces: ['orders', 'payments'],
+    #     step_timeout_ms: 30000,
+    #     supports_retries: true,
+    #     language_runtime: 'ruby',
+    #     version: RUBY_VERSION
+    #   )
+    #
+    #   client.disconnect
+    #
+    class RustCommandClient
+      # Default configuration
+      DEFAULT_HOST = 'localhost'
+      DEFAULT_PORT = 8080
+      DEFAULT_TIMEOUT = 30
+      DEFAULT_CONNECT_TIMEOUT = 5
+      DEFAULT_NAMESPACE = 'default'
+
+      attr_reader :host, :port, :timeout, :logger, :rust_client, :connected
+
+      def initialize(host: nil, port: nil, timeout: nil)
+        @config = TaskerCore::Config.instance.effective_config
+        @host = host || @config.dig("command_backplane", "server", "host") || DEFAULT_HOST
+        @port = port || @config.dig("command_backplane", "server", "port") || DEFAULT_PORT
+        @timeout = timeout || @config.dig("command_backplane", "server", "timeout") || DEFAULT_TIMEOUT
+        @logger = TaskerCore::Logging::Logger.instance
+        @connected = false
+
+        # Create Rust-backed command client
+        client_config = {
+          host: @host,
+          port: @port,
+          timeout_seconds: @timeout,
+          connect_timeout_seconds: DEFAULT_CONNECT_TIMEOUT,
+          namespace: DEFAULT_NAMESPACE
+        }
+
+        @rust_client = TaskerCore::CommandClient.new_with_config(client_config)
+      end
+
+      # Establish connection to Rust TCP executor
+      #
+      # @return [Boolean] true if connection successful
+      # @raise [ConnectionError] if connection fails
+      def connect
+        return true if connected?
+
+        begin
+          success = @rust_client.connect
+          if success
+            @connected = true
+            logger.info("Connected to Rust TCP executor at #{@host}:#{@port} via Rust client")
+            true
+          else
+            raise ConnectionError, "Rust client connection failed"
+          end
+        rescue StandardError => e
+          logger.error("Failed to connect to #{@host}:#{@port}: #{e.message}")
+          @connected = false
+          raise ConnectionError, "Failed to connect: #{e.message}"
+        end
+      end
+
+      # Close connection to TCP executor
+      def disconnect
+        return unless @rust_client
+
+        begin
+          @rust_client.disconnect
+          @connected = false
+          logger.info("Disconnected from Rust TCP executor")
+        rescue StandardError => e
+          logger.warn("Error disconnecting Rust client: #{e.message}")
+        end
+      end
+
+      # Check if client is connected
+      #
+      # @return [Boolean] true if connected
+      def connected?
+        @connected && @rust_client&.connected?
+      end
+
+      # Register a Ruby worker with the Rust orchestration system
+      #
+      # @param worker_id [String] Unique identifier for this worker
+      # @param max_concurrent_steps [Integer] Maximum number of concurrent steps this worker can handle
+      # @param supported_namespaces [Array<String>] List of namespaces this worker supports
+      # @param step_timeout_ms [Integer] Timeout for individual steps in milliseconds
+      # @param supports_retries [Boolean] Whether this worker supports step retries
+      # @param language_runtime [String] Runtime identifier (usually 'ruby')
+      # @param version [String] Runtime version
+      # @param custom_capabilities [Hash] Additional worker capabilities
+      # @return [Hash] Response from Rust orchestrator
+      # @raise [NotConnectedError] if not connected
+      # @raise [CommandError] if command fails
+      def register_worker(worker_id:, max_concurrent_steps:, supported_namespaces: [DEFAULT_NAMESPACE],
+                         step_timeout_ms:, supports_retries:, language_runtime:,
+                         version:, custom_capabilities: {})
+        ensure_connected!
+
+        options = {
+          worker_id: worker_id,
+          max_concurrent_steps: max_concurrent_steps,
+          supported_namespaces: supported_namespaces,
+          step_timeout_ms: step_timeout_ms,
+          supports_retries: supports_retries,
+          language_runtime: language_runtime,
+          version: version,
+          custom_capabilities: custom_capabilities
+        }
+
+        begin
+          response = @rust_client.register_worker(options)
+          logger.debug("Worker registration successful: #{worker_id}")
+          
+          # Convert to Ruby hash with string keys for compatibility
+          symbolize_response(response)
+        rescue StandardError => e
+          logger.error("Worker registration failed: #{e.message}")
+          raise CommandError, "Worker registration failed: #{e.message}"
+        end
+      end
+
+      # Send heartbeat to maintain worker connection
+      #
+      # @param worker_id [String] Worker identifier
+      # @param current_load [Integer] Current number of steps being processed
+      # @param system_stats [Hash, nil] Optional system statistics
+      # @return [Hash] Response from Rust orchestrator
+      def send_heartbeat(worker_id:, current_load:, system_stats: nil)
+        ensure_connected!
+
+        options = {
+          worker_id: worker_id,
+          current_load: current_load,
+          system_stats: system_stats
+        }
+
+        begin
+          response = @rust_client.send_heartbeat(options)
+          logger.debug("Heartbeat successful for worker: #{worker_id}")
+          
+          # Convert to Ruby hash with string keys for compatibility
+          symbolize_response(response)
+        rescue StandardError => e
+          logger.error("Heartbeat failed: #{e.message}")
+          raise CommandError, "Heartbeat failed: #{e.message}"
+        end
+      end
+
+      # Unregister worker from orchestration system
+      #
+      # @param worker_id [String] Worker identifier
+      # @param reason [String] Reason for unregistration
+      # @return [Hash] Response from Rust orchestrator
+      def unregister_worker(worker_id:, reason: 'Client shutdown')
+        ensure_connected!
+
+        options = {
+          worker_id: worker_id,
+          reason: reason
+        }
+
+        begin
+          response = @rust_client.unregister_worker(options)
+          logger.debug("Worker unregistration successful: #{worker_id}")
+          
+          # Convert to Ruby hash with string keys for compatibility
+          symbolize_response(response)
+        rescue StandardError => e
+          logger.error("Worker unregistration failed: #{e.message}")
+          raise CommandError, "Worker unregistration failed: #{e.message}"
+        end
+      end
+
+      # Send health check command
+      #
+      # @param diagnostic_level [String] Level of diagnostic information ('Basic', 'Detailed', 'Full')
+      # @return [Hash] Health check response
+      def health_check(diagnostic_level: 'Basic')
+        ensure_connected!
+
+        begin
+          response = @rust_client.health_check(diagnostic_level)
+          logger.debug("Health check successful")
+          
+          # Convert to Ruby hash with string keys for compatibility
+          symbolize_response(response)
+        rescue StandardError => e
+          logger.error("Health check failed: #{e.message}")
+          raise CommandError, "Health check failed: #{e.message}"
+        end
+      end
+
+      # Get connection information
+      #
+      # @return [Hash] Connection information
+      def connection_info
+        return { connected: false } unless @rust_client
+
+        begin
+          info = @rust_client.connection_info
+          symbolize_response(info)
+        rescue StandardError => e
+          logger.warn("Failed to get connection info: #{e.message}")
+          { connected: false, error: e.message }
+        end
+      end
+
+      private
+
+      # Ensure client is connected
+      #
+      # @raise [NotConnectedError] if not connected
+      def ensure_connected!
+        raise NotConnectedError, "Client not connected" unless connected?
+      end
+
+      # Convert response to Ruby hash with symbolized keys for compatibility
+      #
+      # @param response [Hash] Response from Rust client
+      # @return [Hash] Response with symbolized keys
+      def symbolize_response(response)
+        case response
+        when Hash
+          response.transform_keys do |key|
+            key.is_a?(String) ? key.to_sym : key
+          end.transform_values { |value| symbolize_response(value) }
+        when Array
+          response.map { |item| symbolize_response(item) }
+        else
+          response
+        end
+      end
+    end
+
+    # Custom error classes (reuse existing ones for compatibility)
+    class RustCommandClientError < CommandClientError; end
+  end
+end

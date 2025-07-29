@@ -60,6 +60,9 @@
 //! ```
 
 use crate::events::{Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent};
+use crate::execution::command_handlers::batch_execution_sender::{
+    BatchExecutionSender, BatchSendError,
+};
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
@@ -72,6 +75,7 @@ use chrono::Utc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
+use uuid;
 
 /// Configuration for workflow coordination
 #[derive(Debug, Clone)]
@@ -188,8 +192,10 @@ pub struct WorkflowCoordinator {
     config_manager: Arc<ConfigurationManager>,
     /// System events manager for structured event publishing
     events_manager: Arc<SystemEventsManager>,
-    /// ZeroMQ pub-sub executor for comprehensive batch execution with database tracking
-    zmq_pub_sub_executor: Option<Arc<crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor>>,
+    /// TCP-based batch execution sender for fire-and-forget step publishing
+    batch_execution_sender: Option<Arc<BatchExecutionSender>>,
+    /// Task handler registry for resolving step handlers
+    task_handler_registry: Arc<TaskHandlerRegistry>,
 }
 
 impl WorkflowCoordinator {
@@ -277,12 +283,16 @@ impl WorkflowCoordinator {
         Self {
             viable_step_discovery,
             state_manager,
-            event_publisher,
+            event_publisher: event_publisher.clone(),
             task_finalizer,
             config,
             config_manager,
             events_manager,
-            zmq_pub_sub_executor: None,
+            batch_execution_sender: None,
+            task_handler_registry: {
+                let ep = event_publisher.clone();
+                Arc::new(TaskHandlerRegistry::with_event_publisher(ep))
+            },
         }
     }
 
@@ -334,19 +344,23 @@ impl WorkflowCoordinator {
         Self {
             viable_step_discovery,
             state_manager,
-            event_publisher,
+            event_publisher: event_publisher.clone(),
             task_finalizer,
             config,
             config_manager,
             events_manager,
-            zmq_pub_sub_executor: None,
+            batch_execution_sender: None,
+            task_handler_registry: {
+                let ep = event_publisher.clone();
+                Arc::new(TaskHandlerRegistry::with_event_publisher(ep))
+            },
         }
     }
 
-    /// Create a new workflow coordinator with shared BatchPublisher for ZeroMQ integration
+    /// Create a new workflow coordinator with shared BatchExecutionSender for TCP integration
     ///
     /// This constructor is specifically designed for OrchestrationSystem integration where
-    /// the BatchPublisher instance should be shared to avoid ZeroMQ socket conflicts.
+    /// the BatchExecutionSender instance should be shared for optimal TCP command routing.
     ///
     /// # Arguments
     /// * `pool` - Database connection pool
@@ -354,14 +368,14 @@ impl WorkflowCoordinator {
     /// * `config_manager` - Shared configuration manager
     /// * `event_publisher` - Shared EventPublisher instance
     /// * `shared_registry` - Shared TaskHandlerRegistry instance
-    /// * `zmq_pub_sub_executor` - Shared ZmqPubSubExecutor for comprehensive batch execution
-    pub fn with_zmq_pub_sub_executor(
+    /// * `batch_execution_sender` - Shared BatchExecutionSender for TCP-based step execution
+    pub fn with_batch_execution_sender(
         pool: sqlx::PgPool,
         config: WorkflowCoordinatorConfig,
         config_manager: Arc<ConfigurationManager>,
         event_publisher: crate::events::publisher::EventPublisher,
-        _shared_registry: TaskHandlerRegistry,
-        zmq_pub_sub_executor: Arc<crate::execution::zeromq_pub_sub_executor::ZmqPubSubExecutor>,
+        shared_registry: TaskHandlerRegistry,
+        batch_execution_sender: Arc<BatchExecutionSender>,
     ) -> Self {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
@@ -403,7 +417,8 @@ impl WorkflowCoordinator {
             config,
             config_manager,
             events_manager,
-            zmq_pub_sub_executor: Some(zmq_pub_sub_executor),
+            batch_execution_sender: Some(batch_execution_sender),
+            task_handler_registry: Arc::new(shared_registry),
         }
     }
 
@@ -776,7 +791,7 @@ impl WorkflowCoordinator {
         Ok(steps)
     }
 
-    /// Execute a batch of steps using ZmqPubSubExecutor with comprehensive database tracking
+    /// Execute a batch of steps using BatchExecutionSender with TCP command routing
     async fn execute_step_batch(
         &self,
         task_id: i64,
@@ -785,71 +800,103 @@ impl WorkflowCoordinator {
         tracing::info!(
             task_id = task_id,
             step_count = steps.len(),
-            "WorkflowCoordinator: Starting ZeroMQ batch execution with comprehensive tracking"
+            "WorkflowCoordinator: Starting TCP batch execution with command routing"
         );
 
-        // Check if we have a ZmqPubSubExecutor configured
-        let zmq_executor = match &self.zmq_pub_sub_executor {
-            Some(executor) => executor,
+        // Check if we have a BatchExecutionSender configured
+        let batch_sender = match &self.batch_execution_sender {
+            Some(sender) => sender,
             None => {
                 return Err(
                     crate::orchestration::errors::OrchestrationError::ExecutionError(
                         crate::orchestration::errors::ExecutionError::StepExecutionFailed {
                             step_id: 0,
-                            reason: "No ZmqPubSubExecutor configured".to_string(),
-                            error_code: Some("NO_ZMQ_EXECUTOR".to_string()),
+                            reason: "No BatchExecutionSender configured".to_string(),
+                            error_code: Some("NO_BATCH_SENDER".to_string()),
                         },
                     ),
                 )
             }
         };
 
-        // Extract step IDs from ViableStep objects
-        // ZmqPubSubExecutor.publish_batch() will handle all the complex logic of:
-        // - Loading step execution contexts from database
-        // - Resolving handler metadata and step names
-        // - Loading task configuration and step templates
-        // - Loading previous step results with proper step names
-        // - Database batch tracking and audit trails
+        // Convert ViableStep objects to StepExecutionRequest objects
+        // This includes all context needed for Ruby workers to execute steps:
+        // - Task context, handler configuration, and dependency results
+        // - Step metadata like retry limits and timeouts
+        let step_execution_requests = self
+            .viable_step_discovery
+            .build_step_execution_requests(task_id, &steps, &self.task_handler_registry)
+            .await?;
 
-        let step_ids: Vec<i64> = steps.iter().map(|step| step.step_id).collect();
+        // Generate batch ID for tracking
+        let batch_id = uuid::Uuid::new_v4().to_string();
 
-        // Delegate to ZmqPubSubExecutor for sophisticated batch publishing with database tracking
-        let batch_id = zmq_executor
-            .publish_batch(step_ids, task_id)
+        // Send batch to workers via TCP command system (fire-and-forget)
+        match batch_sender
+            .send_batch_to_workers(
+                task_id,
+                batch_id.clone(),
+                step_execution_requests,
+                Some("default".to_string()), // TODO: Extract namespace from task
+                &self.task_handler_registry,
+            )
             .await
-            .map_err(|e| {
+        {
+            Ok(send_result) => {
+                tracing::info!(
+                    task_id = task_id,
+                    batch_id = %batch_id,
+                    assigned_worker = %send_result.assigned_worker_id,
+                    step_count = steps.len(),
+                    "Successfully sent batch to TCP worker - fire and forget"
+                );
+            }
+            Err(BatchSendError::NoAvailableWorkers {
+                namespace,
+                required_capacity,
+            }) => {
+                tracing::warn!(
+                    task_id = task_id,
+                    namespace = %namespace,
+                    required_capacity = required_capacity,
+                    "No available workers for batch execution - will retry later"
+                );
+                // Return early with empty results - task will be re-queued
+                return Ok(vec![]);
+            }
+            Err(e) => {
                 tracing::error!(
                     task_id = task_id,
                     error = %e,
-                    "Failed to publish batch via ZmqPubSubExecutor"
+                    "Failed to send batch via BatchExecutionSender"
                 );
-                // OrchestrationError is already returned by publish_batch
-                e
-            })?;
+                return Err(
+                    crate::orchestration::errors::OrchestrationError::ExecutionError(
+                        crate::orchestration::errors::ExecutionError::StepExecutionFailed {
+                            step_id: 0,
+                            reason: format!("Batch send failed: {}", e),
+                            error_code: Some("BATCH_SEND_FAILED".to_string()),
+                        },
+                    ),
+                );
+            }
+        }
 
-        tracing::info!(
-            task_id = task_id,
-            batch_id = %batch_id,
-            step_count = steps.len(),
-            "Successfully published batch to ZeroMQ - fire and forget"
-        );
-
-        // Return placeholder results indicating steps were published (fire-and-forget)
-        // Actual execution results will be processed asynchronously by the result listener
+        // Return placeholder results indicating steps were sent (fire-and-forget)
+        // Actual execution results will be processed asynchronously by ResultAggregationHandler
         let mut results = Vec::with_capacity(steps.len());
         for step in &steps {
             results.push(StepResult {
                 step_id: step.step_id,
                 status: crate::orchestration::types::StepStatus::InProgress,
                 output: serde_json::json!({
-                    "status": "published",
-                    "message": "Step published to ZeroMQ batch processing system",
+                    "status": "sent_to_worker",
+                    "message": "Step sent to TCP worker for execution",
                     "batch_id": batch_id,
                     "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "note": "Actual execution results will be processed asynchronously"
+                    "note": "Actual execution results will be processed asynchronously via TCP commands"
                 }),
-                execution_duration: std::time::Duration::from_millis(1), // Minimal time for publishing
+                execution_duration: std::time::Duration::from_millis(1), // Minimal time for sending
                 error_message: None,
                 retry_after: None,
                 error_code: None,
@@ -862,10 +909,10 @@ impl WorkflowCoordinator {
 
     // NOTE: finalize_workflow method removed in fire-and-forget architecture
     // Task finalization is now handled by:
-    // 1. TaskFinalizer in partial result processing (ZmqPubSubExecutor::handle_partial_result)
-    // 2. TaskFinalizer in batch completion processing (ZmqPubSubExecutor::handle_batch_completion)
+    // 1. TaskFinalizer in partial result processing (ResultAggregationHandler::handle_partial_result)
+    // 2. TaskFinalizer in batch completion processing (ResultAggregationHandler::handle_batch_completion)
     // This eliminates redundant finalization logic and centralizes it in the appropriate
-    // execution paths where actual step results determine task completion status.
+    // execution paths where actual step results determine task completion status via TCP commands.
 }
 
 #[cfg(test)]

@@ -1,8 +1,8 @@
 //! Health Check Command Handler (Stub)
 
-use async_trait::async_trait;
 use crate::execution::command::{Command, CommandType};
 use crate::execution::command_router::CommandHandler;
+use async_trait::async_trait;
 
 /// Handler for health check commands (placeholder implementation)
 pub struct HealthCheckHandler;
@@ -15,7 +15,10 @@ impl HealthCheckHandler {
 
 #[async_trait]
 impl CommandHandler for HealthCheckHandler {
-    async fn handle_command(&self, _command: Command) -> Result<Option<Command>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_command(
+        &self,
+        _command: Command,
+    ) -> Result<Option<Command>, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Implement health check logic
         Ok(None)
     }

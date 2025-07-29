@@ -35,6 +35,7 @@ pub mod config;
 pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
+pub mod result_processor;
 pub mod state_manager;
 pub mod step_execution_orchestrator;
 pub mod step_handler;
@@ -84,6 +85,7 @@ pub use handler_config::{
     EnvironmentConfig, HandlerConfiguration, ResolvedHandlerConfiguration, StepTemplate,
     StepTemplateOverride,
 };
+pub use result_processor::{OrchestrationResultProcessor, StepError, StepSummary};
 pub use state_manager::StateManager;
 pub use step_execution_orchestrator::{
     StepExecutionOrchestrator, StepExecutionOrchestratorBuilder,

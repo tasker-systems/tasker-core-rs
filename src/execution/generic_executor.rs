@@ -14,8 +14,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::execution::command::{Command, CommandType};
 use crate::execution::command_router::{CommandRouter, CommandRouterError};
+use crate::execution::transport::{
+    ConnectionInfo, Transport, TransportConfig, TransportConnection, TransportListener,
+};
 use crate::execution::worker_pool::{WorkerPool, WorkerPoolError};
-use crate::execution::transport::{Transport, TransportConfig, TransportListener, TransportConnection, ConnectionInfo};
 
 /// Generic executor that works with any transport implementation
 pub struct GenericExecutor<T: Transport> {
@@ -82,20 +84,27 @@ where
             return Err(GenericExecutorError::ServerAlreadyRunning);
         }
 
-        info!("Starting GenericExecutor on {}", self.transport.config().bind_address());
+        info!(
+            "Starting GenericExecutor on {}",
+            self.transport.config().bind_address()
+        );
 
         // Create transport listener
-        let listener = self.transport.create_listener().await
-            .map_err(|e| GenericExecutorError::BindFailed {
+        let listener = self.transport.create_listener().await.map_err(|e| {
+            GenericExecutorError::BindFailed {
                 address: self.transport.config().bind_address().to_string(),
                 error: e.to_string(),
-            })?;
+            }
+        })?;
 
         state.running = true;
         state.start_time = Some(chrono::Utc::now());
         drop(state);
 
-        info!("GenericExecutor listening on {}", self.transport.config().bind_address());
+        info!(
+            "GenericExecutor listening on {}",
+            self.transport.config().bind_address()
+        );
 
         // Start connection acceptance loop
         let executor_clone = self.clone();
@@ -127,7 +136,10 @@ where
         drop(connections);
 
         // Wait for connections to close
-        sleep(Duration::from_millis(self.transport.config().graceful_shutdown_timeout_ms())).await;
+        sleep(Duration::from_millis(
+            self.transport.config().graceful_shutdown_timeout_ms(),
+        ))
+        .await;
 
         state.running = false;
         info!("GenericExecutor stopped");
@@ -149,7 +161,8 @@ where
 
         ExecutorStats {
             running: state.running,
-            uptime_seconds: state.start_time
+            uptime_seconds: state
+                .start_time
                 .map(|start| (chrono::Utc::now() - start).num_seconds() as u64)
                 .unwrap_or(0),
             total_connections: state.total_connections,
@@ -186,8 +199,8 @@ where
                     match accept_result {
                         Ok((connection, connection_info)) => {
                             let connection_id = uuid::Uuid::new_v4().to_string();
-                            info!("New connection: {} from {} ({})", 
-                                connection_id, 
+                            info!("New connection: {} from {} ({})",
+                                connection_id,
                                 connection_info.peer_address,
                                 format!("{:?}", connection_info.transport_type)
                             );
@@ -218,7 +231,12 @@ where
     }
 
     /// Handle individual connection
-    async fn handle_connection(&self, connection_id: String, connection: T::Connection, connection_info: ConnectionInfo) {
+    async fn handle_connection(
+        &self,
+        connection_id: String,
+        connection: T::Connection,
+        connection_info: ConnectionInfo,
+    ) {
         let (shutdown_tx, mut shutdown_rx) = broadcast::channel(16);
 
         // Create connection state
@@ -240,7 +258,8 @@ where
         let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
         // Create command processing channel
-        let (cmd_tx, mut cmd_rx) = mpsc::channel::<Command>(self.transport.config().command_queue_size());
+        let (cmd_tx, mut cmd_rx) =
+            mpsc::channel::<Command>(self.transport.config().command_queue_size());
 
         // Clone references for tasks
         let executor = self.clone();
@@ -249,7 +268,9 @@ where
         // Spawn command processing task
         let cmd_processor = tokio::spawn(async move {
             while let Some(command) = cmd_rx.recv().await {
-                executor.process_command(command, writer_clone.clone()).await;
+                executor
+                    .process_command(command, writer_clone.clone())
+                    .await;
             }
         });
 
@@ -309,11 +330,14 @@ where
     }
 
     /// Process a command through the command router
-    async fn process_command<W>(&self, command: Command, writer: Arc<tokio::sync::Mutex<W>>) 
+    async fn process_command<W>(&self, command: Command, writer: Arc<tokio::sync::Mutex<W>>)
     where
         W: tokio::io::AsyncWriteExt + Send + Unpin,
     {
-        debug!("Processing command: type={:?}, id={}", command.command_type, command.command_id);
+        debug!(
+            "Processing command: type={:?}, id={}",
+            command.command_type, command.command_id
+        );
 
         // Route command through command router
         match self.command_router.route_command(command.clone()).await {
@@ -346,7 +370,7 @@ where
     }
 
     /// Send response command over connection
-    async fn send_response<W>(&self, response: Command, writer: Arc<tokio::sync::Mutex<W>>) 
+    async fn send_response<W>(&self, response: Command, writer: Arc<tokio::sync::Mutex<W>>)
     where
         W: tokio::io::AsyncWriteExt + Send + Unpin,
     {

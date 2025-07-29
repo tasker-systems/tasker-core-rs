@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative 'execution/command_client'
+require_relative 'execution/command_listener'
+require_relative 'execution/batch_execution_handler'
 require_relative 'execution/worker_manager'
 
 module TaskerCore
@@ -11,7 +13,9 @@ module TaskerCore
   #
   # This module includes:
   # - CommandClient: Low-level TCP client for sending commands to Rust
-  # - WorkerManager: High-level worker lifecycle management
+  # - CommandListener: TCP server for receiving commands from Rust
+  # - BatchExecutionHandler: Processes ExecuteBatch commands from Rust orchestrator
+  # - WorkerManager: High-level worker lifecycle management with ExecuteBatch support
   #
   # @example Quick worker setup
   #   TaskerCore::Execution.start_worker(
@@ -41,10 +45,10 @@ module TaskerCore
       # Quick start a worker with default configuration
       #
       # @param worker_id [String] Unique worker identifier
-      # @param supported_namespaces [Array<String>] Namespaces this worker supports
+      # @param supported_namespaces [Array<String>] Namespaces this worker supports (nil = auto-discover)
       # @param options [Hash] Additional worker options
       # @return [WorkerManager] Configured and started worker manager
-      def start_worker(worker_id:, supported_namespaces:, **options)
+      def start_worker(worker_id:, supported_namespaces: nil, **options)
         manager = create_worker_manager(
           worker_id: worker_id,
           supported_namespaces: supported_namespaces,
@@ -58,10 +62,10 @@ module TaskerCore
       # Create a worker manager with default configuration
       #
       # @param worker_id [String] Unique worker identifier
-      # @param supported_namespaces [Array<String>] Namespaces this worker supports
+      # @param supported_namespaces [Array<String>] Namespaces this worker supports (nil = auto-discover)
       # @param options [Hash] Additional worker options
       # @return [WorkerManager] Configured worker manager (not started)
-      def create_worker_manager(worker_id:, supported_namespaces:, **options)
+      def create_worker_manager(worker_id:, supported_namespaces: nil, **options)
         defaults = {
           executor_host: default_executor_host || CommandClient::DEFAULT_HOST,
           executor_port: default_executor_port || CommandClient::DEFAULT_PORT,

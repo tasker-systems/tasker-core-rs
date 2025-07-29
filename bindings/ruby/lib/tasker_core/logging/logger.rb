@@ -35,9 +35,9 @@ module TaskerCore
         log.level = ::Logger::INFO
         log.formatter = proc { |severity, datetime, progname, msg|
           "[#{datetime}] #{severity} TaskerCore #{progname}: #{msg}\n"
-          }
-        end
+        }
       end
     end
+  end
   end
 end

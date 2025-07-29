@@ -590,26 +590,21 @@ impl TaskInitializer {
             let named_step = if let Some(existing_step) = named_steps.first() {
                 existing_step.clone()
             } else {
-                // Create new named step
-                sqlx::query_as!(
-                        NamedStep,
-                        r#"
-                        INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
-                        VALUES ($1, $2, $3, NOW(), NOW())
-                        RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
-                        "#,
-                        self.config.default_system_id,
-                        step_template.name,
-                        step_template.description
-                    )
-                    .fetch_one(&mut **tx)
-                    .await
-                    .map_err(|e| {
-                        TaskInitializationError::Database(format!(
-                            "Failed to create NamedStep '{}': {}",
-                            step_template.name, e
-                        ))
-                    })?
+                // Create new named step using find_or_create_by_name outside the transaction
+                // This automatically creates the dependent system if it doesn't exist
+                let system_name = "tasker_core_rust"; // Use a consistent system name for Rust core
+                NamedStep::find_or_create_by_name(
+                    &self.pool,
+                    &step_template.name,
+                    system_name,
+                )
+                .await
+                .map_err(|e| {
+                    TaskInitializationError::Database(format!(
+                        "Failed to create NamedStep '{}': {}",
+                        step_template.name, e
+                    ))
+                })?
             };
 
             // Create workflow step using transaction

@@ -1,23 +1,19 @@
 # frozen_string_literal: true
 
-require 'socket'
-require 'json'
-require 'timeout'
 require 'logger'
-require 'time'
+require_relative '../types/execution_types'
 
 module TaskerCore
   module Execution
-    # Ruby TCP client for communicating with Rust Command Executor
+    # Ruby wrapper for Rust-backed CommandClient
     #
-    # Provides high-level Ruby interface for sending commands to the Rust
-    # TokioTcpExecutor, handling connection management, serialization,
-    # and response correlation.
+    # This class provides a Ruby-friendly interface to the Rust-backed command client,
+    # eliminating Ruby socket dependencies while maintaining API compatibility.
     #
     # @example Basic usage
     #   client = CommandClient.new(host: 'localhost', port: 8080)
     #   client.connect
-    #   
+    #
     #   response = client.register_worker(
     #     worker_id: 'ruby_worker_1',
     #     max_concurrent_steps: 10,
@@ -27,7 +23,7 @@ module TaskerCore
     #     language_runtime: 'ruby',
     #     version: RUBY_VERSION
     #   )
-    #   
+    #
     #   client.disconnect
     #
     class CommandClient
@@ -36,20 +32,28 @@ module TaskerCore
       DEFAULT_PORT = 8080
       DEFAULT_TIMEOUT = 30
       DEFAULT_CONNECT_TIMEOUT = 5
-      DEFAULT_READ_TIMEOUT = 10
+      DEFAULT_NAMESPACE = 'default'
 
-      attr_reader :host, :port, :timeout, :logger, :socket, :connected
+      attr_reader :host, :port, :timeout, :logger, :rust_client, :connected
 
-      def initialize(host: DEFAULT_HOST, port: DEFAULT_PORT, timeout: DEFAULT_TIMEOUT, logger: nil)
-        @host = host
-        @port = port
-        @timeout = timeout
-        @logger = logger || default_logger
-        @socket = nil
+      def initialize(host: nil, port: nil, timeout: nil)
+        @config = TaskerCore::Config.instance.effective_config
+        @host = host || @config.dig("command_backplane", "server", "host") || DEFAULT_HOST
+        @port = port || @config.dig("command_backplane", "server", "port") || DEFAULT_PORT
+        @timeout = timeout || @config.dig("command_backplane", "server", "timeout") || DEFAULT_TIMEOUT
+        @logger = TaskerCore::Logging::Logger.instance
         @connected = false
-        @command_counter = 0
-        @pending_commands = {}
-        @response_mutex = Mutex.new
+
+        # Create Rust-backed command client
+        client_config = {
+          host: @host,
+          port: @port,
+          timeout_seconds: @timeout,
+          connect_timeout_seconds: DEFAULT_CONNECT_TIMEOUT,
+          namespace: DEFAULT_NAMESPACE
+        }
+
+        @rust_client = TaskerCore::CommandClient.new_with_config(client_config)
       end
 
       # Establish connection to Rust TCP executor
@@ -60,12 +64,14 @@ module TaskerCore
         return true if connected?
 
         begin
-          @socket = TCPSocket.new(@host, @port)
-          @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
-          @connected = true
-          
-          logger.info("Connected to Rust TCP executor at #{@host}:#{@port}")
-          true
+          success = @rust_client.connect
+          if success
+            @connected = true
+            logger.info("Connected to Rust TCP executor at #{@host}:#{@port} via Rust client")
+            true
+          else
+            raise ConnectionError, "Rust client connection failed"
+          end
         rescue StandardError => e
           logger.error("Failed to connect to #{@host}:#{@port}: #{e.message}")
           @connected = false
@@ -75,16 +81,14 @@ module TaskerCore
 
       # Close connection to TCP executor
       def disconnect
-        return unless @socket
+        return unless @rust_client
 
         begin
-          @socket.close
-        rescue StandardError => e
-          logger.warn("Error closing socket: #{e.message}")
-        ensure
-          @socket = nil
+          @rust_client.disconnect
           @connected = false
           logger.info("Disconnected from Rust TCP executor")
+        rescue StandardError => e
+          logger.warn("Error disconnecting Rust client: #{e.message}")
         end
       end
 
@@ -92,7 +96,7 @@ module TaskerCore
       #
       # @return [Boolean] true if connected
       def connected?
-        @connected && @socket && !@socket.closed?
+        @connected && @rust_client&.connected?
       end
 
       # Register a Ruby worker with the Rust orchestration system
@@ -105,50 +109,35 @@ module TaskerCore
       # @param language_runtime [String] Runtime identifier (usually 'ruby')
       # @param version [String] Runtime version
       # @param custom_capabilities [Hash] Additional worker capabilities
-      # @return [Hash] Response from Rust orchestrator
+      # @return [TaskerCore::Types::ExecutionTypes::WorkerRegistrationResponse] Typed response from Rust orchestrator
       # @raise [NotConnectedError] if not connected
       # @raise [CommandError] if command fails
-      def register_worker(worker_id:, max_concurrent_steps:, supported_namespaces:, 
-                         step_timeout_ms:, supports_retries:, language_runtime:, 
+      def register_worker(worker_id:, max_concurrent_steps:, supported_namespaces: [DEFAULT_NAMESPACE],
+                         step_timeout_ms:, supports_retries:, language_runtime:,
                          version:, custom_capabilities: {})
         ensure_connected!
 
-        command = {
-          command_type: 'RegisterWorker',
-          command_id: generate_command_id,
-          correlation_id: nil,
-          metadata: {
-            timestamp: Time.now.utc.iso8601,
-            source: {
-              type: 'RubyWorker',
-              data: {
-                id: worker_id
-              }
-            },
-            target: nil,
-            timeout_ms: step_timeout_ms,
-            retry_policy: nil,
-            namespace: nil,
-            priority: nil
-          },
-          payload: {
-            type: 'RegisterWorker',
-            data: {
-              worker_capabilities: {
-                worker_id: worker_id,
-                max_concurrent_steps: max_concurrent_steps,
-                supported_namespaces: supported_namespaces,
-                step_timeout_ms: step_timeout_ms,
-                supports_retries: supports_retries,
-                language_runtime: language_runtime,
-                version: version,
-                custom_capabilities: custom_capabilities
-              }
-            }
-          }
+        options = {
+          worker_id: worker_id,
+          max_concurrent_steps: max_concurrent_steps,
+          supported_namespaces: supported_namespaces,
+          step_timeout_ms: step_timeout_ms,
+          supports_retries: supports_retries,
+          language_runtime: language_runtime,
+          version: version,
+          custom_capabilities: custom_capabilities
         }
 
-        send_command(command)
+        begin
+          raw_response = @rust_client.register_worker(options)
+          logger.debug("Worker registration successful: #{worker_id}")
+          
+          # Convert raw response to typed WorkerRegistrationResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("Worker registration failed: #{e.message}")
+          raise CommandError, "Worker registration failed: #{e.message}"
+        end
       end
 
       # Send heartbeat to maintain worker connection
@@ -156,187 +145,135 @@ module TaskerCore
       # @param worker_id [String] Worker identifier
       # @param current_load [Integer] Current number of steps being processed
       # @param system_stats [Hash, nil] Optional system statistics
-      # @return [Hash] Response from Rust orchestrator
+      # @return [TaskerCore::Types::ExecutionTypes::HeartbeatResponse] Typed response from Rust orchestrator
       def send_heartbeat(worker_id:, current_load:, system_stats: nil)
         ensure_connected!
 
-        command = {
-          command_type: 'WorkerHeartbeat',
-          command_id: generate_command_id,
-          correlation_id: nil,
-          metadata: {
-            timestamp: Time.now.utc.iso8601,
-            source: {
-              type: 'RubyWorker',
-              data: {
-                id: worker_id
-              }
-            },
-            target: nil,
-            timeout_ms: (@timeout * 1000).to_i,
-            retry_policy: nil,
-            namespace: nil,
-            priority: nil
-          },
-          payload: {
-            type: 'WorkerHeartbeat',
-            data: {
-              worker_id: worker_id,
-              current_load: current_load,
-              system_stats: system_stats
-            }
-          }
+        options = {
+          worker_id: worker_id,
+          current_load: current_load,
+          system_stats: system_stats
         }
 
-        send_command(command)
+        begin
+          raw_response = @rust_client.send_heartbeat(options)
+          logger.debug("Heartbeat successful for worker: #{worker_id}")
+          
+          # Convert raw response to typed HeartbeatResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("Heartbeat failed: #{e.message}")
+          raise CommandError, "Heartbeat failed: #{e.message}"
+        end
       end
 
       # Unregister worker from orchestration system
       #
       # @param worker_id [String] Worker identifier
       # @param reason [String] Reason for unregistration
-      # @return [Hash] Response from Rust orchestrator
+      # @return [TaskerCore::Types::ExecutionTypes::WorkerUnregistrationResponse] Typed response from Rust orchestrator
       def unregister_worker(worker_id:, reason: 'Client shutdown')
         ensure_connected!
 
-        command = {
-          command_type: 'UnregisterWorker',
-          command_id: generate_command_id,
-          correlation_id: nil,
-          metadata: {
-            timestamp: Time.now.utc.iso8601,
-            source: {
-              type: 'RubyWorker',
-              data: {
-                id: worker_id
-              }
-            },
-            target: nil,
-            timeout_ms: (@timeout * 1000).to_i,
-            retry_policy: nil,
-            namespace: nil,
-            priority: nil
-          },
-          payload: {
-            type: 'UnregisterWorker',
-            data: {
-              worker_id: worker_id,
-              reason: reason
-            }
-          }
+        options = {
+          worker_id: worker_id,
+          reason: reason
         }
 
-        send_command(command)
+        begin
+          raw_response = @rust_client.unregister_worker(options)
+          logger.debug("Worker unregistration successful: #{worker_id}")
+          
+          # Convert raw response to typed WorkerUnregistrationResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("Worker unregistration failed: #{e.message}")
+          raise CommandError, "Worker unregistration failed: #{e.message}"
+        end
       end
 
       # Send health check command
       #
       # @param diagnostic_level [String] Level of diagnostic information ('Basic', 'Detailed', 'Full')
-      # @return [Hash] Health check response
+      # @return [TaskerCore::Types::ExecutionTypes::HealthCheckResponse] Typed health check response
       def health_check(diagnostic_level: 'Basic')
         ensure_connected!
 
-        command = {
-          command_type: 'HealthCheck',
-          command_id: generate_command_id,
-          correlation_id: nil,
-          metadata: {
-            timestamp: Time.now.utc.iso8601,
-            source: {
-              type: 'RubyWorker',
-              data: {
-                id: 'health_check_client'
-              }
-            },
-            target: nil,
-            timeout_ms: (@timeout * 1000).to_i,
-            retry_policy: nil,
-            namespace: nil,
-            priority: nil
-          },
-          payload: {
-            type: 'HealthCheck',
-            data: {
-              diagnostic_level: diagnostic_level
-            }
-          }
-        }
-
-        send_command(command)
-      end
-
-      private
-
-      # Send command to Rust executor and wait for response
-      #
-      # @param command [Hash] Command to send
-      # @return [Hash] Response from executor
-      # @raise [CommandError] if command fails
-      def send_command(command)
-        json_command = JSON.generate(command)
-        command_id = command[:command_id]
-
-        logger.debug("Sending command: #{command[:command_type]} (ID: #{command_id})")
-
         begin
-          # Send command
-          @socket.puts(json_command)
+          raw_response = @rust_client.health_check(diagnostic_level)
+          logger.debug("Health check successful")
           
-          # Wait for response with timeout
-          raw_response = nil
-          Timeout.timeout(@timeout) do
-            response_line = @socket.gets
-            raise CommandError, "No response received" unless response_line
-            
-            raw_response = JSON.parse(response_line.strip, symbolize_names: true)
-          end
-
-          logger.debug("Received response for command #{command_id}: #{raw_response[:command_type]}")
-          
-          # Validate response correlation
-          if raw_response[:correlation_id] && raw_response[:correlation_id] != command_id
-            logger.warn("Response correlation mismatch: expected #{command_id}, got #{raw_response[:correlation_id]}")
-          end
-
-          # Convert raw response to typed response using ResponseFactory
-          TaskerCore::Types::ResponseFactory.create_response(raw_response)
-        rescue Timeout::Error
-          logger.error("Command #{command_id} timed out after #{@timeout} seconds")
-          raise CommandError, "Command timed out"
-        rescue JSON::ParserError => e
-          logger.error("Failed to parse response for command #{command_id}: #{e.message}")
-          raise CommandError, "Invalid response format: #{e.message}"
+          # Convert raw response to typed HealthCheckResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
-          logger.error("Command #{command_id} failed: #{e.message}")
-          raise CommandError, "Command failed: #{e.message}"
+          logger.error("Health check failed: #{e.message}")
+          raise CommandError, "Health check failed: #{e.message}"
         end
       end
 
-      # Generate unique command ID
+      # Send TryTaskIfReady command to check if task has ready steps and request batch creation
       #
-      # @return [String] Unique command identifier
-      def generate_command_id
-        @command_counter += 1
-        "ruby_cmd_#{Process.pid}_#{@command_counter}_#{Time.now.to_f}"
+      # @param task_id [Integer] Task ID to check for readiness
+      # @return [TaskerCore::Types::ExecutionTypes::TaskReadinessResponse] Typed task readiness response
+      def try_task_if_ready(task_id)
+        ensure_connected!
+        raise ArgumentError, "task_id must be an integer" unless task_id.is_a?(Integer)
+
+        begin
+          raw_response = @rust_client.try_task_if_ready(task_id)
+          logger.debug("TryTaskIfReady command sent for task #{task_id}")
+          
+          # Convert raw response to typed TaskReadinessResponse
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("TryTaskIfReady command failed for task #{task_id}: #{e.message}")
+          raise CommandError, "TryTaskIfReady failed: #{e.message}"
+        end
       end
+
+      # Send InitializeTask command to create a new task
+      #
+      # @param task_request [Hash] Task request data
+      # @return [TaskerCore::Types::ExecutionTypes::InitializeTaskResponse] Typed initialize task response
+      def initialize_task(task_request)
+        ensure_connected!
+        raise ArgumentError, "task_request is required" unless task_request
+
+        begin
+          raw_response = @rust_client.initialize_task(task_request)
+          logger.debug("InitializeTask command sent")
+          
+          # Convert raw response to typed response
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("InitializeTask command failed: #{e.message}")
+          raise CommandError, "InitializeTask failed: #{e.message}"
+        end
+      end
+
+      # Get connection information
+      #
+      # @return [Hash] Connection information
+      def connection_info
+        return { connected: false } unless @rust_client
+
+        begin
+          info = @rust_client.connection_info
+          # Return as-is since this is connection metadata, not a command response
+          info.is_a?(Hash) ? info.transform_keys(&:to_sym) : info
+        rescue StandardError => e
+          logger.warn("Failed to get connection info: #{e.message}")
+          { connected: false, error: e.message }
+        end
+      end
+
+      private
 
       # Ensure client is connected
       #
       # @raise [NotConnectedError] if not connected
       def ensure_connected!
         raise NotConnectedError, "Client not connected" unless connected?
-      end
-
-      # Create default logger
-      #
-      # @return [Logger] Default logger instance
-      def default_logger
-        logger = Logger.new(STDOUT)
-        logger.level = Logger::INFO
-        logger.formatter = proc do |severity, datetime, progname, msg|
-          "[#{datetime}] #{severity}: #{msg}\n"
-        end
-        logger
       end
     end
 

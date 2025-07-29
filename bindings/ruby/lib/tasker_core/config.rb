@@ -37,6 +37,7 @@ module TaskerCore
       @config_directory = DEFAULT_CONFIG_DIR
       @environment = detect_environment
       @loaded_config = nil
+      load_config!
     end
 
     # Detect current environment from common environment variables

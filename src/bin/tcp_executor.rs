@@ -1,5 +1,5 @@
 //! TCP Executor Binary
-//! 
+//!
 //! Standalone binary for running the Rust Command TCP Executor server.
 //! This replaces ZeroMQ with native TCP communication for Ruby-Rust integration.
 
@@ -7,9 +7,14 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::info;
 
-use tasker_core::execution::tokio_tcp_executor::{TokioTcpExecutor, TcpExecutorConfig};
-use tasker_core::execution::command_handlers::WorkerManagementHandler;
 use tasker_core::execution::command::CommandType;
+use tasker_core::execution::command_handlers::{
+    ResultAggregationHandler, ResultHandlerConfig, WorkerManagementHandler,
+};
+use tasker_core::execution::generic_executor::TcpExecutor;
+use tasker_core::execution::transport::{TcpTransport, TcpTransportConfig, Transport};
+use tasker_core::ffi::shared::orchestration_system::initialize_unified_orchestration_system;
+use tasker_core::orchestration::{task_finalizer::TaskFinalizer, OrchestrationResultProcessor};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,8 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Rust TCP Command Executor");
 
-    // Create TCP executor configuration
-    let config = TcpExecutorConfig {
+    // Create TCP transport configuration
+    let transport_config = TcpTransportConfig {
         bind_address: "127.0.0.1:8080".to_string(),
         command_queue_size: 1000,
         connection_timeout_ms: 30000,
@@ -29,21 +34,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_connections: 100,
     };
 
-    // Create executor
-    let executor = TokioTcpExecutor::new(config).await?;
-    
+    // Create transport and executor
+    let transport = TcpTransport::new(transport_config);
+    let executor = TcpExecutor::new(transport).await?;
+
     // Set up command handlers
     let worker_pool = executor.worker_pool();
     let router = executor.command_router();
-    let worker_handler = Arc::new(WorkerManagementHandler::new(worker_pool.clone()));
+
+    // Initialize unified orchestration system for orchestration components
+    let orchestration_system = initialize_unified_orchestration_system();
+
+    // Create result processor from orchestration system components
+    let result_processor = Arc::new(OrchestrationResultProcessor::new(
+        orchestration_system.state_manager.clone(),
+        TaskFinalizer::new(orchestration_system.database_pool.clone()),
+        orchestration_system.database_pool.clone(),
+    ));
+
+    // Create handlers
+    let worker_handler = Arc::new(WorkerManagementHandler::new(
+        worker_pool.clone(),
+        orchestration_system.database_pool.clone(),
+        "tcp_executor_bin".to_string(),
+    ));
+    let result_handler = Arc::new(ResultAggregationHandler::new(
+        worker_pool.clone(),
+        result_processor,
+        ResultHandlerConfig::default(),
+    ));
 
     // Register command handlers
-    router.register_handler(CommandType::RegisterWorker, worker_handler.clone()).await?;
-    router.register_handler(CommandType::UnregisterWorker, worker_handler.clone()).await?;
-    router.register_handler(CommandType::WorkerHeartbeat, worker_handler.clone()).await?;
-    router.register_handler(CommandType::HealthCheck, worker_handler).await?;
+    router
+        .register_handler(CommandType::RegisterWorker, worker_handler.clone())
+        .await?;
+    router
+        .register_handler(CommandType::UnregisterWorker, worker_handler.clone())
+        .await?;
+    router
+        .register_handler(CommandType::WorkerHeartbeat, worker_handler.clone())
+        .await?;
+    router
+        .register_handler(CommandType::HealthCheck, worker_handler)
+        .await?;
 
-    info!("Command handlers registered");
+    // Register result aggregation handlers
+    router
+        .register_handler(CommandType::ReportPartialResult, result_handler.clone())
+        .await?;
+    router
+        .register_handler(CommandType::ReportBatchCompletion, result_handler)
+        .await?;
+
+    info!(
+        "All command handlers registered (worker management, batch execution, result aggregation)"
+    );
 
     // Start the executor
     executor.start().await?;

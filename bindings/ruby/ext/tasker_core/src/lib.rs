@@ -29,6 +29,8 @@
 
 use magnus::{Error, Module, Ruby};
 
+mod command_client;
+mod command_listener;
 mod context;
 mod error_translation;
 mod ffi_logging;
@@ -37,11 +39,11 @@ mod handles; // 🎯 NEW: Handle-based FFI architecture
 mod performance;
 mod test_helpers;
 mod types;
+mod worker_manager;
 
 // Direct handler imports (simplified from handlers/ module)
 mod handlers {
     pub mod base_task_handler;
-    pub mod ruby_step_handler;
 }
 
 // Direct model imports (simplified from models/ module)
@@ -89,9 +91,6 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // Note: Magnus-wrapped structs are automatically registered when used
     // All type classes are properly namespaced (e.g., TaskerCore::Types::WorkflowStepInput)
-
-    // Register RubyStepHandler wrapper class
-    handlers::ruby_step_handler::register_ruby_step_handler_class(ruby, &module)?;
 
     // Register task handler bridge functions
     handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
@@ -142,6 +141,11 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // This simplifies FFI and avoids complex class registration issues
 
     // 🎯 TASKHANDLER: TaskHandlerInitializeResult now explicitly registered under TaskerCore::
+
+    // 🎯 COMMAND ARCHITECTURE: Register Rust-backed command components for eliminating Ruby socket dependencies
+    command_client::register_command_client(&module)?;
+    command_listener::register_command_listener(&module)?;
+    worker_manager::register_worker_manager(&module)?;
 
     // 🎯 EMBEDDED TCP EXECUTOR: Register embedded server control for single-process deployments
     embedded_tcp_executor::init_embedded_tcp_executor(&module)?;

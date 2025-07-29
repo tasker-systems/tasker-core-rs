@@ -214,7 +214,9 @@ impl SharedOrchestrationHandle {
 
     /// Ensure embedded TCP executor container is ready for use
     /// The container is initialized at orchestration system creation time
-    pub fn ensure_embedded_tcp_executor(&self) -> Result<(), crate::ffi::tcp_executor::ServerError> {
+    pub fn ensure_embedded_tcp_executor(
+        &self,
+    ) -> Result<(), crate::ffi::tcp_executor::ServerError> {
         self.orchestration_system.ensure_embedded_tcp_executor()
     }
 
@@ -352,7 +354,9 @@ impl SharedOrchestrationHandle {
     /// Check if TCP executor is enabled and available
     pub fn is_tcp_executor_enabled(&self) -> SharedFFIResult<bool> {
         let _validated_handle = self.validate_or_refresh()?;
-        Ok(self.orchestration_system.is_embedded_tcp_executor_available())
+        Ok(self
+            .orchestration_system
+            .is_embedded_tcp_executor_available())
     }
 
     /// Receive result messages from TCP executor (placeholder for future implementation)
@@ -363,7 +367,10 @@ impl SharedOrchestrationHandle {
         // This would connect to the TCP executor to receive results
         let results = Vec::new();
 
-        if self.orchestration_system.is_embedded_tcp_executor_available() {
+        if self
+            .orchestration_system
+            .is_embedded_tcp_executor_available()
+        {
             Ok(results)
         } else {
             Err(SharedFFIError::TcpExecutorNotAvailable(

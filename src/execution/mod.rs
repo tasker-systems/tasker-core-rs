@@ -6,14 +6,14 @@ pub mod zeromq_pub_sub_executor;
 
 // New Command Pattern Architecture
 pub mod command;
-pub mod command_router;
-pub mod tokio_tcp_executor;
-pub mod worker_pool;
 pub mod command_handlers;
-pub mod executor;
+pub mod command_router;
 pub mod errors;
-pub mod transport;
+pub mod executor;
 pub mod generic_executor;
+pub mod tokio_tcp_executor;
+pub mod transport;
+pub mod worker_pool;
 
 // Legacy exports (ZeroMQ)
 pub use message_protocols::{
@@ -22,14 +22,14 @@ pub use message_protocols::{
 pub use zeromq_pub_sub_executor::ZmqPubSubExecutor;
 
 // New Command Pattern exports
-pub use command::{Command, CommandPayload, CommandType, CommandResult};
-pub use command_router::{CommandRouter, CommandHandler};
+pub use command::{Command, CommandPayload, CommandResult, CommandType};
+pub use command_router::{CommandHandler, CommandRouter};
+pub use executor::{SocketType, TcpExecutorConfig, UnixDatagramConfig};
+pub use generic_executor::{ExecutorStats, GenericExecutor, TcpExecutor, UnixDatagramExecutor};
 pub use tokio_tcp_executor::TokioTcpExecutor;
-pub use executor::{TcpExecutorConfig, UnixDatagramConfig, SocketType};
-pub use worker_pool::{WorkerPool, WorkerState, WorkerPoolConfig};
 pub use transport::{
-    Transport, TransportListener, TransportConnection, TransportConfig,
-    TcpTransport, TcpTransportConfig, UnixDatagramTransport, UnixDatagramTransportConfig,
-    ConnectionInfo, TransportType
+    ConnectionInfo, TcpTransport, TcpTransportConfig, Transport, TransportConfig,
+    TransportConnection, TransportListener, TransportType, UnixDatagramTransport,
+    UnixDatagramTransportConfig,
 };
-pub use generic_executor::{GenericExecutor, TcpExecutor, UnixDatagramExecutor, ExecutorStats};
+pub use worker_pool::{WorkerPool, WorkerPoolConfig, WorkerState};

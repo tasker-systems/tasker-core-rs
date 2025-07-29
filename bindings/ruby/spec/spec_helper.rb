@@ -50,6 +50,16 @@ RSpec.configure do |config|
     end
   end
 
+  config.after(:each) do |example|
+    # Cleanup any test workers and servers started during the test
+    if respond_to?(:stop_all_test_workers)
+      stop_all_test_workers
+    end
+    if respond_to?(:stop_all_test_servers)
+      stop_all_test_servers
+    end
+  end
+
   config.after(:suite) do
     puts "🧹 Cleaning up test environment using TaskerCore::Environment"
     # Cleanup test environment through our new domain API

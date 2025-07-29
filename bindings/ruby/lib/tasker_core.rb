@@ -45,26 +45,47 @@ require_relative 'tasker_core/orchestration/orchestration_manager'     # Singlet
 require_relative 'tasker_core/internal/testing_manager'           # Singleton testing manager
 require_relative 'tasker_core/internal/testing_factory_manager'   # Singleton testing factory manager
 
-# 🎯 NEW: Clean Domain APIs with handle-based optimization
+# 🎯 Clean Domain APIs - Ruby-idiomatic interfaces with handle-based optimization
+#
+# Domain Pattern: Each domain provides clean public API while internally using
+# the shared OrchestrationManager singleton for optimal FFI performance
+#
+# Primary Domains:
+#   - Factory: Test data creation (TaskerCore::Factory.task, .workflow_step, .foundation)
+#   - Registry: Handler management (TaskerCore::Registry.register, .find, .include?)
+#   - Performance: System monitoring (TaskerCore::Performance.system_health, .analytics)
+#   - Events: Event publishing (TaskerCore::Events.publish, .publish_orchestration)
+#   - Testing: Test utilities (TaskerCore::Testing.create_task, .setup_environment)
+#   - Handlers: Step/task handlers (TaskerCore::Handlers::Steps, TaskerCore::Handlers::Tasks)
+#   - Environment: Environment setup (TaskerCore::Environment.setup_test, .cleanup_test)
+#   - Orchestration: Workflow execution (TaskerCore::Orchestration.execute_workflow)
+#   - Execution: Ruby-Rust command integration (TaskerCore::Execution.start_worker)
+#
+
+require_relative 'tasker_core/monkeypatch'
 require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
 require_relative 'tasker_core/factory'           # TaskerCore::Factory domain
 require_relative 'tasker_core/registry'          # TaskerCore::Registry domain
 require_relative 'tasker_core/performance'       # TaskerCore::Performance domain
-require_relative 'tasker_core/events'            # TaskerCore::Events domain (NEW - replaces complex events.rb)
-require_relative 'tasker_core/testing'           # TaskerCore::Testing domain (NEW)
-require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain (NEW)
+require_relative 'tasker_core/events'            # TaskerCore::Events domain
+require_relative 'tasker_core/testing'           # TaskerCore::Testing domain
+require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
-require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain (Concurrent batch execution)
+require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
 require_relative 'tasker_core/embedded_server'   # TaskerCore::EmbeddedServer for single-process deployments
 
-# Legacy compatibility - these will be deprecated in favor of domain APIs
-require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)
-require_relative 'tasker_core/step_handler/base' # StepHandler::Base
-require_relative 'tasker_core/step_handler/api'  # StepHandler::API
-require_relative 'tasker_core/task_handler/base' # TaskHandler::Base
+# Core systems - required for domain APIs to function
+require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
+require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
+require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/task_handler/results' # TaskHandler result classes and wrappers
 require_relative 'tasker_core/test_helpers' # Test helpers for workflow testing
 require_relative 'tasker_core/models' # Models for TaskerCore
+require_relative 'tasker_core/errors' # Errors for TaskerCore
+require_relative 'tasker_core/execution' # Execution domain for Ruby-Rust Command Integration
+
+# Legacy compatibility modules (maintained for transition period)
+require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)
 
 module TaskerCore
   # Base error hierarchy
@@ -152,11 +173,13 @@ module TaskerCore
         overall: overall_health_status,
         domains: {
           factory: Factory.health,
-          registry: Registry.health,
-          performance: Performance.health,
+          registry: Registry.handle_info,
+          performance: Performance.handle_info,
           events: Events.health,
           testing: Testing.validate_environment,
-          environment: Environment.status
+          orchestration: Orchestration.health,
+          environment: Environment.handle_info,
+          execution: Execution.version_info
         },
         internal: internal_health_status,
         timestamp: Time.now.utc.iso8601
@@ -172,6 +195,8 @@ module TaskerCore
         performance: Performance.handle_info,
         events: Events.handle_info,
         testing: Testing.handle_info,
+        orchestration: Orchestration.handle_info,
+        environment: Environment.handle_info,
         checked_at: Time.now.utc.iso8601
       }
     end
@@ -199,14 +224,14 @@ module TaskerCore
     end
 
     def domain_status
-      %w[Factory Registry Performance Events Testing Handlers Environment].map do |domain|
+      %w[Factory Registry Performance Events Testing Handlers Environment Orchestration Execution].map do |domain|
         domain_class = const_get(domain)
         [
           domain.downcase.to_sym,
           {
             available: domain_class.respond_to?(:handle_info),
             methods: domain_class.respond_to?(:handle_info) ?
-              domain_class.handle_info[:available_methods] : []
+              (domain_class.handle_info['available_methods'] || domain_class.handle_info[:available_methods] || []) : []
           }
         ]
       end.to_h
@@ -239,8 +264,16 @@ module TaskerCore
     end
   end
 
-  # Legacy compatibility aliases (to be deprecated)
-  # These provide access to internal managers for backward compatibility
+  # Direct access to internal components - maintained for transition period
+  # New development should use domain APIs instead (e.g., TaskerCore::Orchestration, TaskerCore::Testing)
+  module Internal
+    autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
+    autoload :TestingManager, 'tasker_core/internal/testing_manager'
+    autoload :TestingFactoryManager, 'tasker_core/internal/testing_factory_manager'
+  end
+
+  # Legacy direct aliases - deprecated, use TaskerCore::Internal instead
+  # These use autoload to match the Internal module pattern
   autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
   autoload :TestingManager, 'tasker_core/internal/testing_manager'
   autoload :TestingFactoryManager, 'tasker_core/internal/testing_factory_manager'

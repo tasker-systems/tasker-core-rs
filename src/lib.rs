@@ -89,6 +89,7 @@ pub mod models;
 pub mod orchestration;
 pub mod registry;
 pub mod scopes;
+pub mod services;
 pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;

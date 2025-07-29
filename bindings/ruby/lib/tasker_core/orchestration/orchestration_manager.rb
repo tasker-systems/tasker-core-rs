@@ -258,33 +258,6 @@ module TaskerCore
       end
     end
 
-    # 🎯 SHARED STEP EXECUTION: Create shared RubyStepHandler bridge
-    # The RubyStepHandler should be a shared FFI bridge component, not per-step instances
-    # This provides a single bridge for all Ruby step handler execution
-    def get_shared_step_handler
-      orchestration_system # Ensure initialized
-
-      # Create a shared step execution bridge that handles FFI delegation
-      # This is instantiated once and used by all Ruby step handlers
-      @shared_step_handler ||= begin
-        logger.info "✅ Creating shared RubyStepHandler FFI bridge"
-        # RubyStepHandler acts as shared bridge - no per-step configuration needed
-        handle = orchestration_handle
-        if handle
-          # Get step executor from orchestration system
-          step_executor = handle.step_executor if handle.respond_to?(:step_executor)
-          TaskerCore::RubyStepHandler.new("SharedBridge", "shared", step_executor)
-        else
-          logger.error "Failed to get orchestration handle for step handler bridge"
-          nil
-        end
-      rescue StandardError => e
-        error_msg = "Failed to create shared step handler: #{e.message}"
-        logger.error error_msg
-        nil
-      end
-    end
-
     # 🎯 NEW: Handle-based architecture methods for optimal FFI performance
 
     # Get or create the orchestration handle (SINGLE INITIALIZATION)
@@ -472,6 +445,141 @@ module TaskerCore
       }
     rescue StandardError => e
       { enabled: false, error: e.message }
+    end
+
+    # 🎯 RUST-BACKED COMMAND ARCHITECTURE INTEGRATION
+
+    # Create Rust-backed command client for worker communication
+    #
+    # @param host [String] Server host (optional, uses config default)
+    # @param port [Integer] Server port (optional, uses config default)
+    # @param timeout [Integer] Connection timeout (optional, uses config default)
+    # @return [TaskerCore::Execution::CommandClient] Rust-backed command client
+    def create_command_client(host: nil, port: nil, timeout: nil)
+      orchestration_system # Ensure initialized
+
+      begin
+        logger.info "🎯 Creating Rust-backed CommandClient for worker communication"
+        TaskerCore::Execution::CommandClient.new(
+          host: host,
+          port: port,
+          timeout: timeout
+        )
+      rescue StandardError => e
+        error_msg = "Failed to create Rust-backed CommandClient: #{e.class.name}: #{e.message}"
+        logger.error error_msg
+        raise TaskerCore::Errors::OrchestrationError, error_msg
+      end
+    end
+
+    # Create Rust-backed worker manager for lifecycle management
+    #
+    # @param worker_id [String] Unique worker identifier
+    # @param supported_namespaces [Array<String>] Namespaces this worker supports (optional, auto-discovered)
+    # @param max_concurrent_steps [Integer] Maximum concurrent steps (optional, uses default)
+    # @param heartbeat_interval [Integer] Heartbeat interval in seconds (optional, uses default)
+    # @param server_host [String] Server host (optional, uses config default)
+    # @param server_port [Integer] Server port (optional, uses config default)
+    # @param custom_capabilities [Hash] Additional worker capabilities (optional)
+    # @return [TaskerCore::Execution::WorkerManager] Rust-backed worker manager
+    def create_worker_manager(worker_id:, supported_namespaces: nil, 
+                             max_concurrent_steps: nil, heartbeat_interval: nil,
+                             server_host: nil, server_port: nil, custom_capabilities: {})
+      orchestration_system # Ensure initialized
+
+      begin
+        logger.info "🎯 Creating Rust-backed WorkerManager for worker #{worker_id}"
+        
+        # Build configuration with defaults
+        config = {
+          worker_id: worker_id,
+          custom_capabilities: custom_capabilities
+        }
+        
+        # Add optional parameters if provided
+        config[:supported_namespaces] = supported_namespaces if supported_namespaces
+        config[:max_concurrent_steps] = max_concurrent_steps if max_concurrent_steps
+        config[:heartbeat_interval] = heartbeat_interval if heartbeat_interval
+        config[:server_host] = server_host if server_host
+        config[:server_port] = server_port if server_port
+
+        TaskerCore::Execution::WorkerManager.new(**config)
+      rescue StandardError => e
+        error_msg = "Failed to create Rust-backed WorkerManager: #{e.class.name}: #{e.message}"
+        logger.error error_msg
+        raise TaskerCore::Errors::OrchestrationError, error_msg
+      end
+    end
+
+    # Get command architecture status and configuration
+    #
+    # @return [Hash] Command architecture information
+    def command_architecture_status
+      orchestration_system # Ensure initialized
+
+      begin
+        tcp_status = tcp_integration_status
+        
+        {
+          architecture: 'rust_backed_commands',
+          tcp_integration: tcp_status,
+          rust_ffi_available: defined?(TaskerCore::CommandClient),
+          worker_manager_available: defined?(TaskerCore::WorkerManager),
+          command_listener_available: defined?(TaskerCore::CommandListener),
+          components: {
+            command_client: 'TaskerCore::Execution::CommandClient (Rust-backed)',
+            worker_manager: 'TaskerCore::Execution::WorkerManager (Rust-backed)',
+            orchestration_handle: 'TaskerCore::OrchestrationHandle (Handle-based FFI)'
+          }
+        }
+      rescue StandardError => e
+        {
+          architecture: 'error',
+          error: e.message,
+          components: {}
+        }
+      end
+    end
+
+    # Auto-discover and register a Ruby worker with optimal configuration
+    #
+    # This method provides a high-level interface for Ruby applications to easily
+    # register workers with the Rust orchestration system using auto-discovered
+    # namespaces and optimal default configuration.
+    #
+    # @param worker_id [String] Unique worker identifier
+    # @param custom_capabilities [Hash] Additional worker capabilities (optional)
+    # @return [TaskerCore::Execution::WorkerManager] Configured and started worker manager
+    # @raise [TaskerCore::Errors::OrchestrationError] if worker registration fails
+    def register_ruby_worker(worker_id:, custom_capabilities: {})
+      orchestration_system # Ensure initialized
+
+      begin
+        logger.info "🎯 Auto-registering Ruby worker: #{worker_id}"
+
+        # Create worker manager with auto-discovery
+        worker_manager = create_worker_manager(
+          worker_id: worker_id,
+          custom_capabilities: custom_capabilities.merge(
+            'auto_registered' => true,
+            'orchestration_manager' => true,
+            'ruby_integration' => 'rust_backed'
+          )
+        )
+
+        # Start the worker
+        success = worker_manager.start
+        unless success
+          raise TaskerCore::Errors::OrchestrationError, "Failed to start worker #{worker_id}"
+        end
+
+        logger.info "✅ Ruby worker #{worker_id} registered and started successfully"
+        worker_manager
+      rescue StandardError => e
+        error_msg = "Failed to register Ruby worker #{worker_id}: #{e.class.name}: #{e.message}"
+        logger.error error_msg
+        raise TaskerCore::Errors::OrchestrationError, error_msg
+      end
     end
 
     # ========================================================================

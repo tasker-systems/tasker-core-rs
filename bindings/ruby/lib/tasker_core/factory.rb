@@ -5,6 +5,66 @@ require 'securerandom'
 require_relative 'orchestration/orchestration_manager'
 
 module TaskerCore
+  # Domain module for factory operations with singleton handle management
+  #
+  # This module provides a clean, Ruby-idiomatic API for creating test data
+  # while internally managing a persistent OrchestrationHandle for optimal performance.
+  #
+  # Examples:
+  #   task = TaskerCore::Factory.task(name: "payment_processing")
+  #   step = TaskerCore::Factory.workflow_step(task_id: task['id'], name: "validate_card")
+  #   foundation = TaskerCore::Factory.foundation(namespace: "payments")
+  module Factory
+    class << self
+      # Create a test task with the specified options
+      # @param options [Hash] Task creation parameters
+      # @return [Hash] Created task data
+      # @raise [TaskerCore::Error] If task creation fails
+      def task(options = {})
+        TestHelpers::Factories.task(options)
+      end
+
+      # Create a test workflow step with the specified options
+      # @param options [Hash] Workflow step creation parameters
+      # @return [Hash] Created workflow step data
+      # @raise [TaskerCore::Error] If workflow step creation fails
+      def workflow_step(options = {})
+        TestHelpers::Factories.workflow_step(options)
+      end
+
+      # Create test foundation data with the specified options
+      # @param options [Hash] Foundation data creation parameters
+      # @return [Hash] Created foundation data
+      # @raise [TaskerCore::Error] If foundation creation fails
+      def foundation(options = {})
+        TestHelpers::Factories.foundation(options)
+      end
+
+      # Get health status of the Factory domain
+      # @return [Hash] Health status and metadata
+      def health
+        TestHelpers::Factories.handle_info.merge(
+          'health_status' => 'operational',
+          'domain' => 'Factory'
+        )
+      end
+
+      # Get information about the Factory domain for debugging
+      # @return [Hash] Domain status and metadata
+      def handle_info
+        TestHelpers::Factories.handle_info
+      end
+
+      private
+
+      # Get orchestration handle with automatic refresh
+      # @return [OrchestrationHandle] Active handle instance
+      def handle
+        TaskerCore::Internal::OrchestrationManager.instance.orchestration_handle
+      end
+    end
+  end
+
   module TestHelpers
     # Test data creation factories with robust uniqueness guarantees
     #

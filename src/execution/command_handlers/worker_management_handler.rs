@@ -1,95 +1,412 @@
 //! Worker Management Command Handler
 
 use async_trait::async_trait;
+use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 use crate::execution::command::{Command, CommandPayload, CommandSource, CommandType};
 use crate::execution::command_router::CommandHandler;
 use crate::execution::worker_pool::{WorkerPool, WorkerPoolError};
+use crate::models::core::{
+    named_task::NamedTask,
+    task_namespace::TaskNamespace,
+    worker::{NewWorker, Worker, WorkerMetadata},
+    worker_named_task::{NewWorkerNamedTask, WorkerNamedTask},
+    worker_registration::{NewWorkerRegistration, WorkerRegistration, WorkerStatus},
+    worker_transport_availability::{
+        NewWorkerTransportAvailability, TransportType, WorkerTransportAvailability,
+    },
+};
+use serde::{Deserialize, Serialize};
 use serde_json;
 
+/// Uptime information for the worker management handler
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UptimeInfo {
+    /// Uptime in seconds
+    pub uptime_seconds: u64,
+    /// Human-readable uptime duration
+    pub uptime_duration: String,
+    /// When the handler was started (UTC timestamp)
+    pub started_at_utc: String,
+}
+
+/// Comprehensive system status including uptime and worker statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStatus {
+    /// Overall system status
+    pub status: String,
+    /// Uptime information
+    pub uptime_info: UptimeInfo,
+    /// Core instance identifier
+    pub core_instance_id: String,
+    /// Worker pool statistics
+    pub worker_statistics: WorkerStatistics,
+}
+
+/// Worker pool statistics summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerStatistics {
+    pub total_workers: usize,
+    pub healthy_workers: usize,
+    pub unhealthy_workers: usize,
+    pub total_capacity: usize,
+    pub current_load: usize,
+    pub available_capacity: usize,
+}
+
 /// Handler for worker lifecycle management commands
-/// 
+///
 /// Processes worker registration, unregistration, and heartbeat commands.
 /// Coordinates with the WorkerPool to maintain worker state and health.
-/// 
+///
 /// # Supported Commands
-/// 
+///
 /// - `RegisterWorker`: Register new worker with capabilities
 /// - `UnregisterWorker`: Remove worker from pool
 /// - `WorkerHeartbeat`: Update worker health and load status
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// use tasker_core::execution::command_handlers::WorkerManagementHandler;
 /// use tasker_core::execution::worker_pool::WorkerPool;
 /// use std::sync::Arc;
-/// 
+///
 /// let worker_pool = Arc::new(WorkerPool::new());
 /// let handler = WorkerManagementHandler::new(worker_pool);
 /// ```
 pub struct WorkerManagementHandler {
     /// Reference to the worker pool for state management
     worker_pool: Arc<WorkerPool>,
+    /// Database connection pool for persistent storage
+    db_pool: PgPool,
+    /// Core instance identifier for distributed worker availability tracking
+    core_instance_id: String,
+    /// Start time for uptime calculation
+    start_time: Instant,
+    /// Start time as UTC timestamp for serialization
+    start_time_utc: String,
 }
 
 impl WorkerManagementHandler {
-    /// Create new worker management handler
-    pub fn new(worker_pool: Arc<WorkerPool>) -> Self {
-        Self { worker_pool }
+    /// Create new worker management handler with database persistence
+    pub fn new(worker_pool: Arc<WorkerPool>, db_pool: PgPool, core_instance_id: String) -> Self {
+        let start_time_utc = chrono::Utc::now().to_rfc3339();
+        Self {
+            worker_pool,
+            db_pool,
+            core_instance_id,
+            start_time: Instant::now(),
+            start_time_utc,
+        }
     }
 
-    /// Handle worker registration command
+    /// Get the uptime of this worker management handler in seconds
+    pub fn get_uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    /// Get detailed uptime information
+    pub fn get_uptime_info(&self) -> UptimeInfo {
+        let elapsed = self.start_time.elapsed();
+        UptimeInfo {
+            uptime_seconds: elapsed.as_secs(),
+            uptime_duration: format!(
+                "{}d {}h {}m {}s",
+                elapsed.as_secs() / 86400,
+                (elapsed.as_secs() % 86400) / 3600,
+                (elapsed.as_secs() % 3600) / 60,
+                elapsed.as_secs() % 60
+            ),
+            started_at_utc: self.start_time_utc.clone(),
+        }
+    }
+
+    /// Handle worker registration command with database persistence
     async fn handle_register_worker(
         &self,
         command: &Command,
         worker_capabilities: crate::execution::command::WorkerCapabilities,
     ) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
-        info!("Registering worker: {}", worker_capabilities.worker_id);
-        
-        match self.worker_pool.register_worker(worker_capabilities.clone()).await {
-            Ok(()) => {
-                info!("Worker registered successfully: {}", worker_capabilities.worker_id);
-                
-                // Create success response
-                let response = command.create_response(
-                    CommandType::WorkerRegistered,
-                    CommandPayload::WorkerRegistered {
-                        worker_id: worker_capabilities.worker_id.clone(),
-                        assigned_pool: "default".to_string(),
-                        queue_position: self.get_queue_position(&worker_capabilities.worker_id).await,
+        info!(
+            "Registering worker: {} with database persistence",
+            worker_capabilities.worker_id
+        );
+
+        // 1. Register with in-memory worker pool first (for backward compatibility)
+        if let Err(e) = self
+            .worker_pool
+            .register_worker(worker_capabilities.clone())
+            .await
+        {
+            error!("Worker pool registration failed: {}", e);
+            return Ok(command.create_response(
+                CommandType::Error,
+                CommandPayload::Error {
+                    error_type: "WorkerRegistrationError".to_string(),
+                    message: format!(
+                        "Failed to register worker {}: {}",
+                        worker_capabilities.worker_id, e
+                    ),
+                    details: None,
+                    retryable: match e {
+                        WorkerPoolError::InvalidCapabilities { .. } => false,
+                        _ => true,
                     },
-                    CommandSource::RustServer {
-                        id: "worker_management_handler".to_string(),
-                    },
+                },
+                CommandSource::RustServer {
+                    id: "worker_management_handler".to_string(),
+                },
+            ));
+        }
+
+        // 2. Create or update worker in database
+        let worker_metadata = WorkerMetadata {
+            version: Some(worker_capabilities.version.clone()),
+            ruby_version: worker_capabilities
+                .runtime_info
+                .as_ref()
+                .and_then(|info| info.language_version.clone()),
+            hostname: worker_capabilities
+                .runtime_info
+                .as_ref()
+                .and_then(|info| info.hostname.clone()),
+            pid: worker_capabilities
+                .runtime_info
+                .as_ref()
+                .and_then(|info| info.pid.map(|p| p as i32)),
+            started_at: worker_capabilities
+                .runtime_info
+                .as_ref()
+                .and_then(|info| info.started_at.clone())
+                .or_else(|| Some(chrono::Utc::now().to_rfc3339())),
+            custom: worker_capabilities
+                .custom_capabilities
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.to_string())))
+                .collect(),
+        };
+
+        let worker = match Worker::create_or_update_by_worker_name(
+            &self.db_pool,
+            &worker_capabilities.worker_id,
+            serde_json::to_value(worker_metadata)?,
+        )
+        .await
+        {
+            Ok(worker) => {
+                info!(
+                    "Worker persisted to database: {} (id: {})",
+                    worker.worker_name, worker.worker_id
                 );
-                
-                Ok(response)
+                worker
             }
             Err(e) => {
-                error!("Worker registration failed: {}", e);
-                
-                let response = command.create_response(
+                error!("Failed to persist worker to database: {}", e);
+                return Ok(command.create_response(
                     CommandType::Error,
                     CommandPayload::Error {
-                        error_type: "WorkerRegistrationError".to_string(),
-                        message: format!("Failed to register worker {}: {}", worker_capabilities.worker_id, e),
+                        error_type: "DatabaseError".to_string(),
+                        message: format!("Failed to persist worker to database: {}", e),
                         details: None,
-                        retryable: match e {
-                            WorkerPoolError::InvalidCapabilities { .. } => false,
-                            _ => true,
-                        },
+                        retryable: true,
                     },
                     CommandSource::RustServer {
                         id: "worker_management_handler".to_string(),
                     },
+                ));
+            }
+        };
+
+        // 3. Create worker registration entry
+        let connection_details = if let Some(conn_info) = &worker_capabilities.connection_info {
+            serde_json::json!({
+                "host": conn_info.host,
+                "port": conn_info.port,
+                "listener_port": conn_info.listener_port,
+                "transport_type": conn_info.transport_type,
+                "protocol_version": conn_info.protocol_version,
+            })
+        } else {
+            // Fallback to defaults if no connection info provided
+            warn!(
+                "No connection info provided for worker {}, using defaults",
+                worker_capabilities.worker_id
+            );
+            serde_json::json!({
+                "host": "localhost",
+                "port": 8080,
+                "listener_port": None::<u16>,
+                "transport_type": "tcp",
+            })
+        };
+
+        let connection_type = worker_capabilities
+            .connection_info
+            .as_ref()
+            .map(|info| info.transport_type.clone())
+            .unwrap_or_else(|| "tcp".to_string());
+
+        let new_registration = NewWorkerRegistration {
+            worker_id: worker.worker_id,
+            status: WorkerStatus::Registered,
+            connection_type,
+            connection_details,
+        };
+
+        if let Err(e) = WorkerRegistration::register(&self.db_pool, new_registration).await {
+            error!("Failed to create worker registration: {}", e);
+            return Ok(command.create_response(
+                CommandType::Error,
+                CommandPayload::Error {
+                    error_type: "DatabaseError".to_string(),
+                    message: format!("Failed to create worker registration: {}", e),
+                    details: None,
+                    retryable: true,
+                },
+                CommandSource::RustServer {
+                    id: "worker_management_handler".to_string(),
+                },
+            ));
+        }
+
+        // 4. Register supported tasks (map from namespaces to explicit named tasks)
+        for namespace in &worker_capabilities.supported_namespaces {
+            // TODO: This is a temporary mapping - we need to update the command structure
+            // to accept explicit task support instead of just namespaces
+            if let Err(e) = self
+                .register_worker_for_namespace_tasks(&worker, namespace)
+                .await
+            {
+                warn!(
+                    "Failed to register worker tasks for namespace {}: {}",
+                    namespace, e
                 );
-                
-                Ok(response)
+                // Continue with other namespaces - don't fail the entire registration
             }
         }
+
+        // 5. Create transport availability entry
+        let (transport_type, transport_connection_details) = if let Some(conn_info) =
+            &worker_capabilities.connection_info
+        {
+            let details = match conn_info.transport_type.as_str() {
+                "tcp" => serde_json::json!({
+                    "host": conn_info.host,
+                    "port": conn_info.port,
+                }),
+                "unix" => serde_json::json!({
+                    "socket_path": format!("/tmp/tasker_worker_{}.sock", worker_capabilities.worker_id),
+                }),
+                _ => {
+                    warn!(
+                        "Unknown transport type {}, defaulting to TCP",
+                        conn_info.transport_type
+                    );
+                    serde_json::json!({
+                        "host": conn_info.host,
+                        "port": conn_info.port,
+                    })
+                }
+            };
+            (conn_info.transport_type.clone(), details)
+        } else {
+            // Fallback to TCP defaults
+            warn!("No connection info for transport availability, using TCP defaults");
+            (
+                "tcp".to_string(),
+                serde_json::json!({
+                    "host": "localhost",
+                    "port": 8080,
+                }),
+            )
+        };
+
+        let transport_availability = NewWorkerTransportAvailability {
+            worker_id: worker.worker_id,
+            core_instance_id: self.core_instance_id.clone(),
+            transport_type,
+            connection_details: transport_connection_details,
+            is_reachable: true, // Assume reachable on registration
+        };
+
+        if let Err(e) =
+            WorkerTransportAvailability::upsert(&self.db_pool, transport_availability).await
+        {
+            warn!("Failed to create transport availability entry: {}", e);
+            // Don't fail registration for transport availability issues
+        }
+
+        info!(
+            "Worker registration completed successfully: {}",
+            worker_capabilities.worker_id
+        );
+
+        // Create success response
+        let response = command.create_response(
+            CommandType::WorkerRegistered,
+            CommandPayload::WorkerRegistered {
+                worker_id: worker_capabilities.worker_id.clone(),
+                assigned_pool: "default".to_string(),
+                queue_position: self
+                    .get_queue_position(&worker_capabilities.worker_id)
+                    .await,
+            },
+            CommandSource::RustServer {
+                id: "worker_management_handler".to_string(),
+            },
+        );
+
+        Ok(response)
+    }
+
+    /// Register worker for all named tasks in a namespace (temporary mapping)
+    async fn register_worker_for_namespace_tasks(
+        &self,
+        worker: &Worker,
+        namespace: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // First get the namespace by name
+        let task_namespace = match TaskNamespace::find_by_name(&self.db_pool, namespace).await? {
+            Some(ns) => ns,
+            None => {
+                // Create namespace if it doesn't exist
+                TaskNamespace::find_or_create(&self.db_pool, namespace).await?
+            }
+        };
+
+        // Find all named tasks in this namespace
+        let named_tasks =
+            NamedTask::list_by_namespace(&self.db_pool, task_namespace.task_namespace_id as i64)
+                .await?;
+
+        for named_task in named_tasks {
+            // Create or update the association using the correct method signature
+            if let Err(e) = WorkerNamedTask::create_or_update(
+                &self.db_pool,
+                worker.worker_id,
+                named_task.named_task_id,
+                serde_json::json!({}), // Default empty configuration
+                Some(100),             // Default priority
+            )
+            .await
+            {
+                warn!(
+                    "Failed to associate worker {} with task {} ({}): {}",
+                    worker.worker_name, named_task.name, named_task.named_task_id, e
+                );
+            } else {
+                debug!(
+                    "Associated worker {} with task {} in namespace {}",
+                    worker.worker_name, named_task.name, namespace
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Handle worker unregistration command
@@ -100,11 +417,11 @@ impl WorkerManagementHandler {
         reason: String,
     ) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
         info!("Unregistering worker: {} (reason: {})", worker_id, reason);
-        
+
         match self.worker_pool.unregister_worker(&worker_id).await {
             Ok(()) => {
                 info!("Worker unregistered successfully: {}", worker_id);
-                
+
                 let response = command.create_response(
                     CommandType::WorkerUnregistered,
                     CommandPayload::WorkerUnregistered {
@@ -116,12 +433,12 @@ impl WorkerManagementHandler {
                         id: "worker_management_handler".to_string(),
                     },
                 );
-                
+
                 Ok(response)
             }
             Err(e) => {
                 warn!("Worker unregistration failed: {}", e);
-                
+
                 let response = command.create_response(
                     CommandType::Error,
                     CommandPayload::Error {
@@ -134,7 +451,7 @@ impl WorkerManagementHandler {
                         id: "worker_management_handler".to_string(),
                     },
                 );
-                
+
                 Ok(response)
             }
         }
@@ -146,11 +463,15 @@ impl WorkerManagementHandler {
         command: &Command,
         diagnostic_level: crate::execution::command::HealthCheckLevel,
     ) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
-        info!("Processing health check request with level: {:?}", diagnostic_level);
-        
-        // Get worker pool statistics
+        info!(
+            "Processing health check request with level: {:?}",
+            diagnostic_level
+        );
+
+        // Get worker pool statistics and uptime info
         let pool_stats = self.worker_pool.get_stats().await;
-        
+        let uptime_info = self.get_uptime_info();
+
         let response_data = match diagnostic_level {
             crate::execution::command::HealthCheckLevel::Basic => {
                 serde_json::json!({
@@ -158,6 +479,8 @@ impl WorkerManagementHandler {
                     "total_workers": pool_stats.total_workers,
                     "healthy_workers": pool_stats.healthy_workers,
                     "current_load": pool_stats.current_load,
+                    "uptime_seconds": uptime_info.uptime_seconds,
+                    "uptime_duration": uptime_info.uptime_duration,
                 })
             }
             crate::execution::command::HealthCheckLevel::Detailed => {
@@ -169,6 +492,9 @@ impl WorkerManagementHandler {
                     "total_capacity": pool_stats.total_capacity,
                     "current_load": pool_stats.current_load,
                     "available_capacity": pool_stats.available_capacity,
+                    "uptime_seconds": uptime_info.uptime_seconds,
+                    "uptime_duration": uptime_info.uptime_duration,
+                    "core_instance_id": self.core_instance_id,
                 })
             }
             crate::execution::command::HealthCheckLevel::Full => {
@@ -184,15 +510,17 @@ impl WorkerManagementHandler {
                     "successful_steps": pool_stats.successful_steps,
                     "failed_steps": pool_stats.failed_steps,
                     "namespace_distribution": pool_stats.namespace_distribution,
+                    "uptime_info": uptime_info,
+                    "core_instance_id": self.core_instance_id,
                 })
             }
         };
-        
+
         let response = command.create_response(
             CommandType::HealthCheckResult,
             CommandPayload::HealthCheckResult {
                 status: "healthy".to_string(),
-                uptime_seconds: 0, // TODO: Track actual uptime
+                uptime_seconds: self.get_uptime_seconds(),
                 total_workers: pool_stats.total_workers,
                 active_commands: pool_stats.current_load,
                 diagnostics: Some(response_data),
@@ -201,7 +529,7 @@ impl WorkerManagementHandler {
                 id: "worker_management_handler".to_string(),
             },
         );
-        
+
         Ok(response)
     }
 
@@ -213,15 +541,22 @@ impl WorkerManagementHandler {
         current_load: usize,
         system_stats: Option<crate::execution::command::SystemStats>,
     ) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
-        debug!("Processing heartbeat for worker: {} (load: {})", worker_id, current_load);
-        
-        match self.worker_pool.update_worker_heartbeat(&worker_id, current_load).await {
+        debug!(
+            "Processing heartbeat for worker: {} (load: {})",
+            worker_id, current_load
+        );
+
+        match self
+            .worker_pool
+            .update_worker_heartbeat(&worker_id, current_load)
+            .await
+        {
             Ok(()) => {
                 debug!("Heartbeat processed successfully for worker: {}", worker_id);
-                
+
                 // Get current worker state for response
                 let worker_state = self.worker_pool.get_worker(&worker_id).await;
-                
+
                 let response = command.create_response(
                     CommandType::HeartbeatAcknowledged,
                     CommandPayload::HeartbeatAcknowledged {
@@ -234,17 +569,23 @@ impl WorkerManagementHandler {
                         id: "worker_management_handler".to_string(),
                     },
                 );
-                
+
                 Ok(response)
             }
             Err(e) => {
-                warn!("Heartbeat processing failed for worker {}: {}", worker_id, e);
-                
+                warn!(
+                    "Heartbeat processing failed for worker {}: {}",
+                    worker_id, e
+                );
+
                 let response = command.create_response(
                     CommandType::Error,
                     CommandPayload::Error {
                         error_type: "HeartbeatError".to_string(),
-                        message: format!("Failed to process heartbeat for worker {}: {}", worker_id, e),
+                        message: format!(
+                            "Failed to process heartbeat for worker {}: {}",
+                            worker_id, e
+                        ),
                         details: None,
                         retryable: true, // Heartbeat failures are typically retryable
                     },
@@ -252,7 +593,7 @@ impl WorkerManagementHandler {
                         id: "worker_management_handler".to_string(),
                     },
                 );
-                
+
                 Ok(response)
             }
         }
@@ -266,38 +607,90 @@ impl WorkerManagementHandler {
         // priority, capabilities, or other factors
         stats.total_workers
     }
+
+    /// Get comprehensive system status including uptime and worker statistics
+    pub async fn get_system_status(&self) -> SystemStatus {
+        let pool_stats = self.worker_pool.get_stats().await;
+        let uptime_info = self.get_uptime_info();
+
+        SystemStatus {
+            status: "healthy".to_string(),
+            uptime_info,
+            core_instance_id: self.core_instance_id.clone(),
+            worker_statistics: WorkerStatistics {
+                total_workers: pool_stats.total_workers,
+                healthy_workers: pool_stats.healthy_workers,
+                unhealthy_workers: pool_stats.unhealthy_workers,
+                total_capacity: pool_stats.total_capacity,
+                current_load: pool_stats.current_load,
+                available_capacity: pool_stats.available_capacity,
+            },
+        }
+    }
+
+    /// Check if the system has been running for more than a specified duration
+    pub fn has_been_running_for(&self, duration_seconds: u64) -> bool {
+        self.get_uptime_seconds() >= duration_seconds
+    }
 }
 
 #[async_trait]
 impl CommandHandler for WorkerManagementHandler {
-    async fn handle_command(&self, command: Command) -> Result<Option<Command>, Box<dyn std::error::Error + Send + Sync>> {
-        debug!("WorkerManagementHandler processing command: {:?}", command.command_type);
-        
+    async fn handle_command(
+        &self,
+        command: Command,
+    ) -> Result<Option<Command>, Box<dyn std::error::Error + Send + Sync>> {
+        debug!(
+            "WorkerManagementHandler processing command: {:?}",
+            command.command_type
+        );
+
         let response = match &command.payload {
-            CommandPayload::RegisterWorker { worker_capabilities } => {
-                self.handle_register_worker(&command, worker_capabilities.clone()).await?
+            CommandPayload::RegisterWorker {
+                worker_capabilities,
+            } => {
+                self.handle_register_worker(&command, worker_capabilities.clone())
+                    .await?
             }
-            
+
             CommandPayload::UnregisterWorker { worker_id, reason } => {
-                self.handle_unregister_worker(&command, worker_id.clone(), reason.clone()).await?
+                self.handle_unregister_worker(&command, worker_id.clone(), reason.clone())
+                    .await?
             }
-            
-            CommandPayload::WorkerHeartbeat { worker_id, current_load, system_stats } => {
-                self.handle_worker_heartbeat(&command, worker_id.clone(), *current_load, system_stats.clone()).await?
+
+            CommandPayload::WorkerHeartbeat {
+                worker_id,
+                current_load,
+                system_stats,
+            } => {
+                self.handle_worker_heartbeat(
+                    &command,
+                    worker_id.clone(),
+                    *current_load,
+                    system_stats.clone(),
+                )
+                .await?
             }
-            
+
             CommandPayload::HealthCheck { diagnostic_level } => {
-                self.handle_health_check(&command, diagnostic_level.clone()).await?
+                self.handle_health_check(&command, diagnostic_level.clone())
+                    .await?
             }
-            
+
             _ => {
-                error!("WorkerManagementHandler received unsupported command: {:?}", command.command_type);
-                
+                error!(
+                    "WorkerManagementHandler received unsupported command: {:?}",
+                    command.command_type
+                );
+
                 command.create_response(
                     CommandType::Error,
                     CommandPayload::Error {
                         error_type: "UnsupportedCommand".to_string(),
-                        message: format!("WorkerManagementHandler does not support command type: {:?}", command.command_type),
+                        message: format!(
+                            "WorkerManagementHandler does not support command type: {:?}",
+                            command.command_type
+                        ),
                         details: None,
                         retryable: false,
                     },
@@ -307,7 +700,7 @@ impl CommandHandler for WorkerManagementHandler {
                 )
             }
         };
-        
+
         Ok(Some(response))
     }
 
@@ -324,176 +717,5 @@ impl CommandHandler for WorkerManagementHandler {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::execution::command::{Command, CommandPayload, CommandSource, WorkerCapabilities};
-    use std::collections::HashMap;
-
-    fn create_test_capabilities(worker_id: &str) -> WorkerCapabilities {
-        WorkerCapabilities {
-            worker_id: worker_id.to_string(),
-            max_concurrent_steps: 10,
-            supported_namespaces: vec!["test".to_string()],
-            step_timeout_ms: 30000,
-            supports_retries: true,
-            language_runtime: "ruby".to_string(),
-            version: "3.1.0".to_string(),
-            custom_capabilities: HashMap::new(),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_register_worker_success() {
-        let worker_pool = Arc::new(WorkerPool::new());
-        let handler = WorkerManagementHandler::new(worker_pool.clone());
-        
-        let capabilities = create_test_capabilities("test_worker");
-        let command = Command::new(
-            CommandType::RegisterWorker,
-            CommandPayload::RegisterWorker {
-                worker_capabilities: capabilities.clone(),
-            },
-            CommandSource::RubyWorker {
-                id: "test_worker".to_string(),
-            },
-        );
-
-        let result = handler.handle_command(command).await.unwrap();
-        assert!(result.is_some());
-        
-        let response = result.unwrap();
-        assert_eq!(response.command_type, CommandType::WorkerRegistered);
-        
-        // Verify worker was registered
-        let worker = worker_pool.get_worker("test_worker").await;
-        assert!(worker.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_register_worker_invalid_capabilities() {
-        let worker_pool = Arc::new(WorkerPool::new());
-        let handler = WorkerManagementHandler::new(worker_pool);
-        
-        let mut capabilities = create_test_capabilities("test_worker");
-        capabilities.max_concurrent_steps = 0; // Invalid
-        
-        let command = Command::new(
-            CommandType::RegisterWorker,
-            CommandPayload::RegisterWorker {
-                worker_capabilities: capabilities,
-            },
-            CommandSource::RubyWorker {
-                id: "test_worker".to_string(),
-            },
-        );
-
-        let result = handler.handle_command(command).await.unwrap();
-        assert!(result.is_some());
-        
-        let response = result.unwrap();
-        assert_eq!(response.command_type, CommandType::Error);
-        
-        // Verify error is not retryable for invalid capabilities
-        if let CommandPayload::Error { retryable, .. } = response.payload {
-            assert!(!retryable);
-        } else {
-            panic!("Expected Error payload");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_unregister_worker() {
-        let worker_pool = Arc::new(WorkerPool::new());
-        let handler = WorkerManagementHandler::new(worker_pool.clone());
-        
-        // First register a worker
-        let capabilities = create_test_capabilities("test_worker");
-        worker_pool.register_worker(capabilities).await.unwrap();
-        
-        // Then unregister it
-        let command = Command::new(
-            CommandType::UnregisterWorker,
-            CommandPayload::UnregisterWorker {
-                worker_id: "test_worker".to_string(),
-                reason: "Test shutdown".to_string(),
-            },
-            CommandSource::RubyWorker {
-                id: "test_worker".to_string(),
-            },
-        );
-
-        let result = handler.handle_command(command).await.unwrap();
-        assert!(result.is_some());
-        
-        let response = result.unwrap();
-        assert_eq!(response.command_type, CommandType::Success);
-        
-        // Verify worker was unregistered
-        let worker = worker_pool.get_worker("test_worker").await;
-        assert!(worker.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_worker_heartbeat() {
-        let worker_pool = Arc::new(WorkerPool::new());
-        let handler = WorkerManagementHandler::new(worker_pool.clone());
-        
-        // First register a worker
-        let capabilities = create_test_capabilities("test_worker");
-        worker_pool.register_worker(capabilities).await.unwrap();
-        
-        // Send heartbeat
-        let command = Command::new(
-            CommandType::WorkerHeartbeat,
-            CommandPayload::WorkerHeartbeat {
-                worker_id: "test_worker".to_string(),
-                current_load: 5,
-                system_stats: None,
-            },
-            CommandSource::RubyWorker {
-                id: "test_worker".to_string(),
-            },
-        );
-
-        let result = handler.handle_command(command).await.unwrap();
-        assert!(result.is_some());
-        
-        let response = result.unwrap();
-        assert_eq!(response.command_type, CommandType::Success);
-        
-        // Verify worker load was updated
-        let worker = worker_pool.get_worker("test_worker").await.unwrap();
-        assert_eq!(worker.current_load, 5);
-    }
-
-    #[tokio::test]
-    async fn test_unsupported_command() {
-        let worker_pool = Arc::new(WorkerPool::new());
-        let handler = WorkerManagementHandler::new(worker_pool);
-        
-        let command = Command::new(
-            CommandType::ExecuteBatch,
-            CommandPayload::ExecuteBatch {
-                batch_id: "test_batch".to_string(),
-                steps: vec![],
-            },
-            CommandSource::RustOrchestrator {
-                id: "test_coord".to_string(),
-            },
-        );
-
-        let result = handler.handle_command(command).await.unwrap();
-        assert!(result.is_some());
-        
-        let response = result.unwrap();
-        assert_eq!(response.command_type, CommandType::Error);
-        
-        if let CommandPayload::Error { error_type, retryable, .. } = response.payload {
-            assert_eq!(error_type, "UnsupportedCommand");
-            assert!(!retryable);
-        } else {
-            panic!("Expected Error payload");
-        }
-    }
-}
+// Note: Integration tests for WorkerManagementHandler are located in tests/
+// directory using #[sqlx::test] for proper database testing.

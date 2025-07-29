@@ -2,11 +2,12 @@
 
 require 'dry-struct'
 require 'dry-types'
+require_relative '../monkeypatch'
 
 module TaskerCore
   module Types
     # Type definitions for TaskerCore execution responses from TCP executor
-    # 
+    #
     # This module defines structured response types for all TCP executor commands,
     # providing type safety, validation, and a Ruby-native API instead of raw hashes.
     #
@@ -26,7 +27,7 @@ module TaskerCore
     #       }
     #     }
     #   )
-    #   
+    #
     #   response.healthy?                    # => true
     #   response.uptime_seconds             # => 120
     #   response.diagnostics.current_load   # => 0.1
@@ -35,11 +36,11 @@ module TaskerCore
     #   response = ExecutionTypes::WorkerRegistrationResponse.new(
     #     command_type: 'Success',
     #     payload: {
-    #       type: 'WorkerRegistered', 
+    #       type: 'WorkerRegistered',
     #       data: { worker_id: 'worker-123', registered_at: '2025-01-01T00:00:00Z' }
     #     }
     #   )
-    #   
+    #
     #   response.worker_registered?  # => true
     #   response.worker_id          # => 'worker-123'
     #
@@ -48,18 +49,51 @@ module TaskerCore
         include Dry.Types()
       end
 
-      # Valid command types enum
+      # Valid command types enum (matching Rust CommandType enum)
       CommandTypeEnum = Types::Coercible::String.enum(
+        # Task management operations
+        'InitializeTask',
+
+        # Step execution operations
+        'ExecuteBatch',
+
+        # Task readiness operations
+        'TryTaskIfReady',
+
+        # Result reporting
+        'ReportPartialResult',
+        'ReportBatchCompletion',
+
+        # Worker lifecycle management
+        'RegisterWorker',
+        'UnregisterWorker',
+        'WorkerHeartbeat',
+
+        # Task handler registration
+        'RegisterTaskHandler',
+        'UnregisterTaskHandler',
+
+        # System operations
+        'HealthCheck',
+
+        # Generic FFI operation (future migration path)
+        'FfiOperation',
+
+        # Response types
         'Success',
         'Error',
         'WorkerRegistered',
-        'WorkerUnregistered', 
+        'WorkerUnregistered',
         'HeartbeatAcknowledged',
+        'BatchExecuted',
+        'TaskInitialized',
+        'TaskReadinessResult',
         'HealthCheckResult',
-        'BatchExecuted'
+        'TaskHandlerRegistered',
+        'TaskHandlerUnregistered'
       )
 
-      # Valid health statuses enum  
+      # Valid health statuses enum
       HealthStatusEnum = Types::Coercible::String.enum(
         'healthy',
         'unhealthy',
@@ -90,7 +124,7 @@ module TaskerCore
         attribute :command_type, CommandTypeEnum
         attribute? :command_id, Types::Coercible::String
         attribute? :correlation_id, Types::Coercible::String
-        
+
         # Command metadata (timestamps, source info, etc.)
         attribute? :metadata, CommandMetadata.optional
 
@@ -102,7 +136,7 @@ module TaskerCore
           payload.dig(:type) || payload.dig('type')
         end
 
-        # Extract the response data from payload  
+        # Extract the response data from payload
         def response_data
           payload.dig(:data) || payload.dig('data') || {}
         end
@@ -265,6 +299,50 @@ module TaskerCore
         end
       end
 
+      # Task readiness response data
+      class TaskReadinessData < Dry::Struct
+        attribute :task_id, Types::Coercible::Integer
+        attribute :ready, Types::Bool
+        attribute :batch_info, Types::Hash.optional
+        attribute :ready_steps_count, Types::Coercible::Integer
+        attribute :error_message, Types::String.optional
+      end
+
+      # Task readiness response
+      class TaskReadinessResponse < BaseResponse
+        # Override payload to use structured data
+        def readiness_data
+          @readiness_data ||= TaskReadinessData.new(response_data)
+        end
+
+        def ready?
+          readiness_data.ready
+        end
+
+        def task_id
+          readiness_data.task_id
+        end
+
+        def batch_info
+          readiness_data.batch_info
+        end
+
+        def ready_steps_count
+          readiness_data.ready_steps_count
+        end
+
+        def error_message
+          readiness_data.error_message
+        end
+
+        # Validate this is actually a task readiness response
+        def validate_response_type!
+          unless response_type == 'TaskReadinessResult'
+            raise ArgumentError, "Expected TaskReadinessResult, got #{response_type}"
+          end
+        end
+      end
+
       # Worker unregistration response data
       class WorkerUnregistrationData < Dry::Struct
         attribute :worker_id, Types::Coercible::String
@@ -311,6 +389,255 @@ module TaskerCore
         attribute :retryable, Types::Bool
       end
 
+      # Step request metadata for ExecuteBatch commands
+      class StepRequestMetadata < Dry::Struct
+        attribute :attempt, Types::Integer
+        attribute :retry_limit, Types::Integer
+        attribute :timeout_ms, Types::Integer
+        attribute :priority, Types::Coercible::String.optional
+      end
+
+      # Step execution request for ExecuteBatch commands
+      class StepExecutionRequest < Dry::Struct
+        attribute :step_id, Types::Integer
+        attribute :task_id, Types::Integer
+        attribute :step_name, Types::Coercible::String
+        attribute :handler_class, Types::Coercible::String
+        attribute :handler_config, Types::Hash
+        attribute :task_context, Types::Coercible::Hash
+        attribute :previous_results, Types::Hash
+        attribute :metadata, StepRequestMetadata
+      end
+
+      # Step template for TaskTemplate
+      class StepTemplate < Dry::Struct
+        attribute :name, Types::Coercible::String
+        attribute? :description, Types::Coercible::String.optional
+        attribute :handler_class, Types::Coercible::String
+        attribute? :handler_config, Types::Hash.optional
+        attribute? :depends_on, Types::Array.of(Types::Coercible::String).optional
+        attribute? :retryable, Types::Bool.optional
+        attribute? :retry_limit, Types::Integer.optional
+        attribute? :timeout_seconds, Types::Integer.optional
+      end
+
+      # Task template for ExecuteBatch commands
+      class TaskTemplate < Dry::Struct
+        attribute :name, Types::Coercible::String
+        attribute? :module_namespace, Types::Coercible::String.optional
+        attribute :task_handler_class, Types::Coercible::String
+        attribute :namespace_name, Types::Coercible::String
+        attribute :version, Types::Coercible::String
+        attribute? :description, Types::Coercible::String.optional
+        attribute? :default_dependent_system, Types::Coercible::String.optional
+        attribute? :named_steps, Types::Array.of(Types::Coercible::String).optional
+        attribute? :schema, Types::Hash.optional
+        attribute :step_templates, Types::Array.of(StepTemplate)
+        attribute? :environments, Types::Hash.optional
+        attribute? :custom_events, Types::Array.optional
+      end
+
+      # ExecuteBatch payload data
+      class ExecuteBatchData < Dry::Struct
+        attribute :batch_id, Types::Coercible::String
+        attribute :steps, Types::Array.of(StepExecutionRequest)
+        attribute :task_template, TaskTemplate
+      end
+
+      # ExecuteBatch command response
+      class ExecuteBatchResponse < BaseResponse
+        # Override payload to use structured data
+        def batch_data
+          @batch_data ||= ExecuteBatchData.new(response_data)
+        end
+
+        def batch_id
+          batch_data.batch_id
+        end
+
+        def steps
+          batch_data.steps
+        end
+
+        def task_template
+          batch_data.task_template
+        end
+
+        def step_count
+          steps.size
+        end
+
+        # Check if this is an ExecuteBatch command
+        def execute_batch?
+          command_type == 'ExecuteBatch'
+        end
+
+        # Validate this is actually an ExecuteBatch command
+        def validate_response_type!
+          unless execute_batch?
+            raise ArgumentError, "Expected ExecuteBatch, got #{command_type}"
+          end
+        end
+      end
+
+      # Task initialization payload data
+      class InitializeTaskData < Dry::Struct
+        attribute :task_context, Types::Hash
+        attribute :workflow_steps, Types::Array.of(StepTemplate)
+      end
+
+      # Task initialization response data
+      class TaskInitializedData < Dry::Struct
+        attribute :task_id, Types::Integer
+        attribute :success, Types::Bool
+        attribute :step_count, Types::Integer
+        attribute :workflow_steps, Types::Array.of(StepTemplate)
+        attribute? :error_message, Types::String.optional
+      end
+
+      # Task initialization response
+      class TaskInitializedResponse < BaseResponse
+        def initialization_data
+          @initialization_data ||= TaskInitializedData.new(response_data)
+        end
+
+        def task_initialized?
+          response_type == 'TaskInitialized'
+        end
+
+        def task_id
+          initialization_data.task_id
+        end
+
+        def step_count
+          initialization_data.step_count
+        end
+
+        def workflow_steps
+          initialization_data.workflow_steps
+        end
+
+        def error_message
+          initialization_data.error_message
+        end
+
+        def validate_response_type!
+          unless task_initialized?
+            raise ArgumentError, "Expected TaskInitialized, got #{response_type}"
+          end
+        end
+      end
+
+      # Report partial result payload data
+      class ReportPartialResultData < Dry::Struct
+        attribute :batch_id, Types::Coercible::String
+        attribute :step_id, Types::Integer
+        attribute :result, Types::Hash
+        attribute :execution_time_ms, Types::Integer
+        attribute :worker_id, Types::Coercible::String
+      end
+
+      # Report batch completion payload data
+      class ReportBatchCompletionData < Dry::Struct
+        attribute :batch_id, Types::Coercible::String
+        attribute :completion_status, Types::Coercible::String
+        attribute :total_steps, Types::Integer
+        attribute :successful_steps, Types::Integer
+        attribute :failed_steps, Types::Integer
+        attribute :total_execution_time_ms, Types::Integer
+        attribute :worker_id, Types::Coercible::String
+      end
+
+      # Task handler registration payload data
+      class RegisterTaskHandlerData < Dry::Struct
+        attribute :handler_class, Types::Coercible::String
+        attribute :namespace, Types::Coercible::String
+        attribute :capabilities, Types::Array.of(Types::Coercible::String)
+        attribute :worker_id, Types::Coercible::String
+      end
+
+      # Task handler registration response data
+      class TaskHandlerRegistrationData < Dry::Struct
+        attribute :handler_class, Types::Coercible::String
+        attribute :namespace, Types::Coercible::String
+        attribute :registered_at, Types::Coercible::String
+        attribute :registration_id, Types::Coercible::String
+      end
+
+      # Task handler registration response
+      class TaskHandlerRegistrationResponse < BaseResponse
+        def registration_data
+          @registration_data ||= TaskHandlerRegistrationData.new(response_data)
+        end
+
+        def handler_registered?
+          response_type == 'TaskHandlerRegistered'
+        end
+
+        def handler_class
+          registration_data.handler_class
+        end
+
+        def namespace
+          registration_data.namespace
+        end
+
+        def registered_at
+          registration_data.registered_at
+        end
+
+        def registration_id
+          registration_data.registration_id
+        end
+
+        def validate_response_type!
+          unless handler_registered?
+            raise ArgumentError, "Expected TaskHandlerRegistered, got #{response_type}"
+          end
+        end
+      end
+
+      # Task handler unregistration response data
+      class TaskHandlerUnregistrationData < Dry::Struct
+        attribute :handler_class, Types::Coercible::String
+        attribute :namespace, Types::Coercible::String
+        attribute :unregistered_at, Types::Coercible::String
+        attribute :reason, Types::Coercible::String
+      end
+
+      # Task handler unregistration response
+      class TaskHandlerUnregistrationResponse < BaseResponse
+        def unregistration_data
+          @unregistration_data ||= TaskHandlerUnregistrationData.new(response_data)
+        end
+
+        def handler_unregistered?
+          response_type == 'TaskHandlerUnregistered'
+        end
+
+        def handler_class
+          unregistration_data.handler_class
+        end
+
+        def namespace
+          unregistration_data.namespace
+        end
+
+        def unregistered_at
+          unregistration_data.unregistered_at
+        end
+
+        def reason
+          unregistration_data.reason
+        end
+
+        def validate_response_type!
+          unless handler_unregistered?
+            raise ArgumentError, "Expected TaskHandlerUnregistered, got #{response_type}"
+          end
+        end
+      end
+
       # Generic error response
       class ErrorResponse < BaseResponse
         # Override payload to use structured data
@@ -354,9 +681,10 @@ module TaskerCore
         class << self
           # Create a typed response from raw TCP executor response hash
           def create_response(raw_response)
-            command_type = raw_response[:command_type] || raw_response['command_type']
-            payload = raw_response[:payload] || raw_response['payload'] || {}
-            response_type = payload[:type] || payload['type']
+            raw_response = raw_response.deep_symbolize_keys
+            command_type = raw_response[:command_type]
+            payload = raw_response[:payload] || {}
+            response_type = payload[:type]
 
             # Determine the appropriate response class based on command and response type
             response_class = case response_type
@@ -366,8 +694,18 @@ module TaskerCore
               WorkerRegistrationResponse
             when 'HeartbeatAcknowledged'
               HeartbeatResponse
-            when 'WorkerUnregistered' 
+            when 'WorkerUnregistered'
               WorkerUnregistrationResponse
+            when 'TaskReadinessResult'
+              TaskReadinessResponse
+            when 'ExecuteBatch'
+              ExecuteBatchResponse
+            when 'TaskInitialized'
+              TaskInitializedResponse
+            when 'TaskHandlerRegistered'
+              TaskHandlerRegistrationResponse
+            when 'TaskHandlerUnregistered'
+              TaskHandlerUnregistrationResponse
             else
               # Handle generic Success/Error responses based on command type
               if command_type == 'Error' || command_type&.end_with?('Error')
@@ -377,12 +715,20 @@ module TaskerCore
                 case command_type
                 when /Health/i
                   HealthCheckResponse
-                when /Register/i, /Worker.*Success/
+                when /RegisterWorker/i, /Worker.*Success/
                   WorkerRegistrationResponse
+                when /RegisterTaskHandler/i
+                  TaskHandlerRegistrationResponse
+                when /UnregisterTaskHandler/i
+                  TaskHandlerUnregistrationResponse
+                when /InitializeTask/i
+                  TaskInitializedResponse
                 when /Heartbeat/i
                   HeartbeatResponse
                 when /Unregister/i
                   WorkerUnregistrationResponse
+                when 'ExecuteBatch'
+                  ExecuteBatchResponse
                 else
                   BaseResponse
                 end
@@ -391,10 +737,10 @@ module TaskerCore
 
             # Create the typed response
             response = response_class.new(raw_response)
-            
+
             # Validate the response type if the class supports it
             response.validate_response_type! if response.respond_to?(:validate_response_type!)
-            
+
             response
           rescue Dry::Struct::Error => e
             # If type construction fails, wrap in an error response
@@ -432,6 +778,26 @@ module TaskerCore
 
           def error_response(raw_response)
             ErrorResponse.new(raw_response)
+          end
+
+          def execute_batch_response(raw_response)
+            ExecuteBatchResponse.new(raw_response)
+          end
+
+          def task_initialized_response(raw_response)
+            TaskInitializedResponse.new(raw_response)
+          end
+
+          def task_handler_registration_response(raw_response)
+            TaskHandlerRegistrationResponse.new(raw_response)
+          end
+
+          def task_handler_unregistration_response(raw_response)
+            TaskHandlerUnregistrationResponse.new(raw_response)
+          end
+
+          def task_readiness_response(raw_response)
+            TaskReadinessResponse.new(raw_response)
           end
         end
       end

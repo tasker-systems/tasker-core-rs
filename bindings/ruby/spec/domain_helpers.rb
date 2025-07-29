@@ -173,6 +173,117 @@ module DomainTestHelpers
     expect(step).to have_key('inputs')
     expect(step['inputs']).to be_a(Hash)
   end
+
+  # ========================================================================
+  # WORKER MANAGEMENT HELPERS
+  # ========================================================================
+
+  # Start embedded TCP executor server for integration tests
+  # This server is needed for workers to connect and register
+  #
+  # @param options [Hash] Server configuration options
+  # @return [TaskerCore::EmbeddedServer] Started embedded server
+  def start_test_server(**options)
+    server_config = {
+      bind_address: '127.0.0.1:8080', # Use standard test port (matches default)
+      max_connections: 10,            # Small for testing
+      connection_timeout_ms: 5000     # Short timeout for testing
+    }.merge(options)
+    
+    server = TaskerCore::EmbeddedServer.new(server_config)
+    success = server.start
+    expect(success).to be(true), "Embedded server should start successfully"
+    
+    # Store for cleanup
+    @test_servers ||= []
+    @test_servers << server
+    
+    puts "✅ Started embedded TCP executor server on #{server.bind_address}"
+    server
+  end
+
+  # Start a test worker that auto-discovers namespaces from registered TaskHandlers
+  # This ensures workers are available for the namespaces that TaskHandlers are registered for
+  #
+  # @param worker_id [String] Unique worker identifier (defaults to test worker)
+  # @param options [Hash] Additional worker configuration options
+  # @return [TaskerCore::Execution::WorkerManager] Started worker manager
+  def start_test_worker(worker_id: nil, **options)
+    worker_id ||= "test_worker_#{SecureRandom.hex(4)}"
+    
+    # Ensure TCP executor server is running first
+    start_test_server unless @test_servers&.any?
+    
+    # Create worker manager with auto-discovery (supported_namespaces: nil)
+    worker_manager = TaskerCore::Execution::WorkerManager.new(
+      worker_id: worker_id,
+      supported_namespaces: nil, # Auto-discover from TaskHandlers  
+      max_concurrent_steps: 5,   # Small for testing
+      heartbeat_interval: 10,    # Short interval for testing
+      **options
+    )
+    
+    # Start the worker
+    success = worker_manager.start
+    expect(success).to be(true), "Worker should start successfully"
+    
+    # Store for cleanup
+    @test_workers ||= []
+    @test_workers << worker_manager
+    
+    puts "✅ Started test worker: #{worker_id} with namespaces: #{worker_manager.supported_namespaces}"
+    worker_manager
+  end
+
+  # Stop all test workers created during the test
+  def stop_all_test_workers
+    return unless @test_workers
+    
+    @test_workers.each do |worker|
+      begin
+        worker.stop("Test cleanup")
+        puts "✅ Stopped test worker: #{worker.worker_id}"
+      rescue StandardError => e
+        puts "⚠️  Error stopping worker #{worker.worker_id}: #{e.message}"
+      end
+    end
+    
+    @test_workers.clear
+  end
+
+  # Stop all test servers created during the test
+  def stop_all_test_servers
+    return unless @test_servers
+    
+    @test_servers.each do |server|
+      begin
+        server.stop
+        puts "✅ Stopped embedded TCP executor server"
+      rescue StandardError => e
+        puts "⚠️  Error stopping server: #{e.message}"
+      end
+    end
+    
+    @test_servers.clear
+  end
+
+  # Wait for worker registration to propagate to the Rust orchestrator
+  # This ensures the Rust side knows about the worker before trying to execute tasks
+  #
+  # @param timeout [Integer] Maximum time to wait in seconds
+  def wait_for_worker_registration(timeout: 5)
+    start_time = Time.now
+    
+    loop do
+      # Check if any workers are registered with the orchestrator
+      # (This is a placeholder - we'd need to add a method to check worker status)
+      break if Time.now - start_time > timeout
+      
+      sleep(0.1)
+    end
+    
+    sleep(0.5) # Give a bit more time for registration to fully propagate
+  end
 end
 
 # Helper module for complex workflow validation

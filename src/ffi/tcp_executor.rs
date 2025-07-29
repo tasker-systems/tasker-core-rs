@@ -13,19 +13,20 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing::{error, info, warn};
 
-use crate::execution::tokio_tcp_executor::TokioTcpExecutor;
+use crate::execution::generic_executor::TcpExecutor;
+use crate::execution::transport::{TcpTransport, TcpTransportConfig, Transport};
 
 // Re-export for FFI usage
-pub use crate::execution::executor::TcpExecutorConfig;
-use crate::execution::command_handlers::WorkerManagementHandler;
 use crate::execution::command::CommandType;
+use crate::execution::command_handlers::WorkerManagementHandler;
+pub use crate::execution::executor::{SocketType, TcpExecutorConfig};
 
 /// Embedded TCP executor manager for FFI control
 pub struct EmbeddedTcpExecutor {
     /// Async runtime for the TCP server
     runtime: Arc<Runtime>,
     /// TCP executor instance (when running)
-    executor: Arc<Mutex<Option<TokioTcpExecutor>>>,
+    executor: Arc<Mutex<Option<TcpExecutor>>>,
     /// Server configuration
     config: TcpExecutorConfig,
     /// Running state
@@ -79,10 +80,10 @@ impl EmbeddedTcpExecutor {
 
     /// Create a new embedded TCP executor with custom configuration
     pub fn with_config(config: TcpExecutorConfig) -> ServerResult<Self> {
-        let runtime = Arc::new(
-            Runtime::new()
-                .map_err(|e| ServerError::RuntimeError(format!("Failed to create runtime: {}", e)))?
-        );
+        let runtime =
+            Arc::new(Runtime::new().map_err(|e| {
+                ServerError::RuntimeError(format!("Failed to create runtime: {}", e))
+            })?);
 
         Ok(Self {
             runtime,
@@ -94,19 +95,33 @@ impl EmbeddedTcpExecutor {
 
     /// Start the TCP executor server
     pub fn start(&self) -> ServerResult<()> {
-        let mut running = self.running.lock()
+        let mut running = self
+            .running
+            .lock()
             .map_err(|e| ServerError::RuntimeError(format!("Lock error: {}", e)))?;
 
         if *running {
             return Err(ServerError::AlreadyRunning);
         }
 
-        info!("Starting embedded TCP executor on {}", self.config.bind_address);
+        info!(
+            "Starting embedded TCP executor on {}",
+            self.config.bind_address
+        );
 
         // Create executor in the async runtime
         let config = self.config.clone();
         let executor_result = self.runtime.block_on(async {
-            TokioTcpExecutor::new(config).await
+            // Convert TcpExecutorConfig to TcpTransportConfig
+            let transport_config = TcpTransportConfig {
+                bind_address: config.bind_address.clone(),
+                connection_timeout_ms: config.connection_timeout_ms,
+                command_queue_size: config.command_queue_size,
+                max_connections: config.max_connections,
+                graceful_shutdown_timeout_ms: config.graceful_shutdown_timeout_ms,
+            };
+            let transport = TcpTransport::new(transport_config);
+            TcpExecutor::new(transport).await
         });
 
         let executor = executor_result
@@ -115,32 +130,73 @@ impl EmbeddedTcpExecutor {
         // Set up command handlers
         let worker_pool = executor.worker_pool();
         let router = executor.command_router();
-        let worker_handler = Arc::new(WorkerManagementHandler::new(worker_pool.clone()));
+        let database_pool = crate::ffi::shared::orchestration_system::get_global_database_pool();
+        let worker_handler = Arc::new(WorkerManagementHandler::new(
+            worker_pool.clone(),
+            database_pool.clone(),
+            "tcp_executor".to_string(),
+        ));
 
         // Register command handlers in the async runtime
-        self.runtime.block_on(async {
-            router.register_handler(CommandType::RegisterWorker, worker_handler.clone()).await?;
-            router.register_handler(CommandType::UnregisterWorker, worker_handler.clone()).await?;
-            router.register_handler(CommandType::WorkerHeartbeat, worker_handler.clone()).await?;
-            router.register_handler(CommandType::HealthCheck, worker_handler).await?;
+        self.runtime
+            .block_on(async {
+                // Get the shared orchestration system
+                let orchestration_system = crate::ffi::shared::orchestration_system::initialize_unified_orchestration_system();
+                
+                // Create task initialization handler from shared orchestration system
+                let task_handler = Arc::new(
+                    crate::execution::command_handlers::TaskInitializationHandler::from_orchestration_system(
+                        orchestration_system
+                    )
+                );
 
-            // Start the executor
-            executor.start().await
-        }).map_err(|e| ServerError::StartupError(format!("Failed to start executor: {}", e)))?;
+                // Worker management handlers
+                router
+                    .register_handler(CommandType::RegisterWorker, worker_handler.clone())
+                    .await?;
+                router
+                    .register_handler(CommandType::UnregisterWorker, worker_handler.clone())
+                    .await?;
+                router
+                    .register_handler(CommandType::WorkerHeartbeat, worker_handler.clone())
+                    .await?;
+                router
+                    .register_handler(CommandType::HealthCheck, worker_handler)
+                    .await?;
+
+                // Task initialization handlers
+                router
+                    .register_handler(CommandType::InitializeTask, task_handler.clone())
+                    .await?;
+                router
+                    .register_handler(CommandType::TryTaskIfReady, task_handler.clone())
+                    .await?;
+
+                // Start the executor
+                executor.start().await
+            })
+            .map_err(|e| ServerError::StartupError(format!("Failed to start executor: {}", e)))?;
 
         // Store executor and mark as running
-        let mut executor_guard = self.executor.lock()
+        let mut executor_guard = self
+            .executor
+            .lock()
             .map_err(|e| ServerError::RuntimeError(format!("Lock error: {}", e)))?;
         *executor_guard = Some(executor);
         *running = true;
 
-        info!("Embedded TCP executor started successfully on {}", self.config.bind_address);
+        info!(
+            "Embedded TCP executor started successfully on {}",
+            self.config.bind_address
+        );
         Ok(())
     }
 
     /// Stop the TCP executor server
     pub fn stop(&self) -> ServerResult<()> {
-        let mut running = self.running.lock()
+        let mut running = self
+            .running
+            .lock()
             .map_err(|e| ServerError::RuntimeError(format!("Lock error: {}", e)))?;
 
         if !*running {
@@ -150,13 +206,17 @@ impl EmbeddedTcpExecutor {
         info!("Stopping embedded TCP executor");
 
         // Get executor and stop it
-        let mut executor_guard = self.executor.lock()
+        let mut executor_guard = self
+            .executor
+            .lock()
             .map_err(|e| ServerError::RuntimeError(format!("Lock error: {}", e)))?;
 
         if let Some(executor) = executor_guard.take() {
-            self.runtime.block_on(async {
-                executor.stop().await
-            }).map_err(|e| ServerError::ShutdownError(format!("Failed to stop executor: {}", e)))?;
+            self.runtime
+                .block_on(async { executor.stop().await })
+                .map_err(|e| {
+                    ServerError::ShutdownError(format!("Failed to stop executor: {}", e))
+                })?;
         }
 
         *running = false;
@@ -166,9 +226,7 @@ impl EmbeddedTcpExecutor {
 
     /// Check if the server is running
     pub fn is_running(&self) -> bool {
-        self.running.lock()
-            .map(|running| *running)
-            .unwrap_or(false)
+        self.running.lock().map(|running| *running).unwrap_or(false)
     }
 
     /// Get server status information
@@ -186,13 +244,13 @@ impl EmbeddedTcpExecutor {
             });
         }
 
-        let executor_guard = self.executor.lock()
+        let executor_guard = self
+            .executor
+            .lock()
             .map_err(|e| ServerError::RuntimeError(format!("Lock error: {}", e)))?;
 
         if let Some(executor) = executor_guard.as_ref() {
-            let stats = self.runtime.block_on(async {
-                executor.get_stats().await
-            });
+            let stats = self.runtime.block_on(async { executor.get_stats().await });
 
             Ok(ServerStatus {
                 running: true,
@@ -235,14 +293,15 @@ impl EmbeddedTcpExecutor {
     /// Update configuration (only when stopped)
     pub fn update_config(&mut self, config: TcpExecutorConfig) -> ServerResult<()> {
         if self.is_running() {
-            return Err(ServerError::RuntimeError("Cannot update config while running".to_string()));
+            return Err(ServerError::RuntimeError(
+                "Cannot update config while running".to_string(),
+            ));
         }
 
         self.config = config;
         Ok(())
     }
 }
-
 
 impl Drop for EmbeddedTcpExecutor {
     fn drop(&mut self) {

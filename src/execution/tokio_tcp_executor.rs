@@ -11,8 +11,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::execution::command::{Command, CommandType};
 use crate::execution::command_router::{CommandRouter, CommandRouterError};
+use crate::execution::executor::{SocketType, TcpExecutorConfig};
 use crate::execution::worker_pool::{WorkerPool, WorkerPoolError};
-use crate::execution::executor::{TcpExecutorConfig, SocketType};
 
 /// Tokio-based TCP executor replacing ZeroMQ pub-sub pattern
 ///
@@ -103,7 +103,8 @@ impl TokioTcpExecutor {
         info!("Starting TokioTcpExecutor on {}", self.config.bind_address);
 
         // Bind TCP listener
-        let listener = TcpListener::bind(&self.config.bind_address).await
+        let listener = TcpListener::bind(&self.config.bind_address)
+            .await
             .map_err(|e| TokioTcpExecutorError::BindFailed {
                 address: self.config.bind_address.clone(),
                 error: e.to_string(),
@@ -145,7 +146,10 @@ impl TokioTcpExecutor {
         drop(connections);
 
         // Wait for connections to close
-        sleep(Duration::from_millis(self.config.graceful_shutdown_timeout_ms)).await;
+        sleep(Duration::from_millis(
+            self.config.graceful_shutdown_timeout_ms,
+        ))
+        .await;
 
         state.running = false;
         info!("TokioTcpExecutor stopped");
@@ -167,7 +171,8 @@ impl TokioTcpExecutor {
 
         TcpExecutorStats {
             running: state.running,
-            uptime_seconds: state.start_time
+            uptime_seconds: state
+                .start_time
                 .map(|start| (chrono::Utc::now() - start).num_seconds() as u64)
                 .unwrap_or(0),
             total_connections: state.total_connections,
@@ -259,7 +264,9 @@ impl TokioTcpExecutor {
         // Spawn command processing task
         let cmd_processor = tokio::spawn(async move {
             while let Some(command) = cmd_rx.recv().await {
-                executor.process_command(command, writer_clone.clone()).await;
+                executor
+                    .process_command(command, writer_clone.clone())
+                    .await;
             }
         });
 
@@ -319,8 +326,15 @@ impl TokioTcpExecutor {
     }
 
     /// Process a command through the command router
-    async fn process_command(&self, command: Command, writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>) {
-        debug!("Processing command: type={:?}, id={}", command.command_type, command.command_id);
+    async fn process_command(
+        &self,
+        command: Command,
+        writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>,
+    ) {
+        debug!(
+            "Processing command: type={:?}, id={}",
+            command.command_type, command.command_id
+        );
 
         // Route command through command router
         match self.command_router.route_command(command.clone()).await {
@@ -353,7 +367,11 @@ impl TokioTcpExecutor {
     }
 
     /// Send response command over TCP connection
-    async fn send_response(&self, response: Command, writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>) {
+    async fn send_response(
+        &self,
+        response: Command,
+        writer: Arc<tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>>,
+    ) {
         match serde_json::to_string(&response) {
             Ok(json) => {
                 let message = format!("{}\n", json);

@@ -91,7 +91,7 @@ pub struct ViableStep {
 }
 
 /// Task execution context from SQL functions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskContext {
     pub task_id: i64,
     pub data: serde_json::Value,

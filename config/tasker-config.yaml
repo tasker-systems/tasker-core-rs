@@ -84,16 +84,17 @@ cache:
   ttl_seconds: 3600
   max_size: 10000
 
-zeromq:
-  # Pub-Sub endpoints (bidirectional)
-  batch_endpoint: "tcp://127.0.0.1:8555"  # Rust publishes steps
-  result_endpoint: "tcp://127.0.0.1:8556" # Rust subscribes to results
-
-  # High-water marks for message queuing
-  send_hwm: 1000              # Max queued step messages
-  recv_hwm: 1000            # Max queued result messages
-
-  # Whether ZeroMQ batch processing is enabled
-  enabled: true
-
-  poll_interval_ms: 1000 # 1 second
+command_backplane:
+  socket_type: "tcp"
+  server:
+    host: "127.0.0.1"
+    port: 8555
+    timeout: 30
+    connect_timeout: 5
+    read_timeout: 10
+  client:
+    host: "127.0.0.1"
+    port: 8556
+    timeout: 30
+    connect_timeout: 5
+    read_timeout: 10

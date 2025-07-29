@@ -1,4 +1,6 @@
-use tasker_core::execution::command::{Command, CommandType, CommandPayload, CommandSource, HealthCheckLevel};
+use tasker_core::execution::command::{
+    Command, CommandPayload, CommandSource, CommandType, HealthCheckLevel,
+};
 
 fn main() {
     let command = Command::new(
@@ -10,7 +12,7 @@ fn main() {
             id: "test".to_string(),
         },
     );
-    
+
     let json = serde_json::to_string_pretty(&command).unwrap();
     println!("Expected Rust Command JSON format:");
     println!("{}", json);

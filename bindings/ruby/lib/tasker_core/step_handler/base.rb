@@ -8,40 +8,15 @@ require 'time'
 
 module TaskerCore
   module StepHandler
-    # Ruby wrapper that delegates to Rust RubyStepHandler for orchestration integration.
-    # This uses composition instead of inheritance to work around Magnus FFI limitations.
-    #
-    # Architecture:
-    # - Rust RubyStepHandler: Core orchestration, state management, transactions
-    # - Ruby wrapper: Business logic hooks, Ruby-specific tooling, validation
-    #
-    # Developer Interface (same as Rails engine):
-    # - process(task, sequence, step) - Main business logic (Ruby implementation)
-    # - process_results(step, output, initial_results = nil) - Optional transformation
-    #
-    # FFI Bridge Interface (called by Rust orchestration):
-    # - process_with_context(context_json) - Bridge to Rails signature
-    # - process_results_with_context(context_json, result_json) - Bridge to Rails signature
-    class Base
-      # NOTE: We no longer include Dry::Events::Publisher directly because
-      # events come from the Rust orchestration layer (source of truth).
-      # This class provides Ruby-specific functionality that wraps around
-      # the Rust foundation where event publishing actually happens.
 
-      attr_reader :config, :logger, :rust_integration, :orchestration_system, :shared_step_handler
+    class Base
+      attr_reader :config, :logger, :rust_integration, :orchestration_system
 
       def initialize(config: {}, logger: nil)
         @config = config || {}
         @logger = logger || TaskerCore::Logging::Logger.instance
-        # Get shared step handler bridge for FFI delegation
-        # RubyStepHandler should be a shared FFI bridge, not per-step instances
         orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
-        @shared_step_handler = orchestration_manager.get_shared_step_handler
         @orchestration_system = orchestration_manager.orchestration_system
-        @logger.info 'Successfully connected to shared step handler bridge'
-
-        # NOTE: Step handlers do not register themselves with the orchestration system
-        # They are discovered through task configuration by task handlers
       end
 
       # ========================================================================
@@ -55,8 +30,8 @@ module TaskerCore
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
       def call(task, sequence, step)
-        @logger.info "🎯 RUBY_STEP_HANDLER: process() called - handler=#{self.class.name}, task_id=#{extract_attribute(task, :task_id)}, step_name=#{extract_attribute(step, :name)}"
-        @logger.debug "🔍 RUBY_STEP_HANDLER: process() arguments - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
+        @logger.info "🎯 RUBY_STEP_HANDLER: call() called - handler=#{self.class.name}, task_id=#{extract_attribute(task, :task_id)}, step_name=#{extract_attribute(step, :name)}"
+        @logger.debug "🔍 RUBY_STEP_HANDLER: call() arguments - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
 
         begin
           result = process(task, sequence, step)
