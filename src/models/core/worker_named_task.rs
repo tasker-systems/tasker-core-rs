@@ -322,6 +322,46 @@ impl WorkerNamedTask {
         Ok(result.rows_affected())
     }
 
+    /// Find active workers that can handle a specific named task
+    /// Filters by workers that have active registrations and are healthy
+    pub async fn find_active_workers_for_task(
+        pool: &PgPool,
+        named_task_id: i32,
+    ) -> Result<Vec<WorkerNamedTaskWithDetails>, sqlx::Error> {
+        let active_workers = sqlx::query_as!(
+            WorkerNamedTaskWithDetails,
+            r#"
+            SELECT 
+                wnt.id,
+                wnt.worker_id,
+                wnt.named_task_id,
+                wnt.configuration,
+                COALESCE(wnt.priority, 100) as "priority!",
+                wnt.created_at,
+                wnt.updated_at,
+                w.worker_name,
+                nt.name as task_name,
+                nt.version as task_version,
+                tn.name as namespace_name
+            FROM tasker_worker_named_tasks wnt
+            INNER JOIN tasker_workers w ON wnt.worker_id = w.worker_id
+            INNER JOIN tasker_named_tasks nt ON wnt.named_task_id = nt.named_task_id
+            INNER JOIN tasker_task_namespaces tn ON nt.task_namespace_id = tn.task_namespace_id
+            INNER JOIN tasker_worker_registrations wr ON w.worker_id = wr.worker_id
+            WHERE wnt.named_task_id = $1
+              AND wr.unregistered_at IS NULL
+              AND wr.status IN ('registered', 'healthy')
+              AND (wr.last_heartbeat_at IS NULL OR wr.last_heartbeat_at > NOW() - INTERVAL '2 minutes')
+            ORDER BY wnt.priority DESC, wnt.created_at
+            "#,
+            named_task_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(active_workers)
+    }
+
     /// Get task coverage statistics
     pub async fn get_task_coverage_stats(
         pool: &PgPool,

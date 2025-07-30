@@ -20,6 +20,8 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # 🎯 Memoized BaseTaskHandler
       @orchestration_handle = nil  # 🎯 NEW: Handle-based FFI architecture
+      @command_client = nil  # 🎯 PERSISTENT: Cached CommandClient for connection reuse
+      @command_client_mutex = Mutex.new  # Thread-safe access to cached client
       @logger = TaskerCore::Logging::Logger.instance
     end
 
@@ -71,6 +73,18 @@ module TaskerCore
       @orchestration_system = nil
       @base_task_handler = nil  # Reset memoized handler too
       @orchestration_handle = nil  # Reset handle too
+      
+      # Reset cached command client and disconnect if connected
+      @command_client_mutex.synchronize do
+        if @command_client&.connected?
+          begin
+            @command_client.disconnect
+          rescue StandardError => e
+            @logger.warn "Failed to disconnect cached command client during reset: #{e.message}"
+          end
+        end
+        @command_client = nil
+      end
       # NOTE: No batch orchestrator to stop with TCP architecture
     end
 
@@ -86,8 +100,24 @@ module TaskerCore
 
     def list_handlers(namespace = nil)
       orchestration_system # Ensure initialized
-      # TODO: Implement handle-based list_handlers once available
-      [] # Return empty for now
+      
+      begin
+        handle = orchestration_handle
+        return [] unless handle
+
+        # Use handle-based list_handlers with database queries
+        result = handle.list_handlers(namespace)
+        
+        if result && result['success']
+          result['handlers'] || []
+        else
+          logger.warn "list_handlers failed: #{result&.dig('error') || 'unknown error'}"
+          []
+        end
+      rescue StandardError => e
+        logger.error "list_handlers error: #{e.message}"
+        []
+      end
     end
 
     def handler_exists?(handler_key)
@@ -447,69 +477,102 @@ module TaskerCore
       { enabled: false, error: e.message }
     end
 
-    # 🎯 RUST-BACKED COMMAND ARCHITECTURE INTEGRATION
+    # 🎯 SHARED FFI ARCHITECTURE INTEGRATION (Phase 3)
 
-    # Create Rust-backed command client for worker communication
+    # Get the singleton CommandClient for this Ruby process
+    # 
+    # This ensures exactly ONE CommandClient exists for the entire process lifetime,
+    # with internal mutex-protected connection lifecycle management.
     #
     # @param host [String] Server host (optional, uses config default)
-    # @param port [Integer] Server port (optional, uses config default)
+    # @param port [Integer] Server port (optional, uses config default) 
     # @param timeout [Integer] Connection timeout (optional, uses config default)
-    # @return [TaskerCore::Execution::CommandClient] Rust-backed command client
+    # @return [TaskerCore::Execution::CommandClient] Singleton command client
     def create_command_client(host: nil, port: nil, timeout: nil)
       orchestration_system # Ensure initialized
-
-      begin
-        logger.info "🎯 Creating Rust-backed CommandClient for worker communication"
-        TaskerCore::Execution::CommandClient.new(
-          host: host,
-          port: port,
-          timeout: timeout
-        )
-      rescue StandardError => e
-        error_msg = "Failed to create Rust-backed CommandClient: #{e.class.name}: #{e.message}"
-        logger.error error_msg
-        raise TaskerCore::Errors::OrchestrationError, error_msg
+      
+      @command_client_mutex.synchronize do
+        # Return existing singleton if it exists and configuration matches
+        if @command_client && client_config_matches?(@command_client, host, port, timeout)
+          logger.debug "🔄 SINGLETON: Reusing existing CommandClient (auto-reconnects as needed)"
+          return @command_client
+        end
+        
+        # Disconnect existing client if configuration changed
+        if @command_client
+          logger.info "🔧 SINGLETON: Configuration changed - replacing CommandClient"
+          begin
+            @command_client.disconnect if @command_client.connected?
+          rescue StandardError => e
+            logger.warn "Failed to disconnect existing client: #{e.message}"
+          end
+        end
+        
+        # Create new singleton client with internal connection management
+        begin
+          logger.info "🎯 SINGLETON: Creating process-wide CommandClient singleton"
+          @command_client = TaskerCore::Execution::CommandClient.new(
+            host: host,
+            port: port,
+            timeout: timeout
+          )
+          
+          logger.info "✅ SINGLETON: CommandClient created (will auto-connect on first command)"
+          @command_client
+        rescue StandardError => e
+          @command_client = nil
+          error_msg = "Failed to create singleton CommandClient: #{e.class.name}: #{e.message}"
+          logger.error error_msg
+          raise TaskerCore::Errors::OrchestrationError, error_msg
+        end
       end
     end
 
-    # Create Rust-backed worker manager for lifecycle management
+    # Create shared worker manager with Phase 2 enhanced task template support
     #
     # @param worker_id [String] Unique worker identifier
-    # @param supported_namespaces [Array<String>] Namespaces this worker supports (optional, auto-discovered)
+    # @param mode [Symbol] Worker mode (:worker, :server, :hybrid)
+    # @param supported_tasks [Array<Hash>] Explicit task template definitions (Phase 2)
+    # @param supported_namespaces [Array<String>] Legacy namespace support (auto-discovered if nil)
     # @param max_concurrent_steps [Integer] Maximum concurrent steps (optional, uses default)
     # @param heartbeat_interval [Integer] Heartbeat interval in seconds (optional, uses default)
     # @param server_host [String] Server host (optional, uses config default)
     # @param server_port [Integer] Server port (optional, uses config default)
+    # @param bind_port [Integer] Port to bind for server mode (optional)
     # @param custom_capabilities [Hash] Additional worker capabilities (optional)
-    # @return [TaskerCore::Execution::WorkerManager] Rust-backed worker manager
+    # @return [TaskerCore::Execution::SharedWorkerManager] Shared FFI worker manager
     def create_worker_manager(worker_id:, supported_namespaces: nil, 
-                             max_concurrent_steps: nil, heartbeat_interval: nil,
-                             server_host: nil, server_port: nil, custom_capabilities: {})
-      orchestration_system # Ensure initialized
-
+                              max_concurrent_steps: 10, step_timeout_ms: 30000,
+                              supports_retries: true, heartbeat_interval: 30,
+                              custom_capabilities: {}, server_host: 'localhost', server_port: 8080)
       begin
-        logger.info "🎯 Creating Rust-backed WorkerManager for worker #{worker_id}"
-        
-        # Build configuration with defaults
+        logger.info "🎯 Creating WorkerManager for worker #{worker_id}"
+
+        # Build configuration
         config = {
           worker_id: worker_id,
-          custom_capabilities: custom_capabilities
+          supported_namespaces: supported_namespaces,
+          max_concurrent_steps: max_concurrent_steps,
+          step_timeout_ms: step_timeout_ms,
+          supports_retries: supports_retries,
+          heartbeat_interval: heartbeat_interval,
+          custom_capabilities: custom_capabilities,
+          server_host: server_host,
+          server_port: server_port
         }
-        
-        # Add optional parameters if provided
-        config[:supported_namespaces] = supported_namespaces if supported_namespaces
-        config[:max_concurrent_steps] = max_concurrent_steps if max_concurrent_steps
-        config[:heartbeat_interval] = heartbeat_interval if heartbeat_interval
-        config[:server_host] = server_host if server_host
-        config[:server_port] = server_port if server_port
 
+        logger.debug "📋 WorkerManager config: #{config.inspect}"
+
+        # Create WorkerManager with original architecture
         TaskerCore::Execution::WorkerManager.new(**config)
       rescue StandardError => e
-        error_msg = "Failed to create Rust-backed WorkerManager: #{e.class.name}: #{e.message}"
-        logger.error error_msg
+        error_msg = "Failed to create WorkerManager: #{e.class.name}: #{e.message}"
+        logger.error "❌ #{error_msg}"
+        logger.debug "Backtrace: #{e.backtrace.first(5).join(', ')}"
         raise TaskerCore::Errors::OrchestrationError, error_msg
       end
     end
+
 
     # Get command architecture status and configuration
     #
@@ -541,45 +604,88 @@ module TaskerCore
       end
     end
 
-    # Auto-discover and register a Ruby worker with optimal configuration
+    # Auto-discover and register a Ruby worker with Phase 3 SharedWorkerManager
     #
     # This method provides a high-level interface for Ruby applications to easily
-    # register workers with the Rust orchestration system using auto-discovered
-    # namespaces and optimal default configuration.
+    # register workers with the Rust orchestration system using the new SharedWorkerManager
+    # architecture with enhanced task template support (Phase 2).
     #
     # @param worker_id [String] Unique worker identifier
+    # @param supported_tasks [Array<Hash>] Explicit task template definitions (Phase 2)
     # @param custom_capabilities [Hash] Additional worker capabilities (optional)
-    # @return [TaskerCore::Execution::WorkerManager] Configured and started worker manager
+    # @param mode [Symbol] Worker mode (:worker, :server, :hybrid) (optional, defaults to :worker)
+    # @return [TaskerCore::Execution::SharedWorkerManager] Configured and started shared worker manager
     # @raise [TaskerCore::Errors::OrchestrationError] if worker registration fails
-    def register_ruby_worker(worker_id:, custom_capabilities: {})
+    def register_ruby_worker(worker_id:, supported_tasks: nil, custom_capabilities: {}, mode: :worker)
       orchestration_system # Ensure initialized
 
       begin
-        logger.info "🎯 Auto-registering Ruby worker: #{worker_id}"
+        logger.info "🎯 Auto-registering Ruby worker with SharedWorkerManager (Phase 3): #{worker_id}"
 
-        # Create worker manager with auto-discovery
-        worker_manager = create_worker_manager(
+        # Create shared worker manager with Phase 2 task template support
+        worker_manager = create_shared_worker_manager(
           worker_id: worker_id,
+          mode: mode,
+          supported_tasks: supported_tasks,
           custom_capabilities: custom_capabilities.merge(
             'auto_registered' => true,
             'orchestration_manager' => true,
-            'ruby_integration' => 'rust_backed'
+            'ruby_integration' => 'shared_ffi',
+            'phase3_enhanced' => true
           )
         )
 
-        # Start the worker
-        success = worker_manager.start
-        unless success
-          raise TaskerCore::Errors::OrchestrationError, "Failed to start worker #{worker_id}"
+        # Initialize based on mode
+        case mode.to_sym
+        when :worker, :hybrid
+          # Initialize as worker and register
+          success = worker_manager.initialize_as_worker
+          unless success
+            raise TaskerCore::Errors::OrchestrationError, "Failed to initialize worker #{worker_id}"
+          end
+
+          # Register with enhanced task template support
+          registration_response = worker_manager.register_worker
+          logger.info "✅ Worker registered: #{registration_response}"
+
+          # Start automatic heartbeat
+          heartbeat_success = worker_manager.start_heartbeat
+          unless heartbeat_success
+            logger.warn "⚠️ Failed to start automatic heartbeat for worker #{worker_id}"
+          end
+
+        when :server
+          # Initialize as server
+          success = worker_manager.initialize_as_server
+          unless success
+            raise TaskerCore::Errors::OrchestrationError, "Failed to initialize server #{worker_id}"
+          end
+
+        else
+          raise TaskerCore::Errors::OrchestrationError, "Unsupported worker mode: #{mode}"
         end
 
-        logger.info "✅ Ruby worker #{worker_id} registered and started successfully"
+        logger.info "✅ Ruby worker #{worker_id} registered and started successfully with SharedWorkerManager"
         worker_manager
       rescue StandardError => e
         error_msg = "Failed to register Ruby worker #{worker_id}: #{e.class.name}: #{e.message}"
         logger.error error_msg
         raise TaskerCore::Errors::OrchestrationError, error_msg
       end
+    end
+
+    # Legacy register_ruby_worker method for backward compatibility
+    #
+    # @deprecated Use register_ruby_worker with supported_tasks parameter instead
+    # @param worker_id [String] Unique worker identifier
+    # @param custom_capabilities [Hash] Additional worker capabilities (optional)
+    # @return [TaskerCore::Execution::SharedWorkerManager] Configured and started shared worker manager
+    def register_ruby_worker_legacy(worker_id:, custom_capabilities: {})
+      logger.warn "🔄 register_ruby_worker_legacy is deprecated, use register_ruby_worker instead"
+      register_ruby_worker(
+        worker_id: worker_id,
+        custom_capabilities: custom_capabilities.merge('legacy_registration' => true)
+      )
     end
 
     # ========================================================================
@@ -618,16 +724,36 @@ module TaskerCore
     # @param task_id [Integer] Task ID to find handler for
     # @return [TaskerCore::TaskHandler::Base, nil] TaskHandler instance or nil if not found
     def get_task_handler_for_task(task_id)
-      # TODO: Implement task metadata lookup to find namespace/name/version for task_id
-      # For now, return the first available TaskHandler as fallback
-      # In production, this would query the database to get task metadata, then lookup handler
+      begin
+        handle = orchestration_handle
+        return nil unless handle
 
-      if ruby_task_handlers.any?
-        handler = ruby_task_handlers.values.first
-        @logger&.debug "🔍 Found TaskHandler for task_id #{task_id}: #{handler.class.name}"
-        handler
-      else
-        @logger&.warn "⚠️  No TaskHandler found for task_id #{task_id}"
+        # Get task metadata from database
+        metadata_result = handle.get_task_metadata(task_id)
+        
+        if metadata_result && metadata_result['success'] && metadata_result['found']
+          # Extract metadata
+          namespace = metadata_result['namespace']
+          name = metadata_result['name']
+          version = metadata_result['version']
+          
+          # Look up handler using the metadata
+          handler = get_ruby_task_handler(namespace, name, version)
+          
+          if handler
+            @logger&.debug "✅ Found TaskHandler for task_id #{task_id}: #{handler.class.name} (#{namespace}/#{name}/#{version})"
+            handler
+          else
+            @logger&.warn "⚠️  No registered TaskHandler found for task_id #{task_id} (#{namespace}/#{name}/#{version})"
+            nil
+          end
+        else
+          error_msg = metadata_result&.dig('error') || 'metadata lookup failed'
+          @logger&.warn "⚠️  Task metadata lookup failed for task_id #{task_id}: #{error_msg}"
+          nil
+        end
+      rescue StandardError => e
+        @logger&.error "❌ Error looking up TaskHandler for task_id #{task_id}: #{e.message}"
         nil
       end
     end
@@ -642,6 +768,33 @@ module TaskerCore
           step_handler_count: ruby_task_handlers[key].step_handlers&.size || 0
         }
       end
+    end
+    
+    private
+    
+    # Check if the cached command client matches the requested configuration
+    # 
+    # @param client [TaskerCore::Execution::CommandClient] The cached client to check
+    # @param host [String, nil] Requested host
+    # @param port [Integer, nil] Requested port  
+    # @param timeout [Integer, nil] Requested timeout
+    # @return [Boolean] true if configuration matches
+    def client_config_matches?(client, host, port, timeout)
+      # Get default values from config for comparison
+      config = TaskerCore::Config.instance.effective_config
+      default_host = config.dig("command_backplane", "server", "host") || 'localhost'
+      default_port = config.dig("command_backplane", "server", "port") || 8080
+      default_timeout = config.dig("command_backplane", "server", "timeout") || 30
+      
+      # Use defaults if parameters are nil
+      requested_host = host || default_host
+      requested_port = port || default_port
+      requested_timeout = timeout || default_timeout
+      
+      # Compare with client's current configuration
+      client.host == requested_host && 
+      client.port == requested_port && 
+      client.timeout == requested_timeout
     end
     end
   end

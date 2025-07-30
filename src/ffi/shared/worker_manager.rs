@@ -312,6 +312,7 @@ impl SharedWorkerManager {
             language_runtime.clone(),
             version.clone(),
             custom_capabilities.clone(),
+            None, // supported_tasks - TODO: Add parameter to register_worker_with_capabilities
         ).await;
 
         match result {
@@ -337,6 +338,7 @@ impl SharedWorkerManager {
                         custom_capabilities,
                         connection_info: None,
                         runtime_info: None,
+                        supported_tasks: None,
                     };
 
                     workers.insert(worker_id.clone(), WorkerInfo {

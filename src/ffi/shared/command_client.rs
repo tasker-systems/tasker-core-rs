@@ -97,10 +97,20 @@ pub struct PendingCommand {
 impl SharedCommandClient {
     /// Create new shared command client with configuration
     pub fn new(config: CommandClientConfig) -> Self {
+        let connection_id = Uuid::new_v4().to_string();
+        info!("🎯 SHARED_CLIENT: Creating new SharedCommandClient instance with connection_id={}", connection_id);
+        
+        let connection_state = ConnectionState {
+            connected: false,
+            connection_id: connection_id.clone(),
+            connected_at: None,
+            last_activity: None,
+        };
+        
         Self {
             config,
             stream: None,
-            connection_state: Arc::new(RwLock::new(ConnectionState::default())),
+            connection_state: Arc::new(RwLock::new(connection_state)),
             command_counter: AtomicU64::new(0),
             pending_commands: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -207,6 +217,7 @@ impl SharedCommandClient {
         language_runtime: String,
         version: String,
         custom_capabilities: HashMap<String, serde_json::Value>,
+        supported_tasks: Option<Vec<crate::execution::command::TaskHandlerInfo>>,
     ) -> Result<HashMap<String, serde_json::Value>, String> {
         self.ensure_connected().await?;
 
@@ -219,6 +230,7 @@ impl SharedCommandClient {
             language_runtime,
             version,
             custom_capabilities,
+            supported_tasks,
         )?;
 
         self.send_command(command).await
@@ -299,9 +311,22 @@ impl SharedCommandClient {
 
     /// Send InitializeTask command to create a new task
     pub async fn initialize_task(&self, task_request: serde_json::Value) -> Result<serde_json::Value, String> {
+        info!("🎯 SHARED_CLIENT: initialize_task() called");
+        
+        // Add debugging about connection state
+        let connection_state = self.connection_state.read().await;
+        info!("🎯 SHARED_CLIENT: Connection state: connected={}, has_stream={}, connection_id={}", 
+               connection_state.connected, self.stream.is_some(), connection_state.connection_id);
+        drop(connection_state);
+        
         self.ensure_connected().await?;
+        info!("🎯 SHARED_CLIENT: Connection confirmed for InitializeTask");
 
-        let tr_request: TaskRequest = serde_json::from_value(task_request).map_err(|e| format!("Failed to parse task request: {}", e))?;
+        let tr_request: TaskRequest = serde_json::from_value(task_request).map_err(|e| {
+            error!("🎯 SHARED_CLIENT: Failed to parse task_request: {}", e);
+            format!("Failed to parse task request: {}", e)
+        })?;
+        info!("🎯 SHARED_CLIENT: TaskRequest parsed successfully: namespace={}, name={}", tr_request.namespace, tr_request.name);
 
         let command = Command::new(
             CommandType::InitializeTask,
@@ -310,8 +335,12 @@ impl SharedCommandClient {
             },
             CommandSource::RubyWorker { id: "ruby_client".to_string() },
         );
+        info!("🎯 SHARED_CLIENT: Created InitializeTask command: id={}", command.command_id);
 
+        info!("🎯 SHARED_CLIENT: About to call send_command for InitializeTask");
         let response = self.send_command(command).await?;
+        info!("🎯 SHARED_CLIENT: send_command returned successfully for InitializeTask");
+        
         Ok(serde_json::Value::Object(
             response.into_iter().collect()
         ))
@@ -365,6 +394,7 @@ impl SharedCommandClient {
         language_runtime: String,
         version: String,
         custom_capabilities: HashMap<String, serde_json::Value>,
+        supported_tasks: Option<Vec<crate::execution::command::TaskHandlerInfo>>,
     ) -> Result<Command, String> {
         let worker_capabilities = WorkerCapabilities {
             worker_id: worker_id.clone(),
@@ -383,6 +413,7 @@ impl SharedCommandClient {
                 pid: Some(std::process::id()),
                 started_at: Some(Utc::now().to_rfc3339()),
             }),
+            supported_tasks,
         };
 
         Ok(Command {
@@ -501,16 +532,19 @@ impl SharedCommandClient {
         })
     }
 
-    /// Send command and wait for response
+    /// Send command and wait for response (using persistent connection)
     async fn send_command(&self, command: Command) -> Result<HashMap<String, serde_json::Value>, String> {
         let stream = self.stream.as_ref().ok_or("No connection available")?;
         let command_id = command.command_id.clone();
         let command_type = command.command_type.clone();
 
-        debug!(
-            "🚀 Shared CommandClient: Sending command {:?} (ID: {})",
-            command_type, command_id
+        // Debug connection info
+        let connection_state = self.connection_state.read().await;
+        info!(
+            "🎯 SEND_COMMAND: Sending command {:?} (ID: {}) on connection_id={}", 
+            command_type, command_id, connection_state.connection_id
         );
+        drop(connection_state);
 
         // Track pending command
         {
@@ -542,9 +576,9 @@ impl SharedCommandClient {
 
         match result {
             Ok(Ok(response)) => {
-                debug!(
-                    "✅ Shared CommandClient: Received response for command {}",
-                    command_id
+                info!(
+                    "🎯 SEND_COMMAND: ✅ Received response for command {} ({:?})",
+                    command_id, command_type
                 );
 
                 // Update last activity
@@ -572,42 +606,61 @@ impl SharedCommandClient {
         }
     }
 
-    /// Send command data and receive response
+
+    /// Send command data and receive response using persistent connection
     async fn send_and_receive(
         &self,
         stream: &Arc<RwLock<TcpStream>>,
         command_json: String,
-        _command_id: String,
+        command_id: String,
     ) -> Result<HashMap<String, serde_json::Value>, String> {
+        debug!("📤 Sending command {} ({} bytes) on persistent connection", 
+               command_id, command_json.len());
+        
+        // Use write lock for both send and receive to ensure atomicity
         let mut stream_guard = stream.write().await;
-
+        
         // Send command
         stream_guard.write_all(format!("{}\n", command_json).as_bytes()).await
             .map_err(|e| format!("Send failed: {}", e))?;
+            
+        debug!("📡 Command {} sent, waiting for response...", command_id);
 
-        // Receive response
+        // Receive response on same connection
         let mut reader = BufReader::new(&mut *stream_guard);
         let mut response_line = String::new();
-        reader.read_line(&mut response_line).await
-            .map_err(|e| format!("Receive failed: {}", e))?;
-
-        let response_str = response_line.trim();
-        if response_str.is_empty() {
-            return Err("No response received".to_string());
-        }
-
-        // Parse JSON response
-        let response: serde_json::Value = serde_json::from_str(response_str)
-            .map_err(|e| format!("JSON parse failed: {}", e))?;
-
-        // Convert to HashMap for FFI return
-        match response {
-            serde_json::Value::Object(map) => {
-                // Convert serde_json::Map to HashMap
-                let hashmap: HashMap<String, serde_json::Value> = map.into_iter().collect();
-                Ok(hashmap)
+        
+        match reader.read_line(&mut response_line).await {
+            Ok(0) => {
+                error!("❌ Command {}: Connection closed while waiting for response", command_id);
+                Err(format!("Connection closed while waiting for response to command {}", command_id))
             },
-            _ => Err("Response is not a JSON object".to_string()),
+            Ok(bytes_read) => {
+                let response_str = response_line.trim();
+                if response_str.is_empty() {
+                    return Err("Empty response received".to_string());
+                }
+
+                debug!("📥 Command {}: Received response ({} bytes)", command_id, bytes_read);
+
+                // Parse JSON response
+                let response: serde_json::Value = serde_json::from_str(response_str)
+                    .map_err(|e| format!("JSON parse failed: {}", e))?;
+
+                // Convert to HashMap for FFI return
+                match response {
+                    serde_json::Value::Object(map) => {
+                        let hashmap: HashMap<String, serde_json::Value> = map.into_iter().collect();
+                        debug!("✅ Command {}: Successfully processed", command_id);
+                        Ok(hashmap)
+                    },
+                    _ => Err("Response is not a JSON object".to_string()),
+                }
+            },
+            Err(e) => {
+                error!("❌ Command {}: Receive error - {}", command_id, e);
+                Err(format!("Receive failed: {}", e))
+            }
         }
     }
 }

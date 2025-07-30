@@ -81,8 +81,28 @@ events:
 
 cache:
   enabled: true
-  ttl_seconds: 3600
-  max_size: 10000
+  ttl_seconds: 1800       # Moderate cache for development (30 minutes)
+  max_size: 5000          # Moderate cache size for development
+
+# Query caching configuration for development environment  
+query_cache:
+  enabled: true
+  # Worker query caching (development settings - balance between performance and freshness)
+  active_workers:
+    ttl_seconds: 10        # Cache active workers for 10 seconds in development
+    max_entries: 500       # Moderate cache for development
+  worker_health:
+    ttl_seconds: 5         # Cache worker health for 5 seconds in development
+    max_entries: 200       # Moderate cache for development
+  task_metadata:
+    ttl_seconds: 60        # Cache task metadata for 1 minute in development
+    max_entries: 1000      # Moderate cache for development
+  handler_metadata:
+    ttl_seconds: 120       # Cache handler metadata for 2 minutes in development
+    max_entries: 50        # Moderate cache for development
+  # Balanced cache cleanup for development
+  cleanup_interval_seconds: 60   # Clean expired entries every minute
+  memory_pressure_threshold: 0.7 # Clear cache at 70% memory usage
 
 command_backplane:
   socket_type: "tcp"

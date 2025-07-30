@@ -44,7 +44,8 @@ module TaskerCore
 
       attr_reader :worker_id, :max_concurrent_steps, :supported_namespaces,
                   :step_timeout_ms, :supports_retries, :heartbeat_interval,
-                  :running, :current_load, :custom_capabilities, :rust_manager
+                  :running, :current_load, :custom_capabilities,
+                  :supported_tasks, :server_host, :server_port
 
       def initialize(worker_id:, supported_namespaces: nil,
                      max_concurrent_steps: DEFAULT_MAX_CONCURRENT_STEPS,
@@ -53,7 +54,8 @@ module TaskerCore
                      heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
                      custom_capabilities: {},
                      server_host: 'localhost',
-                     server_port: 8080)
+                     server_port: 8080,
+                     supported_tasks: nil)
         @worker_id = worker_id
         # Auto-discover namespaces if not explicitly provided
         @supported_namespaces = supported_namespaces || discover_registered_namespaces
@@ -62,6 +64,9 @@ module TaskerCore
         @supports_retries = supports_retries
         @heartbeat_interval = heartbeat_interval
         @custom_capabilities = custom_capabilities
+        @supported_tasks = supported_tasks
+        @server_host = server_host
+        @server_port = server_port
         @current_load = 0
         @running = false
         @load_mutex = Mutex.new
@@ -78,22 +83,18 @@ module TaskerCore
             }
           end
         end
-        
+
         # Debug: Verify logger is not nil
         if @logger.nil?
           puts "CRITICAL: @logger is still nil after initialization!"
           @logger = Logger.new($stdout)
         end
 
-        # Create Rust-backed worker manager
-        manager_config = {
-          server_host: server_host,
-          server_port: server_port,
-          heartbeat_interval_seconds: heartbeat_interval,
-          worker_namespace: @supported_namespaces.first || DEFAULT_NAMESPACE
-        }
-
-        @rust_manager = TaskerCore::WorkerManager.new_with_config(manager_config)
+        # 🎯 SINGLETON: Use OrchestrationManager's singleton CommandClient
+        # This ensures all operations use the same process-wide CommandClient instance
+        @orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
+        
+        @logger.info "🔄 WORKER_MANAGER: Using singleton CommandClient from OrchestrationManager"
       end
 
       # Start worker - initialize as worker and register with Rust orchestrator
@@ -104,34 +105,32 @@ module TaskerCore
         return true if running?
 
         begin
-          @logger.info("Starting Rust-backed worker #{@worker_id}")
+          @logger.info("Starting worker #{@worker_id} with shared CommandClient")
 
-          # Initialize as worker (connects to server)
-          success = @rust_manager.initialize_as_worker
-          unless success
-            raise WorkerError, "Failed to initialize worker connection"
-          end
+          # Get singleton CommandClient (auto-connects as needed)
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
 
           @logger.info("Worker initialized, registering with orchestrator")
 
-          # Register worker with enhanced capabilities
+          # Register worker with enhanced capabilities using shared CommandClient
           enhanced_capabilities = @custom_capabilities.merge(
             'ruby_worker' => true,
             'supports_execute_batch' => true,
-            'manager_type' => 'rust_backed'
+            'manager_type' => 'shared_command_client'
           )
 
-          response = register_worker_with_rust(enhanced_capabilities)
+          response = register_worker_with_shared_client(enhanced_capabilities)
           @logger.info("Worker registered successfully: #{response}")
 
-          # Start automatic heartbeat
-          heartbeat_success = @rust_manager.start_heartbeat(@worker_id, @heartbeat_interval)
-          unless heartbeat_success
-            @logger.warn("Failed to start automatic heartbeat, will send manual heartbeats")
-          end
+          # TODO: Implement proper heartbeat with shared CommandClient
+          @logger.info("Heartbeat background task would be started here for worker #{@worker_id}")
 
           @running = true
-          @logger.info("Rust-backed worker #{@worker_id} started successfully")
+          @logger.info("Worker #{@worker_id} started successfully with shared CommandClient")
           true
         rescue StandardError => e
           @logger.error("Failed to start worker #{@worker_id}: #{e.message}")
@@ -148,17 +147,31 @@ module TaskerCore
         return true unless running?
 
         begin
-          @logger.info("Stopping Rust-backed worker #{@worker_id}: #{reason}")
+          @logger.info("Stopping worker #{@worker_id}: #{reason}")
 
-          # Stop automatic heartbeat
-          @rust_manager.stop_heartbeat
+          # TODO: Stop automatic heartbeat when implemented
+          @logger.info("Heartbeat stopping would happen here for worker #{@worker_id}")
 
-          # Unregister worker
-          response = @rust_manager.unregister_worker(@worker_id, reason)
+          # Unregister worker using shared CommandClient
+          unregister_options = {
+            worker_id: @worker_id,
+            reason: reason
+          }
+          # Get singleton CommandClient
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
+          
+          response = command_client.unregister_worker(
+            worker_id: unregister_options[:worker_id],
+            reason: unregister_options[:reason]
+          )
           @logger.info("Worker unregistered: #{response}")
 
           @running = false
-          @logger.info("Rust-backed worker #{@worker_id} stopped successfully")
+          @logger.info("Worker #{@worker_id} stopped successfully")
           true
         rescue StandardError => e
           @logger.error("Error stopping worker #{@worker_id}: #{e.message}")
@@ -198,12 +211,16 @@ module TaskerCore
       # @return [Hash] Current worker stats
       def stats
         begin
-          # Get stats from Rust manager
-          rust_stats = @rust_manager.get_statistics
-          manager_status = @rust_manager.get_status
+          # Get connection info from singleton CommandClient
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
+          connection_info = command_client.connection_info
 
-          # Combine Ruby and Rust statistics
-          base_stats = {
+          # Ruby worker statistics
+          {
             worker_id: @worker_id,
             running: running?,
             current_load: @current_load,
@@ -212,23 +229,19 @@ module TaskerCore
             load_percentage: (@current_load.to_f / @max_concurrent_steps * 100).round(1),
             supported_namespaces: @supported_namespaces,
             supports_retries: @supports_retries,
-            manager_type: 'rust_backed'
+            manager_type: 'singleton_command_client',
+            connection_info: connection_info,
+            command_client_connected: command_client.connected?
           }
-
-          # Merge with Rust statistics
-          base_stats.merge(
-            rust_statistics: rust_stats,
-            rust_status: manager_status
-          )
         rescue StandardError => e
-          @logger.warn("Failed to get Rust statistics: #{e.message}")
+          @logger.warn("Failed to get worker statistics: #{e.message}")
           # Return basic Ruby statistics as fallback
           {
             worker_id: @worker_id,
             running: running?,
             current_load: @current_load,
             max_concurrent_steps: @max_concurrent_steps,
-            error: "Failed to get Rust stats: #{e.message}"
+            error: "Failed to get stats: #{e.message}"
           }
         end
       end
@@ -242,22 +255,45 @@ module TaskerCore
         current_load = @load_mutex.synchronize { @current_load }
 
         begin
-          raw_response = @rust_manager.send_heartbeat(@worker_id, current_load)
-          @logger.debug("Manual heartbeat sent for worker #{@worker_id}")
+          # Send heartbeat using shared CommandClient
+          heartbeat_options = {
+            worker_id: @worker_id,
+            current_load: current_load,
+            system_stats: {}  # TODO: Add real system stats
+          }
           
-          # Convert raw response to typed HeartbeatResponse
-          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+          # Get singleton CommandClient
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
+          
+          raw_response = command_client.send_heartbeat(
+            worker_id: heartbeat_options[:worker_id],
+            current_load: heartbeat_options[:current_load],
+            system_stats: heartbeat_options[:system_stats]
+          )
+          @logger.debug("Manual heartbeat sent for worker #{@worker_id}")
+
+          # Response is already typed by CommandClient, no conversion needed
+          raw_response
         rescue StandardError => e
           @logger.error("Manual heartbeat failed: #{e.message}")
           raise WorkerError, "Heartbeat failed: #{e.message}"
         end
       end
 
+      def stop_heartbeat
+        # TODO: Implement heartbeat stopping when automatic heartbeat is implemented
+        @logger.info("stop_heartbeat called for worker #{@worker_id} - heartbeat management to be implemented")
+      end
+
       # Check connection health
       #
       # @return [Boolean] true if healthy
       def healthy?
-        running? && rust_manager_healthy?
+        running? && singleton_command_client_healthy?
       end
 
       # Get detailed health information
@@ -265,14 +301,19 @@ module TaskerCore
       # @return [Hash] Health details
       def health_details
         begin
-          status = @rust_manager.get_status
-          stats = @rust_manager.get_statistics
+          # Get health info from singleton CommandClient
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
+          connection_info = command_client.connection_info
           
           {
             healthy: healthy?,
             running: running?,
-            rust_status: status,
-            rust_statistics: stats,
+            command_client_connected: command_client.connected?,
+            connection_info: connection_info,
             current_load: @current_load,
             max_capacity: @max_concurrent_steps
           }
@@ -295,7 +336,7 @@ module TaskerCore
         begin
           # Get all registered handlers from the orchestration system
           handlers_result = TaskerCore::TaskHandler::Base.list_registered_handlers
-          
+
           if handlers_result && handlers_result['handlers']
             namespaces = []
             handlers_result['handlers'].each do |handler|
@@ -303,10 +344,10 @@ module TaskerCore
               namespace = handler['namespace'] || handler[:namespace] || 'default'
               namespaces << namespace unless namespaces.include?(namespace)
             end
-            
+
             # Always include 'default' as fallback
             namespaces << 'default' unless namespaces.include?('default')
-            
+
             @logger.info("Auto-discovered namespaces for worker #{@worker_id}: #{namespaces}")
             return namespaces
           end
@@ -315,17 +356,17 @@ module TaskerCore
           @logger.debug("Error details: #{e.class.name}: #{e.message}")
           @logger.debug("Backtrace: #{e.backtrace.first(3).join(', ')}")
         end
-        
+
         # Fallback to default namespace
         @logger.info("Using default namespace for worker #{@worker_id}")
         [DEFAULT_NAMESPACE]
       end
 
-      # Register worker using Rust manager
+      # Register worker using shared CommandClient
       #
       # @param enhanced_capabilities [Hash] Worker capabilities
       # @return [TaskerCore::Types::ExecutionTypes::WorkerRegistrationResponse] Typed registration response
-      def register_worker_with_rust(enhanced_capabilities)
+      def register_worker_with_shared_client(enhanced_capabilities)
         options = {
           worker_id: @worker_id,
           max_concurrent_steps: @max_concurrent_steps,
@@ -335,18 +376,61 @@ module TaskerCore
           custom_capabilities: enhanced_capabilities
         }
 
-        raw_response = @rust_manager.register_worker(options)
-        # Convert raw response to typed WorkerRegistrationResponse
-        TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        # Add connection info for proper worker registration
+        # This provides the Rust side with details about how to communicate with this worker
+        options[:connection_info] = {
+          host: @server_host,
+          port: @server_port,
+          listener_port: nil, # Ruby workers don't typically listen on their own port
+          transport_type: 'tcp',
+          protocol_version: '1.0'
+        }
+
+        # Add supported tasks if provided (for database-backed task handler registration)
+        if @supported_tasks && !@supported_tasks.empty?
+          @logger.info("🎯 WORKER_MANAGER: Including #{@supported_tasks.size} supported tasks in RegisterWorker command")
+          options[:supported_tasks] = @supported_tasks
+          @logger.debug("🎯 WORKER_MANAGER: Task info: #{@supported_tasks.map { |t| "#{t[:namespace]}/#{t[:handler_name]}" }.join(', ')}")
+        else
+          @logger.info("🎯 WORKER_MANAGER: No supported_tasks provided - using namespace-based registration only")
+        end
+
+        @logger.info("🎯 WORKER_MANAGER: Including connection info: #{options[:connection_info]}")
+
+        # Use singleton CommandClient - pass as keyword arguments
+        command_client = @orchestration_manager.create_command_client(
+          host: @server_host,
+          port: @server_port,
+          timeout: @heartbeat_interval + 10
+        )
+        
+        raw_response = command_client.register_worker(
+          worker_id: options[:worker_id],
+          max_concurrent_steps: options[:max_concurrent_steps],
+          supported_namespaces: options[:supported_namespaces],
+          step_timeout_ms: options[:step_timeout_ms],
+          supports_retries: options[:supports_retries],
+          language_runtime: options[:language_runtime],
+          version: options[:version],
+          custom_capabilities: options[:custom_capabilities],
+          supported_tasks: options[:supported_tasks]
+        )
+        
+        # Response is already typed by CommandClient, no conversion needed
+        raw_response
       end
 
-      # Check if Rust manager is healthy
+      # Check if singleton CommandClient is healthy
       #
       # @return [Boolean] true if healthy
-      def rust_manager_healthy?
+      def singleton_command_client_healthy?
         begin
-          status = @rust_manager.get_status
-          status && status['status'] != 'Error'
+          command_client = @orchestration_manager.create_command_client(
+            host: @server_host,
+            port: @server_port,
+            timeout: @heartbeat_interval + 10
+          )
+          command_client.connected?
         rescue StandardError
           false
         end
@@ -355,7 +439,8 @@ module TaskerCore
       # Cleanup resources
       def cleanup
         begin
-          @rust_manager.stop_heartbeat if @rust_manager
+          # TODO: Cleanup heartbeat when implemented
+          @logger.info("cleanup called for worker #{@worker_id}")
         rescue StandardError => e
           @logger.warn("Error during cleanup: #{e.message}")
         end

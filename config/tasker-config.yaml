@@ -83,6 +83,26 @@ cache:
   enabled: true
   ttl_seconds: 3600
   max_size: 10000
+  
+# Query caching configuration for database optimization
+query_cache:
+  enabled: true
+  # Worker query caching (production settings)
+  active_workers:
+    ttl_seconds: 30        # Cache active workers for 30 seconds
+    max_entries: 1000      # Up to 1000 task-specific worker lists
+  worker_health:
+    ttl_seconds: 10        # Cache worker health for 10 seconds
+    max_entries: 500       # Up to 500 worker health snapshots
+  task_metadata:
+    ttl_seconds: 300       # Cache task metadata for 5 minutes
+    max_entries: 2000      # Up to 2000 task metadata entries
+  handler_metadata:
+    ttl_seconds: 600       # Cache handler metadata for 10 minutes
+    max_entries: 100       # Up to 100 handler definitions
+  # Global cache settings
+  cleanup_interval_seconds: 300  # Clean expired entries every 5 minutes
+  memory_pressure_threshold: 0.8 # Clear cache at 80% memory usage
 
 command_backplane:
   socket_type: "tcp"

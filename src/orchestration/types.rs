@@ -106,6 +106,7 @@ pub struct HandlerMetadata {
     pub version: String,
     pub handler_class: String,
     pub config_schema: Option<serde_json::Value>,
+    pub default_dependent_system: Option<String>,
     pub registered_at: DateTime<Utc>,
 }
 

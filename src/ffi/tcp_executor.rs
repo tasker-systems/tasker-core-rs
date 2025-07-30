@@ -165,12 +165,15 @@ impl EmbeddedTcpExecutor {
                     .await?;
 
                 // Task initialization handlers
+                info!("🎯 TCP_EXECUTOR: Registering TaskInitializationHandler for InitializeTask");
                 router
                     .register_handler(CommandType::InitializeTask, task_handler.clone())
                     .await?;
+                info!("🎯 TCP_EXECUTOR: Registering TaskInitializationHandler for TryTaskIfReady");
                 router
                     .register_handler(CommandType::TryTaskIfReady, task_handler.clone())
                     .await?;
+                info!("🎯 TCP_EXECUTOR: All command handlers registered successfully");
 
                 // Start the executor
                 executor.start().await

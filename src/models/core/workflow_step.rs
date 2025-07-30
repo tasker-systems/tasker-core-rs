@@ -142,6 +142,35 @@ impl WorkflowStep {
         Ok(step)
     }
 
+    /// Create a new workflow step within a transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_step: NewWorkflowStep,
+    ) -> Result<WorkflowStep, sqlx::Error> {
+        let step = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            INSERT INTO tasker_workflow_steps (
+                task_id, named_step_id, retryable, retry_limit, inputs, skippable, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+                      in_process, processed, processed_at, attempts, last_attempted_at,
+                      backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+            "#,
+            new_step.task_id,
+            new_step.named_step_id,
+            new_step.retryable.unwrap_or(true),
+            new_step.retry_limit.unwrap_or(3),
+            new_step.inputs,
+            new_step.skippable.unwrap_or(false)
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(step)
+    }
+
     /// Find a workflow step by ID
     pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<WorkflowStep>, sqlx::Error> {
         let step = sqlx::query_as!(

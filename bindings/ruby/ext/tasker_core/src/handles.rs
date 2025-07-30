@@ -11,7 +11,7 @@
 use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use crate::types::{OrchestrationHandleInfo, RubyAnalyticsMetrics};
 use magnus::error::Result as MagnusResult;
-use magnus::{function, method, Error, Module, Object, RModule, Value};
+use magnus::{function, method, Error, Module, Object, RModule, Value, TryConvert, prelude::*};
 use std::sync::Arc;
 use tasker_core::ffi::shared::handles::SharedOrchestrationHandle;
 use tracing::{debug, error, info};
@@ -165,8 +165,13 @@ impl OrchestrationHandle {
             handler_class: options_json
                 .get("handler_class")
                 .and_then(|v| v.as_str())
-                .unwrap_or("DefaultHandler")
+                .unwrap_or("TaskerCore::TaskHandler::Base")
                 .to_string(),
+            default_dependent_system: options_json
+                .get("default_dependent_system")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or(Some("default".to_string())),
             config_schema: options_json.get("config_schema").cloned(),
             registered_at: chrono::Utc::now(),
         };
@@ -248,6 +253,153 @@ impl OrchestrationHandle {
                 format!("Handler lookup failed: {e}"),
             )),
         }
+    }
+
+    /// **NEW**: List handlers with optional namespace filtering (delegates to shared handle)
+    pub fn list_handlers(&self, namespace_param: Value) -> MagnusResult<Value> {
+        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to create async runtime: {e}"),
+            )
+        })?;
+
+        runtime.block_on(async {
+            // Extract namespace parameter - can be string or nil
+            let namespace = if namespace_param.is_nil() {
+                None
+            } else {
+                Some(String::try_convert(namespace_param).map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Failed to convert namespace parameter: {e}"),
+                    )
+                })?)
+            };
+
+            // Delegate to shared handle
+            match self.shared_handle.list_handlers(namespace.as_deref()).await {
+                Ok(handlers) => {
+                    // Convert Vec<HandlerMetadata> to Ruby array
+                    let handlers_json: Vec<serde_json::Value> = handlers
+                        .into_iter()
+                        .map(|metadata| {
+                            serde_json::json!({
+                                "namespace": metadata.namespace,
+                                "name": metadata.name,
+                                "version": metadata.version,
+                                "handler_class": metadata.handler_class,
+                                "config_schema": metadata.config_schema,
+                                "registered_at": metadata.registered_at.to_rfc3339()
+                            })
+                        })
+                        .collect();
+
+                    let result = serde_json::json!({
+                        "success": true,
+                        "handlers": handlers_json,
+                        "count": handlers_json.len(),
+                        "namespace_filter": namespace
+                    });
+
+                    json_to_ruby_value(result).map_err(|e| {
+                        Error::new(
+                            magnus::exception::runtime_error(),
+                            format!("Failed to convert handlers list: {e}"),
+                        )
+                    })
+                }
+                Err(e) => {
+                    let result = serde_json::json!({
+                        "success": false,
+                        "error": e.to_string(),
+                        "handlers": [],
+                        "count": 0,
+                        "namespace_filter": namespace
+                    });
+
+                    json_to_ruby_value(result).map_err(|err| {
+                        Error::new(
+                            magnus::exception::runtime_error(),
+                            format!("Failed to convert error result: {err}"),
+                        )
+                    })
+                }
+            }
+        })
+    }
+
+    /// **NEW**: Get task metadata by task_id (delegates to shared handle)
+    pub fn get_task_metadata(&self, task_id: Value) -> MagnusResult<Value> {
+        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to create async runtime: {e}"),
+            )
+        })?;
+
+        runtime.block_on(async {
+            // Extract task_id parameter
+            let task_id_num = i64::try_convert(task_id).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Failed to convert task_id parameter: {e}"),
+                )
+            })?;
+
+            // Delegate to shared handle
+            match self.shared_handle.get_task_metadata(task_id_num).await {
+                Ok(Some(metadata)) => {
+                    // Convert TaskMetadata to Ruby hash
+                    let result = serde_json::json!({
+                        "success": true,
+                        "task_id": metadata.task_id,
+                        "namespace": metadata.namespace,
+                        "name": metadata.name,
+                        "version": metadata.version,
+                        "found": true
+                    });
+
+                    json_to_ruby_value(result).map_err(|e| {
+                        Error::new(
+                            magnus::exception::runtime_error(),
+                            format!("Failed to convert task metadata: {e}"),
+                        )
+                    })
+                }
+                Ok(None) => {
+                    // Task not found
+                    let result = serde_json::json!({
+                        "success": true,
+                        "task_id": task_id_num,
+                        "found": false,
+                        "error": "Task not found"
+                    });
+
+                    json_to_ruby_value(result).map_err(|e| {
+                        Error::new(
+                            magnus::exception::runtime_error(),
+                            format!("Failed to convert not found result: {e}"),
+                        )
+                    })
+                }
+                Err(e) => {
+                    let result = serde_json::json!({
+                        "success": false,
+                        "task_id": task_id_num,
+                        "found": false,
+                        "error": e.to_string()
+                    });
+
+                    json_to_ruby_value(result).map_err(|err| {
+                        Error::new(
+                            magnus::exception::runtime_error(),
+                            format!("Failed to convert error result: {err}"),
+                        )
+                    })
+                }
+            }
+        })
     }
 
     /// **MIGRATED**: Get analytics (delegates to shared analytics manager)
@@ -383,6 +535,14 @@ pub fn register_orchestration_handle(module: &RModule) -> MagnusResult<()> {
     class.define_method(
         "find_handler",
         method!(OrchestrationHandle::find_handler, 1),
+    )?;
+    class.define_method(
+        "list_handlers",
+        method!(OrchestrationHandle::list_handlers, 1),
+    )?;
+    class.define_method(
+        "get_task_metadata",
+        method!(OrchestrationHandle::get_task_metadata, 1),
     )?;
     class.define_method(
         "get_analytics",

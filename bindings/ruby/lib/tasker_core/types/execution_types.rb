@@ -486,12 +486,30 @@ module TaskerCore
         attribute :workflow_steps, Types::Array.of(StepTemplate)
       end
 
+      class WorkflowStepInitializationData < Dry::Struct
+        attribute :workflow_step_id, Types::Integer
+        attribute :backoff_request_seconds, Types::Coercible::Integer.optional
+        attribute :created_at, Types::Params::DateTime
+        attribute :in_process, Types::Bool
+        attribute :inputs, Types::Hash
+        attribute :last_attempted_at, Types::Params::DateTime.optional
+        attribute :named_step_id, Types::Integer
+        attribute :processed, Types::Bool
+        attribute :processed_at, Types::Params::DateTime.optional
+        attribute :results, Types::Hash.optional
+        attribute :retry_limit, Types::Integer
+        attribute :retryable, Types::Bool
+        attribute :skippable, Types::Bool
+        attribute :task_id, Types::Integer
+        attribute :updated_at, Types::Params::DateTime.optional
+      end
+
       # Task initialization response data
       class TaskInitializedData < Dry::Struct
         attribute :task_id, Types::Integer
         attribute :success, Types::Bool
         attribute :step_count, Types::Integer
-        attribute :workflow_steps, Types::Array.of(StepTemplate)
+        attribute :workflow_steps, Types::Array.of(WorkflowStepInitializationData)
         attribute? :error_message, Types::String.optional
       end
 

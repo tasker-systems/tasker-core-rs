@@ -237,6 +237,7 @@ where
         connection: T::Connection,
         connection_info: ConnectionInfo,
     ) {
+        info!("🔌 CONNECTION {}: Starting from {} (transport: {:?})", connection_id, connection_info.peer_address, connection_info.transport_type);
         let (shutdown_tx, mut shutdown_rx) = broadcast::channel(16);
 
         // Create connection state
@@ -257,25 +258,14 @@ where
         let (mut reader, writer) = connection.split();
         let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
-        // Create command processing channel
-        let (cmd_tx, mut cmd_rx) =
-            mpsc::channel::<Command>(self.transport.config().command_queue_size());
-
-        // Clone references for tasks
+        // Clone executor for immediate command processing
         let executor = self.clone();
-        let writer_clone = writer.clone();
 
-        // Spawn command processing task
-        let cmd_processor = tokio::spawn(async move {
-            while let Some(command) = cmd_rx.recv().await {
-                executor
-                    .process_command(command, writer_clone.clone())
-                    .await;
-            }
-        });
-
-        // Message reading loop
+        // Message reading loop - PROCESS COMMANDS IMMEDIATELY (no separate task)
         let mut line = String::new();
+        let mut commands_processed = 0;
+        info!("🔌 CONNECTION {}: Entering read loop", connection_id);
+        
         loop {
             tokio::select! {
                 // Read messages from connection
@@ -283,21 +273,60 @@ where
                     match read_result {
                         Ok(0) => {
                             // Connection closed by client
-                            info!("Connection {} closed by client", connection_id);
+                            info!("🔌 CONNECTION {}: Closed by client after {} commands", connection_id, commands_processed);
                             break;
                         }
-                        Ok(_) => {
-                            // Parse and send command for processing
+                        Ok(bytes_read) => {
+                            info!("🔌 CONNECTION {}: Received {} bytes: '{}'", connection_id, bytes_read, line.trim());
+                            
+                            // Parse and IMMEDIATELY process command (no queuing)
                             if let Some(command) = self.parse_command(&line.trim()) {
-                                if cmd_tx.send(command).await.is_err() {
-                                    error!("Command queue full for connection {}", connection_id);
-                                    break;
+                                commands_processed += 1;
+                                info!("🔌 CONNECTION {}: Parsed command #{}: type={:?}, id={}", connection_id, commands_processed, command.command_type, command.command_id);
+                                
+                                // Log command details for debugging
+                                if matches!(command.command_type, CommandType::InitializeTask) {
+                                    info!("🎯 CONNECTION {}: InitializeTask command details: {:?}", connection_id, command);
+                                    info!("🎯 CONNECTION {}: About to process InitializeTask", connection_id);
                                 }
+                                
+                                // IMMEDIATE PROCESSING - no separate task, no queuing
+                                let process_start = std::time::Instant::now();
+                                executor.process_command(command.clone(), writer.clone()).await;
+                                let process_time = process_start.elapsed();
+                                
+                                info!("🔌 CONNECTION {}: Finished processing command #{} (type={:?}) in {:?}", 
+                                    connection_id, commands_processed, command.command_type, process_time);
+                                    
+                                if matches!(command.command_type, CommandType::InitializeTask) {
+                                    info!("🎯 CONNECTION {}: InitializeTask processing completed in {:?}", connection_id, process_time);
+                                }
+                            } else {
+                                warn!("🔌 CONNECTION {}: Failed to parse message: '{}'", connection_id, line.trim());
+                                
+                                // Send error response for unparseable commands
+                                let error_response = Command::new(
+                                    CommandType::Error,
+                                    crate::execution::command::CommandPayload::Error {
+                                        error_type: "ParseError".to_string(),
+                                        message: "Failed to parse command from JSON".to_string(),
+                                        details: Some({
+                                            let mut details = std::collections::HashMap::new();
+                                            details.insert("raw_message".to_string(), serde_json::Value::String(line.trim().to_string()));
+                                            details
+                                        }),
+                                        retryable: false,
+                                    },
+                                    crate::execution::command::CommandSource::RustServer {
+                                        id: "generic_executor".to_string(),
+                                    },
+                                );
+                                executor.send_response(error_response, writer.clone()).await;
                             }
                             line.clear();
                         }
                         Err(e) => {
-                            error!("Error reading from connection {}: {}", connection_id, e);
+                            error!("🔌 CONNECTION {}: Error reading after {} commands: {}", connection_id, commands_processed, e);
                             break;
                         }
                     }
@@ -305,14 +334,13 @@ where
 
                 // Handle shutdown signal
                 _ = shutdown_rx.recv() => {
-                    info!("Connection {} shutting down", connection_id);
+                    info!("🔌 CONNECTION {}: Shutting down via signal after {} commands", connection_id, commands_processed);
                     break;
                 }
             }
         }
 
-        // Cleanup
-        cmd_processor.abort();
+        // No command processor task to abort - commands processed immediately
 
         // Remove connection from active connections
         {
@@ -326,7 +354,7 @@ where
             state.active_connections = state.active_connections.saturating_sub(1);
         }
 
-        info!("Connection {} handler completed", connection_id);
+        info!("🔌 CONNECTION {}: Handler completed after processing {} commands", connection_id, commands_processed);
     }
 
     /// Process a command through the command router
@@ -338,13 +366,39 @@ where
             "Processing command: type={:?}, id={}",
             command.command_type, command.command_id
         );
+        
+        // Enhanced debugging for InitializeTask
+        if matches!(command.command_type, CommandType::InitializeTask) {
+            info!("🎯 PROCESS_COMMAND: About to route InitializeTask to command router");
+        }
 
         // Route command through command router
         match self.command_router.route_command(command.clone()).await {
             Ok(result) => {
+                if matches!(command.command_type, CommandType::InitializeTask) {
+                    info!("🎯 PROCESS_COMMAND: InitializeTask routed successfully, has_response={}", result.response.is_some());
+                }
+                
                 // Send response if available
                 if let Some(response) = result.response {
                     self.send_response(response, writer).await;
+                } else {
+                    warn!("Command {} returned no response - this violates command-response pattern!", command.command_id);
+                    
+                    // Always send a response - even if handler didn't provide one
+                    let error_response = command.create_response(
+                        CommandType::Error,
+                        crate::execution::command::CommandPayload::Error {
+                            error_type: "NoResponse".to_string(),
+                            message: "Command handler did not provide a response".to_string(),
+                            details: None,
+                            retryable: false,
+                        },
+                        crate::execution::command::CommandSource::RustServer {
+                            id: "generic_executor".to_string(),
+                        },
+                    );
+                    self.send_response(error_response, writer).await;
                 }
             }
             Err(e) => {
@@ -374,17 +428,25 @@ where
     where
         W: tokio::io::AsyncWriteExt + Send + Unpin,
     {
+        info!("📤 SEND_RESPONSE: Sending response type={:?}, id={}", response.command_type, response.command_id);
+        
         match serde_json::to_string(&response) {
             Ok(json) => {
                 let message = format!("{}\n", json);
+                info!("📤 SEND_RESPONSE: Serialized {} bytes for type={:?}", message.len(), response.command_type);
 
                 let mut writer_guard = writer.lock().await;
-                if let Err(e) = writer_guard.write_all(message.as_bytes()).await {
-                    error!("Failed to send response: {}", e);
+                match writer_guard.write_all(message.as_bytes()).await {
+                    Ok(_) => {
+                        info!("📤 SEND_RESPONSE: Successfully sent response type={:?}", response.command_type);
+                    }
+                    Err(e) => {
+                        error!("📤 SEND_RESPONSE: Failed to send response type={:?}: {}", response.command_type, e);
+                    }
                 }
             }
             Err(e) => {
-                error!("Failed to serialize response: {}", e);
+                error!("📤 SEND_RESPONSE: Failed to serialize response type={:?}: {}", response.command_type, e);
             }
         }
     }

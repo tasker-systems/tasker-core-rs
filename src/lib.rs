@@ -78,6 +78,7 @@
 //! ```
 
 // pub mod client; // Removed - legacy code superseded by src/ffi/shared
+pub mod config;
 pub mod constants;
 pub mod database;
 pub mod error;

@@ -863,6 +863,7 @@ impl BaseTaskHandler {
                 )
                 .with_version(task_for_orchestration.task_version.clone()),
             )
+            .await
             .map_err(|e| format!("Handler not found for {handler_key}: {e}"))?;
 
         // 6. Execute step through batch execution (single step batch)

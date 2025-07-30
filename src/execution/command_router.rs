@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::execution::command::{Command, CommandPayload, CommandResult, CommandType};
+use crate::models::core::task_template::TaskTemplate;
 use crate::models::core::worker_command_audit::{
     CommandDirection, NewWorkerCommandAudit, WorkerCommandAudit,
 };
@@ -134,39 +135,61 @@ impl CommandRouter {
     ) -> Result<CommandResult, CommandRouterError> {
         let start_time = std::time::Instant::now();
 
-        debug!(
-            "Routing command: type={:?}, id={}, correlation_id={:?}",
+        info!(
+            "🎯 COMMAND_ROUTER: Routing command: type={:?}, id={}, correlation_id={:?}",
             command.command_type, command.command_id, command.correlation_id
         );
 
         // Validate command
         self.validate_command(&command)?;
 
-        // Find handler
+        // Find handler with detailed debugging
         let handlers = self.handlers.read().await;
+        let registered_handlers: Vec<_> = handlers.keys().collect();
+        info!(
+            "🎯 COMMAND_ROUTER: Available handlers: {:?}, looking for: {:?}",
+            registered_handlers, command.command_type
+        );
+        
         let handler = handlers
             .get(&command.command_type)
-            .ok_or_else(|| CommandRouterError::HandlerNotFound {
-                command_type: command.command_type.clone(),
+            .ok_or_else(|| {
+                error!(
+                    "🎯 COMMAND_ROUTER: CRITICAL - Handler not found for command type: {:?}, registered handlers: {:?}",
+                    command.command_type, registered_handlers
+                );
+                CommandRouterError::HandlerNotFound {
+                    command_type: command.command_type.clone(),
+                }
             })?
             .clone();
         drop(handlers);
+        
+        info!(
+            "🎯 COMMAND_ROUTER: Handler found for command type: {:?}, handler_name: {}",
+            command.command_type, handler.handler_name()
+        );
 
         // Execute command
         let execution_start = std::time::Instant::now();
+        info!(
+            "🎯 COMMAND_ROUTER: About to call handler.handle_command for type={:?}, id={}",
+            command.command_type, command.command_id
+        );
+
         let result = match handler.handle_command(command.clone()).await {
             Ok(result) => {
                 let execution_time = execution_start.elapsed().as_millis() as u64;
                 info!(
-                    "Command executed successfully: type={:?}, id={}, time={}ms",
-                    command.command_type, command.command_id, execution_time
+                    "🎯 COMMAND_ROUTER: Command executed successfully: type={:?}, id={}, time={}ms, has_response={}",
+                    command.command_type, command.command_id, execution_time, result.is_some()
                 );
                 CommandResult::success(command.command_id.clone(), result, execution_time)
             }
             Err(e) => {
                 let execution_time = execution_start.elapsed().as_millis() as u64;
                 error!(
-                    "Command execution failed: type={:?}, id={}, error={}, time={}ms",
+                    "🎯 COMMAND_ROUTER: Command execution failed: type={:?}, id={}, error={}, time={}ms",
                     command.command_type, command.command_id, e, execution_time
                 );
 
@@ -182,6 +205,11 @@ impl CommandRouter {
                     crate::execution::command::CommandSource::RustServer {
                         id: "command_router".to_string(),
                     },
+                );
+
+                info!(
+                    "🎯 COMMAND_ROUTER: Created error response for failed command: type={:?}, id={}",
+                    command.command_type, command.command_id
                 );
 
                 CommandResult {
@@ -583,6 +611,7 @@ mod tests {
                     custom_capabilities: HashMap::new(),
                     connection_info: None,
                     runtime_info: None,
+                    supported_tasks: None,
                 },
             },
             CommandSource::RubyWorker {
@@ -606,14 +635,18 @@ mod tests {
             CommandType::ExecuteBatch,
             CommandPayload::ExecuteBatch {
                 task_template: TaskTemplate {
-                    namespace_name: "test".to_string(),
-                    task_name: "test".to_string(),
-                    task_version: "1.0.0".to_string(),
+                    name: "test".to_string(),
+                    module_namespace: Some("test".to_string()),
                     task_handler_class: "test".to_string(),
-                    task_handler_config: serde_json::json!({}),
-                    task_handler_config_type: "json".to_string(),
-                    task_handler_config_version: "1.0.0".to_string(),
-                    task_handler_config_namespace: "test".to_string(),
+                    namespace_name: "test".to_string(),
+                    version: "1.0.0".to_string(),
+                    default_dependent_system: None,
+                    named_steps: vec![],
+                    schema: Some(serde_json::json!({})),
+                    step_templates: vec![],
+                    environments: None,
+                    default_context: None,
+                    default_options: None,
                 },
                 batch_id: "test_batch".to_string(),
                 steps: vec![],
@@ -698,6 +731,7 @@ mod tests {
                     custom_capabilities: HashMap::new(),
                     connection_info: None,
                     runtime_info: None,
+                    supported_tasks: None,
                 },
             },
             CommandSource::RubyWorker {

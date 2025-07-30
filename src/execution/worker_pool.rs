@@ -792,6 +792,7 @@ mod tests {
             custom_capabilities: HashMap::new(),
             connection_info: None,
             runtime_info: None,
+            supported_tasks: None,
         }
     }
 
@@ -957,8 +958,10 @@ mod tests {
             handler_name: "OrderProcessorHandler".to_string(),
             version: "1.0.0".to_string(),
             handler_class: "Orders::OrderProcessorHandler".to_string(),
+            description: Some("Test order processor handler".to_string()),
             supported_step_types: vec!["validate_order".to_string(), "process_payment".to_string()],
             handler_config: HashMap::new(),
+            priority: Some(100),
             timeout_ms: 30000,
             supports_retries: true,
         };
@@ -1022,8 +1025,10 @@ mod tests {
             handler_name: "OrderProcessorHandler".to_string(),
             version: "1.0.0".to_string(),
             handler_class: "Orders::OrderProcessorHandler".to_string(),
+            description: Some("Test order processor handler".to_string()),
             supported_step_types: vec!["validate_order".to_string()],
             handler_config: HashMap::new(),
+            priority: Some(100),
             timeout_ms: 30000,
             supports_retries: true,
         };
@@ -1041,8 +1046,10 @@ mod tests {
             handler_name: "InventoryHandler".to_string(),
             version: "1.0.0".to_string(),
             handler_class: "Inventory::InventoryHandler".to_string(),
+            description: Some("Test inventory handler".to_string()),
             supported_step_types: vec!["check_stock".to_string()],
             handler_config: HashMap::new(),
+            priority: Some(100),
             timeout_ms: 30000,
             supports_retries: true,
         };

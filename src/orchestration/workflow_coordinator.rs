@@ -265,7 +265,7 @@ impl WorkflowCoordinator {
         // Create task finalizer with shared event publisher
         let task_finalizer =
             crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                pool,
+                pool.clone(),
                 event_publisher.clone(),
             );
 
@@ -291,7 +291,7 @@ impl WorkflowCoordinator {
             batch_execution_sender: None,
             task_handler_registry: {
                 let ep = event_publisher.clone();
-                Arc::new(TaskHandlerRegistry::with_event_publisher(ep))
+                Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
             },
         }
     }
@@ -318,7 +318,7 @@ impl WorkflowCoordinator {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let _registry = TaskHandlerRegistry::with_event_publisher(event_publisher.clone());
+        let _registry = TaskHandlerRegistry::with_event_publisher(pool.clone(), event_publisher.clone());
 
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
@@ -326,7 +326,7 @@ impl WorkflowCoordinator {
         // Create task finalizer with shared event publisher
         let task_finalizer =
             crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                pool,
+                pool.clone(),
                 event_publisher.clone(),
             );
 
@@ -352,7 +352,7 @@ impl WorkflowCoordinator {
             batch_execution_sender: None,
             task_handler_registry: {
                 let ep = event_publisher.clone();
-                Arc::new(TaskHandlerRegistry::with_event_publisher(ep))
+                Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
             },
         }
     }
@@ -722,8 +722,21 @@ impl WorkflowCoordinator {
         metrics: &mut WorkflowExecutionMetrics,
     ) -> OrchestrationResult<Vec<StepResult>> {
         let execution_start = Instant::now();
+        let steps_count = viable_steps.len();
 
         let batch_results = self.execute_step_batch(task_id, viable_steps).await?;
+
+        // Update metrics with the actual number of steps published
+        // Only count non-empty results (steps actually sent to workers)
+        let published_steps = batch_results.len();
+        metrics.steps_executed += published_steps;
+        
+        tracing::debug!(
+            task_id = task_id,
+            viable_steps = steps_count,
+            published_steps = published_steps,
+            "Updated metrics.steps_executed after batch publication"
+        );
 
         metrics.execution_duration += execution_start.elapsed();
         Ok(batch_results)

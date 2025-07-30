@@ -1,55 +1,53 @@
-//! # Task Handler Registry
+//! # Database-First Task Handler Registry
 //!
-//! Central registry for task handler resolution with support for both Rust and FFI handlers.
+//! Database-backed registry for distributed task handler resolution.
 //!
 //! ## Architecture
 //!
-//! The registry follows the Rails HandlerFactory pattern with hierarchical storage:
+//! **AGGRESSIVE DATABASE-FIRST**: Eliminates all in-memory storage, uses database models directly:
 //! ```text
-//! namespace -> name -> version -> handler
+//! TaskRequest -> Database Query -> TaskNamespace + NamedTask + WorkerNamedTask -> HandlerMetadata
 //! ```
 //!
 //! ## Key Features
 //!
-//! - **Dual-path support**: Direct handler references for Rust, metadata for FFI
-//! - **Default handling**: Automatic defaults for namespace ("default") and version ("0.1.0")
-//! - **Thread-safe operations**: Concurrent access using RwLock
-//! - **Event integration**: Registration notifications via EventPublisher
+//! - **Database-First**: All handler resolution via database queries (no HashMap)
+//! - **Distributed Ready**: Works identically in embedded and distributed deployments
+//! - **Persistent State**: Handler registrations survive restarts and deployments
+//! - **Worker Awareness**: Real-time knowledge of available workers per namespace
+//! - **Event Integration**: Registration notifications via EventPublisher
 //!
 //! ## Usage
 //!
 //! ```rust
 //! use tasker_core::registry::TaskHandlerRegistry;
 //! use tasker_core::models::core::task_request::TaskRequest;
+//! use sqlx::PgPool;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let registry = TaskHandlerRegistry::new();
+//! # async fn example(db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+//! let registry = TaskHandlerRegistry::new(db_pool);
 //!
-//! // Register an FFI handler
-//! registry.register_ffi_handler(
-//!     "payments",
-//!     "order_processing",
-//!     "1.0.0",
-//!     "OrderProcessingHandler",
-//!     None
-//! ).await?;
-//!
-//! // Resolve from TaskRequest
-//! let task_request = TaskRequest::new("order_processing".to_string(), "payments".to_string());
-//! let handler_metadata = registry.resolve_handler(&task_request)?;
+//! // Handler resolution via database queries
+//! let task_request = TaskRequest::new("order_processing".to_string(), "fulfillment".to_string());
+//! let handler_metadata = registry.resolve_handler(&task_request).await?;
 //! # Ok(())
 //! # }
 //! ```
 
 use crate::error::{Result, TaskerError};
-use crate::events::{Event, EventPublisher, OrchestrationEvent};
-use crate::models::core::task_request::TaskRequest;
-use crate::models::core::task_template::TaskTemplate;
+use crate::events::EventPublisher;
+use crate::models::core::{
+    named_task::NamedTask,
+    task_namespace::TaskNamespace,
+    task_request::TaskRequest,
+    task_template::TaskTemplate,
+    worker_named_task::WorkerNamedTask,
+};
 use crate::orchestration::step_handler::StepHandler;
 use crate::orchestration::types::{HandlerMetadata, TaskHandler};
 use chrono::Utc;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 /// Key for handler lookup in the registry
@@ -100,489 +98,281 @@ pub struct RegistryStats {
     pub namespaces: Vec<String>,
 }
 
-/// Task handler registry with dual-path support
+/// Database-first task handler registry for distributed orchestration
 pub struct TaskHandlerRegistry {
-    /// Direct handler references for Rust consumers
-    handlers: Arc<RwLock<HashMap<String, Arc<dyn TaskHandler>>>>,
-    /// Step handler references for orchestration
-    step_handlers: Arc<RwLock<HashMap<String, Arc<dyn StepHandler>>>>,
-    /// Metadata for FFI consumers
-    ffi_handlers: Arc<RwLock<HashMap<String, HandlerMetadata>>>,
-    /// Task template configurations
-    task_templates: Arc<RwLock<HashMap<String, TaskTemplate>>>,
+    /// Database connection pool for persistent storage
+    db_pool: PgPool,
     /// Event publisher for notifications
     event_publisher: Option<EventPublisher>,
 }
 
 impl TaskHandlerRegistry {
-    /// Create a new task handler registry
-    pub fn new() -> Self {
+    /// Create a new database-backed task handler registry
+    pub fn new(db_pool: PgPool) -> Self {
         Self {
-            handlers: Arc::new(RwLock::new(HashMap::new())),
-            step_handlers: Arc::new(RwLock::new(HashMap::new())),
-            ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
-            task_templates: Arc::new(RwLock::new(HashMap::new())),
+            db_pool,
             event_publisher: None,
         }
     }
 
-    /// Create a new registry with event publisher
-    pub fn with_event_publisher(event_publisher: EventPublisher) -> Self {
+    /// Create a new registry with database connection and event publisher
+    pub fn with_event_publisher(db_pool: PgPool, event_publisher: EventPublisher) -> Self {
         Self {
-            handlers: Arc::new(RwLock::new(HashMap::new())),
-            step_handlers: Arc::new(RwLock::new(HashMap::new())),
-            ffi_handlers: Arc::new(RwLock::new(HashMap::new())),
-            task_templates: Arc::new(RwLock::new(HashMap::new())),
+            db_pool,
             event_publisher: Some(event_publisher),
         }
     }
 
-    /// Register a task template configuration
+    /// Register a task template configuration (DEPRECATED - database-first approach)
+    ///
+    /// NOTE: This method is deprecated in the database-first architecture.
+    /// Task templates are now managed through NamedTask database records.
     pub async fn register_task_template(
         &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-        template: TaskTemplate,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
+        _template: TaskTemplate,
     ) -> Result<()> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        info!(
-            namespace = namespace,
-            name = name,
-            version = version,
-            template_name = template.name,
-            "Registering task template"
-        );
-
-        {
-            let mut task_templates = self.task_templates.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-
-            if task_templates.contains_key(&key_string) {
-                warn!(
-                    key = key_string,
-                    "Task template already registered, replacing"
-                );
-            }
-
-            task_templates.insert(key_string.clone(), template);
-        }
-
-        info!(key = key_string, "Task template registered successfully");
-        Ok(())
+        warn!("register_task_template is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Task template registration deprecated - use NamedTask database records".to_string(),
+        ))
     }
 
-    /// Get a task template by namespace, name, and version
+    /// Get a task template by namespace, name, and version (DEPRECATED)
     pub fn get_task_template(
         &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
     ) -> Result<TaskTemplate> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        let task_templates = self.task_templates.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        task_templates.get(&key_string).cloned().ok_or_else(|| {
-            TaskerError::ValidationError(format!("Task template not found: {key_string}"))
-        })
+        warn!("get_task_template is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Task template retrieval deprecated - use NamedTask database queries".to_string(),
+        ))
     }
 
-    /// Check if a task template exists
-    pub fn has_task_template(&self, namespace: &str, name: &str, version: &str) -> bool {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        if let Ok(task_templates) = self.task_templates.read() {
-            task_templates.contains_key(&key_string)
-        } else {
-            false
-        }
+    /// Check if a task template exists (DEPRECATED)
+    pub fn has_task_template(&self, _namespace: &str, _name: &str, _version: &str) -> bool {
+        warn!("has_task_template is deprecated in database-first architecture");
+        false
     }
 
-    /// List all task templates in a namespace (or all if namespace is None)
-    pub fn list_task_templates(&self, namespace: Option<&str>) -> Result<Vec<String>> {
-        let task_templates = self.task_templates.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        let filtered: Vec<String> = task_templates
-            .iter()
-            .filter(|(key, _)| {
-                if let Some(ns) = namespace {
-                    key.starts_with(&format!("{ns}/"))
-                } else {
-                    true
-                }
-            })
-            .map(|(key, _)| key.clone())
-            .collect();
-
-        Ok(filtered)
+    /// List all task templates in a namespace (DEPRECATED)
+    pub fn list_task_templates(&self, _namespace: Option<&str>) -> Result<Vec<String>> {
+        warn!("list_task_templates is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Task template listing deprecated - use NamedTask database queries".to_string(),
+        ))
     }
 
-    /// Register a Rust task handler
+    /// Register a Rust task handler (DEPRECATED - database-first approach)
+    ///
+    /// NOTE: This method is deprecated in the database-first architecture.
+    /// Handlers are now registered through database records and worker associations.
     pub async fn register_handler(
         &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-        handler: Arc<dyn TaskHandler>,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
+        _handler: Arc<dyn TaskHandler>,
     ) -> Result<()> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        info!(
-            namespace = namespace,
-            name = name,
-            version = version,
-            "Registering task handler"
-        );
-
-        // Validate handler
-        self.validate_handler(&key, handler.as_ref())?;
-
-        // Register direct handler reference
-        {
-            let mut handlers = self.handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-
-            if handlers.contains_key(&key_string) {
-                warn!(key = key_string, "Handler already registered, replacing");
-            }
-
-            handlers.insert(key_string.clone(), handler.clone());
-        }
-
-        // Also register metadata for introspection
-        let metadata = HandlerMetadata {
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-            version: version.to_string(),
-            handler_class: format!("{name}Handler"),
-            config_schema: None,
-            registered_at: Utc::now(),
-        };
-
-        {
-            let mut ffi_handlers = self.ffi_handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-
-            ffi_handlers.insert(key_string.clone(), metadata.clone());
-        }
-
-        // Publish event if publisher is available
-        if let Some(ref publisher) = self.event_publisher {
-            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
-                handler_name: key_string.clone(),
-                handler_type: "task_handler".to_string(),
-                registered_at: Utc::now(),
-            });
-            publisher
-                .publish_event(event)
-                .await
-                .map_err(|e| TaskerError::EventError(e.to_string()))?;
-        }
-
-        info!(key = key_string, "Task handler registered successfully");
-        Ok(())
+        warn!("register_handler is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Direct handler registration deprecated - use database worker registration".to_string(),
+        ))
     }
 
-    /// Register an FFI task handler (metadata only)
+    /// Register an FFI task handler (DEPRECATED - database-first approach)
+    ///
+    /// NOTE: This method is deprecated in the database-first architecture.
+    /// FFI handlers are now registered through database records and worker associations.
     pub async fn register_ffi_handler(
         &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-        handler_class: &str,
-        config_schema: Option<serde_json::Value>,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
+        _handler_class: &str,
+        _config_schema: Option<serde_json::Value>,
     ) -> Result<()> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        debug!("📝 REGISTRY: Registering FFI handler - namespace='{}', name='{}', version='{}', handler_class='{}', key_string='{}'", namespace, name, version, handler_class, key_string);
-
-        info!(
-            namespace = namespace,
-            name = name,
-            version = version,
-            handler_class = handler_class,
-            "Registering FFI task handler"
-        );
-
-        let metadata = HandlerMetadata {
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-            version: version.to_string(),
-            handler_class: handler_class.to_string(),
-            config_schema,
-            registered_at: Utc::now(),
-        };
-
-        {
-            let mut ffi_handlers = self.ffi_handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-
-            if ffi_handlers.contains_key(&key_string) {
-                warn!(
-                    key = key_string,
-                    "FFI handler already registered, replacing"
-                );
-            }
-
-            ffi_handlers.insert(key_string.clone(), metadata.clone());
-        }
-
-        // Publish event if publisher is available
-        if let Some(ref publisher) = self.event_publisher {
-            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
-                handler_name: key_string.clone(),
-                handler_type: "task_handler".to_string(),
-                registered_at: Utc::now(),
-            });
-            publisher
-                .publish_event(event)
-                .await
-                .map_err(|e| TaskerError::EventError(e.to_string()))?;
-        }
-
-        info!(key = key_string, "FFI task handler registered successfully");
-        Ok(())
+        warn!("register_ffi_handler is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "FFI handler registration deprecated - use database worker registration".to_string(),
+        ))
     }
 
-    /// Resolve a handler from a TaskRequest
-    pub fn resolve_handler(&self, request: &TaskRequest) -> Result<HandlerMetadata> {
-        // Build lookup key from request
-        let key = HandlerKey::from_task_request(request);
-        let key_string = key.key_string();
-
+    /// Resolve a handler from a TaskRequest using database queries
+    pub async fn resolve_handler(&self, request: &TaskRequest) -> Result<HandlerMetadata> {
         debug!(
             namespace = &request.namespace,
             name = &request.name,
             version = &request.version,
-            "Resolving handler for task request"
+            "🎯 DATABASE-FIRST: Resolving handler via database queries"
         );
 
-        // Check FFI handlers (which includes metadata for all handlers)
-        let ffi_handlers = self.ffi_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
+        // 1. Find the task namespace
+        let task_namespace = TaskNamespace::find_by_name(&self.db_pool, &request.namespace)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {}", e)))?
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "Namespace not found: {}",
+                    request.namespace
+                ))
+            })?;
 
-        ffi_handlers.get(&key_string).cloned().ok_or_else(|| {
+        // 2. Find the named task in that namespace
+        let named_task = NamedTask::find_latest_by_name_namespace(
+            &self.db_pool,
+            &request.name,
+            task_namespace.task_namespace_id as i64,
+        )
+        .await
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {}", e)))?
+        .ok_or_else(|| {
             TaskerError::ValidationError(format!(
-                "Handler not found for {}/{}/{}",
-                request.namespace, request.name, request.version
+                "Task not found: {}/{}",
+                request.namespace, request.name
             ))
-        })
-    }
-
-    /// Get a Rust handler directly (for in-process execution)
-    pub fn get_handler(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<Arc<dyn TaskHandler>> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        let handlers = self.handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
         })?;
 
-        handlers
-            .get(&key_string)
-            .cloned()
-            .ok_or_else(|| TaskerError::ValidationError(format!("Handler not found: {key_string}")))
-    }
-
-    /// Get handler metadata
-    pub fn get_handler_metadata(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<HandlerMetadata> {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        let ffi_handlers = self.ffi_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
+        // 3. Find active workers that can handle this task
+        let active_workers = WorkerNamedTask::find_active_workers_for_task(
+            &self.db_pool,
+            named_task.named_task_id,
+        )
+        .await
+        .map_err(|e| {
+            TaskerError::DatabaseError(format!("Failed to query worker assignments: {}", e))
         })?;
 
-        ffi_handlers.get(&key_string).cloned().ok_or_else(|| {
-            TaskerError::ValidationError(format!("Handler metadata not found: {key_string}"))
-        })
-    }
-
-    /// List all handlers in a namespace (or all if namespace is None)
-    pub fn list_handlers(&self, namespace: Option<&str>) -> Result<Vec<HandlerMetadata>> {
-        let ffi_handlers = self.ffi_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        let filtered: Vec<_> = ffi_handlers
-            .values()
-            .filter(|metadata| {
-                namespace.is_none() || Some(metadata.namespace.as_str()) == namespace
-            })
-            .cloned()
-            .collect();
-
-        Ok(filtered)
-    }
-
-    /// Check if a handler exists
-    pub fn contains_handler(&self, namespace: &str, name: &str, version: &str) -> bool {
-        let key = HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
-        let key_string = key.key_string();
-
-        if let Ok(handlers) = self.ffi_handlers.read() {
-            handlers.contains_key(&key_string)
-        } else {
-            false
-        }
-    }
-
-    /// Get registry statistics
-    pub fn stats(&self) -> Result<RegistryStats> {
-        let handlers = self.handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        let step_handlers = self.step_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        let ffi_handlers = self.ffi_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
-
-        let namespaces: std::collections::HashSet<_> =
-            ffi_handlers.values().map(|m| m.namespace.clone()).collect();
-
-        Ok(RegistryStats {
-            total_handlers: handlers.len(),
-            total_step_handlers: step_handlers.len(),
-            total_ffi_handlers: ffi_handlers.len(),
-            namespaces: namespaces.into_iter().collect(),
-        })
-    }
-
-    /// Clear all handlers (useful for testing)
-    pub fn clear(&self) -> Result<()> {
-        {
-            let mut handlers = self.handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-            handlers.clear();
-        }
-
-        {
-            let mut step_handlers = self.step_handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-            step_handlers.clear();
-        }
-
-        {
-            let mut ffi_handlers = self.ffi_handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-            ffi_handlers.clear();
-        }
-
-        {
-            let mut task_templates = self.task_templates.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-            task_templates.clear();
-        }
-
-        info!("Task handler registry cleared");
-        Ok(())
-    }
-
-    /// Register a step handler
-    pub async fn register_step_handler(
-        &self,
-        handler_class: &str,
-        step_handler: Arc<dyn StepHandler>,
-    ) -> Result<()> {
-        info!(handler_class = handler_class, "Registering step handler");
-
-        // Register step handler reference
-        {
-            let mut step_handlers = self.step_handlers.write().map_err(|_| {
-                TaskerError::OrchestrationError("Failed to acquire write lock".to_string())
-            })?;
-
-            if step_handlers.contains_key(handler_class) {
-                warn!(
-                    handler_class = handler_class,
-                    "Step handler already registered, replacing"
-                );
-            }
-
-            step_handlers.insert(handler_class.to_string(), step_handler);
-        }
-
-        // Publish event if publisher is available
-        if let Some(ref publisher) = self.event_publisher {
-            let event = Event::orchestration(OrchestrationEvent::HandlerRegistered {
-                handler_name: handler_class.to_string(),
-                handler_type: "step_handler".to_string(),
-                registered_at: Utc::now(),
-            });
-            publisher
-                .publish_event(event)
-                .await
-                .map_err(|e| TaskerError::EventError(e.to_string()))?;
+        if active_workers.is_empty() {
+            return Err(TaskerError::ValidationError(format!(
+                "No active workers available for task {}/{}/{}",
+                request.namespace, request.name, request.version
+            )));
         }
 
         info!(
-            handler_class = handler_class,
-            "Step handler registered successfully"
+            namespace = &request.namespace,
+            name = &request.name,
+            version = &request.version,
+            active_workers = active_workers.len(),
+            "✅ DATABASE-FIRST: Found {} active workers for task",
+            active_workers.len()
         );
-        Ok(())
+
+        let default_dependent_system = named_task.configuration.as_ref().and_then(|config| config.get("default_dependent_system").and_then(|v| v.as_str().map(|s| s.to_string()).or(Some("default".to_string()))));
+        let handler_class = named_task.configuration.as_ref().and_then(|config| config.get("handler_class").and_then(|v| v.as_str().map(|s| s.to_string()).or(Some("TaskerCore::TaskHandler::Base".to_string()))));
+        let handler_metadata = HandlerMetadata {
+            namespace: request.namespace.clone(),
+            name: request.name.clone(),
+            version: named_task.version.clone(),
+            default_dependent_system: default_dependent_system,
+            handler_class: handler_class.unwrap_or("TaskerCore::TaskHandler::Base".to_string()),
+            config_schema: named_task.configuration,
+            registered_at: Utc::now(),
+        };
+
+        debug!(
+            "✅ DATABASE-FIRST: Handler resolved successfully: {} workers available",
+            active_workers.len()
+        );
+
+        Ok(handler_metadata)
     }
 
-    /// Get a step handler by class name
-    pub fn get_step_handler(&self, handler_class: &str) -> Result<Arc<dyn StepHandler>> {
-        let step_handlers = self.step_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
+    /// Get a Rust handler directly (DEPRECATED - database-first approach)
+    pub fn get_handler(
+        &self,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
+    ) -> Result<Arc<dyn TaskHandler>> {
+        warn!("get_handler is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Direct handler retrieval deprecated - use database worker resolution".to_string(),
+        ))
+    }
 
-        step_handlers.get(handler_class).cloned().ok_or_else(|| {
-            TaskerError::ValidationError(format!("Step handler not found: {handler_class}"))
+    /// Get handler metadata (DEPRECATED - use resolve_handler with database queries)
+    pub fn get_handler_metadata(
+        &self,
+        _namespace: &str,
+        _name: &str,
+        _version: &str,
+    ) -> Result<HandlerMetadata> {
+        warn!("get_handler_metadata is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Handler metadata deprecated - use resolve_handler with database queries".to_string(),
+        ))
+    }
+
+    /// List all handlers in a namespace (DEPRECATED - database-first approach)
+    pub fn list_handlers(&self, _namespace: Option<&str>) -> Result<Vec<HandlerMetadata>> {
+        warn!("list_handlers is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Handler listing deprecated - use database queries with WorkerNamedTask".to_string(),
+        ))
+    }
+
+    /// Check if a handler exists (DEPRECATED - use resolve_handler with database queries)
+    pub fn contains_handler(&self, _namespace: &str, _name: &str, _version: &str) -> bool {
+        warn!("contains_handler is deprecated in database-first architecture");
+        false
+    }
+
+    /// Get registry statistics (DEPRECATED - database-first approach)
+    pub fn stats(&self) -> Result<RegistryStats> {
+        warn!("stats is deprecated in database-first architecture");
+        Ok(RegistryStats {
+            total_handlers: 0,
+            total_step_handlers: 0,
+            total_ffi_handlers: 0,
+            namespaces: vec![],
         })
     }
 
-    /// Check if a step handler exists
-    pub fn contains_step_handler(&self, handler_class: &str) -> bool {
-        if let Ok(step_handlers) = self.step_handlers.read() {
-            step_handlers.contains_key(handler_class)
-        } else {
-            false
-        }
+    /// Clear all handlers (DEPRECATED - database-first approach)
+    pub fn clear(&self) -> Result<()> {
+        warn!("clear is deprecated in database-first architecture - data is persisted in database");
+        info!("Task handler registry clear requested but ignored (database-first)");
+        Ok(())
     }
 
-    /// List all registered step handlers
-    pub fn list_step_handlers(&self) -> Result<Vec<String>> {
-        let step_handlers = self.step_handlers.read().map_err(|_| {
-            TaskerError::OrchestrationError("Failed to acquire read lock".to_string())
-        })?;
+    /// Register a step handler (DEPRECATED - database-first approach)
+    pub async fn register_step_handler(
+        &self,
+        _handler_class: &str,
+        _step_handler: Arc<dyn StepHandler>,
+    ) -> Result<()> {
+        warn!("register_step_handler is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Step handler registration deprecated - use database worker registration".to_string(),
+        ))
+    }
 
-        Ok(step_handlers.keys().cloned().collect())
+    /// Get a step handler by class name (DEPRECATED - database-first approach)
+    pub fn get_step_handler(&self, _handler_class: &str) -> Result<Arc<dyn StepHandler>> {
+        warn!("get_step_handler is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Step handler retrieval deprecated - use database worker resolution".to_string(),
+        ))
+    }
+
+    /// Check if a step handler exists (DEPRECATED - database-first approach)
+    pub fn contains_step_handler(&self, _handler_class: &str) -> bool {
+        warn!("contains_step_handler is deprecated in database-first architecture");
+        false
+    }
+
+    /// List all registered step handlers (DEPRECATED - database-first approach)
+    pub fn list_step_handlers(&self) -> Result<Vec<String>> {
+        warn!("list_step_handlers is deprecated in database-first architecture");
+        Err(TaskerError::ValidationError(
+            "Step handler listing deprecated - use database worker queries".to_string(),
+        ))
     }
 
     /// Validate handler before registration
@@ -630,19 +420,12 @@ impl TaskHandlerRegistry {
     }
 }
 
-impl Default for TaskHandlerRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Note: Default implementation removed - TaskHandlerRegistry now requires database pool
 
 impl Clone for TaskHandlerRegistry {
     fn clone(&self) -> Self {
         Self {
-            handlers: Arc::clone(&self.handlers),
-            step_handlers: Arc::clone(&self.step_handlers),
-            ffi_handlers: Arc::clone(&self.ffi_handlers),
-            task_templates: Arc::clone(&self.task_templates),
+            db_pool: self.db_pool.clone(),
             event_publisher: self.event_publisher.clone(),
         }
     }
@@ -651,203 +434,329 @@ impl Clone for TaskHandlerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestration::errors::OrchestrationError;
-    use crate::orchestration::types::{TaskCompletionInfo, TaskContext, TaskResult};
-    use async_trait::async_trait;
+    use crate::models::core::{
+        named_task::{NamedTask, NewNamedTask},
+        worker::{Worker, WorkerMetadata},
+        worker_named_task::{NewWorkerNamedTask, WorkerNamedTask},
+        worker_registration::{NewWorkerRegistration, WorkerRegistration, WorkerStatus},
+    };
+    use serde_json::json;
 
-    // Mock handler for testing
-    struct MockTaskHandler {
-        namespace: String,
-        name: String,
-        version: String,
-    }
+    /// Test database-backed handler resolution with namespace, task, and worker setup
+    #[sqlx::test]
+    async fn test_database_handler_resolution(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
 
-    #[async_trait]
-    impl TaskHandler for MockTaskHandler {
-        async fn handle_task(
-            &self,
-            _context: &TaskContext,
-        ) -> std::result::Result<TaskResult, OrchestrationError> {
-            Ok(TaskResult::Complete(TaskCompletionInfo {
-                task_id: 1,
-                steps_executed: 0,
-                total_execution_time_ms: 0,
-                completed_at: Utc::now(),
-                step_results: Vec::new(),
-            }))
-        }
-
-        fn metadata(&self) -> HandlerMetadata {
-            HandlerMetadata {
-                namespace: self.namespace.clone(),
-                name: self.name.clone(),
-                version: self.version.clone(),
-                handler_class: format!("{}Handler", self.name),
-                config_schema: None,
-                registered_at: Utc::now(),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_register_and_resolve() {
-        let registry = TaskHandlerRegistry::new();
-
-        // Register FFI handler
-        registry
-            .register_ffi_handler(
-                "payments",
-                "order_processing",
-                "1.0.0",
-                "OrderProcessingHandler",
-                None,
-            )
+        // 1. Create test namespace "fulfillment"
+        let namespace = TaskNamespace::find_or_create(&pool, "fulfillment")
             .await
-            .unwrap();
+            .expect("Failed to create namespace");
 
-        // Create task request
-        let request = TaskRequest::new("order_processing".to_string(), "payments".to_string())
-            .with_version("1.0.0".to_string());
-
-        // Resolve handler
-        let metadata = registry.resolve_handler(&request).unwrap();
-        assert_eq!(metadata.namespace, "payments");
-        assert_eq!(metadata.name, "order_processing");
-        assert_eq!(metadata.version, "1.0.0");
-        assert_eq!(metadata.handler_class, "OrderProcessingHandler");
-    }
-
-    #[tokio::test]
-    async fn test_default_values() {
-        let registry = TaskHandlerRegistry::new();
-
-        // Register with defaults
-        registry
-            .register_ffi_handler("default", "simple_task", "1.0.0", "SimpleTaskHandler", None)
-            .await
-            .unwrap();
-
-        // Create request with defaults
-        let request = TaskRequest::new("simple_task".to_string(), "default".to_string());
-
-        // Should resolve with defaults
-        let metadata = registry.resolve_handler(&request).unwrap();
-        assert_eq!(metadata.namespace, "default");
-        assert_eq!(metadata.version, "1.0.0");
-    }
-
-    #[tokio::test]
-    async fn test_rust_handler_registration() {
-        let registry = TaskHandlerRegistry::new();
-
-        let handler = Arc::new(MockTaskHandler {
-            namespace: "test".to_string(),
-            name: "mock_handler".to_string(),
-            version: "1.0.0".to_string(),
-        });
-
-        // Register Rust handler
-        registry
-            .register_handler("test", "mock_handler", "1.0.0", handler.clone())
-            .await
-            .unwrap();
-
-        // Get handler back
-        let retrieved = registry
-            .get_handler("test", "mock_handler", "1.0.0")
-            .unwrap();
-        let metadata = retrieved.metadata();
-        assert_eq!(metadata.namespace, "test");
-        assert_eq!(metadata.name, "mock_handler");
-    }
-
-    #[tokio::test]
-    async fn test_list_handlers_by_namespace() {
-        let registry = TaskHandlerRegistry::new();
-
-        // Register handlers in different namespaces
-        registry
-            .register_ffi_handler("ecommerce", "order_handler", "1.0.0", "OrderHandler", None)
-            .await
-            .unwrap();
-        registry
-            .register_ffi_handler("ecommerce", "cart_handler", "1.0.0", "CartHandler", None)
-            .await
-            .unwrap();
-        registry
-            .register_ffi_handler(
-                "payments",
-                "payment_handler",
-                "1.0.0",
-                "PaymentHandler",
-                None,
-            )
-            .await
-            .unwrap();
-
-        // List handlers in ecommerce namespace
-        let ecommerce_handlers = registry.list_handlers(Some("ecommerce")).unwrap();
-        assert_eq!(ecommerce_handlers.len(), 2);
-
-        // List all handlers
-        let all_handlers = registry.list_handlers(None).unwrap();
-        assert_eq!(all_handlers.len(), 3);
-    }
-
-    #[test]
-    fn test_semver_validation() {
-        let registry = TaskHandlerRegistry::new();
-
-        assert!(registry.is_valid_semver("1.0.0"));
-        assert!(registry.is_valid_semver("2.10.3"));
-        assert!(registry.is_valid_semver("0.1.0"));
-
-        assert!(!registry.is_valid_semver("1.0"));
-        assert!(!registry.is_valid_semver("1.0.0.0"));
-        assert!(!registry.is_valid_semver("v1.0.0"));
-        assert!(!registry.is_valid_semver("1.a.0"));
-    }
-
-    #[tokio::test]
-    async fn test_task_template_registration() {
-        let registry = TaskHandlerRegistry::new();
-
-        // Create a test template
-        let template = TaskTemplate {
-            name: "test_task".to_string(),
-            module_namespace: Some("TestModule".to_string()),
-            task_handler_class: "TestTaskHandler".to_string(),
-            namespace_name: "test".to_string(),
-            version: "1.0.0".to_string(),
-            default_dependent_system: None,
-            named_steps: vec!["step1".to_string(), "step2".to_string()],
-            schema: None,
-            step_templates: vec![],
-            environments: None,
-            default_context: None,
-            default_options: None,
+        // 2. Create named task "order_processing" in the namespace
+        let new_named_task = NewNamedTask {
+            name: "order_processing".to_string(),
+            task_namespace_id: namespace.task_namespace_id as i64,
+            version: Some("1.0.0".to_string()),
+            description: Some("Order processing workflow task".to_string()),
+            configuration: Some(json!({"timeout": 300, "retries": 3})),
         };
 
-        // Register the template
-        registry
-            .register_task_template("test", "test_task", "1.0.0", template.clone())
+        let named_task = NamedTask::create(&pool, new_named_task)
             .await
-            .unwrap();
+            .expect("Failed to create named task");
 
-        // Verify we can retrieve it
-        let retrieved = registry
-            .get_task_template("test", "test_task", "1.0.0")
-            .unwrap();
-        assert_eq!(retrieved.name, "test_task");
-        assert_eq!(retrieved.version, "1.0.0");
+        // 3. Create a worker
+        let worker_metadata = WorkerMetadata {
+            version: Some("1.0.0".to_string()),
+            ruby_version: Some("3.1.0".to_string()),
+            hostname: Some("test-host".to_string()),
+            pid: Some(1234),
+            started_at: Some(chrono::Utc::now().to_rfc3339()),
+            custom: serde_json::Map::new(),
+        };
 
-        // Verify has_task_template works
-        assert!(registry.has_task_template("test", "test_task", "1.0.0"));
-        assert!(!registry.has_task_template("test", "missing_task", "1.0.0"));
+        let worker = Worker::create_or_update_by_worker_name(
+            &pool,
+            "test-worker-1",
+            serde_json::to_value(worker_metadata).unwrap(),
+        )
+        .await
+        .expect("Failed to create worker");
 
-        // Test listing templates
-        let templates = registry.list_task_templates(Some("test")).unwrap();
-        assert_eq!(templates.len(), 1);
-        assert!(templates[0].contains("test/test_task/1.0.0"));
+        // 4. Register the worker as active
+        let new_registration = NewWorkerRegistration {
+            worker_id: worker.worker_id,
+            status: WorkerStatus::Healthy,
+            connection_type: "tcp".to_string(),
+            connection_details: json!({"host": "localhost", "port": 8080}),
+        };
+
+        WorkerRegistration::register(&pool, new_registration)
+            .await
+            .expect("Failed to register worker");
+
+        // 5. Associate worker with the named task
+        let new_association = NewWorkerNamedTask {
+            worker_id: worker.worker_id,
+            named_task_id: named_task.named_task_id,
+            configuration: Some(json!({"priority": 100})),
+            priority: Some(100),
+        };
+
+        WorkerNamedTask::create(&pool, new_association)
+            .await
+            .expect("Failed to create worker-task association");
+
+        // 6. Test handler resolution via database queries
+        let task_request = TaskRequest::new("order_processing".to_string(), "fulfillment".to_string())
+            .with_version("1.0.0".to_string());
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_ok(), "Handler resolution failed: {:?}", result);
+
+        let metadata = result.unwrap();
+        assert_eq!(metadata.namespace, "fulfillment");
+        assert_eq!(metadata.name, "order_processing");
+        assert_eq!(metadata.version, "1.0.0");
+        assert_eq!(metadata.handler_class, "order_processingHandler");
+        assert!(metadata.config_schema.is_some());
+    }
+
+    /// Test handler resolution failure when no active workers exist
+    #[sqlx::test]
+    async fn test_no_active_workers_error(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
+
+        // 1. Create test namespace and task but NO active workers
+        let namespace = TaskNamespace::find_or_create(&pool, "inventory")
+            .await
+            .expect("Failed to create namespace");
+
+        let new_named_task = NewNamedTask {
+            name: "stock_check".to_string(),
+            task_namespace_id: namespace.task_namespace_id as i64,
+            version: Some("1.0.0".to_string()),
+            description: Some("Stock check task".to_string()),
+            configuration: None,
+        };
+
+        let _named_task = NamedTask::create(&pool, new_named_task)
+            .await
+            .expect("Failed to create named task");
+
+        // 2. Try to resolve handler without any active workers
+        let task_request = TaskRequest::new("stock_check".to_string(), "inventory".to_string())
+            .with_version("1.0.0".to_string());
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_err(), "Expected error for no active workers");
+
+        let error = result.unwrap_err();
+        assert!(
+            format!("{:?}", error).contains("No active workers available"),
+            "Error should mention no active workers: {:?}",
+            error
+        );
+    }
+
+    /// Test handler resolution failure when namespace doesn't exist
+    #[sqlx::test]
+    async fn test_namespace_not_found_error(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
+
+        let task_request = TaskRequest::new("any_task".to_string(), "nonexistent_namespace".to_string())
+            .with_version("1.0.0".to_string());
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_err(), "Expected error for nonexistent namespace");
+
+        let error = result.unwrap_err();
+        assert!(
+            format!("{:?}", error).contains("Namespace not found"),
+            "Error should mention namespace not found: {:?}",
+            error
+        );
+    }
+
+    /// Test handler resolution failure when task doesn't exist in namespace
+    #[sqlx::test]
+    async fn test_task_not_found_error(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
+
+        // Create namespace but not the task
+        let _namespace = TaskNamespace::find_or_create(&pool, "notifications")
+            .await
+            .expect("Failed to create namespace");
+
+        let task_request = TaskRequest::new("nonexistent_task".to_string(), "notifications".to_string())
+            .with_version("1.0.0".to_string());
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_err(), "Expected error for nonexistent task");
+
+        let error = result.unwrap_err();
+        assert!(
+            format!("{:?}", error).contains("Task not found"),
+            "Error should mention task not found: {:?}",
+            error
+        );
+    }
+
+    /// Test handler resolution with multiple active workers (should succeed)
+    #[sqlx::test]
+    async fn test_multiple_active_workers(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
+
+        // 1. Create namespace and task
+        let namespace = TaskNamespace::find_or_create(&pool, "payments")
+            .await
+            .expect("Failed to create namespace");
+
+        let new_named_task = NewNamedTask {
+            name: "process_payment".to_string(),
+            task_namespace_id: namespace.task_namespace_id as i64,
+            version: Some("2.0.0".to_string()),
+            description: Some("Payment processing task".to_string()),
+            configuration: Some(json!({"max_amount": 10000})),
+        };
+
+        let named_task = NamedTask::create(&pool, new_named_task)
+            .await
+            .expect("Failed to create named task");
+
+        // 2. Create multiple workers and register them as active
+        for i in 1..=3 {
+            let worker_metadata = WorkerMetadata {
+                version: Some("1.0.0".to_string()),
+                ruby_version: Some("3.1.0".to_string()),
+                hostname: Some(format!("worker-host-{}", i)),
+                pid: Some(1000 + i),
+                started_at: Some(chrono::Utc::now().to_rfc3339()),
+                custom: serde_json::Map::new(),
+            };
+
+            let worker = Worker::create_or_update_by_worker_name(
+                &pool,
+                &format!("payment-worker-{}", i),
+                serde_json::to_value(worker_metadata).unwrap(),
+            )
+            .await
+            .expect("Failed to create worker");
+
+            // Register worker as healthy
+            let new_registration = NewWorkerRegistration {
+                worker_id: worker.worker_id,
+                status: WorkerStatus::Healthy,
+                connection_type: "tcp".to_string(),
+                connection_details: json!({"host": "localhost", "port": 8080 + i}),
+            };
+
+            WorkerRegistration::register(&pool, new_registration)
+                .await
+                .expect("Failed to register worker");
+
+            // Associate worker with the named task
+            let new_association = NewWorkerNamedTask {
+                worker_id: worker.worker_id,
+                named_task_id: named_task.named_task_id,
+                configuration: Some(json!({"priority": 100 - i})), // Different priorities
+                priority: Some(100 - i),
+            };
+
+            WorkerNamedTask::create(&pool, new_association)
+                .await
+                .expect("Failed to create worker-task association");
+        }
+
+        // 3. Test handler resolution should succeed with multiple workers
+        let task_request = TaskRequest::new("process_payment".to_string(), "payments".to_string())
+            .with_version("2.0.0".to_string());
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_ok(), "Handler resolution failed: {:?}", result);
+
+        let metadata = result.unwrap();
+        assert_eq!(metadata.namespace, "payments");
+        assert_eq!(metadata.name, "process_payment");
+        assert_eq!(metadata.version, "2.0.0");
+        assert_eq!(metadata.handler_class, "process_paymentHandler");
+
+        // Verify the configuration from named task is included
+        assert!(metadata.config_schema.is_some());
+        let config = metadata.config_schema.unwrap();
+        assert_eq!(config["max_amount"], 10000);
+    }
+
+    /// Test version fallback behavior (use named task version when request version is empty)
+    #[sqlx::test]
+    async fn test_version_fallback(pool: sqlx::PgPool) {
+        let registry = TaskHandlerRegistry::new(pool.clone());
+
+        // Create namespace, task, worker, and association
+        let namespace = TaskNamespace::find_or_create(&pool, "testing")
+            .await
+            .expect("Failed to create namespace");
+
+        let new_named_task = NewNamedTask {
+            name: "version_test".to_string(),
+            task_namespace_id: namespace.task_namespace_id as i64,
+            version: Some("3.5.2".to_string()), // Specific version in named task
+            description: Some("Version test task".to_string()),
+            configuration: None,
+        };
+
+        let named_task = NamedTask::create(&pool, new_named_task)
+            .await
+            .expect("Failed to create named task");
+
+        // Create and register worker
+        let worker_metadata = WorkerMetadata {
+            version: Some("1.0.0".to_string()),
+            ruby_version: None,
+            hostname: None,
+            pid: None,
+            started_at: None,
+            custom: serde_json::Map::new(),
+        };
+
+        let worker = Worker::create_or_update_by_worker_name(
+            &pool,
+            "version-test-worker",
+            serde_json::to_value(worker_metadata).unwrap(),
+        )
+        .await
+        .expect("Failed to create worker");
+
+        let new_registration = NewWorkerRegistration {
+            worker_id: worker.worker_id,
+            status: WorkerStatus::Registered,
+            connection_type: "tcp".to_string(),
+            connection_details: json!({"host": "localhost", "port": 9000}),
+        };
+
+        WorkerRegistration::register(&pool, new_registration)
+            .await
+            .expect("Failed to register worker");
+
+        let new_association = NewWorkerNamedTask {
+            worker_id: worker.worker_id,
+            named_task_id: named_task.named_task_id,
+            configuration: None,
+            priority: None,
+        };
+
+        WorkerNamedTask::create(&pool, new_association)
+            .await
+            .expect("Failed to create worker-task association");
+
+        // Test with empty version in request - should use named task version
+        let task_request = TaskRequest::new("version_test".to_string(), "testing".to_string());
+        // Note: default version is "1.0.0" when not specified
+
+        let result = registry.resolve_handler(&task_request).await;
+        assert!(result.is_ok(), "Handler resolution failed: {:?}", result);
+
+        let metadata = result.unwrap();
+        assert_eq!(metadata.version, "3.5.2"); // Should use named task version
     }
 }

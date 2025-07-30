@@ -180,6 +180,60 @@ impl WorkflowStepTransition {
         Ok(transition)
     }
 
+    /// Create a new workflow step transition within an existing transaction
+    /// This is useful when you need to create transitions as part of a larger transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_transition: NewWorkflowStepTransition,
+    ) -> Result<WorkflowStepTransition, sqlx::Error> {
+        // Get the next sort key for this workflow step
+        let sort_key_result = sqlx::query!(
+            r#"
+            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
+            FROM tasker_workflow_step_transitions
+            WHERE workflow_step_id = $1
+            "#,
+            new_transition.workflow_step_id
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        let next_sort_key = sort_key_result.next_sort_key.unwrap_or(1);
+
+        // Mark all existing transitions as not most recent
+        sqlx::query!(
+            r#"
+            UPDATE tasker_workflow_step_transitions 
+            SET most_recent = false, updated_at = NOW()
+            WHERE workflow_step_id = $1 AND most_recent = true
+            "#,
+            new_transition.workflow_step_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // Insert the new transition
+        let transition = sqlx::query_as!(
+            WorkflowStepTransition,
+            r#"
+            INSERT INTO tasker_workflow_step_transitions 
+            (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
+                      workflow_step_id, created_at, updated_at
+            "#,
+            new_transition.workflow_step_id,
+            new_transition.to_state,
+            new_transition.from_state,
+            new_transition.metadata,
+            next_sort_key
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(transition)
+    }
+
     /// Find a transition by ID
     pub async fn find_by_id(
         pool: &PgPool,

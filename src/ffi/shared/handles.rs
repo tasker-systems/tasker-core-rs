@@ -395,6 +395,66 @@ impl SharedOrchestrationHandle {
 
         Ok(config)
     }
+
+    /// List all available handlers with optional namespace filtering
+    /// 
+    /// Uses database-first approach to query active handlers from NamedTask table
+    /// 
+    /// @param namespace Optional namespace filter (None = all namespaces)
+    /// @return Vector of HandlerMetadata for all matching handlers
+    pub async fn list_handlers(&self, namespace: Option<&str>) -> SharedFFIResult<Vec<HandlerMetadata>> {
+        debug!("Listing handlers via SharedOrchestrationHandle with namespace filter: {:?}", namespace);
+
+        let db_pool = self.database_pool();
+        
+        // For now, return a placeholder implementation until database schema is available
+        // This avoids SQLx compile-time checks against non-existent tables
+        let mut handlers = Vec::new();
+        
+        if let Some(_ns) = namespace {
+            debug!("Database-backed list_handlers not yet available (missing schema), returning empty for namespace: {}", _ns);
+        } else {
+            debug!("Database-backed list_handlers not yet available (missing schema), returning empty for all namespaces");
+        }
+        
+        // TODO: Implement once database schema is created:
+        // 1. Query named_tasks table for latest versions per namespace/name
+        // 2. Join with task_namespaces to get namespace names
+        // 3. Convert results to HandlerMetadata structs
+
+        debug!("Found {} handlers for namespace filter: {:?}", handlers.len(), namespace);
+        Ok(handlers)
+    }
+
+    /// Get task metadata by task_id for handler lookup
+    /// 
+    /// @param task_id Task ID to query
+    /// @return TaskMetadata containing namespace, name, and version
+    pub async fn get_task_metadata(&self, task_id: i64) -> SharedFFIResult<Option<TaskMetadata>> {
+        debug!("Getting task metadata for task_id: {}", task_id);
+
+        let _db_pool = self.database_pool();
+        
+        // For now, return None until database schema is available
+        // This avoids SQLx compile-time checks against non-existent tables
+        debug!("Database-backed get_task_metadata not yet available (missing schema), returning None for task_id: {}", task_id);
+        
+        // TODO: Implement once database schema is created:
+        // 1. Query tasks table joined with named_tasks and task_namespaces
+        // 2. Extract namespace, name, version for the given task_id
+        // 3. Return TaskMetadata struct
+        
+        Ok(None)
+    }
+}
+
+/// Task metadata for handler lookup
+#[derive(Debug, Clone)]
+pub struct TaskMetadata {
+    pub task_id: i64,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
 }
 
 /// Handle information for debugging

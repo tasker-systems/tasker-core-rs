@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::models::WorkflowStep;
 use crate::models::core::task_request::TaskRequest;
 
 
@@ -502,6 +501,8 @@ pub struct WorkerCapabilities {
     pub connection_info: Option<WorkerConnectionInfo>,
     // Runtime information
     pub runtime_info: Option<WorkerRuntimeInfo>,
+    // NEW: Task template support for database-backed registration
+    pub supported_tasks: Option<Vec<TaskHandlerInfo>>,
 }
 
 /// Worker connection information for transport availability
@@ -528,11 +529,13 @@ pub struct WorkerRuntimeInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerInfo {
     pub namespace: String,
-    pub handler_name: String,
+    pub handler_name: String, // This is the task name (e.g., "order_processing")
     pub version: String,
     pub handler_class: String,
+    pub description: Option<String>,
     pub supported_step_types: Vec<String>,
     pub handler_config: HashMap<String, serde_json::Value>,
+    pub priority: Option<i32>,
     pub timeout_ms: u64,
     pub supports_retries: bool,
 }
@@ -619,6 +622,7 @@ mod tests {
                 custom_capabilities: HashMap::new(),
                 connection_info: None,
                 runtime_info: None,
+                supported_tasks: None,
             },
         };
 
@@ -648,6 +652,7 @@ mod tests {
                 custom_capabilities: HashMap::new(),
                 connection_info: None,
                 runtime_info: None,
+                supported_tasks: None,
             },
         };
 
@@ -698,7 +703,7 @@ mod tests {
                 version: "1.0.0".to_string(),
                 default_dependent_system: None,
                 named_steps: vec![],
-                step_templates: std::collections::HashMap::new(),
+                step_templates: vec![],
                 schema: None,
                 environments: None,
                 default_context: None,

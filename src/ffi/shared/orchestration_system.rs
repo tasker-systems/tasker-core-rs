@@ -208,6 +208,7 @@ async fn create_unified_orchestration_system(
         database_pool.clone(),
     );
     let shared_registry = Arc::new(TaskHandlerRegistry::with_event_publisher(
+        database_pool.clone(),
         event_publisher.clone(),
     ));
 

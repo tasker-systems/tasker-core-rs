@@ -134,16 +134,8 @@ impl BatchExecutionSender {
             }
         })?;
 
-        let task_template = task_handler_registry
-            .get_task_template(
-                &task_for_orchestration.namespace_name,
-                &task_for_orchestration.task_name,
-                &task_for_orchestration.task_version,
-            )
-            .map_err(|e| BatchSendError::DatabaseError {
-                operation: "get_task_template".to_string(),
-                message: e.to_string(),
-            })?;
+        // DATABASE-FIRST: Get task template from named task configuration instead of deprecated registry
+        let task_template = self.get_task_template_from_database(&task_for_orchestration).await?;
 
         // 2. Create database batch records before sending to worker
         let database_batch_id = self
@@ -535,6 +527,137 @@ impl BatchExecutionSender {
             failed_steps,
             total_execution_time_ms,
         })
+    }
+
+    /// Get task template from database using database-first approach
+    /// Replaces the deprecated registry.get_task_template() call
+    async fn get_task_template_from_database(
+        &self,
+        task_for_orchestration: &crate::models::core::task::TaskForOrchestration,
+    ) -> Result<crate::models::core::task_template::TaskTemplate, BatchSendError> {
+        use crate::models::core::named_task::NamedTask;
+        use crate::models::core::task_namespace::TaskNamespace;
+        
+        // Get the task namespace
+        let task_namespace = TaskNamespace::find_by_name(&self.pool, &task_for_orchestration.namespace_name)
+            .await
+            .map_err(|e| BatchSendError::DatabaseError {
+                operation: "find_task_namespace".to_string(),
+                message: e.to_string(),
+            })?
+            .ok_or_else(|| BatchSendError::DatabaseError {
+                operation: "find_task_namespace".to_string(),
+                message: format!("Namespace not found: {}", task_for_orchestration.namespace_name),
+            })?;
+
+        // Get the named task with configuration
+        let named_task = NamedTask::find_by_name_version_namespace(
+            &self.pool,
+            &task_for_orchestration.task_name,
+            &task_for_orchestration.task_version,
+            task_namespace.task_namespace_id as i64,
+        )
+        .await
+        .map_err(|e| BatchSendError::DatabaseError {
+            operation: "find_named_task".to_string(),
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| BatchSendError::DatabaseError {
+            operation: "find_named_task".to_string(), 
+            message: format!(
+                "Task not found: {}/{} v{}",
+                task_for_orchestration.namespace_name,
+                task_for_orchestration.task_name,
+                task_for_orchestration.task_version
+            ),
+        })?;
+
+        // Extract the handler configuration from the named task
+        let configuration = named_task.configuration.ok_or_else(|| BatchSendError::DatabaseError {
+            operation: "extract_task_configuration".to_string(),
+            message: format!(
+                "No configuration found for task {}/{} v{}",
+                task_for_orchestration.namespace_name,
+                task_for_orchestration.task_name,
+                task_for_orchestration.task_version
+            ),
+        })?;
+
+        // Get the handler_config field which contains the YAML structure
+        let handler_config_value = configuration.get("handler_config")
+            .ok_or_else(|| BatchSendError::DatabaseError {
+                operation: "extract_handler_config".to_string(),
+                message: format!(
+                    "TaskHandlerInfo missing handler_config field for {}/{}",
+                    task_for_orchestration.namespace_name,
+                    task_for_orchestration.task_name
+                ),
+            })?;
+
+        // Convert HandlerConfiguration to TaskTemplate
+        let handler_config: crate::orchestration::handler_config::HandlerConfiguration = 
+            serde_json::from_value(handler_config_value.clone())
+            .map_err(|e| BatchSendError::DatabaseError {
+                operation: "deserialize_handler_config".to_string(),
+                message: format!(
+                    "Failed to deserialize handler configuration for {}/{}: {}",
+                    task_for_orchestration.namespace_name,
+                    task_for_orchestration.task_name,
+                    e
+                ),
+            })?;
+
+        // Convert HandlerConfiguration to TaskTemplate
+        let task_template = crate::models::core::task_template::TaskTemplate {
+            name: handler_config.name,
+            module_namespace: handler_config.module_namespace,
+            task_handler_class: handler_config.task_handler_class,
+            namespace_name: handler_config.namespace_name,
+            version: handler_config.version,
+            default_dependent_system: handler_config.default_dependent_system,
+            named_steps: handler_config.named_steps,
+            schema: handler_config.schema,
+            step_templates: handler_config.step_templates.into_iter().map(|st| {
+                crate::models::core::task_template::StepTemplate {
+                    name: st.name,
+                    description: st.description,
+                    dependent_system: st.dependent_system,
+                    default_retryable: st.default_retryable,
+                    default_retry_limit: st.default_retry_limit,
+                    skippable: st.skippable,
+                    handler_class: st.handler_class,
+                    handler_config: st.handler_config,
+                    depends_on_step: st.depends_on_step,
+                    depends_on_steps: st.depends_on_steps,
+                    custom_events: st.custom_events,
+                }
+            }).collect(),
+            environments: handler_config.environments.map(|envs| {
+                envs.into_iter().map(|(k, v)| {
+                    (k, crate::models::core::task_template::EnvironmentConfig {
+                        step_templates: v.step_templates.map(|templates| {
+                            templates.into_iter().map(|t| {
+                                crate::models::core::task_template::StepTemplateOverride {
+                                    name: t.name,
+                                    handler_config: t.handler_config,
+                                    description: t.description,
+                                    dependent_system: t.dependent_system,
+                                    default_retryable: t.default_retryable,
+                                    default_retry_limit: t.default_retry_limit,
+                                    skippable: t.skippable,
+                                }
+                            }).collect()
+                        }),
+                        default_context: v.default_context,
+                        default_options: v.default_options,
+                    })
+                }).collect()
+            }),
+            default_context: handler_config.default_context,
+            default_options: handler_config.default_options,
+        };
+
+        Ok(task_template)
     }
 }
 

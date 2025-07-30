@@ -46,23 +46,26 @@ where
 }
 
 /// HandlerConfiguration represents the complete configuration for a task handler
-/// This is loaded from YAML and used by handlers to define their step templates
+/// This matches the YAML structure exactly as stored in handler_config field
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandlerConfiguration {
-    /// The name of the task (e.g., "api_task/integration_yaml_example")
+    /// The name of the task (from YAML: name field)
     pub name: String,
 
-    /// Module namespace for organization (e.g., "ApiTask")
+    /// Module namespace for organization (optional in YAML)
     pub module_namespace: Option<String>,
 
-    /// Task handler class name (e.g., "IntegrationYamlExample")
+    /// Task handler class name (from YAML: task_handler_class field)
     pub task_handler_class: String,
 
-    /// Namespace name for categorization (e.g., "api_tests")
+    /// Namespace name for categorization (from YAML: namespace_name field)
     pub namespace_name: String,
 
-    /// Version of the task handler (e.g., "0.1.0")
+    /// Version of the task handler (from YAML: version field)
     pub version: String,
+
+    /// Description of the task handler (from YAML: description field)
+    pub description: Option<String>,
 
     /// Default dependent system for steps
     pub default_dependent_system: Option<String>,
@@ -72,19 +75,22 @@ pub struct HandlerConfiguration {
     #[serde(default)]
     pub named_steps: Vec<String>,
 
-    /// JSON schema for task input validation
+    /// JSON schema for task input validation (from YAML: schema field)
     pub schema: Option<serde_json::Value>,
 
-    /// Step template definitions
+    /// Step template definitions (from YAML: step_templates array)
     pub step_templates: Vec<StepTemplate>,
 
-    /// Environment-specific overrides
+    /// Environment-specific overrides (from YAML: environments field)
     pub environments: Option<HashMap<String, EnvironmentConfig>>,
 
-    /// Default context values
+    /// Handler-specific configuration (from YAML: handler_config field)
+    pub handler_config: Option<serde_json::Value>,
+
+    /// Default context values (deprecated/unused in current YAML)
     pub default_context: Option<serde_json::Value>,
 
-    /// Default options for task execution
+    /// Default options for task execution (deprecated/unused in current YAML)
     pub default_options: Option<HashMap<String, serde_json::Value>>,
 }
 

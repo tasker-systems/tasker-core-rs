@@ -63,7 +63,7 @@ backoff:
 
 execution:
   environment: "test"           # Required environment field
-  processing_mode: "zeromq"     # Use ZeroMQ processing - REQUIRED
+  processing_mode: "tcp"
   max_concurrent_tasks: 10    # Reduced for test environment
   max_concurrent_steps: 50    # Reduced for test environment
   default_timeout_seconds: 300  # Reduced for faster tests
@@ -83,8 +83,28 @@ events:
 
 cache:
   enabled: true
-  ttl_seconds: 3600
-  max_size: 10000
+  ttl_seconds: 60         # Shorter cache for tests
+  max_size: 1000          # Smaller cache for tests
+
+# Query caching configuration for test environment
+query_cache:
+  enabled: true
+  # Worker query caching (test settings - rapid invalidation)
+  active_workers:
+    ttl_seconds: 1         # Cache active workers for only 1 second in tests
+    max_entries: 100       # Smaller cache for test environment
+  worker_health:
+    ttl_seconds: 1         # Cache worker health for only 1 second in tests
+    max_entries: 50        # Smaller cache for test environment
+  task_metadata:
+    ttl_seconds: 5         # Cache task metadata for only 5 seconds in tests
+    max_entries: 200       # Smaller cache for test environment
+  handler_metadata:
+    ttl_seconds: 10        # Cache handler metadata for only 10 seconds in tests
+    max_entries: 20        # Much smaller cache for test environment
+  # Aggressive cache cleanup for tests
+  cleanup_interval_seconds: 10   # Clean expired entries every 10 seconds
+  memory_pressure_threshold: 0.5 # Clear cache at 50% to ensure fresh data
 
 command_backplane:
   socket_type: "tcp"

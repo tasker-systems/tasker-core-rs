@@ -203,6 +203,68 @@ impl CommandClient {
             })
             .unwrap_or_else(|| std::collections::HashMap::new());
 
+        // Extract supported_tasks parameter for database-backed task handler registration
+        let supported_tasks = options_json
+            .get("supported_tasks")
+            .and_then(|v| v.as_array())
+            .map(|tasks| {
+                tasks.iter()
+                    .filter_map(|task| {
+                        // Convert each task object to TaskHandlerInfo
+                        if let Some(task_obj) = task.as_object() {
+                            Some(tasker_core::execution::command::TaskHandlerInfo {
+                                namespace: task_obj.get("namespace")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("default")
+                                    .to_string(),
+                                handler_name: task_obj.get("handler_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string(),
+                                version: task_obj.get("version")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("1.0.0")
+                                    .to_string(),
+                                handler_class: task_obj.get("handler_class")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                description: task_obj.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string()),
+                                supported_step_types: task_obj.get("supported_step_types")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|step| step.as_str().map(|s| s.to_string()))
+                                            .collect()
+                                    })
+                                    .unwrap_or_default(),
+                                handler_config: task_obj.get("handler_config")
+                                    .and_then(|v| v.as_object())
+                                    .map(|obj| {
+                                        obj.iter()
+                                            .map(|(k, v)| (k.clone(), v.clone()))
+                                            .collect()
+                                    })
+                                    .unwrap_or_else(|| std::collections::HashMap::new()),
+                                priority: task_obj.get("priority")
+                                    .and_then(|v| v.as_i64())
+                                    .map(|p| p as i32),
+                                timeout_ms: task_obj.get("timeout_ms")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(30000) as u64,
+                                supports_retries: task_obj.get("supports_retries")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(true),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            });
+
         let client = self.shared_client.clone();
         let result = execute_async(async move {
             let client_guard = client.read().await;
@@ -216,6 +278,7 @@ impl CommandClient {
                     language_runtime,
                     version,
                     custom_capabilities,
+                    supported_tasks,
                 )
                 .await
         });

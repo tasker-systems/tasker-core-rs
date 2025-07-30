@@ -25,15 +25,16 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
 //! use tasker_core::orchestration::config::ConfigurationManager;
 //! use tasker_core::registry::TaskHandlerRegistry;
 //! use std::sync::Arc;
+//! use sqlx::PgPool;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let config_manager = Arc::new(ConfigurationManager::new());
-//! let registry = Arc::new(TaskHandlerRegistry::new());
+//! let registry = Arc::new(TaskHandlerRegistry::new(db_pool));
 //! let finder = TaskConfigFinder::new(config_manager, registry);
 //!
 //! // Find configuration for a task
@@ -339,10 +340,10 @@ impl Clone for TaskConfigFinder {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_build_search_paths() {
+    #[sqlx::test]
+    async fn test_build_search_paths(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry);
 
         let paths = finder.build_search_paths("payments", "order_processing", "1.0.0");
@@ -363,10 +364,10 @@ mod tests {
             .any(|p| p.contains("order_processing.yaml")));
     }
 
-    #[tokio::test]
-    async fn test_default_namespace_and_version() {
+    #[sqlx::test]
+    async fn test_default_namespace_and_version(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry);
 
         let paths = finder.build_search_paths("default", "simple_task", "0.1.0");
@@ -380,10 +381,10 @@ mod tests {
         assert!(path_strings.iter().any(|p| p.contains("simple_task.yml")));
     }
 
-    #[tokio::test]
-    async fn test_registry_integration() {
+    #[sqlx::test]
+    async fn test_registry_integration(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry.clone());
 
         // Test that registry check happens first

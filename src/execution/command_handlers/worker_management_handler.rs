@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
+use crate::database::optimized_queries::OptimizedWorkerQueries;
 use crate::execution::command::{Command, CommandPayload, CommandSource, CommandType};
 use crate::execution::command_router::CommandHandler;
 use crate::execution::worker_pool::{WorkerPool, WorkerPoolError};
@@ -83,6 +84,8 @@ pub struct WorkerManagementHandler {
     worker_pool: Arc<WorkerPool>,
     /// Database connection pool for persistent storage
     db_pool: PgPool,
+    /// Optimized database queries with caching
+    optimized_queries: OptimizedWorkerQueries,
     /// Core instance identifier for distributed worker availability tracking
     core_instance_id: String,
     /// Start time for uptime calculation
@@ -92,12 +95,15 @@ pub struct WorkerManagementHandler {
 }
 
 impl WorkerManagementHandler {
-    /// Create new worker management handler with database persistence
+    /// Create new worker management handler with database persistence and optimized queries
     pub fn new(worker_pool: Arc<WorkerPool>, db_pool: PgPool, core_instance_id: String) -> Self {
         let start_time_utc = chrono::Utc::now().to_rfc3339();
+        let optimized_queries = OptimizedWorkerQueries::new(db_pool.clone());
+        
         Self {
             worker_pool,
             db_pool,
+            optimized_queries,
             core_instance_id,
             start_time: Instant::now(),
             start_time_utc,
@@ -233,7 +239,7 @@ impl WorkerManagementHandler {
         } else {
             // Fallback to defaults if no connection info provided
             warn!(
-                "No connection info provided for worker {}, using defaults",
+                "No connection info provided for worker {}, defaulting to localhost:8080 - worker may be unreachable",
                 worker_capabilities.worker_id
             );
             serde_json::json!({
@@ -273,19 +279,43 @@ impl WorkerManagementHandler {
             ));
         }
 
-        // 4. Register supported tasks (map from namespaces to explicit named tasks)
-        for namespace in &worker_capabilities.supported_namespaces {
-            // TODO: This is a temporary mapping - we need to update the command structure
-            // to accept explicit task support instead of just namespaces
+        // 4. Register supported tasks with database-first approach
+        if let Some(ref supported_tasks) = worker_capabilities.supported_tasks {
+            // NEW: Process explicit task registrations from supported_tasks
             if let Err(e) = self
-                .register_worker_for_namespace_tasks(&worker, namespace)
+                .register_worker_with_explicit_tasks(&worker, supported_tasks)
                 .await
             {
-                warn!(
-                    "Failed to register worker tasks for namespace {}: {}",
-                    namespace, e
+                error!(
+                    "Failed to register worker with explicit tasks: {}",
+                    e
                 );
-                // Continue with other namespaces - don't fail the entire registration
+                return Ok(command.create_response(
+                    CommandType::Error,
+                    CommandPayload::Error {
+                        error_type: "TaskRegistrationError".to_string(),
+                        message: format!("Failed to register worker tasks: {}", e),
+                        details: None,
+                        retryable: true,
+                    },
+                    CommandSource::RustServer {
+                        id: "worker_management_handler".to_string(),
+                    },
+                ));
+            }
+        } else {
+            // FALLBACK: Legacy namespace-based registration for backward compatibility
+            for namespace in &worker_capabilities.supported_namespaces {
+                if let Err(e) = self
+                    .register_worker_for_namespace_tasks(&worker, namespace)
+                    .await
+                {
+                    warn!(
+                        "Worker {} cannot register for namespace {} - tasks may go unprocessed: {}",
+                        worker_capabilities.worker_id, namespace, e
+                    );
+                    // Continue with other namespaces - partial failure is acceptable
+                }
             }
         }
 
@@ -302,8 +332,8 @@ impl WorkerManagementHandler {
                     "socket_path": format!("/tmp/tasker_worker_{}.sock", worker_capabilities.worker_id),
                 }),
                 _ => {
-                    warn!(
-                        "Unknown transport type {}, defaulting to TCP",
+                    debug!(
+                        "Unknown transport type '{}', using TCP default configuration",
                         conn_info.transport_type
                     );
                     serde_json::json!({
@@ -315,7 +345,7 @@ impl WorkerManagementHandler {
             (conn_info.transport_type.clone(), details)
         } else {
             // Fallback to TCP defaults
-            warn!("No connection info for transport availability, using TCP defaults");
+            info!("No connection info provided, using default TCP transport configuration");
             (
                 "tcp".to_string(),
                 serde_json::json!({
@@ -336,8 +366,8 @@ impl WorkerManagementHandler {
         if let Err(e) =
             WorkerTransportAvailability::upsert(&self.db_pool, transport_availability).await
         {
-            warn!("Failed to create transport availability entry: {}", e);
-            // Don't fail registration for transport availability issues
+            debug!("Transport availability update failed (non-critical): {}", e);
+            // Transport availability is supplementary - continue with registration
         }
 
         info!(
@@ -395,13 +425,100 @@ impl WorkerManagementHandler {
             .await
             {
                 warn!(
-                    "Failed to associate worker {} with task {} ({}): {}",
-                    worker.worker_name, named_task.name, named_task.named_task_id, e
+                    "Worker {} cannot be associated with task {} - may not receive work: {}",
+                    worker.worker_name, named_task.name, e
                 );
             } else {
                 debug!(
                     "Associated worker {} with task {} in namespace {}",
                     worker.worker_name, named_task.name, namespace
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Register worker with explicit task definitions (database-first approach)
+    async fn register_worker_with_explicit_tasks(
+        &self,
+        worker: &Worker,
+        supported_tasks: &[crate::execution::command::TaskHandlerInfo],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!(
+            "Registering worker {} with {} explicit task definitions",
+            worker.worker_name,
+            supported_tasks.len()
+        );
+
+        for task_info in supported_tasks {
+            // 1. Create or find namespace
+            let task_namespace = match TaskNamespace::find_by_name(&self.db_pool, &task_info.namespace).await? {
+                Some(ns) => {
+                    debug!("Found existing namespace: {}", task_info.namespace);
+                    ns
+                }
+                None => {
+                    info!("Creating new namespace: {}", task_info.namespace);
+                    TaskNamespace::find_or_create(&self.db_pool, &task_info.namespace).await?
+                }
+            };
+
+            // 2. Create or update named task
+            let named_task = match NamedTask::find_by_name_version_namespace(
+                &self.db_pool,
+                &task_info.handler_name,
+                &task_info.version,
+                task_namespace.task_namespace_id as i64,
+            )
+            .await?
+            {
+                Some(existing_task) => {
+                    debug!(
+                        "Found existing task: {}/{} v{}",
+                        task_info.namespace, task_info.handler_name, task_info.version
+                    );
+                    existing_task
+                }
+                None => {
+                    info!(
+                        "Creating new task: {}/{} v{}",
+                        task_info.namespace, task_info.handler_name, task_info.version
+                    );
+                    let new_named_task = crate::models::core::named_task::NewNamedTask {
+                        name: task_info.handler_name.clone(),
+                        version: Some(task_info.version.clone()),
+                        description: task_info.description.clone()
+                            .or_else(|| Some(format!("Auto-created task: {} v{}", task_info.handler_name, task_info.version))),
+                        task_namespace_id: task_namespace.task_namespace_id as i64,
+                        configuration: Some(serde_json::to_value(task_info)?),
+                    };
+                    NamedTask::create(&self.db_pool, new_named_task).await?
+                }
+            };
+
+            // 3. Associate worker with the named task
+            let worker_config = serde_json::to_value(&task_info.handler_config)?;
+            let priority = task_info.priority.unwrap_or(100);
+
+            if let Err(e) = WorkerNamedTask::create_or_update(
+                &self.db_pool,
+                worker.worker_id,
+                named_task.named_task_id,
+                worker_config,
+                Some(priority),
+            )
+            .await
+            {
+                error!(
+                    "Failed to associate worker {} with task {}/{} v{}: {}",
+                    worker.worker_name, task_info.namespace, task_info.handler_name, task_info.version, e
+                );
+                return Err(Box::new(e));
+            } else {
+                info!(
+                    "✅ Associated worker {} with task {}/{} v{} (priority: {})",
+                    worker.worker_name, task_info.namespace, task_info.handler_name, task_info.version, priority
                 );
             }
         }
@@ -437,7 +554,7 @@ impl WorkerManagementHandler {
                 Ok(response)
             }
             Err(e) => {
-                warn!("Worker unregistration failed: {}", e);
+                error!("Worker unregistration failed: {}", e);
 
                 let response = command.create_response(
                     CommandType::Error,
@@ -573,7 +690,7 @@ impl WorkerManagementHandler {
                 Ok(response)
             }
             Err(e) => {
-                warn!(
+                error!(
                     "Heartbeat processing failed for worker {}: {}",
                     worker_id, e
                 );
@@ -631,6 +748,70 @@ impl WorkerManagementHandler {
     /// Check if the system has been running for more than a specified duration
     pub fn has_been_running_for(&self, duration_seconds: u64) -> bool {
         self.get_uptime_seconds() >= duration_seconds
+    }
+
+    /// **NEW**: Get optimal worker for task using optimized queries with caching
+    /// 
+    /// This method demonstrates the performance improvements of our optimized
+    /// database queries compared to the original implementation.
+    pub async fn get_optimal_worker_for_task(
+        &self,
+        named_task_id: i32,
+        required_capacity: Option<i32>,
+    ) -> Result<Option<crate::database::OptimalWorkerResult>, Box<dyn std::error::Error + Send + Sync>> {
+        let capacity = required_capacity.unwrap_or(1);
+        
+        info!(
+            "🔍 Selecting optimal worker for task {} with capacity requirement {}",
+            named_task_id, capacity
+        );
+
+        match self
+            .optimized_queries
+            .select_optimal_worker_for_task(named_task_id, capacity)
+            .await
+        {
+            Ok(Some(optimal_worker)) => {
+                info!(
+                    "✅ Found optimal worker: {} (health: {:.1}, load: {}/{}, score: calculated)",
+                    optimal_worker.worker_name,
+                    optimal_worker.health_score,
+                    optimal_worker.current_load,
+                    optimal_worker.max_concurrent_steps
+                );
+                Ok(Some(optimal_worker))
+            }
+            Ok(None) => {
+                warn!(
+                    "⚠️ No optimal worker found for task {} with capacity {}",
+                    named_task_id, capacity
+                );
+                Ok(None)
+            }
+            Err(e) => {
+                error!(
+                    "❌ Failed to select optimal worker for task {}: {}",
+                    named_task_id, e
+                );
+                Err(Box::new(e))
+            }
+        }
+    }
+
+    /// **NEW**: Invalidate worker caches when worker state changes
+    /// 
+    /// Call this method when workers register, unregister, or change health status
+    /// to ensure cache consistency.
+    pub async fn invalidate_worker_caches(&self, task_id: Option<i32>) -> Result<bool, sqlx::Error> {
+        info!("🧹 Invalidating worker caches for task: {:?}", task_id);
+        self.optimized_queries.invalidate_worker_caches(task_id).await
+    }
+
+    /// **NEW**: Get database performance metrics
+    /// 
+    /// Returns connection pool statistics for monitoring and alerting
+    pub async fn get_database_performance_metrics(&self) -> Result<crate::database::PoolStatistics, sqlx::Error> {
+        self.optimized_queries.get_pool_statistics().await
     }
 }
 

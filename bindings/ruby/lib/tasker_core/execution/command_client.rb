@@ -109,12 +109,13 @@ module TaskerCore
       # @param language_runtime [String] Runtime identifier (usually 'ruby')
       # @param version [String] Runtime version
       # @param custom_capabilities [Hash] Additional worker capabilities
+      # @param supported_tasks [Array<Hash>, nil] Task handler configurations with step templates
       # @return [TaskerCore::Types::ExecutionTypes::WorkerRegistrationResponse] Typed response from Rust orchestrator
       # @raise [NotConnectedError] if not connected
       # @raise [CommandError] if command fails
       def register_worker(worker_id:, max_concurrent_steps:, supported_namespaces: [DEFAULT_NAMESPACE],
                          step_timeout_ms:, supports_retries:, language_runtime:,
-                         version:, custom_capabilities: {})
+                         version:, custom_capabilities: {}, supported_tasks: nil)
         ensure_connected!
 
         options = {
@@ -127,6 +128,12 @@ module TaskerCore
           version: version,
           custom_capabilities: custom_capabilities
         }
+        
+        # Add supported_tasks if provided
+        if supported_tasks && !supported_tasks.empty?
+          options[:supported_tasks] = supported_tasks
+          logger.debug("Including #{supported_tasks.size} supported tasks in worker registration")
+        end
 
         begin
           raw_response = @rust_client.register_worker(options)
@@ -273,7 +280,18 @@ module TaskerCore
       #
       # @raise [NotConnectedError] if not connected
       def ensure_connected!
-        raise NotConnectedError, "Client not connected" unless connected?
+        return if connected?
+        
+        # Auto-reconnect for singleton pattern
+        @logger.info "🔄 SINGLETON: Auto-reconnecting CommandClient for command execution"
+        begin
+          connect
+          @logger.info "✅ SINGLETON: Auto-reconnection successful"
+        rescue StandardError => e
+          error_msg = "SINGLETON: Auto-reconnection failed: #{e.message}"
+          @logger.error error_msg
+          raise NotConnectedError, error_msg
+        end
       end
     end
 

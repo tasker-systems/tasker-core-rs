@@ -189,12 +189,9 @@ impl TaskInitializer {
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, TaskInitializationError> {
-        // Construct the full task name in namespace/name format for handler lookup
-        let task_name = format!("{}/{}", task_request.namespace, task_request.name);
-
         // Store values before moving task_request
         let namespace = task_request.namespace.clone();
-        let name = task_request.name.clone();
+        let task_name = task_request.name.clone();
         let version = task_request.version.clone();
 
         // Clone the task_request for handler configuration lookup
@@ -255,7 +252,7 @@ impl TaskInitializer {
                 crate::logging::log_registry_operation(
                     "HANDLER_CONFIG_LOADED",
                     Some(&namespace),
-                    Some(&name),
+                    Some(&task_name),
                     Some(&version),
                     "SUCCESS",
                     Some(&format!(
@@ -276,64 +273,50 @@ impl TaskInitializer {
                 crate::logging::log_registry_operation(
                     "HANDLER_CONFIG_FAILED",
                     Some(&namespace),
-                    Some(&name),
+                    Some(&task_name),
                     Some(&version),
                     "FAILED",
                     Some(&format!("Registry lookup failed: {e}")),
                 );
-
-                warn!(
-                    task_id = task_id,
-                    task_name = %task_name,
-                    error = %e,
-                    "No handler configuration found, creating minimal task"
+                error!(
+                  task_id = task_id,
+                  task_name = %task_name,
+                  error = %e,
+                  "Failed to load handler configuration"
                 );
-                None
+                return Err(TaskInitializationError::ConfigurationNotFound(format!("Failed to load handler configuration for task: {task_name}, namespace: {namespace}, version: {version}, error: {e}")));
             }
         };
 
-        let (step_count, step_mapping) = if let Some(config) = handler_config.as_ref() {
-            crate::logging::log_task_operation(
-                "WORKFLOW_STEPS_CREATION_START",
-                Some(task_id),
-                Some(&task_name),
-                None,
-                "STARTING",
-                Some(&format!(
-                    "Creating {} workflow steps",
-                    config.step_templates.len()
-                )),
-            );
+        // Handler configuration is guaranteed to exist (we return early with error if not)
+        let config = handler_config.as_ref().unwrap();
 
-            // Create workflow steps and dependencies
-            let result = self.create_workflow_steps(&mut tx, task_id, config).await?;
+        crate::logging::log_task_operation(
+            "WORKFLOW_STEPS_CREATION_START",
+            Some(task_id),
+            Some(&task_name),
+            None,
+            "STARTING",
+            Some(&format!(
+                "Creating {} workflow steps",
+                config.step_templates.len()
+            )),
+        );
 
-            crate::logging::log_task_operation(
-                "WORKFLOW_STEPS_CREATED",
-                Some(task_id),
-                Some(&task_name),
-                None,
-                "SUCCESS",
-                Some(&format!(
-                    "Created {} workflow steps with dependencies",
-                    result.0
-                )),
-            );
+        // Create workflow steps and dependencies
+        let (step_count, step_mapping) = self.create_workflow_steps(&mut tx, task_id, config).await?;
 
-            result
-        } else {
-            crate::logging::log_task_operation(
-                "NO_WORKFLOW_STEPS",
-                Some(task_id),
-                Some(&task_name),
-                None,
-                "INFO",
-                Some("No handler configuration - creating minimal task with no steps"),
-            );
-
-            // No configuration, no steps
-            (0, HashMap::new())
-        };
+        crate::logging::log_task_operation(
+            "WORKFLOW_STEPS_CREATED",
+            Some(task_id),
+            Some(&task_name),
+            None,
+            "SUCCESS",
+            Some(&format!(
+                "Created {} workflow steps with dependencies",
+                step_count
+            )),
+        );
 
         debug!(
             task_id = task_id,
@@ -379,7 +362,7 @@ impl TaskInitializer {
             task_id,
             step_count,
             step_mapping: step_mapping.clone(),
-            handler_config_name: handler_config.as_ref().map(|_| task_name.clone()),
+            handler_config_name: Some(task_name.clone()), // Always present now that we require configuration
         };
 
         crate::logging::log_task_operation(
@@ -413,50 +396,10 @@ impl TaskInitializer {
         // First, resolve the NamedTask from the TaskRequest
         let named_task_id = self.resolve_named_task_id(&task_request).await?;
 
-        // Use the transaction directly since models don't have transaction methods yet
-        let requested_at = task_request.requested_at;
-        let identity_hash = format!(
-            "{}-{}-{}",
-            named_task_id,
-            serde_json::to_string(&task_request.context)
-                .unwrap_or_default()
-                .len(),
-            chrono::Utc::now().timestamp_millis()
-        );
+        let mut new_task = Task::from_task_request(task_request);
+        new_task.named_task_id = named_task_id;
 
-        let task = sqlx::query_as!(
-            Task,
-            r#"
-            INSERT INTO tasker_tasks (named_task_id, context, tags, identity_hash, complete, requested_at, initiator, source_system, reason, bypass_steps, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-            RETURNING task_id, named_task_id, context, tags, identity_hash, complete, requested_at, initiator, source_system, reason, bypass_steps, created_at, updated_at
-            "#,
-            named_task_id,
-            Some(task_request.context),
-            Some(serde_json::Value::Array(
-                task_request
-                    .tags
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            )),
-            identity_hash,
-            false, // complete
-            requested_at,
-            Some(task_request.initiator),
-            Some(task_request.source_system),
-            Some(task_request.reason),
-            Some(serde_json::Value::Array(
-                task_request
-                    .bypass_steps
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            ))
-        )
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(|e| TaskInitializationError::Database(format!("Failed to create task: {e}")))?;
+        let task: Task = Task::create_with_transaction(tx, new_task).await.map_err(|e| TaskInitializationError::Database(format!("Failed to create task: {e}")))?;
 
         Ok(task)
     }
@@ -567,7 +510,7 @@ impl TaskInitializer {
         Ok((step_mapping.len(), step_mapping))
     }
 
-    /// Create named steps and workflow steps
+    /// Create named steps and workflow steps using consistent transaction methods
     async fn create_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -590,10 +533,10 @@ impl TaskInitializer {
             let named_step = if let Some(existing_step) = named_steps.first() {
                 existing_step.clone()
             } else {
-                // Create new named step using find_or_create_by_name outside the transaction
-                // This automatically creates the dependent system if it doesn't exist
+                // Create new named step using transaction-aware method
                 let system_name = "tasker_core_rust"; // Use a consistent system name for Rust core
-                NamedStep::find_or_create_by_name(
+                NamedStep::find_or_create_by_name_with_transaction(
+                    tx,
                     &self.pool,
                     &step_template.name,
                     system_name,
@@ -607,43 +550,24 @@ impl TaskInitializer {
                 })?
             };
 
-            // Create workflow step using transaction
-            let workflow_step = sqlx::query_as!(
-                WorkflowStep,
-                r#"
-                INSERT INTO tasker_workflow_steps (
-                    task_id, named_step_id, retryable, retry_limit, inputs, skippable,
-                    in_process, processed, processed_at, attempts, last_attempted_at,
-                    backoff_request_seconds, results, created_at, updated_at
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-                RETURNING
-                    workflow_step_id, task_id, named_step_id, retryable, retry_limit, inputs, skippable,
-                    in_process, processed, processed_at, attempts, last_attempted_at,
-                    backoff_request_seconds, results, created_at, updated_at
-                "#,
+            // Create workflow step using consistent transaction method
+            let new_workflow_step = crate::models::core::workflow_step::NewWorkflowStep {
                 task_id,
-                named_step.named_step_id,
-                step_template.default_retryable.unwrap_or(true),
-                step_template.default_retry_limit.unwrap_or(3) as i32,
-                step_template.handler_config,
-                step_template.skippable.unwrap_or(false),
-                false, // in_process
-                false, // processed
-                None::<chrono::NaiveDateTime>, // processed_at
-                0 as i32, // attempts
-                None::<chrono::NaiveDateTime>, // last_attempted_at
-                0 as i32, // backoff_request_seconds
-                None::<serde_json::Value> // results
-            )
-            .fetch_one(&mut **tx)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::Database(format!(
-                    "Failed to create WorkflowStep '{}': {}",
-                    step_template.name, e
-                ))
-            })?;
+                named_step_id: named_step.named_step_id,
+                retryable: step_template.default_retryable,
+                retry_limit: step_template.default_retry_limit,
+                inputs: step_template.handler_config.clone(),
+                skippable: step_template.skippable,
+            };
+
+            let workflow_step = WorkflowStep::create_with_transaction(tx, new_workflow_step)
+                .await
+                .map_err(|e| {
+                    TaskInitializationError::Database(format!(
+                        "Failed to create WorkflowStep '{}': {}",
+                        step_template.name, e
+                    ))
+                })?;
 
             step_mapping.insert(step_template.name.clone(), workflow_step.workflow_step_id);
 
@@ -651,14 +575,14 @@ impl TaskInitializer {
                 step_name = %step_template.name,
                 workflow_step_id = workflow_step.workflow_step_id,
                 named_step_id = named_step.named_step_id,
-                "Created workflow step"
+                "Created workflow step using transaction methods"
             );
         }
 
         Ok(step_mapping)
     }
 
-    /// Create dependencies between workflow steps
+    /// Create dependencies between workflow steps using consistent transaction methods
     async fn create_step_dependencies(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -668,33 +592,30 @@ impl TaskInitializer {
         for step_template in &config.step_templates {
             let to_step_id = step_mapping[&step_template.name];
 
-            // Create edges for all dependencies
+            // Create edges for all dependencies using transaction method
             for dependency_name in step_template.all_dependencies() {
                 if let Some(&from_step_id) = step_mapping.get(&dependency_name) {
-                    sqlx::query!(
-                        r#"
-                        INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id, name, created_at, updated_at)
-                        VALUES ($1, $2, $3, NOW(), NOW())
-                        "#,
+                    let new_edge = crate::models::core::workflow_step_edge::NewWorkflowStepEdge {
                         from_step_id,
                         to_step_id,
-                        "provides"
-                    )
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|e| {
-                        TaskInitializationError::Database(format!(
-                            "Failed to create edge '{}' -> '{}': {}",
-                            dependency_name, step_template.name, e
-                        ))
-                    })?;
+                        name: "provides".to_string(),
+                    };
+
+                    crate::models::WorkflowStepEdge::create_with_transaction(tx, new_edge)
+                        .await
+                        .map_err(|e| {
+                            TaskInitializationError::Database(format!(
+                                "Failed to create edge '{}' -> '{}': {}",
+                                dependency_name, step_template.name, e
+                            ))
+                        })?;
 
                     debug!(
                         from_step = %dependency_name,
                         to_step = %step_template.name,
                         from_step_id = from_step_id,
                         to_step_id = to_step_id,
-                        "Created step dependency"
+                        "Created step dependency using transaction method"
                     );
                 }
             }
@@ -703,56 +624,52 @@ impl TaskInitializer {
         Ok(())
     }
 
-    /// Create initial state transitions in database within transaction
+    /// Create initial state transitions in database using consistent transaction methods
     async fn create_initial_state_transitions_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         task_id: i64,
         step_mapping: &HashMap<String, i64>,
     ) -> Result<(), TaskInitializationError> {
-        // Create initial task transition with sort_key and most_recent
-        sqlx::query!(
-            r#"
-            INSERT INTO tasker_task_transitions (task_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            "#,
+        // Create initial task transition using transaction method
+        let new_task_transition = crate::models::core::task_transition::NewTaskTransition {
             task_id,
-            "pending",
-            None::<String>,
-            self.config.event_metadata,
-            1, // sort_key starts at 1 for first transition
-            true // most_recent is true for initial transition
-        )
-        .execute(&mut **tx)
-        .await
-        .map_err(|e| {
-            TaskInitializationError::Database(format!(
-                "Failed to create initial task transition: {e}"
-            ))
-        })?;
+            to_state: "pending".to_string(),
+            from_state: None,
+            metadata: self.config.event_metadata.clone(),
+        };
 
-        // Create initial step transitions with sort_key and most_recent
-        for &workflow_step_id in step_mapping.values() {
-            sqlx::query!(
-                r#"
-                INSERT INTO tasker_workflow_step_transitions (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                "#,
-                workflow_step_id,
-                "pending",
-                None::<String>,
-                self.config.event_metadata,
-                1, // sort_key starts at 1 for first transition
-                true // most_recent is true for initial transition
-            )
-            .execute(&mut **tx)
+        crate::models::TaskTransition::create_with_transaction(tx, new_task_transition)
             .await
             .map_err(|e| {
                 TaskInitializationError::Database(format!(
-                    "Failed to create initial step transition for step {workflow_step_id}: {e}"
+                    "Failed to create initial task transition: {e}"
                 ))
             })?;
+
+        // Create initial step transitions using transaction method
+        for &workflow_step_id in step_mapping.values() {
+            let new_step_transition = crate::models::core::workflow_step_transition::NewWorkflowStepTransition {
+                workflow_step_id,
+                to_state: "pending".to_string(),
+                from_state: None,
+                metadata: self.config.event_metadata.clone(),
+            };
+
+            crate::models::WorkflowStepTransition::create_with_transaction(tx, new_step_transition)
+                .await
+                .map_err(|e| {
+                    TaskInitializationError::Database(format!(
+                        "Failed to create initial step transition for step {workflow_step_id}: {e}"
+                    ))
+                })?;
         }
+
+        debug!(
+            task_id = task_id,
+            step_count = step_mapping.len(),
+            "Created initial state transitions using transaction methods"
+        );
 
         Ok(())
     }
@@ -839,7 +756,6 @@ impl TaskInitializer {
         &self,
         task_request: &TaskRequest,
     ) -> Result<HandlerConfiguration, TaskInitializationError> {
-        let task_name = format!("{}/{}", task_request.namespace, task_request.name);
         // Check if we have access to a registry
         let registry = self.registry.as_ref()
             .ok_or_else(|| TaskInitializationError::ConfigurationNotFound(
@@ -849,45 +765,62 @@ impl TaskInitializer {
         // Use the namespace and name directly from the TaskRequest
         let namespace = &task_request.namespace;
         let name = &task_request.name;
+        let version = &task_request.version;
 
         // Look up the handler metadata using the ACTUAL task request version
         debug!(
             "🔍 HANDLER LOOKUP: Looking for namespace='{}', name='{}', version='{}'",
-            namespace, name, task_request.version
+            namespace, name, version
         );
 
         let metadata = registry
-            .get_handler_metadata(namespace, name, &task_request.version)
+            .resolve_handler(task_request)
+            .await
             .map_err(|e| {
                 TaskInitializationError::ConfigurationNotFound(format!(
                     "Handler not found in registry {namespace}/{name}: {e}"
                 ))
             })?;
 
-        // Extract the config_schema from metadata and deserialize it
+        // Extract the config_schema from metadata and convert from full TaskHandlerInfo format
+        debug!(
+            task_name = %name,
+            namespace = %namespace,
+            config_schema_present = %metadata.config_schema.is_some(),
+            "🎯 TASK_INIT: Checking if config_schema is present"
+        );
+        
         if let Some(config_json) = metadata.config_schema {
-            // Deserialize the JSON config_schema to HandlerConfiguration
-            serde_json::from_value::<HandlerConfiguration>(config_json).map_err(|e| {
-                TaskInitializationError::InvalidConfiguration(format!(
-                    "Failed to deserialize handler configuration: {e}"
+            // The database stores the full TaskHandlerInfo structure
+            // Extract the handler_config field which contains the actual YAML structure
+            let handler_config_value = config_json.get("handler_config")
+                .ok_or_else(|| TaskInitializationError::ConfigurationNotFound(format!(
+                    "TaskHandlerInfo missing handler_config field for {}/{}",
+                    namespace, name
+                )))?;
+
+            // Deserialize directly from the handler_config (which contains the YAML structure)
+            let handler_config = serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone()).map_err(|e| {
+                TaskInitializationError::ConfigurationNotFound(format!(
+                    "Failed to deserialize handler configuration for {}/{}: {}. Handler config: {}",
+                    namespace, name, e, handler_config_value
                 ))
-            })
+            })?;
+
+            if handler_config.step_templates.is_empty() {
+                return Err(TaskInitializationError::ConfigurationNotFound(format!(
+                    "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
+                    handler_config.namespace_name, handler_config.name
+                )));
+            }
+
+            Ok(handler_config)
         } else {
-            // No config_schema provided - create a minimal configuration
-            Ok(HandlerConfiguration {
-                name: task_name.to_string(),
-                module_namespace: None,
-                task_handler_class: metadata.handler_class,
-                namespace_name: metadata.namespace,
-                version: metadata.version,
-                default_dependent_system: None,
-                named_steps: vec![], // Empty steps means no workflow
-                schema: None,
-                step_templates: vec![], // No step templates
-                environments: None,
-                default_context: None,
-                default_options: None,
-            })
+            // No config_schema provided - this is a hard error
+            Err(TaskInitializationError::ConfigurationNotFound(format!(
+                "No task handler configuration found in database for {}/{}. Task handler must be registered with configuration before task creation.",
+                metadata.namespace, metadata.name
+            )))
         }
     }
 

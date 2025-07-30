@@ -42,8 +42,69 @@ module TaskerCore
         yield(self) if block_given?
       end
 
-      # Quick start a worker with default configuration
+      # Quick start a worker with Phase 3 SharedWorkerManager
       #
+      # @param worker_id [String] Unique worker identifier
+      # @param mode [Symbol] Worker mode (:worker, :server, :hybrid)
+      # @param supported_tasks [Array<Hash>] Explicit task template definitions (Phase 2)
+      # @param supported_namespaces [Array<String>] Legacy namespace support (nil = auto-discover)
+      # @param options [Hash] Additional worker options
+      # @return [SharedWorkerManager] Configured and started shared worker manager
+      def start_shared_worker(worker_id:, mode: :worker, supported_tasks: nil, supported_namespaces: nil, **options)
+        manager = create_shared_worker_manager(
+          worker_id: worker_id,
+          mode: mode,
+          supported_tasks: supported_tasks,
+          supported_namespaces: supported_namespaces,
+          **options
+        )
+
+        # Initialize and start based on mode
+        case mode.to_sym
+        when :worker, :hybrid
+          manager.initialize_as_worker
+          manager.register_worker
+          manager.start_heartbeat
+        when :server
+          manager.initialize_as_server
+        end
+
+        manager
+      end
+
+      # Create a shared worker manager with Phase 3 architecture
+      #
+      # @param worker_id [String] Unique worker identifier
+      # @param mode [Symbol] Worker mode (:worker, :server, :hybrid)
+      # @param supported_tasks [Array<Hash>] Explicit task template definitions (Phase 2)
+      # @param supported_namespaces [Array<String>] Legacy namespace support (nil = auto-discover)
+      # @param options [Hash] Additional worker options
+      # @return [SharedWorkerManager] Configured shared worker manager (not started)
+      def create_shared_worker_manager(worker_id:, mode: :worker, supported_tasks: nil, supported_namespaces: nil, **options)
+        defaults = {
+          server_host: default_executor_host || 'localhost',
+          server_port: default_executor_port || 8080,
+          heartbeat_interval: default_heartbeat_interval || SharedWorkerManager::DEFAULT_HEARTBEAT_INTERVAL,
+          bind_port: options[:bind_port] || SharedWorkerManager::DEFAULT_BIND_PORT,
+          custom_capabilities: {
+            'created_by' => 'execution_module',
+            'architecture' => 'shared_ffi',
+            'phase3_integration' => true
+          }
+        }
+
+        SharedWorkerManager.new(
+          worker_id: worker_id,
+          mode: mode,
+          supported_tasks: supported_tasks,
+          supported_namespaces: supported_namespaces,
+          **defaults.merge(options)
+        )
+      end
+
+      # Legacy: Quick start a worker with default configuration
+      #
+      # @deprecated Use start_shared_worker instead
       # @param worker_id [String] Unique worker identifier
       # @param supported_namespaces [Array<String>] Namespaces this worker supports (nil = auto-discover)
       # @param options [Hash] Additional worker options
@@ -54,13 +115,14 @@ module TaskerCore
           supported_namespaces: supported_namespaces,
           **options
         )
-        
+
         manager.start
         manager
       end
 
-      # Create a worker manager with default configuration
+      # Legacy: Create a worker manager with default configuration
       #
+      # @deprecated Use create_shared_worker_manager instead
       # @param worker_id [String] Unique worker identifier
       # @param supported_namespaces [Array<String>] Namespaces this worker supports (nil = auto-discover)
       # @param options [Hash] Additional worker options
@@ -111,7 +173,7 @@ module TaskerCore
           client.connect
           response = client.health_check
           client.disconnect
-          
+
           {
             healthy: true,
             response: response,

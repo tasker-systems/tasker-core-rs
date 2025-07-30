@@ -4,3 +4,4 @@
 //! connection pooling, and migration handling.
 
 pub mod sql_functions;
+pub mod optimized_queries_test;

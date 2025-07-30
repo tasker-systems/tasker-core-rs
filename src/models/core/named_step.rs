@@ -301,6 +301,66 @@ impl NamedStep {
         Self::create(pool, new_step).await
     }
 
+    /// Find existing named step by name or create a new one with dependent system (transaction version)
+    /// This method also ensures the dependent system exists
+    pub async fn find_or_create_by_name_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        pool: &PgPool, // Still needed for non-transactional reads
+        name: &str,
+        dependent_system_name: &str,
+    ) -> Result<NamedStep, sqlx::Error> {
+        // Import the DependentSystem model to use its find_or_create method
+        use crate::models::DependentSystem;
+
+        // First ensure the dependent system exists (can use pool for find_or_create since it's idempotent)
+        let dependent_system = DependentSystem::find_or_create_by_name_with_description(
+            pool,
+            dependent_system_name,
+            Some(format!(
+                "Auto-created system for steps: {dependent_system_name}"
+            )),
+        )
+        .await?;
+
+        // Try to find existing named step by system and name (using pool for read)
+        if let Some(existing) =
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_id, name).await?
+        {
+            return Ok(existing);
+        }
+
+        // Create new named step if not found (using transaction for write)
+        let new_step = NewNamedStep {
+            dependent_system_id: dependent_system.dependent_system_id,
+            name: name.to_string(),
+            description: Some(format!("Auto-created step: {name}")),
+        };
+
+        Self::create_with_transaction(tx, new_step).await
+    }
+
+    /// Create a new named step within a transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_step: NewNamedStep,
+    ) -> Result<NamedStep, sqlx::Error> {
+        let step = sqlx::query_as!(
+            NamedStep,
+            r#"
+            INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
+            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
+            "#,
+            new_step.dependent_system_id,
+            new_step.name,
+            new_step.description
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(step)
+    }
+
     /// Find existing named step by name only (first match) or create with default dependent system
     pub async fn find_or_create_by_name_simple(
         pool: &PgPool,

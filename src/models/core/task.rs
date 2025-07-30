@@ -121,65 +121,112 @@ pub struct TaskForOrchestration {
 impl Task {
     /// Create a new task
     pub async fn create(pool: &PgPool, new_task: NewTask) -> Result<Task, sqlx::Error> {
-        // Validate JSONB fields before database operation
-        if let Some(ref context) = new_task.context {
-            if let Err(validation_error) = crate::validation::validate_task_context(context) {
-                return Err(sqlx::Error::Protocol(format!(
-                    "Invalid context: {validation_error}"
-                )));
-            }
-        }
-
-        if let Some(ref tags) = new_task.tags {
-            if let Err(validation_error) = crate::validation::validate_task_tags(tags) {
-                return Err(sqlx::Error::Protocol(format!(
-                    "Invalid tags: {validation_error}"
-                )));
-            }
-        }
-
-        if let Some(ref bypass_steps) = new_task.bypass_steps {
-            if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
-                return Err(sqlx::Error::Protocol(format!(
-                    "Invalid bypass_steps: {validation_error}"
-                )));
-            }
-        }
-
-        // Sanitize JSONB inputs
-        let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
-        let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
-        let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
-
-        let requested_at = new_task
-            .requested_at
-            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        let sanitized_task = Task::sanitize_new_task(new_task)?;
 
         let task = sqlx::query_as!(
             Task,
             r#"
             INSERT INTO tasker_tasks (
-                named_task_id, complete, requested_at, initiator, source_system, 
+                named_task_id, complete, requested_at, initiator, source_system,
                 reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
             )
             VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
             RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
                       reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
             "#,
-            new_task.named_task_id,
-            requested_at,
-            new_task.initiator,
-            new_task.source_system,
-            new_task.reason,
-            sanitized_bypass_steps,
-            sanitized_tags,
-            sanitized_context,
-            new_task.identity_hash
+            sanitized_task.named_task_id,
+            sanitized_task.requested_at,
+            sanitized_task.initiator,
+            sanitized_task.source_system,
+            sanitized_task.reason,
+            sanitized_task.bypass_steps,
+            sanitized_task.tags,
+            sanitized_task.context,
+            sanitized_task.identity_hash
         )
         .fetch_one(pool)
         .await?;
 
         Ok(task)
+    }
+
+    pub async fn create_with_transaction(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, new_task: NewTask) -> Result<Task, sqlx::Error> {
+      let sanitized_task = Task::sanitize_new_task(new_task)?;
+      let task = sqlx::query_as!(
+        Task,
+        r#"
+        INSERT INTO tasker_tasks (
+            named_task_id, complete, requested_at, initiator, source_system,
+            reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+        )
+        VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
+                  reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+        "#,
+        sanitized_task.named_task_id,
+        sanitized_task.requested_at,
+        sanitized_task.initiator,
+        sanitized_task.source_system,
+        sanitized_task.reason,
+        sanitized_task.bypass_steps,
+        sanitized_task.tags,
+        sanitized_task.context,
+        sanitized_task.identity_hash
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(task)
+    }
+
+    fn sanitize_new_task(new_task: NewTask) -> Result<NewTask, sqlx::Error> {
+        // Validate JSONB fields before database operation
+        if let Some(ref context) = new_task.context {
+          if let Err(validation_error) = crate::validation::validate_task_context(context) {
+              return Err(sqlx::Error::Protocol(format!(
+                  "Invalid context: {validation_error}"
+              )));
+          }
+      }
+
+      if let Some(ref tags) = new_task.tags {
+          if let Err(validation_error) = crate::validation::validate_task_tags(tags) {
+              return Err(sqlx::Error::Protocol(format!(
+                  "Invalid tags: {validation_error}"
+              )));
+          }
+      }
+
+      if let Some(ref bypass_steps) = new_task.bypass_steps {
+          if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
+              return Err(sqlx::Error::Protocol(format!(
+                  "Invalid bypass_steps: {validation_error}"
+              )));
+          }
+      }
+
+      // Sanitize JSONB inputs
+      let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
+      let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
+      let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
+
+      let requested_at = new_task
+          .requested_at
+          .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+
+      let identity_hash = Task::generate_identity_hash(new_task.named_task_id, &sanitized_context);
+
+        Ok(NewTask {
+            named_task_id: new_task.named_task_id,
+            requested_at: Some(requested_at),
+            initiator: new_task.initiator,
+            source_system: new_task.source_system,
+            reason: new_task.reason,
+            bypass_steps: sanitized_bypass_steps,
+            tags: sanitized_tags,
+            context: sanitized_context,
+            identity_hash: identity_hash,
+        })
     }
 
     /// Find a task by ID
@@ -265,7 +312,7 @@ impl Task {
     pub async fn mark_complete(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks 
+            UPDATE tasker_tasks
             SET complete = true, updated_at = NOW()
             WHERE task_id = $1
             "#,
@@ -296,7 +343,7 @@ impl Task {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks 
+            UPDATE tasker_tasks
             SET context = $2, updated_at = NOW()
             WHERE task_id = $1
             "#,
@@ -328,7 +375,7 @@ impl Task {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks 
+            UPDATE tasker_tasks
             SET tags = $2, updated_at = NOW()
             WHERE task_id = $1
             "#,
@@ -538,9 +585,9 @@ impl Task {
                            t.initiator, t.source_system, t.reason, t.bypass_steps,
                            t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
                     FROM tasker_tasks t
-                    INNER JOIN tasker_task_transitions tt 
+                    INNER JOIN tasker_task_transitions tt
                         ON t.task_id = tt.task_id
-                    WHERE tt.most_recent = true 
+                    WHERE tt.most_recent = true
                         AND tt.to_state = $1
                     ORDER BY t.task_id
                     "#,
@@ -585,8 +632,8 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator, 
-                   source_system, reason, bypass_steps, tags, context, 
+            SELECT task_id, named_task_id, complete, requested_at, initiator,
+                   source_system, reason, bypass_steps, tags, context,
                    identity_hash, created_at, updated_at
             FROM tasker_tasks
             WHERE created_at >= $1
@@ -615,9 +662,9 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
-            INNER JOIN tasker_task_transitions tt 
+            INNER JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id
-            WHERE tt.most_recent = true 
+            WHERE tt.most_recent = true
                 AND tt.to_state = 'complete'
                 AND tt.created_at >= $1
             ORDER BY tt.created_at DESC
@@ -645,9 +692,9 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
-            INNER JOIN tasker_task_transitions tt 
+            INNER JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id
-            WHERE tt.most_recent = true 
+            WHERE tt.most_recent = true
                 AND tt.to_state = 'error'
                 AND tt.created_at >= $1
             ORDER BY tt.created_at DESC
@@ -672,9 +719,9 @@ impl Task {
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
                    t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
-            LEFT JOIN tasker_task_transitions tt 
+            LEFT JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id AND tt.most_recent = true
-            WHERE tt.to_state IS NULL 
+            WHERE tt.to_state IS NULL
                 OR tt.to_state NOT IN ('complete', 'error', 'cancelled')
             ORDER BY t.task_id
             "#
@@ -693,8 +740,8 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
@@ -715,8 +762,8 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
@@ -736,8 +783,8 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator, 
-                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context, 
+            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+                   t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
                    t.identity_hash, t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
@@ -958,7 +1005,7 @@ impl Task {
     pub async fn all_steps_complete(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            SELECT 
+            SELECT
                 COUNT(*) as total_steps,
                 COUNT(*) FILTER (WHERE processed = true) as completed_steps
             FROM tasker_workflow_steps
@@ -1207,12 +1254,12 @@ impl Task {
     ///         summary.ready_tasks += 1;
     ///         summary.total_ready_steps += context.ready_steps;
     ///     }
-    ///     
+    ///
     ///     // Print individual task status
     ///     let completion_pct = if context.total_steps > 0 {
     ///         (context.completed_steps * 100 / context.total_steps)
     ///     } else { 0 };
-    ///     
+    ///
     ///     println!("Task {}: {} - {}% complete - {} ready steps",
     ///              context.task_id, context.execution_status,
     ///              completion_pct, context.ready_steps);
@@ -1247,7 +1294,7 @@ impl Task {
     /// async fn update_task_lifecycle(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
     ///     let mut task = Task::find_by_id(pool, task_id).await?
     ///         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    ///     
+    ///
     ///     // Update context with runtime information
     ///     let updated_context = json!({
     ///         "original_context": task.context,
@@ -1264,9 +1311,9 @@ impl Task {
     ///             "estimated_completion": null
     ///         }
     ///     });
-    ///     
+    ///
     ///     task.update_context(pool, updated_context).await?;
-    ///     
+    ///
     ///     // Add execution tags
     ///     let execution_tags = json!({
     ///         "environment": "production",
@@ -1274,11 +1321,11 @@ impl Task {
     ///         "cost_center": "operations",
     ///         "sla_tier": "tier_1"
     ///     });
-    ///     
+    ///
     ///     task.update_tags(pool, execution_tags).await?;
-    ///     
+    ///
     ///     println!("Updated task {} with runtime context and execution tags", task_id);
-    ///     
+    ///
     ///     // Later, when task completes
     ///     let final_context = json!({
     ///         "execution_summary": {
@@ -1292,12 +1339,12 @@ impl Task {
     ///             "retries_required": 2
     ///         }
     ///     });
-    ///     
+    ///
     ///     task.update_context(pool, final_context).await?;
     ///     task.mark_complete(pool).await?;
-    ///     
+    ///
     ///     println!("Task {} completed and marked as finished", task_id);
-    ///     
+    ///
     ///     Ok(())
     /// }
     /// ```
@@ -1323,16 +1370,16 @@ impl Task {
     pub async fn all_workflow_steps_complete(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let incomplete_count = sqlx::query!(
             r#"
-            SELECT COUNT(*) as count 
+            SELECT COUNT(*) as count
             FROM tasker_workflow_steps ws
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
+                FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_id, sort_key DESC
             ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
-            WHERE ws.task_id = $1 
-              AND (current_states.to_state IS NULL 
+            WHERE ws.task_id = $1
+              AND (current_states.to_state IS NULL
                    OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
             self.task_id
@@ -1377,16 +1424,16 @@ impl Task {
     pub async fn count_incomplete_workflow_steps(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            SELECT COUNT(*) as count 
+            SELECT COUNT(*) as count
             FROM tasker_workflow_steps ws
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
+                FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_id, sort_key DESC
             ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
-            WHERE ws.task_id = $1 
-              AND (current_states.to_state IS NULL 
+            WHERE ws.task_id = $1
+              AND (current_states.to_state IS NULL
                    OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
             self.task_id
@@ -1455,7 +1502,7 @@ impl TaskStateMachine {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_id, from_state, to_state, 
+            SELECT task_id, from_state, to_state,
                    metadata, sort_key, most_recent, created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_id = $1

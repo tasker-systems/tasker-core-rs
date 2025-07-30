@@ -5,7 +5,7 @@
 
 mod common;
 // mod config;
-// mod database;
+mod database;
 mod execution;
 // mod factories;
 // mod ffi;

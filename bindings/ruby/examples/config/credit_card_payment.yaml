@@ -1,7 +1,7 @@
 # Credit Card Payment Task Template
 # This matches the actual format used in config/tasks/payment_processing.yaml
 
-name: payment_processing/credit_card_payment
+name: credit_card_payment
 module_namespace: PaymentProcessing
 task_handler_class: CreditCardPaymentHandler
 namespace_name: payments

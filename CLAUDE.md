@@ -4,577 +4,129 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**tasker-core-rs** is a high-performance Rust implementation of the core workflow orchestration engine, designed to complement the existing Ruby on Rails **Tasker** engine found at `/Users/petetaylor/projects/tasker-systems/tasker-engine/`. This project leverages Rust's memory safety, fearless parallelism, and performance characteristics to handle computationally intensive workflow orchestration, dependency resolution, and state management operations.
-
-**Architecture**: Delegation-based pattern where Rust implements the complete orchestration core that frameworks (Rails, Python, Node.js) extend through FFI integration with `process()` and `process_results()` hooks.
-
-## Development Roadmap - Source of Truth
-
-**ALWAYS REFER TO**: `docs/roadmap/README.md` as the authoritative source for:
-- Current development phase and priorities
-- Weekly milestones and success criteria
-- Critical placeholder analysis and resolution strategy
-- Implementation guidelines and code quality standards
-
-**Current Status**: Phase 1 Complete - Critical Placeholder Code Elimination Priority
-- **Goal**: Eliminate ALL placeholder code before proceeding with architectural improvements
-- **Focus**: Replace TODOs, stubs, and dummy data with real implementations
-- **Recent Achievement**: ✅ Phase 1 FFI migration complete - 3,125+ lines eliminated, shared architecture operational
-- **Critical Discovery**: ✅ Comprehensive placeholder audit reveals 50+ critical implementations needed
-- **Rule**: Zero placeholder code in production paths - all functions must return real data
-
-## Recent Major Achievement: Handle-Based FFI Architecture
-
-### ✅ Handle-Based FFI Architecture (January 2025) 
-**Status**: ✅ **FOUNDATION COMPLETE** - Revolutionary architecture eliminating global lookups and connection pool exhaustion
-**Impact**: Zero-copy FFI operations, persistent resource references, production-ready performance optimization
-
-#### Key Architecture Features
-- **OrchestrationHandle**: Persistent `Arc<OrchestrationSystem>` and `Arc<TestingFactory>` references
-- **Zero Global Lookups**: All operations after handle creation use persistent references  
-- **Connection Pool Sharing**: Single database pool shared across all FFI operations
-- **Handle Lifecycle**: Explicit validation and resource management with 2-hour expiry
-- **Ruby Integration**: OrchestrationManager singleton coordinates all handle operations
-
-#### Technical Implementation
-```rust
-// BEFORE: Global Lookup Pattern (❌ Problematic)
-Ruby Call → Direct FFI → Global Lookup → New Resource Creation → Operation
-
-// AFTER: Handle-Based Pattern (✅ Optimal)
-Ruby Call → OrchestrationManager → Handle → Persistent Resources → Operation
-
-// Handle Creation (ONE TIME)
-let handle = OrchestrationHandle::new()?; // Creates persistent Arc references
-
-// All Operations Use Handle (ZERO GLOBAL LOOKUPS)
-handle.create_test_task(options)?;        // Uses handle.testing_factory
-handle.register_ffi_handler(data)?;       // Uses handle.orchestration_system
-```
-
-#### Integration Points
-- **OrchestrationHandle**: `src/handles.rs` with handle-based factory and orchestration operations
-- **OrchestrationManager**: Ruby singleton managing handle lifecycle and all FFI delegation
-- **Handle Creation**: `TaskerCore.create_orchestration_handle` creates persistent handle instances
-- **Ruby Operations**: All factory and orchestration operations use `_with_handle` methods
-
-#### Validation Results
-- ✅ **Handle Creation**: OrchestrationHandle creates successfully with persistent references
-- ✅ **Zero Global Lookups**: All operations use handle's internal references after creation
-- ✅ **Performance Validated**: Handle operations show no pool timeout symptoms
-- ✅ **Ruby Integration**: OrchestrationManager.instance.orchestration_handle working correctly
-- ✅ **Architecture Pattern**: Demonstrates proper FFI optimization approach
-
-## Code Design Principles
-
-- **No More Placeholders**: All new code must be implemented to completion [[memory:3255552]]
-- **Testing-Driven**: Use failing tests to expose and fix existing placeholders
-- **Sequential Progress**: Complete current phase before proceeding to next
-- **Proper Integration**: All code must delegate properly to Rust core system [[memory:3255552]]
-- Use TODO for intentionally delayed future work, but not to sidestep a better pattern
-
-## Testing Guidelines
-
-- As much as possible, tests should go in our tests/ directory, excluding doctests
-- Use sqlx::test for tests requiring database access
-- Use #[test] on its own for pure unit tests
-- **Integration Tests Priority**: Complex workflows reveal system boundaries and force placeholder completion
-- **Doctest Excellence**: Maintain high doctest success rate with working examples
-
-## MCP Server Integration
-
-**Essential Development Tools**: This project uses Model Context Protocol (MCP) servers to enhance development workflow and capabilities.
-
-### Configured MCP Servers
-- **PostgreSQL MCP** (`crystaldba/postgres-mcp`): Database operations, performance analysis, and migration management
-- **GitHub Official MCP** (`github/github-mcp-server`): Repository operations, PR management, and CI/CD integration
-- **Cargo Package MCP** (`artmann/package-registry-mcp`): Rust dependency management and security analysis
-- **Docker MCP** (`docker/mcp-servers`): Containerized testing and deployment automation
-- **Rust Documentation MCP** (`Govcraft/rust-docs-mcp-server`): Real-time Rust best practices and API guidance
-- **Context7 MCP** (SSE): Enhanced development context and intelligence
-- **Tasker MCP** (Added July 2025): We now have access to all of the mcp servers in .mcp.json and should use them
-
-**Configuration**: See `docs/MCP_TOOLS.md` for detailed setup, capabilities, and integration patterns.
-
-**Benefits**: Enhanced database development, automated dependency management, streamlined CI/CD workflows, and real-time Rust guidance.
-
-## Current Development Context (January 2025)
-
-### 🎉 MAJOR BREAKTHROUGH ACHIEVED: FFI Data Access Issue Completely Resolved
-**STATUS**: ✅ **CRITICAL SUCCESS** - Core FFI data flow working 100%  
-**ACHIEVEMENT**: Simplified hash-based FFI approach with Ruby wrapper conversion
-**IMPACT**: Complete resolution of "blank values on Ruby side of FFI boundary" issue
-
-#### 🚀 Technical Achievement Details (January 21, 2025)
-**Problem Solved**: *"initialize_task returns correctly structured responses but all values appear blank on the Ruby side of the FFI boundary"*
-
-**Solution Implemented**:
-- **✅ Simplified Hash-Based FFI**: Rust returns Ruby hashes instead of complex Magnus wrapped objects
-- **✅ Ruby Wrapper Classes**: Convert hashes back to expected `InitializeResult` and `HandleResult` objects  
-- **✅ Backward Compatibility**: All existing Ruby tests work with `.task_id`, `.step_count` method calls
-- **✅ Performance Optimized**: Hash-based approach faster than complex object registration
-- **✅ Architecture Proven**: Simple, reliable pattern that avoids Magnus complexity
-
-**Validation Results**:
-- ✅ Task creation working (task_id=5438+ created successfully)
-- ✅ All database operations completing in <2ms  
-- ✅ Hash data accessible with proper values
-- ✅ Ruby object methods (`.task_id`, `.step_count`) working correctly
-- ✅ FFI boundary data transfer 100% functional
-
-### 🎯 BREAKTHROUGH ACHIEVED: Step Readiness Issue Completely Resolved (January 23, 2025)
-**STATUS**: ✅ **CRITICAL SUCCESS** - Workflow execution fully functional
-**ACHIEVEMENT**: Identified and resolved root cause blocking all workflow execution
-**IMPACT**: Integration test failures reduced from 16 to 4, workflows now executing steps
-
-#### 🔍 Root Cause Discovery
-**Problem**: Workflows stuck with "0 ready steps" despite proper FFI integration and state machine functionality
-**Investigation**: Created direct database debug scripts to examine SQL function behavior
-**Root Cause**: `validate_order` step had `default_retryable: false` but SQL function requires `retryable = true` for ANY step execution
-**Solution**: Changed `default_retryable: false` to `default_retryable: true` (with `retry_limit: 1` to prevent retries)
-
-#### ✅ Results Achieved
-- **Test Improvement**: 16 failures → 4 failures (73% improvement)
-- **Workflow Execution**: Steps now executing (logs show "steps_executed=2 steps_succeeded=1 steps_failed=1")
-- **Step Readiness**: 0 ready steps → 1+ ready steps per workflow
-- **Status Progression**: `wait_for_dependencies` → `in_progress` → `error/complete`
-
-#### 🔄 Current Issue: Status Mapping
-**Remaining Problem**: Tests expect `status='complete'/'error'` but receive `status='failed'`
-**Analysis**: Workflows executing correctly but status translation between Rust and Ruby needs fixing
-**Next Focus**: Fix status mapping/translation between Rust orchestration results and Ruby FFI responses
-
-### 🎯 PHASE 1 COMPLETE: FFI Architecture Foundation
-**STATUS**: ✅ **PRODUCTION READY** - Complete shared component architecture fully operational
-**ACHIEVEMENT**: Revolutionary shared architecture eliminates all duplication and global lookups
-**IMPACT**: 3,125+ lines eliminated, zero global lookups, 1-6ms database performance
-
-#### ✅ Phase 1 Achievements Complete
-- **✅ All Files Migrated**: testing_framework.rs, error_translation.rs, types.rs to shared components
-- **✅ Handle-Based Architecture**: OrchestrationHandle with persistent Arc<> references throughout
-- **✅ Zero Global Lookups**: All operations use shared orchestration system after handle creation
-- **✅ Database Integration**: Real task creation with millisecond performance, no pool timeouts
-- **✅ Code Quality**: All tests passing (64 doctests, 92 unit tests), code formatted and linted
-- **✅ Multi-Language Ready**: src/ffi/shared/ foundation ready for Python, Node.js, WASM, JNI
-
-### ✅ Phase 8 COMPLETE: Placeholder Code Elimination (January 2025)
-**STATUS**: ✅ **COMPLETED** - All placeholder code eliminated, production-ready implementations
-**ACHIEVEMENT**: Zero dummy data, no stub functions, all TODOs converted to real code
-**IMPACT**: Codebase now solid foundation for architectural improvements
-
-#### Phase 8 Accomplishments
-**ELIMINATED PLACEHOLDERS**:
-- **✅ Removed legacy `src/client` directory** - 9 state machine integration TODOs gone
-- **✅ TaskFinalizer event publishing** - Real EventPublisher integration replacing println!
-- **✅ StepExecutionOrchestrator events** - Full event publishing with validation
-- **✅ Property-based test todo! macros** - Converted to documented panic! for disabled tests
-- **✅ Configuration enhancements** - Added timeout_seconds field to handler config
-- **✅ TaskEnqueuer improvements** - DirectEnqueueHandler uses proper tracing
-- **✅ Minor TODOs** - All converted to enhancement documentation comments
-
-**CODE QUALITY**:
-- All code compiles successfully
-- Formatted with `cargo fmt`
-- No functions returning dummy data
-- All placeholders replaced with working implementations
-
-### 🎯 Next Development Priorities (Reordered for Optimal Flow)
-**Phase 2**: Architectural cleanup - consolidate utility files, remove debugging scripts **← NEXT**
-**Phase 4**: FFI boundary design - primitives in, objects out pattern **← THEN THIS**
-**Phase 3**: Ruby namespace reorganization for clean API structure **← AFTER PRIMITIVES PATTERN**
-**Phase 5**: Spec test redesign with new expectations and namespaces
-**Phase 6**: Comprehensive shared component testing  
-**Phase 7**: Documentation excellence (Rust src/ffi/shared + Ruby yard-docs)
-
-#### Rationale for Phase Reordering
-- **Phase 2 First**: Clean architecture before major design changes
-- **Phase 4 Before 3**: Primitives in, objects out pattern will guide Ruby namespace design
-- **Phase 3 Last**: Ruby reorganization benefits from established FFI patterns
-
-### 🎉 BREAKTHROUGH: Handle-Based FFI Architecture & Pool Timeout Resolution
-**STATUS**: ✅ **PRODUCTION READY** - Complete FFI architecture with database integration fully operational
-**ACHIEVEMENT**: Revolutionary async runtime fix eliminates all connection pool timeouts
-**IMPACT**: 100x performance improvement - operations complete in milliseconds vs hanging indefinitely
-
-#### 🚀 Major Technical Breakthrough (July 2025)
-**CRITICAL ISSUE RESOLVED**: Database connection pool timeouts completely eliminated
-- **Root Cause**: Async runtime context mismatch between pool creation and usage
-- **Solution**: Global persistent Tokio runtime for consistent execution context
-- **Impact**: Pool operations that failed after 2-second timeouts now complete in 1-6ms
-- **Validation**: 14 comprehensive tests run in 0.23s (was hanging indefinitely)
-
-#### 🏆 Complete FFI Architecture Success
-**3-Phase Migration**: ✅ **ALL PHASES COMPLETE**
-1. **✅ PHASE 1**: All 4 Rust FFI files migrated to handle-based patterns  
-2. **✅ PHASE 2**: All 5 Ruby wrapper files use OrchestrationManager handles
-3. **✅ PHASE 3**: Integration, testing, and validation complete
-
-#### 🎯 Production-Ready Architecture Achievements
-- **✅ Handle-Based FFI**: Zero global lookups, persistent `Arc<>` references throughout
-- **✅ Global Runtime**: Consistent async execution context eliminates SQLx conflicts
-- **✅ Database Integration**: Real task creation (task_id 48+) with millisecond performance
-- **✅ Domain APIs**: Clean Ruby interface (Factory, Registry, Performance, Events)
-- **✅ Configuration-Driven**: YAML-based pool settings with dotenv test environment support
-- **✅ Handle Validation**: 2-hour expiry with lifecycle management
-- **✅ Connection Pool Excellence**: 150 max connections, 10 minimum, 2-second acquire timeout
-
-#### 🔧 Proven Technical Patterns
-**Optimal FFI Flow**: `Ruby → OrchestrationManager → Handle → Persistent Resources → Database`
-**Performance**: Single handle creation → many fast operations (no resource recreation)
-**Resource Sharing**: Database pools and orchestration components shared across all calls
-**Error Handling**: Graceful degradation with detailed diagnostics and connection testing
-
-### ✅ PRODUCTION VIABILITY ACHIEVED
-**Before**: All database operations failed with pool timeouts, completely unusable
-**After**: Sub-millisecond database operations, real workflow creation, full test suite operational
-**Ready For**: Production deployment, complex workflow orchestration, high-throughput scenarios
-
-### Testing-Driven Development Success 🎯
-**Approach**: Using comprehensive integration tests to systematically expose and fix critical placeholders
-**Philosophy**: Test failures are documentation - they show us exactly what needs to be implemented
-**Results**: Methodical identification and resolution of system-breaking issues
-
-### Critical Placeholders Fixed Through Testing ✅
-1. **SQL Schema Alignment** - Fixed `error_steps` vs `failed_steps` column mismatch in TaskExecutionContext
-2. **Type System Integrity** - Fixed BigDecimal to f64 conversion in TaskFinalizer
-3. **SQL Type Compatibility** - Fixed `named_step_id` i64 vs i32 mismatch across all components
-4. **Database Function Integration** - Verified get_task_execution_context SQL function alignment
-
-### Phase 2 Completion Success ✅
-**Event Publishing & Configuration**: All critical components implemented and working
-- **FFI Event Bridge**: Rust→Ruby event forwarding with callback registration
-- **Configuration Management**: All hardcoded values extracted to YAML
-- **External Callback System**: Cross-language event handler registry functional
-- **Integration Tests**: Events flow end-to-end with proper error handling
-
-### Foundation Complete ✅
-- **Multi-workspace Architecture**: Main core + Ruby extension workspaces
-- **Ruby FFI Integration**: Magnus-based bindings with proper build system
-- **State Machine Framework**: Complete implementation with event publishing
-- **Factory System**: Comprehensive test data generation for complex workflows
-- **Orchestration Coordinator**: Core structure with async processing
-- **Database Layer**: Models, scopes, and SQL functions implemented
-- **Git Infrastructure**: Multi-workspace validation hooks and build artifacts management
-
-### Integration Test Infrastructure ✅
-- **MockFrameworkIntegration**: Complete test framework integration for orchestration testing
-- **Real Task Creation**: Factory system properly creates tasks with workflow steps
-- **Orchestration Flow**: End-to-end test successfully reaches step state validation
-- **Systematic Discovery**: Each test run exposes the next critical placeholder requiring implementation
-
-### Implementation Status
-
-#### ✅ Implemented
-- **State Machine System**: TaskStateMachine and StepStateMachine with event publishing
-- **Factory System**: Complex workflow patterns (Linear, Diamond, Parallel, Tree, Mixed DAG)
-- **Ruby Bindings Foundation**: Handler base classes, task initialization, database integration
-- **TaskHandlerRegistry**: Complete handler lookup with Ruby class names and YAML templates
-- **SQL Function Integration**: High-performance operations leveraging existing tested functions
-- **Orchestration Components**: BackoffCalculator, TaskFinalizer, TaskEnqueuer, Error Classification
-
-#### 🎯 Phase 3 Focus (Enhanced Event Integration)
-- **FFI Publishing Bridge**: Enable Rust to publish directly to Rails dry-events Publisher singleton
-- **Payload Compatibility**: Create Rails-compatible event payload structures
-- **Event Type Mapping**: Map Rust event names to Rails event constants
-- **BaseSubscriber Integration**: Rust events compatible with Rails subscription patterns
-- **Custom Event Registration**: Bridge Rust custom events to Rails CustomRegistry
-
-## Recent Achievements (January 2025)
-
-### ✅ Ruby FFI Integration Complete
-- **Step Handler Architecture**: `RubyStepHandler` properly implements Rust `StepHandler` trait
-- **Task Configuration Flow**: Step handlers resolved through task templates, not class names
-- **Previous Step Results**: Dependencies loaded using `WorkflowStep::get_dependencies()`
-- **Magnus Integration**: TypedData objects properly cloned and converted
-- **Compilation Success**: All trait bounds and missing functions resolved
-- **Test Coverage**: 95+ Rust orchestration tests passing, Ruby extension compiles cleanly
-
-### SQL Scopes Implementation
-- Created comprehensive Rails-like SQL scope system in `src/scopes.rs`
-- Implemented `TaskScope`, `WorkflowStepScope`, and `TaskTransitionScope` with chainable query builders
-- Added support for time-based queries, state filtering, and complex JOIN operations
-- Achieved 11/12 test coverage with sophisticated deduplication for SQL JOINs
-
-### Factory System for Complex Workflows
-- Built comprehensive factory system in `tests/factories/` inspired by Rails patterns
-- Implemented complex workflow patterns: Linear, Diamond, Parallel Merge, Tree, and Mixed DAG
-- Created API integration workflow factories with multi-step dependencies
-- Added dummy task workflows for orchestration testing
-- Implemented find-or-create patterns for idempotent test data creation
-- Added batch generation capabilities with controlled pattern distributions
-
-### Configuration Architecture
-- Separated configuration (`src/config.rs`) from constants (`src/constants.rs`)
-- Created hierarchical configuration structure with nested components
-- Maintained clean separation between runtime settings and immutable values
-
-### Orchestration Layer Implementation
-- **Phase 1 & 2 Complete**: Foundation model layer and critical infrastructure components implemented
-- **BackoffCalculator**: Exponential backoff with jitter, server-requested delays, and context-aware retry strategies
-- **TaskFinalizer**: Context-driven task completion with state machine integration and intelligent reenqueue logic
-- **TaskEnqueuer**: Framework-agnostic task delegation supporting Rust, FFI, WASM, and JNI targets
-- **Error Classification System**: Centralized error categorization with 10 error types and actionable remediation
-- **Delegation Architecture**: Rust orchestrates decisions while frameworks handle execution and queue management
-- **SQL Function Integration**: Boundary-defined reuse with existing tested SQL functions for step readiness and execution context
-- **Production Ready**: Comprehensive test coverage with working demo examples and framework compatibility
-
-### Ruby FFI Integration Progress
-- **Multi-Workspace Setup**: Main core + Ruby extension with proper build isolation
-- **Magnus Integration**: Complete Ruby FFI bindings with method registration
-- **Build System**: Working Ruby gem compilation with rb_sys
-- **Handler Foundation**: Ruby base classes (BaseTaskHandler, BaseStepHandler) with proper hooks
-- **Context Serialization**: Type conversion between Rust and Ruby with proper error handling
-- **Database Integration**: Task and WorkflowStep creation from Ruby with state machine setup
-
-### Event System Unification (January 2025)
-- **Unified EventPublisher**: Combined three separate event implementations into single cohesive system in `src/events/`
-- **Dual API Support**: Simple (name + context) and structured (typed events) APIs for different use cases
-- **FFI Bridge Foundation**: Event system ready for cross-language integration with Rails dry-events
-- **Type Conversion System**: Seamless conversion between orchestration and events types
-- **Comprehensive Testing**: 15 tests covering all event publishing scenarios with proper error handling
-
-### TaskHandlerRegistry Unification (January 2025) - ✅ COMPLETED
-- **Problem Identified**: Ruby bindings had duplicate TaskHandlerRegistry implementation creating new instances on every FFI call, losing all registered handlers
-- **Root Cause**: 296 lines of duplicate implementation in `bindings/ruby/ext/tasker_core/src/handlers.rs` instead of using core registry + singleton pattern violation
-- **Impact**: Complete breakdown of Ruby-Rust integration workflow as handler lookup failed consistently
-- **Solution Implemented**:
-  - Removed duplicate TaskHandlerRegistry implementation from Ruby bindings
-  - Created unified architecture using `tasker_core::registry::TaskHandlerRegistry` as single source of truth
-  - Implemented proper singleton pattern with `OnceLock<TaskHandlerRegistry>` for FFI operations
-  - Created `TaskHandlerRegistryWrapper` for Rails compatibility with YAML file lookup
-  - Updated all FFI wrapper functions to use unified singleton implementation
-- **Results**:
-  - Reduced from 296 lines of duplicate code to 76 lines of wrapper code
-  - Registry state now maintained across FFI calls
-  - Access to advanced core features: event publishing, dual-path support, validation, namespaces
-  - Thread-safe concurrent access with proper memory management
-  - Backward compatibility with Rails YAML-based handler discovery maintained
-- **Status**: ✅ CRITICAL ISSUE RESOLVED - Ruby-Rust integration workflow now functional
-
-### Phase 2: Event Publishing & Configuration (COMPLETED - January 2025)
-- **FFI Event Bridge Implementation**: Created `event_bridge_register` and `event_bridge_unregister` FFI functions with global RUBY_EVENT_CALLBACK registry
-- **External Callback System**: Implemented `register_external_event_callback` in EventPublisher for cross-language event forwarding
-- **Configuration Management**: Extracted hardcoded values from task_handler.rs and workflow_coordinator.rs to YAML configuration
-- **Integration Testing**: Created comprehensive event bridge tests verifying Rust→Ruby event flow
-- **Rails Compatibility**: Updated Ruby events.rb to use actual FFI functions instead of placeholders
-- **Compilation Fixes**: Resolved all import path and API compatibility issues across the test suite
-- **Status**: ✅ PHASE 2 COMPLETED - Events flow properly, zero hardcoded configuration values
-
-### Rails Engine Event System Analysis (January 2025)
-- **Architecture Analysis**: Comprehensive review of Rails engine event system including Publisher singleton, BaseSubscriber pattern, and dry-events integration
-- **Pattern Documentation**: Analyzed declarative subscriptions, automatic method routing, dual event types (system + custom), and observability strategy
-- **Integration Opportunities**: Identified specific enhancements for Rust-Ruby bridge including FFI publishing, payload compatibility, and event type mapping
-- **Implementation Roadmap**: Created detailed Phase 3 plan for enhanced event integration with specific technical specifications
-- **Documentation**: Created comprehensive EVENT_SYSTEM.md with gap analysis and implementation roadmap
-- **Status**: ✅ ANALYSIS COMPLETED - Ready for Phase 3 enhanced integration implementation
-
-## Architecture Patterns Established
-
-### Delegation-Based Architecture
-- **Rust Core**: Handles orchestration, state management, dependency resolution, performance-critical operations
-- **Framework Integration**: Rails/Python/Node.js handle business logic execution through FFI
-- **SQL Functions**: Provide high-performance intelligence for step readiness and system health
-- **Event System**: Real-time workflow monitoring and Rails integration through dry-events bridge
-
-### Performance Targets
-- **10-100x faster** dependency resolution vs PostgreSQL functions
-- **<1ms FFI overhead** per orchestration call
-- **>10k events/sec** cross-language event processing
-- **<10% penalty** vs native Ruby execution for delegation
-
-### Ruby Integration Workflow
-1. **Task Discovery**: Rails → TaskHandlerRegistry → Ruby class name + YAML template
-2. **Task Initialization**: Ruby → Rust task creation with DAG setup → Database persistence
-3. **Task Execution**: Rails job → Rust orchestration → Concurrent step processing
-4. **Step Processing**: Rust coordination → Ruby step handlers (concurrent) → Result collection
-5. **Task Finalization**: Completion analysis → Backoff calculation → Re-enqueuing with delay
-6. **Event Publishing**: Rust events → FFI bridge → Ruby dry-events → Rails job queue
-
-## Quality Standards
-
-### Code Quality Requirements
-- **No Placeholder Code**: All new implementations must be complete
-- **Test-Driven Development**: Write failing tests that expose placeholders, then implement
-- **SQLx Integration**: All database tests use `#[sqlx::test]` with automatic isolation
+**tasker-core-rs** is a high-performance Rust implementation of workflow orchestration, designed to complement the existing Ruby on Rails **Tasker** engine at `/Users/petetaylor/projects/tasker-systems/tasker-engine/`.
+
+**Architecture**: Delegation-based pattern where Rust handles orchestration, state management, and performance-critical operations, while Ruby/Rails handles business logic execution through FFI integration.
+
+## Current Status (July 2025)
+
+### ✅ PRODUCTION READY: TCP Command Architecture Complete
+- **Achievement**: Full Ruby-Rust TCP integration with zero ZeroMQ dependencies
+- **Test Results**: 12/12 integration tests passing in 5 seconds (vs 75+ seconds previously)  
+- **Performance**: Sub-millisecond command processing, no connection pool timeouts
+- **Architecture**: Generic transport system supporting TCP, Unix sockets, and future protocols
+
+### ✅ RECENT BREAKTHROUGH: supported_tasks FFI Parameter Fixed
+- **Problem Solved**: Ruby `supported_tasks` parameter was showing as null in RegisterWorker commands
+- **Root Cause**: Missing parameter extraction in Rust FFI binding layer
+- **Solution**: Added complete TaskHandlerInfo conversion from Ruby to Rust with proper type handling
+- **Result**: Database-backed task handler registration now fully functional
+
+### 🎯 Current Focus: Task Initialization Handler Logic
+**Issue**: Tasks are created with `step_count=0` and `workflow_steps=[]` - task templates not being processed into workflow steps
+**Next Steps**: Fix TaskInitializer to properly create workflow steps from registered task handler configurations
+
+## Architecture Overview
+
+### Core Components
+- **Command System**: TCP-based command routing with async handlers
+- **Worker Management**: Registration, heartbeats, health monitoring with database persistence
+- **Task Orchestration**: State machines, dependency resolution, batch execution
+- **FFI Integration**: Handle-based architecture with persistent Arc<> references eliminating global lookups
+
+### Key Technical Patterns
+- **Handle-Based FFI**: `Ruby → OrchestrationManager → Handle → Persistent Resources → Database`
+- **Singleton CommandClient**: Process-wide TCP client with auto-reconnection
+- **Database-First Registry**: Task handlers registered with complete YAML configurations
+- **Generic Transport**: Protocol-agnostic executor supporting multiple transport types
+
+## Development Guidelines
+
+### Code Quality Standards
+- **No Placeholder Code**: All implementations must be complete, no TODOs in production paths
+- **Test-Driven**: Use failing integration tests to expose and fix system issues
 - **Type Safety**: Full compile-time verification with proper error handling
-- **Documentation**: Working doctests with realistic examples
+- **SQLx Integration**: Database tests use `#[sqlx::test]` with automatic isolation
 
-### Development Workflow
-- **Multi-Workspace Validation**: Git hooks validate both main core and Ruby extension
-- **Continuous Integration**: Comprehensive CI/CD with quality gates, security auditing, and performance testing
-- **Memory Safety**: All FFI boundaries properly managed with Ruby GC integration
-- **Configuration Management**: All hardcoded values extracted to YAML with environment overrides
-
-## Related Projects Context
-
-### Multi-Project Ecosystem
-- **tasker-engine/**: Production-ready Rails engine for workflow orchestration
-- **tasker-core-rs/**: High-performance Rust core for performance-critical operations
-- **tasker-blog/**: GitBook documentation with real-world engineering stories
-
-### Integration Context
-- **Database Schema**: Shared PostgreSQL schema between Rails and Rust
-- **Configuration Compatibility**: YAML-based configuration matching Rails patterns
-- **Event Compatibility**: Event format aligned with Rails dry-events and Statesman
-- **Migration Strategy**: Zero-disruption integration with feature flag rollout
-
-## Current Working Context (January 2025)
-
-- **Main Branch**: `main`
-- **Current Branch**: `jcoletaylor/tas-14-m2-ruby-integration-testing-completion`
-- **Major Achievement**: ✅ **TCP COMMAND ARCHITECTURE COMPLETE** - ZeroMQ fully replaced
-- **Current Status**: ✅ **PHASE 2 & 3 COMPLETE** - Full Ruby-Rust TCP integration operational
-- **Test Results**: **12/12 integration tests passing** - Production-ready worker management
-- **Next Focus**: **Batch execution handlers** for complete workflow orchestration
-
-### 🎉 MAJOR MILESTONE ACHIEVED: TCP Command System Complete
-
-**Problem Solved**: ZeroMQ communication reliability issues completely eliminated
-**Solution Delivered**: Production-ready TCP command system with type-safe Ruby integration
-**Outcome**: Modern, reliable, maintainable architecture with zero external messaging dependencies
-
-### ✅ Completed Phase Status
-1. **✅ Phase 1**: Command Infrastructure & TCP Foundation - **COMPLETE**
-2. **✅ Phase 2**: Ruby Command Client & Worker Registration - **COMPLETE** 
-3. **✅ Phase 3**: TCP Integration & Testing - **COMPLETE** (12/12 tests passing)
-4. **🎯 Phase 4**: Batch Execution Handlers - **NEXT PRIORITY**
-5. **Phase 5**: Complete WorkflowCoordinator Integration
-
-### 🚀 Architecture Transformation Complete
-- **Before**: `WorkflowCoordinator → ZmqPubSubExecutor → ZeroMQ → BatchStepExecutionOrchestrator`
-- **After**: `WorkflowCoordinator → CommandRouter → GenericExecutor<Transport> → TCP/Unix → Ruby Workers`
-- **Latest**: **Generic Transport Architecture** - Protocol-agnostic design supporting TCP, Unix sockets, and future transports
-- **Benefits**: Handle-based architecture, type-safe responses, embedded server support, production reliability
-
-### 🎯 Current Capabilities (Production Ready)
-- **✅ Worker Management**: Registration, heartbeats, unregistration with structured responses
-- **✅ Health Monitoring**: Detailed diagnostics with enum-based status validation
-- **✅ Error Handling**: Graceful duplicate registration, non-existent worker handling
-- **✅ Performance**: Sub-second response times, efficient connection management
-- **✅ Type Safety**: Dry-struct responses with Ruby-native methods
-- **✅ Single Process**: Embedded TCP executor for streamlined deployment
-- **✅ Testing Excellence**: Comprehensive integration tests (5-second execution vs 75+ seconds)
+### Current Working Branch
+- **Branch**: `jcoletaylor/tas-14-m2-ruby-integration-testing-completion`
+- **Test Focus**: Integration test `spec/handlers/integration/order_fulfillment_integration_spec.rb`
 
 ## Key File Locations
 
-### Roadmap and Planning
-- **Primary Source**: `docs/roadmap/evolving-from-zeromq.md` (CURRENT FOCUS - Command Pattern Migration)
-- **Architecture Analysis**: `docs/analysis-after-zeromq.md` (Current ZeroMQ architecture reference)
-- **Implementation Guide**: File-level dependency mapping and phase breakdown
-- **Migration Strategy**: Complete ZeroMQ replacement with unified configuration
-- **Previous Planning**: `docs/roadmap/README.md` (Historical context)
-
 ### Core Implementation
-- **Models**: `src/models/core/` (Task, WorkflowStep, step_execution_batch*)
-- **Orchestration**: `src/orchestration/` (WorkflowCoordinator, TaskFinalizer, StateManager)
-- **Execution**: `src/execution/` (ZmqPubSubExecutor - TO BE REPLACED with Command pattern)
-- **State Machines**: `src/state_machine/` (TaskStateMachine, StepStateMachine)
-- **Ruby Bindings**: `bindings/ruby/ext/tasker_core/src/` (FFI integration)
-- **Ruby Orchestration**: `bindings/ruby/lib/tasker_core/orchestration/` (BatchStepExecutionOrchestrator)
-- **Test Factories**: `tests/factories/` (Complex workflow patterns)
+- **Command System**: `src/execution/command.rs`, `src/execution/command_router.rs`
+- **TCP Infrastructure**: `src/execution/generic_executor.rs`, `src/execution/transport.rs`
+- **Task Orchestration**: `src/orchestration/task_initializer.rs`, `src/orchestration/workflow_coordinator.rs`
+- **FFI Integration**: `src/ffi/shared/` (shared components), `bindings/ruby/ext/tasker_core/src/`
+- **Ruby Wrappers**: `bindings/ruby/lib/tasker_core/`
 
-### Configuration and Infrastructure
-- **Database Schema**: `db/structure.sql`
-- **Migrations**: `migrations/` (including step_execution_batch tables)
-- **Configuration**: `config/tasker-config.yaml` (Unified configuration - ZeroMQ to be replaced with TCP)
-- **Git Hooks**: `.githooks/` (Multi-workspace validation)
+### Configuration
+- **Database**: `db/structure.sql`, `migrations/`
+- **Config**: `config/tasker-config-development.yaml`
+- **Testing**: `bindings/ruby/spec/handlers/integration/`
 
-## Latest Session Summary (January 27, 2025) - TCP Command Architecture Complete ✅
+## Development Commands
 
-### 🎉 MAJOR ACHIEVEMENT: Complete TCP Command System Implementation
-**STATUS**: ✅ **PRODUCTION READY** - Full ZeroMQ replacement with 12/12 integration tests passing
-**ACHIEVEMENT**: Revolutionary TCP command architecture with type-safe Ruby integration
-**IMPACT**: Modern, reliable, maintainable workflow orchestration without external messaging dependencies
+### Rust Core
+```bash
+cargo build                         # Build project  
+cargo test                          # Run tests
+cargo clippy                        # Lint code
+cargo fmt                           # Format code
+```
 
-### What We Accomplished
+### Ruby Extension
+```bash
+cd bindings/ruby
+bundle exec rake compile            # Compile Ruby extension
+bundle exec rspec                   # Run Ruby tests
+```
 
-1. **🚀 Complete TCP Command Infrastructure**:
-   - **Command Pattern Implementation**: Unified Command struct with CommandPayload enum and metadata
-   - **TCP Server Architecture**: TokioTcpExecutor with async connection handling and command routing
-   - **Worker Pool Management**: Capability-based worker registration with health tracking
-   - **Command Handlers**: WorkerManagementHandler with registration, heartbeat, and unregistration
+### Integration Testing
+```bash
+cd bindings/ruby
+bundle exec rspec spec/handlers/integration/order_fulfillment_integration_spec.rb:156 --format documentation
+```
 
-2. **🎯 Ruby Integration Excellence**:
-   - **CommandClient Library**: TCP client with connection management and serialization
-   - **EmbeddedServer Wrapper**: Single-process deployment with concurrent-ruby integration
-   - **WorkerManager Framework**: High-level worker lifecycle management with automatic heartbeats
-   - **Type-Safe Responses**: Dry-struct response types with enums and validation
+## Recent Achievements
 
-3. **✅ Complete ZeroMQ Elimination**:
-   - **Removed all ZeroMQ dependencies** from Ruby codebase (ffi-rzmq eliminated)
-   - **Updated OrchestrationManager** to use TCP architecture exclusively
-   - **Handle-based FFI architecture** with persistent Arc<> references
-   - **Embedded TCP executor integration** for streamlined deployment
+### ✅ TCP Command Architecture (July 2025)
+- **ZeroMQ Elimination**: Complete removal of ZeroMQ dependencies
+- **Generic Transport**: Protocol-agnostic executor with TCP, Unix socket support
+- **Worker Management**: Full lifecycle with registration, heartbeats, health monitoring
+- **Type Safety**: Dry-struct responses with enum validation
+- **Performance**: 100x improvement - millisecond operations vs infinite hangs
 
-4. **🎭 Response Type System Revolution**:
-   - **CommandTypeEnum**: Type-safe command validation (`WorkerRegistered`, `HeartbeatAcknowledged`, etc.)
-   - **HealthStatusEnum**: Proper status handling (`healthy`, `unhealthy`, `degraded`, `unknown`)
-   - **Structured Data Classes**: Eliminated `.dig()` calls with proper Ruby objects
-   - **Ruby-Native Methods**: `.healthy?`, `.worker_registered?`, `.success?` for intuitive API
+### ✅ Handle-Based FFI Architecture  
+- **Zero Global Lookups**: Persistent Arc<> references throughout system
+- **Connection Pool Sharing**: Single database pool shared across all operations
+- **Singleton Pattern**: Process-wide CommandClient with auto-reconnection
+- **Production Performance**: 1-6ms database operations, no pool timeouts
 
-### 📊 Performance & Quality Results
+### ✅ Database-First Task Registry
+- **supported_tasks Parameter**: Complete Ruby→Rust FFI serialization working
+- **Task Handler Configurations**: Full YAML configs with step templates registered
+- **Database Persistence**: Workers associated with specific task capabilities
+- **Type Conversion**: Proper Ruby hash → Rust TaskHandlerInfo conversion
 
-**Test Execution**: **12/12 tests passing** with **5-second runtime** (vs 75+ seconds previously)
-**Response Times**: Sub-millisecond command processing (0ms logged for most operations)
-**Memory Efficiency**: Zero connection pool timeouts, reliable connection management
-**Type Safety**: 100% dry-struct validation with graceful error handling
+## Current Priorities
 
-### Architecture Files Created/Updated
+1. **Fix Task Initialization**: Make TaskInitializer create workflow steps from task templates
+2. **Complete Integration Tests**: Get order fulfillment workflow executing end-to-end  
+3. **Batch Execution**: Implement ExecuteBatch command handling for step processing
+4. **Error Handling**: Ensure all command handlers return responses (prevent timeouts)
 
-**New Command Infrastructure**:
-- `src/execution/command.rs` - Complete command system with 9 payload types
-- `src/execution/command_router.rs` - Async command dispatch with handler registration
-- `src/execution/tokio_tcp_executor.rs` - Production TCP server with connection management
-- `src/execution/worker_pool.rs` - Worker capability tracking and health monitoring
-- `src/execution/command_handlers/worker_management_handler.rs` - Full worker lifecycle
+## Related Projects
 
-**Ruby Integration Excellence**:
-- `bindings/ruby/lib/tasker_core/execution/command_client.rb` - TCP client with timeout handling
-- `bindings/ruby/lib/tasker_core/embedded_server.rb` - Embedded server with concurrent-ruby
-- `bindings/ruby/lib/tasker_core/execution/worker_manager.rb` - High-level worker management
-- `bindings/ruby/lib/tasker_core/types/execution_types.rb` - Complete type system with dry-struct
+- **tasker-engine/**: Production-ready Rails engine for workflow orchestration
+- **tasker-blog/**: GitBook documentation with real-world engineering stories
 
-**Integration Testing**:
-- `bindings/ruby/spec/execution/ruby_rust_integration_spec.rb` - Comprehensive test suite covering:
-  - TCP connection management and error handling
-  - Health checks with detailed diagnostics
-  - Worker registration, heartbeats, and unregistration
-  - Sequential worker management and performance testing
-  - Duplicate registration and error scenarios
+## MCP Server Integration
 
-### Current Capabilities Summary
+This project uses Model Context Protocol (MCP) servers for enhanced development:
+- **PostgreSQL MCP**: Database operations and performance analysis
+- **GitHub MCP**: Repository operations and CI/CD integration  
+- **Rust Documentation MCP**: Real-time Rust best practices and API guidance
 
-**✅ Production-Ready Features**:
-- Worker registration with structured `WorkerRegistrationResponse` (worker_id, assigned_pool, queue_position)
-- Heartbeat management with `HeartbeatAcknowledged` responses (status, timing, next_heartbeat_in)
-- Worker unregistration with `WorkerUnregistrationResponse` (timestamps, reasons)
-- Health monitoring with detailed diagnostics and enum-based status validation
-- Error handling with proper `ErrorResponse` types (error_type, retryable flag, details)
-- Performance testing with sub-second response times verified
-
-### Next Development Priority
-
-**🎯 Phase 4: Batch Execution Handlers**
-- Implement `ExecuteBatch` command handling for async step processing
-- Create batch execution orchestrator for concurrent workflow step execution
-- Integrate with existing WorkflowCoordinator for complete orchestration pipeline
-- Add batch result aggregation and reporting capabilities
-
-### 🎉 LATEST UPDATE: Generic Transport Architecture (January 27, 2025)
-
-**Refactoring Complete**: Successfully migrated from `TokioTcpExecutor` to `GenericExecutor<TcpTransport>`
-- **FFI Layer**: `src/ffi/tcp_executor.rs` now uses generic executor with TCP transport
-- **Binary**: `src/bin/tcp_executor.rs` updated to use generic architecture
-- **Transport Abstraction**: `src/execution/transport.rs` provides protocol-agnostic interface
-- **Generic Executor**: `src/execution/generic_executor.rs` works with any transport implementation
-- **Ruby Integration**: All 12 tests still passing with new architecture
-
-**Architecture Benefits**:
-- **Protocol Independence**: Easy to add Unix sockets, gRPC, or other transports
-- **Code Reuse**: Single executor implementation for all transport types  
-- **Type Safety**: Compile-time verification of transport compatibility
-- **Future Ready**: Prepared for Unix domain socket implementation (Phase 5)
-
----
-
-**Status**: **READY FOR PRODUCTION** - Worker management, health monitoring, and generic transport architecture fully operational
+**Configuration**: All MCP servers configured in `.mcp.json`

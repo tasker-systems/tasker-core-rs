@@ -1,99 +1,133 @@
-//! Task Initialization Command Handler
+//! # Task Initialization Handler
 //!
-//! Handles task-related commands including task initialization and readiness checking.
-//! This handler implements the core task orchestration commands that delegate to
-//! the existing orchestration system for actual task management.
+//! Handles InitializeTask and TryTaskIfReady commands for the command-based
+//! orchestration system. This replaces direct FFI calls with async command processing.
 
-use async_trait::async_trait;
-use sqlx::PgPool;
+use crate::execution::command::{Command, CommandPayload, CommandSource, CommandType};
+use crate::execution::CommandHandler;
+use crate::ffi::shared::orchestration_system::OrchestrationSystem;
+use crate::orchestration::TaskOrchestrationResult;
+use crate::models::core::task_request::TaskRequest;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn, error};
 
-use crate::execution::command::{Command, CommandPayload, CommandSource, CommandType, TaskBatchInfo};
-use crate::execution::command_router::CommandHandler;
-use crate::orchestration::types::{TaskContext};
-use crate::models::core::task::{Task, NewTask};
-use crate::models::core::workflow_step::{WorkflowStep, NewWorkflowStep};
-use crate::models::core::task_request::TaskRequest;
-use crate::orchestration::task_initializer::TaskInitializer;
-use crate::orchestration::workflow_coordinator::WorkflowCoordinator;
-use crate::orchestration::TaskOrchestrationResult;
-use serde::{Deserialize, Serialize};
-use serde_json;
-use chrono;
-
-/// Task readiness information returned by TryTaskIfReady command
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskReadinessInfo {
-    pub task_id: i64,
-    pub ready: bool,
-    pub ready_steps_count: usize,
-    pub total_steps: usize,
-    pub batch_info: Option<TaskBatchInfo>,
-    pub error_message: Option<String>,
+/// Handler for task initialization commands
+#[derive(Clone)]
+pub struct TaskInitializationHandler {
+    orchestration_system: Arc<OrchestrationSystem>,
 }
 
-/// Task initialization result returned by InitializeTask command
+/// Result of task initialization operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInitializationResult {
     pub task_id: i64,
     pub success: bool,
     pub step_count: usize,
     pub step_mapping: HashMap<String, i64>,
+    pub workflow_steps: Vec<serde_json::Value>,
     pub error_message: Option<String>,
 }
 
-/// Workflow step information for task initialization response
+/// Information about task readiness for step execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkflowStepInfo {
-    pub step_id: i64,
-    pub step_name: String,
-    pub handler_class: String,
-    pub dependencies: Vec<i64>,
-    pub status: String,
+pub struct TaskReadinessInfo {
+    pub task_id: i64,
+    pub ready: bool,
+    pub ready_steps_count: usize,
+    pub total_steps: usize,
+    pub batch_info: Option<BatchInfo>,
+    pub error_message: Option<String>,
 }
 
-/// Task Initialization Handler - handles InitializeTask and TryTaskIfReady commands
-///
-/// This handler manages task creation and readiness checking by integrating with
-/// the existing database models and orchestration system.
-pub struct TaskInitializationHandler {
-    orchestration_system: std::sync::Arc<crate::ffi::shared::orchestration_system::OrchestrationSystem>,
+/// Batch execution information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchInfo {
+    pub batch_id: String,
+    pub publication_time_ms: u64,
+    pub next_poll_delay_ms: u64,
 }
 
 impl TaskInitializationHandler {
-    /// Create a new task initialization handler using shared orchestration components
-    pub fn from_orchestration_system(
-        orchestration_system: std::sync::Arc<crate::ffi::shared::orchestration_system::OrchestrationSystem>,
-    ) -> Self {
-        info!("🎯 Creating TaskInitializationHandler from shared orchestration system");
+    /// Create new task initialization handler
+    pub fn new(orchestration_system: Arc<OrchestrationSystem>) -> Self {
         Self {
             orchestration_system,
         }
     }
 
-    /// Handle InitializeTask command - create a new task with workflow steps
+    /// Handle InitializeTask command - create a new task based on the request
     async fn handle_initialize_task(
         &self,
         task_request: TaskRequest,
     ) -> Result<TaskInitializationResult, Box<dyn std::error::Error + Send + Sync>> {
-        info!("🎯 Handling InitializeTask command");
-        debug!("Task request: {:?}", task_request);
+        info!("🎯 TASK_INIT_HANDLER: Handling InitializeTask command");
+        info!("🎯 TASK_INIT_HANDLER: Task request: namespace='{}', name='{}', version='{}'",
+              task_request.namespace, task_request.name, task_request.version);
+        debug!("🎯 TASK_INIT_HANDLER: Full task request: {:?}", task_request);
 
+        info!("🎯 TASK_INIT_HANDLER: Calling orchestration_system.task_initializer.create_task_from_request");
         let task_init_result = self.orchestration_system.task_initializer.create_task_from_request(task_request).await?;
+
+        info!("🎯 TASK_INIT_HANDLER: Task initializer returned: task_id={}, step_count={}, handler_config_name={:?}",
+              task_init_result.task_id, task_init_result.step_count, task_init_result.handler_config_name);
 
         let task_id = task_init_result.task_id;
         let step_count = task_init_result.step_count;
         let step_mapping = task_init_result.step_mapping;
+
+        // Load the actual workflow steps that were created
+        let workflow_steps = self.load_workflow_steps_for_task(task_id).await?;
+
+        info!("🎯 TASK_INIT_HANDLER: Loaded {} workflow steps for task {}", workflow_steps.len(), task_id);
 
         Ok(TaskInitializationResult {
             task_id,
             success: true,
             step_count,
             step_mapping,
+            workflow_steps,
             error_message: None,
         })
+    }
+
+    /// Load workflow steps for a task and convert them to JSON values for the response
+    async fn load_workflow_steps_for_task(
+        &self,
+        task_id: i64,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::models::core::workflow_step::WorkflowStep;
+
+        // Load all workflow steps for the task
+        let workflow_steps = WorkflowStep::list_by_task(&self.orchestration_system.database_pool(), task_id).await?;
+
+        // Convert workflow steps to JSON values
+        let workflow_steps_json: Vec<serde_json::Value> = workflow_steps
+            .into_iter()
+            .map(|step| {
+                serde_json::json!({
+                    "workflow_step_id": step.workflow_step_id,
+                    "task_id": step.task_id,
+                    "named_step_id": step.named_step_id,
+                    "retryable": step.retryable,
+                    "retry_limit": step.retry_limit,
+                    "in_process": step.in_process,
+                    "processed": step.processed,
+                    "processed_at": step.processed_at,
+                    "attempts": step.attempts,
+                    "last_attempted_at": step.last_attempted_at,
+                    "backoff_request_seconds": step.backoff_request_seconds,
+                    "inputs": step.inputs,
+                    "results": step.results,
+                    "skippable": step.skippable,
+                    "created_at": step.created_at,
+                    "updated_at": step.updated_at,
+                })
+            })
+            .collect();
+
+        Ok(workflow_steps_json)
     }
 
     /// Handle TryTaskIfReady command - check if task has ready steps for execution
@@ -101,7 +135,7 @@ impl TaskInitializationHandler {
         &self,
         task_id: i64,
     ) -> Result<TaskReadinessInfo, Box<dyn std::error::Error + Send + Sync>> {
-        info!("🎯 Handling TryTaskIfReady command for task {}", task_id);
+        info!("Handling TryTaskIfReady command for task {}", task_id);
 
         let task_orchestration_result: TaskOrchestrationResult = self.orchestration_system.workflow_coordinator.execute_task_workflow(task_id).await?;
 
@@ -112,9 +146,8 @@ impl TaskInitializationHandler {
                     ready: true,
                     ready_steps_count: steps_published,
                     total_steps: viable_steps_discovered,
-                    batch_info: Some(TaskBatchInfo {
-                        batch_id: batch_id.unwrap_or_default(),
-                        estimated_steps: steps_published,
+                    batch_info: Some(BatchInfo {
+                        batch_id: batch_id.unwrap_or("unknown_batch".to_string()),
                         publication_time_ms,
                         next_poll_delay_ms,
                     }),
@@ -133,45 +166,110 @@ impl TaskInitializationHandler {
             }
         }
     }
+
+    /// Create from orchestration system (for backward compatibility)
+    pub fn from_orchestration_system(orchestration_system: Arc<OrchestrationSystem>) -> Self {
+        Self::new(orchestration_system)
+    }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl CommandHandler for TaskInitializationHandler {
     async fn handle_command(
         &self,
         command: Command,
     ) -> Result<Option<Command>, Box<dyn std::error::Error + Send + Sync>> {
-        debug!("🎯 TaskInitializationHandler received command: {:?}", command.command_type);
+        info!("🎯 TASK_INIT_HANDLER: handle_command called with type={:?}, id={}", command.command_type, command.command_id);
+        debug!("TaskInitializationHandler received command: {:?}", command.command_type);
 
         let result = match &command.payload {
             CommandPayload::InitializeTask { task_request } => {
-                let result = self.handle_initialize_task(task_request.clone()).await?;
-                let response_payload = serde_json::to_value(result)?;
+                info!("🎯 TASK_INIT_HANDLER: Matched InitializeTask payload, about to handle");
 
-                // Create response command
-                Some(Command::new(
+                // 🎯 PROPER ERROR HANDLING: Always return a response, never let errors break command flow
+                let result = match self.handle_initialize_task(task_request.clone()).await {
+                    Ok(result) => {
+                        info!("🎯 TASK_INIT_HANDLER: handle_initialize_task succeeded: task_id={}, step_count={}", result.task_id, result.step_count);
+                        result
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Task initialization failed: {}", e);
+                        error!("🎯 TASK_INIT_HANDLER: {}", error_msg);
+
+                        // Return proper error command type
+                        let response = Command::new(
+                            CommandType::Error,
+                            CommandPayload::Error {
+                                error_type: "TaskInitializationError".to_string(),
+                                message: error_msg,
+                                details: Some(HashMap::from([
+                                    ("task_name".to_string(), serde_json::Value::String(task_request.name.clone())),
+                                    ("namespace".to_string(), serde_json::Value::String(task_request.namespace.clone())),
+                                    ("version".to_string(), serde_json::Value::String(task_request.version.clone())),
+                                ])),
+                                retryable: false, // Task initialization errors are typically not retryable
+                            },
+                            CommandSource::RustOrchestrator { id: "task_initialization_handler".to_string() },
+                        );
+
+                        info!("🎯 TASK_INIT_HANDLER: Sending error response for task initialization failure");
+                        return Ok(Some(response));
+                    }
+                };
+
+                // Create success response command for successful initialization
+                let response = Command::new(
                     CommandType::TaskInitialized,
                     CommandPayload::TaskInitialized {
-                        task_id: response_payload.get("task_id").and_then(|v| v.as_i64()).unwrap_or(0),
-                        success: response_payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
-                        step_count: response_payload.get("step_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-                        workflow_steps: response_payload.get("workflow_steps").cloned().unwrap_or(serde_json::Value::Array(vec![])),
-                        error_message: response_payload.get("error_message").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        task_id: result.task_id,
+                        success: true, // Always true for success case
+                        step_count: result.step_count,
+                        workflow_steps: serde_json::to_value(result.workflow_steps).unwrap_or(serde_json::Value::Array(vec![])),
+                        error_message: None, // No error message for success
                     },
                     CommandSource::RustOrchestrator { id: "task_initialization_handler".to_string() },
-                ))
+                );
+
+                info!("🎯 TASK_INIT_HANDLER: Created TaskInitialized response: task_id={}, step_count={}",
+                      result.task_id, result.step_count);
+                Some(response)
             }
             CommandPayload::TryTaskIfReady { task_id } => {
-                let result = self.handle_try_task_if_ready(*task_id).await?;
+                // 🎯 PROPER ERROR HANDLING: Always return a response, never let errors break command flow
+                let result = match self.handle_try_task_if_ready(*task_id).await {
+                    Ok(result) => result,
+                    Err(e) => {
+                        let error_msg = format!("Task readiness check failed for task_id {}: {}", task_id, e);
+                        warn!("🎯 TASK_INIT_HANDLER: {}", error_msg);
+                        TaskReadinessInfo {
+                            task_id: *task_id,
+                            ready: false,
+                            ready_steps_count: 0,
+                            total_steps: 0,
+                            batch_info: None,
+                            error_message: Some(error_msg),
+                        }
+                    }
+                };
+
+                // Convert BatchInfo to TaskBatchInfo if available
+                let batch_info = result.batch_info.map(|batch| {
+                    crate::execution::command::TaskBatchInfo {
+                        batch_id: batch.batch_id,
+                        estimated_steps: result.ready_steps_count, // Use ready steps count as estimate
+                        publication_time_ms: batch.publication_time_ms,
+                        next_poll_delay_ms: batch.next_poll_delay_ms,
+                    }
+                });
 
                 // Create response command using the result directly
                 Some(Command::new(
                     CommandType::TaskReadinessResult,
                     CommandPayload::TaskReadinessResult {
-                        task_id: *task_id,
+                        task_id: result.task_id,
                         ready: result.ready,
-                        batch_info: result.batch_info,
                         ready_steps_count: result.ready_steps_count,
+                        batch_info,
                         error_message: result.error_message,
                     },
                     CommandSource::RustOrchestrator { id: "task_initialization_handler".to_string() },
@@ -179,7 +277,17 @@ impl CommandHandler for TaskInitializationHandler {
             }
             _ => {
                 warn!("TaskInitializationHandler received unsupported command: {:?}", command.command_type);
-                return Err(format!("Unsupported command type: {:?}", command.command_type).into());
+
+                Some(command.create_response(
+                    CommandType::Error,
+                    CommandPayload::Error {
+                        error_type: "UnsupportedCommand".to_string(),
+                        message: format!("TaskInitializationHandler does not support command type: {:?}", command.command_type),
+                        details: None,
+                        retryable: false,
+                    },
+                    CommandSource::RustOrchestrator { id: "task_initialization_handler".to_string() },
+                ))
             }
         };
 
@@ -191,6 +299,9 @@ impl CommandHandler for TaskInitializationHandler {
     }
 
     fn supported_commands(&self) -> Vec<CommandType> {
-        vec![CommandType::InitializeTask, CommandType::TryTaskIfReady]
+        vec![
+            CommandType::InitializeTask,
+            CommandType::TryTaskIfReady,
+        ]
     }
 }
