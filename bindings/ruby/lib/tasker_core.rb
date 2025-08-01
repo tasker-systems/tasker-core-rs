@@ -62,21 +62,22 @@ require_relative 'tasker_core/orchestration/orchestration_manager'     # Singlet
 
 require_relative 'tasker_core/monkeypatch'
 require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
-require_relative 'tasker_core/performance'       # TaskerCore::Performance domain
-require_relative 'tasker_core/events'            # TaskerCore::Events domain
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
-require_relative 'tasker_core/embedded_server'   # TaskerCore::EmbeddedServer for single-process deployments
+
+# 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
+require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers
+require_relative 'tasker_core/database'          # TaskerCore::Database - SQL function access
 
 # Core systems - required for domain APIs to function
 require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
 require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/task_handler/results' # TaskHandler result classes and wrappers
-require_relative 'tasker_core/models' # Models for TaskerCore
+# require_relative 'tasker_core/models' # Removed - using dry-struct types instead
 require_relative 'tasker_core/errors' # Errors for TaskerCore
-require_relative 'tasker_core/execution' # Execution domain for Ruby-Rust Command Integration
+# require_relative 'tasker_core/execution' # Removed - using pgmq architecture instead of TCP commands
 
 
 module TaskerCore

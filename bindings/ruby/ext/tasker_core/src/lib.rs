@@ -29,35 +29,23 @@
 
 use magnus::{Error, Module, Ruby};
 
-mod command_client;
-mod command_listener;
 mod context;
 mod error_translation;
 mod ffi_logging;
-mod globals;
-mod handles; // 🎯 NEW: Handle-based FFI architecture
-mod performance;
 mod test_helpers;
 mod types;
-mod worker_manager;
 
 // Direct handler imports (simplified from handlers/ module)
 mod handlers {
     pub mod base_task_handler;
 }
 
-// Direct model imports (simplified from models/ module)
-mod models {
-    pub mod ruby_step;
-    pub mod ruby_step_sequence;
-    pub mod ruby_task;
-}
+// Direct model imports removed - pgmq architecture uses dry-struct data classes
 
 // Direct import of event bridge (moved from events/ subdirectory)
 mod event_bridge;
 
-// FFI embedded TCP executor
-mod embedded_tcp_executor;
+// Removed: embedded TCP executor, command client/listener, worker manager
 
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
@@ -95,25 +83,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Register task handler bridge functions
     handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
 
-    // 🎯 CORE: Register handle-based FFI functions at root level
-    handles::register_handle_functions(&module)?;
-    handles::register_orchestration_handle(&module)?;
-
-    // 🎯 PERFORMANCE: Organize all performance analytics under Performance:: namespace
-    let performance_module = module.define_module("Performance")?;
-    performance::register_performance_functions(performance_module)?;
-    // Register root-level performance functions that OrchestrationManager expects
-    performance::register_root_performance_functions(module)?;
-
-    // ✅ Register Performance classes under TaskerCore::Performance:: namespace
-    performance::RubyTaskExecutionContext::define(ruby, &performance_module)?;
-    performance::RubyViableStep::define(ruby, &performance_module)?;
-    performance::RubySystemHealth::define(ruby, &performance_module)?;
-    performance::RubyAnalyticsMetrics::define(ruby, &performance_module)?;
-    performance::RubySlowestStepAnalysis::define(ruby, &performance_module)?;
-    performance::RubySlowestTaskAnalysis::define(ruby, &performance_module)?;
-    performance::RubyDependencyAnalysis::define(ruby, &performance_module)?;
-    performance::RubyDependencyLevel::define(ruby, &performance_module)?;
+    // FFI handle and performance functions removed for pgmq architecture
 
     // 🎯 EVENTS: Organize all event functionality under Events:: namespace
     let events_module = module.define_module("Events")?;
@@ -125,30 +95,14 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // 🎯 TESTHELPERS: Organize all testing utilities under TestHelpers:: namespace
     let test_helpers_module = module.define_module("TestHelpers")?;
     test_helpers::register_test_helper_functions(test_helpers_module)?;
-    handles::register_test_helpers_factory_functions(&test_helpers_module)?;
-
-    // ✅ NEW: Register optimized Ruby test classes for primitives in, objects out pattern
-    test_helpers::testing_factory::register_ruby_test_classes(ruby, &test_helpers_module)?;
 
     // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
     let types_module = module.define_module("Types")?;
 
-    // Explicitly register OrchestrationHandleInfo class
-    let _orchestration_handle_info_class =
-        module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
+    // FFI orchestration handle removed for pgmq architecture
+    // BaseTaskHandler simplified for step execution only
 
-    // BaseTaskHandler now returns Ruby hashes instead of wrapped objects
-    // This simplifies FFI and avoids complex class registration issues
-
-    // 🎯 TASKHANDLER: TaskHandlerInitializeResult now explicitly registered under TaskerCore::
-
-    // 🎯 COMMAND ARCHITECTURE: Register Rust-backed command components for eliminating Ruby socket dependencies
-    command_client::register_command_client(&module)?;
-    command_listener::register_command_listener(&module)?;
-    worker_manager::register_worker_manager(&module)?;
-
-    // 🎯 EMBEDDED TCP EXECUTOR: Register embedded server control for single-process deployments
-    embedded_tcp_executor::init_embedded_tcp_executor(&module)?;
+    // TCP command architecture removed in favor of pgmq message queues
 
     Ok(())
 }

@@ -37,6 +37,7 @@
 //! - [`error`] - Structured error handling
 //! - [`events`] - Event system foundation
 //! - [`orchestration`] - Workflow orchestration logic
+//! - [`messaging`] - PostgreSQL message queue (pgmq) integration
 //! - [`registry`] - Component registration and discovery
 //! - [`ffi`] - Multi-language FFI bindings
 //!
@@ -86,6 +87,7 @@ pub mod events;
 pub mod execution;
 pub mod ffi;
 pub mod logging;
+pub mod messaging;
 pub mod models;
 pub mod orchestration;
 pub mod registry;
@@ -107,6 +109,10 @@ pub use database::{
 pub use error::{Result, TaskerError};
 pub use execution::{
     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
+};
+pub use messaging::{
+    PgmqClient, QueueMessage, QueueStats, StepMessage, StepMessageMetadata, StepResult,
+    StepExecutionStatus, StepExecutionError,
 };
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,

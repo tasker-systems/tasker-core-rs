@@ -5,7 +5,7 @@ require 'json'
 require 'yaml'
 require 'time'
 require 'securerandom'
-require_relative 'domain_helpers'
+# require_relative 'domain_helpers'  # Not needed for pgmq architecture tests
 
 # Configure RSpec for domain API testing
 RSpec.configure do |config|
@@ -20,11 +20,10 @@ RSpec.configure do |config|
     mocks.verify_partial_doubles = true
   end
 
-  # Test environment setup using new domain APIs
+  # Test environment setup - pgmq architecture doesn't need FFI orchestration manager
   config.before(:suite) do
-    # Create singleton orchestration manager (this creates the handle and orchestration system)
-    orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
-    orchestration_manager.orchestration_system
+    # pgmq architecture is database-driven, no FFI setup needed
+    puts "🔧 Setting up pgmq architecture tests..."
   end
 
   # Configure test output

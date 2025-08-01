@@ -19,6 +19,7 @@ end
 
 group :test do
   gem 'dotenv', '~> 2.8'
+  gem 'pg', '~> 1.5'  # PostgreSQL client for pgmq
   gem 'simplecov', '~> 0.22'
   gem 'timecop', '~> 0.9'
   gem 'webmock', '~> 3.18'
