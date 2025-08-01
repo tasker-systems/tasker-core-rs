@@ -42,8 +42,6 @@ require_relative 'tasker_core/config'                    # Configuration managem
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/orchestration/orchestration_manager'     # Singleton orchestration manager
-require_relative 'tasker_core/internal/testing_manager'           # Singleton testing manager
-require_relative 'tasker_core/internal/testing_factory_manager'   # Singleton testing factory manager
 
 # 🎯 Clean Domain APIs - Ruby-idiomatic interfaces with handle-based optimization
 #
@@ -64,11 +62,8 @@ require_relative 'tasker_core/internal/testing_factory_manager'   # Singleton te
 
 require_relative 'tasker_core/monkeypatch'
 require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
-require_relative 'tasker_core/factory'           # TaskerCore::Factory domain
-require_relative 'tasker_core/registry'          # TaskerCore::Registry domain
 require_relative 'tasker_core/performance'       # TaskerCore::Performance domain
 require_relative 'tasker_core/events'            # TaskerCore::Events domain
-require_relative 'tasker_core/testing'           # TaskerCore::Testing domain
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
@@ -79,73 +74,12 @@ require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Ha
 require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
 require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/task_handler/results' # TaskHandler result classes and wrappers
-require_relative 'tasker_core/test_helpers' # Test helpers for workflow testing
 require_relative 'tasker_core/models' # Models for TaskerCore
 require_relative 'tasker_core/errors' # Errors for TaskerCore
 require_relative 'tasker_core/execution' # Execution domain for Ruby-Rust Command Integration
 
-# Legacy compatibility modules (maintained for transition period)
-require_relative 'tasker_core/events_domain'     # TaskerCore::Events::Domain (legacy)
 
 module TaskerCore
-  # Base error hierarchy
-  class Error < StandardError; end
-  class OrchestrationError < Error; end
-  class DatabaseError < Error; end
-  class StateTransitionError < Error; end
-  class ValidationError < Error; end
-  class TimeoutError < Error; end
-  class FFIError < Error; end
-  class ConfigurationError < Error; end
-
-  # Step handler error classification (mirrors Rails engine design)
-  class ProceduralError < Error; end
-
-  # Retryable errors - temporary failures that should be retried with backoff
-  class RetryableError < ProceduralError
-    attr_reader :retry_after, :context, :error_category
-
-    def initialize(message, retry_after: nil, context: {}, error_category: nil)
-      super(message)
-      @retry_after = retry_after
-      @context = context || {}
-      @error_category = error_category
-    end
-
-    def skip_backoff?
-      retry_after&.positive?
-    end
-
-    def effective_retry_delay(attempt_number = 1)
-      return retry_after if retry_after&.positive?
-      [2**attempt_number, 300].min
-    end
-  end
-
-  # Permanent errors - failures that should NOT be retried
-  class PermanentError < ProceduralError
-    attr_reader :error_code, :context, :error_category
-
-    def initialize(message, error_code: nil, context: {}, error_category: nil)
-      super(message)
-      @error_code = error_code
-      @context = context || {}
-      @error_category = error_category
-    end
-
-    def validation_error?
-      error_category == 'validation' || error_code&.start_with?('VALIDATION_')
-    end
-
-    def authorization_error?
-      error_category == 'authorization' || error_code&.start_with?('AUTH_')
-    end
-
-    def business_logic_error?
-      error_category == 'business_logic' || error_code&.start_with?('BUSINESS_')
-    end
-  end
-
   # Main access point for system health and status
   class << self
     # Create a new orchestration handle for task processing
@@ -268,13 +202,9 @@ module TaskerCore
   # New development should use domain APIs instead (e.g., TaskerCore::Orchestration, TaskerCore::Testing)
   module Internal
     autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
-    autoload :TestingManager, 'tasker_core/internal/testing_manager'
-    autoload :TestingFactoryManager, 'tasker_core/internal/testing_factory_manager'
   end
 
   # Legacy direct aliases - deprecated, use TaskerCore::Internal instead
   # These use autoload to match the Internal module pattern
   autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
-  autoload :TestingManager, 'tasker_core/internal/testing_manager'
-  autoload :TestingFactoryManager, 'tasker_core/internal/testing_factory_manager'
 end

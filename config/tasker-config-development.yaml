@@ -84,7 +84,7 @@ cache:
   ttl_seconds: 1800       # Moderate cache for development (30 minutes)
   max_size: 5000          # Moderate cache size for development
 
-# Query caching configuration for development environment  
+# Query caching configuration for development environment
 query_cache:
   enabled: true
   # Worker query caching (development settings - balance between performance and freshness)
@@ -106,13 +106,13 @@ query_cache:
 
 command_backplane:
   socket_type: "tcp"
-  server:
+  core:
     host: "127.0.0.1"
     port: 8555
     timeout: 30
     connect_timeout: 5
     read_timeout: 10
-  client:
+  worker:
     host: "127.0.0.1"
     port: 8556
     timeout: 30

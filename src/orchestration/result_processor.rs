@@ -36,7 +36,7 @@ impl OrchestrationResultProcessor {
     /// Extracted from ZmqPubSubExecutor::handle_partial_result() lines 402-418.
     pub async fn handle_partial_result(
         &self,
-        batch_id: String,
+        batch_id: i64,
         step_id: i64,
         status: String,
         output: Option<Value>,
@@ -139,7 +139,7 @@ impl OrchestrationResultProcessor {
     /// Extracted from ZmqPubSubExecutor::handle_batch_completion() lines 575+.
     pub async fn handle_batch_completion(
         &self,
-        batch_id: String,
+        batch_id: i64,
         step_summaries: Vec<StepSummary>,
         total_execution_time_ms: u64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -151,7 +151,7 @@ impl OrchestrationResultProcessor {
 
         // Get task_id from batch and check for task finalization
         if let Ok(Some(step_execution_batch)) =
-            StepExecutionBatch::find_by_uuid(&self.pool, &batch_id).await
+            StepExecutionBatch::find_by_id(&self.pool, batch_id).await
         {
             let task_id = step_execution_batch.task_id;
 

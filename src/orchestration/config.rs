@@ -117,7 +117,6 @@ pub struct TaskerConfig {
     pub reenqueue: ReenqueueDelays,
     pub events: EventConfig,
     pub cache: CacheConfig,
-    pub zeromq: ZeroMqConfig,
 }
 
 /// Authentication configuration
@@ -398,48 +397,6 @@ impl Default for CacheConfig {
             enabled: true,
             ttl_seconds: 3600,
             max_size: 10000,
-        }
-    }
-}
-
-/// ZeroMQ configuration for batch processing communication
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeroMqConfig {
-    /// Endpoint for publishing batches to Ruby orchestrator (e.g., "tcp://127.0.0.1:8555")
-    pub batch_endpoint: String,
-    /// Endpoint for receiving results from Ruby orchestrator (e.g., "tcp://127.0.0.1:8556")
-    pub result_endpoint: String,
-    /// High water mark for publishing socket
-    pub send_hwm: i32,
-    /// High water mark for receiving socket
-    pub recv_hwm: i32,
-    /// Whether ZeroMQ batch processing is enabled
-    pub enabled: bool,
-    pub poll_interval_ms: u64,
-}
-
-impl Default for ZeroMqConfig {
-    fn default() -> Self {
-        Self {
-            batch_endpoint: "tcp://127.0.0.1:8555".to_string(),
-            result_endpoint: "tcp://127.0.0.1:8556".to_string(),
-            send_hwm: 1000,
-            recv_hwm: 1000,
-            enabled: true,
-            poll_interval_ms: 1000,
-        }
-    }
-}
-
-impl ZeroMqConfig {
-    pub fn from_config(config: &TaskerConfig) -> Self {
-        Self {
-            batch_endpoint: config.zeromq.batch_endpoint.clone(),
-            result_endpoint: config.zeromq.result_endpoint.clone(),
-            send_hwm: config.zeromq.send_hwm,
-            recv_hwm: config.zeromq.recv_hwm,
-            enabled: config.zeromq.enabled,
-            poll_interval_ms: config.zeromq.poll_interval_ms,
         }
     }
 }

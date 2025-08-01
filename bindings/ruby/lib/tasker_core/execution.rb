@@ -150,7 +150,6 @@ module TaskerCore
         defaults = {
           host: default_executor_host || CommandClient::DEFAULT_HOST,
           port: default_executor_port || CommandClient::DEFAULT_PORT,
-          logger: default_logger
         }
 
         CommandClient.new(**defaults.merge(options))

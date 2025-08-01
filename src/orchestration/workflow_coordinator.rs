@@ -72,6 +72,7 @@ use crate::orchestration::types::{StepResult, ViableStep};
 use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
 use crate::registry::TaskHandlerRegistry;
 use chrono::Utc;
+use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
@@ -196,6 +197,8 @@ pub struct WorkflowCoordinator {
     batch_execution_sender: Option<Arc<BatchExecutionSender>>,
     /// Task handler registry for resolving step handlers
     task_handler_registry: Arc<TaskHandlerRegistry>,
+    /// Database connection pool for direct database operations
+    database_pool: PgPool,
 }
 
 impl WorkflowCoordinator {
@@ -293,6 +296,7 @@ impl WorkflowCoordinator {
                 let ep = event_publisher.clone();
                 Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
             },
+            database_pool: pool,
         }
     }
 
@@ -354,6 +358,7 @@ impl WorkflowCoordinator {
                 let ep = event_publisher.clone();
                 Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
             },
+            database_pool: pool,
         }
     }
 
@@ -394,7 +399,7 @@ impl WorkflowCoordinator {
         // Create task finalizer with shared event publisher
         let task_finalizer =
             crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                pool,
+                pool.clone(),
                 event_publisher.clone(),
             );
 
@@ -419,6 +424,7 @@ impl WorkflowCoordinator {
             events_manager,
             batch_execution_sender: Some(batch_execution_sender),
             task_handler_registry: Arc::new(shared_registry),
+            database_pool: pool,
         }
     }
 
@@ -516,7 +522,7 @@ impl WorkflowCoordinator {
             .publish_event(Event::orchestration(
                 EventsOrchestrationEvent::TaskOrchestrationStarted {
                     task_id,
-                    framework: "fire_and_forget_zeromq".to_string(),
+                    framework: "fire_and_forget_tcp".to_string(),
                     started_at: metrics.started_at,
                 },
             ))
@@ -730,7 +736,7 @@ impl WorkflowCoordinator {
         // Only count non-empty results (steps actually sent to workers)
         let published_steps = batch_results.len();
         metrics.steps_executed += published_steps;
-        
+
         tracing::debug!(
             task_id = task_id,
             viable_steps = steps_count,
@@ -844,13 +850,16 @@ impl WorkflowCoordinator {
         // Generate batch ID for tracking
         let batch_id = uuid::Uuid::new_v4().to_string();
 
+        // Extract namespace from task for proper worker selection
+        let namespace = self.get_task_namespace(task_id).await?;
+
         // Send batch to workers via TCP command system (fire-and-forget)
         match batch_sender
             .send_batch_to_workers(
                 task_id,
                 batch_id.clone(),
                 step_execution_requests,
-                Some("default".to_string()), // TODO: Extract namespace from task
+                Some(namespace),
                 &self.task_handler_registry,
             )
             .await
@@ -918,6 +927,39 @@ impl WorkflowCoordinator {
         }
 
         Ok(results)
+    }
+
+    /// Get the namespace for a task from database
+    async fn get_task_namespace(&self, task_id: i64) -> OrchestrationResult<String> {
+        use crate::models::core::task::Task;
+
+        let task = Task::find_by_id(&self.database_pool, task_id)
+            .await
+            .map_err(|e| {
+                crate::orchestration::errors::OrchestrationError::DatabaseError {
+                    operation: "find task for namespace".to_string(),
+                    reason: e.to_string(),
+                }
+            })?
+            .ok_or_else(|| {
+                crate::orchestration::errors::OrchestrationError::TaskExecutionFailed {
+                    task_id,
+                    reason: "Task not found".to_string(),
+                    error_code: Some("TASK_NOT_FOUND".to_string()),
+                }
+            })?;
+
+        let task_info = task
+            .for_orchestration(&self.database_pool)
+            .await
+            .map_err(|e| {
+                crate::orchestration::errors::OrchestrationError::DatabaseError {
+                    operation: "get task orchestration info".to_string(),
+                    reason: e.to_string(),
+                }
+            })?;
+
+        Ok(task_info.namespace_name)
     }
 
     // NOTE: finalize_workflow method removed in fire-and-forget architecture

@@ -1,8 +1,6 @@
-//! Execution Module - Command Pattern & ZeroMQ Architecture
+//! Execution Module - Command Pattern
 
-// Legacy ZeroMQ components (will be removed in Phase 5)
 pub mod message_protocols;
-pub mod zeromq_pub_sub_executor;
 
 // New Command Pattern Architecture
 pub mod command;
@@ -15,11 +13,9 @@ pub mod tokio_tcp_executor;
 pub mod transport;
 pub mod worker_pool;
 
-// Legacy exports (ZeroMQ)
 pub use message_protocols::{
     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
 };
-pub use zeromq_pub_sub_executor::ZmqPubSubExecutor;
 
 // New Command Pattern exports
 pub use command::{Command, CommandPayload, CommandResult, CommandType};

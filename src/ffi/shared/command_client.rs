@@ -99,14 +99,14 @@ impl SharedCommandClient {
     pub fn new(config: CommandClientConfig) -> Self {
         let connection_id = Uuid::new_v4().to_string();
         info!("🎯 SHARED_CLIENT: Creating new SharedCommandClient instance with connection_id={}", connection_id);
-        
+
         let connection_state = ConnectionState {
             connected: false,
             connection_id: connection_id.clone(),
             connected_at: None,
             last_activity: None,
         };
-        
+
         Self {
             config,
             stream: None,
@@ -312,13 +312,13 @@ impl SharedCommandClient {
     /// Send InitializeTask command to create a new task
     pub async fn initialize_task(&self, task_request: serde_json::Value) -> Result<serde_json::Value, String> {
         info!("🎯 SHARED_CLIENT: initialize_task() called");
-        
+
         // Add debugging about connection state
         let connection_state = self.connection_state.read().await;
-        info!("🎯 SHARED_CLIENT: Connection state: connected={}, has_stream={}, connection_id={}", 
+        info!("🎯 SHARED_CLIENT: Connection state: connected={}, has_stream={}, connection_id={}",
                connection_state.connected, self.stream.is_some(), connection_state.connection_id);
         drop(connection_state);
-        
+
         self.ensure_connected().await?;
         info!("🎯 SHARED_CLIENT: Connection confirmed for InitializeTask");
 
@@ -340,7 +340,7 @@ impl SharedCommandClient {
         info!("🎯 SHARED_CLIENT: About to call send_command for InitializeTask");
         let response = self.send_command(command).await?;
         info!("🎯 SHARED_CLIENT: send_command returned successfully for InitializeTask");
-        
+
         Ok(serde_json::Value::Object(
             response.into_iter().collect()
         ))
@@ -353,6 +353,60 @@ impl SharedCommandClient {
         let command = Command::new(
             CommandType::TryTaskIfReady,
             CommandPayload::TryTaskIfReady { task_id },
+            CommandSource::RubyWorker { id: "ruby_client".to_string() },
+        );
+
+        let response = self.send_command(command).await?;
+        Ok(serde_json::Value::Object(
+            response.into_iter().collect()
+        ))
+    }
+
+    /// Report partial result for a step in a batch
+    pub async fn report_partial_result(
+        &self,
+        batch_id: i64,
+        step_id: i64,
+        result: crate::execution::command::StepResult,
+        execution_time_ms: u64,
+        worker_id: String,
+    ) -> Result<serde_json::Value, String> {
+        self.ensure_connected().await?;
+
+        let command = Command::new(
+            CommandType::ReportPartialResult,
+            CommandPayload::ReportPartialResult {
+                batch_id,
+                step_id,
+                result,
+                execution_time_ms,
+                worker_id,
+            },
+            CommandSource::RubyWorker { id: "ruby_client".to_string() },
+        );
+
+        let response = self.send_command(command).await?;
+        Ok(serde_json::Value::Object(
+            response.into_iter().collect()
+        ))
+    }
+
+    /// Report batch completion
+    pub async fn report_batch_completion(
+        &self,
+        batch_id: i64,
+        step_summaries: Vec<crate::execution::command::StepSummary>,
+        total_execution_time_ms: u64,
+    ) -> Result<serde_json::Value, String> {
+        self.ensure_connected().await?;
+
+        let command = Command::new(
+            CommandType::ReportBatchCompletion,
+            CommandPayload::ReportBatchCompletion {
+                batch_id,
+                step_summaries,
+                total_execution_time_ms,
+            },
             CommandSource::RubyWorker { id: "ruby_client".to_string() },
         );
 
@@ -541,7 +595,7 @@ impl SharedCommandClient {
         // Debug connection info
         let connection_state = self.connection_state.read().await;
         info!(
-            "🎯 SEND_COMMAND: Sending command {:?} (ID: {}) on connection_id={}", 
+            "🎯 SEND_COMMAND: Sending command {:?} (ID: {}) on connection_id={}",
             command_type, command_id, connection_state.connection_id
         );
         drop(connection_state);
@@ -614,22 +668,22 @@ impl SharedCommandClient {
         command_json: String,
         command_id: String,
     ) -> Result<HashMap<String, serde_json::Value>, String> {
-        debug!("📤 Sending command {} ({} bytes) on persistent connection", 
+        debug!("📤 Sending command {} ({} bytes) on persistent connection",
                command_id, command_json.len());
-        
+
         // Use write lock for both send and receive to ensure atomicity
         let mut stream_guard = stream.write().await;
-        
+
         // Send command
         stream_guard.write_all(format!("{}\n", command_json).as_bytes()).await
             .map_err(|e| format!("Send failed: {}", e))?;
-            
+
         debug!("📡 Command {} sent, waiting for response...", command_id);
 
         // Receive response on same connection
         let mut reader = BufReader::new(&mut *stream_guard);
         let mut response_line = String::new();
-        
+
         match reader.read_line(&mut response_line).await {
             Ok(0) => {
                 error!("❌ Command {}: Connection closed while waiting for response", command_id);

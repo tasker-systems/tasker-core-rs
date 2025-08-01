@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -237,17 +238,55 @@ impl WorkerManagementHandler {
                 "protocol_version": conn_info.protocol_version,
             })
         } else {
-            // Fallback to defaults if no connection info provided
-            warn!(
-                "No connection info provided for worker {}, defaulting to localhost:8080 - worker may be unreachable",
-                worker_capabilities.worker_id
-            );
-            serde_json::json!({
-                "host": "localhost",
-                "port": 8080,
-                "listener_port": None::<u16>,
-                "transport_type": "tcp",
-            })
+            // Extract connection info from custom_capabilities if available
+            let listener_host = worker_capabilities.custom_capabilities
+                .get("listener_host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("127.0.0.1");
+
+            let listener_port = worker_capabilities.custom_capabilities
+                .get("listener_port")
+                .and_then(|v| v.as_u64())
+                .map(|p| p as u16);
+
+            if let Some(port) = listener_port {
+                info!(
+                    "Using listener connection info from custom_capabilities for worker {}: {}:{}",
+                    worker_capabilities.worker_id, listener_host, port
+                );
+                serde_json::json!({
+                    "host": listener_host,
+                    "port": port,
+                    "listener_port": Some(port),
+                    "transport_type": "tcp",
+                })
+            } else {
+                // Fallback with error message
+                error!(
+                    "No connection info provided for worker {} and no listener_port in custom_capabilities - worker will be unreachable for ExecuteBatch commands",
+                    worker_capabilities.worker_id
+                );
+                return Ok(command.create_response(
+                    CommandType::Error,
+                    CommandPayload::Error {
+                        error_type: "WorkerRegistrationError".to_string(),
+                        message: format!(
+                            "Worker {} must provide either connection_info or custom_capabilities with listener_host/listener_port for ExecuteBatch routing",
+                            worker_capabilities.worker_id
+                        ),
+                        details: Some({
+                            let mut details = HashMap::new();
+                            details.insert("required_fields".to_string(), serde_json::json!(["custom_capabilities.listener_host", "custom_capabilities.listener_port"]));
+                            details.insert("provided_custom_capabilities".to_string(), serde_json::json!(worker_capabilities.custom_capabilities.keys().collect::<Vec<_>>()));
+                            details
+                        }),
+                        retryable: false,
+                    },
+                    CommandSource::RustServer {
+                        id: "worker_management_handler".to_string(),
+                    },
+                ));
+            }
         };
 
         let connection_type = worker_capabilities

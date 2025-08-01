@@ -169,7 +169,7 @@ impl TaskInitializationHandler {
 
     /// Create from orchestration system (for backward compatibility)
     pub fn from_orchestration_system(orchestration_system: Arc<OrchestrationSystem>) -> Self {
-        Self::new(orchestration_system)
+        Self::new(orchestration_system.clone())
     }
 }
 

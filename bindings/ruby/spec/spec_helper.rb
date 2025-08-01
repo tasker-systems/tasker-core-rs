@@ -22,60 +22,10 @@ RSpec.configure do |config|
 
   # Test environment setup using new domain APIs
   config.before(:suite) do
-    puts "🚀 Setting up test environment using TaskerCore::Environment"
-
-    # Setup test environment through our new domain API
-    result = TaskerCore::Environment.setup_test
-
-    if result&.dig('status') == 'error'
-      puts "⚠️  Test environment setup warning: #{result['error']}"
-      puts "   Tests will continue but database operations may timeout"
-    else
-      puts "✅ Test environment setup successful"
-    end
-
-    # 🎯 SINGLETON ZEROMQ ORCHESTRATION SETUP
-    # Initialize singleton orchestration system and ZeroMQ components to prevent
-    # "Address already in use" errors from multiple socket bindings during test runs
-    puts "🔗 Initializing singleton ZeroMQ orchestration system"
-
-    begin
-      # Create singleton orchestration manager (this creates the handle and orchestration system)
-      orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
-      orchestration_manager.orchestration_system
-    rescue StandardError => e
-      puts "⚠️  Singleton ZeroMQ setup failed: #{e.message}"
-      puts "   Tests will continue but may encounter socket binding conflicts"
-      puts "   Error: #{e.class.name}: #{e.message}"
-    end
+    # Create singleton orchestration manager (this creates the handle and orchestration system)
+    orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
+    orchestration_manager.orchestration_system
   end
-
-  config.after(:each) do |example|
-    # Cleanup any test workers and servers started during the test
-    if respond_to?(:stop_all_test_workers)
-      stop_all_test_workers
-    end
-    if respond_to?(:stop_all_test_servers)
-      stop_all_test_servers
-    end
-  end
-
-  config.after(:suite) do
-    puts "🧹 Cleaning up test environment using TaskerCore::Environment"
-    # Cleanup test environment through our new domain API
-    result = TaskerCore::Environment.cleanup_test
-
-    if result&.dig('status') == 'error'
-      puts "⚠️  Test environment cleanup warning: #{result['error']}"
-    else
-      puts "✅ Test environment cleanup successful"
-    end
-  end
-
-  # Include domain test helpers instead of legacy TestHelpers
-  config.include DomainTestHelpers
-  config.include WorkflowValidationHelpers
-  config.include HandleArchitectureHelpers
 
   # Configure test output
   config.order = :random
@@ -84,30 +34,6 @@ RSpec.configure do |config|
   config.example_status_persistence_file_path = "spec/examples.txt"
   config.disable_monkey_patching!
   config.warnings = true
-
-  # Default to running tests that require database unless explicitly excluded
-  config.filter_run_excluding :skip_database unless ENV['INCLUDE_DATABASE_TESTS'] == 'true'
-
-  # Add custom metadata for test categorization
-  config.define_derived_metadata(file_path: %r{/spec/domain/}) do |metadata|
-    metadata[:type] = :domain_api
-  end
-
-  config.define_derived_metadata(file_path: %r{/spec/architecture/}) do |metadata|
-    metadata[:type] = :handle_architecture
-  end
-
-  config.define_derived_metadata(file_path: %r{/spec/integration/}) do |metadata|
-    metadata[:type] = :integration
-  end
-
-  config.define_derived_metadata(file_path: %r{/spec/legacy/}) do |metadata|
-    metadata[:type] = :legacy_regression
-  end
-
-  config.define_derived_metadata(file_path: %r{/spec/handlers/integration/}) do |metadata|
-    metadata[:type] = :handler_integration
-  end
 end
 
 # Add support for Rails-like deep_merge and deep_symbolize_keys

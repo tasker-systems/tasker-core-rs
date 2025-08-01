@@ -522,6 +522,175 @@ impl CommandClient {
             )),
         }
     }
+
+    /// Report partial result for a step in a batch
+    pub fn report_partial_result(&self, options: Value) -> MagnusResult<Value> {
+        debug!("🔧 Ruby FFI: report_partial_result() - delegating to shared client");
+
+        // Convert Ruby options to parameters
+        let options_json = ruby_value_to_json(options).map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to convert partial result options: {e}"),
+            )
+        })?;
+
+        let batch_id = options_json
+            .get("batch_id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Partial result options must include 'batch_id'",
+                )
+            })?;
+
+        let step_id = options_json
+            .get("step_id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Partial result options must include 'step_id'",
+                )
+            })?;
+
+        let result_data = options_json
+            .get("result")
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Partial result options must include 'result'",
+                )
+            })?;
+
+        // Convert result to StepResult
+        let step_result: tasker_core::execution::command::StepResult =
+            serde_json::from_value(result_data.clone()).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Failed to convert result to StepResult: {e}"),
+                )
+            })?;
+
+        let execution_time_ms = options_json
+            .get("execution_time_ms")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Partial result options must include 'execution_time_ms'",
+                )
+            })?;
+
+        let worker_id = options_json
+            .get("worker_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Partial result options must include 'worker_id'",
+                )
+            })?
+            .to_string();
+
+        let client = self.shared_client.clone();
+        let result = execute_async(async move {
+            let client_guard = client.read().await;
+            client_guard
+                .report_partial_result(batch_id, step_id, step_result, execution_time_ms, worker_id)
+                .await
+        });
+
+        match result {
+            Ok(response) => json_to_ruby_value(response).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Failed to convert response: {e}"),
+                )
+            }),
+            Err(e) => Err(Error::new(
+                magnus::exception::runtime_error(),
+                format!("ReportPartialResult failed: {e}"),
+            )),
+        }
+    }
+
+    /// Report batch completion
+    pub fn report_batch_completion(&self, options: Value) -> MagnusResult<Value> {
+        debug!("🔧 Ruby FFI: report_batch_completion() - delegating to shared client");
+
+        // Convert Ruby options to parameters
+        let options_json = ruby_value_to_json(options).map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to convert batch completion options: {e}"),
+            )
+        })?;
+
+        let batch_id = options_json
+            .get("batch_id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Batch completion options must include 'batch_id'",
+                )
+            })?;
+
+        let step_summaries_data = options_json
+            .get("step_summaries")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Batch completion options must include 'step_summaries' array",
+                )
+            })?;
+
+        // Convert step summaries to StepSummary structs
+        let step_summaries: Vec<tasker_core::execution::command::StepSummary> =
+            step_summaries_data.iter()
+                .map(|summary| serde_json::from_value(summary.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    Error::new(
+                        magnus::exception::runtime_error(),
+                        format!("Failed to convert step_summaries to StepSummary: {e}"),
+                    )
+                })?;
+
+        let total_execution_time_ms = options_json
+            .get("total_execution_time_ms")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    "Batch completion options must include 'total_execution_time_ms'",
+                )
+            })?;
+
+        let client = self.shared_client.clone();
+        let result = execute_async(async move {
+            let client_guard = client.read().await;
+            client_guard
+                .report_batch_completion(batch_id, step_summaries, total_execution_time_ms)
+                .await
+        });
+
+        match result {
+            Ok(response) => json_to_ruby_value(response).map_err(|e| {
+                Error::new(
+                    magnus::exception::runtime_error(),
+                    format!("Failed to convert response: {e}"),
+                )
+            }),
+            Err(e) => Err(Error::new(
+                magnus::exception::runtime_error(),
+                format!("ReportBatchCompletion failed: {e}"),
+            )),
+        }
+    }
 }
 
 /// Register the CommandClient class with Ruby
@@ -562,6 +731,16 @@ pub fn register_command_client(module: &RModule) -> MagnusResult<()> {
     class.define_method(
         "try_task_if_ready",
         method!(CommandClient::try_task_if_ready, 1),
+    )?;
+
+    // Batch result reporting
+    class.define_method(
+        "report_partial_result",
+        method!(CommandClient::report_partial_result, 1),
+    )?;
+    class.define_method(
+        "report_batch_completion",
+        method!(CommandClient::report_batch_completion, 1),
     )?;
 
     // Health and info

@@ -15,16 +15,6 @@ module TaskerCore
   #   batch = TaskerCore::Orchestration.execute_batch(steps: [...])
   module Orchestration
     class << self
-      # Execute a workflow for a given task
-      # @param task_id [Integer] Task ID to execute
-      # @return [Hash] Execution result with status and metadata
-      # @raise [TaskerCore::Error] If workflow execution fails
-      def execute_workflow(task_id:)
-        handle.handle_task(task_id)
-      rescue => e
-        raise TaskerCore::Error, "Failed to execute workflow for task #{task_id}: #{e.message}"
-      end
-
       # Execute a batch of workflow steps
       # @param steps [Array<Hash>] Array of step execution requests
       # @param namespace [String] Namespace for step execution (default: "default")

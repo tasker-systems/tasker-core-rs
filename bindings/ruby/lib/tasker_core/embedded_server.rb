@@ -178,13 +178,13 @@ module TaskerCore
     # @return [Boolean] True if server became ready within timeout
     def wait_for_ready(timeout = 10)
       start_time = Time.now
-      
+
       # Poll until server is running or timeout
       while (Time.now - start_time) < timeout
         return true if running?
         sleep 0.1
       end
-      
+
       false
     end
 
@@ -254,7 +254,9 @@ module TaskerCore
     # Start server in background future
     def start_background_server(block_until_ready, ready_timeout)
       # Create the embedded executor with configuration
-      create_result = TaskerCore.create_embedded_executor_with_config(@config)
+      # Convert symbol keys to string keys for FFI compatibility
+      string_key_config = @config.transform_keys(&:to_s)
+      create_result = TaskerCore.create_embedded_executor_with_config(string_key_config)
       unless create_result
         raise TaskerCore::Errors::ServerError, 'Failed to create embedded executor'
       end
@@ -283,7 +285,7 @@ module TaskerCore
         unless ready
           # Call stop_internal to avoid mutex deadlock
           stop_internal(force: true)
-          raise TaskerCore::Errors::ServerError, 
+          raise TaskerCore::Errors::ServerError,
                 "Server failed to become ready within #{ready_timeout} seconds"
         end
       end
@@ -294,7 +296,9 @@ module TaskerCore
     # Start server in foreground (blocking)
     def start_foreground_server
       # Create and start the embedded executor
-      create_result = TaskerCore.create_embedded_executor_with_config(@config)
+      # Convert symbol keys to string keys for FFI compatibility
+      string_key_config = @config.transform_keys(&:to_s)
+      create_result = TaskerCore.create_embedded_executor_with_config(string_key_config)
       unless create_result
         raise TaskerCore::Errors::ServerError, 'Failed to create embedded executor'
       end

@@ -270,10 +270,10 @@ impl BatchExecutionSender {
         // Find workers that can handle any task in the namespace
         let available_workers = self
             .worker_selection_service
-            .find_workers_for_task(namespace, "*", "1.0", None)
+            .find_workers_for_namespace(namespace, None)
             .await
             .map_err(|e| BatchSendError::DatabaseError {
-                operation: "find_workers_for_task".to_string(),
+                operation: "find_workers_for_namespace".to_string(),
                 message: e.to_string(),
             })?;
 

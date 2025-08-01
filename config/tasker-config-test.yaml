@@ -108,13 +108,13 @@ query_cache:
 
 command_backplane:
   socket_type: "tcp"
-  server:
+  core:
     host: "127.0.0.1"
     port: 8555
     timeout: 30
     connect_timeout: 5
     read_timeout: 10
-  client:
+  worker:
     host: "127.0.0.1"
     port: 8556
     timeout: 30

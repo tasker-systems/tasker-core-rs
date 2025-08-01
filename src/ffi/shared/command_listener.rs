@@ -6,6 +6,7 @@
 //! command processing architecture.
 
 use crate::execution::command::Command;
+use crate::execution::command_handlers::RubyCommandBridge;
 use crate::execution::generic_executor::GenericExecutor;
 use crate::execution::transport::{Transport, TcpTransport, TcpTransportConfig};
 use serde_json;
@@ -26,6 +27,8 @@ pub struct SharedCommandListener {
     config: CommandListenerConfig,
     /// Generic TCP executor for command processing
     executor: Option<Arc<RwLock<GenericExecutor<TcpTransport>>>>,
+    /// Ruby command bridge for routing to Ruby handlers
+    ruby_bridge: Arc<RubyCommandBridge>,
     /// Server state tracking
     server_state: Arc<RwLock<ServerState>>,
     /// Server statistics
@@ -134,9 +137,14 @@ pub struct CommandResponse {
 impl SharedCommandListener {
     /// Create new shared command listener with configuration
     pub fn new(config: CommandListenerConfig) -> Self {
+        // Create worker ID for the ruby bridge (using bind address:port as identifier)
+        let worker_id = format!("ruby_worker_{}_{}", config.bind_address, config.port);
+        let ruby_bridge = Arc::new(RubyCommandBridge::new(worker_id));
+        
         Self {
             config,
             executor: None,
+            ruby_bridge,
             server_state: Arc::new(RwLock::new(ServerState::default())),
             stats: Arc::new(ServerStats::default()),
             command_handlers: Arc::new(Mutex::new(HashMap::new())),
@@ -176,9 +184,32 @@ impl SharedCommandListener {
         let transport = TcpTransport::new(transport_config);
 
         // Create generic executor in the background
-        // For now, we just mark it as not storing the executor to avoid type issues
-        // In a real implementation, this would spawn the executor in a background task
-        info!("Would create GenericExecutor here with transport");
+        info!("🚀 Creating GenericExecutor with TCP transport for Ruby worker server");
+        
+        // Create and start the executor
+        let executor = GenericExecutor::new(transport).await.map_err(|e| format!("Failed to create executor: {}", e))?;
+        
+        // Register Ruby command bridge with the executor's command router
+        info!("🌉 SHARED_LISTENER: Registering RubyCommandBridge with GenericExecutor CommandRouter");
+        let command_router = executor.command_router();
+        
+        // Register the ruby bridge for ExecuteBatch commands
+        command_router.register_handler(
+            crate::execution::command::CommandType::ExecuteBatch,
+            self.ruby_bridge.clone()
+        ).await.map_err(|e| format!("Failed to register RubyCommandBridge: {}", e))?;
+        
+        info!("✅ SHARED_LISTENER: RubyCommandBridge registered for ExecuteBatch commands");
+        
+        // Start the executor in the background
+        executor.start().await.map_err(|e| format!("Failed to start executor: {}", e))?;
+        info!("✅ GenericExecutor started successfully on {}:{}", self.config.bind_address, self.config.port);
+        
+        // Store the executor for lifecycle management
+        // Note: The executor will be wrapped in Arc<RwLock<>> for safe shared access
+        // This allows the SharedCommandListener to manage the executor's lifecycle
+        // while providing access for command routing and statistics
+        self.executor = Some(Arc::new(RwLock::new(executor)));
 
         // Update server state
         {
@@ -235,7 +266,19 @@ impl SharedCommandListener {
             command_type
         );
 
+        // TODO: Register actual Ruby callback with RubyCommandBridge
+        // This will need to be implemented when we have access to Ruby handler blocks
+        // For now, we just track that the handler exists
+
         Ok(())
+    }
+    
+    /// Register a Ruby callback function with the bridge
+    pub fn register_ruby_callback<F>(&self, command_type: &str, callback: F) -> Result<(), String>
+    where
+        F: Fn(serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync + 'static,
+    {
+        self.ruby_bridge.register_ruby_handler(command_type, callback)
     }
 
     /// Unregister a command handler

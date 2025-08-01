@@ -286,7 +286,7 @@ pub enum CommandPayload {
 
     /// Report partial result from step execution
     ReportPartialResult {
-        batch_id: String,
+        batch_id: i64,
         step_id: i64,
         result: StepResult,
         execution_time_ms: u64,
@@ -295,7 +295,7 @@ pub enum CommandPayload {
 
     /// Report batch completion with all step summaries
     ReportBatchCompletion {
-        batch_id: String,
+        batch_id: i64,
         step_summaries: Vec<StepSummary>,
         total_execution_time_ms: u64,
     },

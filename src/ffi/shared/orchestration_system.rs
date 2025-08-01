@@ -9,6 +9,7 @@ use crate::events::EventPublisher;
 use crate::execution::command_handlers::batch_execution_sender::{
     BatchExecutionSender, BatchSenderConfig,
 };
+use crate::execution::command_handlers::{ResultAggregationHandler, ResultHandlerConfig};
 use crate::execution::command_router::CommandRouter;
 use crate::ffi::tcp_executor::EmbeddedTcpExecutor;
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
@@ -21,6 +22,11 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
+
+use crate::orchestration::{
+  OrchestrationResultProcessor
+};
+use crate::orchestration::TaskFinalizer;
 
 /// Global orchestration system singleton
 static GLOBAL_ORCHESTRATION_SYSTEM: OnceLock<Arc<OrchestrationSystem>> = OnceLock::new();
@@ -37,6 +43,8 @@ pub struct OrchestrationSystem {
     pub embedded_tcp_executor: Option<Arc<std::sync::Mutex<Option<EmbeddedTcpExecutor>>>>,
     pub batch_execution_sender: Arc<BatchExecutionSender>,
     pub command_router: Arc<CommandRouter>,
+    pub tcp_worker_client_handler: Arc<crate::execution::command_handlers::TcpWorkerClientHandler>,
+    pub result_processor: Arc<OrchestrationResultProcessor>,
 }
 
 /// Check if we're running in a test environment
@@ -226,6 +234,13 @@ async fn create_unified_orchestration_system(
         "orchestration_system".to_string(), // Use a descriptive core instance ID
     ));
 
+    // Create TcpWorkerClientHandler as a proper OrchestrationSystem component
+    info!("🎯 TCP: Creating TcpWorkerClientHandler for ExecuteBatch routing");
+    let tcp_worker_client_handler = Arc::new(crate::execution::command_handlers::TcpWorkerClientHandler::new(database_pool.clone()));
+
+    // Register it with the CommandRouter (will be done synchronously after OrchestrationSystem creation)
+    info!("✅ TCP: TcpWorkerClientHandler created successfully");
+
     // Create BatchExecutionSender with TCP infrastructure and database-backed worker selection
     let batch_execution_sender = Arc::new(BatchExecutionSender::new(
         worker_selection_service,
@@ -255,6 +270,15 @@ async fn create_unified_orchestration_system(
         shared_registry.clone(),
     );
 
+    let task_finalizer = TaskFinalizer::new(
+      database_pool.clone(),
+    );
+    let result_processor = Arc::new(OrchestrationResultProcessor::new(
+        state_manager.clone(),
+        task_finalizer,
+        database_pool.clone(),
+    ));
+
     // Create orchestration system with owned pool and TCP-based components
     // Initialize embedded TCP executor container now so it can be used later
     let embedded_tcp_executor_container = Some(Arc::new(std::sync::Mutex::new(None)));
@@ -271,7 +295,14 @@ async fn create_unified_orchestration_system(
         embedded_tcp_executor: embedded_tcp_executor_container,
         batch_execution_sender,
         command_router,
+        tcp_worker_client_handler,
+        result_processor,
     };
+
+    // Register command handlers after system creation
+    info!("🎯 SYSTEM INIT: About to register command handlers");
+    orchestration_system.register_command_handlers().await?;
+    info!("🎯 SYSTEM INIT: Command handlers registration completed");
 
     info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
     Ok(orchestration_system)
@@ -282,6 +313,38 @@ impl OrchestrationSystem {
     /// This is the new unified way to access the pool instead of global pool functions
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool
+    }
+
+    /// Register the TcpWorkerClientHandler with the CommandRouter
+    /// This should be called after OrchestrationSystem creation to set up ExecuteBatch routing
+    pub async fn register_command_handlers(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::execution::command::CommandType;
+
+        // Restore proper TCP architecture - TcpWorkerClientHandler should handle ExecuteBatch
+
+        info!("🎯 TCP: Registering TcpWorkerClientHandler for ExecuteBatch in OrchestrationSystem router");
+        self.command_router
+            .register_handler(CommandType::ExecuteBatch, self.tcp_worker_client_handler.clone())
+            .await?;
+        info!("✅ TCP: TcpWorkerClientHandler registered successfully in OrchestrationSystem router");
+
+        Ok(())
+    }
+
+    /// Register an external command handler with the CommandRouter
+    /// This allows Ruby or other FFI systems to override the default TCP worker routing
+    pub async fn register_external_command_handler(
+        &self,
+        command_type: crate::execution::command::CommandType,
+        handler: Arc<dyn crate::execution::command_router::CommandHandler>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("🎯 EXTERNAL: Registering external handler for {:?} in OrchestrationSystem router", command_type);
+        self.command_router
+            .register_handler(command_type.clone(), handler)
+            .await?;
+        info!("✅ EXTERNAL: External handler registered successfully for {:?}", command_type);
+
+        Ok(())
     }
 
     /// Access the embedded TCP executor reference

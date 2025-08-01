@@ -27,33 +27,35 @@ module TaskerCore
     #   client.disconnect
     #
     class CommandClient
-      # Default configuration
-      DEFAULT_HOST = 'localhost'
-      DEFAULT_PORT = 8080
+      # Default configuration - only for reasonable defaults, not connection details
       DEFAULT_TIMEOUT = 30
       DEFAULT_CONNECT_TIMEOUT = 5
       DEFAULT_NAMESPACE = 'default'
 
-      attr_reader :host, :port, :timeout, :logger, :rust_client, :connected
+      attr_reader :logger, :rust_client, :connected
 
-      def initialize(host: nil, port: nil, timeout: nil)
-        @config = TaskerCore::Config.instance.effective_config
-        @host = host || @config.dig("command_backplane", "server", "host") || DEFAULT_HOST
-        @port = port || @config.dig("command_backplane", "server", "port") || DEFAULT_PORT
-        @timeout = timeout || @config.dig("command_backplane", "server", "timeout") || DEFAULT_TIMEOUT
+      def initialize(host: nil, port: nil, timeout: nil, connect_timeout: nil, namespace: nil)
         @logger = TaskerCore::Logging::Logger.instance
         @connected = false
 
-        # Create Rust-backed command client
-        client_config = {
-          host: @host,
-          port: @port,
-          timeout_seconds: @timeout,
-          connect_timeout_seconds: DEFAULT_CONNECT_TIMEOUT,
-          namespace: DEFAULT_NAMESPACE
-        }
+        # Use provided config or fall back to defaults from config
+        host ||= config.command_client_host
+        port ||= config.command_client_port
+        timeout ||= config.command_client_timeout
+        connect_timeout ||= config.command_client_connect_timeout
+        namespace ||= DEFAULT_NAMESPACE
 
-        @rust_client = TaskerCore::CommandClient.new_with_config(client_config)
+        @rust_client = TaskerCore::CommandClient.new_with_config({
+          host: host,
+          port: port,
+          timeout_seconds: timeout,
+          connect_timeout_seconds: connect_timeout,
+          namespace: namespace
+        })
+      end
+
+      def config
+        TaskerCore::Config.instance
       end
 
       # Establish connection to Rust TCP executor
@@ -128,7 +130,7 @@ module TaskerCore
           version: version,
           custom_capabilities: custom_capabilities
         }
-        
+
         # Add supported_tasks if provided
         if supported_tasks && !supported_tasks.empty?
           options[:supported_tasks] = supported_tasks
@@ -138,7 +140,7 @@ module TaskerCore
         begin
           raw_response = @rust_client.register_worker(options)
           logger.debug("Worker registration successful: #{worker_id}")
-          
+
           # Convert raw response to typed WorkerRegistrationResponse
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
@@ -165,7 +167,7 @@ module TaskerCore
         begin
           raw_response = @rust_client.send_heartbeat(options)
           logger.debug("Heartbeat successful for worker: #{worker_id}")
-          
+
           # Convert raw response to typed HeartbeatResponse
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
@@ -190,7 +192,7 @@ module TaskerCore
         begin
           raw_response = @rust_client.unregister_worker(options)
           logger.debug("Worker unregistration successful: #{worker_id}")
-          
+
           # Convert raw response to typed WorkerUnregistrationResponse
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
@@ -209,7 +211,7 @@ module TaskerCore
         begin
           raw_response = @rust_client.health_check(diagnostic_level)
           logger.debug("Health check successful")
-          
+
           # Convert raw response to typed HealthCheckResponse
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
@@ -229,7 +231,7 @@ module TaskerCore
         begin
           raw_response = @rust_client.try_task_if_ready(task_id)
           logger.debug("TryTaskIfReady command sent for task #{task_id}")
-          
+
           # Convert raw response to typed TaskReadinessResponse
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
@@ -249,13 +251,78 @@ module TaskerCore
         begin
           raw_response = @rust_client.initialize_task(task_request)
           logger.debug("InitializeTask command sent")
-          
+
           # Convert raw response to typed response
           TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
         rescue StandardError => e
           logger.error("InitializeTask command failed: #{e.message}")
           raise CommandError, "InitializeTask failed: #{e.message}"
         end
+      end
+
+      def send_partial_result(batch_id, step_id, step_summary, execution_time_ms)
+        ensure_connected!
+        raise ArgumentError, "batch_id is required" unless batch_id
+        raise ArgumentError, "step_id is required" unless step_id
+        raise ArgumentError, "step_summary is required" unless step_summary
+
+        begin
+          raw_response = @rust_client.report_partial_result({
+            batch_id: batch_id,
+            step_id: step_id,
+            result: step_summary,
+            execution_time_ms: execution_time_ms,
+            worker_id: step_summary[:worker_id] || 'ruby_worker'
+          })
+          logger.debug("Partial result sent for batch #{batch_id}, step #{step_id}")
+
+          # Convert raw response to typed response
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("Partial result failed: #{e.message}")
+          raise CommandError, "Partial result failed: #{e.message}"
+        end
+      end
+
+      def send_batch_completion(batch_id, step_summaries, total_execution_time)
+        ensure_connected!
+        raise ArgumentError, "batch_id is required" unless batch_id
+        raise ArgumentError, "step_summaries is required" unless step_summaries
+        raise ArgumentError, "total_execution_time is required" unless total_execution_time
+
+        begin
+          raw_response = @rust_client.report_batch_completion({
+            batch_id: batch_id,
+            step_summaries: step_summaries,
+            total_execution_time_ms: total_execution_time
+          })
+          logger.debug("Batch completion sent for batch #{batch_id}")
+
+          # Convert raw response to typed response
+          TaskerCore::Types::ExecutionTypes::ResponseFactory.create_response(raw_response)
+        rescue StandardError => e
+          logger.error("Batch completion result failed: #{e.message}")
+          raise CommandError, "Batch completion result failed: #{e.message}"
+        end
+      end
+
+      # Alias for BatchExecutionHandler compatibility
+      def report_batch_completion(options)
+        send_batch_completion(
+          options[:batch_id],
+          options[:step_summaries],
+          options[:total_execution_time_ms]
+        )
+      end
+
+      # Alias for BatchExecutionHandler compatibility
+      def report_partial_result(options)
+        send_partial_result(
+          options[:batch_id],
+          options[:step_id],
+          options[:result],
+          options[:execution_time_ms]
+        )
       end
 
       # Get connection information
@@ -281,7 +348,7 @@ module TaskerCore
       # @raise [NotConnectedError] if not connected
       def ensure_connected!
         return if connected?
-        
+
         # Auto-reconnect for singleton pattern
         @logger.info "🔄 SINGLETON: Auto-reconnecting CommandClient for command execution"
         begin

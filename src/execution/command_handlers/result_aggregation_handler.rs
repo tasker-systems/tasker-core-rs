@@ -86,7 +86,7 @@ impl CommandHandler for ResultAggregationHandler {
             } => {
                 match self
                     .handle_partial_result(
-                        batch_id.clone(),
+                        *batch_id,
                         *step_id,
                         result.clone(),
                         *execution_time_ms,
@@ -135,7 +135,7 @@ impl ResultAggregationHandler {
     /// Handle partial result from worker - delegate to orchestration
     async fn handle_partial_result(
         &self,
-        batch_id: String,
+        batch_id: i64,
         step_id: i64,
         result: StepResult,
         execution_time_ms: u64,
@@ -164,7 +164,7 @@ impl ResultAggregationHandler {
         match self
             .result_processor
             .handle_partial_result(
-                batch_id.clone(),
+                batch_id,
                 step_id,
                 status,
                 result.output,
@@ -230,7 +230,7 @@ impl ResultAggregationHandler {
     /// Handle batch completion from worker - delegate to orchestration
     async fn handle_batch_completion(
         &self,
-        batch_id: String,
+        batch_id: i64,
         step_summaries: Vec<StepSummary>,
         total_execution_time_ms: u64,
     ) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
@@ -259,7 +259,7 @@ impl ResultAggregationHandler {
         // Delegate to OrchestrationResultProcessor (preserving existing orchestration logic)
         match self
             .result_processor
-            .handle_batch_completion(batch_id.clone(), orch_summaries, total_execution_time_ms)
+            .handle_batch_completion(batch_id, orch_summaries, total_execution_time_ms)
             .await
         {
             Ok(_) => {

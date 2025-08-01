@@ -101,6 +101,59 @@ module TaskerCore
         end
       end
     end
+
+    def command_backplane_config
+      @command_backplane_config ||= effective_config['command_backplane']
+    end
+
+    def command_listener_config
+      @command_listener_config ||= command_backplane_config['worker']
+    end
+
+    def command_client_config
+      @command_client_config ||= command_backplane_config['core']
+    end
+
+    def command_client_host
+      command_client_config['host']
+    end
+
+    def command_client_port
+      command_client_config['port']
+    end
+
+    def command_listener_host
+      command_listener_config['host']
+    end
+
+    def command_listener_port
+      command_listener_config['port']
+    end
+
+    def command_client_timeout
+      command_client_config['timeout']
+    end
+
+    def command_listener_timeout
+      command_listener_config['timeout']
+    end
+
+    def command_client_connect_timeout
+      command_client_config['connect_timeout']
+    end
+
+    def command_listener_connect_timeout
+      command_listener_config['connect_timeout']
+    end
+
+    def command_client_read_timeout
+      command_client_config['read_timeout']
+    end
+
+    def command_listener_read_timeout
+      command_listener_config['read_timeout']
+    end
+
     # Note: ConfigurationError is defined in the main TaskerCore module
   end
 

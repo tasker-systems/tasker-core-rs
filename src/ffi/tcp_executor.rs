@@ -18,7 +18,7 @@ use crate::execution::transport::{TcpTransport, TcpTransportConfig, Transport};
 
 // Re-export for FFI usage
 use crate::execution::command::CommandType;
-use crate::execution::command_handlers::WorkerManagementHandler;
+use crate::execution::command_handlers::{TcpWorkerClientHandler, WorkerManagementHandler, ResultAggregationHandler, ResultHandlerConfig, TaskInitializationHandler};
 pub use crate::execution::executor::{SocketType, TcpExecutorConfig};
 
 /// Embedded TCP executor manager for FFI control
@@ -134,7 +134,7 @@ impl EmbeddedTcpExecutor {
         let worker_handler = Arc::new(WorkerManagementHandler::new(
             worker_pool.clone(),
             database_pool.clone(),
-            "tcp_executor".to_string(),
+            "orchestration_system".to_string(), // Match the OrchestrationSystem core instance ID
         ));
 
         // Register command handlers in the async runtime
@@ -142,14 +142,26 @@ impl EmbeddedTcpExecutor {
             .block_on(async {
                 // Get the shared orchestration system
                 let orchestration_system = crate::ffi::shared::orchestration_system::initialize_unified_orchestration_system();
-                
+
                 // Create task initialization handler from shared orchestration system
                 let task_handler = Arc::new(
                     crate::execution::command_handlers::TaskInitializationHandler::from_orchestration_system(
-                        orchestration_system
+                        orchestration_system.clone()
                     )
                 );
 
+                let result_aggregation_handler = Arc::new(ResultAggregationHandler::new(
+                    worker_pool.clone(),
+                    orchestration_system.result_processor.clone(),
+                    ResultHandlerConfig::default(),
+                ));
+
+                router
+                    .register_handler(CommandType::ReportPartialResult, result_aggregation_handler.clone())
+                    .await?;
+                router
+                    .register_handler(CommandType::ReportBatchCompletion, result_aggregation_handler.clone())
+                    .await?;
                 // Worker management handlers
                 router
                     .register_handler(CommandType::RegisterWorker, worker_handler.clone())
@@ -173,6 +185,18 @@ impl EmbeddedTcpExecutor {
                 router
                     .register_handler(CommandType::TryTaskIfReady, task_handler.clone())
                     .await?;
+
+                // TCP worker client handler for ExecuteBatch commands
+                let tcp_worker_client = Arc::new(TcpWorkerClientHandler::with_config(
+                    database_pool.clone(),
+                    Duration::from_secs(5),
+                    5,
+                ));
+                info!("🎯 TCP_EXECUTOR: Registering TcpWorkerClientHandler for ExecuteBatch");
+                router
+                    .register_handler(CommandType::ExecuteBatch, tcp_worker_client)
+                    .await?;
+
                 info!("🎯 TCP_EXECUTOR: All command handlers registered successfully");
 
                 // Start the executor

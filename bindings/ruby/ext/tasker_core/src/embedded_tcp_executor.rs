@@ -65,6 +65,14 @@ fn create_embedded_executor_with_config(config_hash: RHash) -> Result<bool, Erro
 
         *executor_guard = Some(embedded_executor);
         info!("✅ Ruby FFI: Created embedded TCP executor with custom config via handle");
+        
+        // Debug: Verify the executor was stored
+        if executor_guard.is_some() {
+            info!("🔍 DEBUG: Executor successfully stored in container");
+        } else {
+            info!("❌ DEBUG: Executor was NOT stored in container");
+        }
+        
         Ok(true)
     } else {
         Err(Error::new(magnus::exception::runtime_error(), "TCP executor container not available"))
@@ -87,11 +95,15 @@ fn start_embedded_executor() -> Result<bool, Error> {
         let mut executor_guard = executor_arc.lock()
             .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Lock error: {}", e)))?;
 
+        info!("🔍 DEBUG: start_embedded_executor - checking for existing executor");
         if executor_guard.is_none() {
-            // Create default executor if none exists
+            info!("❌ DEBUG: No executor found in container - creating fallback with default config");
+            // Create default executor if none exists (fallback for cases where create wasn't called)
             let embedded_executor = EmbeddedTcpExecutor::new()
                 .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Failed to create executor: {}", e)))?;
             *executor_guard = Some(embedded_executor);
+        } else {
+            info!("✅ DEBUG: Found existing executor in container");
         }
 
         if let Some(executor) = executor_guard.as_ref() {
@@ -245,7 +257,11 @@ fn embedded_executor_bind_address() -> Result<String, Error> {
 fn parse_config_from_hash(hash: RHash) -> Result<TcpExecutorConfig, Error> {
     let mut config = TcpExecutorConfig::default();
 
-    if let Ok(addr) = hash.lookup::<&str, magnus::Value>("bind_address") {
+    // Try both string key and symbol key for bind_address
+    let addr_value = hash.lookup::<&str, magnus::Value>("bind_address")
+        .or_else(|_| hash.lookup::<magnus::Symbol, magnus::Value>(magnus::Symbol::new("bind_address")));
+    
+    if let Ok(addr) = addr_value {
         if let Ok(addr_str) = String::try_convert(addr) {
             config.bind_address = addr_str;
         }

@@ -819,6 +819,157 @@ module TaskerCore
           end
         end
       end
+
+      # Context types for BatchExecutionHandler step processing
+
+      # Task context for step execution
+      class TaskContext < Dry::Struct
+        attribute :id, Types::Integer
+        attribute :task_id, Types::Integer
+        attribute? :context, Types::Hash.optional
+
+        # Factory method to create from step request
+        def self.from_step_request(step_request)
+          # Handle case where task_context might be nil or not accessible
+          raw_task_context = step_request.task_context
+          
+          # Ensure we have a hash to work with
+          task_context_hash = raw_task_context.is_a?(Hash) ? raw_task_context : {}
+          
+          task_data = task_context_hash.merge(
+            'id' => step_request.task_id,
+            'task_id' => step_request.task_id
+          )
+
+          new(
+            id: task_data['id'],
+            task_id: task_data['task_id'],
+            context: task_data
+          )
+        end
+
+        # Legacy compatibility - provide .context method like OpenStruct
+        def context
+          super || {}
+        end
+      end
+
+      # Sequence context for step execution
+      class SequenceContext < Dry::Struct
+        attribute :task_id, Types::Integer
+        attribute :all_steps, Types::Array.of(Types::Hash)
+        attribute :dependencies, Types::Array.of(Types::Hash)
+        attribute? :steps, Types::Array.optional
+        attribute? :dependencies_list, Types::Array.optional
+
+        # Factory method to create from step request and task template
+        def self.from_step_request(step_request, task_template, step_results = {})
+          # Create sequence with all steps and dependencies
+          all_steps_data = task_template.step_templates.map do |template|
+            {
+              'name' => template.name,
+              'handler_class' => template.handler_class,
+              'depends_on' => template.depends_on || []
+            }
+          end
+
+          dependencies_data = collect_step_dependencies(step_request, step_results)
+
+          new(
+            task_id: step_request.task_id,
+            all_steps: all_steps_data,
+            dependencies: dependencies_data,
+            steps: all_steps_data.map { |step_data| OpenStruct.new(step_data) },
+            dependencies_list: dependencies_data.map { |dep_data| OpenStruct.new(dep_data) }
+          )
+        end
+
+        # Legacy compatibility methods
+        def steps
+          super || all_steps.map { |step_data| OpenStruct.new(step_data) }
+        end
+
+        def dependencies
+          super || dependencies_list.map { |dep_data| OpenStruct.new(dep_data) }
+        end
+
+        private
+
+        # Collect step dependencies from previous results and step results
+        def self.collect_step_dependencies(step_request, step_results)
+          dependencies = []
+
+          # Add previous results as dependencies
+          step_request.previous_results.each do |step_name, result_data|
+            dependencies << {
+              'step_name' => step_name,
+              'result' => result_data,
+              'status' => 'completed'
+            }
+          end
+
+          # Add any step results from current batch
+          step_results.each do |step_id, step_summary|
+            next if step_id == step_request.step_id # Don't include self
+
+            dependencies << {
+              'step_name' => step_summary[:step_name],
+              'result' => step_summary[:result],
+              'status' => step_summary[:status]
+            }
+          end
+
+          dependencies
+        end
+      end
+
+      # Step context for step execution
+      class StepContext < Dry::Struct
+        attribute :id, Types::Integer
+        attribute :step_id, Types::Integer
+        attribute :task_id, Types::Integer
+        attribute :name, Types::Coercible::String
+        attribute :handler_class, Types::Coercible::String
+        attribute :handler_config, Types::Hash
+        attribute :attempt, Types::Integer
+        attribute :retry_limit, Types::Integer
+        attribute :timeout_ms, Types::Integer
+        attribute? :depends_on, Types::Array.of(Types::Coercible::String).optional
+        attribute? :previous_results, Types::Hash.optional
+
+        # Factory method to create from step request and template
+        def self.from_step_request(step_request, step_template)
+          new(
+            id: step_request.step_id,
+            step_id: step_request.step_id,
+            task_id: step_request.task_id,
+            name: step_request.step_name,
+            handler_class: step_request.handler_class,
+            handler_config: step_request.handler_config,
+            attempt: step_request.metadata.attempt,
+            retry_limit: step_request.metadata.retry_limit,
+            timeout_ms: step_request.metadata.timeout_ms,
+            depends_on: step_template.depends_on || [],
+            previous_results: step_request.previous_results
+          )
+        end
+      end
+
+      # Task wrapper that provides the expected interface for step handlers
+      class TaskWrapper < Dry::Struct
+        attribute :context, Types::Hash
+        attribute :id, Types::Integer
+        attribute :task_id, Types::Integer
+
+        # Factory method to create from task context
+        def self.from_task_context(task_context)
+          new(
+            context: task_context.context,
+            id: task_context.id,
+            task_id: task_context.task_id
+          )
+        end
+      end
     end
   end
 end
