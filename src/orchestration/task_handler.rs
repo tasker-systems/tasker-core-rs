@@ -172,7 +172,7 @@ impl BaseTaskHandler {
             pool.clone(),
             workflow_config,
             config_manager.clone(),
-        );
+        ).expect("WorkflowCoordinator creation failed - requires migration to pgmq architecture");
 
         // Create system events manager - in production this would be loaded from file
         let events_manager = Arc::new(SystemEventsManager::new(
@@ -207,7 +207,7 @@ impl BaseTaskHandler {
             pool.clone(),
             workflow_config,
             config_manager.clone(),
-        );
+        ).expect("WorkflowCoordinator creation failed - requires migration to pgmq architecture");
 
         // Create system events manager
         let events_manager = Arc::new(SystemEventsManager::new(

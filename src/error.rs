@@ -10,6 +10,7 @@ pub enum TaskerError {
     InvalidInput(String),
     ConfigurationError(String),
     FFIError(String),
+    MessagingError(String),
 }
 
 impl fmt::Display for TaskerError {
@@ -23,11 +24,18 @@ impl fmt::Display for TaskerError {
             TaskerError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             TaskerError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
             TaskerError::FFIError(msg) => write!(f, "FFI error: {msg}"),
+            TaskerError::MessagingError(msg) => write!(f, "Messaging error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for TaskerError {}
+
+impl From<serde_json::Error> for TaskerError {
+    fn from(error: serde_json::Error) -> Self {
+        TaskerError::ValidationError(format!("JSON serialization error: {}", error))
+    }
+}
 
 pub type Result<T> = std::result::Result<T, TaskerError>;
 

@@ -6,18 +6,11 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
-use crate::execution::command_handlers::batch_execution_sender::{
-    BatchExecutionSender, BatchSenderConfig,
-};
-use crate::execution::command_handlers::{ResultAggregationHandler, ResultHandlerConfig};
-use crate::execution::command_router::CommandRouter;
-use crate::ffi::tcp_executor::EmbeddedTcpExecutor;
 use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_initializer::{TaskInitializationConfig, TaskInitializer};
 use crate::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
 use crate::registry::TaskHandlerRegistry;
-use crate::services::worker_selection_service::WorkerSelectionService;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::OnceLock;

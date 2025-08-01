@@ -234,7 +234,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
       it 'logs debug messages for successful operations' do
         expect(logger).to receive(:debug).with(/Getting system health counts/)
         expect(logger).to receive(:warn).with(/No system health data found/)
-        
+
         sql_functions_with_logger.system_health_counts
       end
 
@@ -242,7 +242,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
         task_id = 12345
         expect(logger).to receive(:debug).with(/Getting task execution context for task_id: #{task_id}/)
         expect(logger).to receive(:warn).with(/No execution context found for task_id: #{task_id}/)
-        
+
         sql_functions_with_logger.task_execution_context(task_id)
       end
     end

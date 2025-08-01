@@ -35,6 +35,7 @@ pub mod config;
 pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
+pub mod orchestration_system_pgmq;
 pub mod result_processor;
 pub mod state_manager;
 pub mod step_execution_orchestrator;
@@ -45,6 +46,7 @@ pub mod task_enqueuer;
 pub mod task_finalizer;
 pub mod task_handler;
 pub mod task_initializer;
+pub mod task_request_processor;
 pub mod types;
 pub mod viable_step_discovery;
 pub mod workflow_coordinator;
@@ -63,6 +65,12 @@ pub use task_finalizer::{
 };
 pub use task_initializer::{
     TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
+};
+pub use orchestration_system_pgmq::{
+    OrchestrationStats, OrchestrationSystemConfig, OrchestrationSystemPgmq,
+};
+pub use task_request_processor::{
+    TaskRequestProcessor, TaskRequestProcessorConfig, TaskRequestProcessorStats,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
 pub use workflow_coordinator::{

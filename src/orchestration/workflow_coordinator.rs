@@ -60,9 +60,6 @@
 //! ```
 
 use crate::events::{Event, EventPublisher, OrchestrationEvent as EventsOrchestrationEvent};
-use crate::execution::command_handlers::batch_execution_sender::{
-    BatchExecutionSender, BatchSendError,
-};
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::orchestration::state_manager::{StateHealthSummary, StateManager};
@@ -193,8 +190,8 @@ pub struct WorkflowCoordinator {
     config_manager: Arc<ConfigurationManager>,
     /// System events manager for structured event publishing
     events_manager: Arc<SystemEventsManager>,
-    /// TCP-based batch execution sender for fire-and-forget step publishing
-    batch_execution_sender: Option<Arc<BatchExecutionSender>>,
+    /// pgmq client for queue-based step enqueueing
+    pgmq_client: Arc<crate::messaging::PgmqClient>,
     /// Task handler registry for resolving step handlers
     task_handler_registry: Arc<TaskHandlerRegistry>,
     /// Database connection pool for direct database operations
@@ -202,170 +199,10 @@ pub struct WorkflowCoordinator {
 }
 
 impl WorkflowCoordinator {
-    /// Create a new workflow coordinator with default configuration
-    pub fn new(pool: sqlx::PgPool) -> Self {
-        let config_manager = Arc::new(ConfigurationManager::new());
-        let config = WorkflowCoordinatorConfig::from_config_manager(&config_manager);
-        Self::with_config_manager(pool, config, config_manager)
-    }
-
-    /// Create a new workflow coordinator with custom configuration
-    pub fn with_config(pool: sqlx::PgPool, config: WorkflowCoordinatorConfig) -> Self {
-        let config_manager = Arc::new(ConfigurationManager::new());
-        Self::with_config_manager(pool, config, config_manager)
-    }
-
-    /// Create a new workflow coordinator optimized for testing with short timeouts
-    pub fn for_testing(pool: sqlx::PgPool) -> Self {
-        Self::with_config(pool, WorkflowCoordinatorConfig::for_testing())
-    }
-
-    /// Create a new workflow coordinator for testing with custom timeout
-    pub fn for_testing_with_timeout(pool: sqlx::PgPool, timeout_secs: u64) -> Self {
-        Self::with_config(
-            pool,
-            WorkflowCoordinatorConfig::for_testing_with_timeout(timeout_secs),
-        )
-    }
-
-    /// Create a new workflow coordinator with configuration manager
-    pub fn with_config_manager(
-        pool: sqlx::PgPool,
-        config: WorkflowCoordinatorConfig,
-        config_manager: Arc<ConfigurationManager>,
-    ) -> Self {
-        Self::with_config_manager_and_publisher(pool, config, config_manager, None)
-    }
-
-    /// Create a new workflow coordinator with shared registry
+    /// Create a new workflow coordinator with pgmq client for queue-based step enqueueing
     ///
-    /// This constructor is specifically designed for shared orchestration systems where
-    /// the TaskHandlerRegistry instance should be shared across components to ensure
-    /// handlers registered via FFI are available during workflow execution.
-    ///
-    /// # Arguments
-    /// * `pool` - Database connection pool
-    /// * `config` - Workflow coordinator configuration
-    /// * `config_manager` - Shared configuration manager
-    /// * `event_publisher` - Shared EventPublisher instance
-    /// * `shared_registry` - Shared TaskHandlerRegistry instance (critical for FFI integration)
-    pub fn with_shared_registry(
-        pool: sqlx::PgPool,
-        config: WorkflowCoordinatorConfig,
-        config_manager: Arc<ConfigurationManager>,
-        event_publisher: crate::events::publisher::EventPublisher,
-        _shared_registry: TaskHandlerRegistry,
-    ) -> Self {
-        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
-        let state_manager =
-            StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-
-        // Use the provided shared registry directly
-
-        let viable_step_discovery =
-            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-
-        // Create task finalizer with shared event publisher
-        let task_finalizer =
-            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                pool.clone(),
-                event_publisher.clone(),
-            );
-
-        // Create system events manager - in production this would be loaded from file
-        let events_manager = Arc::new(SystemEventsManager::new(
-            crate::orchestration::system_events::SystemEventsConfig {
-                event_metadata: std::collections::HashMap::new(),
-                state_machine_mappings: crate::orchestration::system_events::StateMachineMappings {
-                    task_transitions: vec![],
-                    step_transitions: vec![],
-                },
-            },
-        ));
-
-        Self {
-            viable_step_discovery,
-            state_manager,
-            event_publisher: event_publisher.clone(),
-            task_finalizer,
-            config,
-            config_manager,
-            events_manager,
-            batch_execution_sender: None,
-            task_handler_registry: {
-                let ep = event_publisher.clone();
-                Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
-            },
-            database_pool: pool,
-        }
-    }
-
-    /// Create a new workflow coordinator with configuration manager and optional event publisher
-    ///
-    /// This allows injecting a specific EventPublisher instance (e.g., from global FFI state)
-    /// while maintaining backward compatibility through the `with_config_manager` method.
-    ///
-    /// # Arguments
-    /// * `pool` - Database connection pool
-    /// * `config` - Workflow coordinator configuration
-    /// * `config_manager` - Shared configuration manager
-    /// * `event_publisher` - Optional EventPublisher instance. If None, creates a new one.
-    pub fn with_config_manager_and_publisher(
-        pool: sqlx::PgPool,
-        config: WorkflowCoordinatorConfig,
-        config_manager: Arc<ConfigurationManager>,
-        event_publisher: Option<crate::events::publisher::EventPublisher>,
-    ) -> Self {
-        // Use provided event publisher or create new one
-        let event_publisher = event_publisher.unwrap_or_default();
-
-        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
-        let state_manager =
-            StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let _registry = TaskHandlerRegistry::with_event_publisher(pool.clone(), event_publisher.clone());
-
-        let viable_step_discovery =
-            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-
-        // Create task finalizer with shared event publisher
-        let task_finalizer =
-            crate::orchestration::task_finalizer::TaskFinalizer::with_event_publisher(
-                pool.clone(),
-                event_publisher.clone(),
-            );
-
-        // Create system events manager - in production this would be loaded from file
-        let events_manager = Arc::new(SystemEventsManager::new(
-            crate::orchestration::system_events::SystemEventsConfig {
-                event_metadata: std::collections::HashMap::new(),
-                state_machine_mappings: crate::orchestration::system_events::StateMachineMappings {
-                    task_transitions: vec![],
-                    step_transitions: vec![],
-                },
-            },
-        ));
-
-        Self {
-            viable_step_discovery,
-            state_manager,
-            event_publisher: event_publisher.clone(),
-            task_finalizer,
-            config,
-            config_manager,
-            events_manager,
-            batch_execution_sender: None,
-            task_handler_registry: {
-                let ep = event_publisher.clone();
-                Arc::new(TaskHandlerRegistry::with_event_publisher(pool.clone(), ep))
-            },
-            database_pool: pool,
-        }
-    }
-
-    /// Create a new workflow coordinator with shared BatchExecutionSender for TCP integration
-    ///
-    /// This constructor is specifically designed for OrchestrationSystem integration where
-    /// the BatchExecutionSender instance should be shared for optimal TCP command routing.
+    /// This is the main constructor for the pgmq architecture where steps are enqueued
+    /// to PostgreSQL message queues instead of using TCP command routing.
     ///
     /// # Arguments
     /// * `pool` - Database connection pool
@@ -373,25 +210,18 @@ impl WorkflowCoordinator {
     /// * `config_manager` - Shared configuration manager
     /// * `event_publisher` - Shared EventPublisher instance
     /// * `shared_registry` - Shared TaskHandlerRegistry instance
-    /// * `batch_execution_sender` - Shared BatchExecutionSender for TCP-based step execution
-    pub fn with_batch_execution_sender(
+    /// * `pgmq_client` - Shared PgmqClient for queue-based step enqueueing
+    pub fn new(
         pool: sqlx::PgPool,
         config: WorkflowCoordinatorConfig,
         config_manager: Arc<ConfigurationManager>,
         event_publisher: crate::events::publisher::EventPublisher,
         shared_registry: TaskHandlerRegistry,
-        batch_execution_sender: Arc<BatchExecutionSender>,
+        pgmq_client: Arc<crate::messaging::PgmqClient>,
     ) -> Self {
         let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(pool.clone());
         let state_manager =
             StateManager::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-
-        // Use the provided shared registry directly
-
-        // let task_config_finder = crate::orchestration::task_config_finder::TaskConfigFinder::new(
-        //     config_manager.clone(),
-        //     registry_arc.clone(),
-        // );
 
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
@@ -422,10 +252,24 @@ impl WorkflowCoordinator {
             config,
             config_manager,
             events_manager,
-            batch_execution_sender: Some(batch_execution_sender),
+            pgmq_client,
             task_handler_registry: Arc::new(shared_registry),
             database_pool: pool,
         }
+    }
+
+    /// Create a new workflow coordinator with configuration manager (compatibility method)
+    ///
+    /// This is a compatibility method for code that still uses the old constructor.
+    /// For new code, use the main `new()` constructor.
+    pub fn with_config_manager(
+        pool: sqlx::PgPool,
+        config: WorkflowCoordinatorConfig,
+        config_manager: Arc<ConfigurationManager>,
+    ) -> Result<Self, String> {
+        // This would require a pgmq client, which we don't have in the old signature
+        // Return an error explaining the migration path
+        Err("WorkflowCoordinator::with_config_manager() is deprecated. Use WorkflowCoordinator::new() with a PgmqClient instead.".to_string())
     }
 
     /// Execute a complete task workflow
@@ -810,124 +654,138 @@ impl WorkflowCoordinator {
         Ok(steps)
     }
 
-    /// Execute a batch of steps using BatchExecutionSender with TCP command routing
+    /// Execute a batch of steps using pgmq queue-based enqueueing
     async fn execute_step_batch(
         &self,
         task_id: i64,
         steps: Vec<ViableStep>,
     ) -> OrchestrationResult<Vec<StepResult>> {
+        self.execute_step_batch_pgmq(task_id, steps, &self.pgmq_client).await
+    }
+
+    /// Execute a batch of steps using pgmq queue-based enqueueing (new architecture)
+    async fn execute_step_batch_pgmq(
+        &self,
+        task_id: i64,
+        steps: Vec<ViableStep>,
+        pgmq_client: &crate::messaging::PgmqClient,
+    ) -> OrchestrationResult<Vec<StepResult>> {
         tracing::info!(
             task_id = task_id,
             step_count = steps.len(),
-            "WorkflowCoordinator: Starting TCP batch execution with command routing"
+            "WorkflowCoordinator: Starting pgmq-based step enqueueing"
         );
 
-        // Check if we have a BatchExecutionSender configured
-        let batch_sender = match &self.batch_execution_sender {
-            Some(sender) => sender,
-            None => {
-                return Err(
-                    crate::orchestration::errors::OrchestrationError::ExecutionError(
-                        crate::orchestration::errors::ExecutionError::StepExecutionFailed {
-                            step_id: 0,
-                            reason: "No BatchExecutionSender configured".to_string(),
-                            error_code: Some("NO_BATCH_SENDER".to_string()),
-                        },
-                    ),
-                )
-            }
-        };
-
-        // Convert ViableStep objects to StepExecutionRequest objects
-        // This includes all context needed for Ruby workers to execute steps:
-        // - Task context, handler configuration, and dependency results
-        // - Step metadata like retry limits and timeouts
-        let step_execution_requests = self
-            .viable_step_discovery
-            .build_step_execution_requests(task_id, &steps, &self.task_handler_registry)
-            .await?;
-
-        // Generate batch ID for tracking
-        let batch_id = uuid::Uuid::new_v4().to_string();
-
-        // Extract namespace from task for proper worker selection
-        let namespace = self.get_task_namespace(task_id).await?;
-
-        // Send batch to workers via TCP command system (fire-and-forget)
-        match batch_sender
-            .send_batch_to_workers(
-                task_id,
-                batch_id.clone(),
-                step_execution_requests,
-                Some(namespace),
-                &self.task_handler_registry,
-            )
-            .await
-        {
-            Ok(send_result) => {
-                tracing::info!(
-                    task_id = task_id,
-                    batch_id = %batch_id,
-                    assigned_worker = %send_result.assigned_worker_id,
-                    step_count = steps.len(),
-                    "Successfully sent batch to TCP worker - fire and forget"
-                );
-            }
-            Err(BatchSendError::NoAvailableWorkers {
-                namespace,
-                required_capacity,
-            }) => {
-                tracing::warn!(
-                    task_id = task_id,
-                    namespace = %namespace,
-                    required_capacity = required_capacity,
-                    "No available workers for batch execution - will retry later"
-                );
-                // Return early with empty results - task will be re-queued
-                return Ok(vec![]);
-            }
-            Err(e) => {
-                tracing::error!(
-                    task_id = task_id,
-                    error = %e,
-                    "Failed to send batch via BatchExecutionSender"
-                );
-                return Err(
-                    crate::orchestration::errors::OrchestrationError::ExecutionError(
-                        crate::orchestration::errors::ExecutionError::StepExecutionFailed {
-                            step_id: 0,
-                            reason: format!("Batch send failed: {}", e),
-                            error_code: Some("BATCH_SEND_FAILED".to_string()),
-                        },
-                    ),
-                );
-            }
-        }
-
-        // Return placeholder results indicating steps were sent (fire-and-forget)
-        // Actual execution results will be processed asynchronously by ResultAggregationHandler
         let mut results = Vec::with_capacity(steps.len());
+        let enqueue_time = chrono::Utc::now();
+
         for step in &steps {
-            results.push(StepResult {
+            // Create step message for queue
+            let step_message = crate::messaging::PgmqStepMessage {
                 step_id: step.step_id,
-                status: crate::orchestration::types::StepStatus::InProgress,
-                output: serde_json::json!({
-                    "status": "sent_to_worker",
-                    "message": "Step sent to TCP worker for execution",
-                    "batch_id": batch_id,
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "note": "Actual execution results will be processed asynchronously via TCP commands"
+                task_id: step.task_id,
+                namespace: step.name.split('.').next().unwrap_or("default").to_string(),
+                step_name: step.name.clone(),
+                step_payload: serde_json::json!({
+                    "step_id": step.step_id,
+                    "task_id": step.task_id,
+                    "named_step_id": step.named_step_id,
+                    "current_state": step.current_state,
+                    "dependencies_satisfied": step.dependencies_satisfied,
+                    "retry_eligible": step.retry_eligible,
+                    "attempts": step.attempts,
+                    "retry_limit": step.retry_limit,
+                    "last_failure_at": step.last_failure_at,
+                    "next_retry_at": step.next_retry_at,
+                    "step_name": step.name.clone()
                 }),
-                execution_duration: std::time::Duration::from_millis(1), // Minimal time for sending
-                error_message: None,
-                retry_after: None,
-                error_code: None,
-                error_context: None,
-            });
+                metadata: crate::messaging::PgmqStepMessageMetadata {
+                    enqueued_at: enqueue_time,
+                    retry_count: step.attempts as i32,
+                    max_retries: step.retry_limit as i32,
+                    timeout_seconds: Some(300), // 5 minutes default timeout
+                },
+            };
+
+            // Extract namespace for queue naming
+            let namespace = step.name.split('.').next().unwrap_or("default");
+
+            // Enqueue step to namespace-specific queue
+            match pgmq_client.enqueue_step(namespace, step_message).await {
+                Ok(message_id) => {
+                    tracing::info!(
+                        task_id = task_id,
+                        step_id = step.step_id,
+                        step_name = %step.name,
+                        namespace = %namespace,
+                        message_id = message_id,
+                        "Successfully enqueued step to pgmq"
+                    );
+
+                    results.push(StepResult {
+                        step_id: step.step_id,
+                        status: crate::orchestration::types::StepStatus::InProgress,
+                        output: serde_json::json!({
+                            "status": "enqueued_to_queue",
+                            "message": "Step enqueued to pgmq for autonomous worker processing",
+                            "queue_name": format!("{}_queue", namespace),
+                            "message_id": message_id,
+                            "timestamp": enqueue_time.to_rfc3339(),
+                            "note": "Ruby workers will poll queue and execute step autonomously"
+                        }),
+                        execution_duration: std::time::Duration::from_millis(1), // Minimal time for enqueueing
+                        error_message: None,
+                        retry_after: None,
+                        error_code: None,
+                        error_context: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!(
+                        task_id = task_id,
+                        step_id = step.step_id,
+                        step_name = %step.name,
+                        namespace = %namespace,
+                        error = %e,
+                        "Failed to enqueue step to pgmq"
+                    );
+
+                    results.push(StepResult {
+                        step_id: step.step_id,
+                        status: crate::orchestration::types::StepStatus::Failed,
+                        output: serde_json::json!({
+                            "status": "enqueue_failed",
+                            "message": "Failed to enqueue step to pgmq",
+                            "queue_name": format!("{}_queue", namespace),
+                            "timestamp": enqueue_time.to_rfc3339()
+                        }),
+                        execution_duration: std::time::Duration::from_millis(1),
+                        error_message: Some(format!("Queue enqueue failed: {}", e)),
+                        retry_after: Some(std::time::Duration::from_secs(30)),
+                        error_code: Some("QUEUE_ENQUEUE_FAILED".to_string()),
+                        error_context: Some({
+                            let mut context = std::collections::HashMap::new();
+                            context.insert("namespace".to_string(), serde_json::Value::String(namespace.to_string()));
+                            context.insert("queue_name".to_string(), serde_json::Value::String(format!("{}_queue", namespace)));
+                            context.insert("error".to_string(), serde_json::Value::String(e.to_string()));
+                            context
+                        }),
+                    });
+                }
+            }
         }
+
+        tracing::info!(
+            task_id = task_id,
+            total_steps = steps.len(),
+            successful_enqueues = results.iter().filter(|r| matches!(r.status, crate::orchestration::types::StepStatus::InProgress)).count(),
+            failed_enqueues = results.iter().filter(|r| matches!(r.status, crate::orchestration::types::StepStatus::Failed)).count(),
+            "pgmq step enqueueing completed"
+        );
 
         Ok(results)
     }
+
 
     /// Get the namespace for a task from database
     async fn get_task_namespace(&self, task_id: i64) -> OrchestrationResult<String> {

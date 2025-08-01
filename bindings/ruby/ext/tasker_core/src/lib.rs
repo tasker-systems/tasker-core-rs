@@ -32,20 +32,9 @@ use magnus::{Error, Module, Ruby};
 mod context;
 mod error_translation;
 mod ffi_logging;
-mod test_helpers;
 mod types;
 
-// Direct handler imports (simplified from handlers/ module)
-mod handlers {
-    pub mod base_task_handler;
-}
-
 // Direct model imports removed - pgmq architecture uses dry-struct data classes
-
-// Direct import of event bridge (moved from events/ subdirectory)
-mod event_bridge;
-
-// Removed: embedded TCP executor, command client/listener, worker manager
 
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
@@ -80,21 +69,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Note: Magnus-wrapped structs are automatically registered when used
     // All type classes are properly namespaced (e.g., TaskerCore::Types::WorkflowStepInput)
 
-    // Register task handler bridge functions
-    handlers::base_task_handler::register_base_task_handler(ruby, &module)?;
-
     // FFI handle and performance functions removed for pgmq architecture
-
-    // 🎯 EVENTS: Organize all event functionality under Events:: namespace
-    let events_module = module.define_module("Events")?;
-    event_bridge::register_event_functions(events_module)?;
-
-    // ✅ NEW: Register optimized Ruby event classes for primitives in, objects out pattern
-    event_bridge::register_ruby_event_classes(ruby, &events_module)?;
-
-    // 🎯 TESTHELPERS: Organize all testing utilities under TestHelpers:: namespace
-    let test_helpers_module = module.define_module("TestHelpers")?;
-    test_helpers::register_test_helper_functions(test_helpers_module)?;
 
     // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
     let types_module = module.define_module("Types")?;

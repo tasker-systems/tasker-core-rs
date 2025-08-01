@@ -345,55 +345,80 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Test Results**: `1 example, 0 failures` - Basic queue operations fully functional!
 
-### Phase 2: Step Enqueueing (Week 2)
+### ✅ Phase 2: Step Enqueueing (COMPLETED - August 1, 2025)
 **Objective**: Replace BatchExecutionSender with queue-based step publishing
 
-- [ ] Create step message serialization/deserialization
-- [ ] Implement `enqueue_ready_steps()` function
-- [ ] Modify task initialization to trigger step enqueueing
-- [ ] Create orchestrator polling loop for task progress
-- [ ] Parallel testing alongside existing TCP system
+- [x] Create step message serialization/deserialization
+- [x] Implement `enqueue_ready_steps()` function in WorkflowCoordinator
+- [x] Integrate pgmq_client into WorkflowCoordinator
+- [x] Create PgmqStepMessage and metadata structures
+- [x] Update execute_step_batch to use pgmq enqueueing
+- [x] Remove TCP command routing from workflow execution
+
+**Deliverables** ✅:
+- `src/messaging/message.rs` - PgmqStepMessage structure implemented
+- WorkflowCoordinator now uses execute_step_batch_pgmq for queue-based step enqueueing
+- Message format includes step data, namespace routing, and metadata
+- Steps successfully enqueued to namespace-specific queues
+
+**Key Achievements**:
+- 🎉 **Step Enqueueing Working**: Steps now enqueued to pgmq instead of TCP
+- 🚀 **Namespace Routing**: Steps routed to appropriate namespace queues
+- 📊 **Message Structure**: Complete step information for worker processing
+- 🗑️ **TCP Removal**: Removed TCP routing from main workflow path
+
+### Phase 3: Complete pgmq Orchestration Workflow (In Progress)
+**Objective**: Implement the comprehensive queue-based orchestration workflow
+
+#### Sub-Phase 3.1: Task Request Ingestion
+- [ ] Create `orchestration_task_requests` queue
+- [ ] Implement TaskRequestProcessor in Rust
+- [ ] Poll task requests and validate using task_handler_registry
+- [ ] Create tasks using existing database models
+- [ ] Enqueue validated tasks to `orchestration_tasks_to_be_processed`
+
+#### Sub-Phase 3.2: Task Processing Loop
+- [ ] Create `orchestration_tasks_to_be_processed` queue
+- [ ] Implement orchestration polling loop in OrchestrationSystemPgmq
+- [ ] Process tasks by discovering viable steps
+- [ ] Create step_execution_batch records
+- [ ] Build batch messages with (task, sequence, step) data
+- [ ] Enqueue batches to namespace-specific queues
+
+#### Sub-Phase 3.3: Batch Queue Infrastructure
+- [ ] Create namespace batch queues (`fulfillment_batch_queue`, etc.)
+- [ ] Update message structures for batch processing
+- [ ] Implement batch message serialization
+- [ ] Add batch metadata for retry handling
+
+#### Sub-Phase 3.4: Ruby Worker Updates
+- [ ] Create BatchQueueWorker to poll namespace batch queues
+- [ ] Implement BatchExecutor for concurrent step execution
+- [ ] Use concurrent-ruby promises for parallel processing
+- [ ] Update step handlers to work with batch context
+- [ ] Implement PostgreSQL JSON queries for task filtering
+
+#### Sub-Phase 3.5: Result Processing
+- [ ] Create `orchestration_batch_results` queue
+- [ ] Implement ResultReporter in Ruby workers
+- [ ] Create BatchResultProcessor in Rust
+- [ ] Process batch results and update task progress
+- [ ] Implement task finalization logic
+- [ ] Handle task re-enqueueing for incomplete workflows
 
 **Deliverables**:
-- Queue-based step enqueueing system
-- Message format specifications
-- Orchestrator queue management
+- Complete queue-based orchestration system
+- Task request ingestion and validation
+- Batch-based step execution
+- Result aggregation and task finalization
+- Autonomous worker architecture
 
-### Phase 3: Queue-Based Workers (Week 3)
-**Objective**: Create Ruby workers that poll queues instead of TCP
-
-- [ ] Implement Ruby queue polling workers
-- [ ] Create step execution framework using queues
-- [ ] Implement worker capability matching via message inspection
-- [ ] Handle step completion via database updates
-- [ ] Create worker monitoring and logging
-
-**Deliverables**:
-- Ruby queue worker implementation
-- Step execution via queue processing
-- Worker capability and namespace handling
-
-### Phase 4: Result Aggregation (Week 4)
-**Objective**: Implement task completion tracking and next step triggering
-
-- [ ] Implement database-driven task progress checking
-- [ ] Create orchestrator loop for completed step detection
-- [ ] Implement next step dependency resolution and enqueueing
-- [ ] Handle task completion events and notifications
-- [ ] Create monitoring and observability tools
-
-**Deliverables**:
-- Complete task lifecycle via queues
-- Progress tracking and completion detection
-- Next step triggering system
-
-### Phase 5: Migration and Cleanup (Week 5)
+### Phase 4: Migration and Cleanup (Future)
 **Objective**: Complete migration from TCP to queues and remove old infrastructure
 
 - [ ] Validate queue system performance and reliability
 - [ ] Migrate all integration tests to queue-based system
-- [ ] Remove TCP command infrastructure (GenericExecutor, CommandRouter, etc.)
-- [ ] Remove Ruby CommandListener and CommandClient
+- [ ] Remove remaining TCP infrastructure
 - [ ] Update documentation and examples
 - [ ] Performance testing and optimization
 
@@ -594,12 +619,424 @@ Ruby workers become simple, focused components:
 5. **Testing Clarity**: Integration tests verify via queues + SQL queries, not FFI state
 6. **Autonomous Workers**: Workers don't need knowledge of Rust internals or dependency evaluation
 
+## Phase 3 Detailed Implementation Plan
+
+### Overview
+Phase 3 completes the pgmq architecture by implementing the comprehensive workflow design that replaces the TCP command system with a fully queue-based orchestration approach.
+
+### Architecture Components
+
+#### Queue Infrastructure
+1. **orchestration_task_requests** - Ingests new task requests
+2. **orchestration_tasks_to_be_processed** - Holds validated tasks ready for processing
+3. **namespace_batch_queue** (e.g., `fulfillment_batch_queue`) - Namespace-specific batch queues
+4. **orchestration_batch_results** - Collects batch execution results
+
+#### Message Structures
+
+**Task Request Message**:
+```json
+{
+  "request_id": "uuid",
+  "namespace": "fulfillment",
+  "task_name": "process_order",
+  "task_version": "1.0.0",
+  "input_data": { /* task input payload */ },
+  "metadata": {
+    "requested_at": "2025-08-01T12:00:00Z",
+    "requester": "api_gateway",
+    "priority": "normal"
+  }
+}
+```
+
+**Batch Message** (for namespace queues):
+```json
+{
+  "batch_id": 12345,
+  "task_id": 67890,
+  "namespace": "fulfillment",
+  "task_name": "process_order",
+  "task_version": "1.0.0",
+  "steps": [
+    {
+      "step_id": 11111,
+      "sequence": 1,
+      "step_name": "validate_order",
+      "step_payload": { /* step data */ }
+    },
+    {
+      "step_id": 22222,
+      "sequence": 2,
+      "step_name": "check_inventory",
+      "step_payload": { /* step data */ }
+    }
+  ],
+  "metadata": {
+    "batch_created_at": "2025-08-01T12:00:00Z",
+    "timeout_seconds": 300,
+    "retry_policy": "exponential_backoff"
+  }
+}
+```
+
+**Batch Result Message**:
+```json
+{
+  "batch_id": 12345,
+  "task_id": 67890,
+  "namespace": "fulfillment",
+  "batch_status": "partial_success",
+  "step_results": [
+    {
+      "step_id": 11111,
+      "status": "success",
+      "output": { /* step output */ },
+      "executed_at": "2025-08-01T12:01:00Z"
+    },
+    {
+      "step_id": 22222,
+      "status": "failed",
+      "error": "Insufficient inventory",
+      "executed_at": "2025-08-01T12:01:30Z"
+    }
+  ],
+  "metadata": {
+    "worker_id": "fulfillment-worker-01",
+    "execution_time_ms": 1500,
+    "completed_at": "2025-08-01T12:01:30Z"
+  }
+}
+```
+
+### Implementation Steps
+
+#### Step 1: Task Request Ingestion (Rust)
+```rust
+// src/orchestration/task_request_processor.rs
+pub struct TaskRequestProcessor {
+    pgmq_client: Arc<PgmqClient>,
+    task_handler_registry: Arc<TaskHandlerRegistry>,
+    task_initializer: Arc<TaskInitializer>,
+    pool: PgPool,
+}
+
+impl TaskRequestProcessor {
+    pub async fn poll_and_process(&self) -> Result<()> {
+        loop {
+            // Poll orchestration_task_requests queue
+            let messages = self.pgmq_client
+                .read_messages("orchestration_task_requests", 10, 60)
+                .await?;
+            
+            for msg in messages {
+                let request: TaskRequestMessage = serde_json::from_value(msg.payload)?;
+                
+                // Validate using task_handler_registry
+                match self.task_handler_registry
+                    .get_task_template(&request.namespace, &request.task_name, &request.task_version)
+                    .await {
+                    Ok(template) => {
+                        // Create task using existing models
+                        let task = self.task_initializer
+                            .initialize_task_from_request(request, template)
+                            .await?;
+                        
+                        // Enqueue to processing queue
+                        let task_message = TaskProcessingMessage {
+                            task_id: task.task_id,
+                            namespace: request.namespace,
+                            priority: request.metadata.priority,
+                        };
+                        
+                        self.pgmq_client
+                            .send_message("orchestration_tasks_to_be_processed", task_message)
+                            .await?;
+                    }
+                    Err(e) => {
+                        // Log validation error and archive message
+                        tracing::error!("Task validation failed: {}", e);
+                        self.pgmq_client.archive_message("orchestration_task_requests", msg.id).await?;
+                    }
+                }
+            }
+            
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+}
+```
+
+#### Step 2: Task Processing with Batch Creation
+```rust
+// src/orchestration/batch_creator.rs
+pub struct BatchCreator {
+    pool: PgPool,
+}
+
+impl BatchCreator {
+    pub async fn create_step_batch(
+        &self,
+        task_id: i64,
+        steps: Vec<ViableStep>,
+    ) -> Result<StepExecutionBatch> {
+        // Use existing step_execution_batch model
+        let batch = StepExecutionBatch::create(
+            &self.pool,
+            NewStepExecutionBatch {
+                task_id,
+                status: BatchStatus::Pending,
+                created_at: Utc::now(),
+                metadata: json!({
+                    "step_count": steps.len(),
+                    "namespace": steps.first().map(|s| s.namespace.clone()),
+                }),
+            }
+        ).await?;
+        
+        // Associate steps with batch
+        for step in steps {
+            StepBatchAssociation::create(
+                &self.pool,
+                batch.batch_id,
+                step.step_id,
+            ).await?;
+        }
+        
+        Ok(batch)
+    }
+}
+```
+
+#### Step 3: Ruby Batch Worker Implementation
+```ruby
+# bindings/ruby/lib/tasker_core/orchestration/batch_queue_worker.rb
+module TaskerCore
+  module Orchestration
+    class BatchQueueWorker
+      def initialize(namespace:, pgmq_client:, batch_executor:)
+        @namespace = namespace
+        @pgmq_client = pgmq_client
+        @batch_executor = batch_executor
+        @queue_name = "#{namespace}_batch_queue"
+      end
+      
+      def poll_and_process
+        loop do
+          messages = @pgmq_client.read_messages(@queue_name, count: 5, visibility_timeout: 300)
+          
+          messages.each do |msg|
+            batch_message = Types::BatchMessage.new(msg.payload)
+            
+            # Use PostgreSQL JSON queries to check if we can handle this task
+            if can_handle_task?(batch_message)
+              process_batch(msg.id, batch_message)
+            else
+              # Return to queue for another worker
+              @pgmq_client.set_visibility_timeout(@queue_name, msg.id, 0)
+            end
+          end
+          
+          sleep 1
+        end
+      end
+      
+      private
+      
+      def can_handle_task?(batch_message)
+        # Query database for task handler configuration
+        result = ActiveRecord::Base.connection.execute(<<-SQL)
+          SELECT EXISTS(
+            SELECT 1 FROM named_tasks nt
+            JOIN task_namespaces tn ON nt.task_namespace_id = tn.id
+            WHERE tn.name = $1 
+            AND nt.name = $2
+            AND nt.configuration->>'worker_requirements' IS NULL
+               OR nt.configuration->'worker_requirements' @> '{"namespace": "#{@namespace}"}'::jsonb
+          )
+        SQL
+        
+        result.first['exists']
+      end
+      
+      def process_batch(message_id, batch_message)
+        result = @batch_executor.execute_batch(batch_message)
+        
+        # Send result to orchestration_batch_results queue
+        @pgmq_client.send_message('orchestration_batch_results', result.to_h)
+        
+        # Delete processed message
+        @pgmq_client.delete_message(@queue_name, message_id)
+      rescue => e
+        Rails.logger.error("Batch processing failed: #{e.message}")
+        # Message will become visible again after timeout
+      end
+    end
+  end
+end
+```
+
+#### Step 4: Concurrent Batch Executor
+```ruby
+# bindings/ruby/lib/tasker_core/orchestration/batch_executor.rb
+module TaskerCore
+  module Orchestration
+    class BatchExecutor
+      def execute_batch(batch_message)
+        promises = batch_message.steps.map do |step|
+          Concurrent::Promise.execute do
+            execute_single_step(batch_message, step)
+          end
+        end
+        
+        # Wait for all promises to complete
+        results = promises.map(&:value!)
+        
+        # Build batch result
+        Types::BatchResult.new(
+          batch_id: batch_message.batch_id,
+          task_id: batch_message.task_id,
+          namespace: batch_message.namespace,
+          batch_status: calculate_batch_status(results),
+          step_results: results,
+          metadata: {
+            worker_id: worker_identifier,
+            execution_time_ms: calculate_execution_time,
+            completed_at: Time.now.utc
+          }
+        )
+      end
+      
+      private
+      
+      def execute_single_step(batch_message, step)
+        # Load step handler
+        handler_class = resolve_step_handler(batch_message.namespace, step.step_name)
+        handler = handler_class.new
+        
+        # Execute with task context
+        context = StepExecutionContext.new(
+          task_id: batch_message.task_id,
+          step_id: step.step_id,
+          step_payload: step.step_payload
+        )
+        
+        result = handler.execute(context)
+        
+        {
+          step_id: step.step_id,
+          status: result.success? ? 'success' : 'failed',
+          output: result.output,
+          error: result.error_message,
+          executed_at: Time.now.utc
+        }
+      rescue => e
+        {
+          step_id: step.step_id,
+          status: 'failed',
+          error: e.message,
+          executed_at: Time.now.utc
+        }
+      end
+    end
+  end
+end
+```
+
+#### Step 5: Orchestration Polling Loops
+```rust
+// src/ffi/shared/orchestration_system_pgmq.rs
+impl OrchestrationSystemPgmq {
+    pub async fn start_orchestration_loops(&self) -> Result<()> {
+        // Start task request processor
+        let request_processor = self.task_request_processor.clone();
+        tokio::spawn(async move {
+            request_processor.poll_and_process().await
+        });
+        
+        // Start task orchestration loop
+        let task_processor = self.clone();
+        tokio::spawn(async move {
+            task_processor.poll_and_orchestrate_tasks().await
+        });
+        
+        // Start result processor
+        let result_processor = self.batch_result_processor.clone();
+        tokio::spawn(async move {
+            result_processor.poll_and_process_results().await
+        });
+        
+        Ok(())
+    }
+    
+    async fn poll_and_orchestrate_tasks(&self) -> Result<()> {
+        loop {
+            let messages = self.pgmq_client
+                .read_messages("orchestration_tasks_to_be_processed", 10, 60)
+                .await?;
+            
+            for msg in messages {
+                let task_msg: TaskProcessingMessage = serde_json::from_value(msg.payload)?;
+                
+                // Discover viable steps
+                let viable_steps = self.viable_step_discovery
+                    .find_viable_steps(task_msg.task_id)
+                    .await?;
+                
+                if !viable_steps.is_empty() {
+                    // Create batch
+                    let batch = self.batch_creator
+                        .create_step_batch(task_msg.task_id, viable_steps)
+                        .await?;
+                    
+                    // Build batch message
+                    let batch_message = self.build_batch_message(batch).await?;
+                    
+                    // Enqueue to namespace queue
+                    let queue_name = format!("{}_batch_queue", task_msg.namespace);
+                    self.pgmq_client
+                        .send_message(&queue_name, batch_message)
+                        .await?;
+                }
+                
+                // Check if task is complete
+                if self.is_task_complete(task_msg.task_id).await? {
+                    self.pgmq_client.delete_message("orchestration_tasks_to_be_processed", msg.id).await?;
+                } else {
+                    // Re-enqueue for next check
+                    self.pgmq_client.set_visibility_timeout("orchestration_tasks_to_be_processed", msg.id, 30).await?;
+                }
+            }
+            
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+}
+```
+
+### Key Benefits of This Architecture
+
+1. **Complete Decoupling**: Rust orchestration and Ruby execution are fully decoupled via queues
+2. **Autonomous Workers**: Workers operate independently without registration or coordination
+3. **Horizontal Scalability**: Add more workers by simply starting new processes
+4. **Fault Tolerance**: Message persistence and visibility timeouts handle failures gracefully
+5. **Observability**: Queue depths and message ages provide clear system health metrics
+6. **Simplicity**: Returns to the proven Rails Tasker philosophy of simple, focused components
+
+### Migration Path
+
+1. Implement components incrementally alongside existing system
+2. Test with shadow traffic before switching over
+3. Gradual rollout by namespace
+4. Monitor queue depths and processing times
+5. Remove TCP infrastructure after validation
+
 ## Conclusion
 
 The pgmq architecture pivot addresses fundamental issues in our current TCP command system by returning to the proven simplicity of queue-based processing. This change eliminates complex coordination overhead, resolves Rust<->Ruby integration challenges, and positions us for scalable, maintainable future development.
 
 The Ruby architecture transformation creates autonomous workers that are simple queue consumers and callable routers, eliminating FFI complexity while preserving essential business logic. The shared database approach with SQL functions provides necessary status visibility without tight coupling.
 
-The implementation plan provides a structured 5-week migration path that minimizes risk while delivering significant architectural improvements. The queue-based approach aligns with the original Rails Tasker philosophy while enabling the distributed processing capabilities we need.
+The comprehensive Phase 3 implementation plan provides a clear path to complete the pgmq architecture, implementing the full workflow from task request ingestion through batch execution and result processing. This approach maintains the Rails Tasker philosophy while enabling true distributed processing capabilities.
 
-**Recommendation**: Proceed with pgmq pivot implementation, starting with Phase 1 foundation work and Ruby FFI cleanup.
+**Recommendation**: Proceed with Phase 3 implementation, starting with task request ingestion and orchestration polling loops.

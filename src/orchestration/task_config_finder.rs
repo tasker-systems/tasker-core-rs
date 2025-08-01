@@ -116,7 +116,7 @@ impl TaskConfigFinder {
         version: &str,
     ) -> OrchestrationResult<TaskTemplate> {
         // Try to get the template from registry
-        match self.registry.get_task_template(namespace, name, version) {
+        match self.registry.get_task_template(namespace, name, version).await {
             Ok(template) => {
                 debug!(
                     namespace = namespace,
@@ -231,29 +231,6 @@ impl TaskConfigFinder {
         PathBuf::from("config").join(task_config_dir)
     }
 
-    /// Check if a template exists in the registry
-    pub fn has_registry_template(&self, namespace: &str, name: &str, version: &str) -> bool {
-        self.registry.has_task_template(namespace, name, version)
-    }
-
-    /// Get all available templates from registry
-    pub fn list_registry_templates(
-        &self,
-        namespace: Option<&str>,
-    ) -> OrchestrationResult<Vec<String>> {
-        self.registry.list_task_templates(namespace).map_err(|e| {
-            OrchestrationError::ConfigurationError {
-                source: "TaskConfigFinder".to_string(),
-                reason: format!("Failed to list registry templates: {e}"),
-            }
-        })
-    }
-
-    /// Clear any cached configurations (useful for testing)
-    pub async fn clear_cache(&self) -> OrchestrationResult<()> {
-        // If we add caching later, this is where we'd clear it
-        Ok(())
-    }
 
     /// Convert config::TaskTemplate to models::core::task_template::TaskTemplate
     fn convert_config_template_to_model(

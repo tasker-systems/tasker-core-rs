@@ -5,6 +5,8 @@
 
 pub mod pgmq_client;
 pub mod message;
+pub mod orchestration_messages;
 
 pub use pgmq_client::*;
-pub use message::*;
+pub use message::{StepMessage, StepMessageMetadata};
+pub use orchestration_messages::*;
