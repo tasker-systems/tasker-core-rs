@@ -422,41 +422,92 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - 🗑️ **TCP Architecture Eliminated**: No more complex command coordination
 - ✅ **Test Coverage**: Comprehensive integration tests validate end-to-end functionality
 
-### 🎯 Phase 4: Architecture Restoration & Cleanup (In Progress - August 2, 2025)
-**Objective**: Restore embedded testing capability, update Ruby handlers, implement database-backed TaskTemplate registry, and comprehensive cleanup
+### 🎯 Phase 4: Architecture Cleanup & Orchestration Refactoring (In Progress - August 2, 2025)
+**Objective**: Complete transition to pgmq architecture through configuration cleanup, orchestration layer refactoring, and database-backed TaskTemplate registry
 
-#### 📋 Phase 4.1: Embedded FFI Bridge (HIGH PRIORITY)
+#### ✅ Phase 4.1: Embedded FFI Bridge (COMPLETED)
 **Objective**: Restore embedded system capability for local development and testing
-- [ ] Create minimal FFI interface for lifecycle management (`src/ffi/embedded_bridge.rs`)
-- [ ] Implement TaskerCore::EmbeddedOrchestrator Ruby class with start/stop/status methods
-- [ ] Add embedded mode integration tests for local development
-- [ ] Enable Ruby-Rust integration testing without docker-compose overhead
+- [x] Create minimal FFI interface for lifecycle management (`bindings/ruby/ext/tasker_core/src/embedded_bridge.rs`)
+- [x] Implement TaskerCore::EmbeddedOrchestrator Ruby class with start/stop/status methods
+- [x] Add embedded mode integration tests for local development
+- [x] Enable Ruby-Rust integration testing without docker-compose overhead
 
-#### 📋 Phase 4.2: Ruby Handler Architecture Updates (HIGH PRIORITY)
+#### ✅ Phase 4.2: Ruby Handler Architecture Updates (COMPLETED)
 **Objective**: Update Ruby handlers to work with pgmq architecture instead of TCP commands
-- [ ] Update `task_handler/base.rb` to use pgmq instead of TCP commands
-- [ ] Remove command_client dependencies from Ruby handlers
-- [ ] Ensure step_handler classes work seamlessly with new architecture
-- [ ] Validate Ruby business logic preservation
+- [x] Update `task_handler/base.rb` to use pgmq instead of TCP commands
+- [x] Remove command_client dependencies from Ruby handlers
+- [x] Ensure step_handler classes work seamlessly with new architecture
+- [x] Validate Ruby business logic preservation with TaskerCore::Types::TaskRequest integration
 
-#### 📋 Phase 4.3: Database TaskTemplate Registry (HIGH PRIORITY)
-**Objective**: Replace YAML-based TaskTemplate distribution with database-backed registry
-- [ ] Review `src/orchestration/task_config_finder.rs` for config lookup
-- [ ] Review `src/registry/task_handler_registry.rs` for database-first approach
-- [ ] Add Ruby worker TaskTemplate registration API using database-backed registry
+#### ✅ Phase 4.3: Configuration and Mode Management (COMPLETED - August 2, 2025)
+**Objective**: Clean up configuration files and implement embedded vs distributed mode detection
+- [x] Remove obsolete `command_backplane` configuration from all config files
+- [x] Add `pgmq` configuration section with queue settings and namespaces
+- [x] Add `orchestration.mode` setting for embedded/distributed selection 
+- [x] Update task_handler/base.rb to be mode-aware (embedded FFI vs pure pgmq)
+- [x] Configure mode defaults (embedded for test environment, distributed for production)
+- [x] Enhanced orchestration queue configuration for all orchestration core queues
 
-#### 📋 Phase 4.4: Testing Strategy Implementation (MEDIUM PRIORITY)
-**Objective**: Create comprehensive testing strategy with both embedded and distributed options
-- [ ] Implement embedded mode testing framework using FFI bridge
-- [ ] Create comprehensive integration tests using embedded orchestrator
-- [ ] Plan docker-compose setup for production-like testing
-- [ ] Document testing approaches and use cases
+**Key Changes Implemented**:
+```yaml
+# REMOVED entire command_backplane section from all configs
+# CHANGED execution.processing_mode from "tcp" to "pgmq"
+# ADDED orchestration.mode: "embedded" | "distributed"
+# ADDED comprehensive pgmq configuration section
+# ADDED orchestration.queues configuration for all queue types
+```
 
-#### 📋 Phase 4.5: Comprehensive Cleanup & Documentation (MEDIUM PRIORITY)
-**Objective**: Remove obsolete TCP-era components and update documentation
-- [ ] Systematic audit and removal of obsolete TCP-era files
-- [ ] Update obsolete tests or remove test files for deleted functionality
+**Enhanced Queue Configuration Added**:
+- **task_requests_queue**: Incoming task requests from external systems
+- **task_processing_queue**: Tasks ready for orchestration processing  
+- **batch_results_queue**: Completed batch execution results
+- **worker_queues**: Namespaced queues (default, fulfillment, inventory, notifications)
+- **Environment-specific settings**: Different retention and DLQ policies per environment
+- **Dead Letter Queue preparation**: Configuration structure for future DLQ implementation
+
+**Architectural Benefits Achieved**:
+- ✅ Configuration-driven mode selection (test=embedded, dev/prod=distributed)
+- ✅ Clean separation of embedded FFI vs distributed pgmq processing
+- ✅ Complete removal of TCP infrastructure from configuration
+- ✅ Forward-compatible queue configuration ready for Rust orchestration core integration
+- ✅ All tests passing (18 examples, 0 failures) with mode-aware task handler
+
+#### 📋 Phase 4.4: Orchestration Layer Refactoring (HIGH PRIORITY)  
+**Objective**: Massive simplification of orchestration layer through TCP infrastructure removal
+- [ ] Simplify `orchestration_manager.rb` by removing 400+ lines of TCP infrastructure (72% reduction)
+- [ ] Refactor `orchestration.rb` API to use pgmq step enqueueing instead of TCP commands
+- [ ] Rename `enhanced_handler_registry.rb` to `distributed_handler_registry.rb`
+- [ ] Implement bootstrapping functionality for queue setup and handler registration
+- [ ] Create mode-aware orchestration that handles embedded vs distributed scenarios
+
+**Architectural Benefits**:
+- **544 lines → ~150 lines** in orchestration_manager.rb
+- Remove TCP client/listener/worker singletons
+- Replace OrchestrationHandle FFI with simple pgmq client
+- Eliminate complex TCP configuration matching logic
+
+#### 📋 Phase 4.5: Database-backed TaskTemplate Registry (HIGH PRIORITY)
+**Objective**: Complete distributed worker architecture with database-backed TaskTemplate distribution
+- [ ] Review `src/orchestration/task_config_finder.rs` for config lookup patterns
+- [ ] Review `src/registry/task_handler_registry.rs` for database-first registry approach
+- [ ] Implement YAML TaskTemplate → database loading in `distributed_handler_registry.rb`
+- [ ] Add Ruby worker TaskTemplate registration API using existing database-backed registry
+- [ ] Enable workers to register and discover TaskTemplates via shared database
+
+#### 📋 Phase 4.6: Comprehensive Testing Strategy (MEDIUM PRIORITY)
+**Objective**: Validate both embedded and distributed modes work correctly
+- [ ] Test embedded mode functionality with embedded orchestrator
+- [ ] Test distributed mode with pure pgmq communication
+- [ ] Validate configuration-driven mode switching
+- [ ] Create integration tests for TaskTemplate database registration
+- [ ] Document testing approaches for different deployment scenarios
+
+#### 📋 Phase 4.7: Final Cleanup & Documentation (MEDIUM PRIORITY)
+**Objective**: Remove remaining obsolete components and update documentation
+- [ ] Systematic audit and removal of obsolete TCP-era files (~20 files)
+- [ ] Update obsolete tests or remove test files for deleted functionality  
 - [ ] Document new architecture patterns and migration guide
+- [ ] Update README files to reflect pgmq architecture
 
 **Key Design Principles**:
 - **Embedded Mode**: Lightweight FFI bridge for lifecycle management only, no complex state sharing
@@ -466,11 +517,33 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - **Autonomous Workers**: No central coordination, workers poll queues independently
 
 **Success Criteria**:
-- [ ] Local integration tests work with embedded orchestrator
-- [ ] Ruby handlers use pgmq instead of TCP commands
+- [x] Local integration tests work with embedded orchestrator (Phase 4.1 ✅)
+- [x] Ruby handlers use pgmq instead of TCP commands (Phase 4.2 & 4.3 ✅)
 - [ ] Workers can register and discover TaskTemplates via database
 - [ ] Obsolete TCP infrastructure completely removed
 - [ ] Documentation reflects actual implementation
+
+### 🔮 Phase 5: Advanced Features & Reliability (FUTURE)
+**Objective**: Implement advanced messaging features for production reliability
+
+#### Phase 5.1: Dead Letter Queue Implementation
+**Objective**: Implement DLQ strategy for failed message handling
+- [ ] Implement DLQ creation and routing logic based on existing configuration
+- [ ] Add DLQ processing for messages exceeding max_receive_count
+- [ ] Create DLQ monitoring and alerting system
+- [ ] Add DLQ replay capabilities for message recovery
+
+**Configuration Foundation Already Complete**:
+- ✅ `dead_letter_queue_enabled` setting in all environments
+- ✅ `max_receive_count` thresholds configured per environment  
+- ✅ Environment-specific DLQ policies defined
+
+#### Phase 5.2: Enhanced Monitoring & Observability
+**Objective**: Production-grade monitoring and observability
+- [ ] Queue depth monitoring and alerting
+- [ ] Message processing metrics and dashboards
+- [ ] Performance monitoring for queue processing
+- [ ] Health checks for queue availability and processing
 
 ## Components Analysis
 

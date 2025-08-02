@@ -41,7 +41,7 @@ require_relative 'tasker_core/logging/logger'            # Logging system
 require_relative 'tasker_core/config'                    # Configuration management system
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
-require_relative 'tasker_core/orchestration/orchestration_manager'     # Singleton orchestration manager
+require_relative 'tasker_core/internal/orchestration_manager'     # Singleton orchestration manager
 
 # 🎯 Clean Domain APIs - Ruby-idiomatic interfaces with handle-based optimization
 #
@@ -200,10 +200,10 @@ module TaskerCore
   # Direct access to internal components - maintained for transition period
   # New development should use domain APIs instead (e.g., TaskerCore::Orchestration, TaskerCore::Testing)
   module Internal
-    autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
+    autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
   end
 
   # Legacy direct aliases - deprecated, use TaskerCore::Internal instead
   # These use autoload to match the Internal module pattern
-  autoload :OrchestrationManager, 'tasker_core/orchestration/orchestration_manager'
+  autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
 end

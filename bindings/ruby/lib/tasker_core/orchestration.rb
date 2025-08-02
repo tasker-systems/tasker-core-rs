@@ -1,46 +1,39 @@
 # frozen_string_literal: true
 
-require_relative 'orchestration/enhanced_handler_registry'
-require_relative 'orchestration/orchestration_manager'
+require_relative 'internal/distributed_handler_registry'
+require_relative 'internal/orchestration_manager'
 
 module TaskerCore
-  # Domain module for orchestration operations with singleton handle management
+  # Domain module for orchestration operations with pgmq-based architecture
   #
   # This module provides a clean, Ruby-idiomatic API for workflow orchestration
-  # while internally managing a persistent OrchestrationHandle for optimal performance.
+  # using PostgreSQL message queues (pgmq) for reliable step enqueueing and processing.
   #
   # Examples:
-  #   result = TaskerCore::Orchestration.execute_workflow(task_id: 123)
   #   health = TaskerCore::Orchestration.health_check
-  #   batch = TaskerCore::Orchestration.execute_batch(steps: [...])
+  #   TaskerCore::Orchestration.bootstrap_queues
   module Orchestration
     class << self
-      # Execute a batch of workflow steps
-      # @param steps [Array<Hash>] Array of step execution requests
-      # @param namespace [String] Namespace for step execution (default: "default")
-      # @return [Hash] Batch execution result
-      # @raise [TaskerCore::Error] If batch execution fails
-      def execute_batch(steps:, namespace: "default")
-        # Convert steps to proper format if needed
-        formatted_steps = steps.map do |step|
-          step.is_a?(Hash) ? step : step.to_h
-        end
-
-        Internal::OrchestrationManager.instance.execute_batch_with_handle(
-          steps: formatted_steps,
-          namespace: namespace
-        )
-      rescue => e
-        raise TaskerCore::Error, "Failed to execute batch: #{e.message}"
-      end
-
       # Perform orchestration health check
       # @return [Hash] Health status and metrics
       def health_check
-        Internal::OrchestrationManager.instance.orchestration_health_check
+        manager = Internal::OrchestrationManager.instance
+        info = manager.info
+
+        {
+          'status' => info[:status] == 'initialized' ? 'healthy' : 'unhealthy',
+          'architecture' => 'pgmq',
+          'mode' => info[:mode],
+          'initialized' => info[:initialized],
+          'pgmq_available' => info[:pgmq_available],
+          'embedded_orchestrator_available' => info[:embedded_orchestrator_available],
+          'queues_initialized' => info[:queues_initialized],
+          'checked_at' => Time.now.utc.iso8601
+        }
       rescue => e
         {
           'status' => 'unhealthy',
+          'architecture' => 'pgmq',
           'error' => e.message,
           'checked_at' => Time.now.utc.iso8601
         }
@@ -50,12 +43,12 @@ module TaskerCore
       # @return [Hash] Health status and metadata
       def health
         health_result = health_check
-        handle_status = handle_info
 
         {
           'health_status' => health_result['status'] || 'unknown',
           'domain' => 'Orchestration',
-          'handle_status' => handle_status['status'],
+          'architecture' => 'pgmq',
+          'mode' => health_result['mode'],
           'metrics' => health_result,
           'checked_at' => Time.now.utc.iso8601
         }
@@ -63,39 +56,66 @@ module TaskerCore
 
       # Get information about the Orchestration domain for debugging
       # @return [Hash] Domain status and metadata
-      def handle_info
-        info = handle.info
-        # Handle OrchestrationHandleInfo object
-        base_info = if info.is_a?(Hash)
-          info
-        else
-          {
-            'handle_id' => "shared_orchestration_handle",
-            'status' => 'operational',
-            'handle_type' => 'orchestration_handle',
-            'created_at' => Time.now.utc.iso8601
-          }
+      def info
+        manager = Internal::OrchestrationManager.instance
+        manager_info = manager.info
+
+        base_info = {
+          'domain' => 'Orchestration',
+          'architecture' => 'pgmq',
+          'mode' => manager_info[:mode],
+          'status' => manager_info[:status],
+          'initialized' => manager_info[:initialized],
+          'initialized_at' => manager_info[:initialized_at]&.iso8601,
+          'available_methods' => %w[health_check bootstrap_queues info]
+        }
+
+        base_info.merge(manager_info.transform_keys(&:to_s))
+      rescue => e
+        { 'error' => e.message, 'status' => "unavailable", 'domain' => "Orchestration", 'architecture' => 'pgmq' }
+      end
+
+      # Bootstrap orchestration queues based on configuration
+      # @return [Hash] Bootstrap operation result
+      def bootstrap_queues
+        logger.info "🗂️ Bootstrapping orchestration queues"
+
+        manager = Internal::OrchestrationManager.instance
+        unless manager.initialized?
+          manager.bootstrap_orchestration_system
         end
 
-        base_info.merge(
-          'domain' => 'Orchestration',
-          'available_methods' => %w[execute_workflow execute_batch health_check]
-        )
+        {
+          'status' => 'success',
+          'message' => 'Orchestration system bootstrapped',
+          'queues_initialized' => manager.info[:queues_initialized],
+          'bootstrapped_at' => Time.now.utc.iso8601
+        }
       rescue => e
-        { 'error' => e.message, 'status' => "unavailable", 'domain' => "Orchestration" }
+        logger.error "❌ Failed to bootstrap queues: #{e.message}"
+        {
+          'status' => 'error',
+          'error' => e.message,
+          'bootstrapped_at' => Time.now.utc.iso8601
+        }
+      end
+
+      # Get current orchestration mode
+      # @return [String] Current orchestration mode ('embedded' or 'distributed')
+      def orchestration_mode
+        Internal::OrchestrationManager.instance.orchestration_mode
       end
 
       private
 
-      # Get orchestration handle with automatic refresh
-      # @return [OrchestrationHandle] Active handle instance
-      def handle
-        TaskerCore::Internal::OrchestrationManager.instance.orchestration_handle
+      # Get logger instance
+      def logger
+        TaskerCore::Logging::Logger.instance
       end
     end
 
     # Provide access to internal orchestration components for backward compatibility
     Manager = Internal::OrchestrationManager
-    HandlerRegistry = EnhancedHandlerRegistry
+    HandlerRegistry = DistributedHandlerRegistry
   end
 end

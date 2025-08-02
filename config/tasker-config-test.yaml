@@ -63,7 +63,7 @@ backoff:
 
 execution:
   environment: "test"           # Required environment field
-  processing_mode: "tcp"
+  processing_mode: "pgmq"
   max_concurrent_tasks: 10    # Reduced for test environment
   max_concurrent_steps: 50    # Reduced for test environment
   default_timeout_seconds: 300  # Reduced for faster tests
@@ -106,17 +106,69 @@ query_cache:
   cleanup_interval_seconds: 10   # Clean expired entries every 10 seconds
   memory_pressure_threshold: 0.5 # Clear cache at 50% to ensure fresh data
 
-command_backplane:
-  socket_type: "tcp"
-  core:
-    host: "127.0.0.1"
-    port: 8555
-    timeout: 30
-    connect_timeout: 5
-    read_timeout: 10
-  worker:
-    host: "127.0.0.1"
-    port: 8556
-    timeout: 30
-    connect_timeout: 5
-    read_timeout: 10
+# pgmq configuration for PostgreSQL message queue orchestration
+pgmq:
+  poll_interval_seconds: 1        # Fast polling for test environment
+  visibility_timeout_seconds: 30   # Standard visibility timeout
+  batch_size: 5                    # Small batches for test predictability
+  max_retries: 3                   # Standard retry limit
+  default_namespaces:
+    - default
+    - fulfillment
+    - inventory
+    - notifications
+  queue_naming_pattern: "{namespace}_queue"
+
+# orchestration mode configuration
+orchestration:
+  mode: "embedded"                 # Use embedded mode for tests
+  
+  # Queue configuration for orchestration core
+  queues:
+    # Task request queue - handles incoming task requests from external systems
+    task_requests: "task_requests_queue"
+    
+    # Task processing queue - holds tasks ready for orchestration processing
+    task_processing: "task_processing_queue"
+    
+    # Batch results queue - collects completed batch execution results
+    batch_results: "batch_results_queue"
+    
+    # Namespaced worker queues - workers poll these for step batches
+    worker_queues:
+      default: "default_queue"
+      fulfillment: "fulfillment_queue"
+      inventory: "inventory_queue"
+      notifications: "notifications_queue"
+    
+    # Queue configuration parameters (test settings - fast processing)
+    settings:
+      visibility_timeout_seconds: 30
+      message_retention_seconds: 3600    # 1 hour for tests
+      dead_letter_queue_enabled: false   # Disable for cleaner test environment
+      max_receive_count: 1               # Fail fast in tests
+  
+  embedded_orchestrator:
+    auto_start: true               # Auto-start embedded orchestrator in tests
+    namespaces: ["default", "fulfillment", "inventory", "notifications"]
+    shutdown_timeout_seconds: 5   # Quick shutdown for tests
+
+# TaskTemplate discovery configuration
+task_templates:
+  search_paths:
+    test:
+      - "spec/handlers/examples/**/config/*.{yml,yaml}"
+      - "spec/fixtures/task_templates/*.{yml,yaml}"
+    development:
+      - "config/tasks/*.{yml,yaml}"
+      - "config/tasker/tasks/*.{yml,yaml}"
+      - "lib/tasks/*.{yml,yaml}"
+    production:
+      - "config/tasks/*.{yml,yaml}"
+      - "config/tasker/tasks/*.{yml,yaml}"
+  
+  # Registry configuration
+  registry:
+    auto_register: true           # Auto-register discovered templates
+    validate_on_load: true        # Validate templates when loading
+    fail_on_invalid: false        # Continue loading even if some templates are invalid
