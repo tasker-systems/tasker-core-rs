@@ -16,8 +16,8 @@ use tracing::{debug, info};
 
 use crate::config::QueryCacheConfig;
 use crate::database::sql_functions::{
-    SqlFunctionExecutor, ActiveWorkerResult, WorkerHealthResult, 
-    OptimalWorkerResult, WorkerPoolStatistics
+    ActiveWorkerResult, OptimalWorkerResult, SqlFunctionExecutor, WorkerHealthResult,
+    WorkerPoolStatistics,
 };
 
 /// Query result cache for frequently accessed data
@@ -75,30 +75,30 @@ pub struct OptimizedWorkerQueries {
 
 // Legacy structs removed - now using optimized SQL function result types:
 // - ActiveWorkerResult (from sql_functions.rs)
-// - WorkerHealthResult (from sql_functions.rs) 
+// - WorkerHealthResult (from sql_functions.rs)
 // - OptimalWorkerResult (from sql_functions.rs)
 // - WorkerPoolStatistics (from sql_functions.rs)
 
 impl OptimizedWorkerQueries {
     pub fn new(pool: PgPool) -> Self {
         let config = QueryCacheConfig::from_environment();
-        
+
         // Log configuration for debugging
         info!("Initializing OptimizedWorkerQueries with environment-specific cache configuration");
         config.log_configuration();
-        
+
         Self {
             sql_executor: SqlFunctionExecutor::new(pool),
             active_workers_cache: QueryResultCache::new(config.active_workers.ttl_seconds),
             worker_health_cache: QueryResultCache::new(config.worker_health.ttl_seconds),
         }
     }
-    
+
     /// Create with explicit configuration (useful for testing)
     pub fn new_with_config(pool: PgPool, config: QueryCacheConfig) -> Self {
         info!("Initializing OptimizedWorkerQueries with explicit cache configuration");
         config.log_configuration();
-        
+
         Self {
             sql_executor: SqlFunctionExecutor::new(pool),
             active_workers_cache: QueryResultCache::new(config.active_workers.ttl_seconds),
@@ -107,7 +107,7 @@ impl OptimizedWorkerQueries {
     }
 
     /// **OPTIMIZED**: Find active workers using SQL function with environment-aware caching
-    /// 
+    ///
     /// Performance improvements:
     /// - Environment-aware result caching (1s in test, 10s in dev, 30s in prod)
     /// - Pre-computed SQL function with optimized query plan
@@ -128,7 +128,8 @@ impl OptimizedWorkerQueries {
         let start_time = Instant::now();
 
         // Use optimized SQL function with pre-computed query plan
-        let active_workers = self.sql_executor
+        let active_workers = self
+            .sql_executor
             .find_active_workers_for_task(named_task_id)
             .await?;
 
@@ -149,7 +150,7 @@ impl OptimizedWorkerQueries {
     }
 
     /// **OPTIMIZED**: Batch worker health check using SQL function
-    /// 
+    ///
     /// Returns comprehensive worker health information using optimized database function
     pub async fn get_worker_health_batch(
         &self,
@@ -163,14 +164,18 @@ impl OptimizedWorkerQueries {
 
         // Check cache first
         if let Some(cached_result) = self.worker_health_cache.get(&cache_key).await {
-            debug!("Returning cached worker health for {} workers", worker_ids.len());
+            debug!(
+                "Returning cached worker health for {} workers",
+                worker_ids.len()
+            );
             return Ok(cached_result);
         }
 
         let start_time = Instant::now();
 
         // Use optimized SQL function
-        let health_status = self.sql_executor
+        let health_status = self
+            .sql_executor
             .get_worker_health_batch(worker_ids)
             .await?;
 
@@ -190,7 +195,7 @@ impl OptimizedWorkerQueries {
     }
 
     /// **OPTIMIZED**: Intelligent worker selection using SQL function
-    /// 
+    ///
     /// Uses pre-computed SQL function with comprehensive scoring algorithm
     pub async fn select_optimal_worker_for_task(
         &self,
@@ -200,7 +205,8 @@ impl OptimizedWorkerQueries {
         let start_time = Instant::now();
 
         // Use optimized SQL function
-        let optimal_worker = self.sql_executor
+        let optimal_worker = self
+            .sql_executor
             .select_optimal_worker_for_task(named_task_id, Some(required_capacity))
             .await?;
 
@@ -225,11 +231,15 @@ impl OptimizedWorkerQueries {
     }
 
     /// **OPTIMIZED**: Cache invalidation using SQL function coordination
-    /// 
+    ///
     /// Uses SQL function to coordinate cache invalidation with database-level triggers
-    pub async fn invalidate_worker_caches(&self, named_task_id: Option<i32>) -> Result<bool, sqlx::Error> {
+    pub async fn invalidate_worker_caches(
+        &self,
+        named_task_id: Option<i32>,
+    ) -> Result<bool, sqlx::Error> {
         // Use SQL function for coordinated cache invalidation
-        let sql_result = self.sql_executor
+        let sql_result = self
+            .sql_executor
             .invalidate_worker_cache(named_task_id)
             .await?;
 
@@ -241,7 +251,7 @@ impl OptimizedWorkerQueries {
             // Clear all caches if no specific task provided
             self.active_workers_cache.clear().await;
         }
-        
+
         // Always clear health cache as it's more volatile
         self.worker_health_cache.clear().await;
 
@@ -249,21 +259,21 @@ impl OptimizedWorkerQueries {
     }
 
     /// **NEW**: Get comprehensive worker pool statistics using SQL function
-    /// 
+    ///
     /// Provides detailed worker pool metrics for monitoring and health assessment
     pub async fn get_worker_pool_statistics(&self) -> Result<WorkerPoolStatistics, sqlx::Error> {
         self.sql_executor.get_worker_pool_statistics().await
     }
 
     /// Get database connection pool statistics for monitoring
-    /// 
+    ///
     /// Note: This accesses pool statistics through a helper method since
     /// SqlFunctionExecutor doesn't expose the pool directly
     pub async fn get_pool_statistics(&self) -> Result<PoolStatistics, sqlx::Error> {
         // For now, return basic statistics - could be enhanced with a pool accessor method
         Ok(PoolStatistics {
-            size: 0,      // Would need pool accessor to get actual values
-            num_idle: 0,  // Would need pool accessor to get actual values  
+            size: 0,     // Would need pool accessor to get actual values
+            num_idle: 0, // Would need pool accessor to get actual values
             is_closed: false,
         })
     }
@@ -277,10 +287,10 @@ pub struct PoolStatistics {
 }
 
 // Database indexes and SQL functions for optimal performance
-// 
+//
 // **MIGRATION IMPLEMENTED**: All recommended indexes and optimized SQL functions
 // have been implemented in migration: `20250729000001_create_optimized_worker_query_functions.sql`
-// 
+//
 // The migration includes:
 // - Strategic database indexes for optimal query performance
 // - Pre-computed SQL functions with optimized query plans:
@@ -289,5 +299,5 @@ pub struct PoolStatistics {
 //   - `select_optimal_worker_for_task(p_named_task_id INTEGER, p_required_capacity INTEGER)`
 //   - `get_worker_pool_statistics()`
 //   - `invalidate_worker_cache(p_named_task_id INTEGER)`
-// 
+//
 // Run migration: `cargo sqlx migrate run` to apply these optimizations.

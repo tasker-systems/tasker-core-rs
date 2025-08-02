@@ -68,22 +68,22 @@ impl QueryCacheConfig {
         Self {
             enabled: true,
             active_workers: CacheTypeConfig {
-                ttl_seconds: 1,  // 1 second for rapid test feedback
+                ttl_seconds: 1, // 1 second for rapid test feedback
                 max_entries: 100,
             },
             worker_health: CacheTypeConfig {
-                ttl_seconds: 1,  // 1 second for rapid test feedback
+                ttl_seconds: 1, // 1 second for rapid test feedback
                 max_entries: 50,
             },
             task_metadata: CacheTypeConfig {
-                ttl_seconds: 5,  // 5 seconds for tests
+                ttl_seconds: 5, // 5 seconds for tests
                 max_entries: 200,
             },
             handler_metadata: CacheTypeConfig {
                 ttl_seconds: 10, // 10 seconds for tests
                 max_entries: 20,
             },
-            cleanup_interval_seconds: 10,  // Aggressive cleanup
+            cleanup_interval_seconds: 10,   // Aggressive cleanup
             memory_pressure_threshold: 0.5, // Clear more aggressively
         }
     }
@@ -97,7 +97,7 @@ impl QueryCacheConfig {
                 max_entries: 500,
             },
             worker_health: CacheTypeConfig {
-                ttl_seconds: 5,  // 5 seconds for development
+                ttl_seconds: 5, // 5 seconds for development
                 max_entries: 200,
             },
             task_metadata: CacheTypeConfig {
@@ -108,7 +108,7 @@ impl QueryCacheConfig {
                 ttl_seconds: 120, // 2 minutes for development
                 max_entries: 50,
             },
-            cleanup_interval_seconds: 60,   // Moderate cleanup
+            cleanup_interval_seconds: 60, // Moderate cleanup
             memory_pressure_threshold: 0.7,
         }
     }
@@ -196,16 +196,27 @@ impl QueryCacheConfig {
     pub fn log_configuration(&self) {
         info!("Query Cache Configuration:");
         info!("  Enabled: {}", self.enabled);
-        info!("  Active Workers: {}s TTL, {} max entries", 
-              self.active_workers.ttl_seconds, self.active_workers.max_entries);
-        info!("  Worker Health: {}s TTL, {} max entries", 
-              self.worker_health.ttl_seconds, self.worker_health.max_entries);
-        info!("  Task Metadata: {}s TTL, {} max entries", 
-              self.task_metadata.ttl_seconds, self.task_metadata.max_entries);
-        info!("  Handler Metadata: {}s TTL, {} max entries", 
-              self.handler_metadata.ttl_seconds, self.handler_metadata.max_entries);
+        info!(
+            "  Active Workers: {}s TTL, {} max entries",
+            self.active_workers.ttl_seconds, self.active_workers.max_entries
+        );
+        info!(
+            "  Worker Health: {}s TTL, {} max entries",
+            self.worker_health.ttl_seconds, self.worker_health.max_entries
+        );
+        info!(
+            "  Task Metadata: {}s TTL, {} max entries",
+            self.task_metadata.ttl_seconds, self.task_metadata.max_entries
+        );
+        info!(
+            "  Handler Metadata: {}s TTL, {} max entries",
+            self.handler_metadata.ttl_seconds, self.handler_metadata.max_entries
+        );
         info!("  Cleanup Interval: {}s", self.cleanup_interval_seconds);
-        info!("  Memory Pressure Threshold: {:.1}%", self.memory_pressure_threshold * 100.0);
+        info!(
+            "  Memory Pressure Threshold: {:.1}%",
+            self.memory_pressure_threshold * 100.0
+        );
     }
 
     /// Validate configuration values
@@ -254,7 +265,7 @@ impl QueryCacheConfigLoader {
         // For now, return environment-based config since we don't have a YAML parser
         // In the future, this could use serde_yaml to parse the actual files
         let config = QueryCacheConfig::from_environment();
-        
+
         // Validate the configuration
         config.validate()?;
         config.log_configuration();

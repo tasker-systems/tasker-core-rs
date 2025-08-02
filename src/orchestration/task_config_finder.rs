@@ -116,7 +116,11 @@ impl TaskConfigFinder {
         version: &str,
     ) -> OrchestrationResult<TaskTemplate> {
         // Try to get the template from registry
-        match self.registry.get_task_template(namespace, name, version).await {
+        match self
+            .registry
+            .get_task_template(namespace, name, version)
+            .await
+        {
             Ok(template) => {
                 debug!(
                     namespace = namespace,
@@ -230,7 +234,6 @@ impl TaskConfigFinder {
         // Build path relative to config directory
         PathBuf::from("config").join(task_config_dir)
     }
-
 
     /// Convert config::TaskTemplate to models::core::task_template::TaskTemplate
     fn convert_config_template_to_model(

@@ -660,7 +660,8 @@ impl WorkflowCoordinator {
         task_id: i64,
         steps: Vec<ViableStep>,
     ) -> OrchestrationResult<Vec<StepResult>> {
-        self.execute_step_batch_pgmq(task_id, steps, &self.pgmq_client).await
+        self.execute_step_batch_pgmq(task_id, steps, &self.pgmq_client)
+            .await
     }
 
     /// Execute a batch of steps using pgmq queue-based enqueueing (new architecture)
@@ -670,154 +671,285 @@ impl WorkflowCoordinator {
         steps: Vec<ViableStep>,
         pgmq_client: &crate::messaging::PgmqClient,
     ) -> OrchestrationResult<Vec<StepResult>> {
+        if steps.is_empty() {
+            return Ok(vec![]);
+        }
+
         tracing::info!(
             task_id = task_id,
             step_count = steps.len(),
-            "WorkflowCoordinator: Starting pgmq-based step enqueueing"
+            "WorkflowCoordinator: Starting pgmq-based batch creation and enqueueing"
         );
 
-        let mut results = Vec::with_capacity(steps.len());
-        let enqueue_time = chrono::Utc::now();
+        // Group steps by namespace for efficient batch processing
+        let mut namespace_groups: std::collections::HashMap<String, Vec<ViableStep>> =
+            std::collections::HashMap::new();
 
-        for step in &steps {
-            // Create step message for queue
-            let step_message = crate::messaging::PgmqStepMessage {
-                step_id: step.step_id,
-                task_id: step.task_id,
-                namespace: step.name.split('.').next().unwrap_or("default").to_string(),
-                step_name: step.name.clone(),
-                step_payload: serde_json::json!({
-                    "step_id": step.step_id,
-                    "task_id": step.task_id,
-                    "named_step_id": step.named_step_id,
-                    "current_state": step.current_state,
-                    "dependencies_satisfied": step.dependencies_satisfied,
-                    "retry_eligible": step.retry_eligible,
-                    "attempts": step.attempts,
-                    "retry_limit": step.retry_limit,
-                    "last_failure_at": step.last_failure_at,
-                    "next_retry_at": step.next_retry_at,
-                    "step_name": step.name.clone()
-                }),
-                metadata: crate::messaging::PgmqStepMessageMetadata {
-                    enqueued_at: enqueue_time,
-                    retry_count: step.attempts as i32,
-                    max_retries: step.retry_limit as i32,
-                    timeout_seconds: Some(300), // 5 minutes default timeout
+        for step in steps {
+            let namespace = self.determine_step_namespace(&step).await?;
+            namespace_groups
+                .entry(namespace)
+                .or_insert_with(Vec::new)
+                .push(step);
+        }
+
+        let mut all_results = Vec::new();
+
+        // Process each namespace group as a separate batch
+        for (namespace, namespace_steps) in namespace_groups {
+            let batch_results = self
+                .create_and_enqueue_batch(task_id, namespace, namespace_steps, pgmq_client)
+                .await?;
+            all_results.extend(batch_results);
+        }
+
+        tracing::info!(
+            task_id = task_id,
+            total_steps = all_results.len(),
+            "WorkflowCoordinator: Completed pgmq batch enqueueing"
+        );
+
+        Ok(all_results)
+    }
+
+    /// Create a step execution batch and enqueue it to the appropriate namespace queue
+    async fn create_and_enqueue_batch(
+        &self,
+        task_id: i64,
+        namespace: String,
+        steps: Vec<ViableStep>,
+        pgmq_client: &crate::messaging::PgmqClient,
+    ) -> OrchestrationResult<Vec<StepResult>> {
+        use crate::models::core::step_execution_batch::{
+            NewStepExecutionBatch, StepExecutionBatch,
+        };
+
+        // Create step execution batch record in database
+        let new_batch = NewStepExecutionBatch {
+            task_id,
+            handler_class: format!("{}BatchHandler", namespace),
+            batch_uuid: StepExecutionBatch::generate_batch_uuid(),
+            initiated_by: Some("orchestrator".to_string()),
+            batch_size: steps.len() as i32,
+            timeout_seconds: 300, // 5 minutes default timeout
+            metadata: Some(serde_json::json!({
+                "namespace": namespace,
+                "created_by": "workflow_coordinator",
+                "enqueue_time": chrono::Utc::now().to_rfc3339(),
+                "step_count": steps.len()
+            })),
+        };
+
+        let batch_record = StepExecutionBatch::create(&self.database_pool, new_batch)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "create_batch_record".to_string(),
+                reason: format!("Failed to create batch record: {}", e),
+            })?;
+
+        tracing::debug!(
+            task_id = task_id,
+            batch_id = batch_record.batch_id,
+            namespace = %namespace,
+            step_count = steps.len(),
+            "Created step execution batch record"
+        );
+
+        // Get task information for batch context
+        let task = crate::models::core::task::Task::find_by_id(&self.database_pool, task_id)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "load_task".to_string(),
+                reason: format!("Failed to load task: {}", e),
+            })?
+            .ok_or_else(|| OrchestrationError::TaskExecutionFailed {
+                task_id,
+                reason: "Task not found".to_string(),
+                error_code: Some("TASK_NOT_FOUND".to_string()),
+            })?;
+
+        // Get task orchestration info for namespace
+        let task_info = task
+            .for_orchestration(&self.database_pool)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "get_task_orchestration_info".to_string(),
+                reason: format!("Failed to get task orchestration info: {}", e),
+            })?;
+
+        // Create batch steps from viable steps
+        let batch_steps: Vec<crate::messaging::orchestration_messages::BatchStep> = steps
+            .iter()
+            .enumerate()
+            .map(
+                |(index, step)| crate::messaging::orchestration_messages::BatchStep {
+                    step_id: step.step_id,
+                    sequence: index as i32 + 1,
+                    step_name: step.name.clone(),
+                    step_payload: serde_json::json!({
+                        "step_id": step.step_id,
+                        "task_id": step.task_id,
+                        "named_step_id": step.named_step_id,
+                        "current_state": step.current_state,
+                        "dependencies_satisfied": step.dependencies_satisfied,
+                        "retry_eligible": step.retry_eligible,
+                        "attempts": step.attempts,
+                        "retry_limit": step.retry_limit,
+                        "last_failure_at": step.last_failure_at,
+                        "next_retry_at": step.next_retry_at,
+                        "context": task.context,
+                    }),
+                    step_metadata: {
+                        let mut metadata = std::collections::HashMap::new();
+                        metadata.insert(
+                            "task_context".to_string(),
+                            task.context.clone().unwrap_or(serde_json::Value::Null),
+                        );
+                        metadata.insert(
+                            "namespace".to_string(),
+                            serde_json::Value::String(namespace.clone()),
+                        );
+                        metadata.insert(
+                            "batch_id".to_string(),
+                            serde_json::Value::Number(batch_record.batch_id.into()),
+                        );
+                        metadata.insert(
+                            "attempts".to_string(),
+                            serde_json::Value::Number((step.attempts as i32).into()),
+                        );
+                        metadata.insert(
+                            "retry_limit".to_string(),
+                            serde_json::Value::Number((step.retry_limit as i32).into()),
+                        );
+                        metadata
+                    },
                 },
-            };
+            )
+            .collect();
 
-            // Extract namespace for queue naming
-            let namespace = step.name.split('.').next().unwrap_or("default");
+        // Create the batch message
+        let batch_message = crate::messaging::orchestration_messages::BatchMessage::new(
+            batch_record.batch_id,
+            task_id,
+            namespace.clone(),
+            task_info.task_name,
+            "1.0.0".to_string(), // TODO: Get actual task version from database
+            batch_steps,
+        )
+        .with_timeout(300); // 5 minutes default timeout
 
-            // Enqueue step to namespace-specific queue
-            match pgmq_client.enqueue_step(namespace, step_message).await {
-                Ok(message_id) => {
-                    tracing::info!(
-                        task_id = task_id,
-                        step_id = step.step_id,
-                        step_name = %step.name,
-                        namespace = %namespace,
-                        message_id = message_id,
-                        "Successfully enqueued step to pgmq"
-                    );
+        // Determine the target queue name
+        let queue_name = format!("{}_batch_queue", namespace);
 
-                    results.push(StepResult {
+        // Enqueue the batch message to the namespace-specific queue
+        let enqueue_time = chrono::Utc::now();
+        match pgmq_client
+            .send_json_message(&queue_name, &batch_message)
+            .await
+        {
+            Ok(message_id) => {
+                tracing::info!(
+                    task_id = task_id,
+                    batch_id = batch_record.batch_id,
+                    namespace = %namespace,
+                    queue_name = %queue_name,
+                    message_id = message_id,
+                    step_count = steps.len(),
+                    "Successfully enqueued batch to pgmq"
+                );
+
+                // Create step results for successful enqueueing
+                let results = steps.iter().map(|step| {
+                    StepResult {
                         step_id: step.step_id,
                         status: crate::orchestration::types::StepStatus::InProgress,
                         output: serde_json::json!({
-                            "status": "enqueued_to_queue",
-                            "message": "Step enqueued to pgmq for autonomous worker processing",
-                            "queue_name": format!("{}_queue", namespace),
+                            "status": "enqueued_to_batch_queue",
+                            "message": "Step enqueued in batch to pgmq for autonomous worker processing",
+                            "queue_name": queue_name.clone(),
+                            "batch_id": batch_record.batch_id,
                             "message_id": message_id,
                             "timestamp": enqueue_time.to_rfc3339(),
-                            "note": "Ruby workers will poll queue and execute step autonomously"
+                            "note": "Ruby batch workers will poll queue and execute batch autonomously"
                         }),
                         execution_duration: std::time::Duration::from_millis(1), // Minimal time for enqueueing
                         error_message: None,
                         retry_after: None,
                         error_code: None,
                         error_context: None,
-                    });
-                }
-                Err(e) => {
-                    tracing::error!(
-                        task_id = task_id,
-                        step_id = step.step_id,
-                        step_name = %step.name,
-                        namespace = %namespace,
-                        error = %e,
-                        "Failed to enqueue step to pgmq"
-                    );
+                    }
+                }).collect();
 
-                    results.push(StepResult {
+                Ok(results)
+            }
+            Err(e) => {
+                tracing::error!(
+                    task_id = task_id,
+                    batch_id = batch_record.batch_id,
+                    namespace = %namespace,
+                    queue_name = %queue_name,
+                    error = %e,
+                    "Failed to enqueue batch to pgmq"
+                );
+
+                // Create step results for failed enqueueing
+                let results = steps
+                    .iter()
+                    .map(|step| StepResult {
                         step_id: step.step_id,
                         status: crate::orchestration::types::StepStatus::Failed,
                         output: serde_json::json!({
-                            "status": "enqueue_failed",
-                            "message": "Failed to enqueue step to pgmq",
-                            "queue_name": format!("{}_queue", namespace),
+                            "status": "batch_enqueue_failed",
+                            "message": "Failed to enqueue batch to pgmq",
+                            "queue_name": queue_name.clone(),
+                            "batch_id": batch_record.batch_id,
                             "timestamp": enqueue_time.to_rfc3339()
                         }),
                         execution_duration: std::time::Duration::from_millis(1),
-                        error_message: Some(format!("Queue enqueue failed: {}", e)),
+                        error_message: Some(format!("Batch queue enqueue failed: {}", e)),
                         retry_after: Some(std::time::Duration::from_secs(30)),
-                        error_code: Some("QUEUE_ENQUEUE_FAILED".to_string()),
+                        error_code: Some("BATCH_QUEUE_ENQUEUE_FAILED".to_string()),
                         error_context: Some({
                             let mut context = std::collections::HashMap::new();
-                            context.insert("namespace".to_string(), serde_json::Value::String(namespace.to_string()));
-                            context.insert("queue_name".to_string(), serde_json::Value::String(format!("{}_queue", namespace)));
-                            context.insert("error".to_string(), serde_json::Value::String(e.to_string()));
+                            context.insert(
+                                "namespace".to_string(),
+                                serde_json::Value::String(namespace.clone()),
+                            );
+                            context.insert(
+                                "queue_name".to_string(),
+                                serde_json::Value::String(queue_name.clone()),
+                            );
+                            context.insert(
+                                "batch_id".to_string(),
+                                serde_json::Value::Number(batch_record.batch_id.into()),
+                            );
+                            context.insert(
+                                "error".to_string(),
+                                serde_json::Value::String(e.to_string()),
+                            );
                             context
                         }),
-                    });
-                }
+                    })
+                    .collect();
+
+                Ok(results)
             }
         }
-
-        tracing::info!(
-            task_id = task_id,
-            total_steps = steps.len(),
-            successful_enqueues = results.iter().filter(|r| matches!(r.status, crate::orchestration::types::StepStatus::InProgress)).count(),
-            failed_enqueues = results.iter().filter(|r| matches!(r.status, crate::orchestration::types::StepStatus::Failed)).count(),
-            "pgmq step enqueueing completed"
-        );
-
-        Ok(results)
     }
 
+    /// Determine the namespace for a step based on its name
+    async fn determine_step_namespace(&self, step: &ViableStep) -> OrchestrationResult<String> {
+        // Extract namespace from step name (e.g., "fulfillment.validate_order" -> "fulfillment")
+        let step_namespace = step.name.split('.').next().unwrap_or("default").to_string();
 
-    /// Get the namespace for a task from database
-    async fn get_task_namespace(&self, task_id: i64) -> OrchestrationResult<String> {
-        use crate::models::core::task::Task;
+        tracing::debug!(
+            step_id = step.step_id,
+            step_name = %step.name,
+            extracted_namespace = %step_namespace,
+            "Determined step namespace from step name"
+        );
 
-        let task = Task::find_by_id(&self.database_pool, task_id)
-            .await
-            .map_err(|e| {
-                crate::orchestration::errors::OrchestrationError::DatabaseError {
-                    operation: "find task for namespace".to_string(),
-                    reason: e.to_string(),
-                }
-            })?
-            .ok_or_else(|| {
-                crate::orchestration::errors::OrchestrationError::TaskExecutionFailed {
-                    task_id,
-                    reason: "Task not found".to_string(),
-                    error_code: Some("TASK_NOT_FOUND".to_string()),
-                }
-            })?;
-
-        let task_info = task
-            .for_orchestration(&self.database_pool)
-            .await
-            .map_err(|e| {
-                crate::orchestration::errors::OrchestrationError::DatabaseError {
-                    operation: "get task orchestration info".to_string(),
-                    reason: e.to_string(),
-                }
-            })?;
-
-        Ok(task_info.namespace_name)
+        Ok(step_namespace)
     }
 
     // NOTE: finalize_workflow method removed in fire-and-forget architecture

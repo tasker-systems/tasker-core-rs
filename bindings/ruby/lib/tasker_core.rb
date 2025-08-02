@@ -74,10 +74,7 @@ require_relative 'tasker_core/database'          # TaskerCore::Database - SQL fu
 require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
 require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
-require_relative 'tasker_core/task_handler/results' # TaskHandler result classes and wrappers
-# require_relative 'tasker_core/models' # Removed - using dry-struct types instead
 require_relative 'tasker_core/errors' # Errors for TaskerCore
-# require_relative 'tasker_core/execution' # Removed - using pgmq architecture instead of TCP commands
 
 
 module TaskerCore

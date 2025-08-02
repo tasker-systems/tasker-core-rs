@@ -3,10 +3,10 @@
 //! Focused benchmarks for measuring the performance of our TCP command architecture
 //! compared to baseline operations.
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashMap;
 use tasker_core::execution::command::{
-    Command, CommandType, CommandPayload, CommandSource, WorkerCapabilities,
+    Command, CommandPayload, CommandSource, CommandType, WorkerCapabilities,
 };
 
 /// Benchmark command creation and serialization
@@ -76,9 +76,8 @@ fn benchmark_payload_sizes(c: &mut Criterion) {
             namespace_count,
             |b, &count| {
                 b.iter(|| {
-                    let namespaces: Vec<String> = (0..count)
-                        .map(|i| format!("namespace_{}", i))
-                        .collect();
+                    let namespaces: Vec<String> =
+                        (0..count).map(|i| format!("namespace_{}", i)).collect();
 
                     let worker_capabilities = WorkerCapabilities {
                         worker_id: format!("worker_with_{}_namespaces", count),
@@ -96,7 +95,9 @@ fn benchmark_payload_sizes(c: &mut Criterion) {
 
                     let command = Command::new(
                         CommandType::RegisterWorker,
-                        CommandPayload::RegisterWorker { worker_capabilities },
+                        CommandPayload::RegisterWorker {
+                            worker_capabilities,
+                        },
                         CommandSource::RustServer {
                             id: "benchmark".to_string(),
                         },
@@ -135,7 +136,9 @@ fn benchmark_command_types(c: &mut Criterion) {
 
             let command = Command::new(
                 CommandType::RegisterWorker,
-                CommandPayload::RegisterWorker { worker_capabilities },
+                CommandPayload::RegisterWorker {
+                    worker_capabilities,
+                },
                 CommandSource::RustServer {
                     id: "test".to_string(),
                 },

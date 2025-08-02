@@ -9,7 +9,7 @@ use crate::orchestration::task_initializer::TaskInitializer;
 use crate::orchestration::workflow_coordinator::WorkflowCoordinator;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{info};
+use tracing::info;
 
 /// Simplified orchestration system for pgmq architecture
 pub struct OrchestrationSystemPgmq {
@@ -36,23 +36,34 @@ impl OrchestrationSystemPgmq {
         let event_publisher = crate::events::EventPublisher::new();
         let config_manager = Arc::new(crate::orchestration::config::ConfigurationManager::new());
         let config = crate::orchestration::workflow_coordinator::WorkflowCoordinatorConfig::from_config_manager(&config_manager);
-        
-        let sql_executor = crate::database::sql_functions::SqlFunctionExecutor::new(database_pool.clone());
-        let state_manager = StateManager::new(sql_executor.clone(), event_publisher.clone(), database_pool.clone());
+
+        let sql_executor =
+            crate::database::sql_functions::SqlFunctionExecutor::new(database_pool.clone());
+        let state_manager = StateManager::new(
+            sql_executor.clone(),
+            event_publisher.clone(),
+            database_pool.clone(),
+        );
         let task_initializer = TaskInitializer::with_state_manager_and_registry(
             database_pool.clone(),
             crate::orchestration::task_initializer::TaskInitializationConfig::default(),
             event_publisher.clone(),
-            Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(database_pool.clone(), event_publisher.clone())),
+            Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            )),
         );
-        
+
         // Create workflow coordinator with pgmq client integration
         let workflow_coordinator = WorkflowCoordinator::new(
             database_pool.clone(),
             config,
             config_manager,
             event_publisher.clone(),
-            crate::registry::TaskHandlerRegistry::with_event_publisher(database_pool.clone(), event_publisher.clone()),
+            crate::registry::TaskHandlerRegistry::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            ),
             pgmq_client.clone(),
         );
 
@@ -79,15 +90,27 @@ impl OrchestrationSystemPgmq {
     }
 
     /// Enqueue ready steps for a task using pgmq architecture
-    pub async fn enqueue_ready_steps(&self, task_id: i64) -> Result<crate::orchestration::types::TaskOrchestrationResult, Box<dyn std::error::Error + Send + Sync>> {
-        info!(task_id = task_id, "🚀 pgmq: Enqueueing ready steps for task");
+    pub async fn enqueue_ready_steps(
+        &self,
+        task_id: i64,
+    ) -> Result<
+        crate::orchestration::types::TaskOrchestrationResult,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        info!(
+            task_id = task_id,
+            "🚀 pgmq: Enqueueing ready steps for task"
+        );
 
         // Use workflow coordinator to discover and enqueue steps
-        let result = self.workflow_coordinator.execute_task_workflow(task_id).await?;
+        let result = self
+            .workflow_coordinator
+            .execute_task_workflow(task_id)
+            .await?;
 
         info!(
-            task_id = task_id, 
-            result = ?result, 
+            task_id = task_id,
+            result = ?result,
             "✅ pgmq: Task workflow execution completed"
         );
 
@@ -95,10 +118,15 @@ impl OrchestrationSystemPgmq {
     }
 
     /// Initialize standard namespace queues
-    pub async fn initialize_queues(&self, namespaces: &[&str]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn initialize_queues(
+        &self,
+        namespaces: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("🏗️ pgmq: Initializing namespace queues");
 
-        self.pgmq_client.initialize_namespace_queues(namespaces).await?;
+        self.pgmq_client
+            .initialize_namespace_queues(namespaces)
+            .await?;
 
         info!("✅ pgmq: All namespace queues initialized");
         Ok(())

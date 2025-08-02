@@ -884,7 +884,7 @@ impl WorkerPoolStatistics {
 impl SqlFunctionExecutor {
     /// Find active workers for a specific task with optimized SQL function
     /// Uses pre-computed query plan with health scoring and proper indexing
-    /// 
+    ///
     /// Equivalent to Rails: optimized worker selection with complex JOIN operations
     pub async fn find_active_workers_for_task(
         &self,
@@ -899,7 +899,7 @@ impl SqlFunctionExecutor {
 
     /// Get worker health information for multiple workers in a single batch operation
     /// Uses optimized SQL function for efficient health status retrieval
-    /// 
+    ///
     /// Provides comprehensive health metrics including connection status and load information
     pub async fn get_worker_health_batch(
         &self,
@@ -914,10 +914,10 @@ impl SqlFunctionExecutor {
 
     /// Select the optimal worker for a task using comprehensive scoring algorithm
     /// Uses pre-computed SQL function with advanced worker selection logic
-    /// 
+    ///
     /// Scoring factors:
     /// - Worker health (40% weight)
-    /// - Priority level (30% weight) 
+    /// - Priority level (30% weight)
     /// - Available capacity (30% weight)
     pub async fn select_optimal_worker_for_task(
         &self,
@@ -934,7 +934,7 @@ impl SqlFunctionExecutor {
 
     /// Get comprehensive worker pool statistics for monitoring and health assessment
     /// Uses optimized SQL function for efficient pool-wide metrics calculation
-    /// 
+    ///
     /// Provides metrics including:
     /// - Total, healthy, registered, and active worker counts
     /// - Workers with recent heartbeat activity
@@ -947,7 +947,7 @@ impl SqlFunctionExecutor {
 
     /// Invalidate worker-related caches for a specific task or all tasks
     /// Uses SQL function to coordinate cache invalidation across system components
-    /// 
+    ///
     /// Returns true if cache invalidation was successfully requested
     pub async fn invalidate_worker_cache(
         &self,

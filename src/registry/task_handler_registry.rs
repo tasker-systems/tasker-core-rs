@@ -37,9 +37,7 @@
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
 use crate::models::core::{
-    named_task::NamedTask,
-    task_namespace::TaskNamespace,
-    task_request::TaskRequest,
+    named_task::NamedTask, task_namespace::TaskNamespace, task_request::TaskRequest,
     task_template::TaskTemplate,
 };
 use crate::orchestration::step_handler::StepHandler;
@@ -122,17 +120,20 @@ impl TaskHandlerRegistry {
         }
     }
 
-    pub async fn get_task_template(&self, namespace: &str, name: &str, version: &str) -> Result<TaskTemplate> {
-        let handler_metadata = self.get_task_template_from_registry(
-            &namespace,
-            &name,
-            &version,
-        ).await?;
+    pub async fn get_task_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Result<TaskTemplate> {
+        let handler_metadata = self
+            .get_task_template_from_registry(&namespace, &name, &version)
+            .await?;
 
-        let task_template = serde_json::from_value(handler_metadata.config_schema.unwrap_or_default())?;
+        let task_template =
+            serde_json::from_value(handler_metadata.config_schema.unwrap_or_default())?;
         Ok(task_template)
     }
-
 
     /// Resolve a handler from a TaskRequest using database queries
     pub async fn resolve_handler(&self, request: &TaskRequest) -> Result<HandlerMetadata> {
@@ -143,25 +144,25 @@ impl TaskHandlerRegistry {
             "🎯 DATABASE-FIRST: Resolving handler via database queries"
         );
 
-        let handler_metadata = self.get_task_template_from_registry(
-            &request.namespace,
-            &request.name,
-            &request.version,
-        ).await?;
+        let handler_metadata = self
+            .get_task_template_from_registry(&request.namespace, &request.name, &request.version)
+            .await?;
 
         Ok(handler_metadata)
     }
 
-    async fn get_task_template_from_registry(&self, namespace: &str, name: &str, version: &str) -> Result<HandlerMetadata> {
+    async fn get_task_template_from_registry(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Result<HandlerMetadata> {
         // 1. Find the task namespace
         let task_namespace = TaskNamespace::find_by_name(&self.db_pool, &namespace)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {}", e)))?
             .ok_or_else(|| {
-                TaskerError::ValidationError(format!(
-                    "Namespace not found: {}",
-                    namespace
-                ))
+                TaskerError::ValidationError(format!("Namespace not found: {}", namespace))
             })?;
 
         // 2. Find the named task in that namespace
@@ -173,10 +174,7 @@ impl TaskHandlerRegistry {
         .await
         .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {}", e)))?
         .ok_or_else(|| {
-            TaskerError::ValidationError(format!(
-                "Task not found: {}/{}",
-                namespace, name
-            ))
+            TaskerError::ValidationError(format!("Task not found: {}/{}", namespace, name))
         })?;
 
         info!(
@@ -186,8 +184,20 @@ impl TaskHandlerRegistry {
             "✅ DATABASE-FIRST: Handler resolved for task (pgmq architecture - no worker registration needed)"
         );
 
-        let default_dependent_system = named_task.configuration.as_ref().and_then(|config| config.get("default_dependent_system").and_then(|v| v.as_str().map(|s| s.to_string()).or(Some("default".to_string()))));
-        let handler_class = named_task.configuration.as_ref().and_then(|config| config.get("handler_class").and_then(|v| v.as_str().map(|s| s.to_string()).or(Some("TaskerCore::TaskHandler::Base".to_string()))));
+        let default_dependent_system = named_task.configuration.as_ref().and_then(|config| {
+            config.get("default_dependent_system").and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or(Some("default".to_string()))
+            })
+        });
+        let handler_class = named_task.configuration.as_ref().and_then(|config| {
+            config.get("handler_class").and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or(Some("TaskerCore::TaskHandler::Base".to_string()))
+            })
+        });
         let handler_metadata = HandlerMetadata {
             namespace: namespace.to_string(),
             name: name.to_string(),
@@ -198,9 +208,7 @@ impl TaskHandlerRegistry {
             registered_at: Utc::now(),
         };
 
-        debug!(
-            "✅ DATABASE-FIRST: Handler resolved successfully (pgmq architecture)"
-        );
+        debug!("✅ DATABASE-FIRST: Handler resolved successfully (pgmq architecture)");
 
         Ok(handler_metadata)
     }
@@ -264,17 +272,15 @@ impl Clone for TaskHandlerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::core::{
-        named_task::{NamedTask, NewNamedTask},
-    };
+    use crate::models::core::named_task::{NamedTask, NewNamedTask};
     use serde_json::json;
 
     // Note: Worker-related tests are temporarily disabled
     // until worker models are implemented
 
-    /* 
+    /*
     // All tests temporarily disabled - requires worker models to be implemented
-    
+
     /// Test database-backed handler resolution with namespace, task, and worker setup
     #[sqlx::test]
     async fn test_database_handler_resolution(pool: sqlx::PgPool) {

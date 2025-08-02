@@ -150,11 +150,14 @@ impl Task {
         Ok(task)
     }
 
-    pub async fn create_with_transaction(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, new_task: NewTask) -> Result<Task, sqlx::Error> {
-      let sanitized_task = Task::sanitize_new_task(new_task)?;
-      let task = sqlx::query_as!(
-        Task,
-        r#"
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_task: NewTask,
+    ) -> Result<Task, sqlx::Error> {
+        let sanitized_task = Task::sanitize_new_task(new_task)?;
+        let task = sqlx::query_as!(
+            Task,
+            r#"
         INSERT INTO tasker_tasks (
             named_task_id, complete, requested_at, initiator, source_system,
             reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
@@ -163,58 +166,59 @@ impl Task {
         RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
         "#,
-        sanitized_task.named_task_id,
-        sanitized_task.requested_at,
-        sanitized_task.initiator,
-        sanitized_task.source_system,
-        sanitized_task.reason,
-        sanitized_task.bypass_steps,
-        sanitized_task.tags,
-        sanitized_task.context,
-        sanitized_task.identity_hash
-    )
-    .fetch_one(&mut **tx)
-    .await?;
+            sanitized_task.named_task_id,
+            sanitized_task.requested_at,
+            sanitized_task.initiator,
+            sanitized_task.source_system,
+            sanitized_task.reason,
+            sanitized_task.bypass_steps,
+            sanitized_task.tags,
+            sanitized_task.context,
+            sanitized_task.identity_hash
+        )
+        .fetch_one(&mut **tx)
+        .await?;
 
-    Ok(task)
+        Ok(task)
     }
 
     fn sanitize_new_task(new_task: NewTask) -> Result<NewTask, sqlx::Error> {
         // Validate JSONB fields before database operation
         if let Some(ref context) = new_task.context {
-          if let Err(validation_error) = crate::validation::validate_task_context(context) {
-              return Err(sqlx::Error::Protocol(format!(
-                  "Invalid context: {validation_error}"
-              )));
-          }
-      }
+            if let Err(validation_error) = crate::validation::validate_task_context(context) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid context: {validation_error}"
+                )));
+            }
+        }
 
-      if let Some(ref tags) = new_task.tags {
-          if let Err(validation_error) = crate::validation::validate_task_tags(tags) {
-              return Err(sqlx::Error::Protocol(format!(
-                  "Invalid tags: {validation_error}"
-              )));
-          }
-      }
+        if let Some(ref tags) = new_task.tags {
+            if let Err(validation_error) = crate::validation::validate_task_tags(tags) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid tags: {validation_error}"
+                )));
+            }
+        }
 
-      if let Some(ref bypass_steps) = new_task.bypass_steps {
-          if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
-              return Err(sqlx::Error::Protocol(format!(
-                  "Invalid bypass_steps: {validation_error}"
-              )));
-          }
-      }
+        if let Some(ref bypass_steps) = new_task.bypass_steps {
+            if let Err(validation_error) = crate::validation::validate_bypass_steps(bypass_steps) {
+                return Err(sqlx::Error::Protocol(format!(
+                    "Invalid bypass_steps: {validation_error}"
+                )));
+            }
+        }
 
-      // Sanitize JSONB inputs
-      let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
-      let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
-      let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
+        // Sanitize JSONB inputs
+        let sanitized_context = new_task.context.map(crate::validation::sanitize_json);
+        let sanitized_tags = new_task.tags.map(crate::validation::sanitize_json);
+        let sanitized_bypass_steps = new_task.bypass_steps.map(crate::validation::sanitize_json);
 
-      let requested_at = new_task
-          .requested_at
-          .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        let requested_at = new_task
+            .requested_at
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
-      let identity_hash = Task::generate_identity_hash(new_task.named_task_id, &sanitized_context);
+        let identity_hash =
+            Task::generate_identity_hash(new_task.named_task_id, &sanitized_context);
 
         Ok(NewTask {
             named_task_id: new_task.named_task_id,

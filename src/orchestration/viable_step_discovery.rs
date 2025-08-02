@@ -417,7 +417,9 @@ impl ViableStepDiscovery {
         );
 
         // 2. DATABASE-FIRST: Get task template from database instead of deprecated registry
-        let task_template = self.get_task_template_from_database(&task_for_orchestration).await?;
+        let task_template = self
+            .get_task_template_from_database(&task_for_orchestration)
+            .await?;
 
         debug!(
             task_id = task_id,
@@ -563,16 +565,20 @@ impl ViableStepDiscovery {
     ) -> Result<crate::models::core::task_template::TaskTemplate, DiscoveryError> {
         use crate::models::core::named_task::NamedTask;
         use crate::models::core::task_namespace::TaskNamespace;
-        
+
         // Get the task namespace
-        let task_namespace = TaskNamespace::find_by_name(&self.pool, &task_for_orchestration.namespace_name)
-            .await
-            .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| DiscoveryError::ConfigurationError {
-                entity_type: "task_namespace".to_string(),
-                entity_id: task_for_orchestration.namespace_name.clone(),
-                reason: format!("Namespace not found: {}", task_for_orchestration.namespace_name),
-            })?;
+        let task_namespace =
+            TaskNamespace::find_by_name(&self.pool, &task_for_orchestration.namespace_name)
+                .await
+                .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
+                .ok_or_else(|| DiscoveryError::ConfigurationError {
+                    entity_type: "task_namespace".to_string(),
+                    entity_id: task_for_orchestration.namespace_name.clone(),
+                    reason: format!(
+                        "Namespace not found: {}",
+                        task_for_orchestration.namespace_name
+                    ),
+                })?;
 
         // Get the named task with configuration
         let named_task = NamedTask::find_by_name_version_namespace(
@@ -600,54 +606,54 @@ impl ViableStepDiscovery {
         })?;
 
         // Extract the handler configuration from the named task
-        let configuration = named_task.configuration.ok_or_else(|| DiscoveryError::ConfigurationError {
-            entity_type: "task_configuration".to_string(),
-            entity_id: format!(
-                "{}/{} v{}",
-                task_for_orchestration.namespace_name,
-                task_for_orchestration.task_name,
-                task_for_orchestration.task_version
-            ),
-            reason: format!(
-                "No configuration found for task {}/{} v{}",
-                task_for_orchestration.namespace_name,
-                task_for_orchestration.task_name,
-                task_for_orchestration.task_version
-            ),
-        })?;
+        let configuration =
+            named_task
+                .configuration
+                .ok_or_else(|| DiscoveryError::ConfigurationError {
+                    entity_type: "task_configuration".to_string(),
+                    entity_id: format!(
+                        "{}/{} v{}",
+                        task_for_orchestration.namespace_name,
+                        task_for_orchestration.task_name,
+                        task_for_orchestration.task_version
+                    ),
+                    reason: format!(
+                        "No configuration found for task {}/{} v{}",
+                        task_for_orchestration.namespace_name,
+                        task_for_orchestration.task_name,
+                        task_for_orchestration.task_version
+                    ),
+                })?;
 
         // Get the handler_config field which contains the YAML structure
-        let handler_config_value = configuration.get("handler_config")
-            .ok_or_else(|| DiscoveryError::ConfigurationError {
+        let handler_config_value = configuration.get("handler_config").ok_or_else(|| {
+            DiscoveryError::ConfigurationError {
                 entity_type: "handler_config".to_string(),
                 entity_id: format!(
                     "{}/{}",
-                    task_for_orchestration.namespace_name,
-                    task_for_orchestration.task_name
+                    task_for_orchestration.namespace_name, task_for_orchestration.task_name
                 ),
                 reason: format!(
                     "TaskHandlerInfo missing handler_config field for {}/{}",
-                    task_for_orchestration.namespace_name,
-                    task_for_orchestration.task_name
+                    task_for_orchestration.namespace_name, task_for_orchestration.task_name
                 ),
-            })?;
+            }
+        })?;
 
         // Convert HandlerConfiguration to TaskTemplate
-        let handler_config: crate::orchestration::handler_config::HandlerConfiguration = 
-            serde_json::from_value(handler_config_value.clone())
-            .map_err(|e| DiscoveryError::ConfigurationError {
-                entity_type: "handler_config_deserialization".to_string(),
-                entity_id: format!(
-                    "{}/{}",
-                    task_for_orchestration.namespace_name,
-                    task_for_orchestration.task_name
-                ),
-                reason: format!(
-                    "Failed to deserialize handler configuration for {}/{}: {}",
-                    task_for_orchestration.namespace_name,
-                    task_for_orchestration.task_name,
-                    e
-                ),
+        let handler_config: crate::orchestration::handler_config::HandlerConfiguration =
+            serde_json::from_value(handler_config_value.clone()).map_err(|e| {
+                DiscoveryError::ConfigurationError {
+                    entity_type: "handler_config_deserialization".to_string(),
+                    entity_id: format!(
+                        "{}/{}",
+                        task_for_orchestration.namespace_name, task_for_orchestration.task_name
+                    ),
+                    reason: format!(
+                        "Failed to deserialize handler configuration for {}/{}: {}",
+                        task_for_orchestration.namespace_name, task_for_orchestration.task_name, e
+                    ),
+                }
             })?;
 
         // Convert HandlerConfiguration to TaskTemplate
@@ -660,8 +666,10 @@ impl ViableStepDiscovery {
             default_dependent_system: handler_config.default_dependent_system,
             named_steps: handler_config.named_steps,
             schema: handler_config.schema,
-            step_templates: handler_config.step_templates.into_iter().map(|st| {
-                crate::models::core::task_template::StepTemplate {
+            step_templates: handler_config
+                .step_templates
+                .into_iter()
+                .map(|st| crate::models::core::task_template::StepTemplate {
                     name: st.name,
                     description: st.description,
                     dependent_system: st.dependent_system,
@@ -673,13 +681,16 @@ impl ViableStepDiscovery {
                     depends_on_step: st.depends_on_step,
                     depends_on_steps: st.depends_on_steps,
                     custom_events: st.custom_events,
-                }
-            }).collect(),
+                })
+                .collect(),
             environments: handler_config.environments.map(|envs| {
-                envs.into_iter().map(|(k, v)| {
-                    (k, crate::models::core::task_template::EnvironmentConfig {
-                        step_templates: v.step_templates.map(|templates| {
-                            templates.into_iter().map(|t| {
+                envs.into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k,
+                            crate::models::core::task_template::EnvironmentConfig {
+                                step_templates: v.step_templates.map(|templates| {
+                                    templates.into_iter().map(|t| {
                                 crate::models::core::task_template::StepTemplateOverride {
                                     name: t.name,
                                     handler_config: t.handler_config,
@@ -690,11 +701,13 @@ impl ViableStepDiscovery {
                                     skippable: t.skippable,
                                 }
                             }).collect()
-                        }),
-                        default_context: v.default_context,
-                        default_options: v.default_options,
+                                }),
+                                default_context: v.default_context,
+                                default_options: v.default_options,
+                            },
+                        )
                     })
-                }).collect()
+                    .collect()
             }),
             default_context: handler_config.default_context,
             default_options: handler_config.default_options,

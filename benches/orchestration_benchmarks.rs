@@ -1,23 +1,23 @@
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 use tasker_core::{
-    TaskerConfig,
     execution::{
-        command::{Command, CommandType, CommandPayload, CommandSource, WorkerCapabilities},
+        command::{Command, CommandPayload, CommandSource, CommandType, WorkerCapabilities},
         command_handlers::WorkerManagementHandler,
-        worker_pool::WorkerPool,
         tokio_tcp_executor::TokioTcpExecutor,
+        worker_pool::WorkerPool,
     },
     ffi::shared::handles::SharedOrchestrationHandle,
     models::core::task_request::TaskRequest,
+    TaskerConfig,
 };
+use tokio::runtime::Runtime;
 
 /// Benchmark TCP command processing performance
 fn benchmark_tcp_command_processing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("tcp_command_worker_registration", |b| {
         b.to_async(&rt).iter(|| async {
             // Create worker capabilities for registration
@@ -38,8 +38,12 @@ fn benchmark_tcp_command_processing(c: &mut Criterion) {
             // Create registration command
             let command = Command::new(
                 CommandType::RegisterWorker,
-                CommandPayload::RegisterWorker { worker_capabilities },
-                CommandSource::RustServer { id: "benchmark".to_string() },
+                CommandPayload::RegisterWorker {
+                    worker_capabilities,
+                },
+                CommandSource::RustServer {
+                    id: "benchmark".to_string(),
+                },
             );
 
             // Time command creation and serialization
@@ -51,25 +55,25 @@ fn benchmark_tcp_command_processing(c: &mut Criterion) {
 /// Benchmark database-backed handler resolution
 fn benchmark_handler_resolution(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("shared_handle_handler_resolution", |b| {
         b.to_async(&rt).iter(|| async {
             let handle = SharedOrchestrationHandle::get_global();
-            
+
             // Benchmark handler lookup
             let _result = handle.find_handler("benchmark", "test_task", "1.0.0");
         });
     });
 }
 
-/// Benchmark worker pool operations 
+/// Benchmark worker pool operations
 fn benchmark_worker_pool_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("worker_pool_registration", |b| {
         b.to_async(&rt).iter(|| async {
             let worker_pool = Arc::new(WorkerPool::new());
-            
+
             let worker_capabilities = WorkerCapabilities {
                 worker_id: format!("pool_worker_{}", uuid::Uuid::new_v4()),
                 max_concurrent_steps: 5,
@@ -93,11 +97,11 @@ fn benchmark_worker_pool_operations(c: &mut Criterion) {
 /// Benchmark task initialization performance
 fn benchmark_task_initialization(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("task_initialization_performance", |b| {
         b.to_async(&rt).iter(|| async {
             let handle = SharedOrchestrationHandle::get_global();
-            
+
             let task_request = TaskRequest {
                 namespace: "benchmark".to_string(),
                 name: "test_task".to_string(),
@@ -121,9 +125,9 @@ fn benchmark_task_initialization(c: &mut Criterion) {
 /// Benchmark varying workload sizes
 fn benchmark_workload_scaling(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("workload_scaling");
-    
+
     for worker_count in [1, 5, 10, 25, 50].iter() {
         group.bench_with_input(
             BenchmarkId::new("concurrent_workers", worker_count),
@@ -131,7 +135,7 @@ fn benchmark_workload_scaling(c: &mut Criterion) {
             |b, &worker_count| {
                 b.to_async(&rt).iter(|| async move {
                     let worker_pool = Arc::new(WorkerPool::new());
-                    
+
                     // Register multiple workers concurrently
                     let mut handles = Vec::new();
                     for i in 0..worker_count {
@@ -150,12 +154,12 @@ fn benchmark_workload_scaling(c: &mut Criterion) {
                                 runtime_info: None,
                                 supported_tasks: None,
                             };
-                            
+
                             pool.register_worker(worker_capabilities).await
                         });
                         handles.push(handle);
                     }
-                    
+
                     // Wait for all registrations
                     for handle in handles {
                         let _ = handle.await;
@@ -164,7 +168,7 @@ fn benchmark_workload_scaling(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -186,8 +190,12 @@ fn benchmark_command_serialization(c: &mut Criterion) {
 
     let command = Command::new(
         CommandType::RegisterWorker,
-        CommandPayload::RegisterWorker { worker_capabilities },
-        CommandSource::RustServer { id: "benchmark".to_string() },
+        CommandPayload::RegisterWorker {
+            worker_capabilities,
+        },
+        CommandSource::RustServer {
+            id: "benchmark".to_string(),
+        },
     );
 
     c.bench_function("command_serialization", |b| {
@@ -197,7 +205,7 @@ fn benchmark_command_serialization(c: &mut Criterion) {
     });
 
     let json = serde_json::to_string(&command).unwrap();
-    
+
     c.bench_function("command_deserialization", |b| {
         b.iter(|| {
             let _cmd: Command = serde_json::from_str(&json).unwrap();

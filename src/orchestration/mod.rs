@@ -56,6 +56,9 @@ pub use backoff_calculator::{
     BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
     BackoffType,
 };
+pub use orchestration_system_pgmq::{
+    OrchestrationStats, OrchestrationSystemConfig, OrchestrationSystemPgmq,
+};
 pub use task_enqueuer::{
     DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
     EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
@@ -65,9 +68,6 @@ pub use task_finalizer::{
 };
 pub use task_initializer::{
     TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
-};
-pub use orchestration_system_pgmq::{
-    OrchestrationStats, OrchestrationSystemConfig, OrchestrationSystemPgmq,
 };
 pub use task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig, TaskRequestProcessorStats,

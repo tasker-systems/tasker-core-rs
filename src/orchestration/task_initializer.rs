@@ -304,7 +304,8 @@ impl TaskInitializer {
         );
 
         // Create workflow steps and dependencies
-        let (step_count, step_mapping) = self.create_workflow_steps(&mut tx, task_id, config).await?;
+        let (step_count, step_mapping) =
+            self.create_workflow_steps(&mut tx, task_id, config).await?;
 
         crate::logging::log_task_operation(
             "WORKFLOW_STEPS_CREATED",
@@ -399,7 +400,11 @@ impl TaskInitializer {
         let mut new_task = Task::from_task_request(task_request);
         new_task.named_task_id = named_task_id;
 
-        let task: Task = Task::create_with_transaction(tx, new_task).await.map_err(|e| TaskInitializationError::Database(format!("Failed to create task: {e}")))?;
+        let task: Task = Task::create_with_transaction(tx, new_task)
+            .await
+            .map_err(|e| {
+                TaskInitializationError::Database(format!("Failed to create task: {e}"))
+            })?;
 
         Ok(task)
     }
@@ -649,12 +654,13 @@ impl TaskInitializer {
 
         // Create initial step transitions using transaction method
         for &workflow_step_id in step_mapping.values() {
-            let new_step_transition = crate::models::core::workflow_step_transition::NewWorkflowStepTransition {
-                workflow_step_id,
-                to_state: "pending".to_string(),
-                from_state: None,
-                metadata: self.config.event_metadata.clone(),
-            };
+            let new_step_transition =
+                crate::models::core::workflow_step_transition::NewWorkflowStepTransition {
+                    workflow_step_id,
+                    to_state: "pending".to_string(),
+                    from_state: None,
+                    metadata: self.config.event_metadata.clone(),
+                };
 
             crate::models::WorkflowStepTransition::create_with_transaction(tx, new_step_transition)
                 .await
@@ -773,14 +779,11 @@ impl TaskInitializer {
             namespace, name, version
         );
 
-        let metadata = registry
-            .resolve_handler(task_request)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::ConfigurationNotFound(format!(
-                    "Handler not found in registry {namespace}/{name}: {e}"
-                ))
-            })?;
+        let metadata = registry.resolve_handler(task_request).await.map_err(|e| {
+            TaskInitializationError::ConfigurationNotFound(format!(
+                "Handler not found in registry {namespace}/{name}: {e}"
+            ))
+        })?;
 
         // Extract the config_schema from metadata and convert from full TaskHandlerInfo format
         debug!(
@@ -789,23 +792,26 @@ impl TaskInitializer {
             config_schema_present = %metadata.config_schema.is_some(),
             "🎯 TASK_INIT: Checking if config_schema is present"
         );
-        
+
         if let Some(config_json) = metadata.config_schema {
             // The database stores the full TaskHandlerInfo structure
             // Extract the handler_config field which contains the actual YAML structure
-            let handler_config_value = config_json.get("handler_config")
-                .ok_or_else(|| TaskInitializationError::ConfigurationNotFound(format!(
+            let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
+                TaskInitializationError::ConfigurationNotFound(format!(
                     "TaskHandlerInfo missing handler_config field for {}/{}",
                     namespace, name
-                )))?;
+                ))
+            })?;
 
             // Deserialize directly from the handler_config (which contains the YAML structure)
-            let handler_config = serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone()).map_err(|e| {
-                TaskInitializationError::ConfigurationNotFound(format!(
+            let handler_config =
+                serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone())
+                    .map_err(|e| {
+                        TaskInitializationError::ConfigurationNotFound(format!(
                     "Failed to deserialize handler configuration for {}/{}: {}. Handler config: {}",
                     namespace, name, e, handler_config_value
                 ))
-            })?;
+                    })?;
 
             if handler_config.step_templates.is_empty() {
                 return Err(TaskInitializationError::ConfigurationNotFound(format!(

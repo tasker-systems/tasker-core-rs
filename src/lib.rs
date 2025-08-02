@@ -111,8 +111,8 @@ pub use execution::{
     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
 };
 pub use messaging::{
-    PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata, StepMessage, StepMessageMetadata,
-    TaskRequestMessage, TaskProcessingMessage, BatchMessage, BatchResultMessage,
+    BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
+    StepMessage, StepMessageMetadata, TaskProcessingMessage, TaskRequestMessage,
 };
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,

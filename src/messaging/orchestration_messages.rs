@@ -136,16 +136,23 @@ pub struct BatchMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BatchRetryPolicy {
     None,
-    Linear { delay_seconds: i32 },
-    ExponentialBackoff { base_delay_seconds: i32, max_delay_seconds: i32 },
-    Custom { delays: Vec<i32> },
+    Linear {
+        delay_seconds: i32,
+    },
+    ExponentialBackoff {
+        base_delay_seconds: i32,
+        max_delay_seconds: i32,
+    },
+    Custom {
+        delays: Vec<i32>,
+    },
 }
 
 impl Default for BatchRetryPolicy {
     fn default() -> Self {
-        BatchRetryPolicy::ExponentialBackoff { 
-            base_delay_seconds: 30, 
-            max_delay_seconds: 300 
+        BatchRetryPolicy::ExponentialBackoff {
+            base_delay_seconds: 30,
+            max_delay_seconds: 300,
         }
     }
 }
@@ -375,16 +382,18 @@ impl BatchResultMessage {
         worker_id: String,
         execution_time_ms: i64,
     ) -> Self {
-        let successful_steps = step_results.iter()
+        let successful_steps = step_results
+            .iter()
             .filter(|r| matches!(r.status, StepExecutionStatus::Success))
             .count() as i32;
-        
-        let failed_steps = step_results.iter()
+
+        let failed_steps = step_results
+            .iter()
             .filter(|r| matches!(r.status, StepExecutionStatus::Failed))
             .count() as i32;
 
         let now = Utc::now();
-        
+
         Self {
             batch_id,
             task_id,
@@ -419,11 +428,7 @@ impl BatchResultMessage {
 
 impl StepResult {
     /// Create a successful step result
-    pub fn success(
-        step_id: i64,
-        output: serde_json::Value,
-        execution_duration_ms: i64,
-    ) -> Self {
+    pub fn success(step_id: i64, output: serde_json::Value, execution_duration_ms: i64) -> Self {
         Self {
             step_id,
             status: StepExecutionStatus::Success,
@@ -467,7 +472,8 @@ mod tests {
             "1.0.0".to_string(),
             json!({"order_id": 12345}),
             "api_gateway".to_string(),
-        ).with_priority(TaskPriority::High);
+        )
+        .with_priority(TaskPriority::High);
 
         assert_eq!(msg.namespace, "fulfillment");
         assert_eq!(msg.task_name, "process_order");
@@ -500,7 +506,8 @@ mod tests {
             "process_order".to_string(),
             "1.0.0".to_string(),
             steps,
-        ).with_timeout(600);
+        )
+        .with_timeout(600);
 
         assert_eq!(batch.batch_id, 100);
         assert_eq!(batch.task_id, 12345);
@@ -513,7 +520,12 @@ mod tests {
     fn test_batch_result_message_creation() {
         let step_results = vec![
             StepResult::success(1, json!({"status": "validated"}), 100),
-            StepResult::failed(2, "Insufficient inventory".to_string(), Some("INVENTORY_ERROR".to_string()), 50),
+            StepResult::failed(
+                2,
+                "Insufficient inventory".to_string(),
+                Some("INVENTORY_ERROR".to_string()),
+                50,
+            ),
         ];
 
         let result = BatchResultMessage::new(
@@ -528,7 +540,10 @@ mod tests {
 
         assert_eq!(result.batch_id, 100);
         assert_eq!(result.task_id, 12345);
-        assert!(matches!(result.batch_status, BatchExecutionStatus::PartialSuccess));
+        assert!(matches!(
+            result.batch_status,
+            BatchExecutionStatus::PartialSuccess
+        ));
         assert_eq!(result.metadata.successful_steps, 1);
         assert_eq!(result.metadata.failed_steps, 1);
         assert_eq!(result.metadata.worker_id, "worker-01");
@@ -545,7 +560,8 @@ mod tests {
         );
 
         let serialized = serde_json::to_string(&msg).expect("Should serialize");
-        let deserialized: TaskRequestMessage = serde_json::from_str(&serialized).expect("Should deserialize");
+        let deserialized: TaskRequestMessage =
+            serde_json::from_str(&serialized).expect("Should deserialize");
 
         assert_eq!(msg.namespace, deserialized.namespace);
         assert_eq!(msg.task_name, deserialized.task_name);

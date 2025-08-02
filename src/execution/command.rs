@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 use crate::models::core::task_request::TaskRequest;
 
-
 /// Unified command structure for all cross-language communication
 ///
 /// Replaces ZeroMQ topic-based messaging with structured command protocol
@@ -268,9 +267,7 @@ impl Default for RetryPolicy {
 #[serde(tag = "type", content = "data")]
 pub enum CommandPayload {
     /// Initialize a new task with workflow steps
-    InitializeTask {
-        task_request: TaskRequest,
-    },
+    InitializeTask { task_request: TaskRequest },
 
     /// Execute a batch of workflow steps
     ExecuteBatch {
@@ -280,9 +277,7 @@ pub enum CommandPayload {
     },
 
     /// Try to process a task if it has ready steps
-    TryTaskIfReady {
-        task_id: i64,
-    },
+    TryTaskIfReady { task_id: i64 },
 
     /// Report partial result from step execution
     ReportPartialResult {

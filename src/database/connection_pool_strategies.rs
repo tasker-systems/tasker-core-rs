@@ -38,7 +38,7 @@ pub struct PoolConfiguration {
 
 impl PoolConfiguration {
     /// Get optimized configuration for single-process deployment
-    /// 
+    ///
     /// Characteristics:
     /// - Moderate connection pool (good for embedded TCP executor)
     /// - Fast acquire timeout for responsiveness
@@ -56,7 +56,7 @@ impl PoolConfiguration {
     }
 
     /// Get optimized configuration for distributed deployment
-    /// 
+    ///
     /// Characteristics:
     /// - Larger connection pool to handle distributed load
     /// - Longer timeouts for network latency tolerance
@@ -74,7 +74,7 @@ impl PoolConfiguration {
     }
 
     /// Get optimized configuration for high-throughput scenarios
-    /// 
+    ///
     /// Characteristics:
     /// - Maximum connection pool for concurrent processing
     /// - Very fast acquire timeout to avoid blocking
@@ -86,13 +86,13 @@ impl PoolConfiguration {
             acquire_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(120), // 2 minutes
             max_lifetime: Duration::from_secs(1800), // 30 minutes
-            test_before_acquire: false, // Skip for performance
+            test_before_acquire: false,             // Skip for performance
             deployment_pattern: DeploymentPattern::HighThroughput,
         }
     }
 
     /// Get optimized configuration for resource-constrained environments
-    /// 
+    ///
     /// Characteristics:
     /// - Minimal connection pool to conserve memory
     /// - Longer timeouts to maximize connection reuse
@@ -104,13 +104,13 @@ impl PoolConfiguration {
             acquire_timeout: Duration::from_secs(15),
             idle_timeout: Duration::from_secs(900), // 15 minutes
             max_lifetime: Duration::from_secs(10800), // 3 hours
-            test_before_acquire: false, // Skip for resource conservation
+            test_before_acquire: false,             // Skip for resource conservation
             deployment_pattern: DeploymentPattern::ResourceConstrained,
         }
     }
 
     /// Get optimized configuration for development environments
-    /// 
+    ///
     /// Characteristics:
     /// - Small pool for development use
     /// - Fast timeouts for quick feedback
@@ -275,14 +275,14 @@ impl OptimizedDatabaseConnection {
     /// Perform comprehensive health check including pool status
     pub async fn comprehensive_health_check(&self) -> Result<HealthCheckResult, sqlx::Error> {
         let start_time = std::time::Instant::now();
-        
+
         // Basic connectivity test
         let connectivity_result = sqlx::query("SELECT 1 as health")
             .fetch_one(&self.pool)
             .await;
 
         let connectivity_duration = start_time.elapsed();
-        
+
         match connectivity_result {
             Ok(_) => {
                 let metrics = self.get_pool_metrics();
@@ -346,7 +346,7 @@ impl PoolMetrics {
     pub fn efficiency_score(&self) -> f64 {
         let utilization = self.utilization_percentage();
         let idle_ratio = self.num_idle as f64 / self.size as f64;
-        
+
         // Optimal utilization is around 60-70%
         let utilization_score = if utilization < 60.0 {
             utilization / 60.0 * 100.0
@@ -373,9 +373,7 @@ pub struct HealthCheckResult {
 impl HealthCheckResult {
     /// Check if system is performing optimally
     pub fn is_performing_optimally(&self) -> bool {
-        self.healthy 
-            && self.response_time_ms < 100 
-            && !self.pool_metrics.is_under_stress()
+        self.healthy && self.response_time_ms < 100 && !self.pool_metrics.is_under_stress()
     }
 
     /// Get performance status description

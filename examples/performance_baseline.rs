@@ -6,12 +6,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tasker_core::execution::command::{
-    Command, CommandType, CommandPayload, CommandSource, WorkerCapabilities,
+    Command, CommandPayload, CommandSource, CommandType, WorkerCapabilities,
 };
 
 fn main() {
     println!("🎯 TCP Command Architecture Performance Baseline");
-    println!("=" .repeat(60));
+    println!("=".repeat(60));
 
     // Warm up
     for _ in 0..100 {
@@ -43,7 +43,9 @@ fn create_sample_command() -> Command {
 
     Command::new(
         CommandType::RegisterWorker,
-        CommandPayload::RegisterWorker { worker_capabilities },
+        CommandPayload::RegisterWorker {
+            worker_capabilities,
+        },
         CommandSource::RustServer {
             id: "baseline".to_string(),
         },
@@ -64,7 +66,10 @@ fn measure_command_creation() {
     println!("📊 Command Creation:");
     println!("   Total: {:?} for {} iterations", duration, iterations);
     println!("   Average: {}ns per command", avg_ns);
-    println!("   Rate: {:.0} commands/sec", 1_000_000_000.0 / avg_ns as f64);
+    println!(
+        "   Rate: {:.0} commands/sec",
+        1_000_000_000.0 / avg_ns as f64
+    );
 }
 
 fn measure_json_serialization() {
@@ -86,9 +91,15 @@ fn measure_json_serialization() {
     println!("\n📊 JSON Serialization:");
     println!("   Total: {:?} for {} iterations", duration, iterations);
     println!("   Average: {}ns per serialization", avg_ns);
-    println!("   Rate: {:.0} serializations/sec", 1_000_000_000.0 / avg_ns as f64);
+    println!(
+        "   Rate: {:.0} serializations/sec",
+        1_000_000_000.0 / avg_ns as f64
+    );
     println!("   JSON size: {} bytes", size_bytes);
-    println!("   Throughput: {:.2} MB/sec", (size_bytes as f64 * 1_000_000_000.0 / avg_ns as f64) / 1_000_000.0);
+    println!(
+        "   Throughput: {:.2} MB/sec",
+        (size_bytes as f64 * 1_000_000_000.0 / avg_ns as f64) / 1_000_000.0
+    );
 }
 
 fn measure_json_deserialization() {
@@ -107,12 +118,15 @@ fn measure_json_deserialization() {
     println!("\n📊 JSON Deserialization:");
     println!("   Total: {:?} for {} iterations", duration, iterations);
     println!("   Average: {}ns per deserialization", avg_ns);
-    println!("   Rate: {:.0} deserializations/sec", 1_000_000_000.0 / avg_ns as f64);
+    println!(
+        "   Rate: {:.0} deserializations/sec",
+        1_000_000_000.0 / avg_ns as f64
+    );
 }
 
 fn measure_payload_size_impact() {
     println!("\n📊 Payload Size Impact:");
-    
+
     for namespace_count in [1, 5, 10, 25, 50] {
         let namespaces: Vec<String> = (0..namespace_count)
             .map(|i| format!("namespace_{}", i))
@@ -134,7 +148,9 @@ fn measure_payload_size_impact() {
 
         let command = Command::new(
             CommandType::RegisterWorker,
-            CommandPayload::RegisterWorker { worker_capabilities },
+            CommandPayload::RegisterWorker {
+                worker_capabilities,
+            },
             CommandSource::RustServer {
                 id: "baseline".to_string(),
             },
@@ -143,11 +159,11 @@ fn measure_payload_size_impact() {
         // Measure serialization time
         let iterations = 1_000;
         let start = Instant::now();
-        
+
         for _ in 0..iterations {
             let _json = serde_json::to_string(&command).unwrap();
         }
-        
+
         let duration = start.elapsed();
         let avg_ns = duration.as_nanos() / iterations;
         let json_size = serde_json::to_string(&command).unwrap().len();

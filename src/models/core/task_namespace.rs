@@ -190,7 +190,10 @@ impl TaskNamespace {
         Self::create(pool, new_namespace).await
     }
 
-    pub async fn find_or_create_with_transaction(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, name: &str) -> Result<TaskNamespace, sqlx::Error> {
+    pub async fn find_or_create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        name: &str,
+    ) -> Result<TaskNamespace, sqlx::Error> {
         // Try to find existing namespace first
         if let Some(existing) = Self::find_by_name_with_transaction(tx, name).await? {
             return Ok(existing);
@@ -205,7 +208,10 @@ impl TaskNamespace {
         Self::create_with_transaction(tx, new_namespace).await
     }
 
-    pub async fn find_by_name_with_transaction(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, name: &str) -> Result<Option<TaskNamespace>, sqlx::Error> {
+    pub async fn find_by_name_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        name: &str,
+    ) -> Result<Option<TaskNamespace>, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
@@ -221,7 +227,10 @@ impl TaskNamespace {
         Ok(namespace)
     }
 
-    pub async fn create_with_transaction(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, new_namespace: NewTaskNamespace) -> Result<TaskNamespace, sqlx::Error> {
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_namespace: NewTaskNamespace,
+    ) -> Result<TaskNamespace, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"

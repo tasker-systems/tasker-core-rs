@@ -5,9 +5,7 @@
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
-use crate::orchestration::{
-    OrchestrationResultProcessor, StepError,
-};
+use crate::orchestration::{OrchestrationResultProcessor, StepError};
 
 /// Result aggregation handler for pgmq architecture
 pub struct ResultAggregationHandler {

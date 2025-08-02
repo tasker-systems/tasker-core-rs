@@ -5,13 +5,11 @@
 //! validated tasks for orchestration processing.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::{
-    PgmqClient, TaskRequestMessage, TaskProcessingMessage,
-};
+use crate::messaging::{PgmqClient, TaskProcessingMessage, TaskRequestMessage};
 use crate::models::core::{
+    named_task::NamedTask,
     task::{NewTask, Task},
     task_namespace::TaskNamespace,
-    named_task::NamedTask,
 };
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;
@@ -100,14 +98,18 @@ impl TaskRequestProcessor {
                 Ok(processed_count) => {
                     if processed_count == 0 {
                         // No messages processed, wait before polling again
-                        tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds)).await;
+                        tokio::time::sleep(Duration::from_secs(
+                            self.config.polling_interval_seconds,
+                        ))
+                        .await;
                     }
                     // If we processed messages, continue immediately for better throughput
                 }
                 Err(e) => {
                     error!(error = %e, "Error in task request processing batch");
                     // Wait before retrying on error
-                    tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds)).await;
+                    tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds))
+                        .await;
                 }
             }
         }
@@ -117,21 +119,24 @@ impl TaskRequestProcessor {
     #[instrument(skip(self))]
     async fn process_batch(&self) -> Result<usize> {
         // Read messages from the request queue
-        let messages = self.pgmq_client
+        let messages = self
+            .pgmq_client
             .read_messages(
                 &self.config.request_queue_name,
                 Some(self.config.visibility_timeout_seconds),
                 Some(self.config.batch_size),
             )
             .await
-            .map_err(|e| TaskerError::MessagingError(format!("Failed to read task request messages: {}", e)))?;
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to read task request messages: {}", e))
+            })?;
 
         if messages.is_empty() {
             return Ok(0);
         }
 
         let message_count = messages.len();
-        
+
         debug!(
             message_count = message_count,
             queue = %self.config.request_queue_name,
@@ -141,10 +146,14 @@ impl TaskRequestProcessor {
         let mut processed_count = 0;
 
         for message in messages {
-            match self.process_single_request(&message.message, message.msg_id).await {
+            match self
+                .process_single_request(&message.message, message.msg_id)
+                .await
+            {
                 Ok(()) => {
                     // Delete the successfully processed message
-                    if let Err(e) = self.pgmq_client
+                    if let Err(e) = self
+                        .pgmq_client
                         .delete_message(&self.config.request_queue_name, message.msg_id)
                         .await
                     {
@@ -165,7 +174,8 @@ impl TaskRequestProcessor {
                     );
 
                     // Archive malformed or repeatedly failing messages
-                    if let Err(archive_err) = self.pgmq_client
+                    if let Err(archive_err) = self
+                        .pgmq_client
                         .archive_message(&self.config.request_queue_name, message.msg_id)
                         .await
                     {
@@ -192,14 +202,11 @@ impl TaskRequestProcessor {
 
     /// Process a single task request message
     #[instrument(skip(self, payload))]
-    async fn process_single_request(
-        &self,
-        payload: &serde_json::Value,
-        msg_id: i64,
-    ) -> Result<()> {
+    async fn process_single_request(&self, payload: &serde_json::Value, msg_id: i64) -> Result<()> {
         // Parse the task request message
-        let request: TaskRequestMessage = serde_json::from_value(payload.clone())
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid task request message format: {}", e)))?;
+        let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
+            TaskerError::ValidationError(format!("Invalid task request message format: {}", e))
+        })?;
 
         info!(
             request_id = %request.request_id,
@@ -230,7 +237,12 @@ impl TaskRequestProcessor {
                 self.pgmq_client
                     .send_json_message(&self.config.processing_queue_name, &processing_message)
                     .await
-                    .map_err(|e| TaskerError::MessagingError(format!("Failed to enqueue task for processing: {}", e)))?;
+                    .map_err(|e| {
+                        TaskerError::MessagingError(format!(
+                            "Failed to enqueue task for processing: {}",
+                            e
+                        ))
+                    })?;
 
                 info!(
                     request_id = %request.request_id,
@@ -264,8 +276,13 @@ impl TaskRequestProcessor {
         );
 
         // Use the task handler registry to validate the task exists and is configured
-        match self.task_handler_registry
-            .get_task_template(&request.namespace, &request.task_name, &request.task_version)
+        match self
+            .task_handler_registry
+            .get_task_template(
+                &request.namespace,
+                &request.task_name,
+                &request.task_version,
+            )
             .await
         {
             Ok(_template) => {
@@ -276,12 +293,10 @@ impl TaskRequestProcessor {
                 );
                 Ok(())
             }
-            Err(e) => {
-                Err(TaskerError::ValidationError(format!(
-                    "Task validation failed for {}/{}/{}: {}",
-                    request.namespace, request.task_name, request.task_version, e
-                )))
-            }
+            Err(e) => Err(TaskerError::ValidationError(format!(
+                "Task validation failed for {}/{}/{}: {}",
+                request.namespace, request.task_name, request.task_version, e
+            ))),
         }
     }
 
@@ -298,7 +313,9 @@ impl TaskRequestProcessor {
         let task_namespace = TaskNamespace::find_by_name(&self.pool, &request.namespace)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {}", e)))?
-            .ok_or_else(|| TaskerError::ValidationError(format!("Namespace not found: {}", request.namespace)))?;
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!("Namespace not found: {}", request.namespace))
+            })?;
 
         // Find the named task
         let named_task = NamedTask::find_latest_by_name_namespace(
@@ -308,10 +325,12 @@ impl TaskRequestProcessor {
         )
         .await
         .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {}", e)))?
-        .ok_or_else(|| TaskerError::ValidationError(format!(
-            "Task not found: {}/{}",
-            request.namespace, request.task_name
-        )))?;
+        .ok_or_else(|| {
+            TaskerError::ValidationError(format!(
+                "Task not found: {}/{}",
+                request.namespace, request.task_name
+            ))
+        })?;
 
         // Create identity hash for the task (using simple hash for now)
         let identity_hash = format!(
@@ -362,7 +381,8 @@ impl TaskRequestProcessor {
         info!("Ensuring orchestration queues exist");
 
         // Create request queue if it doesn't exist
-        if let Err(e) = self.pgmq_client
+        if let Err(e) = self
+            .pgmq_client
             .create_queue(&self.config.request_queue_name)
             .await
         {
@@ -374,7 +394,8 @@ impl TaskRequestProcessor {
         }
 
         // Create processing queue if it doesn't exist
-        if let Err(e) = self.pgmq_client
+        if let Err(e) = self
+            .pgmq_client
             .create_queue(&self.config.processing_queue_name)
             .await
         {
@@ -393,7 +414,7 @@ impl TaskRequestProcessor {
         // For now, return basic stats without queue sizes since the method doesn't exist yet
         // TODO: Implement queue_size method in PgmqClient
         Ok(TaskRequestProcessorStats {
-            request_queue_size: -1, // Not available yet
+            request_queue_size: -1,    // Not available yet
             processing_queue_size: -1, // Not available yet
             request_queue_name: self.config.request_queue_name.clone(),
             processing_queue_name: self.config.processing_queue_name.clone(),
@@ -419,7 +440,10 @@ mod tests {
     fn test_config_defaults() {
         let config = TaskRequestProcessorConfig::default();
         assert_eq!(config.request_queue_name, "orchestration_task_requests");
-        assert_eq!(config.processing_queue_name, "orchestration_tasks_to_be_processed");
+        assert_eq!(
+            config.processing_queue_name,
+            "orchestration_tasks_to_be_processed"
+        );
         assert_eq!(config.batch_size, 10);
         assert_eq!(config.visibility_timeout_seconds, 300);
     }

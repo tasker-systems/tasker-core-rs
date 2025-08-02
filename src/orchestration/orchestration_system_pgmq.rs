@@ -4,16 +4,10 @@
 //! Handles the complete lifecycle of task processing through PostgreSQL message queues.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::{
-    PgmqClient, TaskProcessingMessage,
-};
-use crate::models::core::{
-    step_execution_batch::StepExecutionBatch,
-    task::Task,
-};
+use crate::messaging::{PgmqClient, TaskProcessingMessage};
+use crate::models::core::{step_execution_batch::StepExecutionBatch, task::Task};
 use crate::orchestration::{
-    task_request_processor::TaskRequestProcessor,
-    workflow_coordinator::WorkflowCoordinator,
+    task_request_processor::TaskRequestProcessor, workflow_coordinator::WorkflowCoordinator,
 };
 use crate::registry::TaskHandlerRegistry;
 use sqlx::PgPool;
@@ -115,13 +109,11 @@ impl OrchestrationSystemPgmq {
         let task_processor = self.clone_for_task_processing();
         let result_processor = self.clone_for_result_processing();
 
-        let task_handle = tokio::spawn(async move {
-            task_processor.start_task_processing_loop().await
-        });
+        let task_handle =
+            tokio::spawn(async move { task_processor.start_task_processing_loop().await });
 
-        let result_handle = tokio::spawn(async move {
-            result_processor.start_result_processing_loop().await
-        });
+        let result_handle =
+            tokio::spawn(async move { result_processor.start_result_processing_loop().await });
 
         // Wait for both loops (they should run forever)
         let (task_result, result_result) = tokio::join!(task_handle, result_handle);
@@ -151,14 +143,20 @@ impl OrchestrationSystemPgmq {
                 Ok(processed_count) => {
                     if processed_count == 0 {
                         // No tasks processed, wait before polling again
-                        sleep(Duration::from_secs(self.config.task_polling_interval_seconds)).await;
+                        sleep(Duration::from_secs(
+                            self.config.task_polling_interval_seconds,
+                        ))
+                        .await;
                     }
                     // If we processed tasks, continue immediately for better throughput
                 }
                 Err(e) => {
                     error!(error = %e, "Error in task processing batch");
                     // Wait before retrying on error
-                    sleep(Duration::from_secs(self.config.task_polling_interval_seconds)).await;
+                    sleep(Duration::from_secs(
+                        self.config.task_polling_interval_seconds,
+                    ))
+                    .await;
                 }
             }
         }
@@ -178,14 +176,20 @@ impl OrchestrationSystemPgmq {
                 Ok(processed_count) => {
                     if processed_count == 0 {
                         // No results processed, wait before polling again
-                        sleep(Duration::from_secs(self.config.result_polling_interval_seconds)).await;
+                        sleep(Duration::from_secs(
+                            self.config.result_polling_interval_seconds,
+                        ))
+                        .await;
                     }
                     // If we processed results, continue immediately for better throughput
                 }
                 Err(e) => {
                     error!(error = %e, "Error in result processing batch");
                     // Wait before retrying on error
-                    sleep(Duration::from_secs(self.config.result_polling_interval_seconds)).await;
+                    sleep(Duration::from_secs(
+                        self.config.result_polling_interval_seconds,
+                    ))
+                    .await;
                 }
             }
         }
@@ -195,14 +199,17 @@ impl OrchestrationSystemPgmq {
     #[instrument(skip(self))]
     async fn process_task_batch(&self) -> Result<usize> {
         // Read messages from the task processing queue
-        let messages = self.pgmq_client
+        let messages = self
+            .pgmq_client
             .read_messages(
                 &self.config.tasks_queue_name,
                 Some(self.config.visibility_timeout_seconds),
                 Some(self.config.task_batch_size),
             )
             .await
-            .map_err(|e| TaskerError::MessagingError(format!("Failed to read task messages: {}", e)))?;
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to read task messages: {}", e))
+            })?;
 
         if messages.is_empty() {
             return Ok(0);
@@ -218,10 +225,14 @@ impl OrchestrationSystemPgmq {
         let mut processed_count = 0;
 
         for message in messages {
-            match self.process_single_task(&message.message, message.msg_id).await {
+            match self
+                .process_single_task(&message.message, message.msg_id)
+                .await
+            {
                 Ok(()) => {
                     // Delete the successfully processed message
-                    if let Err(e) = self.pgmq_client
+                    if let Err(e) = self
+                        .pgmq_client
                         .delete_message(&self.config.tasks_queue_name, message.msg_id)
                         .await
                     {
@@ -240,9 +251,10 @@ impl OrchestrationSystemPgmq {
                         error = %e,
                         "Failed to process task message"
                     );
-                    
+
                     // Archive failed messages
-                    if let Err(archive_err) = self.pgmq_client
+                    if let Err(archive_err) = self
+                        .pgmq_client
                         .archive_message(&self.config.tasks_queue_name, message.msg_id)
                         .await
                     {
@@ -271,8 +283,10 @@ impl OrchestrationSystemPgmq {
     #[instrument(skip(self, payload))]
     async fn process_single_task(&self, payload: &serde_json::Value, msg_id: i64) -> Result<()> {
         // Parse the task processing message
-        let task_message: TaskProcessingMessage = serde_json::from_value(payload.clone())
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid task processing message: {}", e)))?;
+        let task_message: TaskProcessingMessage =
+            serde_json::from_value(payload.clone()).map_err(|e| {
+                TaskerError::ValidationError(format!("Invalid task processing message: {}", e))
+            })?;
 
         info!(
             task_id = task_message.task_id,
@@ -286,74 +300,78 @@ impl OrchestrationSystemPgmq {
         let _task = Task::find_by_id(&self.pool, task_message.task_id)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to load task: {}", e)))?
-            .ok_or_else(|| TaskerError::ValidationError(format!("Task not found: {}", task_message.task_id)))?;
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!("Task not found: {}", task_message.task_id))
+            })?;
 
         // Use the workflow coordinator to create step execution batches
-        match self.workflow_coordinator.execute_task_workflow(task_message.task_id).await {
-            Ok(orchestration_result) => {
-                match orchestration_result {
-                    crate::orchestration::types::TaskOrchestrationResult::Published {
-                        task_id,
-                        viable_steps_discovered,
-                        steps_published,
-                        batch_id,
-                        publication_time_ms,
-                        next_poll_delay_ms: _,
-                    } => {
-                        info!(
-                            task_id = task_id,
-                            viable_steps_discovered = viable_steps_discovered,
-                            steps_published = steps_published,
-                            batch_id = ?batch_id,
-                            publication_time_ms = publication_time_ms,
-                            "Task workflow steps published successfully"
-                        );
-                        Ok(())
-                    }
-                    crate::orchestration::types::TaskOrchestrationResult::Blocked {
-                        task_id,
-                        blocking_reason,
-                        viable_steps_checked,
-                    } => {
-                        info!(
-                            task_id = task_id,
-                            blocking_reason = %blocking_reason,
-                            viable_steps_checked = viable_steps_checked,
-                            "Task workflow is blocked, no steps ready"
-                        );
-                        Ok(())
-                    }
-                    crate::orchestration::types::TaskOrchestrationResult::Complete {
-                        task_id,
-                        steps_completed,
-                        total_execution_time_ms,
-                    } => {
-                        info!(
-                            task_id = task_id,
-                            steps_completed = steps_completed,
-                            total_execution_time_ms = total_execution_time_ms,
-                            "Task workflow completed"
-                        );
-                        Ok(())
-                    }
-                    crate::orchestration::types::TaskOrchestrationResult::Failed {
-                        task_id,
-                        error,
-                        failed_steps,
-                    } => {
-                        error!(
-                            task_id = task_id,
-                            error = %error,
-                            failed_steps = ?failed_steps,
-                            "Task workflow failed"
-                        );
-                        Err(TaskerError::OrchestrationError(format!(
-                            "Workflow execution failed for task {}: {}",
-                            task_id, error
-                        )))
-                    }
+        match self
+            .workflow_coordinator
+            .execute_task_workflow(task_message.task_id)
+            .await
+        {
+            Ok(orchestration_result) => match orchestration_result {
+                crate::orchestration::types::TaskOrchestrationResult::Published {
+                    task_id,
+                    viable_steps_discovered,
+                    steps_published,
+                    batch_id,
+                    publication_time_ms,
+                    next_poll_delay_ms: _,
+                } => {
+                    info!(
+                        task_id = task_id,
+                        viable_steps_discovered = viable_steps_discovered,
+                        steps_published = steps_published,
+                        batch_id = ?batch_id,
+                        publication_time_ms = publication_time_ms,
+                        "Task workflow steps published successfully"
+                    );
+                    Ok(())
                 }
-            }
+                crate::orchestration::types::TaskOrchestrationResult::Blocked {
+                    task_id,
+                    blocking_reason,
+                    viable_steps_checked,
+                } => {
+                    info!(
+                        task_id = task_id,
+                        blocking_reason = %blocking_reason,
+                        viable_steps_checked = viable_steps_checked,
+                        "Task workflow is blocked, no steps ready"
+                    );
+                    Ok(())
+                }
+                crate::orchestration::types::TaskOrchestrationResult::Complete {
+                    task_id,
+                    steps_completed,
+                    total_execution_time_ms,
+                } => {
+                    info!(
+                        task_id = task_id,
+                        steps_completed = steps_completed,
+                        total_execution_time_ms = total_execution_time_ms,
+                        "Task workflow completed"
+                    );
+                    Ok(())
+                }
+                crate::orchestration::types::TaskOrchestrationResult::Failed {
+                    task_id,
+                    error,
+                    failed_steps,
+                } => {
+                    error!(
+                        task_id = task_id,
+                        error = %error,
+                        failed_steps = ?failed_steps,
+                        "Task workflow failed"
+                    );
+                    Err(TaskerError::OrchestrationError(format!(
+                        "Workflow execution failed for task {}: {}",
+                        task_id, error
+                    )))
+                }
+            },
             Err(e) => {
                 error!(
                     task_id = task_message.task_id,
@@ -372,14 +390,17 @@ impl OrchestrationSystemPgmq {
     #[instrument(skip(self))]
     async fn process_result_batch(&self) -> Result<usize> {
         // Read messages from the results queue
-        let messages = self.pgmq_client
+        let messages = self
+            .pgmq_client
             .read_messages(
                 &self.config.results_queue_name,
                 Some(self.config.visibility_timeout_seconds),
                 Some(self.config.result_batch_size),
             )
             .await
-            .map_err(|e| TaskerError::MessagingError(format!("Failed to read result messages: {}", e)))?;
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to read result messages: {}", e))
+            })?;
 
         if messages.is_empty() {
             return Ok(0);
@@ -395,10 +416,14 @@ impl OrchestrationSystemPgmq {
         let mut processed_count = 0;
 
         for message in messages {
-            match self.process_single_result(&message.message, message.msg_id).await {
+            match self
+                .process_single_result(&message.message, message.msg_id)
+                .await
+            {
                 Ok(()) => {
                     // Delete the successfully processed message
-                    if let Err(e) = self.pgmq_client
+                    if let Err(e) = self
+                        .pgmq_client
                         .delete_message(&self.config.results_queue_name, message.msg_id)
                         .await
                     {
@@ -417,9 +442,10 @@ impl OrchestrationSystemPgmq {
                         error = %e,
                         "Failed to process result message"
                     );
-                    
+
                     // Archive failed messages
-                    if let Err(archive_err) = self.pgmq_client
+                    if let Err(archive_err) = self
+                        .pgmq_client
                         .archive_message(&self.config.results_queue_name, message.msg_id)
                         .await
                     {
@@ -448,8 +474,9 @@ impl OrchestrationSystemPgmq {
     #[instrument(skip(self, payload))]
     async fn process_single_result(&self, payload: &serde_json::Value, msg_id: i64) -> Result<()> {
         // Parse the batch result message flexibly to handle Ruby-generated messages
-        let result_message = self.parse_batch_result_message(payload)
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid batch result message: {}", e)))?;
+        let result_message = self.parse_batch_result_message(payload).map_err(|e| {
+            TaskerError::ValidationError(format!("Invalid batch result message: {}", e))
+        })?;
 
         info!(
             batch_id = result_message.batch_id,
@@ -466,11 +493,17 @@ impl OrchestrationSystemPgmq {
         let _batch = StepExecutionBatch::find_by_id(&self.pool, result_message.batch_id)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to load batch: {}", e)))?
-            .ok_or_else(|| TaskerError::ValidationError(format!("Batch not found: {}", result_message.batch_id)))?;
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "Batch not found: {}",
+                    result_message.batch_id
+                ))
+            })?;
 
         // Start a database transaction for atomic updates
-        let mut tx = self.pool.begin().await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to start transaction: {}", e)))?;
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            TaskerError::DatabaseError(format!("Failed to start transaction: {}", e))
+        })?;
 
         // Step 1: Update individual step results in the database
         for step_result in &result_message.step_results {
@@ -486,9 +519,15 @@ impl OrchestrationSystemPgmq {
         }
 
         // Step 2: Check if all steps for the task are complete
-        let task_completion_stats = crate::models::core::workflow_step::WorkflowStep::task_completion_stats(&self.pool, result_message.task_id)
+        let task_completion_stats =
+            crate::models::core::workflow_step::WorkflowStep::task_completion_stats(
+                &self.pool,
+                result_message.task_id,
+            )
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to get task completion stats: {}", e)))?;
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to get task completion stats: {}", e))
+            })?;
 
         info!(
             task_id = result_message.task_id,
@@ -501,8 +540,9 @@ impl OrchestrationSystemPgmq {
         );
 
         // Commit the step result updates
-        tx.commit().await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to commit transaction: {}", e)))?;
+        tx.commit().await.map_err(|e| {
+            TaskerError::DatabaseError(format!("Failed to commit transaction: {}", e))
+        })?;
 
         // Step 3: Handle task completion or continue orchestration
         if task_completion_stats.all_complete {
@@ -522,7 +562,10 @@ impl OrchestrationSystemPgmq {
             }
         } else if task_completion_stats.pending_steps > 0 {
             // Task has more work - enqueue next batch of ready steps
-            if let Err(e) = self.enqueue_next_batch_for_task(result_message.task_id).await {
+            if let Err(e) = self
+                .enqueue_next_batch_for_task(result_message.task_id)
+                .await
+            {
                 error!(
                     task_id = result_message.task_id,
                     error = %e,
@@ -555,28 +598,36 @@ impl OrchestrationSystemPgmq {
     }
 
     /// Parse batch result message flexibly to handle Ruby-generated messages
-    fn parse_batch_result_message(&self, payload: &serde_json::Value) -> Result<FlexibleBatchResultMessage> {
+    fn parse_batch_result_message(
+        &self,
+        payload: &serde_json::Value,
+    ) -> Result<FlexibleBatchResultMessage> {
         // Extract basic fields
-        let batch_id = payload.get("batch_id")
+        let batch_id = payload
+            .get("batch_id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| TaskerError::ValidationError("Missing batch_id".to_string()))?;
-        
-        let task_id = payload.get("task_id")
+
+        let task_id = payload
+            .get("task_id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| TaskerError::ValidationError("Missing task_id".to_string()))?;
-        
-        let namespace = payload.get("namespace")
+
+        let namespace = payload
+            .get("namespace")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
-        
-        let batch_status = payload.get("batch_status")
+
+        let batch_status = payload
+            .get("batch_status")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown")
             .to_string();
 
         // Parse step results
-        let step_results = payload.get("step_results")
+        let step_results = payload
+            .get("step_results")
             .and_then(|v| v.as_array())
             .unwrap_or(&vec![])
             .iter()
@@ -585,10 +636,12 @@ impl OrchestrationSystemPgmq {
 
         // Parse metadata for statistics
         let metadata = payload.get("metadata").unwrap_or(&serde_json::Value::Null);
-        let successful_steps = metadata.get("successful_steps")
+        let successful_steps = metadata
+            .get("successful_steps")
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32;
-        let failed_steps = metadata.get("failed_steps")
+        let failed_steps = metadata
+            .get("failed_steps")
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32;
 
@@ -605,24 +658,36 @@ impl OrchestrationSystemPgmq {
 
     /// Parse a step result from JSON flexibly
     fn parse_step_result(&self, step_result: &serde_json::Value) -> Result<FlexibleStepResult> {
-        let step_id = step_result.get("step_id")
+        let step_id = step_result
+            .get("step_id")
             .and_then(|v| v.as_i64())
-            .ok_or_else(|| TaskerError::ValidationError("Missing step_id in step result".to_string()))?;
-        
-        let status = step_result.get("status")
+            .ok_or_else(|| {
+                TaskerError::ValidationError("Missing step_id in step result".to_string())
+            })?;
+
+        let status = step_result
+            .get("status")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown")
             .to_string();
-        
+
         let output = step_result.get("output").cloned();
-        let error = step_result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let error_code = step_result.get("error_code").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let execution_duration_ms = step_result.get("execution_duration_ms")
+        let error = step_result
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let error_code = step_result
+            .get("error_code")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let execution_duration_ms = step_result
+            .get("execution_duration_ms")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
-        let executed_at = step_result.get("executed_at")
+
+        let executed_at = step_result
+            .get("executed_at")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -649,14 +714,27 @@ impl OrchestrationSystemPgmq {
         // Load the workflow step
         let workflow_step = WorkflowStep::find_by_id(&self.pool, step_result.step_id)
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to load workflow step {}: {}", step_result.step_id, e)))?
-            .ok_or_else(|| TaskerError::ValidationError(format!("Workflow step not found: {}", step_result.step_id)))?;
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!(
+                    "Failed to load workflow step {}: {}",
+                    step_result.step_id, e
+                ))
+            })?
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "Workflow step not found: {}",
+                    step_result.step_id
+                ))
+            })?;
 
         match step_result.status.as_str() {
             "Success" => {
                 // Mark step as processed with results
-                let results_json = step_result.output.clone().unwrap_or(serde_json::Value::Null);
-                
+                let results_json = step_result
+                    .output
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null);
+
                 sqlx::query!(
                     r#"
                     UPDATE tasker_workflow_steps 
@@ -672,7 +750,12 @@ impl OrchestrationSystemPgmq {
                 )
                 .execute(&mut **tx)
                 .await
-                .map_err(|e| TaskerError::DatabaseError(format!("Failed to mark step {} as processed: {}", workflow_step.workflow_step_id, e)))?;
+                .map_err(|e| {
+                    TaskerError::DatabaseError(format!(
+                        "Failed to mark step {} as processed: {}",
+                        workflow_step.workflow_step_id, e
+                    ))
+                })?;
 
                 debug!(
                     step_id = workflow_step.workflow_step_id,
@@ -691,8 +774,9 @@ impl OrchestrationSystemPgmq {
 
                 if workflow_step.retryable && !workflow_step.has_exceeded_retry_limit() {
                     // Step is retryable - set backoff for retry
-                    let backoff_seconds = calculate_backoff_seconds(workflow_step.attempts.unwrap_or(0));
-                    
+                    let backoff_seconds =
+                        calculate_backoff_seconds(workflow_step.attempts.unwrap_or(0));
+
                     sqlx::query!(
                         r#"
                         UPDATE tasker_workflow_steps 
@@ -708,7 +792,12 @@ impl OrchestrationSystemPgmq {
                     )
                     .execute(&mut **tx)
                     .await
-                    .map_err(|e| TaskerError::DatabaseError(format!("Failed to set backoff for step {}: {}", workflow_step.workflow_step_id, e)))?;
+                    .map_err(|e| {
+                        TaskerError::DatabaseError(format!(
+                            "Failed to set backoff for step {}: {}",
+                            workflow_step.workflow_step_id, e
+                        ))
+                    })?;
 
                     debug!(
                         step_id = workflow_step.workflow_step_id,
@@ -732,7 +821,12 @@ impl OrchestrationSystemPgmq {
                     )
                     .execute(&mut **tx)
                     .await
-                    .map_err(|e| TaskerError::DatabaseError(format!("Failed to mark step {} as permanently failed: {}", workflow_step.workflow_step_id, e)))?;
+                    .map_err(|e| {
+                        TaskerError::DatabaseError(format!(
+                            "Failed to mark step {} as permanently failed: {}",
+                            workflow_step.workflow_step_id, e
+                        ))
+                    })?;
 
                     warn!(
                         step_id = workflow_step.workflow_step_id,
@@ -768,12 +862,14 @@ impl OrchestrationSystemPgmq {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to mark task {} as complete: {}", task_id, e)))?;
+        .map_err(|e| {
+            TaskerError::DatabaseError(format!(
+                "Failed to mark task {} as complete: {}",
+                task_id, e
+            ))
+        })?;
 
-        info!(
-            task_id = task_id,
-            "Task marked as complete"
-        );
+        info!(task_id = task_id, "Task marked as complete");
 
         Ok(())
     }
@@ -789,7 +885,11 @@ impl OrchestrationSystemPgmq {
             priority: crate::messaging::TaskPriority::Normal,
             metadata: crate::messaging::TaskProcessingMetadata {
                 enqueued_at: chrono::Utc::now(),
-                request_id: format!("continuation-{}-{}", task_id, chrono::Utc::now().timestamp()),
+                request_id: format!(
+                    "continuation-{}-{}",
+                    task_id,
+                    chrono::Utc::now().timestamp()
+                ),
                 processing_attempts: 0,
                 retry_after: None,
             },
@@ -799,7 +899,12 @@ impl OrchestrationSystemPgmq {
         self.pgmq_client
             .send_json_message(&self.config.tasks_queue_name, &task_message)
             .await
-            .map_err(|e| TaskerError::MessagingError(format!("Failed to enqueue continuation for task {}: {}", task_id, e)))?;
+            .map_err(|e| {
+                TaskerError::MessagingError(format!(
+                    "Failed to enqueue continuation for task {}: {}",
+                    task_id, e
+                ))
+            })?;
 
         debug!(
             task_id = task_id,
@@ -857,7 +962,7 @@ impl OrchestrationSystemPgmq {
         // For now, return basic stats
         // TODO: Implement actual queue size queries
         Ok(OrchestrationStats {
-            tasks_queue_size: -1, // Not available yet
+            tasks_queue_size: -1,   // Not available yet
             results_queue_size: -1, // Not available yet
             active_namespaces: self.config.active_namespaces.clone(),
             tasks_queue_name: self.config.tasks_queue_name.clone(),
@@ -938,8 +1043,11 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = OrchestrationSystemConfig::default();
-        
-        assert_eq!(config.tasks_queue_name, "orchestration_tasks_to_be_processed");
+
+        assert_eq!(
+            config.tasks_queue_name,
+            "orchestration_tasks_to_be_processed"
+        );
         assert_eq!(config.results_queue_name, "orchestration_batch_results");
         assert_eq!(config.task_polling_interval_seconds, 1);
         assert_eq!(config.result_polling_interval_seconds, 1);
@@ -947,10 +1055,14 @@ mod tests {
         assert_eq!(config.result_batch_size, 20);
         assert_eq!(config.visibility_timeout_seconds, 300);
         assert_eq!(config.max_processing_attempts, 3);
-        
+
         // Verify default namespaces
         let expected_namespaces = vec![
-            "fulfillment", "inventory", "notifications", "payments", "analytics"
+            "fulfillment",
+            "inventory",
+            "notifications",
+            "payments",
+            "analytics",
         ];
         assert_eq!(config.active_namespaces.len(), expected_namespaces.len());
         for namespace in expected_namespaces {
@@ -971,7 +1083,7 @@ mod tests {
             max_processing_attempts: 5,
             active_namespaces: vec!["custom".to_string(), "test".to_string()],
         };
-        
+
         assert_eq!(config.tasks_queue_name, "custom_tasks");
         assert_eq!(config.results_queue_name, "custom_results");
         assert_eq!(config.task_polling_interval_seconds, 5);

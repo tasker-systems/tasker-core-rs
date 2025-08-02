@@ -60,11 +60,9 @@ pub use connection_pool_strategies::{
     PoolMetrics,
 };
 pub use migrations::DatabaseMigrations;
-pub use optimized_queries::{
-    OptimizedWorkerQueries, PoolStatistics, QueryResultCache,
-};
+pub use optimized_queries::{OptimizedWorkerQueries, PoolStatistics, QueryResultCache};
 pub use sql_functions::{
-    ActiveWorkerResult, AnalyticsMetrics, DependencyLevel, FunctionRegistry, OptimalWorkerResult, 
-    SlowestStepAnalysis, SlowestTaskAnalysis, SqlFunctionExecutor, StepReadinessStatus, 
+    ActiveWorkerResult, AnalyticsMetrics, DependencyLevel, FunctionRegistry, OptimalWorkerResult,
+    SlowestStepAnalysis, SlowestTaskAnalysis, SqlFunctionExecutor, StepReadinessStatus,
     SystemHealthCounts, TaskExecutionContext, WorkerHealthResult, WorkerPoolStatistics,
 };
