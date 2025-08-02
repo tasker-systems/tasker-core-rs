@@ -33,6 +33,7 @@ mod context;
 mod error_translation;
 mod ffi_logging;
 mod types;
+mod embedded_bridge;
 
 // Direct model imports removed - pgmq architecture uses dry-struct data classes
 
@@ -78,6 +79,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // BaseTaskHandler simplified for step execution only
 
     // TCP command architecture removed in favor of pgmq message queues
+
+    // 🔌 EMBEDDED BRIDGE: Register embedded orchestration functions for testing
+    embedded_bridge::init_embedded_bridge(&module)?;
 
     Ok(())
 }

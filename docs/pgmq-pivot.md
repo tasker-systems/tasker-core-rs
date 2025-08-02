@@ -1,7 +1,7 @@
 # PGMQ Architecture Pivot Roadmap
 
-**Date**: August 1, 2025  
-**Branch**: `jcoletaylor/tas-14-m2-ruby-integration-testing-completion`  
+**Date**: August 1, 2025
+**Branch**: `jcoletaylor/tas-14-m2-ruby-integration-testing-completion`
 **Decision**: Pivot from TCP Command System to PostgreSQL Message Queue (pgmq) Architecture
 
 ## Executive Summary
@@ -74,7 +74,7 @@ The TCP command system recreated imperative complexity where event-driven queue 
 #### Option: Namespace-Based Queues (Recommended)
 ```
 fulfillment_queue    - All fulfillment namespace tasks
-inventory_queue      - All inventory namespace tasks  
+inventory_queue      - All inventory namespace tasks
 notifications_queue  - All notification namespace tasks
 ```
 
@@ -82,7 +82,7 @@ notifications_queue  - All notification namespace tasks
 ```json
 {
   "step_id": 12345,
-  "task_id": 67890, 
+  "task_id": 67890,
   "namespace": "fulfillment",
   "task_name": "process_order",
   "task_version": "1.0.0",
@@ -111,12 +111,12 @@ initialize_task(task_request) -> Task
 // Replace BatchExecutionSender with queue-based publishing
 async fn enqueue_ready_steps(task_id: i64) -> Result<(), Error> {
     let ready_steps = discover_ready_steps(task_id).await?;
-    
+
     for step in ready_steps {
         let message = create_step_message(step);
         pgmq::send(&format!("{}_queue", step.namespace), message).await?;
     }
-    
+
     Ok(())
 }
 ```
@@ -127,14 +127,14 @@ class QueueWorker
   def poll_and_process
     loop do
       messages = pgmq_read("#{namespace}_queue", batch_size: 10)
-      
+
       messages.each do |message|
         if can_handle_step?(message)
           process_step(message)
           pgmq_delete(message.id)  # Acknowledge completion
         end
       end
-      
+
       sleep(poll_interval)
     end
   end
@@ -150,7 +150,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
     } else {
         enqueue_ready_steps(task_id).await?;  // Enqueue newly ready steps
     }
-    
+
     Ok(())
 }
 ```
@@ -171,7 +171,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Core TCP Infrastructure (Obsolete with Queues):**
 - `src/execution/generic_executor.rs` - TCP server becomes unnecessary with queue polling
-- `src/execution/command_router.rs` - Command routing replaced by queue message routing  
+- `src/execution/command_router.rs` - Command routing replaced by queue message routing
 - `src/execution/transport.rs` - TCP transport layer not needed
 - `src/execution/tokio_tcp_executor.rs` - TCP executor implementation obsolete
 - `src/execution/worker_pool.rs` - Worker pool management handled by queue consumers
@@ -187,7 +187,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/ffi/shared/command_client.rs` - Command client FFI
 - `src/ffi/shared/command_listener.rs` - Command listener FFI
 - `bindings/ruby/ext/tasker_core/src/command_client.rs` - Ruby command client FFI
-- `bindings/ruby/ext/tasker_core/src/command_listener.rs` - Ruby command listener FFI  
+- `bindings/ruby/ext/tasker_core/src/command_listener.rs` - Ruby command listener FFI
 - `bindings/ruby/ext/tasker_core/src/embedded_tcp_executor.rs` - Embedded TCP executor FFI
 
 **Ruby TCP Components (Replace with Queue Workers):**
@@ -227,7 +227,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 **Ruby Business Logic (Unchanged):**
 - `bindings/ruby/lib/tasker_core/models/` - Ruby model wrappers unchanged
 - `bindings/ruby/lib/tasker_core/step_handler/` - Step handler API unchanged
-- `bindings/ruby/lib/tasker_core/task_handler/` - Task handler API unchanged  
+- `bindings/ruby/lib/tasker_core/task_handler/` - Task handler API unchanged
 - `bindings/ruby/lib/tasker_core/logging/` - Logging infrastructure unchanged
 - `bindings/ruby/lib/tasker_core/events/` - Event system unchanged
 - `bindings/ruby/lib/tasker_core/types/` - Type definitions unchanged
@@ -265,7 +265,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Tests (Major Adaptation Needed):**
 - `tests/execution/` - **ADAPT**: Most TCP-based tests need queue equivalents
-- `bindings/ruby/spec/execution/` - **ADAPT**: Ruby execution tests for queue processing  
+- `bindings/ruby/spec/execution/` - **ADAPT**: Ruby execution tests for queue processing
 - `bindings/ruby/spec/handlers/integration/` - **ADAPT**: Integration tests for queue-based workflows
 - Unit tests for business logic - **MINIMAL CHANGES**: Core logic tests remain mostly unchanged
 
@@ -306,7 +306,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 2. **Infrastructure Simplification**: Removing TCP infrastructure eliminates ~20 complex coordination components
 3. **Autonomous Workers**: Complete elimination of worker registration, heartbeats, and coordination overhead
 4. **Database Simplification**: Can rebuild database without worker tables - 2 fewer migrations needed
-5. **Focused New Development**: Only ~11 new components needed for queue-based architecture  
+5. **Focused New Development**: Only ~11 new components needed for queue-based architecture
 6. **Test Migration**: Most integration tests need adaptation, but unit tests largely unchanged
 7. **FFI Simplification**: Magnus FFI becomes much simpler with just JSON message passing
 
@@ -316,19 +316,19 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 **Objective**: Set up pgmq infrastructure and basic operations
 
 - [x] Install pgmq extension in PostgreSQL
-- [x] Create Rust pgmq integration layer using sqlx  
+- [x] Create Rust pgmq integration layer using sqlx
 - [x] Create Ruby pgmq wrapper using pg gem
 - [x] Implement basic queue operations (send, read, delete, archive, purge)
 - [x] Create queue management utilities
 - [x] Write integration tests for queue operations
-- [x] Remove FFI-heavy Ruby components 
+- [x] Remove FFI-heavy Ruby components
 - [x] Create SQL function wrapper for status queries
 - [x] Create autonomous queue worker framework
 - [x] Implement dry-struct type system for messages
 
 **Deliverables** ✅:
 - `src/messaging/pgmq_client.rs` - Rust pgmq integration with full API
-- `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb` - Ruby pgmq wrapper using pg gem  
+- `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb` - Ruby pgmq wrapper using pg gem
 - `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb` - Autonomous queue worker framework
 - `bindings/ruby/lib/tasker_core/database/sql_functions.rb` - SQL function access layer
 - `bindings/ruby/lib/tasker_core/types/step_message.rb` - dry-struct message types
@@ -408,7 +408,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Deliverables** ✅:
 - `src/messaging/orchestration_messages.rs` - Complete orchestration queue message types
-- `src/orchestration/task_request_processor.rs` - Task validation and ingestion  
+- `src/orchestration/task_request_processor.rs` - Task validation and ingestion
 - `src/orchestration/orchestration_system_pgmq.rs` - Dual polling loop orchestration system
 - `bindings/ruby/lib/tasker_core/messaging/batch_queue_worker.rb` - Ruby batch workers
 - `bindings/ruby/lib/tasker_core/orchestration/batch_executor.rb` - Concurrent batch execution
@@ -441,10 +441,9 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 #### 📋 Phase 4.3: Database TaskTemplate Registry (HIGH PRIORITY)
 **Objective**: Replace YAML-based TaskTemplate distribution with database-backed registry
-- [ ] Create task_templates database table and TaskTemplateRegistry
-- [ ] Add Ruby worker TaskTemplate registration API
-- [ ] Convert existing YAML definitions to database records
-- [ ] Implement distributed worker template lookup system
+- [ ] Review `src/orchestration/task_config_finder.rs` for config lookup
+- [ ] Review `src/registry/task_handler_registry.rs` for database-first approach
+- [ ] Add Ruby worker TaskTemplate registration API using database-backed registry
 
 #### 📋 Phase 4.4: Testing Strategy Implementation (MEDIUM PRIORITY)
 **Objective**: Create comprehensive testing strategy with both embedded and distributed options
@@ -457,7 +456,6 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 **Objective**: Remove obsolete TCP-era components and update documentation
 - [ ] Systematic audit and removal of obsolete TCP-era files
 - [ ] Update obsolete tests or remove test files for deleted functionality
-- [ ] Update pgmq-pivot.md to reflect actual implementation status
 - [ ] Document new architecture patterns and migration guide
 
 **Key Design Principles**:
@@ -587,7 +585,7 @@ The existing Ruby bindings assume deep FFI coupling with Rust internals:
 
 #### **Remove (FFI-Heavy Components)**:
 - `bindings/ruby/ext/tasker_core/src/handles.rs` - Direct FFI model access
-- `bindings/ruby/ext/tasker_core/src/globals.rs` - Global Rust state access  
+- `bindings/ruby/ext/tasker_core/src/globals.rs` - Global Rust state access
 - `bindings/ruby/ext/tasker_core/src/performance.rs` - Direct Rust analytics
 - `bindings/ruby/ext/tasker_core/src/models/` - Direct FFI model wrappers
 - `bindings/ruby/lib/tasker_core/embedded_server.rb` - TCP server components
@@ -606,7 +604,7 @@ The existing Ruby bindings assume deep FFI coupling with Rust internals:
 #### **Workers as Autonomous Queue Consumers**
 Ruby workers become simple, focused components:
 - **Queue Consumers**: Poll pgmq for step messages
-- **Step Executors**: Execute business logic via step handlers  
+- **Step Executors**: Execute business logic via step handlers
 - **Callable Routers**: Route step execution to appropriate handlers
 - **Database Users**: Direct database access for updates (shared with Rust core)
 - **No FFI Coupling**: No direct access to Rust models or state
@@ -627,7 +625,7 @@ Ruby workers become simple, focused components:
    # bindings/ruby/lib/tasker_core/database/sql_functions.rb
    class SqlFunctions
      def task_execution_context(task_id)
-     def step_readiness_status(task_id)  
+     def step_readiness_status(task_id)
      def dependency_analysis(task_id)
    end
    ```
@@ -775,10 +773,10 @@ impl TaskRequestProcessor {
             let messages = self.pgmq_client
                 .read_messages("orchestration_task_requests", 10, 60)
                 .await?;
-            
+
             for msg in messages {
                 let request: TaskRequestMessage = serde_json::from_value(msg.payload)?;
-                
+
                 // Validate using task_handler_registry
                 match self.task_handler_registry
                     .get_task_template(&request.namespace, &request.task_name, &request.task_version)
@@ -788,14 +786,14 @@ impl TaskRequestProcessor {
                         let task = self.task_initializer
                             .initialize_task_from_request(request, template)
                             .await?;
-                        
+
                         // Enqueue to processing queue
                         let task_message = TaskProcessingMessage {
                             task_id: task.task_id,
                             namespace: request.namespace,
                             priority: request.metadata.priority,
                         };
-                        
+
                         self.pgmq_client
                             .send_message("orchestration_tasks_to_be_processed", task_message)
                             .await?;
@@ -807,7 +805,7 @@ impl TaskRequestProcessor {
                     }
                 }
             }
-            
+
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
@@ -840,7 +838,7 @@ impl BatchCreator {
                 }),
             }
         ).await?;
-        
+
         // Associate steps with batch
         for step in steps {
             StepBatchAssociation::create(
@@ -849,7 +847,7 @@ impl BatchCreator {
                 step.step_id,
             ).await?;
         }
-        
+
         Ok(batch)
     }
 }
@@ -867,14 +865,14 @@ module TaskerCore
         @batch_executor = batch_executor
         @queue_name = "#{namespace}_batch_queue"
       end
-      
+
       def poll_and_process
         loop do
           messages = @pgmq_client.read_messages(@queue_name, count: 5, visibility_timeout: 300)
-          
+
           messages.each do |msg|
             batch_message = Types::BatchMessage.new(msg.payload)
-            
+
             # Use PostgreSQL JSON queries to check if we can handle this task
             if can_handle_task?(batch_message)
               process_batch(msg.id, batch_message)
@@ -883,35 +881,35 @@ module TaskerCore
               @pgmq_client.set_visibility_timeout(@queue_name, msg.id, 0)
             end
           end
-          
+
           sleep 1
         end
       end
-      
+
       private
-      
+
       def can_handle_task?(batch_message)
         # Query database for task handler configuration
         result = ActiveRecord::Base.connection.execute(<<-SQL)
           SELECT EXISTS(
             SELECT 1 FROM named_tasks nt
             JOIN task_namespaces tn ON nt.task_namespace_id = tn.id
-            WHERE tn.name = $1 
+            WHERE tn.name = $1
             AND nt.name = $2
             AND nt.configuration->>'worker_requirements' IS NULL
                OR nt.configuration->'worker_requirements' @> '{"namespace": "#{@namespace}"}'::jsonb
           )
         SQL
-        
+
         result.first['exists']
       end
-      
+
       def process_batch(message_id, batch_message)
         result = @batch_executor.execute_batch(batch_message)
-        
+
         # Send result to orchestration_batch_results queue
         @pgmq_client.send_message('orchestration_batch_results', result.to_h)
-        
+
         # Delete processed message
         @pgmq_client.delete_message(@queue_name, message_id)
       rescue => e
@@ -935,10 +933,10 @@ module TaskerCore
             execute_single_step(batch_message, step)
           end
         end
-        
+
         # Wait for all promises to complete
         results = promises.map(&:value!)
-        
+
         # Build batch result
         Types::BatchResult.new(
           batch_id: batch_message.batch_id,
@@ -953,23 +951,23 @@ module TaskerCore
           }
         )
       end
-      
+
       private
-      
+
       def execute_single_step(batch_message, step)
         # Load step handler
         handler_class = resolve_step_handler(batch_message.namespace, step.step_name)
         handler = handler_class.new
-        
+
         # Execute with task context
         context = StepExecutionContext.new(
           task_id: batch_message.task_id,
           step_id: step.step_id,
           step_payload: step.step_payload
         )
-        
+
         result = handler.execute(context)
-        
+
         {
           step_id: step.step_id,
           status: result.success? ? 'success' : 'failed',
@@ -1000,52 +998,52 @@ impl OrchestrationSystemPgmq {
         tokio::spawn(async move {
             request_processor.poll_and_process().await
         });
-        
+
         // Start task orchestration loop
         let task_processor = self.clone();
         tokio::spawn(async move {
             task_processor.poll_and_orchestrate_tasks().await
         });
-        
+
         // Start result processor
         let result_processor = self.batch_result_processor.clone();
         tokio::spawn(async move {
             result_processor.poll_and_process_results().await
         });
-        
+
         Ok(())
     }
-    
+
     async fn poll_and_orchestrate_tasks(&self) -> Result<()> {
         loop {
             let messages = self.pgmq_client
                 .read_messages("orchestration_tasks_to_be_processed", 10, 60)
                 .await?;
-            
+
             for msg in messages {
                 let task_msg: TaskProcessingMessage = serde_json::from_value(msg.payload)?;
-                
+
                 // Discover viable steps
                 let viable_steps = self.viable_step_discovery
                     .find_viable_steps(task_msg.task_id)
                     .await?;
-                
+
                 if !viable_steps.is_empty() {
                     // Create batch
                     let batch = self.batch_creator
                         .create_step_batch(task_msg.task_id, viable_steps)
                         .await?;
-                    
+
                     // Build batch message
                     let batch_message = self.build_batch_message(batch).await?;
-                    
+
                     // Enqueue to namespace queue
                     let queue_name = format!("{}_batch_queue", task_msg.namespace);
                     self.pgmq_client
                         .send_message(&queue_name, batch_message)
                         .await?;
                 }
-                
+
                 // Check if task is complete
                 if self.is_task_complete(task_msg.task_id).await? {
                     self.pgmq_client.delete_message("orchestration_tasks_to_be_processed", msg.id).await?;
@@ -1054,7 +1052,7 @@ impl OrchestrationSystemPgmq {
                     self.pgmq_client.set_visibility_timeout("orchestration_tasks_to_be_processed", msg.id, 30).await?;
                 }
             }
-            
+
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }

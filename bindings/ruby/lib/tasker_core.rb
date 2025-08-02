@@ -75,6 +75,7 @@ require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Ha
 require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
 require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
 require_relative 'tasker_core/errors' # Errors for TaskerCore
+require_relative 'tasker_core/embedded_orchestrator' # Embedded orchestration for testing
 
 
 module TaskerCore
