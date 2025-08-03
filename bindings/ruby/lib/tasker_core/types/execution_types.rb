@@ -2,7 +2,6 @@
 
 require 'dry-struct'
 require 'dry-types'
-require_relative '../monkeypatch'
 
 module TaskerCore
   module Types

@@ -5,7 +5,7 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ProcessPaymentHandler < TaskerCore::StepHandler::Base
-      def process(task, sequence, step)
+      def call(task, sequence, step)
         # Extract and validate all required inputs
         payment_inputs = extract_and_validate_inputs(task, sequence, step)
 
@@ -22,7 +22,25 @@ module OrderFulfillment
           payment_method_used: payment_results[:payment_method],
           gateway_response: payment_results[:gateway_response],
           processed_at: Time.now.iso8601,
-          payment_status: 'completed'
+          payment_status: 'completed',
+          # Include orchestration metadata for the orchestration layer
+          _orchestration_metadata: {
+            http_headers: {
+              'X-Payment-Gateway' => 'stripe',
+              'X-Gateway-Request-ID' => payment_results[:transaction_id],
+              'X-Idempotency-Key' => payment_results[:payment_id]
+            },
+            execution_hints: {
+              gateway_response_time_ms: payment_results[:gateway_response][:processing_time_ms] || 150,
+              gateway_fee_amount: payment_results[:gateway_response][:gateway_fee],
+              requires_3ds_authentication: false
+            },
+            backoff_hints: {
+              # If this was a retry after rate limiting, suggest backing off
+              suggested_backoff_seconds: payment_results[:was_rate_limited] ? 30 : nil,
+              gateway_load_indicator: payment_results[:gateway_response][:load_indicator] || 'normal'
+            }
+          }
         }
       end
 
@@ -177,6 +195,7 @@ module OrderFulfillment
         end
 
         # Success case
+        processing_time = (50 + rand(200)).to_i  # Simulate 50-250ms processing time
         {
           status: 'succeeded',
           transaction_id: "TXN-#{SecureRandom.hex(8).upcase}",
@@ -185,7 +204,9 @@ module OrderFulfillment
           payment_method_type: method,
           reference: "#{payment_id}-#{Time.now.to_i}",
           gateway_fee: (amount * 0.029).round(2),  # 2.9% gateway fee
-          processed_at: Time.now.iso8601
+          processed_at: Time.now.iso8601,
+          processing_time_ms: processing_time,
+          load_indicator: processing_time > 200 ? 'high' : 'normal'
         }
       end
 

@@ -13,8 +13,8 @@ pub mod orchestration_system_pgmq;
 // pub mod testing; // Disabled - depends on old TCP orchestration system
 pub mod types;
 
-#[cfg(test)]
-mod orchestration_system_pgmq_test;
+// #[cfg(test)]
+// mod orchestration_system_pgmq_test; // TODO: Create this test file when needed
 
 // Re-export main types for convenience
 pub use errors::*;

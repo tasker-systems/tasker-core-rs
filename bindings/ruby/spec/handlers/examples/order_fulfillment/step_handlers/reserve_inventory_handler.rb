@@ -5,7 +5,7 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ReserveInventoryHandler < TaskerCore::StepHandler::Base
-      def process(task, sequence, step)
+      def call(task, sequence, step)
         # Extract and validate all required inputs
         reservation_inputs = extract_and_validate_inputs(task, sequence, step)
 

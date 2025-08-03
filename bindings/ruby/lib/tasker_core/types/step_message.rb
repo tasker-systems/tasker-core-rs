@@ -21,6 +21,138 @@ module TaskerCore
       TimeoutMs = Types::Integer.constrained(gt: 0)
     end
 
+    # Result data from a dependency step that this step depends on
+    class StepDependencyResult < Dry::Struct
+      transform_keys(&:to_sym)
+
+      attribute :step_name, Types::String
+      attribute :step_id, Types::StepId
+      attribute :named_step_id, Types::Integer
+      attribute :results, Types::Hash.optional.default(nil)
+      attribute :processed_at, Types::Time.optional.default(nil)
+      attribute :metadata, Types::Hash.default({}.freeze)
+
+      # Add metadata to the dependency result
+      # @param key [String] metadata key
+      # @param value [Object] metadata value
+      # @return [StepDependencyResult] new instance with added metadata
+      def with_metadata(key, value)
+        new(metadata: metadata.merge(key => value))
+      end
+    end
+
+    # Wrapper class for convenient access to dependency results
+    class DependencyChain
+      def initialize(dependencies)
+        @dependencies = dependencies.map do |dep|
+          if dep.is_a?(Hash)
+            StepDependencyResult.new(dep)
+          else
+            dep
+          end
+        end
+        @index = @dependencies.each_with_object({}) { |dep, hash| hash[dep.step_name] = dep }
+      end
+
+      # Get dependency result by step name
+      # @param step_name [String] name of the dependency step
+      # @return [StepDependencyResult, nil] dependency result or nil if not found
+      def get(step_name)
+        @index[step_name.to_s]
+      end
+      alias_method :[], :get
+
+      # Get all dependencies
+      # @return [Array<StepDependencyResult>] all dependency results
+      def all
+        @dependencies
+      end
+
+      # Get dependency names
+      # @return [Array<String>] names of all dependencies
+      def names
+        @dependencies.map(&:step_name)
+      end
+
+      # Check if dependency exists
+      # @param step_name [String] name of the dependency step
+      # @return [Boolean] true if dependency exists
+      def has?(step_name)
+        @index.key?(step_name.to_s)
+      end
+      alias_method :include?, :has?
+
+      # Get number of dependencies
+      # @return [Integer] number of dependencies
+      def count
+        @dependencies.count
+      end
+      alias_method :size, :count
+      alias_method :length, :count
+
+      # Check if any dependencies
+      # @return [Boolean] true if no dependencies
+      def empty?
+        @dependencies.empty?
+      end
+
+      # Iterate over dependencies
+      def each(&block)
+        @dependencies.each(&block)
+      end
+
+      # Convert to array for compatibility
+      # @return [Array<StepDependencyResult>] array of dependencies
+      def to_a
+        @dependencies
+      end
+
+      # Convert to hash representation
+      # @return [Hash] hash representation
+      def to_h
+        {
+          dependencies: @dependencies.map(&:to_h),
+          count: count
+        }
+      end
+    end
+
+    # Execution context that provides (task, sequence, step) to handlers
+    class StepExecutionContext < Dry::Struct
+      transform_keys(&:to_sym)
+
+      attribute :task, Types::Hash
+      attribute :sequence, Types::Array.of(StepDependencyResult).default([].freeze)
+      attribute :step, Types::Hash
+      attribute :additional_context, Types::Hash.default({}.freeze)
+
+      # Get dependency chain wrapper for convenient access
+      # @return [DependencyChain] wrapper for accessing dependencies
+      def dependencies
+        @dependencies ||= DependencyChain.new(sequence)
+      end
+
+      # Add additional context
+      # @param key [String] context key
+      # @param value [Object] context value
+      # @return [StepExecutionContext] new instance with added context
+      def with_context(key, value)
+        new(additional_context: additional_context.merge(key => value))
+      end
+
+      # Create execution context with empty dependencies (for root steps)
+      # @param task [Hash] task data
+      # @param step [Hash] step data
+      # @return [StepExecutionContext] new execution context
+      def self.new_root_step(task:, step:)
+        new(
+          task: task,
+          sequence: [],
+          step: step
+        )
+      end
+    end
+
     # Step message metadata for queue processing
     class StepMessageMetadata < Dry::Struct
       # Make the struct more flexible for additional attributes
@@ -78,6 +210,9 @@ module TaskerCore
       # Step execution data
       attribute :step_payload, Types::Hash.default({}.freeze)
       
+      # Execution context for (task, sequence, step) pattern
+      attribute :execution_context, StepExecutionContext.default { StepExecutionContext.new(task: {}, sequence: [], step: {}) }
+      
       # Message metadata
       attribute :metadata, StepMessageMetadata.default { StepMessageMetadata.new }
 
@@ -98,6 +233,7 @@ module TaskerCore
           task_version: task_version,
           step_name: step_name,
           step_payload: step_payload,
+          execution_context: execution_context.to_h,
           metadata: metadata.to_h
         }
       end
@@ -110,7 +246,18 @@ module TaskerCore
         symbolized = hash.transform_keys(&:to_sym)
         
         if symbolized[:metadata].is_a?(Hash)
-          symbolized[:metadata] = StepMessageMetadata.new(symbolized[:metadata])
+          metadata_hash = symbolized[:metadata].transform_keys(&:to_sym)
+          
+          # Convert created_at string back to Time object if needed
+          if metadata_hash[:created_at].is_a?(String)
+            metadata_hash[:created_at] = Time.parse(metadata_hash[:created_at])
+          end
+          
+          symbolized[:metadata] = StepMessageMetadata.new(metadata_hash)
+        end
+        
+        if symbolized[:execution_context].is_a?(Hash)
+          symbolized[:execution_context] = StepExecutionContext.new(symbolized[:execution_context])
         end
         
         new(symbolized)
@@ -148,9 +295,15 @@ module TaskerCore
       # @param step_name [String] step name
       # @param step_payload [Hash] step payload
       # @param task_version [String] task version
+      # @param execution_context [StepExecutionContext] execution context
       # @return [StepMessage] new step message
       def self.build_test(step_id:, task_id:, namespace:, task_name:, step_name:, 
-                         step_payload: {}, task_version: "1.0.0")
+                         step_payload: {}, task_version: "1.0.0", execution_context: nil)
+        execution_context ||= StepExecutionContext.new_root_step(
+          task: { task_id: task_id, namespace: namespace },
+          step: { step_id: step_id, step_name: step_name }
+        )
+        
         new(
           step_id: step_id,
           task_id: task_id,
@@ -158,7 +311,8 @@ module TaskerCore
           task_name: task_name,
           task_version: task_version,
           step_name: step_name,
-          step_payload: step_payload
+          step_payload: step_payload,
+          execution_context: execution_context
         )
       end
     end

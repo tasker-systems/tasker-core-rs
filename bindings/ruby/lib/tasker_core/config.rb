@@ -50,7 +50,7 @@ module TaskerCore
       config_file = find_config_file
 
       unless config_file && File.exist?(config_file)
-        raise ConfigurationError, "Configuration file not found. Looked for: #{config_file}"
+        raise Errors::ConfigurationError, "Configuration file not found. Looked for: #{config_file}"
       end
 
       @loaded_config = YAML.load_file(config_file)
@@ -60,7 +60,7 @@ module TaskerCore
 
       @loaded_config
     rescue Psych::SyntaxError => e
-      raise ConfigurationError, "Invalid YAML in configuration file #{config_file}: #{e.message}"
+      raise Errors::ConfigurationError, "Invalid YAML in configuration file #{config_file}: #{e.message}"
     rescue StandardError => e
       raise ConfigurationError, "Failed to load configuration from #{config_file}: #{e.message}"
     end

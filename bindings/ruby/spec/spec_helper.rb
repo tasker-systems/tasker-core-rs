@@ -5,6 +5,7 @@ require 'json'
 require 'yaml'
 require 'time'
 require 'securerandom'
+require 'dotenv'
 # require_relative 'domain_helpers'  # Not needed for pgmq architecture tests
 
 # Configure RSpec for domain API testing
@@ -22,8 +23,7 @@ RSpec.configure do |config|
 
   # Test environment setup - pgmq architecture doesn't need FFI orchestration manager
   config.before(:suite) do
-    # pgmq architecture is database-driven, no FFI setup needed
-    puts "🔧 Setting up pgmq architecture tests..."
+    Dotenv.load
   end
 
   # Configure test output

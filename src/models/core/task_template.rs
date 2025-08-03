@@ -454,6 +454,8 @@ impl ResolvedTaskTemplate {
             } else {
                 Some(self.resolved_default_options.clone())
             },
+            priority: None, // Use default
+            claim_timeout_seconds: None, // Use default
         }
     }
 

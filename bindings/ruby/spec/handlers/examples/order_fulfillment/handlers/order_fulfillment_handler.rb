@@ -11,10 +11,10 @@ module OrderFulfillment
     # Override initialize_task to apply custom configuration before delegation
     def initialize_task(task_request)
       # Apply our custom configuration logic to the task context
-      setup_task_specific_configuration(task_request[:context] || task_request['context'])
+      setup_task_specific_configuration(task_request[:context])
 
       # Delegate to parent for actual task initialization
-      super(task_request)
+      super
     end
 
     # Custom configuration based on task context

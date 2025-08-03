@@ -46,6 +46,7 @@ use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::publisher::EventPublisher;
 use crate::models::{Task, WorkflowStep};
 use crate::orchestration::task_enqueuer::{EnqueuePriority, EnqueueRequest, TaskEnqueuer};
+use std::sync::Arc;
 use crate::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 
 /// Result of task finalization operation
@@ -101,11 +102,12 @@ pub struct TaskExecutionContext {
 /// This component provides implementation for task finalization while firing
 /// lifecycle events for observability. Enhanced with TaskExecutionContext
 /// integration for intelligent decision making.
+#[derive(Clone)]
 pub struct TaskFinalizer {
     pool: PgPool,
     sql_executor: SqlFunctionExecutor,
     event_publisher: EventPublisher,
-    task_enqueuer: TaskEnqueuer,
+    task_enqueuer: Arc<TaskEnqueuer>,
 }
 
 impl TaskFinalizer {
@@ -113,8 +115,9 @@ impl TaskFinalizer {
     pub fn new(pool: PgPool) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::with_capacity(1000); // 1000 event capacity
-        let task_enqueuer =
-            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone());
+        let task_enqueuer = Arc::new(
+            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone())
+        );
         Self {
             pool,
             sql_executor,
@@ -126,8 +129,9 @@ impl TaskFinalizer {
     /// Create a new TaskFinalizer with custom event publisher
     pub fn with_event_publisher(pool: PgPool, event_publisher: EventPublisher) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let task_enqueuer =
-            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone());
+        let task_enqueuer = Arc::new(
+            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone())
+        );
         Self {
             pool,
             sql_executor,
@@ -147,7 +151,7 @@ impl TaskFinalizer {
             pool,
             sql_executor,
             event_publisher,
-            task_enqueuer,
+            task_enqueuer: Arc::new(task_enqueuer),
         }
     }
 

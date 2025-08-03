@@ -35,12 +35,16 @@ pub mod config;
 pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
-pub mod orchestration_system_pgmq;
+pub mod orchestration_loop;
+pub mod orchestration_system;
 pub mod result_processor;
 pub mod state_manager;
+pub mod step_enqueuer;
+pub mod step_result_processor;
 pub mod step_execution_orchestrator;
 pub mod step_handler;
 pub mod system_events;
+pub mod task_claimer;
 pub mod task_config_finder;
 pub mod task_enqueuer;
 pub mod task_finalizer;
@@ -56,9 +60,21 @@ pub use backoff_calculator::{
     BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
     BackoffType,
 };
-pub use orchestration_system_pgmq::{
-    OrchestrationStats, OrchestrationSystemConfig, OrchestrationSystemPgmq,
+pub use orchestration_loop::{
+    AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,
+    OrchestrationCycleResult, OrchestrationLoop, OrchestrationLoopConfig, PerformanceMetrics,
+    PriorityDistribution,
 };
+pub use orchestration_system::{
+    OrchestrationStats, OrchestrationSystem, OrchestrationSystemConfig,
+};
+pub use step_enqueuer::{
+    NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer, StepEnqueuerConfig,
+};
+pub use step_result_processor::{
+    StepResultProcessor, StepResultProcessorConfig, StepResultProcessingResult,
+};
+pub use task_claimer::{ClaimedTask, TaskClaimer, TaskClaimerConfig};
 pub use task_enqueuer::{
     DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
     EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
@@ -93,7 +109,7 @@ pub use handler_config::{
     EnvironmentConfig, HandlerConfiguration, ResolvedHandlerConfiguration, StepTemplate,
     StepTemplateOverride,
 };
-pub use result_processor::{OrchestrationResultProcessor, StepError, StepSummary};
+pub use result_processor::{OrchestrationResultProcessor, StepError};
 pub use state_manager::StateManager;
 pub use step_execution_orchestrator::{
     StepExecutionOrchestrator, StepExecutionOrchestratorBuilder,

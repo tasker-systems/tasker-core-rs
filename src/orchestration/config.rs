@@ -114,6 +114,7 @@ pub struct TaskerConfig {
     pub system: SystemConfig,
     pub backoff: BackoffConfig,
     pub execution: ExecutionConfig,
+    pub orchestration: OrchestrationConfig,
     pub reenqueue: ReenqueueDelays,
     pub events: EventConfig,
     pub cache: CacheConfig,
@@ -379,6 +380,119 @@ impl Default for EventConfig {
             batch_size: 100,
             enabled: true,
             batch_timeout_ms: 1000,
+        }
+    }
+}
+
+/// Orchestration system configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestrationConfig {
+    /// Queue name for task requests
+    pub task_requests_queue_name: String,
+    /// Orchestrator instance identifier (if not set, will be auto-generated)
+    pub orchestrator_id: Option<String>,
+    /// Number of tasks to claim per orchestration cycle
+    pub tasks_per_cycle: i32,
+    /// Orchestration cycle interval in seconds
+    pub cycle_interval_seconds: u64,
+    /// Maximum number of cycles (None = infinite)
+    pub max_cycles: Option<usize>,
+    /// Task request processor polling interval (seconds)
+    pub task_request_polling_interval_seconds: u64,
+    /// Visibility timeout for task request messages (seconds)
+    pub task_request_visibility_timeout_seconds: i32,
+    /// Number of task requests to process per batch
+    pub task_request_batch_size: i32,
+    /// Namespaces to create queues for
+    pub active_namespaces: Vec<String>,
+    /// Maximum concurrent orchestration loops
+    pub max_concurrent_orchestrators: usize,
+    /// Enable comprehensive performance logging
+    pub enable_performance_logging: bool,
+    /// Enable heartbeat for long-running task claims
+    pub enable_heartbeat: bool,
+    /// Default claim timeout in seconds
+    pub default_claim_timeout_seconds: i32,
+    /// Heartbeat interval for extending claims (seconds)
+    pub heartbeat_interval_seconds: u64,
+    /// Namespace filter (None = all namespaces)
+    pub namespace_filter: Option<String>,
+}
+
+impl Default for OrchestrationConfig {
+    fn default() -> Self {
+        Self {
+            task_requests_queue_name: "task_requests_queue".to_string(),
+            orchestrator_id: None, // Will be auto-generated
+            tasks_per_cycle: 5,
+            cycle_interval_seconds: 1,
+            max_cycles: None,
+            task_request_polling_interval_seconds: 1,
+            task_request_visibility_timeout_seconds: 300, // 5 minutes
+            task_request_batch_size: 10,
+            active_namespaces: vec![
+                "fulfillment".to_string(),
+                "inventory".to_string(),
+                "notifications".to_string(),
+                "payments".to_string(),
+                "analytics".to_string(),
+            ],
+            max_concurrent_orchestrators: 3,
+            enable_performance_logging: false,
+            enable_heartbeat: true,
+            default_claim_timeout_seconds: 300, // 5 minutes
+            heartbeat_interval_seconds: 60, // 1 minute
+            namespace_filter: None,
+        }
+    }
+}
+
+impl OrchestrationConfig {
+    /// Convert to OrchestrationSystemConfig for bootstrapping the orchestration system
+    pub fn to_orchestration_system_config(&self) -> crate::orchestration::OrchestrationSystemConfig {
+        use crate::orchestration::{OrchestrationLoopConfig, OrchestrationSystemConfig};
+        use crate::orchestration::task_claimer::TaskClaimerConfig;
+        use crate::orchestration::step_enqueuer::StepEnqueuerConfig;
+        use crate::orchestration::step_result_processor::StepResultProcessorConfig;
+        use std::time::{Duration, SystemTime};
+
+        // Generate orchestrator ID if not provided
+        let orchestrator_id = self.orchestrator_id.clone().unwrap_or_else(|| {
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            format!("orchestrator-{}", timestamp)
+        });
+
+        // Create orchestration loop configuration
+        let orchestration_loop_config = OrchestrationLoopConfig {
+            tasks_per_cycle: self.tasks_per_cycle,
+            namespace_filter: self.namespace_filter.clone(),
+            cycle_interval: Duration::from_secs(self.cycle_interval_seconds),
+            max_cycles: self.max_cycles,
+            enable_performance_logging: self.enable_performance_logging,
+            enable_heartbeat: self.enable_heartbeat,
+            task_claimer_config: TaskClaimerConfig {
+                max_batch_size: self.tasks_per_cycle.max(10),
+                default_claim_timeout: self.default_claim_timeout_seconds,
+                heartbeat_interval: Duration::from_secs(self.heartbeat_interval_seconds),
+                enable_heartbeat: self.enable_heartbeat,
+            },
+            step_enqueuer_config: StepEnqueuerConfig::default(),
+            step_result_processor_config: StepResultProcessorConfig::default(),
+        };
+
+        OrchestrationSystemConfig {
+            task_requests_queue_name: self.task_requests_queue_name.clone(),
+            orchestrator_id,
+            orchestration_loop_config,
+            task_request_polling_interval_seconds: self.task_request_polling_interval_seconds,
+            task_request_visibility_timeout_seconds: self.task_request_visibility_timeout_seconds,
+            task_request_batch_size: self.task_request_batch_size,
+            active_namespaces: self.active_namespaces.clone(),
+            max_concurrent_orchestrators: self.max_concurrent_orchestrators,
+            enable_performance_logging: self.enable_performance_logging,
         }
     }
 }

@@ -5,19 +5,14 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ValidateOrderHandler < TaskerCore::StepHandler::Base
-      def process(task, sequence, step)
+      def call(task, sequence, step)
         logger.info "🎯 VALIDATE_ORDER: Starting order validation - task_id=#{task.task_id}, step_name=#{step.name}"
-        logger.debug "🔍 VALIDATE_ORDER: Input objects - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
 
         # Extract and validate all required inputs
-        logger.debug "📋 VALIDATE_ORDER: Extracting and validating inputs"
         order_inputs = extract_and_validate_inputs(task, sequence, step)
         logger.info "✅ VALIDATE_ORDER: Input validation complete - customer_id=#{order_inputs[:customer_id]}, item_count=#{order_inputs[:order_items]&.length}"
 
-        puts "Validating order: task_id=#{task.task_id}, customer=#{order_inputs[:customer_id]}"
-
         # Validate order data - let Rust orchestration handle general error wrapping
-        logger.debug "🔍 VALIDATE_ORDER: Starting order data validation"
         validation_results = validate_order_data(order_inputs)
         logger.info "✅ VALIDATE_ORDER: Order data validation complete - total_amount=#{validation_results[:total]}, validated_items=#{validation_results[:items]&.length}"
 
@@ -29,9 +24,6 @@ module OrderFulfillment
           validation_status: 'complete',
           validated_at: Time.now.iso8601,
         }
-
-        logger.info "✅ VALIDATE_ORDER: Order validation completed successfully - customer_validated=#{result[:customer_validated]}, total_amount=#{result[:total_amount]}"
-        logger.info "🔍 VALIDATE_ORDER: Validation result - #{result.inspect}"
 
         result
       end

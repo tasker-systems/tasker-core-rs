@@ -5,11 +5,12 @@
 //! validated tasks for orchestration processing.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::{PgmqClient, TaskProcessingMessage, TaskRequestMessage};
+use crate::messaging::{PgmqClient, TaskRequestMessage};
 use crate::models::core::{
     named_task::NamedTask,
     task::{NewTask, Task},
     task_namespace::TaskNamespace,
+    task_request::TaskRequest,
 };
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;
@@ -24,8 +25,6 @@ use tracing::{debug, error, info, instrument, warn};
 pub struct TaskRequestProcessorConfig {
     /// Queue name to poll for task requests
     pub request_queue_name: String,
-    /// Queue name to send validated tasks for processing
-    pub processing_queue_name: String,
     /// Number of messages to read per batch
     pub batch_size: i32,
     /// Visibility timeout for messages (seconds)
@@ -40,7 +39,6 @@ impl Default for TaskRequestProcessorConfig {
     fn default() -> Self {
         Self {
             request_queue_name: "orchestration_task_requests".to_string(),
-            processing_queue_name: "orchestration_tasks_to_be_processed".to_string(),
             batch_size: 10,
             visibility_timeout_seconds: 300, // 5 minutes
             polling_interval_seconds: 1,
@@ -86,7 +84,6 @@ impl TaskRequestProcessor {
     pub async fn start_processing_loop(&self) -> Result<()> {
         info!(
             request_queue = %self.config.request_queue_name,
-            processing_queue = %self.config.processing_queue_name,
             "Starting task request processing loop"
         );
 
@@ -220,38 +217,7 @@ impl TaskRequestProcessor {
         // Validate the task using the task handler registry
         match self.validate_task_request(&request).await {
             Ok(()) => {
-                // Create the task using existing models
-                let task = self.create_task_from_request(&request).await?;
-
-                // Create task processing message
-                let processing_message = TaskProcessingMessage::new(
-                    task.task_id,
-                    request.namespace.clone(),
-                    request.task_name.clone(),
-                    request.task_version.clone(),
-                    request.request_id.clone(),
-                    request.metadata.priority.clone(),
-                );
-
-                // Enqueue for orchestration processing
-                self.pgmq_client
-                    .send_json_message(&self.config.processing_queue_name, &processing_message)
-                    .await
-                    .map_err(|e| {
-                        TaskerError::MessagingError(format!(
-                            "Failed to enqueue task for processing: {}",
-                            e
-                        ))
-                    })?;
-
-                info!(
-                    request_id = %request.request_id,
-                    task_id = task.task_id,
-                    processing_queue = %self.config.processing_queue_name,
-                    "Task validated and enqueued for processing"
-                );
-
-                Ok(())
+                self.handle_valid_task_request(&request).await
             }
             Err(validation_error) => {
                 warn!(
@@ -264,6 +230,27 @@ impl TaskRequestProcessor {
                 Err(validation_error)
             }
         }
+    }
+
+    /// Handle a validated task request by creating task (ready for SQL-based discovery)
+    async fn handle_valid_task_request(&self, request: &TaskRequestMessage) -> Result<()> {
+        // Convert TaskRequestMessage to TaskRequest for proper initialization
+        let task_request = self.convert_message_to_task_request(request)?;
+        
+        // Create the task using the proper TaskInitializer with full workflow setup
+        let initialization_result = self.task_initializer.create_task_from_request(task_request).await
+            .map_err(|e| TaskerError::OrchestrationError(format!("Task initialization failed: {}", e)))?;
+
+        info!(
+            request_id = %request.request_id,
+            task_id = initialization_result.task_id,
+            namespace = %request.namespace,
+            task_name = %request.task_name,
+            step_count = initialization_result.step_count,
+            "Task validated and created - ready for SQL-based discovery"
+        );
+
+        Ok(())
     }
 
     /// Validate a task request using the task handler registry
@@ -300,80 +287,70 @@ impl TaskRequestProcessor {
         }
     }
 
-    /// Create a task from a validated request
-    async fn create_task_from_request(&self, request: &TaskRequestMessage) -> Result<Task> {
+    /// Convert TaskRequestMessage to TaskRequest for proper initialization
+    fn convert_message_to_task_request(&self, request: &TaskRequestMessage) -> Result<TaskRequest> {
         debug!(
             request_id = %request.request_id,
             namespace = %request.namespace,
             task_name = %request.task_name,
-            "Creating task from request"
+            "Converting message to TaskRequest for proper initialization"
         );
 
-        // Find the task namespace
-        let task_namespace = TaskNamespace::find_by_name(&self.pool, &request.namespace)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {}", e)))?
-            .ok_or_else(|| {
-                TaskerError::ValidationError(format!("Namespace not found: {}", request.namespace))
-            })?;
-
-        // Find the named task
-        let named_task = NamedTask::find_latest_by_name_namespace(
-            &self.pool,
-            &request.task_name,
-            task_namespace.task_namespace_id as i64,
-        )
-        .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {}", e)))?
-        .ok_or_else(|| {
-            TaskerError::ValidationError(format!(
-                "Task not found: {}/{}",
-                request.namespace, request.task_name
-            ))
-        })?;
-
-        // Create identity hash for the task (using simple hash for now)
-        let identity_hash = format!(
-            "{}-{}-{}-{}",
-            request.namespace,
-            request.task_name,
-            request.request_id,
-            Utc::now().timestamp_millis()
-        );
-
-        // Create the task
-        let new_task = NewTask {
-            named_task_id: named_task.named_task_id,
-            requested_at: Some(request.metadata.requested_at.naive_utc()),
-            initiator: Some(request.metadata.requester.clone()),
-            source_system: Some("task_request_processor".to_string()),
-            reason: Some(format!("Task request {}", request.request_id)),
-            bypass_steps: None,
-            tags: Some(serde_json::json!({
-                "priority": request.metadata.priority,
-                "created_by_processor": true
-            })),
-            context: Some(request.input_data.clone()),
-            identity_hash,
-        };
-
-        let task = Task::create(&self.pool, new_task)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to create task: {}", e)))?;
-
-        // The task is created and will be initialized by the orchestration system
-        // when it processes the task. We don't need to initialize it here since
-        // initialization happens during workflow setup.
+        // Convert the messaging format to the core model format
+        let task_request = TaskRequest::new(request.task_name.clone(), request.namespace.clone())
+            .with_version(request.task_version.clone())
+            .with_context(request.input_data.clone())
+            .with_initiator(request.metadata.requester.clone())
+            .with_source_system("task_request_processor".to_string())
+            .with_reason(format!("Task request {}", request.request_id))
+            .with_priority(request.metadata.priority.into())
+            .with_claim_timeout_seconds(300); // Default 5 minutes for task claims
 
         info!(
             request_id = %request.request_id,
-            task_id = task.task_id,
             namespace = %request.namespace,
             task_name = %request.task_name,
-            "Task created successfully"
+            "TaskRequest converted successfully for proper initialization"
         );
 
-        Ok(task)
+        Ok(task_request)
+    }
+
+    /// Process a task request directly using TaskInitializer (bypassing message queues)
+    /// This is the preferred method for direct task creation with proper initialization
+    #[instrument(skip(self))]
+    pub async fn process_task_request(&self, payload: &serde_json::Value) -> Result<i64> {
+        // Parse the task request message
+        let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
+            TaskerError::ValidationError(format!("Invalid task request message format: {}", e))
+        })?;
+
+        info!(
+            request_id = %request.request_id,
+            namespace = %request.namespace,
+            task_name = %request.task_name,
+            "Processing task request directly with proper initialization"
+        );
+
+        // Validate the task using the task handler registry
+        self.validate_task_request(&request).await?;
+
+        // Convert TaskRequestMessage to TaskRequest for proper initialization
+        let task_request = self.convert_message_to_task_request(&request)?;
+        
+        // Create the task using the proper TaskInitializer with full workflow setup
+        let initialization_result = self.task_initializer.create_task_from_request(task_request).await
+            .map_err(|e| TaskerError::OrchestrationError(format!("Task initialization failed: {}", e)))?;
+
+        info!(
+            request_id = %request.request_id,
+            task_id = initialization_result.task_id,
+            step_count = initialization_result.step_count,
+            handler_config = ?initialization_result.handler_config_name,
+            "Task initialized successfully with proper workflow setup"
+        );
+
+        Ok(initialization_result.task_id)
     }
 
     /// Ensure required queues exist
@@ -393,18 +370,6 @@ impl TaskRequestProcessor {
             );
         }
 
-        // Create processing queue if it doesn't exist
-        if let Err(e) = self
-            .pgmq_client
-            .create_queue(&self.config.processing_queue_name)
-            .await
-        {
-            debug!(
-                queue = %self.config.processing_queue_name,
-                error = %e,
-                "Queue may already exist"
-            );
-        }
 
         Ok(())
     }
@@ -414,10 +379,8 @@ impl TaskRequestProcessor {
         // For now, return basic stats without queue sizes since the method doesn't exist yet
         // TODO: Implement queue_size method in PgmqClient
         Ok(TaskRequestProcessorStats {
-            request_queue_size: -1,    // Not available yet
-            processing_queue_size: -1, // Not available yet
+            request_queue_size: -1, // Not available yet
             request_queue_name: self.config.request_queue_name.clone(),
-            processing_queue_name: self.config.processing_queue_name.clone(),
         })
     }
 }
@@ -426,9 +389,7 @@ impl TaskRequestProcessor {
 #[derive(Debug, Clone)]
 pub struct TaskRequestProcessorStats {
     pub request_queue_size: i64,
-    pub processing_queue_size: i64,
     pub request_queue_name: String,
-    pub processing_queue_name: String,
 }
 
 #[cfg(test)]
@@ -440,10 +401,6 @@ mod tests {
     fn test_config_defaults() {
         let config = TaskRequestProcessorConfig::default();
         assert_eq!(config.request_queue_name, "orchestration_task_requests");
-        assert_eq!(
-            config.processing_queue_name,
-            "orchestration_tasks_to_be_processed"
-        );
         assert_eq!(config.batch_size, 10);
         assert_eq!(config.visibility_timeout_seconds, 300);
     }

@@ -8,31 +8,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Architecture**: PostgreSQL message queue (pgmq) based system where Rust handles orchestration and step enqueueing, while Ruby workers autonomously process steps through queue polling - eliminating FFI coupling and coordination complexity.
 
-## Current Status (August 1, 2025)
+## Current Status (August 3, 2025)
 
 ### 🎉 MAJOR ARCHITECTURAL PIVOT: TCP → pgmq Success!
 - **Strategic Decision**: Pivoted from complex TCP command system to PostgreSQL message queue architecture
 - **Problem Solved**: Eliminated imperative disguised as event-driven, central planning overhead, Rust<->Ruby thread issues
 - **Solution**: Simple queue-based processing that returns to Rails Tasker philosophy
-- **Result**: ✅ **Phase 1 Complete** - pgmq architecture working end-to-end with comprehensive tests!
+- **Result**: ✅ **Phases 1-4 Complete** - pgmq architecture fully implemented! ✅ **Phase 5.2 Largely Complete** - Individual step enqueueing with metadata flow!
 
-### ✅ PHASE 1 COMPLETED: pgmq Foundation (August 1, 2025)
-- **PostgreSQL Integration** ✅: pgmq extension installed, Rust sqlx integration layer complete
-- **Ruby Implementation** ✅: Pure Ruby pgmq client using pg gem (no FFI coupling)
-- **Queue Operations** ✅: Full API (send, read, delete, archive, purge) with proper schema (`pgmq.*` functions)
-- **Type System** ✅: Complete dry-struct validation with `TaskerCore::Types::StepMessage`, `StepResult`
-- **Autonomous Workers** ✅: Queue polling workers with concurrent processing, no coordination needed
-- **SQL Functions** ✅: Database status queries and analytics without FFI
-- **Infrastructure Cleanup** ✅: Removed 36+ TCP/worker management files
-- **Integration Tests** ✅: Comprehensive test suite passing (`1 example, 0 failures`)
+### ✅ PHASE 5.2 COMPLETED: Individual Step Enqueueing with Metadata Flow (August 3, 2025)
+- **Enhanced StepMessage** ✅: Complete execution context with (task, sequence, step) where sequence contains dependency results
+- **Immediate Delete Pattern** ✅: Queue workers delete messages immediately, no retry logic duplication  
+- **Dependency Chain Results** ✅: `StepExecutionContext.dependencies` provides convenient `sequence.get(step_name)` access
+- **Ruby Type System** ✅: Complete dry-struct types matching Rust structures with wrapper classes
+- **Handler Interface Fixed** ✅: Workers now call `handler.call(task, sequence, step)` and treat any return as success
+- **Orchestration Metadata Integration** ✅: `OrchestrationResultProcessor` enhanced with `BackoffCalculator` integration
+- **Intelligent Backoff Processing** ✅: HTTP headers, error context, and backoff hints flow to orchestration decisions
 
-### 🏗️ ARCHITECTURAL BENEFITS ACHIEVED
-- **🚀 No FFI Coupling**: Pure Ruby implementation using standard `pg` gem
-- **🔄 Autonomous Workers**: Workers poll queues independently, no registration/coordination
-- **📊 Database-Driven**: PostgreSQL handles message reliability, persistence, transactions
-- **📋 Type Safety**: Full dry-struct validation for all message types
-- **🎯 Scalable**: Namespace-based queues (`fulfillment_queue`, `inventory_queue`, etc.)
-- **🧹 Simple & Reliable**: Back to the proven simplicity of original Rails Tasker
+### 🏗️ PHASE 5.2 ARCHITECTURAL BENEFITS ACHIEVED
+- **🚀 "Worker Executes, Orchestration Coordinates"**: Complete separation of concerns
+- **🔄 Individual Step Processing**: No batch coordination complexity, fault isolation per step
+- **📊 Metadata Flow**: Rich orchestration metadata from handlers to intelligent backoff decisions
+- **📋 Enhanced Dependency Chain**: (task, sequence, step) pattern with full dependency results
+- **🎯 Immediate Feedback**: Step results processed as they complete
+- **🧹 Simplified Workers**: No retry state management, stateless debugging
 
 ## Architecture Overview
 
@@ -83,7 +82,7 @@ notifications_queue  - All notification namespace steps
 
 ### Current Working Branch
 - **Branch**: `jcoletaylor/tas-14-m2-ruby-integration-testing-completion`
-- **Focus**: pgmq architecture implementation and Phase 2 step enqueueing
+- **Focus**: Phase 5.2 completion - Individual step enqueueing with metadata flow (LARGELY COMPLETE)
 
 ## Key File Locations
 

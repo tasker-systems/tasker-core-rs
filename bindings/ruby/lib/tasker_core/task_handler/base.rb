@@ -2,6 +2,7 @@
 
 require 'yaml'
 require 'logger'
+require 'securerandom'
 
 module TaskerCore
   module TaskHandler
@@ -20,7 +21,7 @@ module TaskerCore
 
       attr_reader :logger, :task_config
 
-      def initialize(config: {}, task_config_path: nil, task_config: nil)
+      def initialize(task_config_path: nil, task_config: nil)
         @logger = TaskerCore::Logging::Logger.instance
         @task_config = task_config || (task_config_path ? load_task_config_from_path(task_config_path) : {})
         @pgmq_client = nil # Lazy initialization to avoid database connection during setup
@@ -40,8 +41,9 @@ module TaskerCore
       # @param task_id [Integer] ID of the task to process
       # @return [Hash] Result of step enqueueing operation
       def handle(task_id)
-        raise TaskerCore::ValidationError, 'task_id is required' unless task_id
-        raise TaskerCore::ValidationError, 'task_id must be an integer' unless task_id.is_a?(Integer)
+        unless task_id.is_a?(Integer)
+          raise TaskerCore::Errors::ValidationError.new('task_id is required and must be an integer', :task_id)
+        end
 
         mode = orchestration_mode
         logger.info "🚀 Processing task #{task_id} with pgmq orchestration (#{mode} mode)"
@@ -52,10 +54,10 @@ module TaskerCore
         when 'distributed'
           handle_distributed_mode(task_id)
         else
-          raise TaskerCore::OrchestrationError,
+          raise TaskerCore::Errors::OrchestrationError,
                 "Unknown orchestration mode: #{mode}. Expected 'embedded' or 'distributed'"
         end
-      rescue TaskerCore::OrchestrationError => e
+      rescue TaskerCore::Errors::OrchestrationError => e
         logger.error "❌ Orchestration error for task #{task_id}: #{e.message}"
         {
           success: false,
@@ -79,48 +81,42 @@ module TaskerCore
 
       # Initialize a new task with workflow steps
       #
-      # In the pgmq architecture, this creates the task record and optionally
-      # triggers initial step enqueueing. Task templates should be registered
-      # through the database-backed registry (Phase 4.3).
+      # In the pgmq architecture, this sends a task request message to the orchestration
+      # core monitored task_requests_queue, which will be processed by the Rust orchestrator
+      # to create the task record and enqueue initial steps.
       #
       # @param task_request [Hash] Task initialization data
-      # @return [Hash] Result of task initialization
+      # @return [void] No return value - operation is async via pgmq
       def initialize_task(task_request)
         logger.info "🚀 Initializing task with pgmq architecture"
 
         task_request = TaskerCore::Types::TaskTypes::TaskRequest.from_hash(task_request)
 
-        # For now, return a success response indicating the task would be initialized
-        # In Phase 4.3, this will integrate with the database-backed task registry
-        # to actually create the task and workflow steps
-        {
-          success: true,
-          namespace: task_request.namespace,
-          task_name: task_request.name,
-          task_version: task_request.version,
-          message: "Task initialization prepared (Phase 4.3 will complete database integration)",
-          architecture: 'pgmq',
-          initialized_at: Time.now.utc.iso8601,
-          next_phase: "Phase 4.3 will implement database-backed task template registration"
+        # Prepare task request message for pgmq
+        task_request_message = {
+          message_type: 'task_request',
+          task_request: task_request.to_ffi_hash,
+          enqueued_at: Time.now.utc.iso8601,
+          message_id: SecureRandom.uuid
         }
-      rescue TaskerCore::ValidationError => e
+
+        # Send message to task_requests_queue for orchestration core processing
+        begin
+          pgmq_client.send_message('task_requests_queue', task_request_message)
+          logger.info "✅ Task request sent to orchestration queue: #{task_request.namespace}/#{task_request.name}"
+
+          # Return void - this is now an async operation
+          nil
+        rescue => e
+          logger.error "❌ Failed to send task request to orchestration queue: #{e.message}"
+          raise TaskerCore::Errors::OrchestrationError, "Failed to send task request: #{e.message}"
+        end
+      rescue TaskerCore::Errors::ValidationError => e
         logger.error "❌ Validation error initializing task: #{e.message}"
-        {
-          success: false,
-          error: e.message,
-          error_type: 'ValidationError',
-          architecture: 'pgmq',
-          processed_at: Time.now.utc.iso8601
-        }
+        raise e
       rescue StandardError => e
         logger.error "❌ Unexpected error initializing task: #{e.class.name}: #{e.message}"
-        {
-          success: false,
-          error: e.message,
-          error_type: e.class.name,
-          architecture: 'pgmq',
-          processed_at: Time.now.utc.iso8601
-        }
+        raise TaskerCore::Errors::OrchestrationError, "Task initialization failed: #{e.message}"
       end
 
       # Check if the pgmq orchestration system is available and ready
@@ -141,7 +137,7 @@ module TaskerCore
         # Check pgmq availability without forcing connection
         pgmq_available = begin
           !pgmq_client.nil?
-        rescue TaskerCore::Error => e
+        rescue TaskerCore::Errors::Error => e
           logger.debug "🔍 PGMQ not available: #{e.message}"
           false
         end
@@ -215,7 +211,7 @@ module TaskerCore
         orchestrator = TaskerCore.embedded_orchestrator
 
         unless orchestrator.running?
-          raise TaskerCore::OrchestrationError,
+          raise TaskerCore::Errors::OrchestrationError,
                 "Embedded orchestration system not running. Call TaskerCore.start_embedded_orchestration! first."
         end
 

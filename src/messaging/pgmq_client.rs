@@ -27,7 +27,7 @@ pub struct PgmqStepMessageMetadata {
 }
 
 /// pgmq-rs based message queue client
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PgmqClient {
     pgmq: PGMQueue,
 }

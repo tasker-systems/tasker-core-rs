@@ -30,24 +30,7 @@ module TaskerCore
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
       def call(task, sequence, step)
-        @logger.info "🎯 RUBY_STEP_HANDLER: call() called - handler=#{self.class.name}, task_id=#{extract_attribute(task, :task_id)}, step_name=#{extract_attribute(step, :name)}"
-        @logger.debug "🔍 RUBY_STEP_HANDLER: call() arguments - task.class=#{task.class}, sequence.class=#{sequence.class}, step.class=#{step.class}"
-
-        begin
-          result = process(task, sequence, step)
-          @logger.info "✅ RUBY_STEP_HANDLER: process() completed successfully - handler=#{self.class.name}, result.class=#{result.class}"
-          @logger.debug "🔍 RUBY_STEP_HANDLER: process() result - #{result.inspect}" if result.respond_to?(:inspect)
-          result
-        rescue StandardError => e
-          @logger.error "❌ RUBY_STEP_HANDLER: process() failed - handler=#{self.class.name}, error=#{e.class}: #{e.message}"
-          @logger.debug "❌ RUBY_STEP_HANDLER: process() backtrace - #{e.backtrace.first(5).join('\n')}"
-          raise
-        end
-      end
-
-      # Template method for subclasses to implement - renamed to avoid confusion
-      def process(task, sequence, step)
-        raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
+        raise NotImplementedError, 'Subclasses must implement #call(task, sequence, step)'
       end
 
 
@@ -120,7 +103,7 @@ module TaskerCore
       # NOTE: In the Rails engine execution flow, step handlers are called via:
       # 1. TaskHandler.handle(task) → WorkflowCoordinator
       # 2. WorkflowCoordinator → TaskHandler.handle_one_step(task, sequence, step)
-      # 3. handle_one_step → get_step_handler(step) → step_handler.process(task, sequence, step)
+      # 3. handle_one_step → get_step_handler(step) → step_handler.call(task, sequence, step)
       #
       # The Rust foundation provides the same flow, so there's no need for a separate
       # execute_step method. The Rails engine signature process(task, sequence, step)
@@ -128,7 +111,7 @@ module TaskerCore
       #
       # The lifecycle management (events, error handling, retries) is handled by:
       # - Rust orchestration layer with TaskHandler/WorkflowCoordinator foundation
-      # - Ruby subclasses provide business logic hooks via process() and process_results()
+      # - Ruby subclasses provide business logic hooks via call()
 
       # ========================================================================
       # INTERNAL PROCESSING METHODS

@@ -112,7 +112,7 @@ pub use execution::{
 };
 pub use messaging::{
     BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
-    StepMessage, StepMessageMetadata, TaskProcessingMessage, TaskRequestMessage,
+    StepMessage, StepMessageMetadata, TaskRequestMessage,
 };
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,

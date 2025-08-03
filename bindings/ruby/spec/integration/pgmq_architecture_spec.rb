@@ -47,7 +47,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
         step_name: 'validate_order',
         step_payload: { order_id: 'TEST_123', customer_id: 456 },
         metadata: TaskerCore::Types::StepMessageMetadata.new(
-          enqueued_at: Time.now.utc.iso8601,
+          created_at: Time.now.utc,
           retry_count: 0,
           max_retries: 3
         )
@@ -64,7 +64,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
 
       # Read the message back
       messages = pgmq_client.read_step_messages(namespace, visibility_timeout: 30, qty: 1)
-      expect(messages).to have(1).message
+      expect(messages.length).to eq(1)
 
       message_data = messages.first
       received_step_message = message_data[:step_message]
@@ -98,7 +98,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
           step_name: "step_#{i}",
           step_payload: { step_index: i },
           metadata: TaskerCore::Types::StepMessageMetadata.new(
-            enqueued_at: Time.now.utc.iso8601,
+            created_at: Time.now.utc,
             retry_count: 0
           )
         )
@@ -106,12 +106,12 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
 
       # Send all messages
       msg_ids = messages.map { |msg| pgmq_client.send_step_message(namespace, msg) }
-      expect(msg_ids).to have(3).items
+      expect(msg_ids.length).to eq(3)
       expect(msg_ids).to all(be > 0)
 
       # Read all messages in batch
       received_messages = pgmq_client.read_step_messages(namespace, visibility_timeout: 30, qty: 3)
-      expect(received_messages).to have(3).messages
+      expect(received_messages.length).to eq(3)
 
       # Verify each message
       received_messages.each_with_index do |msg_data, i|
@@ -307,7 +307,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
         step_name: 'validate_order',
         step_payload: { 'order_id' => 'VALID_E2E_123' },
         metadata: TaskerCore::Types::StepMessageMetadata.new(
-          enqueued_at: Time.now.utc.iso8601,
+          created_at: Time.now.utc,
           retry_count: 0,
           max_retries: 3
         )

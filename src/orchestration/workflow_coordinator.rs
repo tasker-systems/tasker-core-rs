@@ -654,14 +654,286 @@ impl WorkflowCoordinator {
         Ok(steps)
     }
 
-    /// Execute a batch of steps using pgmq queue-based enqueueing
+    /// Execute a batch of steps using individual step enqueueing (Phase 5.2)
     async fn execute_step_batch(
         &self,
         task_id: i64,
         steps: Vec<ViableStep>,
     ) -> OrchestrationResult<Vec<StepResult>> {
-        self.execute_step_batch_pgmq(task_id, steps, &self.pgmq_client)
+        self.enqueue_individual_steps(task_id, steps).await
+    }
+
+    /// Phase 5.2: Enqueue individual steps to namespace-specific queues with execution context
+    /// This replaces the batch enqueueing system with individual StepMessage enqueueing.
+    async fn enqueue_individual_steps(
+        &self,
+        task_id: i64,
+        steps: Vec<ViableStep>,
+    ) -> OrchestrationResult<Vec<StepResult>> {
+        if steps.is_empty() {
+            return Ok(vec![]);
+        }
+
+        tracing::info!(
+            task_id = task_id,
+            step_count = steps.len(),
+            "WorkflowCoordinator: Starting individual step enqueueing to pgmq"
+        );
+
+        // Get task information for execution context
+        let task = crate::models::core::task::Task::find_by_id(&self.database_pool, task_id)
             .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "load_task_for_step_enqueueing".to_string(),
+                reason: format!("Failed to load task: {}", e),
+            })?
+            .ok_or_else(|| OrchestrationError::TaskExecutionFailed {
+                task_id,
+                reason: "Task not found".to_string(),
+                error_code: Some("TASK_NOT_FOUND".to_string()),
+            })?;
+
+        // Get task orchestration info for namespace and metadata
+        let task_info = task
+            .for_orchestration(&self.database_pool)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "get_task_orchestration_info".to_string(),
+                reason: format!("Failed to get task orchestration info: {}", e),
+            })?;
+
+        let mut all_results = Vec::new();
+
+        // Process each step individually
+        for (sequence, step) in steps.into_iter().enumerate() {
+            match self.enqueue_individual_step(task_id, &task, &task_info, &step, sequence).await {
+                Ok(step_result) => {
+                    all_results.push(step_result);
+                }
+                Err(e) => {
+                    // Create failure result for step that couldn't be enqueued
+                    let failure_result = StepResult {
+                        step_id: step.step_id,
+                        status: crate::orchestration::types::StepStatus::Failed,
+                        output: serde_json::json!({
+                            "status": "individual_enqueue_failed",
+                            "message": "Failed to enqueue individual step to pgmq",
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        }),
+                        execution_duration: std::time::Duration::from_millis(1),
+                        error_message: Some(format!("Individual step enqueue failed: {}", e)),
+                        retry_after: Some(std::time::Duration::from_secs(30)),
+                        error_code: Some("INDIVIDUAL_STEP_ENQUEUE_FAILED".to_string()),
+                        error_context: None,
+                    };
+                    all_results.push(failure_result);
+                }
+            }
+        }
+
+        tracing::info!(
+            task_id = task_id,
+            total_steps = all_results.len(),
+            "WorkflowCoordinator: Completed individual step enqueueing"
+        );
+
+        Ok(all_results)
+    }
+
+    /// Enqueue a single step with full execution context
+    async fn enqueue_individual_step(
+        &self,
+        task_id: i64,
+        task: &crate::models::core::task::Task,
+        task_info: &crate::models::core::task::TaskForOrchestration,
+        step: &ViableStep,
+        sequence: usize,
+    ) -> OrchestrationResult<StepResult> {
+        // Determine namespace from step name
+        let namespace = self.determine_step_namespace(step).await?;
+        
+        // Fetch dependency results for this step
+        let dependency_results = self.fetch_step_dependency_results(step.step_id).await?;
+
+        // Create execution context with (task, sequence, step) pattern
+        let execution_context = crate::messaging::message::StepExecutionContext::new(
+            // Task data as JSON for handler access
+            serde_json::json!({
+                "task_id": task.task_id,
+                "named_task_id": task.named_task_id,
+                "complete": task.complete,
+                "requested_at": task.requested_at,
+                "initiator": task.initiator,
+                "source_system": task.source_system,
+                "reason": task.reason,
+                "bypass_steps": task.bypass_steps,
+                "tags": task.tags,
+                "context": task.context,
+                "identity_hash": task.identity_hash,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "claimed_at": task.claimed_at,
+                "claimed_by": task.claimed_by,
+                "priority": task.priority,
+                "claim_timeout_seconds": task.claim_timeout_seconds
+            }),
+            // Dependency chain results: all completed steps this step depends on
+            dependency_results,
+            // Step data as JSON for handler access
+            serde_json::json!({
+                "step_id": step.step_id,
+                "task_id": step.task_id,
+                "named_step_id": step.named_step_id,
+                "name": step.name,
+                "current_state": step.current_state,
+                "dependencies_satisfied": step.dependencies_satisfied,
+                "retry_eligible": step.retry_eligible,
+                "attempts": step.attempts,
+                "retry_limit": step.retry_limit,
+                "last_failure_at": step.last_failure_at,
+                "next_retry_at": step.next_retry_at
+            })
+        );
+
+        // Create step message with execution context
+        let step_message = crate::messaging::message::StepMessage::new(
+            step.step_id,
+            task_id,
+            namespace.clone(),
+            task_info.task_name.clone(),
+            "1.0.0".to_string(), // TODO: Get actual task version from database
+            step.name.clone(),
+            serde_json::json!({
+                "step_id": step.step_id,
+                "task_id": step.task_id,
+                "named_step_id": step.named_step_id,
+                "current_state": step.current_state,
+                "dependencies_satisfied": step.dependencies_satisfied,
+                "retry_eligible": step.retry_eligible,
+                "attempts": step.attempts,
+                "retry_limit": step.retry_limit,
+                "last_failure_at": step.last_failure_at,
+                "next_retry_at": step.next_retry_at,
+                "context": task.context,
+            }),
+            execution_context,
+        );
+
+        // Determine the target queue name (namespace-specific)
+        let queue_name = format!("{}_queue", namespace);
+
+        // Enqueue the individual step message
+        let enqueue_time = chrono::Utc::now();
+        match self.pgmq_client
+            .send_json_message(&queue_name, &step_message)
+            .await
+        {
+            Ok(message_id) => {
+                tracing::debug!(
+                    task_id = task_id,
+                    step_id = step.step_id,
+                    namespace = %namespace,
+                    queue_name = %queue_name,
+                    message_id = message_id,
+                    sequence = sequence,
+                    "Successfully enqueued individual step to pgmq"
+                );
+
+                // Create successful enqueueing result
+                Ok(StepResult {
+                    step_id: step.step_id,
+                    status: crate::orchestration::types::StepStatus::InProgress,
+                    output: serde_json::json!({
+                        "status": "enqueued_individually",
+                        "message": "Step enqueued individually to pgmq for autonomous worker processing",
+                        "queue_name": queue_name,
+                        "message_id": message_id,
+                        "namespace": namespace,
+                        "sequence": sequence + 1,
+                        "timestamp": enqueue_time.to_rfc3339(),
+                        "note": "Ruby workers will poll queue and execute step autonomously with immediate delete pattern"
+                    }),
+                    execution_duration: std::time::Duration::from_millis(1), // Minimal time for enqueueing
+                    error_message: None,
+                    retry_after: None,
+                    error_code: None,
+                    error_context: None,
+                })
+            }
+            Err(e) => {
+                tracing::error!(
+                    task_id = task_id,
+                    step_id = step.step_id,
+                    namespace = %namespace,
+                    queue_name = %queue_name,
+                    error = %e,
+                    "Failed to enqueue individual step to pgmq"
+                );
+
+                Err(OrchestrationError::StepExecutionFailed {
+                    step_id: step.step_id,
+                    task_id,
+                    reason: format!("Failed to enqueue step to {}: {}", queue_name, e),
+                    error_code: Some("STEP_ENQUEUE_FAILED".to_string()),
+                    retry_after: Some(std::time::Duration::from_secs(30)),
+                })
+            }
+        }
+    }
+
+    /// Fetch dependency results for a step
+    async fn fetch_step_dependency_results(
+        &self,
+        step_id: i64,
+    ) -> OrchestrationResult<Vec<crate::messaging::message::StepDependencyResult>> {
+        // Get the WorkflowStep from step_id
+        let workflow_step = crate::models::core::workflow_step::WorkflowStep::find_by_id(&self.database_pool, step_id)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "load_workflow_step_for_dependencies".to_string(),
+                reason: format!("Failed to load workflow step: {}", e),
+            })?
+            .ok_or_else(|| OrchestrationError::StepExecutionFailed {
+                step_id,
+                task_id: 0, // Will be filled in by caller
+                reason: "Workflow step not found".to_string(),
+                error_code: Some("WORKFLOW_STEP_NOT_FOUND".to_string()),
+                retry_after: None,
+            })?;
+
+        // Get dependencies with their names
+        let dependencies_with_names = workflow_step
+            .get_dependencies_with_names(&self.database_pool)
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "load_step_dependencies".to_string(),
+                reason: format!("Failed to load step dependencies: {}", e),
+            })?;
+
+        // Convert to StepDependencyResult
+        let dependency_results: Vec<crate::messaging::message::StepDependencyResult> = dependencies_with_names
+            .into_iter()
+            .map(|(dep_step, step_name)| {
+                crate::messaging::message::StepDependencyResult::new(
+                    step_name,
+                    dep_step.workflow_step_id,
+                    dep_step.named_step_id,
+                    dep_step.results,
+                    dep_step.processed_at.map(|dt| dt.and_utc()),
+                )
+                .with_metadata("attempts".to_string(), serde_json::json!(dep_step.attempts))
+                .with_metadata("retryable".to_string(), serde_json::json!(dep_step.retryable))
+                .with_metadata("processed".to_string(), serde_json::json!(dep_step.processed))
+            })
+            .collect();
+
+        tracing::debug!(
+            step_id = step_id,
+            dependency_count = dependency_results.len(),
+            "Fetched dependency results for step"
+        );
+
+        Ok(dependency_results)
     }
 
     /// Execute a batch of steps using pgmq queue-based enqueueing (new architecture)
@@ -712,18 +984,34 @@ impl WorkflowCoordinator {
         Ok(all_results)
     }
 
-    /// Create a step execution batch and enqueue it to the appropriate namespace queue
+    /// Legacy method - replaced by individual step enqueueing in Phase 5.2
     async fn create_and_enqueue_batch(
         &self,
-        task_id: i64,
-        namespace: String,
+        _task_id: i64,
+        _namespace: String,
         steps: Vec<ViableStep>,
-        pgmq_client: &crate::messaging::PgmqClient,
+        _pgmq_client: &crate::messaging::PgmqClient,
     ) -> OrchestrationResult<Vec<StepResult>> {
-        use crate::models::core::step_execution_batch::{
-            NewStepExecutionBatch, StepExecutionBatch,
-        };
-
+        // Legacy batch system removed in Phase 5.2 - this method is deprecated
+        // All functionality moved to enqueue_individual_steps()
+        
+        tracing::warn!("create_and_enqueue_batch called but is deprecated - use enqueue_individual_steps instead");
+        
+        // Return empty results to maintain interface compatibility
+        Ok(steps.into_iter().map(|step| StepResult {
+            step_id: step.step_id,
+            status: crate::orchestration::types::StepStatus::Failed,
+            output: serde_json::json!({
+                "error": "Legacy batch system deprecated - use individual step enqueueing"
+            }),
+            execution_duration: std::time::Duration::from_millis(1),
+            error_message: Some("Legacy batch system deprecated in Phase 5.2".to_string()),
+            retry_after: None,
+            error_code: Some("LEGACY_BATCH_DEPRECATED".to_string()),
+            error_context: None,
+        }).collect())
+        
+        /* Legacy batch implementation - commented out in Phase 5.2
         // Create step execution batch record in database
         let new_batch = NewStepExecutionBatch {
             task_id,
@@ -935,6 +1223,7 @@ impl WorkflowCoordinator {
                 Ok(results)
             }
         }
+        */
     }
 
     /// Determine the namespace for a step based on its name

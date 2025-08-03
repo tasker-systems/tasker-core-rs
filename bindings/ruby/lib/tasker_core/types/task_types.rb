@@ -37,13 +37,14 @@ module TaskerCore
         attribute :context, Types::Coercible::Hash
 
         # Optional fields for advanced use cases
-        attribute? :priority, Types::Integer.default(5) # 1-10 scale
+        attribute? :priority, Types::Integer.default(0) # Higher values = higher priority, default 0
+        attribute? :claim_timeout_seconds, Types::Integer.default(60) # Timeout for distributed orchestration claims
         attribute? :max_retries, Types::Integer.default(3)
         attribute? :timeout_seconds, Types::Integer.default(300)
         attribute? :parent_task_id, Types::Integer
         attribute? :correlation_id, Types::Coercible::String
         attribute? :bypass_steps, Types::Array.of(Types::Coercible::String).default([].freeze)
-        attribute? :requested_at, Types::Constructor(Time).default { Time.now }
+        attribute? :requested_at, Types::Constructor(Time) { |value| value.is_a?(Time) ? value : Time.parse(value.to_s) }.default { Time.now }
 
         # Validation methods
         def valid_for_creation?
@@ -57,9 +58,8 @@ module TaskerCore
 
         # Convert to hash suitable for FFI serialization
         def to_ffi_hash
-          # Build options hash for fields that go in the options field
+          # Build options hash for fields that go in the options field (legacy fields)
           options_hash = {}
-          options_hash['priority'] = priority if priority
           options_hash['max_retries'] = max_retries if max_retries
           options_hash['timeout_seconds'] = timeout_seconds if timeout_seconds
           options_hash['parent_task_id'] = parent_task_id if parent_task_id
@@ -78,7 +78,10 @@ module TaskerCore
             tags: tags,
             context: context,
             bypass_steps: bypass_steps,
-            requested_at: requested_at&.utc&.strftime('%Y-%m-%dT%H:%M:%S')
+            requested_at: requested_at&.utc&.strftime('%Y-%m-%dT%H:%M:%S'),
+            # New direct fields for distributed orchestration
+            priority: priority,
+            claim_timeout_seconds: claim_timeout_seconds
           }
 
           # Add options field only if there are options to add

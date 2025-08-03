@@ -538,6 +538,10 @@ mod tests {
             identity_hash: "test_hash".to_string(),
             created_at: Utc::now().naive_utc(),
             updated_at: Utc::now().naive_utc(),
+            claimed_at: None,
+            claimed_by: None,
+            priority: 0,
+            claim_timeout_seconds: 60,
         };
 
         let request = EnqueueRequest::new(task.clone())
@@ -576,6 +580,10 @@ mod tests {
             identity_hash: "reenqueue_test_hash".to_string(),
             created_at: Utc::now().naive_utc(),
             updated_at: Utc::now().naive_utc(),
+            claimed_at: None,
+            claimed_by: None,
+            priority: 0,
+            claim_timeout_seconds: 60,
         };
 
         let request = EnqueueRequest::reenqueue(task);

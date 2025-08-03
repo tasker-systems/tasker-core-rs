@@ -91,6 +91,10 @@ pub struct Task {
     pub tags: Option<serde_json::Value>,
     pub context: Option<serde_json::Value>,
     pub identity_hash: String,
+    pub claimed_at: Option<NaiveDateTime>,
+    pub claimed_by: Option<String>,
+    pub priority: i32,
+    pub claim_timeout_seconds: i32,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -107,6 +111,8 @@ pub struct NewTask {
     pub tags: Option<serde_json::Value>,
     pub context: Option<serde_json::Value>,
     pub identity_hash: String,
+    pub priority: Option<i32>,
+    pub claim_timeout_seconds: Option<i32>,
 }
 
 /// Task with delegation metadata for orchestration
@@ -128,11 +134,13 @@ impl Task {
             r#"
             INSERT INTO tasker_tasks (
                 named_task_id, complete, requested_at, initiator, source_system,
-                reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                reason, bypass_steps, tags, context, identity_hash, 
+                priority, claim_timeout_seconds, created_at, updated_at
             )
-            VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+            VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
             RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
-                      reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                      reason, bypass_steps, tags, context, identity_hash, 
+                      claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             "#,
             sanitized_task.named_task_id,
             sanitized_task.requested_at,
@@ -142,7 +150,9 @@ impl Task {
             sanitized_task.bypass_steps,
             sanitized_task.tags,
             sanitized_task.context,
-            sanitized_task.identity_hash
+            sanitized_task.identity_hash,
+            sanitized_task.priority.unwrap_or(0),
+            sanitized_task.claim_timeout_seconds.unwrap_or(60)
         )
         .fetch_one(pool)
         .await?;
@@ -160,11 +170,13 @@ impl Task {
             r#"
         INSERT INTO tasker_tasks (
             named_task_id, complete, requested_at, initiator, source_system,
-            reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+            reason, bypass_steps, tags, context, identity_hash, 
+            priority, claim_timeout_seconds, created_at, updated_at
         )
-        VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
         RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
-                  reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                  reason, bypass_steps, tags, context, identity_hash, 
+                  claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
         "#,
             sanitized_task.named_task_id,
             sanitized_task.requested_at,
@@ -174,7 +186,9 @@ impl Task {
             sanitized_task.bypass_steps,
             sanitized_task.tags,
             sanitized_task.context,
-            sanitized_task.identity_hash
+            sanitized_task.identity_hash,
+            sanitized_task.priority.unwrap_or(0),
+            sanitized_task.claim_timeout_seconds.unwrap_or(60)
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -230,6 +244,8 @@ impl Task {
             tags: sanitized_tags,
             context: sanitized_context,
             identity_hash: identity_hash,
+            priority: new_task.priority,
+            claim_timeout_seconds: new_task.claim_timeout_seconds,
         })
     }
 
@@ -239,7 +255,8 @@ impl Task {
             Task,
             r#"
             SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                   reason, bypass_steps, tags, context, identity_hash, 
+                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE task_id = $1
             "#,
@@ -260,7 +277,8 @@ impl Task {
             Task,
             r#"
             SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                   reason, bypass_steps, tags, context, identity_hash, 
+                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE identity_hash = $1
             "#,
@@ -281,7 +299,8 @@ impl Task {
             Task,
             r#"
             SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                   reason, bypass_steps, tags, context, identity_hash, 
+                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE named_task_id = $1
             ORDER BY created_at DESC
@@ -300,7 +319,8 @@ impl Task {
             Task,
             r#"
             SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, created_at, updated_at
+                   reason, bypass_steps, tags, context, identity_hash, 
+                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE complete = false
             ORDER BY requested_at ASC
@@ -587,7 +607,9 @@ impl Task {
                     r#"
                     SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
                            t.initiator, t.source_system, t.reason, t.bypass_steps,
-                           t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                           t.tags, t.context, t.identity_hash, 
+                           t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                           t.created_at, t.updated_at
                     FROM tasker_tasks t
                     INNER JOIN tasker_task_transitions tt
                         ON t.task_id = tt.task_id
@@ -609,7 +631,9 @@ impl Task {
                     r#"
                     SELECT task_id, named_task_id, complete, requested_at,
                            initiator, source_system, reason, bypass_steps,
-                           tags, context, identity_hash, created_at, updated_at
+                           tags, context, identity_hash, 
+                           claimed_at, claimed_by, priority, claim_timeout_seconds, 
+                           created_at, updated_at
                     FROM tasker_tasks
                     ORDER BY task_id
                     "#
@@ -638,7 +662,8 @@ impl Task {
             r#"
             SELECT task_id, named_task_id, complete, requested_at, initiator,
                    source_system, reason, bypass_steps, tags, context,
-                   identity_hash, created_at, updated_at
+                   identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, 
+                   created_at, updated_at
             FROM tasker_tasks
             WHERE created_at >= $1
             ORDER BY created_at DESC
@@ -664,7 +689,9 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                   t.tags, t.context, t.identity_hash, 
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id
@@ -694,7 +721,9 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                   t.tags, t.context, t.identity_hash, 
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id
@@ -721,7 +750,9 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, t.created_at, t.updated_at
+                   t.tags, t.context, t.identity_hash, 
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             LEFT JOIN tasker_task_transitions tt
                 ON t.task_id = tt.task_id AND tt.most_recent = true
@@ -746,7 +777,8 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.created_at, t.updated_at
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
             JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
@@ -768,7 +800,8 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.created_at, t.updated_at
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
             WHERE nt.name = $1
@@ -789,7 +822,8 @@ impl Task {
             r#"
             SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.created_at, t.updated_at
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.created_at, t.updated_at
             FROM tasker_tasks t
             JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
             WHERE nt.version = $1
@@ -842,6 +876,8 @@ impl Task {
             )),
             context: Some(task_request.context.clone()),
             identity_hash: Self::generate_identity_hash(0, &Some(task_request.context)),
+            priority: task_request.priority,
+            claim_timeout_seconds: task_request.claim_timeout_seconds,
         }
     }
 

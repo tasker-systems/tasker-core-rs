@@ -5,7 +5,7 @@ require 'concurrent'
 module TaskerCore
   module Messaging
     # Autonomous queue worker for processing step messages
-    # 
+    #
     # This is the core of the new pgmq architecture - workers that poll queues
     # independently, execute step handlers, and update the database directly.
     # No FFI coupling, no central coordination needed.
@@ -26,8 +26,8 @@ module TaskerCore
                   :poll_interval, :visibility_timeout, :batch_size, :max_retries,
                   :running, :shutdown_timeout
 
-      def initialize(namespace, 
-                     pgmq_client: nil, 
+      def initialize(namespace,
+                     pgmq_client: nil,
                      sql_functions: nil,
                      logger: nil,
                      poll_interval: DEFAULT_POLL_INTERVAL,
@@ -40,20 +40,20 @@ module TaskerCore
         @pgmq_client = pgmq_client || PgmqClient.new
         @sql_functions = sql_functions || TaskerCore::Database::SqlFunctions.new
         @logger = logger || TaskerCore::Logging::Logger.instance
-        
+
         # Configuration
         @poll_interval = poll_interval
         @visibility_timeout = visibility_timeout
         @batch_size = batch_size
         @max_retries = max_retries
         @shutdown_timeout = shutdown_timeout
-        
+
         # State management
         @running = false
         @worker_thread = nil
         @shutdown_signal = Concurrent::Event.new
         @stats = initialize_stats
-        
+
         # Ensure the queue exists
         ensure_queue_exists
       end
@@ -63,17 +63,17 @@ module TaskerCore
       # @return [Boolean] true if started successfully
       def start
         return false if running?
-        
+
         logger.info("🚀 QUEUE_WORKER: Starting worker for namespace: #{namespace}")
-        
+
         @running = true
         @shutdown_signal.reset
-        
+
         @worker_thread = Thread.new do
           Thread.current.name = "QueueWorker-#{namespace}"
           polling_loop
         end
-        
+
         logger.info("✅ QUEUE_WORKER: Worker started for namespace: #{namespace}")
         true
       end
@@ -83,12 +83,12 @@ module TaskerCore
       # @return [Boolean] true if stopped successfully
       def stop
         return true unless running?
-        
+
         logger.info("🛑 QUEUE_WORKER: Stopping worker for namespace: #{namespace}")
-        
+
         @running = false
         @shutdown_signal.set
-        
+
         # Wait for worker thread to finish
         if @worker_thread && @worker_thread.alive?
           if @worker_thread.join(shutdown_timeout)
@@ -98,7 +98,7 @@ module TaskerCore
             @worker_thread.kill
           end
         end
-        
+
         @worker_thread = nil
         true
       end
@@ -128,18 +128,18 @@ module TaskerCore
       # @return [TaskerCore::Types::StepResult] Execution result
       def process_step_message(step_message)
         start_time = Time.now
-        
+
         logger.info("🔄 QUEUE_WORKER: Processing step - step_id: #{step_message.step_id}, task_id: #{step_message.task_id}, step_name: #{step_message.step_name}")
-        
+
         begin
           # Find and execute the appropriate step handler
           result = execute_step_handler(step_message)
-          
+
           # Update statistics
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
           @stats[:messages_processed] += 1
           @stats[:total_execution_time_ms] += execution_time_ms
-          
+
           if result.success?
             @stats[:messages_succeeded] += 1
             logger.info("✅ QUEUE_WORKER: Step completed successfully - step_id: #{step_message.step_id}, execution_time: #{execution_time_ms}ms")
@@ -147,16 +147,16 @@ module TaskerCore
             @stats[:messages_failed] += 1
             logger.error("❌ QUEUE_WORKER: Step failed - step_id: #{step_message.step_id}, error: #{result.error&.message}")
           end
-          
+
           result
         rescue => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
           @stats[:messages_failed] += 1
           @stats[:messages_errored] += 1
-          
+
           logger.error("💥 QUEUE_WORKER: Unexpected error processing step #{step_message.step_id}: #{e.message}")
           logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(5).join("\n")}")
-          
+
           # Create failure result
           error = TaskerCore::Types::StepExecutionError.new(
             error_type: 'UnexpectedError',
@@ -164,7 +164,7 @@ module TaskerCore
             retryable: true,
             stack_trace: e.backtrace.join("\n")
           )
-          
+
           TaskerCore::Types::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
@@ -181,10 +181,10 @@ module TaskerCore
       def can_handle_step?(step_message)
         # Basic namespace matching
         return false unless step_message.namespace == namespace
-        
+
         # Check if we have a handler for this step
         handler_class = find_step_handler_class(step_message.step_name)
-        
+
         if handler_class
           logger.debug("✅ QUEUE_WORKER: Can handle step: #{step_message.step_name} (#{handler_class})")
           true
@@ -194,12 +194,34 @@ module TaskerCore
         end
       end
 
+      # NEW Phase 5.2: Check if we can extract (task, sequence, step) from execution context
+      # This enables the immediate delete pattern by ensuring all necessary data is in the message
+      #
+      # @param step_message [TaskerCore::Types::StepMessage] Step message to validate
+      # @return [Boolean] true if execution context is complete
+      def can_extract_execution_context?(step_message)
+        return false unless step_message.namespace == namespace
+        return false unless find_step_handler_class(step_message.step_name)
+
+        # Validate execution context has required data
+        execution_context = step_message.execution_context
+        return false unless execution_context
+        return false unless execution_context.task && !execution_context.task.empty?
+        return false unless execution_context.step && !execution_context.step.empty?
+
+        logger.debug("✅ QUEUE_WORKER: Can extract execution context for step: #{step_message.step_name}")
+        true
+      rescue => e
+        logger.warn("⚠️ QUEUE_WORKER: Failed to validate execution context: #{e.message}")
+        false
+      end
+
       private
 
       # Main polling loop
       def polling_loop
         logger.debug("🔄 QUEUE_WORKER: Starting polling loop for namespace: #{namespace}")
-        
+
         while running? && !@shutdown_signal.set?
           begin
             poll_and_process_batch
@@ -208,13 +230,13 @@ module TaskerCore
             logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(3).join("\n")}")
             @stats[:polling_errors] += 1
           end
-          
+
           # Wait for next poll cycle (unless shutting down)
           unless @shutdown_signal.wait(poll_interval)
             # Continue polling
           end
         end
-        
+
         logger.debug("🏁 QUEUE_WORKER: Polling loop ended for namespace: #{namespace}")
       end
 
@@ -226,94 +248,73 @@ module TaskerCore
           visibility_timeout: visibility_timeout,
           qty: batch_size
         )
-        
+
         return if queue_messages.empty?
-        
+
         logger.debug("📥 QUEUE_WORKER: Received #{queue_messages.length} messages from #{queue_name}")
         @stats[:batches_processed] += 1
-        
+
         # Process messages concurrently
         futures = queue_messages.map do |msg_data|
           Concurrent::Promises.future do
             process_queue_message(msg_data)
           end
         end
-        
+
         # Wait for all messages to complete
         results = futures.map(&:value!)
-        
+
         logger.debug("✅ QUEUE_WORKER: Batch processing completed - #{results.count(&:success?)} succeeded, #{results.count { |r| !r.success? }} failed")
       end
 
       # Process a single message from the queue
+      # NEW Phase 5.2: Immediate delete pattern - "Worker Executes, Orchestration Coordinates"
       def process_queue_message(msg_data)
         queue_message = msg_data[:queue_message]
         step_message = msg_data[:step_message]
-        
+
         begin
-          # Check if we can handle this step
-          unless can_handle_step?(step_message)
-            logger.debug("⏭️ QUEUE_WORKER: Skipping step - no handler available: #{step_message.step_name}")
+          # 1. Validate we can extract (task, sequence, step) from execution context
+          unless can_extract_execution_context?(step_message)
+            logger.debug("⏭️ QUEUE_WORKER: Skipping step - cannot extract execution context: #{step_message.step_name}")
             return create_skip_result(step_message)
           end
-          
-          # Check for retry limits
-          if step_message.max_retries_exceeded?
-            logger.error("🚫 QUEUE_WORKER: Step exceeded max retries - step_id: #{step_message.step_id}, retries: #{step_message.metadata.retry_count}")
-            
-            # Archive the message instead of deleting
-            pgmq_client.archive_message(queue_name, queue_message[:msg_id])
-            
-            return create_max_retries_result(step_message)
-          end
-          
-          # Process the step
-          result = process_step_message(step_message)
-          
-          # Handle the result
-          if result.success?
-            # Delete message from queue (acknowledge success)
-            pgmq_client.delete_message(queue_name, queue_message[:msg_id])
-            logger.debug("✅ QUEUE_WORKER: Message acknowledged - msg_id: #{queue_message[:msg_id]}")
-          else
-            # Check if we should retry
-            if result.retryable_error? && !step_message.max_retries_exceeded?
-              # Let message become visible again for retry
-              logger.debug("🔄 QUEUE_WORKER: Message will retry - msg_id: #{queue_message[:msg_id]}, attempt: #{step_message.metadata.retry_count + 1}")
-            else
-              # Archive message for failed processing
-              pgmq_client.archive_message(queue_name, queue_message[:msg_id])
-              logger.debug("📦 QUEUE_WORKER: Message archived due to non-retryable error - msg_id: #{queue_message[:msg_id]}")
-            end
-          end
-          
+
+          # 2. IMMEDIATELY delete message from queue (no retry logic here!)
+          # The orchestration system handles all retry decisions
+          pgmq_client.delete_message(queue_name, queue_message[:msg_id])
+          logger.debug("🗑️ QUEUE_WORKER: Message deleted immediately - msg_id: #{queue_message[:msg_id]}")
+
+          # 3. Execute handler and collect rich metadata
+          result = execute_step_handler_with_metadata(step_message)
+
+          # 4. Send result (with metadata) to orchestration result queue
+          send_result_to_orchestration(result)
+
           result
         rescue => e
           logger.error("💥 QUEUE_WORKER: Error processing queue message #{queue_message[:msg_id]}: #{e.message}")
           @stats[:processing_errors] += 1
-          
-          # Archive problematic message
-          begin
-            pgmq_client.archive_message(queue_name, queue_message[:msg_id])
-          rescue => archive_error
-            logger.error("💥 QUEUE_WORKER: Failed to archive problematic message: #{archive_error.message}")
-          end
-          
-          create_error_result(step_message, e)
+
+          # Create error result and send to orchestration for retry decisions
+          error_result = create_error_result(step_message, e)
+          send_result_to_orchestration(error_result)
+
+          error_result
         end
       end
 
       # Execute the appropriate step handler for the message
       def execute_step_handler(step_message)
         handler_class = find_step_handler_class(step_message.step_name)
-        
+
         unless handler_class
           error = TaskerCore::Types::StepExecutionError.new(
             error_type: 'HandlerNotFound',
             message: "No handler found for step: #{step_message.step_name}",
             retryable: false
           )
-          
+
           return TaskerCore::Types::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
@@ -321,51 +322,40 @@ module TaskerCore
             execution_time_ms: 0
           )
         end
-        
+
         # Create handler instance and execute
         handler = handler_class.new
         start_time = Time.now
-        
+
         begin
-          # Execute the step handler with the payload
-          handler_result = handler.process(step_message.step_payload)
-          execution_time_ms = ((Time.now - start_time) * 1000).to_i
+          # Extract (task, sequence, step) from execution context
+          execution_context = step_message.execution_context
+          task = execution_context.task
+          sequence = execution_context.dependencies  # Use the convenient wrapper
+          step = execution_context.step
           
-          # Convert handler result to StepResult
-          if handler_result.is_a?(Hash) && handler_result[:success]
-            TaskerCore::Types::StepResult.success(
-              step_id: step_message.step_id,
-              task_id: step_message.task_id,
-              result_data: handler_result[:data],
-              execution_time_ms: execution_time_ms
-            )
-          else
-            error_data = handler_result.is_a?(Hash) ? handler_result : { message: handler_result.to_s }
-            
-            error = TaskerCore::Types::StepExecutionError.new(
-              error_type: error_data[:error_type] || 'HandlerError',
-              message: error_data[:message] || 'Step handler execution failed',
-              retryable: error_data[:retryable] != false,
-              details: error_data[:details]
-            )
-            
-            TaskerCore::Types::StepResult.failure(
-              step_id: step_message.step_id,
-              task_id: step_message.task_id,
-              error: error,
-              execution_time_ms: execution_time_ms
-            )
-          end
+          # Execute with (task, sequence, step) interface
+          handler_result = handler.call(task, sequence, step)
+          execution_time_ms = ((Time.now - start_time) * 1000).to_i
+
+          # Handler returned data - always treat as success since handlers just return JSON-serializable data
+          # Any exceptions would be caught in the rescue block below
+          TaskerCore::Types::StepResult.success(
+            step_id: step_message.step_id,
+            task_id: step_message.task_id,
+            result_data: handler_result,
+            execution_time_ms: execution_time_ms
+          )
         rescue => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
-          
+
           error = TaskerCore::Types::StepExecutionError.new(
             error_type: 'HandlerException',
             message: e.message,
             retryable: true,
             stack_trace: e.backtrace.join("\n")
           )
-          
+
           TaskerCore::Types::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
@@ -375,11 +365,115 @@ module TaskerCore
         end
       end
 
+      # NEW Phase 5.2: Execute step handler with rich metadata collection
+      # This replaces execute_step_handler for Phase 5.2 metadata flow
+      #
+      # @param step_message [TaskerCore::Types::StepMessage] Step message with execution context
+      # @return [TaskerCore::Types::StepResult] Enhanced result with orchestration metadata
+      def execute_step_handler_with_metadata(step_message)
+        handler_class = find_step_handler_class(step_message.step_name)
+
+        unless handler_class
+          error = TaskerCore::Types::StepExecutionError.new(
+            error_type: 'HandlerNotFound',
+            message: "No handler found for step: #{step_message.step_name}",
+            retryable: false
+          )
+
+          return TaskerCore::Types::StepResult.failure(
+            step_id: step_message.step_id,
+            task_id: step_message.task_id,
+            error: error,
+            execution_time_ms: 0
+          )
+        end
+
+        # Extract (task, sequence, step) from execution context
+        execution_context = step_message.execution_context
+        task = execution_context.task
+        sequence = execution_context.dependencies  # Use the convenient wrapper
+        step = execution_context.step
+
+        # Create handler instance and execute with new interface
+        handler = handler_class.new
+        start_time = Time.now
+
+        begin
+          # Execute with enhanced (task, sequence, step) interface
+          handler_result = handler.call(task, sequence, step)
+          execution_time_ms = ((Time.now - start_time) * 1000).to_i
+
+          # Extract orchestration metadata from handler result
+          orchestration_metadata = extract_orchestration_metadata(handler_result)
+
+          # Handler returned data - always treat as success since handlers just return JSON-serializable data
+          # Any exceptions would be caught in the rescue block below
+          result = TaskerCore::Types::StepResult.success(
+            step_id: step_message.step_id,
+            task_id: step_message.task_id,
+            result_data: handler_result,
+            execution_time_ms: execution_time_ms
+          )
+          
+          # Add orchestration metadata if present
+          result.orchestration_metadata = orchestration_metadata if orchestration_metadata
+          result
+        rescue => e
+          execution_time_ms = ((Time.now - start_time) * 1000).to_i
+
+          error = TaskerCore::Types::StepExecutionError.new(
+            error_type: 'HandlerException',
+            message: e.message,
+            retryable: true,
+            stack_trace: e.backtrace.join("\n")
+          )
+
+          TaskerCore::Types::StepResult.failure(
+            step_id: step_message.step_id,
+            task_id: step_message.task_id,
+            error: error,
+            execution_time_ms: execution_time_ms
+          )
+        end
+      end
+
+      # Extract orchestration metadata from handler result
+      # @param handler_result [Hash] Result from handler execution
+      # @return [Hash, nil] Orchestration metadata or nil
+      def extract_orchestration_metadata(handler_result)
+        return nil unless handler_result.is_a?(Hash)
+        
+        # Look for _orchestration_metadata key (preferred) or metadata key (legacy)
+        metadata = handler_result[:_orchestration_metadata] || handler_result[:metadata]
+        return nil unless metadata
+
+        # Map to expected orchestration metadata structure
+        {
+          http_headers: metadata[:http_headers] || metadata[:headers] || {},
+          execution_hints: metadata[:execution_hints] || {},
+          backoff_hints: metadata[:backoff_hints] || {},
+          error_context: metadata[:error_context],
+          custom: metadata[:custom] || {}
+        }
+      end
+
+      # Send result to orchestration system for coordination decisions
+      # @param result [TaskerCore::Types::StepResult] Step execution result
+      def send_result_to_orchestration(result)
+        # TODO: Implement orchestration result queue publishing
+        # This will send results to orchestration_step_results queue
+        # For now, just log the action
+        logger.debug("📤 QUEUE_WORKER: Sending result to orchestration - step_id: #{result.step_id}, status: #{result.status}")
+
+        # In Phase 5.2, this will publish to pgmq orchestration result queue
+        # pgmq_client.send_json_message('orchestration_step_results', result.to_hash)
+      end
+
       # Find the step handler class for a step name
       def find_step_handler_class(step_name)
         # Convert step_name to class name (e.g., "validate_order" -> "ValidateOrderHandler")
         class_name = step_name.split('_').map(&:capitalize).join + 'Handler'
-        
+
         # Try to find the handler class in various namespaces
         [
           "#{namespace.capitalize}::StepHandlers::#{class_name}",
@@ -392,7 +486,7 @@ module TaskerCore
             # Continue searching
           end
         end
-        
+
         nil
       end
 
@@ -437,7 +531,7 @@ module TaskerCore
           message: "Step exceeded maximum retry limit: #{step_message.metadata.max_retries}",
           retryable: false
         )
-        
+
         TaskerCore::Types::StepResult.failure(
           step_id: step_message.step_id,
           task_id: step_message.task_id,
@@ -454,7 +548,7 @@ module TaskerCore
           retryable: true,
           stack_trace: exception.backtrace.join("\n")
         )
-        
+
         TaskerCore::Types::StepResult.failure(
           step_id: step_message.step_id,
           task_id: step_message.task_id,

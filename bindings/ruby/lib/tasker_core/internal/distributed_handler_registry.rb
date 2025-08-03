@@ -2,6 +2,8 @@
 
 require_relative '../logging/logger'
 require_relative '../types/task_template'
+require_relative '../types/task_types'
+require_relative '../messaging/pgmq_client'
 require 'yaml'
 require 'singleton'
 
@@ -99,12 +101,6 @@ module TaskerCore
         # Priority 3: Instance with .call method
         instance = get_handler_instance(handler_key)
         return instance if instance&.respond_to?(:call)
-
-        # Priority 4: Legacy .process method wrapped in callable
-        if instance&.respond_to?(:process)
-          logger.debug "Wrapping legacy .process method for #{handler_key}"
-          return create_process_wrapper(instance)
-        end
 
         nil
       end
@@ -427,27 +423,6 @@ module TaskerCore
         else
           # Instance should have call method (already checked above)
           true
-        end
-      end
-
-      # Create a wrapper that adapts .process method to .call interface
-      def create_process_wrapper(handler_instance)
-        ->(task, sequence, step) do
-          # Adapt the new call interface to the legacy process interface
-          # This maintains backward compatibility while enabling the new architecture
-          begin
-            handler_instance.process(task, sequence, step)
-          rescue ArgumentError => e
-            # Handle cases where .process expects different arguments
-            logger.warn "Process method argument mismatch for #{handler_instance.class.name}: #{e.message}"
-
-            # Try with just the task if that's what the handler expects
-            if handler_instance.method(:process).arity == 1
-              handler_instance.process(task)
-            else
-              raise e
-            end
-          end
         end
       end
 
@@ -818,7 +793,7 @@ module TaskerCore
         end
 
         # Fallback to pgmq client connection
-        require_relative '../messaging/pgmq_client'
+
         pgmq_client = TaskerCore::Messaging::PgmqClient.new
         pgmq_client.send(:connection)
       rescue StandardError => e

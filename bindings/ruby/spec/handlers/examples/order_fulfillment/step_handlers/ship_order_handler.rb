@@ -5,7 +5,7 @@ require_relative '../../../../../lib/tasker_core/errors'
 module OrderFulfillment
   module StepHandlers
     class ShipOrderHandler < TaskerCore::StepHandler::Base
-      def process(task, sequence, step)
+      def call(task, sequence, step)
         # Extract and validate all required inputs
         shipping_inputs = extract_and_validate_inputs(task, sequence, step)
 
@@ -22,9 +22,29 @@ module OrderFulfillment
           shipping_cost: shipping_results[:shipping_cost],
           carrier: shipping_results[:carrier],
           service_type: shipping_results[:service_type],
-          label_url: shipping_results[:shipping_label_url],
-          processed_at: shipping_results[:processed_timestamp],
-          raw_shipping_response: shipping_results
+          label_url: shipping_results[:label_url],
+          processed_at: Time.now.iso8601,
+          raw_shipping_response: shipping_results,
+          # Include orchestration metadata
+          _orchestration_metadata: {
+            http_headers: {
+              'X-Carrier-Name' => shipping_results[:carrier],
+              'X-Tracking-Number' => shipping_results[:tracking_number],
+              'X-Carrier-Request-ID' => shipping_results[:carrier_request_id] || "req-#{SecureRandom.hex(6)}"
+            },
+            execution_hints: {
+              carrier_api_response_time_ms: shipping_results[:api_response_time] || 250,
+              label_generation_time_ms: shipping_results[:label_generation_time] || 100,
+              international_shipment: shipping_inputs[:shipping_address][:country] != 'US'
+            },
+            backoff_hints: {
+              # Carrier-specific rate limits
+              carrier_rate_limit_remaining: shipping_results[:rate_limit_remaining] || 100,
+              carrier_rate_limit_reset_at: shipping_results[:rate_limit_reset_at],
+              # Suggest backing off if we're getting close to rate limit
+              suggested_backoff_seconds: shipping_results[:rate_limit_remaining] && shipping_results[:rate_limit_remaining] < 10 ? 60 : nil
+            }
+          }
         }
       end
 
@@ -163,12 +183,19 @@ module OrderFulfillment
         shipping_cost = calculate_shipping_cost(total_weight, method)
 
         # Success case
+        api_response_time = (100 + rand(300)).to_i  # 100-400ms
+        rate_limit_remaining = 50 + rand(50)  # 50-100 remaining calls
+        
         {
           tracking_number: generate_tracking_number(carrier_info[:carrier]),
           label_url: "https://labels.#{carrier_info[:carrier].downcase}.com/#{shipment_id}.pdf",
           cost: shipping_cost,
           carrier: carrier_info[:carrier],
-          service: carrier_info[:service]
+          service: carrier_info[:service],
+          api_response_time: api_response_time,
+          label_generation_time: (50 + rand(100)).to_i,  # 50-150ms
+          rate_limit_remaining: rate_limit_remaining,
+          rate_limit_reset_at: rate_limit_remaining < 20 ? (Time.now + 3600).iso8601 : nil
         }
       end
 

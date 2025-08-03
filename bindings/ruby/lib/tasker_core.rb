@@ -43,24 +43,7 @@ require_relative 'tasker_core/config'                    # Configuration managem
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/internal/orchestration_manager'     # Singleton orchestration manager
 
-# 🎯 Clean Domain APIs - Ruby-idiomatic interfaces with handle-based optimization
-#
-# Domain Pattern: Each domain provides clean public API while internally using
-# the shared OrchestrationManager singleton for optimal FFI performance
-#
-# Primary Domains:
-#   - Factory: Test data creation (TaskerCore::Factory.task, .workflow_step, .foundation)
-#   - Registry: Handler management (TaskerCore::Registry.register, .find, .include?)
-#   - Performance: System monitoring (TaskerCore::Performance.system_health, .analytics)
-#   - Events: Event publishing (TaskerCore::Events.publish, .publish_orchestration)
-#   - Testing: Test utilities (TaskerCore::Testing.create_task, .setup_environment)
-#   - Handlers: Step/task handlers (TaskerCore::Handlers::Steps, TaskerCore::Handlers::Tasks)
-#   - Environment: Environment setup (TaskerCore::Environment.setup_test, .cleanup_test)
-#   - Orchestration: Workflow execution (TaskerCore::Orchestration.execute_workflow)
-#   - Execution: Ruby-Rust command integration (TaskerCore::Execution.start_worker)
-#
 
-require_relative 'tasker_core/monkeypatch'
 require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
@@ -206,4 +189,35 @@ module TaskerCore
   # Legacy direct aliases - deprecated, use TaskerCore::Internal instead
   # These use autoload to match the Internal module pattern
   autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
+end
+
+class Hash
+  def deep_merge(other_hash)
+    dup.deep_merge!(other_hash)
+  end
+
+  def deep_merge!(other_hash)
+    other_hash.each_pair do |k, v|
+      tv = self[k]
+      if tv.is_a?(Hash) && v.is_a?(Hash)
+        self[k] = tv.deep_merge(v)
+      else
+        self[k] = v
+      end
+    end
+    self
+  end
+
+  def deep_symbolize_keys
+    transform_keys(&:to_sym).transform_values do |value|
+      case value
+      when Hash
+        value.deep_symbolize_keys
+      when Array
+        value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
+      else
+        value
+      end
+    end
+  end
 end

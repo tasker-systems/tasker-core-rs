@@ -8,6 +8,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::messaging::message::OrchestrationMetadata;
+
 /// Message for task requests sent to orchestration_task_requests queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRequestMessage {
@@ -39,7 +41,7 @@ pub struct TaskRequestMetadata {
 }
 
 /// Task priority levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum TaskPriority {
     Low,
     Normal,
@@ -53,35 +55,17 @@ impl Default for TaskPriority {
     }
 }
 
-/// Message for tasks ready for processing in orchestration_tasks_to_be_processed queue
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskProcessingMessage {
-    /// Database task ID
-    pub task_id: i64,
-    /// Namespace for routing
-    pub namespace: String,
-    /// Task name for identification
-    pub task_name: String,
-    /// Task version for compatibility
-    pub task_version: String,
-    /// Processing priority
-    pub priority: TaskPriority,
-    /// Processing metadata
-    pub metadata: TaskProcessingMetadata,
+impl From<TaskPriority> for i32 {
+    fn from(priority: TaskPriority) -> i32 {
+        match priority {
+            TaskPriority::Low => 1,
+            TaskPriority::Normal => 2,
+            TaskPriority::High => 3,
+            TaskPriority::Urgent => 4,
+        }
+    }
 }
 
-/// Metadata for task processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskProcessingMetadata {
-    /// When the task was enqueued for processing
-    pub enqueued_at: DateTime<Utc>,
-    /// Original request ID for tracing
-    pub request_id: String,
-    /// Number of processing attempts
-    pub processing_attempts: i32,
-    /// When to retry if processing fails
-    pub retry_after: Option<DateTime<Utc>>,
-}
 
 /// Message for step batches sent to namespace-specific queues
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +141,32 @@ impl Default for BatchRetryPolicy {
     }
 }
 
-/// Message for batch results sent to orchestration_batch_results queue
+/// Message for individual step results sent to orchestration_step_results queue
+/// Replaces BatchResultMessage for individual step processing architecture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepResultMessage {
+    /// Step ID that was processed
+    pub step_id: i64,
+    /// Task ID for context
+    pub task_id: i64,
+    /// Namespace for routing
+    pub namespace: String,
+    /// Step execution status
+    pub status: StepExecutionStatus,
+    /// Step execution results/output
+    pub results: Option<serde_json::Value>,
+    /// Error information if step failed
+    pub error: Option<StepExecutionError>,
+    /// Execution time in milliseconds
+    pub execution_time_ms: u64,
+    /// Orchestration metadata from worker
+    pub orchestration_metadata: Option<OrchestrationMetadata>,
+    /// Result metadata  
+    pub metadata: StepResultMetadata,
+}
+
+/// DEPRECATED: Message for batch results - kept for backward compatibility
+/// Use StepResultMessage for new individual step processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchResultMessage {
     /// Batch ID that was processed
@@ -211,6 +220,36 @@ pub enum StepExecutionStatus {
     Skipped,
     Timeout,
     Cancelled,
+}
+
+/// Error information for failed step execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepExecutionError {
+    /// Error message
+    pub message: String,
+    /// Error type/category
+    pub error_type: Option<String>,
+    /// HTTP status code if applicable
+    pub status_code: Option<u16>,
+    /// Additional error context
+    pub context: HashMap<String, serde_json::Value>,
+    /// Whether this error is retryable
+    pub retryable: bool,
+}
+
+/// Metadata for individual step results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepResultMetadata {
+    /// Worker that processed the step
+    pub worker_id: String,
+    /// Worker hostname
+    pub worker_hostname: Option<String>,
+    /// When step processing started
+    pub started_at: DateTime<Utc>,
+    /// When step processing completed
+    pub completed_at: DateTime<Utc>,
+    /// Additional custom metadata
+    pub custom: HashMap<String, serde_json::Value>,
 }
 
 /// Metadata for batch results
@@ -271,41 +310,6 @@ impl TaskRequestMessage {
     }
 }
 
-impl TaskProcessingMessage {
-    /// Create a new task processing message
-    pub fn new(
-        task_id: i64,
-        namespace: String,
-        task_name: String,
-        task_version: String,
-        request_id: String,
-        priority: TaskPriority,
-    ) -> Self {
-        Self {
-            task_id,
-            namespace,
-            task_name,
-            task_version,
-            priority,
-            metadata: TaskProcessingMetadata {
-                enqueued_at: Utc::now(),
-                request_id,
-                processing_attempts: 0,
-                retry_after: None,
-            },
-        }
-    }
-
-    /// Increment processing attempts
-    pub fn increment_attempts(&mut self) {
-        self.metadata.processing_attempts += 1;
-    }
-
-    /// Set retry time
-    pub fn set_retry_after(&mut self, retry_at: DateTime<Utc>) {
-        self.metadata.retry_after = Some(retry_at);
-    }
-}
 
 impl BatchMessage {
     /// Create a new batch message

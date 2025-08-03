@@ -50,7 +50,7 @@ module PaymentProcessing
 
         # Validate payment information
         if payment_info['amount'].nil? || payment_info['amount'] <= 0
-          raise TaskerCore::PermanentError.new(
+          raise TaskerCore::Errors::PermanentError.new(
             'Invalid payment amount',
             error_code: 'INVALID_AMOUNT',
             error_category: 'validation'
@@ -58,7 +58,7 @@ module PaymentProcessing
         end
 
         if payment_info['card_token'].nil? || payment_info['card_token'].length < 10
-          raise TaskerCore::PermanentError.new(
+          raise TaskerCore::Errors::PermanentError.new(
             'Invalid card token',
             error_code: 'INVALID_CARD_TOKEN',
             error_category: 'validation'
@@ -91,7 +91,7 @@ module PaymentProcessing
         risk_threshold = @config['risk_threshold'] || 0.8
 
         if risk_score > risk_threshold
-          raise TaskerCore::PermanentError.new(
+          raise TaskerCore::Errors::PermanentError.new(
             "Fraud detected - risk score #{risk_score.round(2)} exceeds threshold #{risk_threshold}",
             error_code: 'FRAUD_DETECTED',
             error_category: 'security'
@@ -369,7 +369,7 @@ class CreditCardPaymentHandler < TaskerCore::TaskHandler::Base
 
     # Basic validation - in real implementation, use JSON schema validation
     unless context && context['payment_info']
-      raise TaskerCore::PermanentError.new(
+      raise TaskerCore::Errors::PermanentError.new(
         'Missing payment_info in task context',
         error_code: 'MISSING_PAYMENT_INFO',
         error_category: 'validation'
@@ -380,7 +380,7 @@ class CreditCardPaymentHandler < TaskerCore::TaskHandler::Base
 
     return if payment_info['amount'] && payment_info['currency'] && payment_info['card_token']
 
-    raise TaskerCore::PermanentError.new(
+    raise TaskerCore::Errors::PermanentError.new(
       'Missing required payment fields',
       error_code: 'MISSING_PAYMENT_FIELDS',
       error_category: 'validation'
@@ -522,7 +522,7 @@ begin
 
   puts '✓ Task completed (fraud check passed)'
   puts "  Status: #{result[:status]}"
-rescue TaskerCore::PermanentError => e
+rescue TaskerCore::Errors::PermanentError => e
   puts '✓ Permanent error caught correctly'
   puts "  Error: #{e.message}"
   puts "  Code: #{e.error_code}"

@@ -532,6 +532,50 @@ impl WorkflowStep {
         Ok(steps)
     }
 
+    /// Get dependencies with step names for building execution context  
+    pub async fn get_dependencies_with_names(&self, pool: &PgPool) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
+        let deps = sqlx::query!(
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit, 
+                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at,
+                   ns.name as step_name
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
+            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
+            WHERE wse.to_step_id = $1
+            ORDER BY ws.workflow_step_id
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let results = deps.into_iter().map(|row| {
+            let step = WorkflowStep {
+                workflow_step_id: row.workflow_step_id,
+                task_id: row.task_id,
+                named_step_id: row.named_step_id,
+                retryable: row.retryable,
+                retry_limit: row.retry_limit,
+                in_process: row.in_process,
+                processed: row.processed,
+                processed_at: row.processed_at,
+                attempts: row.attempts,
+                last_attempted_at: row.last_attempted_at,
+                backoff_request_seconds: row.backoff_request_seconds,
+                inputs: row.inputs,
+                results: row.results,
+                skippable: row.skippable,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            };
+            (step, row.step_name)
+        }).collect();
+
+        Ok(results)
+    }
+
     /// Get dependents (child steps) for this step
     pub async fn get_dependents(&self, pool: &PgPool) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
