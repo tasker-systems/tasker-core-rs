@@ -5,7 +5,6 @@
 use crate::models::core::task_request::TaskRequest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, info};
 
 /// Handler for task initialization commands (pgmq-based)
 #[derive(Clone)]

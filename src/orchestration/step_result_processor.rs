@@ -2,9 +2,9 @@
 //!
 //! ## Architecture: Individual Step Result Processing for pgmq Orchestration
 //!
-//! The StepResultProcessor handles individual step results from the orchestration_step_results 
+//! The StepResultProcessor handles individual step results from the orchestration_step_results
 //! queue, replacing the batch-based approach with individual step processing. This creates
-//! the complete feedback loop: Task Request → Task Claiming → Step Enqueueing → Step Execution → 
+//! the complete feedback loop: Task Request → Task Claiming → Step Enqueueing → Step Execution →
 //! Step Results → Task Finalization.
 //!
 //! ## Key Features
@@ -44,11 +44,9 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClient, StepResultMessage, StepExecutionStatus};
+use crate::messaging::{PgmqClient, StepExecutionStatus, StepResultMessage};
 use crate::orchestration::{
-    result_processor::OrchestrationResultProcessor,
-    task_finalizer::TaskFinalizer,
-    StateManager,
+    result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer, StateManager,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -121,20 +119,17 @@ impl StepResultProcessor {
 
     /// Create a new step result processor with custom configuration
     pub async fn with_config(
-        pool: PgPool, 
-        pgmq_client: PgmqClient, 
-        config: StepResultProcessorConfig
+        pool: PgPool,
+        pgmq_client: PgmqClient,
+        config: StepResultProcessorConfig,
     ) -> Result<Self> {
         // Create orchestration result processor with required dependencies
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::new();
         let state_manager = StateManager::new(sql_executor, event_publisher, pool.clone());
         let task_finalizer = TaskFinalizer::new(pool.clone());
-        let orchestration_result_processor = OrchestrationResultProcessor::new(
-            state_manager,
-            task_finalizer,
-            pool.clone(),
-        );
+        let orchestration_result_processor =
+            OrchestrationResultProcessor::new(state_manager, task_finalizer, pool.clone());
 
         Ok(Self {
             pgmq_client,
@@ -171,10 +166,8 @@ impl StepResultProcessor {
                 Err(e) => {
                     error!(error = %e, "Error in step result processing batch");
                     // Wait before retrying on error
-                    tokio::time::sleep(Duration::from_secs(
-                        self.config.polling_interval_seconds,
-                    ))
-                    .await;
+                    tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds))
+                        .await;
                 }
             }
         }
@@ -274,8 +267,8 @@ impl StepResultProcessor {
         debug!(msg_id = msg_id, "Processing step result message");
 
         // Parse the step result message
-        let step_result: StepResultMessage = serde_json::from_value(payload.clone())
-            .map_err(|e| {
+        let step_result: StepResultMessage =
+            serde_json::from_value(payload.clone()).map_err(|e| {
                 TaskerError::MessagingError(format!("Failed to parse step result message: {}", e))
             })?;
 
@@ -298,13 +291,13 @@ impl StepResultProcessor {
         };
 
         // Convert step error to result processor format
-        let error = step_result.error.map(|e| {
-            crate::orchestration::result_processor::StepError {
+        let error = step_result
+            .error
+            .map(|e| crate::orchestration::result_processor::StepError {
                 message: e.message,
                 error_type: e.error_type,
                 retryable: e.retryable,
-            }
-        });
+            });
 
         // Process the step result using the orchestration result processor
         self.orchestration_result_processor

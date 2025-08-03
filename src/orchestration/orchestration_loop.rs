@@ -32,7 +32,7 @@
 //! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let pgmq_client = PgmqClient::new(pool.clone()).await?;
 //! let orchestrator_id = "orchestrator-host123-uuid".to_string();
-//! 
+//!
 //! let orchestration_loop = OrchestrationLoop::new(
 //!     pool,
 //!     pgmq_client,
@@ -41,7 +41,7 @@
 //!
 //! // Run a single orchestration cycle
 //! let result = orchestration_loop.run_cycle().await?;
-//! println!("Processed {} tasks, enqueued {} steps", 
+//! println!("Processed {} tasks, enqueued {} steps",
 //!          result.tasks_processed, result.total_steps_enqueued);
 //!
 //! // Run continuous orchestration
@@ -50,7 +50,7 @@
 //! # }
 //! ```
 
-use crate::error::{Result, TaskerError};
+use crate::error::Result;
 use crate::messaging::PgmqClient;
 use crate::orchestration::{
     step_enqueuer::{StepEnqueuer, StepEnqueuerConfig},
@@ -253,13 +253,15 @@ impl OrchestrationLoop {
             pool.clone(),
             pgmq_client.clone(),
             config.step_enqueuer_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         let step_result_processor = StepResultProcessor::with_config(
             pool.clone(),
             pgmq_client,
             config.step_result_processor_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         Ok(Self {
             task_claimer,
@@ -288,13 +290,19 @@ impl OrchestrationLoop {
         let claim_start = Instant::now();
         let claimed_tasks = self
             .task_claimer
-            .claim_ready_tasks(self.config.tasks_per_cycle, self.config.namespace_filter.as_deref())
+            .claim_ready_tasks(
+                self.config.tasks_per_cycle,
+                self.config.namespace_filter.as_deref(),
+            )
             .await?;
         let claim_duration_ms = claim_start.elapsed().as_millis() as u64;
 
         if claimed_tasks.is_empty() {
             debug!("No tasks available for claiming in this cycle");
-            return Ok(self.create_empty_cycle_result(cycle_started_at, cycle_start.elapsed().as_millis() as u64));
+            return Ok(self.create_empty_cycle_result(
+                cycle_started_at,
+                cycle_start.elapsed().as_millis() as u64,
+            ));
         }
 
         let tasks_claimed = claimed_tasks.len();
@@ -330,23 +338,21 @@ impl OrchestrationLoop {
                                 queue_name: stats.queue_name.clone(),
                                 avg_processing_time_ms: 0,
                             });
-                        
+
                         namespace_stat.tasks_processed += 1;
                         namespace_stat.steps_enqueued += stats.steps_enqueued;
                         namespace_stat.steps_failed += stats.steps_failed;
-                        namespace_stat.avg_processing_time_ms += enqueue_result.processing_duration_ms;
+                        namespace_stat.avg_processing_time_ms +=
+                            enqueue_result.processing_duration_ms;
                     }
 
                     warnings.extend(enqueue_result.warnings);
                 }
                 Err(e) => {
                     tasks_failed += 1;
-                    let warning = format!(
-                        "Failed to process task {}: {}",
-                        claimed_task.task_id, e
-                    );
+                    let warning = format!("Failed to process task {}: {}", claimed_task.task_id, e);
                     warnings.push(warning.clone());
-                    
+
                     warn!(
                         task_id = claimed_task.task_id,
                         error = %e,
@@ -358,7 +364,11 @@ impl OrchestrationLoop {
             // IMMEDIATELY RELEASE THE CLAIM after processing each task
             // This makes the task available sooner for other orchestrators
             let release_start = Instant::now();
-            match self.task_claimer.release_task_claim(claimed_task.task_id).await {
+            match self
+                .task_claimer
+                .release_task_claim(claimed_task.task_id)
+                .await
+            {
                 Ok(released) => {
                     if !released {
                         let warning = format!(
@@ -408,8 +418,10 @@ impl OrchestrationLoop {
             namespace_stats,
             performance_metrics: PerformanceMetrics {
                 claim_duration_ms,
-                discovery_duration_ms: (discovery_enqueueing_duration - total_release_duration_ms) / 2, // Rough split
-                enqueueing_duration_ms: (discovery_enqueueing_duration - total_release_duration_ms) / 2,
+                discovery_duration_ms: (discovery_enqueueing_duration - total_release_duration_ms)
+                    / 2, // Rough split
+                enqueueing_duration_ms: (discovery_enqueueing_duration - total_release_duration_ms)
+                    / 2,
                 release_duration_ms: total_release_duration_ms,
                 avg_task_processing_ms: if tasks_processed > 0 {
                     discovery_enqueueing_duration / tasks_processed as u64
@@ -511,7 +523,10 @@ impl OrchestrationLoop {
     }
 
     /// Process a single claimed task: discover steps and enqueue them
-    async fn process_claimed_task(&self, claimed_task: &ClaimedTask) -> Result<crate::orchestration::step_enqueuer::StepEnqueueResult> {
+    async fn process_claimed_task(
+        &self,
+        claimed_task: &ClaimedTask,
+    ) -> Result<crate::orchestration::step_enqueuer::StepEnqueueResult> {
         debug!(
             task_id = claimed_task.task_id,
             "Processing claimed task for step discovery and enqueueing"
@@ -521,7 +536,10 @@ impl OrchestrationLoop {
     }
 
     /// Calculate priority distribution for monitoring
-    fn calculate_priority_distribution(&self, claimed_tasks: &[ClaimedTask]) -> PriorityDistribution {
+    fn calculate_priority_distribution(
+        &self,
+        claimed_tasks: &[ClaimedTask],
+    ) -> PriorityDistribution {
         let mut distribution = PriorityDistribution::default();
         let mut total_computed_priority = 0.0;
         let mut total_age_hours = 0.0;
@@ -553,7 +571,11 @@ impl OrchestrationLoop {
     }
 
     /// Create result for empty cycle (no tasks claimed)
-    fn create_empty_cycle_result(&self, cycle_started_at: DateTime<Utc>, cycle_duration_ms: u64) -> OrchestrationCycleResult {
+    fn create_empty_cycle_result(
+        &self,
+        cycle_started_at: DateTime<Utc>,
+        cycle_duration_ms: u64,
+    ) -> OrchestrationCycleResult {
         OrchestrationCycleResult {
             cycle_started_at,
             cycle_duration_ms,
@@ -650,34 +672,53 @@ impl ContinuousOrchestrationSummary {
         self.total_steps_failed += result.total_steps_failed as u64;
 
         // Aggregate priority distribution
-        self.aggregate_priority_distribution.urgent_tasks += result.priority_distribution.urgent_tasks;
+        self.aggregate_priority_distribution.urgent_tasks +=
+            result.priority_distribution.urgent_tasks;
         self.aggregate_priority_distribution.high_tasks += result.priority_distribution.high_tasks;
-        self.aggregate_priority_distribution.normal_tasks += result.priority_distribution.normal_tasks;
+        self.aggregate_priority_distribution.normal_tasks +=
+            result.priority_distribution.normal_tasks;
         self.aggregate_priority_distribution.low_tasks += result.priority_distribution.low_tasks;
-        self.aggregate_priority_distribution.invalid_tasks += result.priority_distribution.invalid_tasks;
-        self.aggregate_priority_distribution.escalated_tasks += result.priority_distribution.escalated_tasks;
+        self.aggregate_priority_distribution.invalid_tasks +=
+            result.priority_distribution.invalid_tasks;
+        self.aggregate_priority_distribution.escalated_tasks +=
+            result.priority_distribution.escalated_tasks;
 
         // Aggregate performance metrics
         self.aggregate_performance_metrics.total_cycle_duration_ms += result.cycle_duration_ms;
-        self.aggregate_performance_metrics.total_claim_duration_ms += result.performance_metrics.claim_duration_ms;
-        self.aggregate_performance_metrics.total_discovery_duration_ms += result.performance_metrics.discovery_duration_ms;
-        self.aggregate_performance_metrics.total_enqueueing_duration_ms += result.performance_metrics.enqueueing_duration_ms;
-        self.aggregate_performance_metrics.total_release_duration_ms += result.performance_metrics.release_duration_ms;
+        self.aggregate_performance_metrics.total_claim_duration_ms +=
+            result.performance_metrics.claim_duration_ms;
+        self.aggregate_performance_metrics
+            .total_discovery_duration_ms += result.performance_metrics.discovery_duration_ms;
+        self.aggregate_performance_metrics
+            .total_enqueueing_duration_ms += result.performance_metrics.enqueueing_duration_ms;
+        self.aggregate_performance_metrics.total_release_duration_ms +=
+            result.performance_metrics.release_duration_ms;
 
         // Track peak performance
-        if result.performance_metrics.steps_per_second > self.aggregate_performance_metrics.peak_steps_per_second {
-            self.aggregate_performance_metrics.peak_steps_per_second = result.performance_metrics.steps_per_second;
+        if result.performance_metrics.steps_per_second
+            > self.aggregate_performance_metrics.peak_steps_per_second
+        {
+            self.aggregate_performance_metrics.peak_steps_per_second =
+                result.performance_metrics.steps_per_second;
         }
-        if result.performance_metrics.tasks_per_second > self.aggregate_performance_metrics.peak_tasks_per_second {
-            self.aggregate_performance_metrics.peak_tasks_per_second = result.performance_metrics.tasks_per_second;
+        if result.performance_metrics.tasks_per_second
+            > self.aggregate_performance_metrics.peak_tasks_per_second
+        {
+            self.aggregate_performance_metrics.peak_tasks_per_second =
+                result.performance_metrics.tasks_per_second;
         }
 
         // Aggregate namespace statistics (keep top 10)
         for (namespace, stats) in &result.namespace_stats {
-            if let Some(existing) = self.top_namespaces.iter_mut().find(|(ns, _)| ns == namespace) {
+            if let Some(existing) = self
+                .top_namespaces
+                .iter_mut()
+                .find(|(ns, _)| ns == namespace)
+            {
                 existing.1 += stats.steps_enqueued as u64;
             } else {
-                self.top_namespaces.push((namespace.clone(), stats.steps_enqueued as u64));
+                self.top_namespaces
+                    .push((namespace.clone(), stats.steps_enqueued as u64));
             }
         }
         // Keep only top 10 namespaces by activity
@@ -690,7 +731,8 @@ impl ContinuousOrchestrationSummary {
             self.recent_warnings.push(warning.clone());
         }
         if self.recent_warnings.len() > 50 {
-            self.recent_warnings.drain(0..self.recent_warnings.len() - 50);
+            self.recent_warnings
+                .drain(0..self.recent_warnings.len() - 50);
         }
     }
 
@@ -709,21 +751,26 @@ impl ContinuousOrchestrationSummary {
                 + self.aggregate_priority_distribution.high_tasks
                 + self.aggregate_priority_distribution.normal_tasks
                 + self.aggregate_priority_distribution.low_tasks
-                + self.aggregate_priority_distribution.invalid_tasks) as f64;
+                + self.aggregate_priority_distribution.invalid_tasks)
+                as f64;
 
             if total_tasks > 0.0 {
-                self.aggregate_priority_distribution.avg_computed_priority = 
+                self.aggregate_priority_distribution.avg_computed_priority =
                     (self.aggregate_priority_distribution.urgent_tasks as f64 * 4.0
-                    + self.aggregate_priority_distribution.high_tasks as f64 * 3.0
-                    + self.aggregate_priority_distribution.normal_tasks as f64 * 2.0
-                    + self.aggregate_priority_distribution.low_tasks as f64 * 1.0) / total_tasks;
+                        + self.aggregate_priority_distribution.high_tasks as f64 * 3.0
+                        + self.aggregate_priority_distribution.normal_tasks as f64 * 2.0
+                        + self.aggregate_priority_distribution.low_tasks as f64 * 1.0)
+                        / total_tasks;
             }
 
             // Calculate average performance metrics
-            let total_duration_seconds = self.aggregate_performance_metrics.total_cycle_duration_ms as f64 / 1000.0;
+            let total_duration_seconds =
+                self.aggregate_performance_metrics.total_cycle_duration_ms as f64 / 1000.0;
             if total_duration_seconds > 0.0 {
-                self.aggregate_performance_metrics.avg_steps_per_second = self.total_steps_enqueued as f64 / total_duration_seconds;
-                self.aggregate_performance_metrics.avg_tasks_per_second = self.total_tasks_processed as f64 / total_duration_seconds;
+                self.aggregate_performance_metrics.avg_steps_per_second =
+                    self.total_steps_enqueued as f64 / total_duration_seconds;
+                self.aggregate_performance_metrics.avg_tasks_per_second =
+                    self.total_tasks_processed as f64 / total_duration_seconds;
             }
         }
     }
@@ -731,7 +778,8 @@ impl ContinuousOrchestrationSummary {
     /// Get average cycle duration in milliseconds
     pub fn avg_cycle_duration_ms(&self) -> f64 {
         if self.total_cycles > 0 {
-            self.aggregate_performance_metrics.total_cycle_duration_ms as f64 / self.total_cycles as f64
+            self.aggregate_performance_metrics.total_cycle_duration_ms as f64
+                / self.total_cycles as f64
         } else {
             0.0
         }
@@ -791,7 +839,7 @@ mod tests {
         distribution.high_tasks = 1;
         distribution.normal_tasks = 3;
         distribution.escalated_tasks = 1;
-        
+
         assert_eq!(distribution.urgent_tasks, 2);
         assert_eq!(distribution.escalated_tasks, 1);
     }

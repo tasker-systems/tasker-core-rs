@@ -3,8 +3,6 @@
 //! Factories for creating the main domain objects (Task, WorkflowStep, etc.)
 //! with proper state management and relationship handling.
 
-#![allow(dead_code)]
-
 use super::base::*;
 use super::foundation::*;
 use async_trait::async_trait;

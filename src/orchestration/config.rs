@@ -441,7 +441,7 @@ impl Default for OrchestrationConfig {
             enable_performance_logging: false,
             enable_heartbeat: true,
             default_claim_timeout_seconds: 300, // 5 minutes
-            heartbeat_interval_seconds: 60, // 1 minute
+            heartbeat_interval_seconds: 60,     // 1 minute
             namespace_filter: None,
         }
     }
@@ -449,11 +449,13 @@ impl Default for OrchestrationConfig {
 
 impl OrchestrationConfig {
     /// Convert to OrchestrationSystemConfig for bootstrapping the orchestration system
-    pub fn to_orchestration_system_config(&self) -> crate::orchestration::OrchestrationSystemConfig {
-        use crate::orchestration::{OrchestrationLoopConfig, OrchestrationSystemConfig};
-        use crate::orchestration::task_claimer::TaskClaimerConfig;
+    pub fn to_orchestration_system_config(
+        &self,
+    ) -> crate::orchestration::OrchestrationSystemConfig {
         use crate::orchestration::step_enqueuer::StepEnqueuerConfig;
         use crate::orchestration::step_result_processor::StepResultProcessorConfig;
+        use crate::orchestration::task_claimer::TaskClaimerConfig;
+        use crate::orchestration::{OrchestrationLoopConfig, OrchestrationSystemConfig};
         use std::time::{Duration, SystemTime};
 
         // Generate orchestrator ID if not provided

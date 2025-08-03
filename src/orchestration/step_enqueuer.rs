@@ -52,12 +52,12 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClient, StepMessage, StepMessageMetadata};
 use crate::messaging::message::StepExecutionContext;
+use crate::messaging::{PgmqClient, StepMessage, StepMessageMetadata};
 use crate::orchestration::{
     task_claimer::ClaimedTask, types::ViableStep, viable_step_discovery::ViableStepDiscovery,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -132,7 +132,8 @@ impl StepEnqueuer {
     pub async fn new(pool: PgPool, pgmq_client: PgmqClient) -> Result<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::new();
-        let viable_step_discovery = ViableStepDiscovery::new(sql_executor, event_publisher, pool.clone());
+        let viable_step_discovery =
+            ViableStepDiscovery::new(sql_executor, event_publisher, pool.clone());
 
         Ok(Self {
             viable_step_discovery,
@@ -150,7 +151,8 @@ impl StepEnqueuer {
     ) -> Result<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::new();
-        let viable_step_discovery = ViableStepDiscovery::new(sql_executor, event_publisher, pool.clone());
+        let viable_step_discovery =
+            ViableStepDiscovery::new(sql_executor, event_publisher, pool.clone());
 
         Ok(Self {
             viable_step_discovery,
@@ -165,9 +167,12 @@ impl StepEnqueuer {
     /// This discovers viable steps using the existing SQL-based logic, then enqueues each
     /// step individually to its namespace-specific queue for autonomous worker processing.
     #[instrument(skip(self), fields(task_id = claimed_task.task_id, namespace = %claimed_task.namespace_name))]
-    pub async fn enqueue_ready_steps(&self, claimed_task: &ClaimedTask) -> Result<StepEnqueueResult> {
+    pub async fn enqueue_ready_steps(
+        &self,
+        claimed_task: &ClaimedTask,
+    ) -> Result<StepEnqueueResult> {
         let start_time = Instant::now();
-        
+
         info!(
             task_id = claimed_task.task_id,
             namespace = %claimed_task.namespace_name,
@@ -201,7 +206,7 @@ impl StepEnqueuer {
                 task_id = claimed_task.task_id,
                 "No viable steps found for claimed task - task may have been processed already"
             );
-            
+
             return Ok(StepEnqueueResult {
                 task_id: claimed_task.task_id,
                 steps_discovered: 0,
@@ -220,10 +225,13 @@ impl StepEnqueuer {
         let mut warnings = Vec::new();
 
         for viable_step in viable_steps {
-            match self.enqueue_individual_step(claimed_task, &viable_step).await {
+            match self
+                .enqueue_individual_step(claimed_task, &viable_step)
+                .await
+            {
                 Ok(queue_name) => {
                     steps_enqueued += 1;
-                    
+
                     // Update namespace stats
                     let stats = namespace_breakdown
                         .entry(claimed_task.namespace_name.clone())
@@ -246,7 +254,7 @@ impl StepEnqueuer {
                 }
                 Err(e) => {
                     steps_failed += 1;
-                    
+
                     // Update namespace stats
                     let queue_name = format!("{}_queue", claimed_task.namespace_name);
                     let stats = namespace_breakdown
@@ -263,7 +271,7 @@ impl StepEnqueuer {
                         viable_step.step_id, viable_step.name, e
                     );
                     warnings.push(warning.clone());
-                    
+
                     warn!(
                         task_id = claimed_task.task_id,
                         step_id = viable_step.step_id,
@@ -307,10 +315,10 @@ impl StepEnqueuer {
     ) -> Result<String> {
         // Create step message with execution context (task, sequence, step pattern)
         let step_message = self.create_step_message(claimed_task, viable_step).await?;
-        
+
         // Enqueue to namespace-specific queue
         let queue_name = format!("{}_queue", claimed_task.namespace_name);
-        
+
         let msg_id = self
             .pgmq_client
             .send_json_message(&queue_name, &step_message)
@@ -341,7 +349,9 @@ impl StepEnqueuer {
         viable_step: &ViableStep,
     ) -> Result<StepMessage> {
         // Get task execution context and dependency results
-        let task_context = self.get_task_execution_context(claimed_task.task_id).await?;
+        let task_context = self
+            .get_task_execution_context(claimed_task.task_id)
+            .await?;
         let dependency_results = self.get_dependency_results(viable_step).await?;
 
         // Create step execution context with (task, sequence, step) pattern
@@ -380,15 +390,33 @@ impl StepEnqueuer {
                 retry_count: 0,
                 max_retries: 3,
                 timeout_ms: 300000, // 5 minutes
-                correlation_id: Some(format!("task-{}-step-{}", claimed_task.task_id, viable_step.step_id)),
+                correlation_id: Some(format!(
+                    "task-{}-step-{}",
+                    claimed_task.task_id, viable_step.step_id
+                )),
                 priority: claimed_task.priority as u8,
                 context: {
                     let mut context = std::collections::HashMap::new();
-                    context.insert("task_priority".to_string(), serde_json::json!(claimed_task.priority));
-                    context.insert("computed_priority".to_string(), serde_json::json!(claimed_task.computed_priority));
-                    context.insert("task_age_hours".to_string(), serde_json::json!(claimed_task.age_hours));
-                    context.insert("orchestrator_claimed_at".to_string(), serde_json::json!(claimed_task.claimed_at));
-                    context.insert("enqueueing_version".to_string(), serde_json::json!("phase_5.2"));
+                    context.insert(
+                        "task_priority".to_string(),
+                        serde_json::json!(claimed_task.priority),
+                    );
+                    context.insert(
+                        "computed_priority".to_string(),
+                        serde_json::json!(claimed_task.computed_priority),
+                    );
+                    context.insert(
+                        "task_age_hours".to_string(),
+                        serde_json::json!(claimed_task.age_hours),
+                    );
+                    context.insert(
+                        "orchestrator_claimed_at".to_string(),
+                        serde_json::json!(claimed_task.claimed_at),
+                    );
+                    context.insert(
+                        "enqueueing_version".to_string(),
+                        serde_json::json!("phase_5.2"),
+                    );
                     context
                 },
             },
@@ -402,7 +430,7 @@ impl StepEnqueuer {
         // Use existing SQL function to get task context
         // This is a simplified version - the actual implementation would use SqlFunctionExecutor
         let query = "SELECT context, tags FROM tasker_tasks WHERE task_id = $1::BIGINT";
-        
+
         let row: Option<(Value, Value)> = sqlx::query_as(query)
             .bind(task_id)
             .fetch_optional(&self.pool)
@@ -417,7 +445,10 @@ impl StepEnqueuer {
                 "context": context,
                 "tags": tags
             })),
-            None => Err(TaskerError::DatabaseError(format!("Task {} not found", task_id))),
+            None => Err(TaskerError::DatabaseError(format!(
+                "Task {} not found",
+                task_id
+            ))),
         }
     }
 

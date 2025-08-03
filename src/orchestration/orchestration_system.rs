@@ -121,13 +121,13 @@ impl OrchestrationSystem {
     }
 
     /// Bootstrap orchestration system from YAML configuration
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use tasker_core::orchestration::{OrchestrationSystem, config::ConfigurationManager};
     /// use sqlx::PgPool;
-    /// 
+    ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Load configuration from YAML
@@ -150,12 +150,13 @@ impl OrchestrationSystem {
         pool: PgPool,
     ) -> Result<Self> {
         let tasker_config = config_manager.system_config();
-        let orchestration_system_config = tasker_config.orchestration.to_orchestration_system_config();
+        let orchestration_system_config =
+            tasker_config.orchestration.to_orchestration_system_config();
 
         // Create pgmq client
         let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
 
-        // Create task handler registry  
+        // Create task handler registry
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(pool.clone()));
 
         // Create task initializer
@@ -176,17 +177,18 @@ impl OrchestrationSystem {
             task_handler_registry,
             pool,
             orchestration_system_config,
-        ).await
+        )
+        .await
     }
 
     /// Bootstrap orchestration system from YAML configuration file path
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use tasker_core::orchestration::OrchestrationSystem;
     /// use sqlx::PgPool;
-    /// 
+    ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     let pool = PgPool::connect("postgresql://localhost/tasker").await?;
@@ -206,9 +208,12 @@ impl OrchestrationSystem {
         config_path: P,
         pool: PgPool,
     ) -> Result<Self> {
-        let config_manager = crate::orchestration::config::ConfigurationManager::load_from_file(config_path)
-            .await
-            .map_err(|e| TaskerError::ConfigurationError(format!("Failed to load config: {}", e)))?;
+        let config_manager =
+            crate::orchestration::config::ConfigurationManager::load_from_file(config_path)
+                .await
+                .map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to load config: {}", e))
+                })?;
 
         Self::from_config(config_manager, pool).await
     }
@@ -238,13 +243,15 @@ impl OrchestrationSystem {
         let orchestration_handle =
             tokio::spawn(async move { orchestration_loop.run_continuous().await });
 
-        let step_results_handle = tokio::spawn(async move {
-            step_result_processor.start_processing_loop().await
-        });
+        let step_results_handle =
+            tokio::spawn(async move { step_result_processor.start_processing_loop().await });
 
         // Wait for all three loops - in practice, orchestration should run indefinitely
-        let (task_request_result, orchestration_result, step_results_result) =
-            tokio::join!(task_request_handle, orchestration_handle, step_results_handle);
+        let (task_request_result, orchestration_result, step_results_result) = tokio::join!(
+            task_request_handle,
+            orchestration_handle,
+            step_results_handle
+        );
 
         // Log any errors that caused the loops to exit
         if let Err(e) = task_request_result {
@@ -464,7 +471,11 @@ impl OrchestrationSystem {
         }
 
         // Create step results queue
-        let step_results_queue = &self.config.orchestration_loop_config.step_result_processor_config.step_results_queue_name;
+        let step_results_queue = &self
+            .config
+            .orchestration_loop_config
+            .step_result_processor_config
+            .step_results_queue_name;
         if let Err(e) = self.pgmq_client.create_queue(step_results_queue).await {
             debug!(
                 queue = %step_results_queue,

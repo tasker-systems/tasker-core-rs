@@ -40,9 +40,9 @@ pub mod orchestration_system;
 pub mod result_processor;
 pub mod state_manager;
 pub mod step_enqueuer;
-pub mod step_result_processor;
 pub mod step_execution_orchestrator;
 pub mod step_handler;
+pub mod step_result_processor;
 pub mod system_events;
 pub mod task_claimer;
 pub mod task_config_finder;
@@ -72,7 +72,7 @@ pub use step_enqueuer::{
     NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer, StepEnqueuerConfig,
 };
 pub use step_result_processor::{
-    StepResultProcessor, StepResultProcessorConfig, StepResultProcessingResult,
+    StepResultProcessingResult, StepResultProcessor, StepResultProcessorConfig,
 };
 pub use task_claimer::{ClaimedTask, TaskClaimer, TaskClaimerConfig};
 pub use task_enqueuer::{

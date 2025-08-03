@@ -73,7 +73,6 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
-use uuid;
 
 /// Configuration for workflow coordination
 #[derive(Debug, Clone)]
@@ -706,7 +705,10 @@ impl WorkflowCoordinator {
 
         // Process each step individually
         for (sequence, step) in steps.into_iter().enumerate() {
-            match self.enqueue_individual_step(task_id, &task, &task_info, &step, sequence).await {
+            match self
+                .enqueue_individual_step(task_id, &task, &task_info, &step, sequence)
+                .await
+            {
                 Ok(step_result) => {
                     all_results.push(step_result);
                 }
@@ -751,7 +753,7 @@ impl WorkflowCoordinator {
     ) -> OrchestrationResult<StepResult> {
         // Determine namespace from step name
         let namespace = self.determine_step_namespace(step).await?;
-        
+
         // Fetch dependency results for this step
         let dependency_results = self.fetch_step_dependency_results(step.step_id).await?;
 
@@ -792,7 +794,7 @@ impl WorkflowCoordinator {
                 "retry_limit": step.retry_limit,
                 "last_failure_at": step.last_failure_at,
                 "next_retry_at": step.next_retry_at
-            })
+            }),
         );
 
         // Create step message with execution context
@@ -824,7 +826,8 @@ impl WorkflowCoordinator {
 
         // Enqueue the individual step message
         let enqueue_time = chrono::Utc::now();
-        match self.pgmq_client
+        match self
+            .pgmq_client
             .send_json_message(&queue_name, &step_message)
             .await
         {
@@ -887,19 +890,22 @@ impl WorkflowCoordinator {
         step_id: i64,
     ) -> OrchestrationResult<Vec<crate::messaging::message::StepDependencyResult>> {
         // Get the WorkflowStep from step_id
-        let workflow_step = crate::models::core::workflow_step::WorkflowStep::find_by_id(&self.database_pool, step_id)
-            .await
-            .map_err(|e| OrchestrationError::DatabaseError {
-                operation: "load_workflow_step_for_dependencies".to_string(),
-                reason: format!("Failed to load workflow step: {}", e),
-            })?
-            .ok_or_else(|| OrchestrationError::StepExecutionFailed {
-                step_id,
-                task_id: 0, // Will be filled in by caller
-                reason: "Workflow step not found".to_string(),
-                error_code: Some("WORKFLOW_STEP_NOT_FOUND".to_string()),
-                retry_after: None,
-            })?;
+        let workflow_step = crate::models::core::workflow_step::WorkflowStep::find_by_id(
+            &self.database_pool,
+            step_id,
+        )
+        .await
+        .map_err(|e| OrchestrationError::DatabaseError {
+            operation: "load_workflow_step_for_dependencies".to_string(),
+            reason: format!("Failed to load workflow step: {}", e),
+        })?
+        .ok_or_else(|| OrchestrationError::StepExecutionFailed {
+            step_id,
+            task_id: 0, // Will be filled in by caller
+            reason: "Workflow step not found".to_string(),
+            error_code: Some("WORKFLOW_STEP_NOT_FOUND".to_string()),
+            retry_after: None,
+        })?;
 
         // Get dependencies with their names
         let dependencies_with_names = workflow_step
@@ -911,21 +917,28 @@ impl WorkflowCoordinator {
             })?;
 
         // Convert to StepDependencyResult
-        let dependency_results: Vec<crate::messaging::message::StepDependencyResult> = dependencies_with_names
-            .into_iter()
-            .map(|(dep_step, step_name)| {
-                crate::messaging::message::StepDependencyResult::new(
-                    step_name,
-                    dep_step.workflow_step_id,
-                    dep_step.named_step_id,
-                    dep_step.results,
-                    dep_step.processed_at.map(|dt| dt.and_utc()),
-                )
-                .with_metadata("attempts".to_string(), serde_json::json!(dep_step.attempts))
-                .with_metadata("retryable".to_string(), serde_json::json!(dep_step.retryable))
-                .with_metadata("processed".to_string(), serde_json::json!(dep_step.processed))
-            })
-            .collect();
+        let dependency_results: Vec<crate::messaging::message::StepDependencyResult> =
+            dependencies_with_names
+                .into_iter()
+                .map(|(dep_step, step_name)| {
+                    crate::messaging::message::StepDependencyResult::new(
+                        step_name,
+                        dep_step.workflow_step_id,
+                        dep_step.named_step_id,
+                        dep_step.results,
+                        dep_step.processed_at.map(|dt| dt.and_utc()),
+                    )
+                    .with_metadata("attempts".to_string(), serde_json::json!(dep_step.attempts))
+                    .with_metadata(
+                        "retryable".to_string(),
+                        serde_json::json!(dep_step.retryable),
+                    )
+                    .with_metadata(
+                        "processed".to_string(),
+                        serde_json::json!(dep_step.processed),
+                    )
+                })
+                .collect();
 
         tracing::debug!(
             step_id = step_id,
@@ -994,23 +1007,26 @@ impl WorkflowCoordinator {
     ) -> OrchestrationResult<Vec<StepResult>> {
         // Legacy batch system removed in Phase 5.2 - this method is deprecated
         // All functionality moved to enqueue_individual_steps()
-        
+
         tracing::warn!("create_and_enqueue_batch called but is deprecated - use enqueue_individual_steps instead");
-        
+
         // Return empty results to maintain interface compatibility
-        Ok(steps.into_iter().map(|step| StepResult {
-            step_id: step.step_id,
-            status: crate::orchestration::types::StepStatus::Failed,
-            output: serde_json::json!({
-                "error": "Legacy batch system deprecated - use individual step enqueueing"
-            }),
-            execution_duration: std::time::Duration::from_millis(1),
-            error_message: Some("Legacy batch system deprecated in Phase 5.2".to_string()),
-            retry_after: None,
-            error_code: Some("LEGACY_BATCH_DEPRECATED".to_string()),
-            error_context: None,
-        }).collect())
-        
+        Ok(steps
+            .into_iter()
+            .map(|step| StepResult {
+                step_id: step.step_id,
+                status: crate::orchestration::types::StepStatus::Failed,
+                output: serde_json::json!({
+                    "error": "Legacy batch system deprecated - use individual step enqueueing"
+                }),
+                execution_duration: std::time::Duration::from_millis(1),
+                error_message: Some("Legacy batch system deprecated in Phase 5.2".to_string()),
+                retry_after: None,
+                error_code: Some("LEGACY_BATCH_DEPRECATED".to_string()),
+                error_context: None,
+            })
+            .collect())
+
         /* Legacy batch implementation - commented out in Phase 5.2
         // Create step execution batch record in database
         let new_batch = NewStepExecutionBatch {

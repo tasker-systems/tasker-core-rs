@@ -24,29 +24,50 @@ backoff:
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing YAML Configuration Loading");
-    
+
     // Test: Load configuration from YAML string
     let config_manager = ConfigurationManager::load_from_yaml(TEST_CONFIG_YAML)?;
     let tasker_config = config_manager.system_config();
-    
+
     // Verify configuration values
-    assert_eq!(tasker_config.orchestration.task_requests_queue_name, "test_task_requests_queue");
-    assert_eq!(tasker_config.orchestration.orchestrator_id, Some("test-orchestrator-123".to_string()));
+    assert_eq!(
+        tasker_config.orchestration.task_requests_queue_name,
+        "test_task_requests_queue"
+    );
+    assert_eq!(
+        tasker_config.orchestration.orchestrator_id,
+        Some("test-orchestrator-123".to_string())
+    );
     assert_eq!(tasker_config.orchestration.tasks_per_cycle, 10);
     assert_eq!(tasker_config.orchestration.active_namespaces.len(), 3);
-    
+
     println!("✅ Configuration loaded successfully:");
-    println!("   - Queue name: {}", tasker_config.orchestration.task_requests_queue_name);
-    println!("   - Orchestrator ID: {:?}", tasker_config.orchestration.orchestrator_id);
-    println!("   - Tasks per cycle: {}", tasker_config.orchestration.tasks_per_cycle);
-    println!("   - Active namespaces: {}", tasker_config.orchestration.active_namespaces.len());
-    
+    println!(
+        "   - Queue name: {}",
+        tasker_config.orchestration.task_requests_queue_name
+    );
+    println!(
+        "   - Orchestrator ID: {:?}",
+        tasker_config.orchestration.orchestrator_id
+    );
+    println!(
+        "   - Tasks per cycle: {}",
+        tasker_config.orchestration.tasks_per_cycle
+    );
+    println!(
+        "   - Active namespaces: {}",
+        tasker_config.orchestration.active_namespaces.len()
+    );
+
     // Test: Convert to OrchestrationSystemConfig
     let system_config = tasker_config.orchestration.to_orchestration_system_config();
     println!("✅ OrchestrationSystemConfig converted successfully");
     println!("   - Orchestrator ID: {}", system_config.orchestrator_id);
-    println!("   - Tasks per cycle: {}", system_config.orchestration_loop_config.tasks_per_cycle);
-    
+    println!(
+        "   - Tasks per cycle: {}",
+        system_config.orchestration_loop_config.tasks_per_cycle
+    );
+
     println!("\n🎉 YAML Configuration Test Passed!");
     Ok(())
 }

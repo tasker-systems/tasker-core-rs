@@ -2,7 +2,7 @@
 //!
 //! This module contains the orchestration logic for handling step results and batch completion,
 //! enabling reuse across different transport layers (ZeroMQ, TCP commands, etc.).
-//! 
+//!
 //! Enhanced in Phase 5.2 to handle orchestration metadata from workers and integrate with
 //! backoff calculations for intelligent retry coordination.
 
@@ -12,16 +12,16 @@ use sqlx::PgPool;
 use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::{
-    task_finalizer::TaskFinalizer, 
+    backoff_calculator::{BackoffCalculator, BackoffContext},
+    task_finalizer::TaskFinalizer,
     StateManager,
-    backoff_calculator::{BackoffCalculator, BackoffContext}
 };
 
 /// Shared orchestration result processor that handles step results and batch completion
 ///
 /// This component extracts the orchestration logic from ZmqPubSubExecutor to enable
 /// reuse across different transport layers (ZeroMQ, TCP commands, etc.).
-/// 
+///
 /// Enhanced in Phase 5.2 with orchestration metadata processing and intelligent backoff
 /// calculations based on worker feedback (HTTP headers, error context, backoff hints).
 #[derive(Clone)]
@@ -46,10 +46,10 @@ impl OrchestrationResultProcessor {
 
     /// Create a new orchestration result processor with custom backoff calculator
     pub fn with_backoff_calculator(
-        state_manager: StateManager, 
-        task_finalizer: TaskFinalizer, 
+        state_manager: StateManager,
+        task_finalizer: TaskFinalizer,
         backoff_calculator: BackoffCalculator,
-        pool: PgPool
+        pool: PgPool,
     ) -> Self {
         Self {
             state_manager,
@@ -100,7 +100,8 @@ impl OrchestrationResultProcessor {
             error,
             execution_time_ms,
             "pgmq_worker".to_string(),
-        ).await
+        )
+        .await
     }
 
     /// Handle a partial result message (immediate step state update)
@@ -206,7 +207,6 @@ impl OrchestrationResultProcessor {
         Ok(())
     }
 
-
     /// Process orchestration metadata for backoff and retry coordination
     ///
     /// This method analyzes worker-provided metadata to make intelligent backoff decisions:
@@ -250,16 +250,19 @@ impl OrchestrationResultProcessor {
                 crate::messaging::message::BackoffHintType::ServerRequested => {
                     // Add server-requested delay from hint to backoff context
                     backoff_context = backoff_context.with_metadata(
-                        "handler_delay_seconds".to_string(), 
-                        serde_json::Value::Number(backoff_hint.delay_seconds.into())
+                        "handler_delay_seconds".to_string(),
+                        serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
-                    tracing::info!("Handler provided server-requested backoff: {}s", backoff_hint.delay_seconds);
+                    tracing::info!(
+                        "Handler provided server-requested backoff: {}s",
+                        backoff_hint.delay_seconds
+                    );
                 }
                 crate::messaging::message::BackoffHintType::RateLimit => {
                     // Add rate limit context for exponential backoff calculation
                     backoff_context = backoff_context.with_metadata(
-                        "rate_limit_detected".to_string(), 
-                        serde_json::Value::Bool(true)
+                        "rate_limit_detected".to_string(),
+                        serde_json::Value::Bool(true),
                     );
                     if let Some(context) = &backoff_hint.context {
                         backoff_context = backoff_context.with_error(context.clone());
@@ -269,35 +272,40 @@ impl OrchestrationResultProcessor {
                 crate::messaging::message::BackoffHintType::ServiceUnavailable => {
                     // Service unavailable - use longer backoff
                     backoff_context = backoff_context.with_metadata(
-                        "service_unavailable".to_string(), 
-                        serde_json::Value::Bool(true)
+                        "service_unavailable".to_string(),
+                        serde_json::Value::Bool(true),
                     );
                     backoff_context = backoff_context.with_metadata(
-                        "handler_delay_seconds".to_string(), 
-                        serde_json::Value::Number(backoff_hint.delay_seconds.into())
+                        "handler_delay_seconds".to_string(),
+                        serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
                     tracing::info!("Handler reported service unavailable for step {}", step_id);
                 }
                 crate::messaging::message::BackoffHintType::Custom => {
                     // Custom backoff strategy
+                    backoff_context = backoff_context
+                        .with_metadata("custom_backoff".to_string(), serde_json::Value::Bool(true));
                     backoff_context = backoff_context.with_metadata(
-                        "custom_backoff".to_string(), 
-                        serde_json::Value::Bool(true)
-                    );
-                    backoff_context = backoff_context.with_metadata(
-                        "handler_delay_seconds".to_string(), 
-                        serde_json::Value::Number(backoff_hint.delay_seconds.into())
+                        "handler_delay_seconds".to_string(),
+                        serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
                     if let Some(context) = &backoff_hint.context {
                         backoff_context = backoff_context.with_error(context.clone());
                     }
-                    tracing::info!("Handler provided custom backoff strategy for step {}", step_id);
+                    tracing::info!(
+                        "Handler provided custom backoff strategy for step {}",
+                        step_id
+                    );
                 }
             }
         }
 
         // Apply backoff calculation with enhanced context
-        match self.backoff_calculator.calculate_and_apply_backoff(step_id, backoff_context).await {
+        match self
+            .backoff_calculator
+            .calculate_and_apply_backoff(step_id, backoff_context)
+            .await
+        {
             Ok(backoff_result) => {
                 tracing::info!(
                     "Applied {:?} backoff to step {}: delay={}s, next_retry={}",
@@ -328,4 +336,3 @@ pub struct StepError {
     pub error_type: Option<String>,
     pub retryable: bool,
 }
-

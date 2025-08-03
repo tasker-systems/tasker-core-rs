@@ -6,15 +6,9 @@
 
 use crate::error::{Result, TaskerError};
 use crate::messaging::{PgmqClient, TaskRequestMessage};
-use crate::models::core::{
-    named_task::NamedTask,
-    task::{NewTask, Task},
-    task_namespace::TaskNamespace,
-    task_request::TaskRequest,
-};
+use crate::models::core::task_request::TaskRequest;
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;
-use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -216,9 +210,7 @@ impl TaskRequestProcessor {
 
         // Validate the task using the task handler registry
         match self.validate_task_request(&request).await {
-            Ok(()) => {
-                self.handle_valid_task_request(&request).await
-            }
+            Ok(()) => self.handle_valid_task_request(&request).await,
             Err(validation_error) => {
                 warn!(
                     request_id = %request.request_id,
@@ -236,10 +228,15 @@ impl TaskRequestProcessor {
     async fn handle_valid_task_request(&self, request: &TaskRequestMessage) -> Result<()> {
         // Convert TaskRequestMessage to TaskRequest for proper initialization
         let task_request = self.convert_message_to_task_request(request)?;
-        
+
         // Create the task using the proper TaskInitializer with full workflow setup
-        let initialization_result = self.task_initializer.create_task_from_request(task_request).await
-            .map_err(|e| TaskerError::OrchestrationError(format!("Task initialization failed: {}", e)))?;
+        let initialization_result = self
+            .task_initializer
+            .create_task_from_request(task_request)
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!("Task initialization failed: {}", e))
+            })?;
 
         info!(
             request_id = %request.request_id,
@@ -337,10 +334,15 @@ impl TaskRequestProcessor {
 
         // Convert TaskRequestMessage to TaskRequest for proper initialization
         let task_request = self.convert_message_to_task_request(&request)?;
-        
+
         // Create the task using the proper TaskInitializer with full workflow setup
-        let initialization_result = self.task_initializer.create_task_from_request(task_request).await
-            .map_err(|e| TaskerError::OrchestrationError(format!("Task initialization failed: {}", e)))?;
+        let initialization_result = self
+            .task_initializer
+            .create_task_from_request(task_request)
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!("Task initialization failed: {}", e))
+            })?;
 
         info!(
             request_id = %request.request_id,
@@ -369,7 +371,6 @@ impl TaskRequestProcessor {
                 "Queue may already exist"
             );
         }
-
 
         Ok(())
     }

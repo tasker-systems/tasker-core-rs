@@ -66,7 +66,6 @@ impl From<TaskPriority> for i32 {
     }
 }
 
-
 /// Message for step batches sent to namespace-specific queues
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchMessage {
@@ -309,7 +308,6 @@ impl TaskRequestMessage {
         self
     }
 }
-
 
 impl BatchMessage {
     /// Create a new batch message

@@ -27,7 +27,7 @@
 //! let claimed_tasks = claimer.claim_ready_tasks(5, None).await?;
 //!
 //! for task in claimed_tasks {
-//!     println!("Claimed task {} with computed priority {}", 
+//!     println!("Claimed task {} with computed priority {}",
 //!              task.task_id, task.computed_priority);
 //!     
 //!     // Process the task...
@@ -84,7 +84,7 @@ impl Default for TaskClaimerConfig {
     fn default() -> Self {
         Self {
             max_batch_size: 10,
-            default_claim_timeout: 300, // 5 minutes
+            default_claim_timeout: 300,                  // 5 minutes
             heartbeat_interval: Duration::from_secs(60), // 1 minute
             enable_heartbeat: true,
         }
@@ -128,7 +128,7 @@ impl TaskClaimer {
         namespace_filter: Option<&str>,
     ) -> Result<Vec<ClaimedTask>> {
         let actual_limit = std::cmp::min(limit, self.config.max_batch_size);
-        
+
         debug!(
             limit = actual_limit,
             namespace_filter = namespace_filter,
@@ -189,7 +189,7 @@ impl TaskClaimer {
         debug!(task_id = task_id, "Releasing task claim");
 
         let query = "SELECT release_task_claim($1::BIGINT, $2::VARCHAR) as released";
-        
+
         let row: (bool,) = sqlx::query_as(query)
             .bind(task_id)
             .bind(&self.orchestrator_id)
@@ -201,7 +201,7 @@ impl TaskClaimer {
             })?;
 
         let released = row.0;
-        
+
         if released {
             debug!(task_id = task_id, "Task claim released successfully");
         } else {
@@ -221,7 +221,7 @@ impl TaskClaimer {
         debug!(task_id = task_id, "Extending task claim (heartbeat)");
 
         let query = "SELECT extend_task_claim($1::BIGINT, $2::VARCHAR) as extended";
-        
+
         let row: (bool,) = sqlx::query_as(query)
             .bind(task_id)
             .bind(&self.orchestrator_id)
@@ -233,7 +233,7 @@ impl TaskClaimer {
             })?;
 
         let extended = row.0;
-        
+
         if extended {
             debug!(task_id = task_id, "Task claim extended successfully");
         } else {
@@ -260,7 +260,7 @@ impl TaskClaimer {
     /// Create a priority summary for monitoring and debugging
     fn summarize_claimed_priorities(&self, tasks: &[ClaimedTask]) -> PrioritySummary {
         let mut summary = PrioritySummary::default();
-        
+
         for task in tasks {
             match task.priority {
                 4 => {
@@ -284,7 +284,7 @@ impl TaskClaimer {
                     summary.invalid_avg_computed_priority += task.computed_priority;
                 }
             }
-            
+
             if task.computed_priority > task.priority as f64 {
                 summary.escalated_count += 1;
             }

@@ -3,7 +3,7 @@
 //! Simplified handler for pgmq architecture - delegates to orchestration result processor
 
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::info;
 
 use crate::orchestration::{OrchestrationResultProcessor, StepError};
 

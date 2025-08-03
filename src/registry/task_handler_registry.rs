@@ -40,12 +40,10 @@ use crate::models::core::{
     named_task::NamedTask, task_namespace::TaskNamespace, task_request::TaskRequest,
     task_template::TaskTemplate,
 };
-use crate::orchestration::step_handler::StepHandler;
 use crate::orchestration::types::{HandlerMetadata, TaskHandler};
 use chrono::Utc;
 use sqlx::PgPool;
-use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Key for handler lookup in the registry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

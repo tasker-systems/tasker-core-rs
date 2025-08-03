@@ -533,7 +533,10 @@ impl WorkflowStep {
     }
 
     /// Get dependencies with step names for building execution context  
-    pub async fn get_dependencies_with_names(&self, pool: &PgPool) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
+    pub async fn get_dependencies_with_names(
+        &self,
+        pool: &PgPool,
+    ) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
         let deps = sqlx::query!(
             r#"
             SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit, 
@@ -551,27 +554,30 @@ impl WorkflowStep {
         .fetch_all(pool)
         .await?;
 
-        let results = deps.into_iter().map(|row| {
-            let step = WorkflowStep {
-                workflow_step_id: row.workflow_step_id,
-                task_id: row.task_id,
-                named_step_id: row.named_step_id,
-                retryable: row.retryable,
-                retry_limit: row.retry_limit,
-                in_process: row.in_process,
-                processed: row.processed,
-                processed_at: row.processed_at,
-                attempts: row.attempts,
-                last_attempted_at: row.last_attempted_at,
-                backoff_request_seconds: row.backoff_request_seconds,
-                inputs: row.inputs,
-                results: row.results,
-                skippable: row.skippable,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
-            };
-            (step, row.step_name)
-        }).collect();
+        let results = deps
+            .into_iter()
+            .map(|row| {
+                let step = WorkflowStep {
+                    workflow_step_id: row.workflow_step_id,
+                    task_id: row.task_id,
+                    named_step_id: row.named_step_id,
+                    retryable: row.retryable,
+                    retry_limit: row.retry_limit,
+                    in_process: row.in_process,
+                    processed: row.processed,
+                    processed_at: row.processed_at,
+                    attempts: row.attempts,
+                    last_attempted_at: row.last_attempted_at,
+                    backoff_request_seconds: row.backoff_request_seconds,
+                    inputs: row.inputs,
+                    results: row.results,
+                    skippable: row.skippable,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                (step, row.step_name)
+            })
+            .collect();
 
         Ok(results)
     }

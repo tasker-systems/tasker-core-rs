@@ -292,10 +292,7 @@ impl StepExecutionContext {
     }
 
     /// Create execution context with empty dependencies (for root steps)
-    pub fn new_root_step(
-        task: serde_json::Value,
-        step: serde_json::Value,
-    ) -> Self {
+    pub fn new_root_step(task: serde_json::Value, step: serde_json::Value) -> Self {
         Self {
             task,
             sequence: Vec::new(),
@@ -549,7 +546,10 @@ mod tests {
         assert_eq!(message.step_id, deserialized.step_id);
         assert_eq!(message.task_id, deserialized.task_id);
         assert_eq!(message.namespace, deserialized.namespace);
-        assert_eq!(message.execution_context.sequence.len(), deserialized.execution_context.sequence.len());
+        assert_eq!(
+            message.execution_context.sequence.len(),
+            deserialized.execution_context.sequence.len()
+        );
     }
 
     #[test]
@@ -601,19 +601,28 @@ mod tests {
         let metadata = OrchestrationMetadata::new()
             .with_header("retry-after".to_string(), "60".to_string())
             .with_error_context("Rate limited by payment gateway".to_string())
-            .with_backoff_hint(BackoffHint::rate_limit(60, Some("API rate limit exceeded".to_string())))
+            .with_backoff_hint(BackoffHint::rate_limit(
+                60,
+                Some("API rate limit exceeded".to_string()),
+            ))
             .with_custom("api_response_code".to_string(), serde_json::json!(429));
 
         assert_eq!(metadata.headers.get("retry-after"), Some(&"60".to_string()));
-        assert_eq!(metadata.error_context, Some("Rate limited by payment gateway".to_string()));
+        assert_eq!(
+            metadata.error_context,
+            Some("Rate limited by payment gateway".to_string())
+        );
         assert!(metadata.backoff_hint.is_some());
-        assert_eq!(metadata.custom.get("api_response_code"), Some(&serde_json::json!(429)));
+        assert_eq!(
+            metadata.custom.get("api_response_code"),
+            Some(&serde_json::json!(429))
+        );
     }
 
     #[test]
     fn test_step_result_with_metadata() {
-        let metadata = OrchestrationMetadata::new()
-            .with_header("retry-after".to_string(), "30".to_string());
+        let metadata =
+            OrchestrationMetadata::new().with_header("retry-after".to_string(), "30".to_string());
 
         let result = StepResult::success_with_metadata(
             12345,
@@ -626,7 +635,7 @@ mod tests {
         assert_eq!(result.step_id, 12345);
         assert_eq!(result.status, StepExecutionStatus::Success);
         assert!(result.orchestration_metadata.is_some());
-        
+
         let meta = result.orchestration_metadata.unwrap();
         assert_eq!(meta.headers.get("retry-after"), Some(&"30".to_string()));
     }
@@ -641,7 +650,7 @@ mod tests {
             Some(serde_json::json!({"status": "validated", "order_id": 1001})),
             Some(chrono::Utc::now()),
         );
-        
+
         let dep2 = StepDependencyResult::new(
             "check_inventory".to_string(),
             124,
@@ -682,7 +691,13 @@ mod tests {
         assert_eq!(dep_result.step_id, 123);
         assert_eq!(dep_result.named_step_id, 1);
         assert!(dep_result.results.is_some());
-        assert_eq!(dep_result.metadata.get("attempts"), Some(&serde_json::json!(2)));
-        assert_eq!(dep_result.metadata.get("retryable"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            dep_result.metadata.get("attempts"),
+            Some(&serde_json::json!(2))
+        );
+        assert_eq!(
+            dep_result.metadata.get("retryable"),
+            Some(&serde_json::json!(true))
+        );
     }
 }
