@@ -104,8 +104,6 @@ pub struct StepResultProcessor {
     pgmq_client: PgmqClient,
     /// Orchestration result processor for step handling
     orchestration_result_processor: OrchestrationResultProcessor,
-    /// Database connection pool
-    pool: PgPool,
     /// Configuration
     config: StepResultProcessorConfig,
 }
@@ -134,7 +132,6 @@ impl StepResultProcessor {
         Ok(Self {
             pgmq_client,
             orchestration_result_processor,
-            pool,
             config,
         })
     }
@@ -186,7 +183,7 @@ impl StepResultProcessor {
             )
             .await
             .map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to read step result messages: {}", e))
+                TaskerError::MessagingError(format!("Failed to read step result messages: {e}"))
             })?;
 
         if messages.is_empty() {
@@ -269,7 +266,7 @@ impl StepResultProcessor {
         // Parse the step result message
         let step_result: StepResultMessage =
             serde_json::from_value(payload.clone()).map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to parse step result message: {}", e))
+                TaskerError::MessagingError(format!("Failed to parse step result message: {e}"))
             })?;
 
         info!(
@@ -311,7 +308,7 @@ impl StepResultProcessor {
             )
             .await
             .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Failed to handle step result: {}", e))
+                TaskerError::OrchestrationError(format!("Failed to handle step result: {e}"))
             })?;
 
         info!(

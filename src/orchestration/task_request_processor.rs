@@ -9,7 +9,6 @@ use crate::messaging::{PgmqClient, TaskRequestMessage};
 use crate::models::core::task_request::TaskRequest;
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
@@ -49,8 +48,6 @@ pub struct TaskRequestProcessor {
     task_handler_registry: Arc<TaskHandlerRegistry>,
     /// Task initializer for creating tasks
     task_initializer: Arc<TaskInitializer>,
-    /// Database connection pool
-    pool: PgPool,
     /// Configuration
     config: TaskRequestProcessorConfig,
 }
@@ -61,14 +58,12 @@ impl TaskRequestProcessor {
         pgmq_client: Arc<PgmqClient>,
         task_handler_registry: Arc<TaskHandlerRegistry>,
         task_initializer: Arc<TaskInitializer>,
-        pool: PgPool,
         config: TaskRequestProcessorConfig,
     ) -> Self {
         Self {
             pgmq_client,
             task_handler_registry,
             task_initializer,
-            pool,
             config,
         }
     }
@@ -119,7 +114,7 @@ impl TaskRequestProcessor {
             )
             .await
             .map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to read task request messages: {}", e))
+                TaskerError::MessagingError(format!("Failed to read task request messages: {e}"))
             })?;
 
         if messages.is_empty() {
@@ -196,7 +191,7 @@ impl TaskRequestProcessor {
     async fn process_single_request(&self, payload: &serde_json::Value, msg_id: i64) -> Result<()> {
         // Parse the task request message
         let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
-            TaskerError::ValidationError(format!("Invalid task request message format: {}", e))
+            TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
         })?;
 
         info!(
@@ -235,7 +230,7 @@ impl TaskRequestProcessor {
             .create_task_from_request(task_request)
             .await
             .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Task initialization failed: {}", e))
+                TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
             })?;
 
         info!(
@@ -319,7 +314,7 @@ impl TaskRequestProcessor {
     pub async fn process_task_request(&self, payload: &serde_json::Value) -> Result<i64> {
         // Parse the task request message
         let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
-            TaskerError::ValidationError(format!("Invalid task request message format: {}", e))
+            TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
         })?;
 
         info!(
@@ -341,7 +336,7 @@ impl TaskRequestProcessor {
             .create_task_from_request(task_request)
             .await
             .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Task initialization failed: {}", e))
+                TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
             })?;
 
         info!(

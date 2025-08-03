@@ -243,7 +243,7 @@ impl Task {
             bypass_steps: sanitized_bypass_steps,
             tags: sanitized_tags,
             context: sanitized_context,
-            identity_hash: identity_hash,
+            identity_hash,
             priority: new_task.priority,
             claim_timeout_seconds: new_task.claim_timeout_seconds,
         })

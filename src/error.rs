@@ -33,7 +33,7 @@ impl std::error::Error for TaskerError {}
 
 impl From<serde_json::Error> for TaskerError {
     fn from(error: serde_json::Error) -> Self {
-        TaskerError::ValidationError(format!("JSON serialization error: {}", error))
+        TaskerError::ValidationError(format!("JSON serialization error: {error}"))
     }
 }
 

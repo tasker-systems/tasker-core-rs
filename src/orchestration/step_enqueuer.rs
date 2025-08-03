@@ -191,7 +191,7 @@ impl StepEnqueuer {
                     error = %e,
                     "Failed to discover viable steps"
                 );
-                TaskerError::OrchestrationError(format!("Step discovery failed: {}", e))
+                TaskerError::OrchestrationError(format!("Step discovery failed: {e}"))
             })?;
 
         let steps_discovered = viable_steps.len();
@@ -355,7 +355,7 @@ impl StepEnqueuer {
         let dependency_results = self.get_dependency_results(viable_step).await?;
 
         // Create step execution context with (task, sequence, step) pattern
-        let step_execution_context = serde_json::json!({
+        let _step_execution_context = serde_json::json!({
             "task": task_context,
             "sequence": dependency_results,
             "step": {
@@ -436,7 +436,7 @@ impl StepEnqueuer {
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| {
-                TaskerError::DatabaseError(format!("Failed to get task context: {}", e))
+                TaskerError::DatabaseError(format!("Failed to get task context: {e}"))
             })?;
 
         match row {
@@ -446,8 +446,7 @@ impl StepEnqueuer {
                 "tags": tags
             })),
             None => Err(TaskerError::DatabaseError(format!(
-                "Task {} not found",
-                task_id
+                "Task {task_id} not found"
             ))),
         }
     }

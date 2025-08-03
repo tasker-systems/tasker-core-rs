@@ -174,6 +174,8 @@ impl SqlxFactory<Task> for TaskFactory {
             tags: Some(tags),
             context: Some(context),
             identity_hash,
+            priority: Some(2), // Default to normal priority
+            claim_timeout_seconds: Some(300), // Default to 5 minutes
         };
 
         let task = Task::create(pool, new_task).await?;

@@ -311,7 +311,8 @@ impl OrchestrationSystem {
     /// Register the TcpWorkerClientHandler with the CommandRouter
     /// This should be called after OrchestrationSystem creation to set up ExecuteBatch routing
     pub async fn register_command_handlers(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::execution::command::CommandType;
+        // CommandType no longer needed in pgmq architecture
+        // use crate::execution::command::CommandType;
 
         // Restore proper TCP architecture - TcpWorkerClientHandler should handle ExecuteBatch
 

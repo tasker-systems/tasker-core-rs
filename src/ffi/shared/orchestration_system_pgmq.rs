@@ -60,10 +60,6 @@ impl OrchestrationSystemPgmq {
             config,
             config_manager,
             event_publisher.clone(),
-            crate::registry::TaskHandlerRegistry::with_event_publisher(
-                database_pool.clone(),
-                event_publisher.clone(),
-            ),
             pgmq_client.clone(),
         );
 

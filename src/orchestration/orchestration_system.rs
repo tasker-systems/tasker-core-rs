@@ -56,7 +56,7 @@ impl Default for OrchestrationSystemConfig {
 
         Self {
             task_requests_queue_name: "task_requests_queue".to_string(),
-            orchestrator_id: format!("orchestrator-{}", timestamp),
+            orchestrator_id: format!("orchestrator-{timestamp}"),
             orchestration_loop_config: OrchestrationLoopConfig::default(),
             task_request_polling_interval_seconds: 1,
             task_request_visibility_timeout_seconds: 300, // 5 minutes
@@ -167,7 +167,6 @@ impl OrchestrationSystem {
             pgmq_client.clone(),
             task_handler_registry.clone(),
             task_initializer,
-            pool.clone(),
             crate::orchestration::task_request_processor::TaskRequestProcessorConfig::default(),
         ));
 
@@ -212,7 +211,7 @@ impl OrchestrationSystem {
             crate::orchestration::config::ConfigurationManager::load_from_file(config_path)
                 .await
                 .map_err(|e| {
-                    TaskerError::ConfigurationError(format!("Failed to load config: {}", e))
+                    TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
                 })?;
 
         Self::from_config(config_manager, pool).await
@@ -280,8 +279,7 @@ impl OrchestrationSystem {
             Err(e) => {
                 error!(error = %e, "Orchestration loop panicked");
                 Err(TaskerError::OrchestrationError(format!(
-                    "Orchestration loop panicked: {}",
-                    e
+                    "Orchestration loop panicked: {e}"
                 )))
             }
         }
@@ -344,7 +342,7 @@ impl OrchestrationSystem {
             )
             .await
             .map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to read task request messages: {}", e))
+                TaskerError::MessagingError(format!("Failed to read task request messages: {e}"))
             })?;
 
         if messages.is_empty() {
@@ -446,8 +444,7 @@ impl OrchestrationSystem {
                     "Failed to process task request"
                 );
                 Err(TaskerError::OrchestrationError(format!(
-                    "Task request processing failed: {}",
-                    e
+                    "Task request processing failed: {e}"
                 )))
             }
         }
@@ -486,7 +483,7 @@ impl OrchestrationSystem {
 
         // Create namespace-specific step queues (used by OrchestrationLoop)
         for namespace in &self.config.active_namespaces {
-            let step_queue_name = format!("{}_queue", namespace);
+            let step_queue_name = format!("{namespace}_queue");
             if let Err(e) = self.pgmq_client.create_queue(&step_queue_name).await {
                 debug!(
                     queue = %step_queue_name,
@@ -528,7 +525,7 @@ impl OrchestrationSystem {
         // Get namespace-specific step queue statistics
         let mut namespace_queue_sizes = Vec::new();
         for namespace in &self.config.active_namespaces {
-            let queue_name = format!("{}_queue", namespace);
+            let queue_name = format!("{namespace}_queue");
             let queue_size = match self.pgmq_client.queue_metrics(&queue_name).await {
                 Ok(metrics) => metrics.message_count,
                 Err(e) => {

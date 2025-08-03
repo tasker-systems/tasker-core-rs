@@ -149,7 +149,7 @@ impl TaskClaimer {
             .await
             .map_err(|e| {
                 error!("Failed to claim ready tasks: {}", e);
-                TaskerError::DatabaseError(format!("Task claiming failed: {}", e))
+                TaskerError::DatabaseError(format!("Task claiming failed: {e}"))
             })?;
 
         let claimed_tasks: Vec<ClaimedTask> = rows
@@ -197,7 +197,7 @@ impl TaskClaimer {
             .await
             .map_err(|e| {
                 error!("Failed to release task claim {}: {}", task_id, e);
-                TaskerError::DatabaseError(format!("Task claim release failed: {}", e))
+                TaskerError::DatabaseError(format!("Task claim release failed: {e}"))
             })?;
 
         let released = row.0;
@@ -229,7 +229,7 @@ impl TaskClaimer {
             .await
             .map_err(|e| {
                 error!("Failed to extend task claim {}: {}", task_id, e);
-                TaskerError::DatabaseError(format!("Task claim extension failed: {}", e))
+                TaskerError::DatabaseError(format!("Task claim extension failed: {e}"))
             })?;
 
         let extended = row.0;

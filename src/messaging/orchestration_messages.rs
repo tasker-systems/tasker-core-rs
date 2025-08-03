@@ -42,18 +42,15 @@ pub struct TaskRequestMetadata {
 
 /// Task priority levels
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum TaskPriority {
     Low,
+    #[default]
     Normal,
     High,
     Urgent,
 }
 
-impl Default for TaskPriority {
-    fn default() -> Self {
-        TaskPriority::Normal
-    }
-}
 
 impl From<TaskPriority> for i32 {
     fn from(priority: TaskPriority) -> i32 {

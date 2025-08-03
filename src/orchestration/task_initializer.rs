@@ -314,8 +314,7 @@ impl TaskInitializer {
             None,
             "SUCCESS",
             Some(&format!(
-                "Created {} workflow steps with dependencies",
-                step_count
+                "Created {step_count} workflow steps with dependencies"
             )),
         );
 
@@ -798,8 +797,7 @@ impl TaskInitializer {
             // Extract the handler_config field which contains the actual YAML structure
             let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
                 TaskInitializationError::ConfigurationNotFound(format!(
-                    "TaskHandlerInfo missing handler_config field for {}/{}",
-                    namespace, name
+                    "TaskHandlerInfo missing handler_config field for {namespace}/{name}"
                 ))
             })?;
 
@@ -808,8 +806,7 @@ impl TaskInitializer {
                 serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone())
                     .map_err(|e| {
                         TaskInitializationError::ConfigurationNotFound(format!(
-                    "Failed to deserialize handler configuration for {}/{}: {}. Handler config: {}",
-                    namespace, name, e, handler_config_value
+                    "Failed to deserialize handler configuration for {namespace}/{name}: {e}. Handler config: {handler_config_value}"
                 ))
                     })?;
 

@@ -464,7 +464,7 @@ impl OrchestrationConfig {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos();
-            format!("orchestrator-{}", timestamp)
+            format!("orchestrator-{timestamp}")
         });
 
         // Create orchestration loop configuration

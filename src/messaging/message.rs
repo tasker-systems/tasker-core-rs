@@ -334,6 +334,12 @@ impl StepDependencyResult {
     }
 }
 
+impl Default for OrchestrationMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OrchestrationMetadata {
     /// Create new orchestration metadata
     pub fn new() -> Self {

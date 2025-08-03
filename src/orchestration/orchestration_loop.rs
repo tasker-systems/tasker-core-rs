@@ -220,7 +220,6 @@ pub struct OrchestrationLoop {
     task_claimer: TaskClaimer,
     step_enqueuer: StepEnqueuer,
     step_result_processor: StepResultProcessor,
-    pool: PgPool,
     orchestrator_id: String,
     config: OrchestrationLoopConfig,
 }
@@ -267,7 +266,6 @@ impl OrchestrationLoop {
             task_claimer,
             step_enqueuer,
             step_result_processor,
-            pool,
             orchestrator_id,
             config,
         })
@@ -796,7 +794,7 @@ impl ContinuousOrchestrationSummary {
 
     /// Get runtime duration
     pub fn runtime_duration(&self) -> chrono::Duration {
-        let end_time = self.ended_at.unwrap_or_else(|| Utc::now());
+        let end_time = self.ended_at.unwrap_or_else(Utc::now);
         end_time - self.started_at
     }
 }

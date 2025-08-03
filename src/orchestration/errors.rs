@@ -612,8 +612,7 @@ impl fmt::Display for DiscoveryError {
             } => {
                 write!(
                     f,
-                    "Configuration error for {} '{}': {}",
-                    entity_type, entity_id, reason
+                    "Configuration error for {entity_type} '{entity_id}': {reason}"
                 )
             }
         }

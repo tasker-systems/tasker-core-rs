@@ -45,7 +45,7 @@ async fn test_create_task_without_handler_config(pool: PgPool) -> sqlx::Result<(
     // Verify task was created in database
     let task = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
+        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
         result.task_id
     )
     .fetch_one(&pool)
@@ -232,6 +232,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
         task_handler_class: "MockWorkflowHandler".to_string(),
         namespace_name: "test".to_string(),
         version: "1.0.0".to_string(),
+        description: Some("Mock workflow for testing".to_string()),
         default_dependent_system: Some("test_system".to_string()),
         named_steps: vec![
             "initialize".to_string(),
@@ -241,6 +242,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
         schema: None,
         step_templates: step_templates.clone(),
         environments: None,
+        handler_config: None,
         default_context: None,
         default_options: None,
     };
@@ -272,7 +274,7 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
     // Verify task was created with correct context
     let task = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
+        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
         result.task_id
     )
     .fetch_one(&pool)
@@ -468,7 +470,7 @@ async fn test_identity_hash_generation(pool: PgPool) -> sqlx::Result<()> {
     // Verify both tasks exist
     let task1 = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
+        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
         result1.task_id
     )
     .fetch_one(&pool)
@@ -476,7 +478,7 @@ async fn test_identity_hash_generation(pool: PgPool) -> sqlx::Result<()> {
 
     let task2 = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
+        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
         result2.task_id
     )
     .fetch_one(&pool)

@@ -40,7 +40,7 @@ use crate::models::core::{
     named_task::NamedTask, task_namespace::TaskNamespace, task_request::TaskRequest,
     task_template::TaskTemplate,
 };
-use crate::orchestration::types::{HandlerMetadata, TaskHandler};
+use crate::orchestration::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
 use tracing::{debug, info};
@@ -125,7 +125,7 @@ impl TaskHandlerRegistry {
         version: &str,
     ) -> Result<TaskTemplate> {
         let handler_metadata = self
-            .get_task_template_from_registry(&namespace, &name, &version)
+            .get_task_template_from_registry(namespace, name, version)
             .await?;
 
         let task_template =
@@ -156,23 +156,23 @@ impl TaskHandlerRegistry {
         version: &str,
     ) -> Result<HandlerMetadata> {
         // 1. Find the task namespace
-        let task_namespace = TaskNamespace::find_by_name(&self.db_pool, &namespace)
+        let task_namespace = TaskNamespace::find_by_name(&self.db_pool, namespace)
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {}", e)))?
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {e}")))?
             .ok_or_else(|| {
-                TaskerError::ValidationError(format!("Namespace not found: {}", namespace))
+                TaskerError::ValidationError(format!("Namespace not found: {namespace}"))
             })?;
 
         // 2. Find the named task in that namespace
         let named_task = NamedTask::find_latest_by_name_namespace(
             &self.db_pool,
-            &name,
+            name,
             task_namespace.task_namespace_id as i64,
         )
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {}", e)))?
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {e}")))?
         .ok_or_else(|| {
-            TaskerError::ValidationError(format!("Task not found: {}/{}", namespace, name))
+            TaskerError::ValidationError(format!("Task not found: {namespace}/{name}"))
         })?;
 
         info!(
@@ -200,7 +200,7 @@ impl TaskHandlerRegistry {
             namespace: namespace.to_string(),
             name: name.to_string(),
             version: version.to_string(),
-            default_dependent_system: default_dependent_system,
+            default_dependent_system,
             handler_class: handler_class.unwrap_or("TaskerCore::TaskHandler::Base".to_string()),
             config_schema: named_task.configuration,
             registered_at: Utc::now(),
@@ -211,49 +211,6 @@ impl TaskHandlerRegistry {
         Ok(handler_metadata)
     }
 
-    /// Validate handler before registration
-    fn validate_handler(&self, key: &HandlerKey, _handler: &dyn TaskHandler) -> Result<()> {
-        // Validate namespace
-        if key.namespace.is_empty() {
-            return Err(TaskerError::ValidationError(
-                "Handler namespace cannot be empty".to_string(),
-            ));
-        }
-
-        // Validate name
-        if key.name.is_empty() {
-            return Err(TaskerError::ValidationError(
-                "Handler name cannot be empty".to_string(),
-            ));
-        }
-
-        // Validate version
-        if key.version.is_empty() {
-            return Err(TaskerError::ValidationError(
-                "Handler version cannot be empty".to_string(),
-            ));
-        }
-
-        // Validate semantic versioning
-        if !self.is_valid_semver(&key.version) {
-            return Err(TaskerError::ValidationError(format!(
-                "Invalid version format: {}",
-                key.version
-            )));
-        }
-
-        Ok(())
-    }
-
-    /// Check if version follows semantic versioning
-    fn is_valid_semver(&self, version: &str) -> bool {
-        let parts: Vec<&str> = version.split('.').collect();
-        if parts.len() != 3 {
-            return false;
-        }
-
-        parts.iter().all(|part| part.parse::<u32>().is_ok())
-    }
 }
 
 // Note: Default implementation removed - TaskHandlerRegistry now requires database pool
@@ -269,9 +226,9 @@ impl Clone for TaskHandlerRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::models::core::named_task::{NamedTask, NewNamedTask};
-    use serde_json::json;
+    
+    
+    
 
     // Note: Worker-related tests are temporarily disabled
     // until worker models are implemented

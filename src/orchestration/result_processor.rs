@@ -146,7 +146,7 @@ impl OrchestrationResultProcessor {
             "in_progress" => self.state_manager.mark_step_in_progress(step_id).await,
             _ => {
                 tracing::warn!("Unknown step status: {}", status);
-                return Err(format!("Unknown step status: {}", status).into());
+                return Err(format!("Unknown step status: {status}").into());
             }
         };
 

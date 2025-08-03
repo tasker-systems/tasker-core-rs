@@ -3,8 +3,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tasker_core::orchestration::errors::OrchestrationError;
 use tasker_core::orchestration::types::{FrameworkIntegration, TaskContext};
-use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
+use tasker_core::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
 use tasker_core::orchestration::TaskOrchestrationResult;
+use tasker_core::orchestration::config::ConfigurationManager;
+use tasker_core::events::EventPublisher;
+use tasker_core::registry::task_handler_registry::TaskHandlerRegistry;
+use tasker_core::messaging::PgmqClient;
 
 /// Mock framework for testing workflow coordination
 #[allow(dead_code)]
@@ -57,15 +61,29 @@ async fn test_workflow_coordinator_basic_execution(pool: sqlx::PgPool) {
     // 4. Handle state transitions
     // 5. Return appropriate results
 
-    let coordinator = WorkflowCoordinator::new(pool);
-    let framework = Arc::new(MockWorkflowFramework::new(false));
+    // Create required dependencies for WorkflowCoordinator
+    let config = WorkflowCoordinatorConfig::default();
+    let config_manager = Arc::new(ConfigurationManager::new());
+    let event_publisher = EventPublisher::new();
+    let shared_registry = TaskHandlerRegistry::new(pool.clone());
+    let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
+    
+    let coordinator = WorkflowCoordinator::new(
+        pool.clone(),
+        config,
+        config_manager,
+        event_publisher,
+        shared_registry,
+        pgmq_client,
+    );
+    let _framework = Arc::new(MockWorkflowFramework::new(false));
 
     // Create a test task (would need factory support)
     // For now, we expect this to fail because there's no task in the database
     let task_id = 1;
 
     let result = coordinator
-        .execute_task_workflow(task_id, framework.clone())
+        .execute_task_workflow(task_id)
         .await;
 
     // We expect an error because we don't have test data set up
@@ -104,7 +122,7 @@ fn test_orchestration_result_variants() {
 
     let complete = TaskOrchestrationResult::Complete {
         task_id: 1,
-        steps_executed: 5,
+        steps_completed: 5,
         total_execution_time_ms: 1000,
     };
 
@@ -124,14 +142,17 @@ fn test_orchestration_result_variants() {
         _ => panic!("Wrong variant"),
     }
 
-    let in_progress = TaskOrchestrationResult::InProgress {
+    let published = TaskOrchestrationResult::Published {
         task_id: 3,
-        steps_executed: 2,
+        viable_steps_discovered: 4,
+        steps_published: 2,
+        batch_id: Some("batch123".to_string()),
+        publication_time_ms: 100,
         next_poll_delay_ms: 5000,
     };
 
-    match in_progress {
-        TaskOrchestrationResult::InProgress {
+    match published {
+        TaskOrchestrationResult::Published {
             next_poll_delay_ms, ..
         } => {
             assert_eq!(next_poll_delay_ms, 5000)
@@ -142,6 +163,7 @@ fn test_orchestration_result_variants() {
     let blocked = TaskOrchestrationResult::Blocked {
         task_id: 4,
         blocking_reason: "Waiting for dependencies".to_string(),
+        viable_steps_checked: 3,
     };
 
     match blocked {

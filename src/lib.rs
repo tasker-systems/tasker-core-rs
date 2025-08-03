@@ -107,11 +107,13 @@ pub use database::{
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
-pub use execution::{
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
-};
+// Execution types moved to messaging module for pgmq architecture
+// pub use execution::{
+//     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
+// };
 pub use messaging::{
     BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
+    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
     StepMessage, StepMessageMetadata, TaskRequestMessage,
 };
 pub use orchestration::{

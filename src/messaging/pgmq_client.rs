@@ -63,7 +63,7 @@ impl PgmqClient {
         self.pgmq
             .create(queue_name)
             .await
-            .map_err(|e| format!("Failed to create queue {}: {}", queue_name, e))?;
+            .map_err(|e| format!("Failed to create queue {queue_name}: {e}"))?;
 
         info!("✅ Queue created: {}", queue_name);
         Ok(())
@@ -84,7 +84,7 @@ impl PgmqClient {
             .pgmq
             .send(queue_name, message)
             .await
-            .map_err(|e| format!("Failed to send message to {}: {}", queue_name, e))?;
+            .map_err(|e| format!("Failed to send message to {queue_name}: {e}"))?;
 
         info!(
             "✅ Message sent to queue: {} with id: {}",
@@ -106,7 +106,7 @@ impl PgmqClient {
             .pgmq
             .send(queue_name, &serialized)
             .await
-            .map_err(|e| format!("Failed to send JSON message to {}: {}", queue_name, e))?;
+            .map_err(|e| format!("Failed to send JSON message to {queue_name}: {e}"))?;
 
         info!(
             "✅ JSON message sent to queue: {} with ID: {}",
@@ -160,7 +160,7 @@ impl PgmqClient {
         self.pgmq
             .delete(queue_name, message_id)
             .await
-            .map_err(|e| format!("Failed to delete message {}: {}", message_id, e))?;
+            .map_err(|e| format!("Failed to delete message {message_id}: {e}"))?;
 
         debug!("✅ Message deleted: {}", message_id);
         Ok(())
@@ -180,7 +180,7 @@ impl PgmqClient {
         self.pgmq
             .archive(queue_name, message_id)
             .await
-            .map_err(|e| format!("Failed to archive message {}: {}", message_id, e))?;
+            .map_err(|e| format!("Failed to archive message {message_id}: {e}"))?;
 
         debug!("✅ Message archived: {}", message_id);
         Ok(())
@@ -197,7 +197,7 @@ impl PgmqClient {
             .pgmq
             .purge(queue_name)
             .await
-            .map_err(|e| format!("Failed to purge queue {}: {}", queue_name, e))?;
+            .map_err(|e| format!("Failed to purge queue {queue_name}: {e}"))?;
 
         warn!(
             "🗑️ Purged {} messages from queue: {}",
@@ -216,7 +216,7 @@ impl PgmqClient {
         self.pgmq
             .destroy(queue_name)
             .await
-            .map_err(|e| format!("Failed to drop queue {}: {}", queue_name, e))?;
+            .map_err(|e| format!("Failed to drop queue {queue_name}: {e}"))?;
 
         warn!("🗑️ Queue dropped: {}", queue_name);
         Ok(())
@@ -243,7 +243,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>>
     where
         T: serde::Serialize,
@@ -256,8 +256,7 @@ impl PgmqClient {
         // Use pgmq's transaction support - checking if available
         let message_id = self.pgmq.send(queue_name, message).await.map_err(|e| {
             format!(
-                "Failed to send message to {} in transaction: {}",
-                queue_name, e
+                "Failed to send message to {queue_name} in transaction: {e}"
             )
         })?;
 
@@ -287,7 +286,7 @@ impl PgmqClient {
         namespace: &str,
         step_message: PgmqStepMessage,
     ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("{namespace}_queue");
         self.send_message(&queue_name, &step_message).await
     }
 
@@ -298,7 +297,7 @@ impl PgmqClient {
         visibility_timeout: Option<i32>,
         batch_size: i32,
     ) -> Result<Vec<Message<serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("{namespace}_queue");
         self.read_messages(&queue_name, visibility_timeout, Some(batch_size))
             .await
     }
@@ -309,7 +308,7 @@ impl PgmqClient {
         namespace: &str,
         message_id: i64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("{namespace}_queue");
         self.delete_message(&queue_name, message_id).await
     }
 
@@ -321,7 +320,7 @@ impl PgmqClient {
         info!("🏗️ Initializing {} namespace queues", namespaces.len());
 
         for namespace in namespaces {
-            let queue_name = format!("{}_queue", namespace);
+            let queue_name = format!("{namespace}_queue");
             self.create_queue(&queue_name).await?;
         }
 
@@ -345,7 +344,7 @@ mod tests {
 
         let database_url = std::env::var("TEST_DATABASE_URL").unwrap();
         let client = PgmqClient::new(&database_url).await;
-        assert!(client.is_ok(), "Failed to create pgmq client: {:?}", client);
+        assert!(client.is_ok(), "Failed to create pgmq client: {client:?}");
     }
 
     #[test]

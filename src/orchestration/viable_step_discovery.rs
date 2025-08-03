@@ -357,9 +357,9 @@ impl ViableStepDiscovery {
         &self,
         task_id: i64,
         viable_steps: &[ViableStep],
-        task_handler_registry: &crate::registry::TaskHandlerRegistry,
-    ) -> OrchestrationResult<Vec<crate::execution::command::StepExecutionRequest>> {
-        use crate::execution::command::{StepExecutionRequest, StepRequestMetadata};
+        _task_handler_registry: &crate::registry::TaskHandlerRegistry,
+    ) -> OrchestrationResult<Vec<crate::messaging::execution_types::StepExecutionRequest>> {
+        use crate::messaging::execution_types::{StepExecutionRequest, StepRequestMetadata};
         use crate::models::core::task::Task;
 
         if viable_steps.is_empty() {
@@ -401,7 +401,7 @@ impl ViableStepDiscovery {
         let task = Task::find_by_id(&self.pool, task_id)
             .await
             .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| DiscoveryError::TaskNotFound { task_id })?;
+            .ok_or(DiscoveryError::TaskNotFound { task_id })?;
 
         let task_for_orchestration = task
             .for_orchestration(&self.pool)

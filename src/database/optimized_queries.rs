@@ -117,7 +117,7 @@ impl OptimizedWorkerQueries {
         &self,
         named_task_id: i32,
     ) -> Result<Vec<ActiveWorkerResult>, sqlx::Error> {
-        let cache_key = format!("active_workers_{}", named_task_id);
+        let cache_key = format!("active_workers_{named_task_id}");
 
         // Check cache first
         if let Some(cached_result) = self.active_workers_cache.get(&cache_key).await {
@@ -160,7 +160,7 @@ impl OptimizedWorkerQueries {
             return Ok(Vec::new());
         }
 
-        let cache_key = format!("worker_health_{:?}", worker_ids);
+        let cache_key = format!("worker_health_{worker_ids:?}");
 
         // Check cache first
         if let Some(cached_result) = self.worker_health_cache.get(&cache_key).await {
@@ -245,7 +245,7 @@ impl OptimizedWorkerQueries {
 
         // Also clear local application-level caches
         if let Some(task_id) = named_task_id {
-            let cache_key = format!("active_workers_{}", task_id);
+            let cache_key = format!("active_workers_{task_id}");
             self.active_workers_cache.invalidate(&cache_key).await;
         } else {
             // Clear all caches if no specific task provided

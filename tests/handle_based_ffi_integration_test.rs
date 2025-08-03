@@ -7,12 +7,32 @@ use std::sync::Arc;
 use tasker_core::events::EventPublisher;
 use tasker_core::orchestration::config::ConfigurationManager;
 use tasker_core::registry::task_handler_registry::TaskHandlerRegistry;
+use sqlx::PgPool;
+
+// Helper function to create a mock pool for testing
+async fn create_test_pool() -> PgPool {
+    // For unit tests, we'll create a minimal pool wrapper
+    // In actual integration tests, this would connect to PostgreSQL
+    // For now, we'll skip the actual database connection in unit tests
+    // and just create a minimal pool for API testing
+    
+    // Use the DATABASE_URL from the environment or a test default
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+    
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .expect("Failed to create test pool - make sure PostgreSQL is running and DATABASE_URL is set")
+}
 
 #[tokio::test]
 async fn test_shared_resources_architecture() {
     // Test that we can create shared Arc resources like the handle architecture uses
+    let pool = create_test_pool().await;
     let config = Arc::new(ConfigurationManager::new());
-    let registry = Arc::new(TaskHandlerRegistry::new());
+    let registry = Arc::new(TaskHandlerRegistry::new(pool.clone()));
     let event_publisher = Arc::new(EventPublisher::new());
 
     // Verify Arc cloning doesn't create new resources
@@ -47,9 +67,10 @@ async fn test_persistent_reference_pattern() {
     }
 
     impl MockHandle {
-        fn new() -> Self {
+        async fn new() -> Self {
+            let pool = create_test_pool().await;
             let config = Arc::new(ConfigurationManager::new());
-            let registry = Arc::new(TaskHandlerRegistry::new());
+            let registry = Arc::new(TaskHandlerRegistry::new(pool.clone()));
             let event_publisher = Arc::new(EventPublisher::new());
 
             Self {
@@ -74,7 +95,7 @@ async fn test_persistent_reference_pattern() {
     }
 
     // Create handle once
-    let handle = MockHandle::new();
+    let handle = MockHandle::new().await;
 
     // Use it many times - no resource recreation
     for i in 1..=5 {
