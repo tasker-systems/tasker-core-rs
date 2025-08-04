@@ -30,19 +30,17 @@ module MixedDagWorkflow
         logger.info "Verification: #{original_number}^64 = #{expected} (match: #{result == expected})"
 
         # Return final result
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "multiply_three_and_square",
-            inputs: {
-              validate: validate_result,
-              transform: transform_result,
-              analyze: analyze_result
+            step_type: "multiple_parent_final",
+            input_refs: {
+              validate_result: "sequence.dag_validate.result",
+              transform_result: "sequence.dag_transform.result",
+              analyze_result: "sequence.dag_analyze.result"
             },
             multiplied: multiplied,
-            output: result,
-            step_type: "multiple_parent_final",
             verification: {
               original_number: original_number,
               expected_result: expected,
@@ -50,7 +48,7 @@ module MixedDagWorkflow
               matches: result == expected
             }
           }
-        }
+        )
       end
     end
   end

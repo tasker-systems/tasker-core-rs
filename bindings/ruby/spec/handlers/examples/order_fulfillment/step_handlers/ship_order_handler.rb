@@ -14,19 +14,21 @@ module OrderFulfillment
         # Create shipping label and process shipment
         shipping_results = create_shipment(shipping_inputs)
 
-        {
-          shipment_id: shipping_results[:shipment_id],
-          tracking_number: shipping_results[:tracking_number],
-          shipping_status: 'label_created',
-          estimated_delivery: shipping_results[:estimated_delivery],
-          shipping_cost: shipping_results[:shipping_cost],
-          carrier: shipping_results[:carrier],
-          service_type: shipping_results[:service_type],
-          label_url: shipping_results[:label_url],
-          processed_at: Time.now.iso8601,
-          raw_shipping_response: shipping_results,
-          # Include orchestration metadata
-          _orchestration_metadata: {
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
+          result: {
+            shipment_id: shipping_results[:shipment_id],
+            tracking_number: shipping_results[:tracking_number],
+            shipping_status: 'label_created',
+            estimated_delivery: shipping_results[:estimated_delivery],
+            shipping_cost: shipping_results[:shipping_cost],
+            carrier: shipping_results[:carrier],
+            service_type: shipping_results[:service_type],
+            label_url: shipping_results[:label_url],
+            processed_at: Time.now.iso8601
+          },
+          metadata: {
+            operation: 'ship_order',
             http_headers: {
               'X-Carrier-Name' => shipping_results[:carrier],
               'X-Tracking-Number' => shipping_results[:tracking_number],
@@ -38,14 +40,18 @@ module OrderFulfillment
               international_shipment: shipping_inputs[:shipping_address][:country] != 'US'
             },
             backoff_hints: {
-              # Carrier-specific rate limits
               carrier_rate_limit_remaining: shipping_results[:rate_limit_remaining] || 100,
               carrier_rate_limit_reset_at: shipping_results[:rate_limit_reset_at],
-              # Suggest backing off if we're getting close to rate limit
               suggested_backoff_seconds: shipping_results[:rate_limit_remaining] && shipping_results[:rate_limit_remaining] < 10 ? 60 : nil
+            },
+            input_refs: {
+              items: 'sequence.validate_order.result.validated_items',
+              reservation_id: 'sequence.reserve_inventory.result.reservation_id',
+              payment_id: 'sequence.process_payment.result.payment_id',
+              shipping_info: 'task.context.shipping_info'
             }
           }
-        }
+        )
       end
 
       private

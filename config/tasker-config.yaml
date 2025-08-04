@@ -145,6 +145,9 @@ orchestration:
     # Batch results queue - collects completed batch execution results
     batch_results: "batch_results_queue"
 
+    # Step results queue - collects individual step execution results from workers
+    step_results: "orchestration_step_results"
+
     # Namespaced worker queues - workers poll these for step batches
     worker_queues:
       default: "default_queue"

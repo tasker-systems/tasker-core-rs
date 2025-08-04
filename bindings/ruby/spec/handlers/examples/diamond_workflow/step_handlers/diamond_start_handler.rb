@@ -15,17 +15,17 @@ module DiamondWorkflow
         logger.info "Diamond Start: #{even_number}² = #{result}"
 
         # Return result for both parallel branches
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: even_number,
-            output: result,
             step_type: "initial",
+            input_refs: {
+              even_number: "task.context.even_number"
+            },
             branches: ["diamond_branch_b", "diamond_branch_c"]
           }
-        }
+        )
       end
     end
   end

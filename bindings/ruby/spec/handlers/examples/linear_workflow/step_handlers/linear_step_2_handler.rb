@@ -9,22 +9,24 @@ module LinearWorkflow
         previous_result = sequence.get("linear_step_1")&.dig("result")
         raise "Previous step result not found" unless previous_result
 
-        # Square the previous result (single parent operation)
-        result = previous_result * previous_result
+        # Add constant to previous result (based on config)
+        constant = 10  # From YAML config
+        result = previous_result + constant
 
-        logger.info "Linear Step 2: #{previous_result}² = #{result}"
+        logger.info "Linear Step 2: #{previous_result} + #{constant} = #{result}"
 
-        # Return result for next step
-        {
-          status: "success",
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
-            operation: "square",
-            input: previous_result,
-            output: result,
-            step_type: "single_parent"
+            operation: "add",
+            constant: constant,
+            step_type: "intermediate",
+            input_refs: {
+              previous_result: 'sequence.linear_step_1.result'
+            }
           }
-        }
+        )
       end
     end
   end

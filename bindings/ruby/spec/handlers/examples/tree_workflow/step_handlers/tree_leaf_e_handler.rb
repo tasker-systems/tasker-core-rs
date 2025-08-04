@@ -15,18 +15,18 @@ module TreeWorkflow
         logger.info "Tree Leaf E: #{branch_result}² = #{result}"
 
         # Return result for final convergence
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: branch_result,
-            output: result,
             step_type: "single_parent",
+            input_refs: {
+              branch_result: "sequence.tree_branch_left.result"
+            },
             branch: "left",
             leaf: "e"
           }
-        }
+        )
       end
     end
   end

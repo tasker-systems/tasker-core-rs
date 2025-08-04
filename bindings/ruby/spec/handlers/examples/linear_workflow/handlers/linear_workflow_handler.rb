@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require_relative '../../../../../lib/tasker_core/task_handler/base'
+
 module LinearWorkflow
   # Linear Workflow Handler
   # Implements A -> B -> C -> D pattern with mathematical operations
-  class LinearWorkflowHandler < TaskerCore::BaseTaskHandler
+  class LinearWorkflowHandler < TaskerCore::TaskHandler::Base
     def initialize(task_config:)
       super(task_config: task_config)
     end

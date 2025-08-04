@@ -46,13 +46,13 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
     }
   end
 
-  before do
+  before(:all) do
     # Initialize orchestration system in embedded mode
     # This will set up queues, start embedded Rust listeners, and prepare the system
     TaskerCore::Internal::OrchestrationManager.instance.bootstrap_orchestration_system
   end
 
-  after do
+  after(:all) do
     # Clean shutdown of orchestration system
     TaskerCore::Internal::OrchestrationManager.instance.reset!
   end
@@ -98,10 +98,10 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
         puts "❌ Task initialization failed: #{e.message}"
         fail "Task initialization failed when it should have succeeded: #{e.message}"
       end
-      
+
       # Give the message a moment to be processed and verify it's on the queue
       sleep 0.1
-      
+
       # Check that the message was sent to the task_requests_queue
       # This validates that our pgmq integration is working
       begin

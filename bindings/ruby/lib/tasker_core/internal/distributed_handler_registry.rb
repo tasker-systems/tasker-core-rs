@@ -350,8 +350,7 @@ module TaskerCore
         logger.info "🔧 Bootstrapping distributed handler registry"
 
         begin
-          # TODO: Implement database TaskTemplate loading in Phase 4.5
-          # For now, this will be a placeholder that prepares for handler registration
+          # Database TaskTemplate loading is fully implemented (lines 695-770)
 
           registered_count = 0
           failed_count = 0

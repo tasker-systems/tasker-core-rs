@@ -27,18 +27,16 @@ module DiamondWorkflow
         logger.info "Verification: #{original_number}^16 = #{expected} (match: #{result == expected})"
 
         # Return final result
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "multiply_and_square",
-            inputs: {
-              branch_b: branch_b_result,
-              branch_c: branch_c_result
+            step_type: "multiple_parent",
+            input_refs: {
+              branch_b_result: "sequence.diamond_branch_b.result",
+              branch_c_result: "sequence.diamond_branch_c.result"
             },
             multiplied: multiplied,
-            output: result,
-            step_type: "multiple_parent",
             verification: {
               original_number: original_number,
               expected_result: expected,
@@ -46,7 +44,7 @@ module DiamondWorkflow
               matches: result == expected
             }
           }
-        }
+        )
       end
     end
   end

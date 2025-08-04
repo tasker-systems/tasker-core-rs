@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require_relative '../../../../../lib/tasker_core/task_handler/base'
+
 module MixedDagWorkflow
   # Mixed DAG Workflow Handler
   # Implements complex DAG: A -> B, A -> C, B -> D, C -> D, B -> E, C -> F, (D,E,F) -> G
-  class MixedDagWorkflowHandler < TaskerCore::BaseTaskHandler
+  class MixedDagWorkflowHandler < TaskerCore::TaskHandler::Base
     def initialize(task_config:)
       super(task_config: task_config)
     end

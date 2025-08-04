@@ -22,14 +22,14 @@ module LinearWorkflow
         logger.info "Verification: #{original_number}^8 = #{expected} (match: #{result == expected})"
 
         # Return final result
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: previous_result,
-            output: result,
             step_type: "final",
+            input_refs: {
+              previous_result: "sequence.linear_step_3.result"
+            },
             verification: {
               original_number: original_number,
               expected_result: expected,
@@ -37,7 +37,7 @@ module LinearWorkflow
               matches: result == expected
             }
           }
-        }
+        )
       end
     end
   end

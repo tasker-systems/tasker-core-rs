@@ -15,17 +15,17 @@ module TreeWorkflow
         logger.info "Tree Root: #{even_number}² = #{result}"
 
         # Return result for both main branches
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: even_number,
-            output: result,
             step_type: "initial",
+            input_refs: {
+              even_number: "task.context.even_number"
+            },
             branches: ["tree_branch_left", "tree_branch_right"]
           }
-        }
+        )
       end
     end
   end

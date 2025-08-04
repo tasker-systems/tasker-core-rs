@@ -14,17 +14,17 @@ module LinearWorkflow
 
         logger.info "Linear Step 3: #{previous_result}² = #{result}"
 
-        # Return result for next step
-        {
-          status: "success",
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: previous_result,
-            output: result,
-            step_type: "single_parent"
+            step_type: "single_parent",
+            input_refs: {
+              previous_result: 'sequence.linear_step_2.result'
+            }
           }
-        }
+        )
       end
     end
   end

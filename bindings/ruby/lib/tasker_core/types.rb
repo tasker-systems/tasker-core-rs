@@ -10,6 +10,7 @@ require_relative 'types/orchestration_types'
 require_relative 'types/execution_types'
 require_relative 'types/step_message'  # NEW: pgmq message types
 require_relative 'types/task_template'  # TaskTemplate and StepTemplate types
+require_relative 'types/step_handler_call_result'  # NEW: standardized handler results
 
 module TaskerCore
   # Centralized type definitions for TaskerCore domain objects

@@ -15,17 +15,17 @@ module DiamondWorkflow
         logger.info "Diamond Branch B: #{start_result}² = #{result}"
 
         # Return result for convergence step
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: start_result,
-            output: result,
             step_type: "single_parent",
+            input_refs: {
+              start_result: "sequence.diamond_start.result"
+            },
             branch: "left"
           }
-        }
+        )
       end
     end
   end

@@ -1,0 +1,96 @@
+# Diamond Workflow Task Configuration
+# Implements A -> (B, C) -> D pattern with parallel mathematical operations
+
+name: parallel_computation
+task_handler_class: DiamondWorkflow::DiamondWorkflowHandler
+namespace_name: diamond_workflow
+version: "1.0.0"
+description: "Diamond pattern with parallel branches: square -> (add, multiply) -> average"
+default_dependent_system: "default"
+
+# Diamond-shaped step definitions
+named_steps:
+  - diamond_start    # Square the input
+  - diamond_branch_b # Add constant (parallel branch 1)
+  - diamond_branch_c # Multiply by factor (parallel branch 2)
+  - diamond_end      # Average the results from both branches
+
+step_templates:
+  - name: diamond_start
+    description: "Square the even number (initial step)"
+    handler_class: DiamondWorkflow::StepHandlers::DiamondStartHandler
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the input number (n²)"
+
+  - name: diamond_branch_b
+    description: "Add constant (parallel branch B)"
+    handler_class: DiamondWorkflow::StepHandlers::DiamondBranchBHandler
+    depends_on_step: diamond_start
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "add"
+      constant: 25
+      description: "Add 25 to the squared result"
+
+  - name: diamond_branch_c
+    description: "Multiply by factor (parallel branch C)"
+    handler_class: DiamondWorkflow::StepHandlers::DiamondBranchCHandler
+    depends_on_step: diamond_start
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "multiply"
+      factor: 2
+      description: "Multiply the squared result by 2"
+
+  - name: diamond_end
+    description: "Average results from both branches (convergence)"
+    handler_class: DiamondWorkflow::StepHandlers::DiamondEndHandler
+    depends_on_steps:
+      - diamond_branch_b
+      - diamond_branch_c
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "average"
+      description: "Calculate average of both branch results"
+
+# Environment-specific overrides
+environments:
+  test:
+    step_templates:
+      - name: diamond_start
+        handler_config:
+          timeout_seconds: 10
+      - name: diamond_branch_b
+        handler_config:
+          timeout_seconds: 10
+      - name: diamond_branch_c
+        handler_config:
+          timeout_seconds: 10
+      - name: diamond_end
+        handler_config:
+          timeout_seconds: 10
+
+# Custom validation rules
+handler_config:
+  input_validation:
+    required_fields: ["even_number"]
+    even_number_constraint: "must_be_even"
+    value_range:
+      min: 2
+      max: 100
+  
+  expected_results:
+    diamond_start: "input²"
+    diamond_branch_b: "input² + 25"
+    diamond_branch_c: "input² × 2"
+    diamond_end: "((input² + 25) + (input² × 2)) ÷ 2"

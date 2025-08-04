@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require_relative '../../../../../lib/tasker_core/task_handler/base'
+
 module DiamondWorkflow
   # Diamond Workflow Handler
   # Implements A -> (B, C) -> D pattern with mathematical operations
-  class DiamondWorkflowHandler < TaskerCore::BaseTaskHandler
+  class DiamondWorkflowHandler < TaskerCore::TaskHandler::Base
     def initialize(task_config:)
       super(task_config: task_config)
     end

@@ -14,15 +14,26 @@ module OrderFulfillment
         # Reserve inventory for validated items
         reservation_results = reserve_inventory_items(reservation_inputs)
 
-        {
-          reservation_id: reservation_results[:reservation_id],
-          items_reserved: reservation_results[:reservations].length,
-          reservation_status: 'confirmed',
-          total_reserved_value: reservation_results[:total_value],
-          expires_at: reservation_results[:expires_at],
-          reserved_at: Time.now.iso8601,
-          raw_reservation_response: reservation_results  # Capture raw response
-        }
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
+          result: {
+            reservation_id: reservation_results[:reservation_id],
+            items_reserved: reservation_results[:reservations].length,
+            reservation_status: 'confirmed',
+            total_reserved_value: reservation_results[:total_value],
+            expires_at: reservation_results[:expires_at],
+            reserved_at: Time.now.iso8601,
+            reservation_details: reservation_results[:reservations]
+          },
+          metadata: {
+            operation: 'reserve_inventory',
+            items_count: reservation_results[:reservations].length,
+            input_refs: {
+              validated_items: 'sequence.validate_order.result.validated_items',
+              customer_id: 'sequence.validate_order.result.customer_id'
+            }
+          }
+        )
       end
 
       private

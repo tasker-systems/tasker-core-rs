@@ -31,20 +31,18 @@ module TreeWorkflow
         logger.info "Verification: #{original_number}^32 = #{expected} (match: #{result == expected})"
 
         # Return final result
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "multiply_all_and_square",
-            inputs: {
-              leaf_d: leaf_d_result,
-              leaf_e: leaf_e_result,
-              leaf_f: leaf_f_result,
-              leaf_g: leaf_g_result
+            step_type: "multiple_parent_final",
+            input_refs: {
+              leaf_d_result: "sequence.tree_leaf_d.result",
+              leaf_e_result: "sequence.tree_leaf_e.result",
+              leaf_f_result: "sequence.tree_leaf_f.result",
+              leaf_g_result: "sequence.tree_leaf_g.result"
             },
             multiplied: multiplied,
-            output: result,
-            step_type: "multiple_parent_final",
             verification: {
               original_number: original_number,
               expected_result: expected,
@@ -52,7 +50,7 @@ module TreeWorkflow
               matches: result == expected
             }
           }
-        }
+        )
       end
     end
   end

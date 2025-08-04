@@ -14,17 +14,17 @@ module LinearWorkflow
 
         logger.info "Linear Step 1: #{even_number}² = #{result}"
 
-        # Return result for next step
-        {
-          status: "success",
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: even_number,
-            output: result,
-            step_type: "initial"
+            step_type: "initial",
+            input_refs: {
+              even_number: 'task.context.even_number'
+            }
           }
-        }
+        )
       end
     end
   end

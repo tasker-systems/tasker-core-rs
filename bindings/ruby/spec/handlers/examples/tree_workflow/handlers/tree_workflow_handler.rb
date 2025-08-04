@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require_relative '../../../../../lib/tasker_core/task_handler/base'
+
 module TreeWorkflow
   # Tree Workflow Handler
   # Implements A -> (B -> (D, E), C -> (F, G)) -> H pattern
-  class TreeWorkflowHandler < TaskerCore::BaseTaskHandler
+  class TreeWorkflowHandler < TaskerCore::TaskHandler::Base
     def initialize(task_config:)
       super(task_config: task_config)
     end

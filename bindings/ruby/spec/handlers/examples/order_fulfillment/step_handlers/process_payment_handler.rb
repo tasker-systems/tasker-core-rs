@@ -14,17 +14,20 @@ module OrderFulfillment
         # Process payment through payment gateway
         payment_results = process_payment_transaction(payment_inputs)
 
-        {
-          payment_processed: true,
-          payment_id: payment_results[:payment_id],
-          transaction_id: payment_results[:transaction_id],
-          amount_charged: payment_results[:amount_charged],
-          payment_method_used: payment_results[:payment_method],
-          gateway_response: payment_results[:gateway_response],
-          processed_at: Time.now.iso8601,
-          payment_status: 'completed',
-          # Include orchestration metadata for the orchestration layer
-          _orchestration_metadata: {
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
+          result: {
+            payment_processed: true,
+            payment_id: payment_results[:payment_id],
+            transaction_id: payment_results[:transaction_id],
+            amount_charged: payment_results[:amount_charged],
+            payment_method_used: payment_results[:payment_method],
+            gateway_response: payment_results[:gateway_response],
+            processed_at: Time.now.iso8601,
+            payment_status: 'completed'
+          },
+          metadata: {
+            operation: 'process_payment',
             http_headers: {
               'X-Payment-Gateway' => 'stripe',
               'X-Gateway-Request-ID' => payment_results[:transaction_id],
@@ -36,12 +39,16 @@ module OrderFulfillment
               requires_3ds_authentication: false
             },
             backoff_hints: {
-              # If this was a retry after rate limiting, suggest backing off
               suggested_backoff_seconds: payment_results[:was_rate_limited] ? 30 : nil,
               gateway_load_indicator: payment_results[:gateway_response][:load_indicator] || 'normal'
+            },
+            input_refs: {
+              amount: 'sequence.validate_order.result.order_total',
+              reservation_id: 'sequence.reserve_inventory.result.reservation_id',
+              payment_info: 'task.context.payment_info'
             }
           }
-        }
+        )
       end
 
       private

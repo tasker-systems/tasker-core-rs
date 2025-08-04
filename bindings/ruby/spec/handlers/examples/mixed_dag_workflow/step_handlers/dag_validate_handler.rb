@@ -19,21 +19,19 @@ module MixedDagWorkflow
         logger.info "DAG Validate: (#{left_result} × #{right_result})² = #{multiplied}² = #{result}"
 
         # Return result for final convergence
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "multiply_and_square",
-            inputs: {
-              process_left: left_result,
-              process_right: right_result
+            step_type: "multiple_parent",
+            input_refs: {
+              left_result: "sequence.dag_process_left.result",
+              right_result: "sequence.dag_process_right.result"
             },
             multiplied: multiplied,
-            output: result,
-            step_type: "multiple_parent",
             convergence_type: "dual_branch"
           }
-        }
+        )
       end
     end
   end

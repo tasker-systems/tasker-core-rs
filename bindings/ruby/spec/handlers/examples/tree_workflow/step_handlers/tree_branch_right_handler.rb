@@ -15,18 +15,18 @@ module TreeWorkflow
         logger.info "Tree Branch Right: #{root_result}² = #{result}"
 
         # Return result for right sub-branches
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: root_result,
-            output: result,
             step_type: "single_parent",
+            input_refs: {
+              root_result: "sequence.tree_root.result"
+            },
             branch: "right_main",
             sub_branches: ["tree_leaf_f", "tree_leaf_g"]
           }
-        }
+        )
       end
     end
   end

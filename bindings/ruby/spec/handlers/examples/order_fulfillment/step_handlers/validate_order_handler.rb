@@ -16,16 +16,25 @@ module OrderFulfillment
         validation_results = validate_order_data(order_inputs)
         logger.info "✅ VALIDATE_ORDER: Order data validation complete - total_amount=#{validation_results[:total]}, validated_items=#{validation_results[:items]&.length}"
 
-        result = {
-          customer_validated: true,
-          customer_id: validation_results[:customer_id],
-          validated_items: validation_results[:items],
-          order_total: validation_results[:total],
-          validation_status: 'complete',
-          validated_at: Time.now.iso8601,
-        }
-
-        result
+        # Return standardized StepHandlerCallResult
+        TaskerCore::Types::StepHandlerCallResult.success(
+          result: {
+            customer_validated: true,
+            customer_id: validation_results[:customer_id],
+            validated_items: validation_results[:items],
+            order_total: validation_results[:total],
+            validation_status: 'complete',
+            validated_at: Time.now.iso8601,
+          },
+          metadata: {
+            operation: 'validate_order',
+            item_count: validation_results[:items]&.length || 0,
+            input_refs: {
+              customer_id: 'task.context.customer_info.id',
+              order_items: 'task.context.order_items'
+            }
+          }
+        )
       end
 
       private

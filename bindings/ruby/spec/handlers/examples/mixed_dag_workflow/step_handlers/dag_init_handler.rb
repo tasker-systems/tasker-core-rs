@@ -15,17 +15,17 @@ module MixedDagWorkflow
         logger.info "DAG Init: #{even_number}² = #{result}"
 
         # Return result for both process branches
-        {
-          status: "success",
+        TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
             operation: "square",
-            input: even_number,
-            output: result,
             step_type: "initial",
+            input_refs: {
+              even_number: "task.context.even_number"
+            },
             branches: ["dag_process_left", "dag_process_right"]
           }
-        }
+        )
       end
     end
   end

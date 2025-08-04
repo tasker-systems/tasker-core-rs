@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'concurrent'
+require_relative '../types/step_types'
 
 module TaskerCore
   module Messaging
@@ -29,8 +30,7 @@ module TaskerCore
       FALLBACK_SHUTDOWN_TIMEOUT = 30  # seconds
 
       attr_reader :namespace, :queue_name, :pgmq_client, :sql_functions, :step_handler_registry, :logger,
-                  :poll_interval, :visibility_timeout, :batch_size, :max_retries,
-                  :running, :shutdown_timeout
+                  :poll_interval, :visibility_timeout, :batch_size, :max_retries, :shutdown_timeout
 
       def initialize(namespace,
                      pgmq_client: nil,
@@ -64,7 +64,6 @@ module TaskerCore
         @running = false
         @worker_thread = nil
         @shutdown_signal = Concurrent::Event.new
-        @stats = initialize_stats
 
         # Ensure the queue exists
         ensure_queue_exists
@@ -122,22 +121,10 @@ module TaskerCore
         @running && @worker_thread&.alive?
       end
 
-      # Get worker statistics
-      #
-      # @return [Hash] Worker performance statistics
-      def stats
-        @stats.dup.tap do |s|
-          s[:running] = running?
-          s[:queue_name] = queue_name
-          s[:namespace] = namespace
-          s[:uptime_seconds] = running? ? (Time.now - s[:started_at]).to_i : 0
-        end
-      end
-
       # Process a single step message manually (for testing)
       #
       # @param step_message [TaskerCore::Types::StepMessage] Step message to process
-      # @return [TaskerCore::Types::StepResult] Execution result
+      # @return [TaskerCore::Types::StepTypes::StepResult] Execution result
       def process_step_message(step_message)
         start_time = Time.now
 
@@ -147,37 +134,30 @@ module TaskerCore
           # Find and execute the appropriate step handler
           result = execute_step_handler(step_message)
 
-          # Update statistics
+          # Log completion
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
-          @stats[:messages_processed] += 1
-          @stats[:total_execution_time_ms] += execution_time_ms
-
           if result.success?
-            @stats[:messages_succeeded] += 1
             logger.info("✅ QUEUE_WORKER: Step completed successfully - step_id: #{step_message.step_id}, execution_time: #{execution_time_ms}ms")
           else
-            @stats[:messages_failed] += 1
             logger.error("❌ QUEUE_WORKER: Step failed - step_id: #{step_message.step_id}, error: #{result.error&.message}")
           end
 
           result
         rescue => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
-          @stats[:messages_failed] += 1
-          @stats[:messages_errored] += 1
 
           logger.error("💥 QUEUE_WORKER: Unexpected error processing step #{step_message.step_id}: #{e.message}")
           logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(5).join("\n")}")
 
           # Create failure result
-          error = TaskerCore::Types::StepExecutionError.new(
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
             error_type: 'UnexpectedError',
             message: e.message,
             retryable: true,
             stack_trace: e.backtrace.join("\n")
           )
 
-          TaskerCore::Types::StepResult.failure(
+          TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             error: error,
@@ -251,6 +231,23 @@ module TaskerCore
         end
       end
 
+      # Get orchestration results queue name from configuration
+      def get_orchestration_results_queue_name
+        begin
+          config_instance = TaskerCore::Config.instance
+          effective_config = config_instance.effective_config
+          
+          # Try to get from orchestration.queues.step_results first
+          queue_name = effective_config.dig('orchestration', 'queues', 'step_results')
+          
+          # Fallback to default if not configured
+          queue_name || 'orchestration_step_results'
+        rescue => e
+          logger&.warn("⚠️ QUEUE_WORKER: Failed to load orchestration queue config: #{e.message}, using default")
+          'orchestration_step_results'
+        end
+      end
+
       # Main polling loop
       def polling_loop
         logger.debug("🔄 QUEUE_WORKER: Starting polling loop for namespace: #{namespace}")
@@ -261,7 +258,6 @@ module TaskerCore
           rescue => e
             logger.error("💥 QUEUE_WORKER: Polling loop error for #{namespace}: #{e.message}")
             logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(3).join("\n")}")
-            @stats[:polling_errors] += 1
           end
 
           # Wait for next poll cycle (unless shutting down)
@@ -285,7 +281,6 @@ module TaskerCore
         return if queue_messages.empty?
 
         logger.debug("📥 QUEUE_WORKER: Received #{queue_messages.length} messages from #{queue_name}")
-        @stats[:batches_processed] += 1
 
         # Process messages concurrently
         futures = queue_messages.map do |msg_data|
@@ -327,7 +322,6 @@ module TaskerCore
           result
         rescue => e
           logger.error("💥 QUEUE_WORKER: Error processing queue message #{queue_message[:msg_id]}: #{e.message}")
-          @stats[:processing_errors] += 1
 
           # Create error result and send to orchestration for retry decisions
           error_result = create_error_result(step_message, e)
@@ -343,13 +337,13 @@ module TaskerCore
         resolved_handler = step_handler_registry.resolve_step_handler(step_message)
 
         unless resolved_handler
-          error = TaskerCore::Types::StepExecutionError.new(
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
             error_type: 'HandlerNotFound',
             message: "No handler found for step: #{step_message.step_name}",
             retryable: false
           )
 
-          return TaskerCore::Types::StepResult.failure(
+          return TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             error: error,
@@ -375,7 +369,7 @@ module TaskerCore
 
           # Handler returned data - always treat as success since handlers just return JSON-serializable data
           # Any exceptions would be caught in the rescue block below
-          TaskerCore::Types::StepResult.success(
+          TaskerCore::Types::StepTypes::StepResult.success(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             result_data: handler_result,
@@ -384,14 +378,14 @@ module TaskerCore
         rescue => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
-          error = TaskerCore::Types::StepExecutionError.new(
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
             error_type: 'HandlerException',
             message: e.message,
             retryable: true,
             stack_trace: e.backtrace.join("\n")
           )
 
-          TaskerCore::Types::StepResult.failure(
+          TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             error: error,
@@ -404,19 +398,19 @@ module TaskerCore
       # This replaces execute_step_handler for Phase 5.2 metadata flow
       #
       # @param step_message [TaskerCore::Types::StepMessage] Step message with execution context
-      # @return [TaskerCore::Types::StepResult] Enhanced result with orchestration metadata
+      # @return [TaskerCore::Types::StepTypes::StepResult] Enhanced result with orchestration metadata
       def execute_step_handler_with_metadata(step_message)
         # Use registry to resolve handler (database-backed)
         resolved_handler = step_handler_registry.resolve_step_handler(step_message)
 
         unless resolved_handler
-          error = TaskerCore::Types::StepExecutionError.new(
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
             error_type: 'HandlerNotFound',
             message: "No handler found for step: #{step_message.step_name}",
             retryable: false
           )
 
-          return TaskerCore::Types::StepResult.failure(
+          return TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             error: error,
@@ -437,35 +431,72 @@ module TaskerCore
           handler = step_handler_registry.create_handler_instance(resolved_handler)
 
           # Execute with enhanced (task, sequence, step) interface
-          handler_result = handler.call(task, sequence, step)
+          handler_output = handler.call(task, sequence, step)
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
-          # Extract orchestration metadata from handler result
-          orchestration_metadata = extract_orchestration_metadata(handler_result)
+          # Process handler output using new standardized result structure
+          call_result = process_handler_output(handler_output, execution_time_ms)
+          
+          # Convert to StepResult based on call_result type
+          if call_result.success
+            result = TaskerCore::Types::StepTypes::StepResult.success(
+              step_id: step_message.step_id,
+              task_id: step_message.task_id,
+              result_data: call_result.result,
+              execution_time_ms: execution_time_ms
+            )
+            
+            # Add orchestration metadata from call_result
+            if call_result.metadata && !call_result.metadata.empty?
+              result.orchestration_metadata = extract_orchestration_metadata_from_call_result(call_result)
+            end
+            
+            result
+          else
+            # Handler returned an error result
+            error = TaskerCore::Types::StepTypes::StepExecutionError.new(
+              error_type: call_result.error_type,
+              message: call_result.message,
+              retryable: call_result.retryable,
+              error_code: call_result.error_code
+            )
 
-          # Handler returned data - always treat as success since handlers just return JSON-serializable data
-          # Any exceptions would be caught in the rescue block below
-          result = TaskerCore::Types::StepResult.success(
+            TaskerCore::Types::StepTypes::StepResult.failure(
+              step_id: step_message.step_id,
+              task_id: step_message.task_id,
+              error: error,
+              execution_time_ms: execution_time_ms
+            )
+          end
+        rescue TaskerCore::Errors::PermanentError, TaskerCore::Errors::RetryableError, TaskerCore::Errors::ValidationError => e
+          # Our structured exceptions - convert to StepHandlerCallResult
+          execution_time_ms = ((Time.now - start_time) * 1000).to_i
+          call_result = TaskerCore::Types::StepHandlerCallResult.from_exception(e)
+          
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
+            error_type: call_result.error_type,
+            message: call_result.message,
+            retryable: call_result.retryable,
+            error_code: call_result.error_code
+          )
+
+          TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
-            result_data: handler_result,
+            error: error,
             execution_time_ms: execution_time_ms
           )
-          
-          # Add orchestration metadata if present
-          result.orchestration_metadata = orchestration_metadata if orchestration_metadata
-          result
         rescue => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
-          error = TaskerCore::Types::StepExecutionError.new(
+          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
             error_type: 'HandlerException',
             message: e.message,
             retryable: true,
             stack_trace: e.backtrace.join("\n")
           )
 
-          TaskerCore::Types::StepResult.failure(
+          TaskerCore::Types::StepTypes::StepResult.failure(
             step_id: step_message.step_id,
             task_id: step_message.task_id,
             error: error,
@@ -474,7 +505,60 @@ module TaskerCore
         end
       end
 
-      # Extract orchestration metadata from handler result
+      # Process handler output into standardized StepHandlerCallResult
+      # @param handler_output [Object] Raw output from handler.call
+      # @param execution_time_ms [Integer] Time taken to execute
+      # @return [StepHandlerCallResult::Success, StepHandlerCallResult::Error]
+      def process_handler_output(handler_output, execution_time_ms)
+        # Convert to standardized result structure
+        call_result = TaskerCore::Types::StepHandlerCallResult.from_handler_output(handler_output)
+        
+        # Add execution timing to metadata if not already present
+        if call_result.is_a?(TaskerCore::Types::StepHandlerCallResult::Success)
+          metadata = call_result.metadata.dup
+          metadata[:processing_time_ms] ||= execution_time_ms
+          
+          # Return updated success result
+          TaskerCore::Types::StepHandlerCallResult.success(
+            result: call_result.result,
+            metadata: metadata
+          )
+        else
+          # Error result - add timing to metadata
+          metadata = call_result.metadata.dup
+          metadata[:processing_time_ms] ||= execution_time_ms
+          
+          TaskerCore::Types::StepHandlerCallResult.error(
+            error_type: call_result.error_type,
+            message: call_result.message,
+            error_code: call_result.error_code,
+            retryable: call_result.retryable,
+            metadata: metadata
+          )
+        end
+      end
+
+      # Extract orchestration metadata from StepHandlerCallResult
+      # @param call_result [StepHandlerCallResult::Success] Success result with metadata
+      # @return [Hash, nil] Orchestration metadata or nil
+      def extract_orchestration_metadata_from_call_result(call_result)
+        metadata = call_result.metadata
+        return nil if metadata.empty?
+
+        # Map to expected orchestration metadata structure
+        {
+          http_headers: metadata[:http_headers] || metadata[:headers] || {},
+          execution_hints: metadata[:execution_hints] || {},
+          backoff_hints: metadata[:backoff_hints] || {},
+          error_context: metadata[:error_context],
+          processing_time_ms: metadata[:processing_time_ms],
+          operation: metadata[:operation],
+          input_refs: metadata[:input_refs] || {},
+          custom: metadata.reject { |k, _| [:http_headers, :headers, :execution_hints, :backoff_hints, :error_context, :processing_time_ms, :operation, :input_refs].include?(k) }
+        }
+      end
+
+      # Legacy method for backward compatibility
       # @param handler_result [Hash] Result from handler execution
       # @return [Hash, nil] Orchestration metadata or nil
       def extract_orchestration_metadata(handler_result)
@@ -495,15 +579,37 @@ module TaskerCore
       end
 
       # Send result to orchestration system for coordination decisions
-      # @param result [TaskerCore::Types::StepResult] Step execution result
+      # Phase 5.2: Send results to orchestration result queue for processing
+      # @param result [TaskerCore::Types::StepTypes::StepResult] Step execution result
       def send_result_to_orchestration(result)
-        # TODO: Implement orchestration result queue publishing
-        # This will send results to orchestration_step_results queue
-        # For now, just log the action
-        logger.debug("📤 QUEUE_WORKER: Sending result to orchestration - step_id: #{result.step_id}, status: #{result.status}")
+        logger.debug("📤 QUEUE_WORKER: Sending result to orchestration - step_id: #{result.step_id}, status: #{result.status.status}")
 
-        # In Phase 5.2, this will publish to pgmq orchestration result queue
-        # pgmq_client.send_json_message('orchestration_step_results', result.to_hash)
+        begin
+          # Get orchestration results queue name from configuration
+          orchestration_queue = get_orchestration_results_queue_name
+          pgmq_client.create_queue(orchestration_queue)
+
+          # Use StepResult.to_h and add worker-specific metadata
+          result_message = result.to_h.merge(
+            namespace: namespace,
+            processed_at: Time.now.iso8601,
+            worker_id: "#{namespace}_worker_#{Process.pid}"
+          )
+
+          # Send to orchestration queue
+          msg_id = pgmq_client.send_message(orchestration_queue, result_message)
+          
+          logger.debug("✅ QUEUE_WORKER: Result sent to orchestration - msg_id: #{msg_id}")
+          
+          msg_id
+        rescue => e
+          logger.error("❌ QUEUE_WORKER: Failed to send result to orchestration: #{e.message}")
+          logger.error("❌ QUEUE_WORKER: #{e.backtrace.first(3).join("\n")}")
+          
+          # Don't re-raise - this is a secondary operation, main step processing succeeded
+          # The orchestration system will detect missing results via other mechanisms
+          nil
+        end
       end
 
 
@@ -516,24 +622,10 @@ module TaskerCore
         end
       end
 
-      # Initialize worker statistics
-      def initialize_stats
-        {
-          started_at: Time.now,
-          messages_processed: 0,
-          messages_succeeded: 0,
-          messages_failed: 0,
-          messages_errored: 0,
-          batches_processed: 0,
-          polling_errors: 0,
-          processing_errors: 0,
-          total_execution_time_ms: 0
-        }
-      end
 
       # Create a skip result for steps we can't handle
       def create_skip_result(step_message)
-        TaskerCore::Types::StepResult.new(
+        TaskerCore::Types::StepTypes::StepResult.new(
           step_id: step_message.step_id,
           task_id: step_message.task_id,
           status: TaskerCore::Types::StepExecutionStatus.new(status: 'cancelled'),
@@ -543,13 +635,13 @@ module TaskerCore
 
       # Create a max retries exceeded result
       def create_max_retries_result(step_message)
-        error = TaskerCore::Types::StepExecutionError.new(
+        error = TaskerCore::Types::StepTypes::StepExecutionError.new(
           error_type: 'MaxRetriesExceeded',
           message: "Step exceeded maximum retry limit: #{step_message.metadata.max_retries}",
           retryable: false
         )
 
-        TaskerCore::Types::StepResult.failure(
+        TaskerCore::Types::StepTypes::StepResult.failure(
           step_id: step_message.step_id,
           task_id: step_message.task_id,
           error: error,
@@ -559,14 +651,14 @@ module TaskerCore
 
       # Create an error result for unexpected errors
       def create_error_result(step_message, exception)
-        error = TaskerCore::Types::StepExecutionError.new(
+        error = TaskerCore::Types::StepTypes::StepExecutionError.new(
           error_type: 'ProcessingError',
           message: exception.message,
           retryable: true,
           stack_trace: exception.backtrace.join("\n")
         )
 
-        TaskerCore::Types::StepResult.failure(
+        TaskerCore::Types::StepTypes::StepResult.failure(
           step_id: step_message.step_id,
           task_id: step_message.task_id,
           error: error,
