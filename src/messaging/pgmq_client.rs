@@ -129,10 +129,7 @@ impl PgmqClient {
         );
 
         let messages = match limit {
-            Some(l) => match self.pgmq.read_batch(queue_name, vt, l).await? {
-                Some(msgs) => msgs,
-                None => vec![],
-            },
+            Some(l) => self.pgmq.read_batch(queue_name, vt, l).await?.unwrap_or_default(),
             None => match self.pgmq.read(queue_name, vt).await? {
                 Some(msg) => vec![msg],
                 None => vec![],

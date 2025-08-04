@@ -1,0 +1,151 @@
+# Tree Workflow Test Template (Complex Multi-Level Dependencies)
+# Demonstrates complex tree-like dependencies for integration testing
+
+name: tree_workflow
+module_namespace: IntegrationTest
+task_handler_class: IntegrationTest::TreeWorkflowHandler
+namespace_name: integration
+version: "1.0.0"
+description: "Tree workflow for integration testing with complex multi-level dependencies"
+default_dependent_system: test_system
+
+# Schema for tree workflow testing
+schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum: ["tree"]
+    test:
+      type: string
+
+# Named steps in tree structure
+named_steps:
+  - root
+  - level1_a
+  - level1_b
+  - level2_a1
+  - level2_a2
+  - level2_b1
+  - final
+
+# Step template definitions with tree dependencies
+step_templates:
+  - name: root
+    description: "Root node of the tree workflow"
+    handler_class: IntegrationTest::StepHandler::TreeRootHandler
+    handler_config:
+      action: "initialize_tree"
+      branches: ["a", "b"]
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: level1_a
+    description: "First level branch A"
+    depends_on_step: root
+    handler_class: IntegrationTest::StepHandler::TreeLevel1AHandler
+    handler_config:
+      action: "process_level1_a"
+      branch: "a"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: level1_b
+    description: "First level branch B"
+    depends_on_step: root
+    handler_class: IntegrationTest::StepHandler::TreeLevel1BHandler
+    handler_config:
+      action: "process_level1_b"
+      branch: "b"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: level2_a1
+    description: "Second level branch A1"
+    depends_on_step: level1_a
+    handler_class: IntegrationTest::StepHandler::TreeLevel2A1Handler
+    handler_config:
+      action: "process_level2_a1"
+      branch_path: "a.a1"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: level2_a2
+    description: "Second level branch A2"
+    depends_on_step: level1_a
+    handler_class: IntegrationTest::StepHandler::TreeLevel2A2Handler
+    handler_config:
+      action: "process_level2_a2"
+      branch_path: "a.a2"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: level2_b1
+    description: "Second level branch B1"
+    depends_on_step: level1_b
+    handler_class: IntegrationTest::StepHandler::TreeLevel2B1Handler
+    handler_config:
+      action: "process_level2_b1"
+      branch_path: "b.b1"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: final
+    description: "Final convergence node"
+    depends_on_steps:
+      - level2_a1
+      - level2_a2
+      - level2_b1
+    handler_class: IntegrationTest::StepHandler::TreeFinalHandler
+    handler_config:
+      action: "merge_tree_results"
+      expected_branches: ["a.a1", "a.a2", "b.b1"]
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 60
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: root
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: level1_a
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: level1_b
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: level2_a1
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: level2_a2
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: level2_b1
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: final
+        handler_config:
+          debug_mode: true
+          timeout_ms: 5000

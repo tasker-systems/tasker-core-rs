@@ -46,6 +46,8 @@ use crate::events::EventPublisher;
 use crate::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use crate::orchestration::handler_config::HandlerConfiguration;
 use crate::orchestration::state_manager::StateManager;
+use crate::orchestration::task_config_finder::TaskConfigFinder;
+use crate::orchestration::config::ConfigurationManager;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -95,6 +97,7 @@ pub struct TaskInitializer {
     event_publisher: Option<EventPublisher>,
     state_manager: Option<StateManager>,
     registry: Option<std::sync::Arc<crate::registry::TaskHandlerRegistry>>,
+    task_config_finder: Option<TaskConfigFinder>,
 }
 
 impl TaskInitializer {
@@ -106,6 +109,7 @@ impl TaskInitializer {
             event_publisher: None,
             state_manager: None,
             registry: None,
+            task_config_finder: None,
         }
     }
 
@@ -117,6 +121,7 @@ impl TaskInitializer {
             event_publisher: None,
             state_manager: None,
             registry: None,
+            task_config_finder: None,
         }
     }
 
@@ -128,6 +133,7 @@ impl TaskInitializer {
             event_publisher: Some(event_publisher),
             state_manager: None,
             registry: None,
+            task_config_finder: None,
         }
     }
 
@@ -143,6 +149,7 @@ impl TaskInitializer {
             event_publisher: Some(event_publisher),
             state_manager: None,
             registry: None,
+            task_config_finder: None,
         }
     }
 
@@ -161,6 +168,7 @@ impl TaskInitializer {
             event_publisher: Some(event_publisher),
             state_manager: Some(state_manager),
             registry: None,
+            task_config_finder: None,
         }
     }
 
@@ -180,6 +188,24 @@ impl TaskInitializer {
             event_publisher: Some(event_publisher),
             state_manager: Some(state_manager),
             registry: Some(registry),
+            task_config_finder: None,
+        }
+    }
+
+    /// Create a TaskInitializer for testing with filesystem-based configuration loading
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn for_testing(pool: PgPool) -> Self {
+        let config_manager = std::sync::Arc::new(ConfigurationManager::new());
+        let registry = std::sync::Arc::new(crate::registry::TaskHandlerRegistry::new(pool.clone()));
+        let task_config_finder = TaskConfigFinder::new(config_manager, registry);
+        
+        Self {
+            pool,
+            config: TaskInitializationConfig::default(),
+            event_publisher: None,
+            state_manager: None,
+            registry: None,
+            task_config_finder: Some(task_config_finder),
         }
     }
 
@@ -754,19 +780,40 @@ impl TaskInitializer {
         Ok(())
     }
 
-    /// Load handler configuration from TaskHandlerRegistry
+    /// Load handler configuration from TaskHandlerRegistry or filesystem
     /// In FFI integration, handlers register their configuration in the registry
-    /// instead of using YAML file discovery
+    /// For tests, falls back to filesystem-based YAML discovery
     async fn load_handler_configuration(
         &self,
         task_request: &TaskRequest,
     ) -> Result<HandlerConfiguration, TaskInitializationError> {
-        // Check if we have access to a registry
-        let registry = self.registry.as_ref()
-            .ok_or_else(|| TaskInitializationError::ConfigurationNotFound(
-                "No TaskHandlerRegistry available - TaskInitializer must be created with registry support".to_string()
-            ))?;
+        // Try registry first if available
+        if let Some(registry) = &self.registry {
+            match self.load_from_registry(task_request, registry).await {
+                Ok(config) => return Ok(config),
+                Err(e) => {
+                    debug!("Registry loading failed, trying filesystem fallback: {}", e);
+                }
+            }
+        }
 
+        // Fall back to filesystem configuration using TaskConfigFinder
+        if let Some(task_config_finder) = &self.task_config_finder {
+            return self.load_from_filesystem(task_request, task_config_finder).await;
+        }
+
+        // No configuration source available
+        Err(TaskInitializationError::ConfigurationNotFound(
+            "No TaskHandlerRegistry or TaskConfigFinder available - TaskInitializer must be created with configuration support".to_string()
+        ))
+    }
+
+    /// Load configuration from registry
+    async fn load_from_registry(
+        &self,
+        task_request: &TaskRequest,
+        registry: &crate::registry::TaskHandlerRegistry,
+    ) -> Result<HandlerConfiguration, TaskInitializationError> {
         // Use the namespace and name directly from the TaskRequest
         let namespace = &task_request.namespace;
         let name = &task_request.name;
@@ -825,6 +872,89 @@ impl TaskInitializer {
                 metadata.namespace, metadata.name
             )))
         }
+    }
+
+    /// Load configuration from filesystem using TaskConfigFinder
+    async fn load_from_filesystem(
+        &self,
+        task_request: &TaskRequest,
+        task_config_finder: &TaskConfigFinder,
+    ) -> Result<HandlerConfiguration, TaskInitializationError> {
+        let namespace = &task_request.namespace;
+        let name = &task_request.name;
+        let version = &task_request.version;
+
+        debug!(
+            "🔍 FILESYSTEM LOOKUP: Looking for namespace='{}', name='{}', version='{}'",
+            namespace, name, version
+        );
+
+        // Find the task template using TaskConfigFinder
+        let task_template = task_config_finder
+            .find_task_template(namespace, name, version)
+            .await
+            .map_err(|e| {
+                TaskInitializationError::ConfigurationNotFound(format!(
+                    "Failed to load task template from filesystem for {namespace}/{name}/{version}: {e}"
+                ))
+            })?;
+
+        // Convert TaskTemplate to HandlerConfiguration
+        let handler_config = HandlerConfiguration {
+            name: task_template.name,
+            module_namespace: task_template.module_namespace,
+            task_handler_class: task_template.task_handler_class,
+            namespace_name: task_template.namespace_name,
+            version: task_template.version,
+            description: None, // TaskTemplate doesn't have a top-level description
+            default_dependent_system: task_template.default_dependent_system,
+            named_steps: task_template.named_steps,
+            schema: task_template.schema,
+            step_templates: task_template.step_templates.into_iter().map(|st| {
+                crate::orchestration::handler_config::StepTemplate {
+                    name: st.name,
+                    description: st.description,
+                    dependent_system: st.dependent_system.or_else(|| Some("default".to_string())), // Use actual field with default fallback
+                    default_retryable: st.default_retryable,
+                    default_retry_limit: st.default_retry_limit,
+                    skippable: st.skippable, // Use actual field from models
+                    timeout_seconds: None, // This field exists in handler_config but not in models - keep as None for now
+                    handler_class: st.handler_class,
+                    handler_config: st.handler_config,
+                    depends_on_step: st.depends_on_step,
+                    depends_on_steps: st.depends_on_steps,
+                    custom_events: st.custom_events, // Use actual field from models
+                }
+            }).collect(),
+            environments: task_template.environments.map(|envs| {
+                envs.into_iter().map(|(key, _env_config)| {
+                    // For now, just create empty environment configs
+                    // We could expand this if needed
+                    (key, crate::orchestration::handler_config::EnvironmentConfig {
+                        step_templates: None,
+                        default_context: None,
+                        default_options: None,
+                    })
+                }).collect()
+            }),
+            handler_config: None, // TaskTemplate doesn't have a top-level handler_config
+            default_context: task_template.default_context,
+            default_options: task_template.default_options,
+        };
+
+        if handler_config.step_templates.is_empty() {
+            return Err(TaskInitializationError::ConfigurationNotFound(format!(
+                "Empty step_templates array in task configuration for {}/{}. Cannot create workflow steps without step templates.",
+                handler_config.namespace_name, handler_config.name
+            )));
+        }
+
+        debug!(
+            "✅ FILESYSTEM LOOKUP: Successfully loaded configuration for {}/{}/{}",
+            namespace, name, version
+        );
+
+        Ok(handler_config)
     }
 
     /// Publish task initialization event

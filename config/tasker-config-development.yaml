@@ -13,9 +13,9 @@ database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
   pool:
-    max_connections: 150
-    min_connections: 10
-    acquire_timeout_seconds: 2
+    max_connections: 10
+    min_connections: 1
+    acquire_timeout_seconds: 30
     idle_timeout_seconds: 300
     max_lifetime_seconds: 3600
 
@@ -44,7 +44,7 @@ dependency_graph:
   optimization_enabled: true
 
 system:
-  default_dependent_system_id: 1
+  default_dependent_system: "default"
   default_queue_name: "default"
   version: "1.0.0"
 
@@ -62,11 +62,12 @@ backoff:
   buffer_seconds: 5
 
 execution:
-  processing_mode: "pgmq"          # Use pgmq for orchestration
+  processing_mode: "pgmq" # Use pgmq for orchestration
   max_concurrent_tasks: 100
   max_concurrent_steps: 1000
   default_timeout_seconds: 3600
   step_execution_timeout_seconds: 300
+  environment: "development" # Add missing environment field
   max_discovery_attempts: 3
   step_batch_size: 10
 
@@ -82,35 +83,35 @@ events:
 
 cache:
   enabled: true
-  ttl_seconds: 1800       # Moderate cache for development (30 minutes)
-  max_size: 5000          # Moderate cache size for development
+  ttl_seconds: 3600
+  max_size: 10000
 
-# Query caching configuration for development environment
+# Query caching configuration for database optimization
 query_cache:
   enabled: true
-  # Worker query caching (development settings - balance between performance and freshness)
+  # Worker query caching (production settings)
   active_workers:
-    ttl_seconds: 10        # Cache active workers for 10 seconds in development
-    max_entries: 500       # Moderate cache for development
+    ttl_seconds: 30 # Cache active workers for 30 seconds
+    max_entries: 1000 # Up to 1000 task-specific worker lists
   worker_health:
-    ttl_seconds: 5         # Cache worker health for 5 seconds in development
-    max_entries: 200       # Moderate cache for development
+    ttl_seconds: 10 # Cache worker health for 10 seconds
+    max_entries: 500 # Up to 500 worker health snapshots
   task_metadata:
-    ttl_seconds: 60        # Cache task metadata for 1 minute in development
-    max_entries: 1000      # Moderate cache for development
+    ttl_seconds: 300 # Cache task metadata for 5 minutes
+    max_entries: 2000 # Up to 2000 task metadata entries
   handler_metadata:
-    ttl_seconds: 120       # Cache handler metadata for 2 minutes in development
-    max_entries: 50        # Moderate cache for development
-  # Balanced cache cleanup for development
-  cleanup_interval_seconds: 60   # Clean expired entries every minute
-  memory_pressure_threshold: 0.7 # Clear cache at 70% memory usage
+    ttl_seconds: 600 # Cache handler metadata for 10 minutes
+    max_entries: 100 # Up to 100 handler definitions
+  # Global cache settings
+  cleanup_interval_seconds: 300 # Clean expired entries every 5 minutes
+  memory_pressure_threshold: 0.8 # Clear cache at 80% memory usage
 
 # pgmq configuration for PostgreSQL message queue orchestration
 pgmq:
-  poll_interval_seconds: 2        # Moderate polling for development
-  visibility_timeout_seconds: 30   # Standard visibility timeout
-  batch_size: 10                   # Moderate batch size for development
-  max_retries: 3                   # Standard retry limit
+  poll_interval_ms: 500 # 500ms polling for balanced development debugging (2x/sec)
+  visibility_timeout_seconds: 30 # Keep longer for business logic execution time
+  batch_size: 10 # Standard batch size for production
+  max_retries: 3 # Standard retry limit
   default_namespaces:
     - default
     - fulfillment
@@ -120,34 +121,49 @@ pgmq:
 
 # orchestration mode configuration
 orchestration:
-  mode: "distributed"              # Use distributed mode for development
-  
+  mode: "distributed" # Use distributed mode for production
+  task_requests_queue_name: "task_requests_queue"
+  tasks_per_cycle: 5
+  cycle_interval_ms: 500 # Moderate orchestration cycles for development (2x/sec)
+  task_request_polling_interval_ms: 500 # Moderate polling for development (2x/sec)
+  task_request_visibility_timeout_seconds: 300 # Keep long for business logic execution
+  task_request_batch_size: 10
+  active_namespaces:
+    ["fulfillment", "inventory", "notifications", "payments", "analytics"]
+  max_concurrent_orchestrators: 3
+  enable_performance_logging: false
+  default_claim_timeout_seconds: 300 # Keep long for business logic execution
+
   # Queue configuration for orchestration core
   queues:
     # Task request queue - handles incoming task requests from external systems
     task_requests: "task_requests_queue"
-    
+
     # Task processing queue - holds tasks ready for orchestration processing
     task_processing: "task_processing_queue"
-    
+
     # Batch results queue - collects completed batch execution results
     batch_results: "batch_results_queue"
-    
+
     # Namespaced worker queues - workers poll these for step batches
     worker_queues:
       default: "default_queue"
       fulfillment: "fulfillment_queue"
       inventory: "inventory_queue"
       notifications: "notifications_queue"
-    
-    # Queue configuration parameters (development settings)
+
+    # Queue configuration parameters
     settings:
       visibility_timeout_seconds: 30
-      message_retention_seconds: 86400   # 1 day for development
+      message_retention_seconds: 604800 # 7 days
       dead_letter_queue_enabled: true
       max_receive_count: 3
-  
+
   embedded_orchestrator:
-    auto_start: false              # Don't auto-start in distributed mode
+    auto_start: false # Don't auto-start in distributed mode
     namespaces: ["default", "fulfillment", "inventory", "notifications"]
-    shutdown_timeout_seconds: 10
+    shutdown_timeout_seconds: 30 # Longer timeout for graceful production shutdown
+
+  # Heartbeat configuration for orchestrator health monitoring
+  enable_heartbeat: true
+  heartbeat_interval_ms: 5000 # 5 second heartbeats for health monitoring

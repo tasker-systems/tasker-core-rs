@@ -85,12 +85,12 @@ validate_workspace() {
     # Core checks (always run)
     run_workspace_command "code formatting check" "📝" cargo fmt --check
     run_workspace_command "clippy linting" "🔍" cargo clippy --all-targets --all-features -- -D warnings
-    run_workspace_command "compilation check" "🔧" cargo check --all-targets
+    run_workspace_command "compilation check" "🔧" cargo check --all-targets --all-features
 
     # Additional checks based on type
     case "$check_type" in
         "pre-push"|"full")
-            # run_workspace_command "test suite" "🧪" cargo test --all-features
+            run_workspace_command "test suite" "🧪" cargo test --all-features
             run_workspace_command "documentation build" "📚" cargo doc --no-deps --document-private-items --quiet
             ;;
         "pre-commit")

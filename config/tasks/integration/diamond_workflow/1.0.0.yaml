@@ -1,0 +1,99 @@
+# Diamond Workflow Test Template (A→(B,C)→D)
+# Demonstrates parallel step execution with convergence for integration testing
+
+name: diamond_workflow
+module_namespace: IntegrationTest
+task_handler_class: IntegrationTest::DiamondWorkflowHandler
+namespace_name: integration
+version: "1.0.0"
+description: "Diamond workflow for integration testing with parallel execution and convergence"
+default_dependent_system: test_system
+
+# Schema for diamond workflow testing
+schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum: ["diamond"]
+    test:
+      type: string
+
+# Named steps in diamond pattern
+named_steps:
+  - step_a
+  - step_b
+  - step_c
+  - step_d
+
+# Step template definitions with diamond dependencies
+step_templates:
+  - name: step_a
+    description: "Initial step that starts the diamond"
+    handler_class: IntegrationTest::StepHandler::DiamondStartHandler
+    handler_config:
+      action: "initialize"
+      parallel_branches: 2
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: step_b
+    description: "First parallel branch"
+    depends_on_step: step_a
+    handler_class: IntegrationTest::StepHandler::ParallelBranchBHandler
+    handler_config:
+      action: "process_branch_b"
+      branch_id: "b"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 45
+
+  - name: step_c
+    description: "Second parallel branch"
+    depends_on_step: step_a
+    handler_class: IntegrationTest::StepHandler::ParallelBranchCHandler
+    handler_config:
+      action: "process_branch_c"
+      branch_id: "c"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 45
+
+  - name: step_d
+    description: "Convergence step that depends on both branches"
+    depends_on_steps:
+      - step_b
+      - step_c
+    handler_class: IntegrationTest::StepHandler::DiamondConvergeHandler
+    handler_config:
+      action: "merge_results"
+      expected_branches: ["b", "c"]
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 60
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: step_a
+        handler_config:
+          debug_mode: true
+          timeout_ms: 2000
+      - name: step_b
+        handler_config:
+          debug_mode: true
+          timeout_ms: 3000
+      - name: step_c
+        handler_config:
+          debug_mode: true
+          timeout_ms: 3000
+      - name: step_d
+        handler_config:
+          debug_mode: true
+          timeout_ms: 5000

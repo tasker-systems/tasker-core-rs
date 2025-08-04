@@ -1,0 +1,181 @@
+# Tasker Core Production Configuration
+# This configuration file provides production-ready defaults
+
+auth:
+  authentication_enabled: true # Enable authentication in production
+  strategy: "jwt" # Use JWT for production
+  current_user_method: "current_user"
+  authenticate_user_method: "authenticate_user!"
+  authorization_enabled: true # Enable authorization in production
+  authorization_coordinator_class: "Tasker::Authorization::BaseCoordinator"
+
+database:
+  enable_secondary_database: false
+  url: "${DATABASE_URL}"
+  pool:
+    max_connections: 50 # Higher pool size for production
+    min_connections: 5 # Maintain minimum connections
+    acquire_timeout_seconds: 30
+    idle_timeout_seconds: 600 # Longer idle timeout for production
+    max_lifetime_seconds: 7200 # Longer lifetime for production
+
+telemetry:
+  enabled: true # Enable telemetry in production
+  service_name: "tasker-core-rs"
+  sample_rate: 0.1 # Lower sampling rate for production
+
+engine:
+  task_handler_directory: "tasks"
+  task_config_directory: "tasker/tasks"
+  identity_strategy: "default"
+  custom_events_directories:
+    - "config/tasker/events"
+
+health:
+  enabled: true
+  check_interval_seconds: 30 # More frequent health checks
+  alert_thresholds:
+    error_rate: 0.01 # Lower error rate threshold for production
+    queue_depth: 5000.0 # Higher queue depth tolerance
+
+dependency_graph:
+  max_depth: 100 # Higher depth limit for production
+  cycle_detection_enabled: true
+  optimization_enabled: true
+
+system:
+  default_dependent_system: "default"
+  default_queue_name: "default"
+  version: "1.0.0"
+
+backoff:
+  default_backoff_seconds: [1, 2, 4, 8, 16, 32, 64, 128] # More aggressive backoff
+  max_backoff_seconds: 600 # Higher max backoff for production
+  backoff_multiplier: 2.0
+  jitter_enabled: true
+  jitter_max_percentage: 0.2 # More jitter for production
+  reenqueue_delays:
+    has_ready_steps: 0
+    waiting_for_dependencies: 60 # Longer delays for production
+    processing: 30
+  default_reenqueue_delay: 45
+  buffer_seconds: 10 # Longer buffer for production
+
+execution:
+  processing_mode: "pgmq"
+  max_concurrent_tasks: 500 # Higher concurrency for production
+  max_concurrent_steps: 5000 # Higher step concurrency
+  default_timeout_seconds: 7200 # Longer timeouts for production
+  step_execution_timeout_seconds: 1800
+  environment: "production"
+  max_discovery_attempts: 5 # More attempts for production
+  step_batch_size: 50 # Larger batches for production
+
+reenqueue:
+  has_ready_steps: 1
+  waiting_for_dependencies: 10 # More frequent checks in production
+  processing: 5
+
+events:
+  batch_size: 500 # Larger batches for production
+  enabled: true
+  batch_timeout_ms: 2000 # Longer timeout for batching
+
+cache:
+  enabled: true
+  ttl_seconds: 7200 # Longer cache TTL for production
+  max_size: 100000 # Larger cache for production
+
+# Query caching configuration optimized for production
+query_cache:
+  enabled: true
+  # Production query caching settings
+  active_workers:
+    ttl_seconds: 60 # Longer cache for production
+    max_entries: 10000 # More entries for production
+  worker_health:
+    ttl_seconds: 30 # Longer health cache
+    max_entries: 5000
+  task_metadata:
+    ttl_seconds: 600 # Longer metadata cache
+    max_entries: 20000 # More metadata entries
+  handler_metadata:
+    ttl_seconds: 1800 # Much longer handler cache
+    max_entries: 1000
+  # Production cache settings
+  cleanup_interval_seconds: 600 # Less frequent cleanup
+  memory_pressure_threshold: 0.85 # Higher memory pressure threshold
+
+# pgmq configuration optimized for production
+pgmq:
+  poll_interval_ms: 200 # 200ms polling for production responsiveness (5x/sec)
+  visibility_timeout_seconds: 60 # Longer visibility timeout for business logic
+  batch_size: 50 # Larger batches for production
+  max_retries: 5 # More retries for production
+  default_namespaces:
+    - default
+    - fulfillment
+    - inventory
+    - notifications
+    - payments
+    - analytics
+  queue_naming_pattern: "{namespace}_queue"
+
+# orchestration mode configuration for production
+orchestration:
+  mode: "distributed"
+  task_requests_queue_name: "task_requests_queue"
+  tasks_per_cycle: 20 # Higher throughput for production
+  cycle_interval_ms: 200 # Fast orchestration cycles for production (5x/sec)
+  task_request_polling_interval_ms: 200 # Fast polling for task requests (5x/sec)
+  task_request_visibility_timeout_seconds: 600 # Longer timeout for business logic
+  task_request_batch_size: 50 # Larger batches for production
+  active_namespaces:
+    ["fulfillment", "inventory", "notifications", "payments", "analytics"]
+  max_concurrent_orchestrators: 10 # More orchestrators for production
+  enable_performance_logging: true # Enable performance logging
+  default_claim_timeout_seconds: 600 # Longer claim timeout for business logic
+
+  # Queue configuration for production orchestration
+  queues:
+    # Task request queue - handles incoming task requests from external systems
+    task_requests: "task_requests_queue"
+
+    # Task processing queue - holds tasks ready for orchestration processing
+    task_processing: "task_processing_queue"
+
+    # Batch results queue - collects completed batch execution results
+    batch_results: "batch_results_queue"
+
+    # Namespaced worker queues - workers poll these for step batches
+    worker_queues:
+      default: "default_queue"
+      fulfillment: "fulfillment_queue"
+      inventory: "inventory_queue"
+      notifications: "notifications_queue"
+      payments: "payments_queue"
+      analytics: "analytics_queue"
+
+    # Production queue configuration parameters
+    settings:
+      visibility_timeout_seconds: 60
+      message_retention_seconds: 1209600 # 14 days for production
+      dead_letter_queue_enabled: true
+      max_receive_count: 5 # More retries for production
+
+  embedded_orchestrator:
+    auto_start: false # Don't auto-start in distributed mode
+    namespaces:
+      [
+        "default",
+        "fulfillment",
+        "inventory",
+        "notifications",
+        "payments",
+        "analytics",
+      ]
+    shutdown_timeout_seconds: 60 # Longer timeout for graceful production shutdown
+
+  # Heartbeat configuration for production monitoring
+  enable_heartbeat: true
+  heartbeat_interval_ms: 10000 # 10 second heartbeats for production stability

@@ -30,8 +30,8 @@ pub struct OrchestrationSystemConfig {
     pub orchestrator_id: String,
     /// Orchestration loop configuration
     pub orchestration_loop_config: OrchestrationLoopConfig,
-    /// Task request processor polling interval (seconds)
-    pub task_request_polling_interval_seconds: u64,
+    /// Task request processor polling interval in milliseconds
+    pub task_request_polling_interval_ms: u64,
     /// Visibility timeout for task request messages (seconds)
     pub task_request_visibility_timeout_seconds: i32,
     /// Number of task requests to process per batch
@@ -58,7 +58,7 @@ impl Default for OrchestrationSystemConfig {
             task_requests_queue_name: "task_requests_queue".to_string(),
             orchestrator_id: format!("orchestrator-{timestamp}"),
             orchestration_loop_config: OrchestrationLoopConfig::default(),
-            task_request_polling_interval_seconds: 1,
+            task_request_polling_interval_ms: 250,  // 250ms = 4x/sec default
             task_request_visibility_timeout_seconds: 300, // 5 minutes
             task_request_batch_size: 10,
             active_namespaces: vec![
@@ -290,7 +290,7 @@ impl OrchestrationSystem {
     async fn start_task_request_processing_loop(&self) -> Result<()> {
         info!(
             queue = %self.config.task_requests_queue_name,
-            polling_interval = %self.config.task_request_polling_interval_seconds,
+            polling_interval_ms = %self.config.task_request_polling_interval_ms,
             "Starting task request processing loop"
         );
 
@@ -299,8 +299,8 @@ impl OrchestrationSystem {
                 Ok(processed_count) => {
                     if processed_count == 0 {
                         // No task requests processed, wait before polling again
-                        sleep(Duration::from_secs(
-                            self.config.task_request_polling_interval_seconds,
+                        sleep(Duration::from_millis(
+                            self.config.task_request_polling_interval_ms,
                         ))
                         .await;
                     }
@@ -309,8 +309,8 @@ impl OrchestrationSystem {
                 Err(e) => {
                     error!(error = %e, "Error in task request processing batch");
                     // Wait before retrying on error
-                    sleep(Duration::from_secs(
-                        self.config.task_request_polling_interval_seconds,
+                    sleep(Duration::from_millis(
+                        self.config.task_request_polling_interval_ms,
                     ))
                     .await;
                 }
@@ -587,7 +587,7 @@ mod tests {
 
         assert_eq!(config.task_requests_queue_name, "task_requests_queue");
         assert!(config.orchestrator_id.starts_with("orchestrator-"));
-        assert_eq!(config.task_request_polling_interval_seconds, 1);
+        assert_eq!(config.task_request_polling_interval_ms, 250);
         assert_eq!(config.task_request_visibility_timeout_seconds, 300);
         assert_eq!(config.task_request_batch_size, 10);
         assert_eq!(config.max_concurrent_orchestrators, 3);
@@ -621,7 +621,7 @@ mod tests {
                 cycle_interval: Duration::from_secs(5),
                 ..OrchestrationLoopConfig::default()
             },
-            task_request_polling_interval_seconds: 3,
+            task_request_polling_interval_ms: 500,  // 500ms for test
             task_request_visibility_timeout_seconds: 600,
             task_request_batch_size: 25,
             active_namespaces: vec!["custom".to_string(), "test".to_string()],
@@ -631,7 +631,7 @@ mod tests {
 
         assert_eq!(config.task_requests_queue_name, "custom_task_requests");
         assert_eq!(config.orchestrator_id, "custom-orchestrator-123");
-        assert_eq!(config.task_request_polling_interval_seconds, 3);
+        assert_eq!(config.task_request_polling_interval_ms, 500);
         assert_eq!(config.task_request_visibility_timeout_seconds, 600);
         assert_eq!(config.task_request_batch_size, 25);
         assert_eq!(config.max_concurrent_orchestrators, 5);

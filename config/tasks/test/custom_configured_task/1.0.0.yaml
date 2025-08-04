@@ -1,0 +1,37 @@
+# Custom Configured Task Template
+# Template for testing custom configuration options
+
+name: custom_configured_task
+module_namespace: TestModule
+task_handler_class: CustomConfiguredTaskHandler
+namespace_name: test
+version: "1.0.0"
+description: "Task for testing custom configuration functionality"
+default_dependent_system: test_system
+
+# Schema for custom config testing
+schema:
+  type: object
+  properties:
+    custom_config:
+      type: boolean
+
+# Single step workflow for custom config testing
+named_steps:
+  - custom_step
+
+# Single step template for custom config testing
+step_templates:
+  - name: custom_step
+    description: "Custom configuration test step"
+    handler_class: CustomConfigTestStepHandler
+    handler_config:
+      custom_option: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates: []

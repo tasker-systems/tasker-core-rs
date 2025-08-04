@@ -194,11 +194,15 @@ impl TaskConfigFinder {
         let base_config_dir = self.get_base_config_directory();
         let mut paths = Vec::new();
 
-        // 1. Versioned path: <config_dir>/tasks/{namespace}/{name}/{version}.(yml|yaml)
+        debug!(
+            "Building search paths with base_config_dir: {}",
+            base_config_dir.display()
+        );
+
+        // 1. Versioned path: <config_dir>/{namespace}/{name}/{version}.(yml|yaml)
         if namespace != "default" {
             for ext in &["yaml", "yml"] {
                 let path = base_config_dir
-                    .join("tasks")
                     .join(namespace)
                     .join(name)
                     .join(format!("{version}.{ext}"));
@@ -206,20 +210,19 @@ impl TaskConfigFinder {
             }
         }
 
-        // 2. Default namespace path: <config_dir>/tasks/{name}/{version}.(yml|yaml)
+        // 2. Default namespace path: <config_dir>/{name}/{version}.(yml|yaml)
         if version != "0.1.0" {
             for ext in &["yaml", "yml"] {
                 let path = base_config_dir
-                    .join("tasks")
                     .join(name)
                     .join(format!("{version}.{ext}"));
                 paths.push(path);
             }
         }
 
-        // 3. Simple default path: <config_dir>/tasks/{name}.(yml|yaml)
+        // 3. Simple default path: <config_dir>/{name}.(yml|yaml)
         for ext in &["yaml", "yml"] {
-            let path = base_config_dir.join("tasks").join(format!("{name}.{ext}"));
+            let path = base_config_dir.join(format!("{name}.{ext}"));
             paths.push(path);
         }
 
@@ -228,10 +231,20 @@ impl TaskConfigFinder {
 
     /// Get the base configuration directory from the system config
     fn get_base_config_directory(&self) -> PathBuf {
+        // For tests and development, use CARGO_MANIFEST_DIR to find the project root
+        // This is automatically set by Cargo when running tests
+        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            return PathBuf::from(manifest_dir).join("config").join("tasks");
+        }
+
+        // Allow override via TASKER_CONFIG_PATH environment variable
+        if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
+            return PathBuf::from(config_path).join("tasks");
+        }
+
+        // For production, use the configured path
         let system_config = self.config_manager.system_config();
         let task_config_dir = &system_config.engine.task_config_directory;
-
-        // Build path relative to config directory
         PathBuf::from("config").join(task_config_dir)
     }
 

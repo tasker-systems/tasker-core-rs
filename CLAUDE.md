@@ -109,10 +109,14 @@ notifications_queue  - All notification namespace steps
 
 ### Rust Core
 ```bash
-cargo build                         # Build project  
-cargo test                          # Run tests
-cargo clippy                        # Lint code
-cargo fmt                           # Format code
+# Core development (ALWAYS use --all-features for full consistency)
+cargo build --all-features                         # Build project with all features
+cargo test --all-features                          # Run tests with factory system and all features
+cargo clippy --all-targets --all-features          # Lint code with all features
+cargo fmt                                          # Format code
+
+# Additional commands
+cargo check --all-features                         # Fast compilation check with all features
 ```
 
 ### Ruby Extension & pgmq Tests

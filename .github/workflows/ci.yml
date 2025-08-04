@@ -164,10 +164,14 @@ jobs:
         run: cargo build --verbose --all-features
 
       - name: Run lib tests
-        run: cargo test --lib --verbose
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+        run: cargo test --lib --verbose --all-features
 
       - name: Run integration tests
-        run: cargo test --test '*' --verbose
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+        run: cargo test --test '*' --verbose --all-features
 
       - name: Run doctests
         run: cargo test --doc --verbose
@@ -367,6 +371,8 @@ jobs:
           sqlx migrate run
 
       - name: Generate coverage report
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov

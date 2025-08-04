@@ -266,7 +266,7 @@ impl Default for DependencyGraphConfig {
 /// System-level configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
-    pub default_dependent_system_id: i64,
+    pub default_dependent_system: String,
     pub default_queue_name: String,
     pub version: String,
 }
@@ -274,7 +274,7 @@ pub struct SystemConfig {
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
-            default_dependent_system_id: 1,
+            default_dependent_system: "default".to_string(),
             default_queue_name: "default".to_string(),
             version: "1.0.0".to_string(),
         }
@@ -393,13 +393,13 @@ pub struct OrchestrationConfig {
     pub orchestrator_id: Option<String>,
     /// Number of tasks to claim per orchestration cycle
     pub tasks_per_cycle: i32,
-    /// Orchestration cycle interval in seconds
-    pub cycle_interval_seconds: u64,
+    /// Orchestration cycle interval in milliseconds
+    pub cycle_interval_ms: u64,
     /// Maximum number of cycles (None = infinite)
     pub max_cycles: Option<usize>,
-    /// Task request processor polling interval (seconds)
-    pub task_request_polling_interval_seconds: u64,
-    /// Visibility timeout for task request messages (seconds)
+    /// Task request processor polling interval in milliseconds
+    pub task_request_polling_interval_ms: u64,
+    /// Visibility timeout for task request messages (seconds) - kept as seconds for business logic
     pub task_request_visibility_timeout_seconds: i32,
     /// Number of task requests to process per batch
     pub task_request_batch_size: i32,
@@ -411,10 +411,10 @@ pub struct OrchestrationConfig {
     pub enable_performance_logging: bool,
     /// Enable heartbeat for long-running task claims
     pub enable_heartbeat: bool,
-    /// Default claim timeout in seconds
+    /// Default claim timeout in seconds - kept as seconds for business logic
     pub default_claim_timeout_seconds: i32,
-    /// Heartbeat interval for extending claims (seconds)
-    pub heartbeat_interval_seconds: u64,
+    /// Heartbeat interval for extending claims in milliseconds
+    pub heartbeat_interval_ms: u64,
     /// Namespace filter (None = all namespaces)
     pub namespace_filter: Option<String>,
 }
@@ -425,10 +425,10 @@ impl Default for OrchestrationConfig {
             task_requests_queue_name: "task_requests_queue".to_string(),
             orchestrator_id: None, // Will be auto-generated
             tasks_per_cycle: 5,
-            cycle_interval_seconds: 1,
+            cycle_interval_ms: 250, // 250ms = 4x/sec default
             max_cycles: None,
-            task_request_polling_interval_seconds: 1,
-            task_request_visibility_timeout_seconds: 300, // 5 minutes
+            task_request_polling_interval_ms: 250, // 250ms = 4x/sec default
+            task_request_visibility_timeout_seconds: 300, // 5 minutes - kept as seconds
             task_request_batch_size: 10,
             active_namespaces: vec![
                 "fulfillment".to_string(),
@@ -440,8 +440,8 @@ impl Default for OrchestrationConfig {
             max_concurrent_orchestrators: 3,
             enable_performance_logging: false,
             enable_heartbeat: true,
-            default_claim_timeout_seconds: 300, // 5 minutes
-            heartbeat_interval_seconds: 60,     // 1 minute
+            default_claim_timeout_seconds: 300, // 5 minutes - kept as seconds
+            heartbeat_interval_ms: 5000,        // 5 seconds = 5000ms
             namespace_filter: None,
         }
     }
@@ -471,14 +471,14 @@ impl OrchestrationConfig {
         let orchestration_loop_config = OrchestrationLoopConfig {
             tasks_per_cycle: self.tasks_per_cycle,
             namespace_filter: self.namespace_filter.clone(),
-            cycle_interval: Duration::from_secs(self.cycle_interval_seconds),
+            cycle_interval: Duration::from_millis(self.cycle_interval_ms),
             max_cycles: self.max_cycles,
             enable_performance_logging: self.enable_performance_logging,
             enable_heartbeat: self.enable_heartbeat,
             task_claimer_config: TaskClaimerConfig {
                 max_batch_size: self.tasks_per_cycle.max(10),
                 default_claim_timeout: self.default_claim_timeout_seconds,
-                heartbeat_interval: Duration::from_secs(self.heartbeat_interval_seconds),
+                heartbeat_interval: Duration::from_millis(self.heartbeat_interval_ms),
                 enable_heartbeat: self.enable_heartbeat,
             },
             step_enqueuer_config: StepEnqueuerConfig::default(),
@@ -489,7 +489,7 @@ impl OrchestrationConfig {
             task_requests_queue_name: self.task_requests_queue_name.clone(),
             orchestrator_id,
             orchestration_loop_config,
-            task_request_polling_interval_seconds: self.task_request_polling_interval_seconds,
+            task_request_polling_interval_ms: self.task_request_polling_interval_ms,
             task_request_visibility_timeout_seconds: self.task_request_visibility_timeout_seconds,
             task_request_batch_size: self.task_request_batch_size,
             active_namespaces: self.active_namespaces.clone(),

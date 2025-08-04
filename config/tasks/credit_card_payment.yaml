@@ -1,7 +1,7 @@
 # Payment Processing Task Template
 # This demonstrates a comprehensive task definition with step dependencies
 
-name: payment_processing/credit_card_payment
+name: credit_card_payment
 module_namespace: PaymentProcessing
 task_handler_class: CreditCardPaymentHandler
 namespace_name: payments
@@ -22,14 +22,14 @@ schema:
       minimum: 1
     payment_info:
       type: object
-      required: ['amount', 'currency', 'card_token']
+      required: ["amount", "currency", "card_token"]
       properties:
         amount:
           type: number
           minimum: 0.01
         currency:
           type: string
-          enum: ['USD', 'EUR', 'GBP']
+          enum: ["USD", "EUR", "GBP"]
         card_token:
           type: string
           minLength: 10

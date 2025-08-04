@@ -1,0 +1,45 @@
+# State Machine Enabled Test Template
+# Template for testing state machine initialization and transitions
+
+name: state_machine_enabled
+module_namespace: TestModule
+task_handler_class: StateMachineTestHandler
+namespace_name: test
+version: "1.0.0"
+description: "Workflow for testing state machine initialization and state transitions"
+default_dependent_system: test_system
+
+# Schema for state machine testing
+schema:
+  type: object
+  properties:
+    test:
+      type: string
+      enum: ["state_machine"]
+
+# Simple workflow for state machine testing
+named_steps:
+  - state_test_step
+
+# Single step template for state machine testing
+step_templates:
+  - name: state_test_step
+    description: "Step for testing state machine functionality"
+    handler_class: StateMachineTestStepHandler
+    handler_config:
+      action: "test_state_transitions"
+      enable_state_tracking: true
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: state_test_step
+        handler_config:
+          debug_mode: true
+          log_state_transitions: true
+          timeout_ms: 5000

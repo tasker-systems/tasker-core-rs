@@ -1,0 +1,45 @@
+# Orchestration Test Template
+# Simple template for testing basic orchestration functionality
+
+name: orchestration_test
+module_namespace: IntegrationTest
+task_handler_class: IntegrationTest::OrchestrationTestHandler
+namespace_name: integration
+version: "1.0.0"
+description: "Basic orchestration test workflow"
+default_dependent_system: test_system
+
+# Simple schema for orchestration testing
+schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum: ["basic"]
+    test:
+      type: string
+
+# Single step for basic orchestration testing
+named_steps:
+  - orchestration_step
+
+# Single step template
+step_templates:
+  - name: orchestration_step
+    description: "Basic orchestration test step"
+    handler_class: IntegrationTest::StepHandler::OrchestrationTestStepHandler
+    handler_config:
+      action: "test_orchestration"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: orchestration_step
+        handler_config:
+          debug_mode: true
+          timeout_ms: 5000

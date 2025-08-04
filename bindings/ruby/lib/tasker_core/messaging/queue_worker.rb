@@ -10,17 +10,23 @@ module TaskerCore
     # independently, execute step handlers, and update the database directly.
     # No FFI coupling, no central coordination needed.
     #
+    # Configuration is loaded from YAML with environment-specific optimization:
+    # - Test: 100ms (10x/sec) for fast CI/CD
+    # - Development: 500ms (2x/sec) for balanced debugging
+    # - Production: 200ms (5x/sec) for high responsiveness  
+    # - Base: 250ms (4x/sec) default
+    #
     # Examples:
     #   worker = QueueWorker.new("fulfillment")
     #   worker.start  # Begins polling loop
     #   worker.stop   # Graceful shutdown
     class QueueWorker
-      # Default configuration
-      DEFAULT_POLL_INTERVAL = 1.0  # seconds
-      DEFAULT_VISIBILITY_TIMEOUT = 30  # seconds
-      DEFAULT_BATCH_SIZE = 5
-      DEFAULT_MAX_RETRIES = 3
-      DEFAULT_SHUTDOWN_TIMEOUT = 30  # seconds
+      # Fallback defaults if configuration is unavailable
+      FALLBACK_POLL_INTERVAL = 0.25  # 250ms in seconds as fallback
+      FALLBACK_VISIBILITY_TIMEOUT = 30  # seconds
+      FALLBACK_BATCH_SIZE = 5
+      FALLBACK_MAX_RETRIES = 3
+      FALLBACK_SHUTDOWN_TIMEOUT = 30  # seconds
 
       attr_reader :namespace, :queue_name, :pgmq_client, :sql_functions, :step_handler_registry, :logger,
                   :poll_interval, :visibility_timeout, :batch_size, :max_retries,
@@ -31,11 +37,11 @@ module TaskerCore
                      sql_functions: nil,
                      step_handler_registry: nil,
                      logger: nil,
-                     poll_interval: DEFAULT_POLL_INTERVAL,
-                     visibility_timeout: DEFAULT_VISIBILITY_TIMEOUT,
-                     batch_size: DEFAULT_BATCH_SIZE,
-                     max_retries: DEFAULT_MAX_RETRIES,
-                     shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT)
+                     poll_interval: nil,
+                     visibility_timeout: nil,
+                     batch_size: nil,
+                     max_retries: nil,
+                     shutdown_timeout: nil)
         @namespace = namespace
         @queue_name = "#{namespace}_queue"
         @pgmq_client = pgmq_client || PgmqClient.new
@@ -43,12 +49,16 @@ module TaskerCore
         @step_handler_registry = step_handler_registry || TaskerCore::Registry.step_handler_registry
         @logger = logger || TaskerCore::Logging::Logger.instance
 
-        # Configuration
-        @poll_interval = poll_interval
-        @visibility_timeout = visibility_timeout
-        @batch_size = batch_size
-        @max_retries = max_retries
-        @shutdown_timeout = shutdown_timeout
+        # Configuration - read from YAML with environment-specific optimization
+        config = load_configuration
+        @poll_interval = poll_interval || config[:poll_interval] || FALLBACK_POLL_INTERVAL
+        @visibility_timeout = visibility_timeout || config[:visibility_timeout] || FALLBACK_VISIBILITY_TIMEOUT
+        @batch_size = batch_size || config[:batch_size] || FALLBACK_BATCH_SIZE
+        @max_retries = max_retries || config[:max_retries] || FALLBACK_MAX_RETRIES
+        @shutdown_timeout = shutdown_timeout || config[:shutdown_timeout] || FALLBACK_SHUTDOWN_TIMEOUT
+
+        # Log configuration for debugging
+        logger&.debug("🔧 QUEUE_WORKER: Configuration loaded for namespace: #{namespace} - poll_interval: #{@poll_interval}s, batch_size: #{@batch_size}")
 
         # State management
         @running = false
@@ -219,6 +229,27 @@ module TaskerCore
       end
 
       private
+
+      # Load configuration from YAML with environment-specific timing optimization
+      def load_configuration
+        begin
+          config_instance = TaskerCore::Config.instance
+          effective_config = config_instance.effective_config
+          pgmq_config = effective_config['pgmq'] || {}
+
+          {
+            # Convert milliseconds to seconds for Ruby's sleep() method
+            poll_interval: pgmq_config['poll_interval_ms'] ? pgmq_config['poll_interval_ms'] / 1000.0 : nil,
+            visibility_timeout: pgmq_config['visibility_timeout_seconds'],
+            batch_size: pgmq_config['batch_size'],
+            max_retries: pgmq_config['max_retries'],
+            shutdown_timeout: pgmq_config['shutdown_timeout_seconds']
+          }
+        rescue => e
+          logger&.warn("⚠️ QUEUE_WORKER: Failed to load configuration: #{e.message}, using fallback values")
+          {}
+        end
+      end
 
       # Main polling loop
       def polling_loop

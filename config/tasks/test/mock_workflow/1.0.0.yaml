@@ -1,0 +1,71 @@
+# Mock Workflow Test Template
+# Simple mock workflow for testing configuration loading and step creation
+
+name: mock_workflow
+module_namespace: TestModule
+task_handler_class: MockWorkflowHandler
+namespace_name: test
+version: "1.0.0"
+description: "Mock workflow for testing step templates and configuration loading"
+default_dependent_system: test_system
+
+# Simple schema for mock testing
+schema:
+  type: object
+  properties:
+    workflow_id:
+      type: string
+
+# Named steps for mock workflow
+named_steps:
+  - initialize
+  - process
+  - finalize
+
+# Step template definitions
+step_templates:
+  - name: initialize
+    description: "Initialize the mock process"
+    handler_class: InitializeHandler
+    handler_config:
+      action: "initialize"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: process
+    description: "Process the mock data"
+    depends_on_step: initialize
+    handler_class: ProcessHandler
+    handler_config:
+      action: "process"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 5
+    timeout_seconds: 30
+
+  - name: finalize
+    description: "Finalize the mock process"
+    depends_on_step: process
+    handler_class: FinalizeHandler
+    handler_config:
+      action: "finalize"
+      test_mode: true
+    default_retryable: false
+    default_retry_limit: 1
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: initialize
+        handler_config:
+          debug_mode: true
+      - name: process
+        handler_config:
+          debug_mode: true
+      - name: finalize
+        handler_config:
+          debug_mode: true

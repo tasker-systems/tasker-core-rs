@@ -31,6 +31,19 @@ pub struct StepMessage {
     pub metadata: StepMessageMetadata,
 }
 
+/// Parameters for creating a StepMessage to avoid too many arguments
+#[derive(Debug, Clone)]
+pub struct StepMessageParams {
+    pub step_id: i64,
+    pub task_id: i64,
+    pub namespace: String,
+    pub task_name: String,
+    pub task_version: String,
+    pub step_name: String,
+    pub step_payload: serde_json::Value,
+    pub execution_context: StepExecutionContext,
+}
+
 /// Execution context that provides (task, sequence, step) to handlers
 /// This enables the immediate delete pattern by ensuring all necessary data is in the message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,27 +134,35 @@ impl StepMessage {
         }
     }
 
-    /// Create step message with custom metadata
-    pub fn with_metadata(
-        step_id: i64,
-        task_id: i64,
-        namespace: String,
-        task_name: String,
-        task_version: String,
-        step_name: String,
-        step_payload: serde_json::Value,
-        execution_context: StepExecutionContext,
+    /// Create step message from parameters struct
+    pub fn from_params(params: StepMessageParams) -> Self {
+        Self {
+            step_id: params.step_id,
+            task_id: params.task_id,
+            namespace: params.namespace,
+            task_name: params.task_name,
+            task_version: params.task_version,
+            step_name: params.step_name,
+            step_payload: params.step_payload,
+            execution_context: params.execution_context,
+            metadata: StepMessageMetadata::default(),
+        }
+    }
+
+    /// Create step message from parameters with custom metadata
+    pub fn from_params_with_metadata(
+        params: StepMessageParams,
         metadata: StepMessageMetadata,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
-            namespace,
-            task_name,
-            task_version,
-            step_name,
-            step_payload,
-            execution_context,
+            step_id: params.step_id,
+            task_id: params.task_id,
+            namespace: params.namespace,
+            task_name: params.task_name,
+            task_version: params.task_version,
+            step_name: params.step_name,
+            step_payload: params.step_payload,
+            execution_context: params.execution_context,
             metadata,
         }
     }

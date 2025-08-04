@@ -105,6 +105,7 @@ ruby-ffi = ["magnus"]
 python-ffi = ["pyo3"]
 wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 benchmarks = ["criterion"]
+test-helpers = []
 
 [[bench]]
 name = "orchestration_benchmarks"

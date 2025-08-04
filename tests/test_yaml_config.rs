@@ -4,7 +4,6 @@
 
 use tasker_core::orchestration::config::ConfigurationManager;
 
-use tasker_core::orchestration::OrchestrationSystem;
 const TEST_CONFIG_YAML: &str = r#"
 auth:
   authentication_enabled: false
@@ -17,16 +16,16 @@ orchestration:
   task_requests_queue_name: "test_task_requests_queue"
   orchestrator_id: "test-orchestrator-123"
   tasks_per_cycle: 10
-  cycle_interval_seconds: 2
+  cycle_interval_ms: 2000
   max_cycles: 5
-  task_request_polling_interval_seconds: 2
+  task_request_polling_interval_ms: 2000
   task_request_visibility_timeout_seconds: 600
   task_request_batch_size: 20
   max_concurrent_orchestrators: 5
   enable_performance_logging: true
   enable_heartbeat: true
   default_claim_timeout_seconds: 600
-  heartbeat_interval_seconds: 30
+  heartbeat_interval_ms: 30000
   active_namespaces:
     - "test_fulfillment"
     - "test_inventory"
@@ -62,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("test-orchestrator-123".to_string())
     );
     assert_eq!(tasker_config.orchestration.tasks_per_cycle, 10);
-    assert_eq!(tasker_config.orchestration.cycle_interval_seconds, 2);
+    assert_eq!(tasker_config.orchestration.cycle_interval_ms, 2000);
     assert_eq!(tasker_config.orchestration.max_cycles, Some(5));
     assert_eq!(tasker_config.orchestration.enable_performance_logging, true);
     assert_eq!(tasker_config.orchestration.active_namespaces.len(), 3);

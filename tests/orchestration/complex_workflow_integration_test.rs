@@ -17,7 +17,7 @@ async fn create_test_task_with_initializer(
     workflow_type: &str,
     test_description: &str,
 ) -> Result<tasker_core::orchestration::TaskInitializationResult, Box<dyn std::error::Error>> {
-    let initializer = TaskInitializer::new(pool.clone());
+    let initializer = TaskInitializer::for_testing(pool.clone());
 
     let task_request = TaskRequest::new(task_name.to_string(), "integration".to_string())
         .with_context(json!({

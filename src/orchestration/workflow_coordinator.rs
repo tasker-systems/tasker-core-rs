@@ -249,7 +249,7 @@ impl WorkflowCoordinator {
 
 
     /// Create a WorkflowCoordinator for testing with minimal setup
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-helpers"))]
     pub async fn for_testing(pool: sqlx::PgPool) -> Self {
         let config = WorkflowCoordinatorConfig::default();
         let config_manager = Arc::new(ConfigurationManager::new());
@@ -259,16 +259,17 @@ impl WorkflowCoordinator {
         Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
 
-    /// Create a WorkflowCoordinator for testing with timeout configuration
-    #[cfg(test)]  
+    #[cfg(any(test, feature = "test-helpers"))]
     pub async fn for_testing_with_timeout(pool: sqlx::PgPool, timeout_seconds: u64) -> Self {
-        let config = WorkflowCoordinatorConfig::for_testing_with_timeout(timeout_seconds);
+        let mut config = WorkflowCoordinatorConfig::default();
+        config.max_workflow_duration = std::time::Duration::from_secs(timeout_seconds);
         let config_manager = Arc::new(ConfigurationManager::new());
         let event_publisher = crate::events::EventPublisher::new();
         let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);
         
         Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
+
 
     /// Execute a complete task workflow
     ///
@@ -380,8 +381,7 @@ impl WorkflowCoordinator {
     ) -> OrchestrationResult<()> {
         let mut consecutive_empty_discoveries = 0;
         // Discover and process viable steps
-        let batch_results = self
-            .discover_and_process_steps(task_id, metrics, &mut consecutive_empty_discoveries)
+        self.discover_and_process_steps(task_id, metrics, &mut consecutive_empty_discoveries)
             .await?;
         // Continue loop for next discovery iteration
         debug!(
@@ -389,7 +389,7 @@ impl WorkflowCoordinator {
             "Continuing workflow loop - no break condition met"
         );
 
-        Ok(batch_results)
+        Ok(())
     }
 
     /// Discover viable steps and process them
@@ -420,11 +420,10 @@ impl WorkflowCoordinator {
 
         // Handle empty discovery
         if viable_steps.is_empty() {
-            let discovery_result = self
-                .handle_empty_discovery(task_id, consecutive_empty_discoveries)
+            self.handle_empty_discovery(task_id, consecutive_empty_discoveries)
                 .await?;
 
-            return Ok(discovery_result);
+            return Ok(());
         }
 
         // Reset counter when we find steps
@@ -659,7 +658,7 @@ impl WorkflowCoordinator {
             .await
             .map_err(|e| OrchestrationError::DatabaseError {
                 operation: "load_task_for_step_enqueueing".to_string(),
-                reason: format!("Failed to load task: {}", e),
+                reason: format!("Failed to load task: {e}"),
             })?
             .ok_or_else(|| OrchestrationError::TaskExecutionFailed {
                 task_id,
@@ -673,7 +672,7 @@ impl WorkflowCoordinator {
             .await
             .map_err(|e| OrchestrationError::DatabaseError {
                 operation: "get_task_orchestration_info".to_string(),
-                reason: format!("Failed to get task orchestration info: {}", e),
+                reason: format!("Failed to get task orchestration info: {e}"),
             })?;
 
         let mut all_results = Vec::new();
@@ -698,7 +697,7 @@ impl WorkflowCoordinator {
                             "timestamp": chrono::Utc::now().to_rfc3339()
                         }),
                         execution_duration: std::time::Duration::from_millis(1),
-                        error_message: Some(format!("Individual step enqueue failed: {}", e)),
+                        error_message: Some(format!("Individual step enqueue failed: {e}")),
                         retry_after: Some(std::time::Duration::from_secs(30)),
                         error_code: Some("INDIVIDUAL_STEP_ENQUEUE_FAILED".to_string()),
                         error_context: None,
@@ -797,7 +796,7 @@ impl WorkflowCoordinator {
         );
 
         // Determine the target queue name (namespace-specific)
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("{namespace}_queue");
 
         // Enqueue the individual step message
         let enqueue_time = chrono::Utc::now();
@@ -851,7 +850,7 @@ impl WorkflowCoordinator {
                 Err(OrchestrationError::StepExecutionFailed {
                     step_id: step.step_id,
                     task_id,
-                    reason: format!("Failed to enqueue step to {}: {}", queue_name, e),
+                    reason: format!("Failed to enqueue step to {queue_name}: {e}"),
                     error_code: Some("STEP_ENQUEUE_FAILED".to_string()),
                     retry_after: Some(std::time::Duration::from_secs(30)),
                 })
@@ -872,7 +871,7 @@ impl WorkflowCoordinator {
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
             operation: "load_workflow_step_for_dependencies".to_string(),
-            reason: format!("Failed to load workflow step: {}", e),
+            reason: format!("Failed to load workflow step: {e}"),
         })?
         .ok_or_else(|| OrchestrationError::StepExecutionFailed {
             step_id,
@@ -888,7 +887,7 @@ impl WorkflowCoordinator {
             .await
             .map_err(|e| OrchestrationError::DatabaseError {
                 operation: "load_step_dependencies".to_string(),
-                reason: format!("Failed to load step dependencies: {}", e),
+                reason: format!("Failed to load step dependencies: {e}"),
             })?;
 
         // Convert to StepDependencyResult
