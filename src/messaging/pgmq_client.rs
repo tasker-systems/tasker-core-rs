@@ -43,6 +43,7 @@ impl PgmqClient {
         Ok(Self { pgmq })
     }
 
+
     /// Create new pgmq client using existing connection pool (BYOP - Bring Your Own Pool)
     pub async fn new_with_pool(pool: sqlx::PgPool) -> Self {
         info!("🚀 Creating pgmq client with shared connection pool");

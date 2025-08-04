@@ -143,6 +143,8 @@ impl SharedTestingFactory {
                 tags: Some(json!({"test": true, "shared_factory": true})),
                 context: Some(input.context.unwrap_or_else(|| json!({"test": true}))),
                 identity_hash: format!("task_{}", chrono::Utc::now().timestamp_millis()),
+                claim_timeout_seconds: None,
+                priority: None,
             };
 
             match Task::create(pool, new_task).await {

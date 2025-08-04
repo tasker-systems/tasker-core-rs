@@ -9,7 +9,7 @@
 //! - Same pgmq-based architecture, just running in-process
 //! - Ruby tests can start embedded orchestrator, run tests, stop orchestrator
 
-use tasker_core::ffi::shared::orchestration_system_pgmq::OrchestrationSystemPgmq;
+use tasker_core::ffi::shared::orchestration_system::OrchestrationSystem;
 use magnus::{function, prelude::*, Error, RHash, RModule, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -20,7 +20,7 @@ static EMBEDDED_SYSTEM: Mutex<Option<EmbeddedOrchestrationHandle>> = Mutex::new(
 
 /// Handle for managing embedded orchestration system lifecycle
 struct EmbeddedOrchestrationHandle {
-    system: Arc<OrchestrationSystemPgmq>,
+    system: Arc<OrchestrationSystem>,
     shutdown_sender: Option<oneshot::Sender<()>>,
     runtime_handle: tokio::runtime::Handle,
 }
@@ -28,7 +28,7 @@ struct EmbeddedOrchestrationHandle {
 impl EmbeddedOrchestrationHandle {
     /// Create new embedded handle
     fn new(
-        system: Arc<OrchestrationSystemPgmq>,
+        system: Arc<OrchestrationSystem>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
     ) -> Self {
@@ -106,7 +106,7 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
 
     // Initialize orchestration system
     let system = rt.block_on(async {
-        OrchestrationSystemPgmq::new().await.map_err(|e| {
+        OrchestrationSystem::new().await.map_err(|e| {
             error!("Failed to initialize orchestration system: {}", e);
             format!("System initialization failed: {}", e)
         })

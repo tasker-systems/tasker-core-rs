@@ -22,13 +22,14 @@ module TaskerCore
       DEFAULT_MAX_RETRIES = 3
       DEFAULT_SHUTDOWN_TIMEOUT = 30  # seconds
 
-      attr_reader :namespace, :queue_name, :pgmq_client, :sql_functions, :logger,
+      attr_reader :namespace, :queue_name, :pgmq_client, :sql_functions, :step_handler_registry, :logger,
                   :poll_interval, :visibility_timeout, :batch_size, :max_retries,
                   :running, :shutdown_timeout
 
       def initialize(namespace,
                      pgmq_client: nil,
                      sql_functions: nil,
+                     step_handler_registry: nil,
                      logger: nil,
                      poll_interval: DEFAULT_POLL_INTERVAL,
                      visibility_timeout: DEFAULT_VISIBILITY_TIMEOUT,
@@ -39,6 +40,7 @@ module TaskerCore
         @queue_name = "#{namespace}_queue"
         @pgmq_client = pgmq_client || PgmqClient.new
         @sql_functions = sql_functions || TaskerCore::Database::SqlFunctions.new
+        @step_handler_registry = step_handler_registry || TaskerCore::Registry.step_handler_registry
         @logger = logger || TaskerCore::Logging::Logger.instance
 
         # Configuration
@@ -174,7 +176,7 @@ module TaskerCore
         end
       end
 
-      # Check if worker can handle a specific step
+      # Check if worker can handle a specific step using database-backed configuration
       #
       # @param step_message [TaskerCore::Types::StepMessage] Step message to check
       # @return [Boolean] true if this worker can handle the step
@@ -182,14 +184,14 @@ module TaskerCore
         # Basic namespace matching
         return false unless step_message.namespace == namespace
 
-        # Check if we have a handler for this step
-        handler_class = find_step_handler_class(step_message.step_name)
+        # Use registry to check if handler is available (database-backed)
+        can_handle = step_handler_registry.can_handle_step?(step_message)
 
-        if handler_class
-          logger.debug("✅ QUEUE_WORKER: Can handle step: #{step_message.step_name} (#{handler_class})")
+        if can_handle
+          logger.debug("✅ QUEUE_WORKER: Can handle step: #{step_message.step_name} (database-backed)")
           true
         else
-          logger.debug("❌ QUEUE_WORKER: No handler found for step: #{step_message.step_name}")
+          logger.debug("❌ QUEUE_WORKER: No handler found for step: #{step_message.step_name} (database-backed)")
           false
         end
       end
@@ -201,7 +203,7 @@ module TaskerCore
       # @return [Boolean] true if execution context is complete
       def can_extract_execution_context?(step_message)
         return false unless step_message.namespace == namespace
-        return false unless find_step_handler_class(step_message.step_name)
+        return false unless step_handler_registry.can_handle_step?(step_message)
 
         # Validate execution context has required data
         execution_context = step_message.execution_context
@@ -304,11 +306,12 @@ module TaskerCore
         end
       end
 
-      # Execute the appropriate step handler for the message
+      # Execute the appropriate step handler using database-backed configuration
       def execute_step_handler(step_message)
-        handler_class = find_step_handler_class(step_message.step_name)
+        # Use registry to resolve handler (database-backed)
+        resolved_handler = step_handler_registry.resolve_step_handler(step_message)
 
-        unless handler_class
+        unless resolved_handler
           error = TaskerCore::Types::StepExecutionError.new(
             error_type: 'HandlerNotFound',
             message: "No handler found for step: #{step_message.step_name}",
@@ -323,11 +326,12 @@ module TaskerCore
           )
         end
 
-        # Create handler instance and execute
-        handler = handler_class.new
         start_time = Time.now
 
         begin
+          # Create handler instance with proper configuration from database
+          handler = step_handler_registry.create_handler_instance(resolved_handler)
+
           # Extract (task, sequence, step) from execution context
           execution_context = step_message.execution_context
           task = execution_context.task
@@ -371,9 +375,10 @@ module TaskerCore
       # @param step_message [TaskerCore::Types::StepMessage] Step message with execution context
       # @return [TaskerCore::Types::StepResult] Enhanced result with orchestration metadata
       def execute_step_handler_with_metadata(step_message)
-        handler_class = find_step_handler_class(step_message.step_name)
+        # Use registry to resolve handler (database-backed)
+        resolved_handler = step_handler_registry.resolve_step_handler(step_message)
 
-        unless handler_class
+        unless resolved_handler
           error = TaskerCore::Types::StepExecutionError.new(
             error_type: 'HandlerNotFound',
             message: "No handler found for step: #{step_message.step_name}",
@@ -394,11 +399,12 @@ module TaskerCore
         sequence = execution_context.dependencies  # Use the convenient wrapper
         step = execution_context.step
 
-        # Create handler instance and execute with new interface
-        handler = handler_class.new
         start_time = Time.now
 
         begin
+          # Create handler instance with proper configuration from database
+          handler = step_handler_registry.create_handler_instance(resolved_handler)
+
           # Execute with enhanced (task, sequence, step) interface
           handler_result = handler.call(task, sequence, step)
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
@@ -469,26 +475,6 @@ module TaskerCore
         # pgmq_client.send_json_message('orchestration_step_results', result.to_hash)
       end
 
-      # Find the step handler class for a step name
-      def find_step_handler_class(step_name)
-        # Convert step_name to class name (e.g., "validate_order" -> "ValidateOrderHandler")
-        class_name = step_name.split('_').map(&:capitalize).join + 'Handler'
-
-        # Try to find the handler class in various namespaces
-        [
-          "#{namespace.capitalize}::StepHandlers::#{class_name}",
-          "StepHandlers::#{class_name}",
-          class_name
-        ].each do |full_class_name|
-          begin
-            return Object.const_get(full_class_name)
-          rescue NameError
-            # Continue searching
-          end
-        end
-
-        nil
-      end
 
       # Ensure the queue exists for this namespace
       def ensure_queue_exists

@@ -3,12 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tasker_core::orchestration::errors::OrchestrationError;
 use tasker_core::orchestration::types::{FrameworkIntegration, TaskContext};
-use tasker_core::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
+use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
 use tasker_core::orchestration::TaskOrchestrationResult;
-use tasker_core::orchestration::config::ConfigurationManager;
-use tasker_core::events::EventPublisher;
-use tasker_core::registry::task_handler_registry::TaskHandlerRegistry;
-use tasker_core::messaging::PgmqClient;
 
 /// Mock framework for testing workflow coordination
 #[allow(dead_code)]
@@ -61,21 +57,8 @@ async fn test_workflow_coordinator_basic_execution(pool: sqlx::PgPool) {
     // 4. Handle state transitions
     // 5. Return appropriate results
 
-    // Create required dependencies for WorkflowCoordinator
-    let config = WorkflowCoordinatorConfig::default();
-    let config_manager = Arc::new(ConfigurationManager::new());
-    let event_publisher = EventPublisher::new();
-    let shared_registry = TaskHandlerRegistry::new(pool.clone());
-    let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
-    
-    let coordinator = WorkflowCoordinator::new(
-        pool.clone(),
-        config,
-        config_manager,
-        event_publisher,
-        shared_registry,
-        pgmq_client,
-    );
+    // Use the test helper for easier setup
+    let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
     let _framework = Arc::new(MockWorkflowFramework::new(false));
 
     // Create a test task (would need factory support)

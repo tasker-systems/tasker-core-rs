@@ -40,15 +40,12 @@ pub mod orchestration_system;
 pub mod result_processor;
 pub mod state_manager;
 pub mod step_enqueuer;
-pub mod step_execution_orchestrator;
-pub mod step_handler;
 pub mod step_result_processor;
 pub mod system_events;
 pub mod task_claimer;
 pub mod task_config_finder;
 pub mod task_enqueuer;
 pub mod task_finalizer;
-pub mod task_handler;
 pub mod task_initializer;
 pub mod task_request_processor;
 pub mod types;
@@ -111,15 +108,7 @@ pub use handler_config::{
 };
 pub use result_processor::{OrchestrationResultProcessor, StepError};
 pub use state_manager::StateManager;
-pub use step_execution_orchestrator::{
-    StepExecutionOrchestrator, StepExecutionOrchestratorBuilder,
-};
-pub use step_handler::{
-    BaseStepHandler, ExecutionStatus, StepExecutionContext, StepExecutionEvent, StepHandler,
-    StepHandlerExecutor, StepHandlerFactory, StepResult,
-};
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
 };
-pub use task_handler::{BaseTaskHandler, TaskExecutionContext, TaskHandler, TaskHandlerFactory};
 pub use types::*;

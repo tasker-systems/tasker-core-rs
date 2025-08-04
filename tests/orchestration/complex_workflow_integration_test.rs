@@ -188,7 +188,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
     }
 
     // Create a WorkflowCoordinator optimized for testing (2-second timeout)
-    let coordinator = WorkflowCoordinator::for_testing_with_timeout(pool.clone(), 1);
+    let coordinator = WorkflowCoordinator::for_testing_with_timeout(pool.clone(), 1).await;
 
     // Try to create our mock framework integration
     let mock_integration = MockFrameworkIntegration::new();
@@ -198,7 +198,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
     let orchestration_result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        coordinator.execute_task_workflow(task_id, Arc::new(mock_integration)),
+        coordinator.execute_task_workflow(task_id),
     )
     .await;
 
@@ -223,7 +223,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 #[sqlx::test]
 async fn test_workflow_coordinator_compilation(pool: PgPool) -> sqlx::Result<()> {
     // Simplified test to check WorkflowCoordinator can be instantiated
-    let _coordinator = WorkflowCoordinator::new(pool.clone());
+    let _coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     println!("WorkflowCoordinator instantiated successfully");
     Ok(())
@@ -326,12 +326,11 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     println!("Created dependencies: A→B→C→D");
 
     // Test orchestration execution
-    let coordinator = WorkflowCoordinator::new(pool.clone());
-    let mock_integration = MockFrameworkIntegration::new();
+    let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
     let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .execute_task_workflow(task_result.task_id)
         .await;
 
     match orchestration_result {
@@ -452,12 +451,11 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     println!("Created diamond dependencies: A→(B,C)→D");
 
     // Test orchestration execution
-    let coordinator = WorkflowCoordinator::new(pool.clone());
-    let mock_integration = MockFrameworkIntegration::new();
+    let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
     let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .execute_task_workflow(task_result.task_id)
         .await;
 
     match orchestration_result {
@@ -686,12 +684,11 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     println!("Created tree dependencies: 3-level hierarchical structure with 10 steps");
 
     // Test orchestration execution
-    let coordinator = WorkflowCoordinator::new(pool.clone());
-    let mock_integration = MockFrameworkIntegration::new();
+    let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
     let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id, Arc::new(mock_integration))
+        .execute_task_workflow(task_result.task_id)
         .await;
 
     match orchestration_result {

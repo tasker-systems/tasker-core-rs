@@ -52,6 +52,7 @@ require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration dom
 # 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
 require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers
 require_relative 'tasker_core/database'          # TaskerCore::Database - SQL function access
+require_relative 'tasker_core/registry'          # TaskerCore::Registry - database-backed step handler registry
 
 # Core systems - required for domain APIs to function
 require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)

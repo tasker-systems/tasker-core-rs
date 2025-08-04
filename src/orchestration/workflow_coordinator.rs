@@ -247,18 +247,27 @@ impl WorkflowCoordinator {
         }
     }
 
-    /// Create a new workflow coordinator with configuration manager (compatibility method)
-    ///
-    /// This is a compatibility method for code that still uses the old constructor.
-    /// For new code, use the main `new()` constructor.
-    pub fn with_config_manager(
-        _pool: sqlx::PgPool,
-        _config: WorkflowCoordinatorConfig,
-        _config_manager: Arc<ConfigurationManager>,
-    ) -> Result<Self, String> {
-        // This would require a pgmq client, which we don't have in the old signature
-        // Return an error explaining the migration path
-        Err("WorkflowCoordinator::with_config_manager() is deprecated. Use WorkflowCoordinator::new() with a PgmqClient instead.".to_string())
+
+    /// Create a WorkflowCoordinator for testing with minimal setup
+    #[cfg(test)]
+    pub async fn for_testing(pool: sqlx::PgPool) -> Self {
+        let config = WorkflowCoordinatorConfig::default();
+        let config_manager = Arc::new(ConfigurationManager::new());
+        let event_publisher = crate::events::EventPublisher::new();
+        let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);
+        
+        Self::new(pool, config, config_manager, event_publisher, pgmq_client)
+    }
+
+    /// Create a WorkflowCoordinator for testing with timeout configuration
+    #[cfg(test)]  
+    pub async fn for_testing_with_timeout(pool: sqlx::PgPool, timeout_seconds: u64) -> Self {
+        let config = WorkflowCoordinatorConfig::for_testing_with_timeout(timeout_seconds);
+        let config_manager = Arc::new(ConfigurationManager::new());
+        let event_publisher = crate::events::EventPublisher::new();
+        let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);
+        
+        Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
 
     /// Execute a complete task workflow

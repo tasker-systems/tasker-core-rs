@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'database/sql_functions'
+require_relative 'database/connection'
 
 module TaskerCore
   # Database module for SQL function access

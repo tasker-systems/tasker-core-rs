@@ -121,6 +121,7 @@ pub use orchestration::{
     TelemetryConfig,
 };
 pub use registry::{
-    EventSubscriber, HandlerCacheStats, HandlerFactory, Plugin, PluginMetadata, PluginRegistry,
+    EventSubscriber, Plugin, PluginMetadata, PluginRegistry,
     PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,
+    TaskHandlerRegistry,
 };

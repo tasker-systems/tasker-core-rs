@@ -12,7 +12,6 @@
 
 use super::errors::*;
 use super::orchestration_system::OrchestrationSystem;
-use crate::orchestration::types::HandlerMetadata;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -198,10 +197,6 @@ impl SharedOrchestrationHandle {
         self.orchestration_system.database_pool()
     }
 
-    /// Get event publisher from orchestration system (for event functions)
-    pub fn event_publisher(&self) -> &crate::events::EventPublisher {
-        &self.orchestration_system.event_publisher
-    }
 
     // ========================================================================
     // CORE ORCHESTRATION OPERATIONS (language-agnostic)
@@ -212,240 +207,25 @@ impl SharedOrchestrationHandle {
         &self.orchestration_system
     }
 
-    /// Ensure embedded TCP executor container is ready for use
-    /// The container is initialized at orchestration system creation time
-    pub fn ensure_embedded_tcp_executor(
-        &self,
-    ) -> Result<(), crate::ffi::tcp_executor::ServerError> {
-        self.orchestration_system.ensure_embedded_tcp_executor()
-    }
 
-    /// Get testing factory handle for language bindings
-    pub fn testing_factory(&self) -> Arc<super::testing::SharedTestingFactory> {
-        super::testing::get_global_testing_factory()
-    }
 
-    /// Register handler using shared types
-    pub fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()> {
-        // Use validate_or_refresh for production resilience - auto-recover from expired handles
-        let _validated_handle = self.validate_or_refresh()?;
 
-        let result: Result<(), crate::error::TaskerError> =
-            super::orchestration_system::execute_async(async {
-                // 1. Register FFI handler metadata
-                self.orchestration_system
-                    .task_handler_registry
-                    .register_ffi_handler(
-                        &metadata.namespace,
-                        &metadata.name,
-                        &metadata.version,
-                        &metadata.handler_class,
-                        metadata.config_schema.clone(),
-                    )
-                    .await?;
 
-                // 2. 🚀 NEW: Register TaskTemplate if config_schema is provided
-                // This fixes "No task configuration available" errors by ensuring
-                // TaskConfigFinder can find the task template in the registry
-                if let Some(ref config_json) = metadata.config_schema {
-                    // Convert JSON config to TaskTemplate
-                    match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(
-                        config_json.clone(),
-                    ) {
-                        Ok(task_template) => {
-                            // Register the task template so TaskConfigFinder can find it
-                            if let Err(e) = self
-                                .orchestration_system
-                                .task_handler_registry
-                                .register_task_template(
-                                    &metadata.namespace,
-                                    &metadata.name,
-                                    &metadata.version,
-                                    task_template,
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    namespace = metadata.namespace,
-                                    name = metadata.name,
-                                    version = metadata.version,
-                                    error = %e,
-                                    "Failed to register task template, step execution may fail"
-                                );
-                            } else {
-                                tracing::info!(
-                                    namespace = metadata.namespace,
-                                    name = metadata.name,
-                                    version = metadata.version,
-                                    "Successfully registered task template for TaskConfigFinder"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                namespace = metadata.namespace,
-                                name = metadata.name,
-                                version = metadata.version,
-                                error = %e,
-                                "Failed to parse config_schema as TaskTemplate"
-                            );
-                        }
-                    }
-                }
-
-                Ok(())
-            });
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(SharedFFIError::HandlerRegistrationFailed(e.to_string())),
-        }
-    }
-
-    /// Find handler by namespace, name, and version
-    pub fn find_handler(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> SharedFFIResult<Option<HandlerMetadata>> {
-        // Use validate_or_refresh for production resilience - auto-recover from expired handles
-        let _validated_handle = self.validate_or_refresh()?;
-
-        // Access the task handler registry directly through orchestration system
-        match self
-            .orchestration_system
-            .task_handler_registry
-            .get_handler_metadata(namespace, name, version)
-        {
-            Ok(metadata) => Ok(Some(metadata)),
-            Err(_) => Ok(None), // Handler not found - return None instead of error for graceful handling
-        }
-    }
-
-    /// Find handler from task request structure
-    pub fn find_handler_from_request(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> SharedFFIResult<Option<HandlerMetadata>> {
-        self.find_handler(namespace, name, version)
-    }
 
     // ========================================================================
     // ORCHESTRATION SYSTEM ACCESS (for language bindings)
     // ========================================================================
 
-    /// Get analytics manager for performance operations
-    pub fn analytics_manager(&self) -> Arc<super::analytics::SharedAnalyticsManager> {
-        super::analytics::get_global_analytics_manager()
-    }
 
-    /// Get event bridge for cross-language event operations
-    pub fn event_bridge(&self) -> Arc<super::event_bridge::SharedEventBridge> {
-        super::event_bridge::get_global_event_bridge()
-    }
 
     // ========================================================================
     // ZEROMQ BATCH PROCESSING (for Ruby orchestration integration)
     // ========================================================================
 
-    /// Check if TCP executor is enabled and available
-    pub fn is_tcp_executor_enabled(&self) -> SharedFFIResult<bool> {
-        let _validated_handle = self.validate_or_refresh()?;
-        Ok(self
-            .orchestration_system
-            .is_embedded_tcp_executor_available())
-    }
 
-    /// Receive result messages from TCP executor (placeholder for future implementation)
-    pub fn receive_results(&self) -> SharedFFIResult<Vec<serde_json::Value>> {
-        let _validated_handle = self.validate_or_refresh()?;
 
-        // TODO: Update for TCP executor integration
-        // This would connect to the TCP executor to receive results
-        let results = Vec::new();
 
-        if self
-            .orchestration_system
-            .is_embedded_tcp_executor_available()
-        {
-            Ok(results)
-        } else {
-            Err(SharedFFIError::TcpExecutorNotAvailable(
-                "TCP executor is not available".to_string(),
-            ))
-        }
-    }
 
-    /// Get TCP executor configuration information
-    pub fn tcp_executor_config(&self) -> SharedFFIResult<serde_json::Value> {
-        let _validated_handle = self.validate_or_refresh()?;
-
-        // Return basic TCP executor configuration
-        let config = serde_json::json!({
-            "enabled": true,
-            "bind_address": "127.0.0.1:8080",
-            "command_queue_size": 1000,
-            "connection_timeout_ms": 30000,
-            "graceful_shutdown_timeout_ms": 5000,
-            "max_connections": 100
-        });
-
-        Ok(config)
-    }
-
-    /// List all available handlers with optional namespace filtering
-    /// 
-    /// Uses database-first approach to query active handlers from NamedTask table
-    /// 
-    /// @param namespace Optional namespace filter (None = all namespaces)
-    /// @return Vector of HandlerMetadata for all matching handlers
-    pub async fn list_handlers(&self, namespace: Option<&str>) -> SharedFFIResult<Vec<HandlerMetadata>> {
-        debug!("Listing handlers via SharedOrchestrationHandle with namespace filter: {:?}", namespace);
-
-        let db_pool = self.database_pool();
-        
-        // For now, return a placeholder implementation until database schema is available
-        // This avoids SQLx compile-time checks against non-existent tables
-        let mut handlers = Vec::new();
-        
-        if let Some(_ns) = namespace {
-            debug!("Database-backed list_handlers not yet available (missing schema), returning empty for namespace: {}", _ns);
-        } else {
-            debug!("Database-backed list_handlers not yet available (missing schema), returning empty for all namespaces");
-        }
-        
-        // TODO: Implement once database schema is created:
-        // 1. Query named_tasks table for latest versions per namespace/name
-        // 2. Join with task_namespaces to get namespace names
-        // 3. Convert results to HandlerMetadata structs
-
-        debug!("Found {} handlers for namespace filter: {:?}", handlers.len(), namespace);
-        Ok(handlers)
-    }
-
-    /// Get task metadata by task_id for handler lookup
-    /// 
-    /// @param task_id Task ID to query
-    /// @return TaskMetadata containing namespace, name, and version
-    pub async fn get_task_metadata(&self, task_id: i64) -> SharedFFIResult<Option<TaskMetadata>> {
-        debug!("Getting task metadata for task_id: {}", task_id);
-
-        let _db_pool = self.database_pool();
-        
-        // For now, return None until database schema is available
-        // This avoids SQLx compile-time checks against non-existent tables
-        debug!("Database-backed get_task_metadata not yet available (missing schema), returning None for task_id: {}", task_id);
-        
-        // TODO: Implement once database schema is created:
-        // 1. Query tasks table joined with named_tasks and task_namespaces
-        // 2. Extract namespace, name, version for the given task_id
-        // 3. Return TaskMetadata struct
-        
-        Ok(None)
-    }
 }
 
 /// Task metadata for handler lookup
@@ -469,16 +249,6 @@ pub struct HandleInfo {
     pub status: String,
 }
 
-/// Trait that language bindings should implement for their handle types
-pub trait SharedOrchestrationHandleTrait {
-    fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()>;
-}
-
-impl SharedOrchestrationHandleTrait for SharedOrchestrationHandle {
-    fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()> {
-        self.register_handler(metadata)
-    }
-}
 
 // ===== SHARED CORE HANDLE LOGIC ENDS HERE =====
 // Language bindings should implement their own wrapper types that
