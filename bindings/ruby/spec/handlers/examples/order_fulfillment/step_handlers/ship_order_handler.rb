@@ -148,7 +148,7 @@ module OrderFulfillment
         # Simulate carrier API timeout (3% chance)
         if rand < 0.03
           raise TaskerCore::Errors::TimeoutError.new(
-            "Shipping carrier API timeout",
+            'Shipping carrier API timeout',
             timeout_duration: 60,
             context: { shipment_id: shipment_id, carrier: 'fedex' }
           )
@@ -157,7 +157,7 @@ module OrderFulfillment
         # Simulate network error (2% chance)
         if rand < 0.02
           raise TaskerCore::Errors::NetworkError.new(
-            "Shipping carrier network error",
+            'Shipping carrier network error',
             status_code: 503,
             context: { shipment_id: shipment_id, service: 'shipping_api' }
           )
@@ -166,7 +166,7 @@ module OrderFulfillment
         # Simulate rate limiting (1% chance)
         if rand < 0.01
           raise TaskerCore::Errors::RetryableError.new(
-            "Shipping carrier rate limited",
+            'Shipping carrier rate limited',
             retry_after: 45,
             context: { shipment_id: shipment_id, carrier: 'fedex' }
           )
@@ -185,13 +185,13 @@ module OrderFulfillment
         carrier_info = select_carrier_and_service(method)
 
         # Calculate shipping cost based on items and method
-        total_weight = items.sum { |item| item['quantity'] * 0.5 }  # 0.5 lbs per item
+        total_weight = items.sum { |item| item['quantity'] * 0.5 } # 0.5 lbs per item
         shipping_cost = calculate_shipping_cost(total_weight, method)
 
         # Success case
-        api_response_time = (100 + rand(300)).to_i  # 100-400ms
-        rate_limit_remaining = 50 + rand(50)  # 50-100 remaining calls
-        
+        api_response_time = rand(100..399).to_i # 100-400ms
+        rate_limit_remaining = rand(50..99) # 50-100 remaining calls
+
         {
           tracking_number: generate_tracking_number(carrier_info[:carrier]),
           label_url: "https://labels.#{carrier_info[:carrier].downcase}.com/#{shipment_id}.pdf",
@@ -199,7 +199,7 @@ module OrderFulfillment
           carrier: carrier_info[:carrier],
           service: carrier_info[:service],
           api_response_time: api_response_time,
-          label_generation_time: (50 + rand(100)).to_i,  # 50-150ms
+          label_generation_time: rand(50..149).to_i, # 50-150ms
           rate_limit_remaining: rate_limit_remaining,
           rate_limit_reset_at: rate_limit_remaining < 20 ? (Time.now + 3600).iso8601 : nil
         }
@@ -218,16 +218,16 @@ module OrderFulfillment
 
       def calculate_shipping_cost(weight, method)
         base_cost = case method
-                   when 'overnight'
-                     25.00
-                   when 'express'
-                     15.00
-                   else
-                     8.99
-                   end
+                    when 'overnight'
+                      25.00
+                    when 'express'
+                      15.00
+                    else
+                      8.99
+                    end
 
         # Add weight-based cost
-        weight_cost = [weight - 1, 0].max * 2.50  # $2.50 per lb over 1 lb
+        weight_cost = [weight - 1, 0].max * 2.50 # $2.50 per lb over 1 lb
 
         (base_cost + weight_cost).round(2)
       end
@@ -245,35 +245,33 @@ module OrderFulfillment
 
       def calculate_delivery_estimate(method)
         business_days = case method
-                       when 'overnight'
-                         1
-                       when 'express'
-                         2
-                       else
-                         5
-                       end
+                        when 'overnight'
+                          1
+                        when 'express'
+                          2
+                        else
+                          5
+                        end
 
         # Calculate delivery date (skip weekends)
         delivery_date = Time.now.to_date
         days_added = 0
 
-        while days_added < business_days
-          delivery_date += (1 * 24 * 60 * 60)
-        end
+        delivery_date += (1 * 24 * 60 * 60) while days_added < business_days
 
         delivery_date.iso8601
       end
 
-      def send_shipping_notifications(step, shipping_response)
+      def send_shipping_notifications(step, _shipping_response)
         # Get task configuration to check if notifications are enabled
         # This would be passed from the step configuration
-        send_notifications = true  # Default for this example
+        send_notifications = true # Default for this example
 
         return unless send_notifications
 
         begin
           # Simulate sending email notification
-          puts "Sending shipping notification email"
+          puts 'Sending shipping notification email'
 
           # In real implementation, this would:
           # 1. Send confirmation email to customer
@@ -284,10 +282,9 @@ module OrderFulfillment
           # Add notification info to step results
           step.results['notifications_sent'] = {
             email_sent: true,
-            sms_sent: false,  # Not implemented in this example
+            sms_sent: false, # Not implemented in this example
             notification_timestamp: Time.now.iso8601
           }
-
         rescue StandardError => e
           # Don't fail the entire step if notifications fail
           puts "Failed to send shipping notifications: #{e.message}"

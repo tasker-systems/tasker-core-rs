@@ -37,15 +37,15 @@ class BatchWorkerCLI
     parse_options(args)
     setup_logging
     load_config_file if @options[:config_file]
-    
-    puts "🚀 Starting Tasker Core Batch Workers"
+
+    puts '🚀 Starting Tasker Core Batch Workers'
     puts "Namespaces: #{@options[:namespaces].join(', ')}"
     puts "Workers per namespace: #{@options[:workers_per_namespace]}"
     puts "Log level: #{@options[:log_level]}"
-    
+
     daemonize if @options[:daemonize]
     write_pid_file if @options[:pid_file]
-    
+
     # Create and start the worker manager
     manager_config = {
       namespaces: @options[:namespaces],
@@ -64,19 +64,18 @@ class BatchWorkerCLI
       monitoring_enabled: @options[:monitoring] != false,
       monitoring_interval_seconds: @options[:monitoring_interval] || 30
     }
-    
+
     @manager = TaskerCore::Messaging::BatchWorkerManager.new(manager_config)
-    
+
     # Setup graceful shutdown
     setup_signal_handlers
-    
+
     # Start the manager (this will block)
     @manager.start
-    
   rescue Interrupt
     puts "\n👋 Received interrupt signal, shutting down gracefully..."
     shutdown
-  rescue => e
+  rescue StandardError => e
     puts "❌ Error: #{e.message}"
     puts e.backtrace.join("\n") if @options[:log_level] == :debug
     exit(1)
@@ -88,82 +87,82 @@ class BatchWorkerCLI
 
   def parse_options(args)
     parser = OptionParser.new do |opts|
-      opts.banner = "Usage: #{$0} [options]"
-      opts.separator ""
-      opts.separator "Batch Worker Options:"
+      opts.banner = "Usage: #{$PROGRAM_NAME} [options]"
+      opts.separator ''
+      opts.separator 'Batch Worker Options:'
 
-      opts.on("-n", "--namespaces NAMESPACES", Array, 
-              "Comma-separated list of namespaces to process") do |namespaces|
+      opts.on('-n', '--namespaces NAMESPACES', Array,
+              'Comma-separated list of namespaces to process') do |namespaces|
         @options[:namespaces] = namespaces
       end
 
-      opts.on("-w", "--workers COUNT", Integer,
-              "Number of workers per namespace (default: 2)") do |workers|
+      opts.on('-w', '--workers COUNT', Integer,
+              'Number of workers per namespace (default: 2)') do |workers|
         @options[:workers_per_namespace] = workers
       end
 
-      opts.on("-c", "--config FILE", String,
-              "Load configuration from YAML file") do |config_file|
+      opts.on('-c', '--config FILE', String,
+              'Load configuration from YAML file') do |config_file|
         @options[:config_file] = config_file
       end
 
-      opts.separator ""
-      opts.separator "Queue Options:"
+      opts.separator ''
+      opts.separator 'Queue Options:'
 
-      opts.on("--polling-interval SECONDS", Integer,
-              "Polling interval in seconds (default: 1)") do |interval|
+      opts.on('--polling-interval SECONDS', Integer,
+              'Polling interval in seconds (default: 1)') do |interval|
         @options[:polling_interval] = interval
       end
 
-      opts.on("--batch-size SIZE", Integer,
-              "Number of messages to read per batch (default: 5)") do |size|
+      opts.on('--batch-size SIZE', Integer,
+              'Number of messages to read per batch (default: 5)') do |size|
         @options[:batch_size] = size
       end
 
-      opts.on("--visibility-timeout SECONDS", Integer,
-              "Message visibility timeout in seconds (default: 300)") do |timeout|
+      opts.on('--visibility-timeout SECONDS', Integer,
+              'Message visibility timeout in seconds (default: 300)') do |timeout|
         @options[:visibility_timeout] = timeout
       end
 
-      opts.on("--max-concurrent-steps COUNT", Integer,
-              "Maximum concurrent steps per batch (default: 4)") do |count|
+      opts.on('--max-concurrent-steps COUNT', Integer,
+              'Maximum concurrent steps per batch (default: 4)') do |count|
         @options[:max_concurrent_steps] = count
       end
 
-      opts.on("--results-queue QUEUE", String,
-              "Results queue name (default: orchestration_batch_results)") do |queue|
+      opts.on('--results-queue QUEUE', String,
+              'Results queue name (default: orchestration_batch_results)') do |queue|
         @options[:results_queue] = queue
       end
 
-      opts.separator ""
-      opts.separator "Process Options:"
+      opts.separator ''
+      opts.separator 'Process Options:'
 
-      opts.on("-d", "--daemonize", "Run as daemon") do
+      opts.on('-d', '--daemonize', 'Run as daemon') do
         @options[:daemonize] = true
       end
 
-      opts.on("-p", "--pid-file FILE", String, "Write PID to file") do |file|
+      opts.on('-p', '--pid-file FILE', String, 'Write PID to file') do |file|
         @options[:pid_file] = file
       end
 
-      opts.on("-l", "--log-level LEVEL", String,
-              "Log level: debug, info, warn, error (default: info)") do |level|
+      opts.on('-l', '--log-level LEVEL', String,
+              'Log level: debug, info, warn, error (default: info)') do |level|
         @options[:log_level] = level.to_sym
       end
 
-      opts.on("--no-monitoring", "Disable worker monitoring") do
+      opts.on('--no-monitoring', 'Disable worker monitoring') do
         @options[:monitoring] = false
       end
 
-      opts.separator ""
-      opts.separator "Help:"
+      opts.separator ''
+      opts.separator 'Help:'
 
-      opts.on("-h", "--help", "Show this help") do
+      opts.on('-h', '--help', 'Show this help') do
         puts opts
         exit
       end
 
-      opts.on("--version", "Show version") do
+      opts.on('--version', 'Show version') do
         puts "Tasker Core Batch Worker v#{TaskerCore::VERSION || '0.1.0'}"
         exit
       end
@@ -180,7 +179,7 @@ class BatchWorkerCLI
 
     config = YAML.load_file(@options[:config_file])
     @options.merge!(symbolize_keys(config))
-  rescue => e
+  rescue StandardError => e
     puts "❌ Error loading config file: #{e.message}"
     exit(1)
   end
@@ -203,42 +202,42 @@ class BatchWorkerCLI
                    when :error then Logger::ERROR
                    else Logger::INFO
                    end
-    
+
     # Set logger format
     logger.formatter = proc do |severity, datetime, progname, msg|
       "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity.ljust(5)} #{progname}: #{msg}\n"
     end
-    
+
     # Make logger available globally (if needed)
     @logger = logger
   end
 
   def daemonize
     return if @options[:daemonize] != true
-    
-    puts "🔄 Daemonizing process..."
-    
+
+    puts '🔄 Daemonizing process...'
+
     # Fork and exit parent
     exit if fork
-    
+
     # Become session leader
     Process.setsid
-    
+
     # Fork again and exit parent
     exit if fork
-    
+
     # Change directory
     Dir.chdir('/')
-    
+
     # Redirect streams
-    $stdin.reopen('/dev/null')
-    $stdout.reopen('/dev/null', 'w')
-    $stderr.reopen('/dev/null', 'w')
+    $stdin.reopen(File::NULL)
+    $stdout.reopen(File::NULL, 'w')
+    $stderr.reopen(File::NULL, 'w')
   end
 
   def write_pid_file
     return unless @options[:pid_file]
-    
+
     File.write(@options[:pid_file], Process.pid)
     puts "📝 PID written to #{@options[:pid_file]}"
   end
@@ -251,12 +250,12 @@ class BatchWorkerCLI
         exit(0)
       end
     end
-    
+
     # Handle USR1 for stats
     Signal.trap('USR1') do
       print_statistics
     end
-    
+
     # Handle USR2 for health check
     Signal.trap('USR2') do
       print_health_check
@@ -265,21 +264,21 @@ class BatchWorkerCLI
 
   def shutdown
     return unless @manager
-    
-    puts "⏹️  Stopping worker manager..."
+
+    puts '⏹️  Stopping worker manager...'
     @manager.stop
-    puts "✅ Worker manager stopped"
+    puts '✅ Worker manager stopped'
   end
 
   def cleanup
-    if @options[:pid_file] && File.exist?(@options[:pid_file])
-      File.delete(@options[:pid_file])
-    end
+    return unless @options[:pid_file] && File.exist?(@options[:pid_file])
+
+    File.delete(@options[:pid_file])
   end
 
   def print_statistics
     return unless @manager
-    
+
     stats = @manager.statistics
     puts "\n📊 Worker Statistics:"
     puts "Manager: #{stats[:manager][:running] ? 'Running' : 'Stopped'}"
@@ -289,7 +288,7 @@ class BatchWorkerCLI
     puts "Total failed batches: #{stats[:totals][:failed_batches]}"
     puts "Total failed steps: #{stats[:totals][:failed_steps]}"
     puts "Active workers: #{stats[:totals][:active_workers]}"
-    
+
     stats[:namespaces].each do |namespace, namespace_stats|
       puts "\n#{namespace.capitalize}:"
       puts "  Workers: #{namespace_stats[:workers].size}"
@@ -302,22 +301,20 @@ class BatchWorkerCLI
 
   def print_health_check
     return unless @manager
-    
+
     health = @manager.health_check
     puts "\n🏥 Health Check:"
     puts "Status: #{health[:status].upcase}"
     puts "Message: #{health[:message]}"
     puts "Healthy workers: #{health[:healthy_workers]}/#{health[:total_workers]}" if health[:total_workers]
-    
-    if health[:unhealthy_workers]&.any?
-      puts "Unhealthy workers: #{health[:unhealthy_workers].join(', ')}"
-    end
+
+    puts "Unhealthy workers: #{health[:unhealthy_workers].join(', ')}" if health[:unhealthy_workers]&.any?
     puts
   end
 end
 
 # Run the CLI if this file is executed directly
-if __FILE__ == $0
+if __FILE__ == $PROGRAM_NAME
   cli = BatchWorkerCLI.new
   cli.run(ARGV)
 end

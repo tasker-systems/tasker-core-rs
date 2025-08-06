@@ -78,6 +78,18 @@ pub fn shared_error_to_ruby(error: SharedFFIError) -> Error {
             format!("Serialization error: {msg}"),
         ),
         SharedFFIError::InvalidBatchData(msg) => validation_error(msg),
+        SharedFFIError::EnvironmentNotSafe(msg) => Error::new(
+            exception::standard_error(),
+            format!("Environment not safe for destructive operations: {msg}"),
+        ),
+        SharedFFIError::MigrationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Database migration failed: {msg}"),
+        ),
+        SharedFFIError::QueueOperationFailed(msg) => Error::new(
+            exception::standard_error(),
+            format!("Queue operation failed: {msg}"),
+        ),
     }
 }
 

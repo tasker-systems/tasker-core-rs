@@ -8,7 +8,7 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
       {
         namespace: 'fulfillment',
         name: 'process_order',
-        context: { order_id: 12345 },
+        context: { order_id: 12_345 },
         initiator: 'test_user',
         source_system: 'test_suite',
         reason: 'testing new fields'
@@ -32,14 +32,14 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
     end
 
     context 'with custom priority and claim timeout' do
+      subject { described_class.new(custom_attributes) }
+
       let(:custom_attributes) do
         basic_attributes.merge(
           priority: 10,
           claim_timeout_seconds: 120
         )
       end
-
-      subject { described_class.new(custom_attributes) }
 
       it 'sets the custom priority value' do
         expect(subject.priority).to eq(10)
@@ -82,11 +82,11 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
       described_class.new(
         namespace: 'fulfillment',
         name: 'process_order',
-        context: { order_id: 12345, customer_id: 67890 },
+        context: { order_id: 12_345, customer_id: 67_890 },
         initiator: 'test_user',
         source_system: 'test_suite',
         reason: 'Phase 5.1 distributed orchestration testing',
-        tags: ['test', 'phase_5_1'],
+        tags: %w[test phase_5_1],
         priority: 5,
         claim_timeout_seconds: 90,
         max_retries: 2,
@@ -114,7 +114,7 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
     it 'includes all required core fields' do
       expect(ffi_hash[:namespace]).to eq('fulfillment')
       expect(ffi_hash[:name]).to eq('process_order')
-      expect(ffi_hash[:context]).to eq({ order_id: 12345, customer_id: 67890 })
+      expect(ffi_hash[:context]).to eq({ order_id: 12_345, customer_id: 67_890 })
       expect(ffi_hash[:initiator]).to eq('test_user')
       expect(ffi_hash[:source_system]).to eq('test_suite')
       expect(ffi_hash[:reason]).to eq('Phase 5.1 distributed orchestration testing')
@@ -129,7 +129,7 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
         described_class.new(
           namespace: 'fulfillment',
           name: 'process_order',
-          context: { order_id: 12345 },
+          context: { order_id: 12_345 },
           initiator: 'test_user',
           source_system: 'test_suite',
           reason: 'testing default values'
@@ -139,8 +139,8 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
 
       it 'includes default values in FFI hash' do
         hash = task_request_with_defaults.to_ffi_hash
-        expect(hash[:priority]).to eq(0)  # Default priority
-        expect(hash[:claim_timeout_seconds]).to eq(60)  # Default claim timeout
+        expect(hash[:priority]).to eq(0) # Default priority
+        expect(hash[:claim_timeout_seconds]).to eq(60) # Default claim timeout
       end
     end
   end
@@ -199,12 +199,12 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
       described_class.new(
         namespace: 'fulfillment',
         name: 'urgent_order',
-        context: { order_id: 99999, urgent: true },
+        context: { order_id: 99_999, urgent: true },
         initiator: 'customer_service',
         source_system: 'support_dashboard',
         reason: 'customer escalation',
-        priority: 100,  # High priority for urgent processing
-        claim_timeout_seconds: 30  # Short timeout for quick recovery
+        priority: 100, # High priority for urgent processing
+        claim_timeout_seconds: 30 # Short timeout for quick recovery
       )
     end
 
@@ -212,7 +212,7 @@ RSpec.describe TaskerCore::Types::TaskTypes::TaskRequest do
       described_class.new(
         namespace: 'fulfillment',
         name: 'regular_order',
-        context: { order_id: 88888 },
+        context: { order_id: 88_888 },
         initiator: 'automated_system',
         source_system: 'order_api',
         reason: 'standard processing'

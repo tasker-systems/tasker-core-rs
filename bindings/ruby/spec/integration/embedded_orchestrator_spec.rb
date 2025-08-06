@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe TaskerCore::EmbeddedOrchestrator do
-  let(:namespaces) { ['fulfillment', 'inventory'] }
+  let(:namespaces) { %w[fulfillment inventory] }
   let(:orchestrator) { described_class.new(namespaces) }
 
   after do
@@ -20,7 +20,7 @@ RSpec.describe TaskerCore::EmbeddedOrchestrator do
 
     it 'defaults to standard namespaces if none provided' do
       default_orchestrator = described_class.new
-      expect(default_orchestrator.namespaces).to eq(['fulfillment', 'inventory', 'notifications'])
+      expect(default_orchestrator.namespaces).to eq(%w[fulfillment inventory notifications])
     end
   end
 
@@ -39,10 +39,10 @@ RSpec.describe TaskerCore::EmbeddedOrchestrator do
     it 'raises error on startup failure' do
       # Mock a startup failure by providing invalid namespaces
       allow(TaskerCore).to receive(:start_embedded_orchestration).and_raise('Test failure')
-      
-      expect {
+
+      expect do
         orchestrator.start
-      }.to raise_error(TaskerCore::OrchestrationError, /Failed to start embedded orchestration/)
+      end.to raise_error(TaskerCore::OrchestrationError, /Failed to start embedded orchestration/)
     end
   end
 
@@ -110,13 +110,13 @@ RSpec.describe TaskerCore::EmbeddedOrchestrator do
   end
 
   describe '#enqueue_steps' do
-    let(:task_id) { 12345 }
+    let(:task_id) { 12_345 }
 
     context 'when not running' do
       it 'raises error' do
-        expect {
+        expect do
           orchestrator.enqueue_steps(task_id)
-        }.to raise_error(TaskerCore::OrchestrationError, /Orchestration system not running/)
+        end.to raise_error(TaskerCore::OrchestrationError, /Orchestration system not running/)
       end
     end
 
@@ -127,18 +127,18 @@ RSpec.describe TaskerCore::EmbeddedOrchestrator do
 
       it 'enqueues steps for the task' do
         # Mock the FFI call to avoid needing actual task data
-        allow(TaskerCore).to receive(:enqueue_task_steps).with(task_id).and_return("Steps enqueued")
-        
+        allow(TaskerCore).to receive(:enqueue_task_steps).with(task_id).and_return('Steps enqueued')
+
         result = orchestrator.enqueue_steps(task_id)
-        expect(result).to eq("Steps enqueued")
+        expect(result).to eq('Steps enqueued')
       end
 
       it 'raises error on enqueueing failure' do
         allow(TaskerCore).to receive(:enqueue_task_steps).and_raise('Enqueueing failed')
-        
-        expect {
+
+        expect do
           orchestrator.enqueue_steps(task_id)
-        }.to raise_error(TaskerCore::OrchestrationError, /Failed to enqueue steps/)
+        end.to raise_error(TaskerCore::OrchestrationError, /Failed to enqueue steps/)
       end
     end
   end
@@ -203,11 +203,11 @@ RSpec.describe TaskerCore::EmbeddedOrchestrator do
     it 'provides consistent status across lifecycle' do
       # Not running
       expect(orchestrator.status[:running]).to be false
-      
+
       # Start
       orchestrator.start
       expect(orchestrator.status[:running]).to be true
-      
+
       # Stop
       orchestrator.stop
       expect(orchestrator.status[:running]).to be false

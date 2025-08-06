@@ -1,6 +1,7 @@
 # Tasker Core Configuration
-# This configuration file mirrors the Rails engine defaults
+# This configuration file provides defaults and environment-specific overrides
 
+# Default configuration (applies to all environments unless overridden)
 auth:
   authentication_enabled: false
   strategy: "none"
@@ -12,12 +13,17 @@ auth:
 database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
-  pool:
-    max_connections: 10
-    min_connections: 1
-    acquire_timeout_seconds: 30
-    idle_timeout_seconds: 300
-    max_lifetime_seconds: 3600
+  # Default database configuration
+  adapter: postgresql
+  encoding: unicode
+  host: localhost
+  username: tasker
+  password: tasker
+  pool: 25
+  variables:
+    statement_timeout: 5000
+  checkout_timeout: 10
+  reaping_frequency: 10
 
 telemetry:
   enabled: false
@@ -30,6 +36,14 @@ engine:
   identity_strategy: "default"
   custom_events_directories:
     - "config/tasker/events"
+
+# TaskTemplate discovery configuration (default/fallback)
+task_templates:
+  # Paths to search for TaskTemplate YAML files
+  # Default configuration - safe production paths only
+  search_paths:
+    - "config/task_templates/*.{yml,yaml}"
+    - "config/tasks/*.{yml,yaml}"
 
 health:
   enabled: true
@@ -67,7 +81,7 @@ execution:
   max_concurrent_steps: 1000
   default_timeout_seconds: 3600
   step_execution_timeout_seconds: 300
-  environment: "development" # Add missing environment field
+  environment: "production"
   max_discovery_attempts: 3
   step_batch_size: 10
 
@@ -108,7 +122,7 @@ query_cache:
 
 # pgmq configuration for PostgreSQL message queue orchestration
 pgmq:
-  poll_interval_ms: 250 # 250ms polling for responsive worker processing (4x/sec)
+  poll_interval_ms: 250 # Standard polling interval for production
   visibility_timeout_seconds: 30 # Keep longer for business logic execution time
   batch_size: 10 # Standard batch size for production
   max_retries: 3 # Standard retry limit
@@ -123,16 +137,16 @@ pgmq:
 orchestration:
   mode: "distributed" # Use distributed mode for production
   task_requests_queue_name: "task_requests_queue"
-  tasks_per_cycle: 5
-  cycle_interval_ms: 250 # Fast orchestration cycles (4x/sec)
-  task_request_polling_interval_ms: 250 # Fast polling for task requests (4x/sec)
-  task_request_visibility_timeout_seconds: 300 # Keep long for business logic execution
-  task_request_batch_size: 10
+  tasks_per_cycle: 5 # Production throughput
+  cycle_interval_ms: 250 # Production cycles
+  task_request_polling_interval_ms: 250 # Production polling
+  task_request_visibility_timeout_seconds: 300 # Production timeout for business logic
+  task_request_batch_size: 10 # Production batch size
   active_namespaces:
     ["fulfillment", "inventory", "notifications", "payments", "analytics"]
-  max_concurrent_orchestrators: 3
-  enable_performance_logging: false
-  default_claim_timeout_seconds: 300 # Keep long for business logic execution
+  max_concurrent_orchestrators: 3 # Production parallelism
+  enable_performance_logging: false # Disable for performance
+  default_claim_timeout_seconds: 300 # Production claim timeout
 
   # Queue configuration for orchestration core
   queues:
@@ -165,8 +179,85 @@ orchestration:
   embedded_orchestrator:
     auto_start: false # Don't auto-start in distributed mode
     namespaces: ["default", "fulfillment", "inventory", "notifications"]
-    shutdown_timeout_seconds: 30 # Longer timeout for graceful production shutdown
+    shutdown_timeout_seconds: 30 # Production graceful shutdown timeout
 
   # Heartbeat configuration for orchestrator health monitoring
   enable_heartbeat: true
-  heartbeat_interval_ms: 5000 # 5 second heartbeats for health monitoring
+  heartbeat_interval_ms: 5000 # Production heartbeat intervals
+
+# Environment-specific overrides
+development:
+  execution:
+    environment: "development"
+
+  database:
+    database: "tasker_rust_development"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+
+  task_templates:
+    search_paths:
+      - "config/task_templates/*.{yml,yaml}"
+      - "config/tasks/*.{yml,yaml}"
+
+test:
+  execution:
+    environment: "test"
+
+  database:
+    database: "tasker_rust_test"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+
+  task_templates:
+    # Test environment includes example handlers for integration testing
+    search_paths:
+      - "bindings/ruby/spec/handlers/examples/**/config/*.{yml,yaml}"
+
+  # Fast test execution settings
+  pgmq:
+    poll_interval_ms: 100 # 100ms polling for fast test execution (10x/sec)
+
+  orchestration:
+    mode: "embedded"
+    tasks_per_cycle: 2 # Lower throughput for tests
+    cycle_interval_ms: 100 # Very fast cycles for test responsiveness (10x/sec)
+    task_request_polling_interval_ms: 100 # Very fast polling for tests (10x/sec)
+    task_request_visibility_timeout_seconds: 60 # Shorter timeout for test business logic
+    task_request_batch_size: 5 # Smaller batches for tests
+    active_namespaces:
+      [
+        "fulfillment",
+        "inventory",
+        "notifications",
+        "payments",
+        "analytics",
+        "default",
+      ]
+    max_concurrent_orchestrators: 1 # Single orchestrator for tests
+    default_claim_timeout_seconds: 60 # Shorter claim timeout for test business logic
+    heartbeat_interval_ms: 2000 # Fast heartbeats for tests (2 second intervals)
+    embedded_orchestrator:
+      auto_start: true # auto-start in test mode
+      namespaces: ["default", "fulfillment", "inventory", "notifications"]
+      shutdown_timeout_seconds: 30 # Production graceful shutdown timeout
+
+production:
+  execution:
+    environment: "production"
+
+  database:
+    database: "${POSTGRES_DB:-tasker_production}"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+    pool: "${DB_MAX_THREADS:-25}"
+
+  telemetry:
+    enabled: true
+    sample_rate: 0.1
+
+  orchestration:
+    enable_performance_logging: true

@@ -840,31 +840,108 @@ impl TaskInitializer {
         );
 
         if let Some(config_json) = metadata.config_schema {
-            // The database stores the full TaskHandlerInfo structure
-            // Extract the handler_config field which contains the actual YAML structure
-            let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
-                TaskInitializationError::ConfigurationNotFound(format!(
-                    "TaskHandlerInfo missing handler_config field for {namespace}/{name}"
-                ))
-            })?;
+            // The database now stores the full TaskTemplate structure directly
+            // Try to deserialize as TaskTemplate first (new format), then convert to HandlerConfiguration
+            match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(config_json.clone()) {
+                Ok(task_template) => {
+                    // Convert TaskTemplate to HandlerConfiguration
+                    // We need to convert the step templates and environments from TaskTemplate types to HandlerConfiguration types
+                    let handler_step_templates = task_template.step_templates.into_iter().map(|st| {
+                        crate::orchestration::handler_config::StepTemplate {
+                            name: st.name,
+                            description: st.description,
+                            dependent_system: st.dependent_system,
+                            default_retryable: st.default_retryable,
+                            default_retry_limit: st.default_retry_limit,
+                            skippable: st.skippable,
+                            timeout_seconds: None, // TaskTemplate doesn't have this field
+                            handler_class: st.handler_class,
+                            handler_config: st.handler_config,
+                            depends_on_step: st.depends_on_step,
+                            depends_on_steps: st.depends_on_steps,
+                            custom_events: st.custom_events,
+                        }
+                    }).collect();
 
-            // Deserialize directly from the handler_config (which contains the YAML structure)
-            let handler_config =
-                serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone())
-                    .map_err(|e| {
+                    let handler_environments = task_template.environments.map(|envs| {
+                        envs.into_iter().map(|(name, env)| {
+                            let handler_env = crate::orchestration::handler_config::EnvironmentConfig {
+                                step_templates: env.step_templates.map(|sts| {
+                                    sts.into_iter().map(|st| {
+                                        crate::orchestration::handler_config::StepTemplateOverride {
+                                            name: st.name,
+                                            handler_config: st.handler_config,
+                                            description: st.description,
+                                            dependent_system: st.dependent_system,
+                                            default_retryable: st.default_retryable,
+                                            default_retry_limit: st.default_retry_limit,
+                                            skippable: st.skippable,
+                                            timeout_seconds: None, // TaskTemplate doesn't have this field
+                                        }
+                                    }).collect()
+                                }),
+                                default_context: env.default_context,
+                                default_options: env.default_options,
+                            };
+                            (name, handler_env)
+                        }).collect()
+                    });
+
+                    let handler_config = HandlerConfiguration {
+                        name: task_template.name,
+                        module_namespace: task_template.module_namespace,
+                        task_handler_class: task_template.task_handler_class,
+                        namespace_name: task_template.namespace_name,
+                        version: task_template.version,
+                        description: None, // TaskTemplate doesn't have description in this context
+                        default_dependent_system: task_template.default_dependent_system,
+                        named_steps: task_template.named_steps,
+                        schema: task_template.schema,
+                        step_templates: handler_step_templates,
+                        environments: handler_environments,
+                        handler_config: None, // The handler_config is at the task level in TaskTemplate
+                        default_context: task_template.default_context,
+                        default_options: task_template.default_options,
+                    };
+                    
+                    if handler_config.step_templates.is_empty() {
+                        return Err(TaskInitializationError::ConfigurationNotFound(format!(
+                            "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
+                            handler_config.namespace_name, handler_config.name
+                        )));
+                    }
+                    
+                    return Ok(handler_config);
+                }
+                Err(task_template_error) => {
+                    // Fall back to old nested format for backward compatibility
+                    debug!("Failed to deserialize as TaskTemplate (new format): {}, trying old nested format", task_template_error);
+                    
+                    let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
                         TaskInitializationError::ConfigurationNotFound(format!(
-                    "Failed to deserialize handler configuration for {namespace}/{name}: {e}. Handler config: {handler_config_value}"
-                ))
+                            "Configuration is neither new TaskTemplate format nor old nested format with handler_config field for {namespace}/{name}. TaskTemplate error: {task_template_error}"
+                        ))
                     })?;
 
-            if handler_config.step_templates.is_empty() {
-                return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                    "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
-                    handler_config.namespace_name, handler_config.name
-                )));
+                    // Try to deserialize from the handler_config field (old nested format)
+                    let handler_config =
+                        serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone())
+                            .map_err(|e| {
+                                TaskInitializationError::ConfigurationNotFound(format!(
+                            "Failed to deserialize handler configuration for {namespace}/{name}: {e}. Handler config: {handler_config_value}"
+                        ))
+                            })?;
+                    
+                    if handler_config.step_templates.is_empty() {
+                        return Err(TaskInitializationError::ConfigurationNotFound(format!(
+                            "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
+                            handler_config.namespace_name, handler_config.name
+                        )));
+                    }
+                    
+                    return Ok(handler_config);
+                }
             }
-
-            Ok(handler_config)
         } else {
             // No config_schema provided - this is a hard error
             Err(TaskInitializationError::ConfigurationNotFound(format!(

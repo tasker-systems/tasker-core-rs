@@ -53,17 +53,17 @@ SELECT
     tec.failed_steps,
     tec.in_progress_steps,
     -- Calculate task age in hours for monitoring and debugging
-    ROUND(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0, 2) as age_hours,
+    ROUND(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0, 2)::float8 as age_hours,
     -- Computed priority with time-weighted escalation to prevent starvation
     -- Aligned with Rust TaskPriority enum: Low=1, Normal=2, High=3, Urgent=4
     -- High-throughput timeframes: tasks should process in seconds, escalation in minutes
-    CASE 
+    (CASE 
         WHEN t.priority >= 4 THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 300, 2)      -- Urgent (4): +1 per 5min, max +2 (final: 6)
         WHEN t.priority = 3  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 180, 3)      -- High (3): +1 per 3min, max +3 (final: 6)
         WHEN t.priority = 2  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 120, 4)      -- Normal (2): +1 per 2min, max +4 (final: 6)
         WHEN t.priority = 1  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60, 5)       -- Low (1): +1 per 1min, max +5 (final: 6)
         ELSE                      0 + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 30, 6)                -- Zero/Invalid (0): +1 per 30sec, max +6 (final: 6)
-    END as computed_priority,
+    END)::float8 as computed_priority,
     -- Calculate claim status for distributed coordination using configurable timeout
     CASE 
         WHEN t.claimed_at IS NULL THEN 'available'
@@ -90,7 +90,7 @@ WHERE
     t.complete = false 
     -- Only include tasks with ready steps (from existing SQL function logic)
     AND tec.ready_steps > 0 
-    AND tec.execution_status IN ('in_progress', 'pending')
+    AND tec.execution_status IN ('in_progress', 'pending', 'has_ready_steps')
     -- Include unclaimed tasks OR stale claims (configurable timeout per task)
     AND (t.claimed_at IS NULL OR t.claimed_at < (NOW() - (t.claim_timeout_seconds || ' seconds')::interval))
 ORDER BY 
@@ -98,13 +98,13 @@ ORDER BY
     -- This prevents starvation while respecting base priority levels
     -- Aligned with Rust TaskPriority enum: Low=1, Normal=2, High=3, Urgent=4
     -- High-throughput timeframes: tasks should process in seconds, escalation in minutes
-    CASE 
+    (CASE 
         WHEN t.priority >= 4 THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 300, 2)      -- Urgent (4): +1 per 5min, max +2 (final: 6)
         WHEN t.priority = 3  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 180, 3)      -- High (3): +1 per 3min, max +3 (final: 6)
         WHEN t.priority = 2  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 120, 4)      -- Normal (2): +1 per 2min, max +4 (final: 6)
         WHEN t.priority = 1  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60, 5)       -- Low (1): +1 per 1min, max +5 (final: 6)
         ELSE                      0 + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 30, 6)                -- Zero/Invalid (0): +1 per 30sec, max +6 (final: 6)
-    END DESC,
+    END)::float8 DESC,
     -- Break ties with creation order (oldest first)
     t.created_at ASC;
 
@@ -131,8 +131,8 @@ RETURNS TABLE(
     task_id bigint,
     namespace_name character varying,
     priority integer,
-    computed_priority numeric,
-    age_hours numeric,
+    computed_priority float8,
+    age_hours float8,
     ready_steps_count bigint,
     claim_timeout_seconds integer
 )
@@ -151,17 +151,17 @@ BEGIN
             -- Include computed priority and age for debugging and monitoring
             -- Aligned with Rust TaskPriority enum: Low=1, Normal=2, High=3, Urgent=4
             -- High-throughput timeframes: tasks should process in seconds, escalation in minutes
-            CASE 
+            (CASE 
                 WHEN t.priority >= 4 THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 300, 2)
                 WHEN t.priority = 3  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 180, 3)
                 WHEN t.priority = 2  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 120, 4)
                 WHEN t.priority = 1  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60, 5)
                 ELSE                      0 + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 30, 6)
-            END as computed_priority_calc,
-            ROUND(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0, 2) as age_hours_calc
+            END)::float8 as computed_priority_calc,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0, 2)::float8 as age_hours_calc
         FROM tasker_tasks t
         JOIN tasker_named_tasks nt ON t.named_task_id = nt.named_task_id
-        JOIN tasker_task_namespaces tn ON nt.task_namespace_id = tn.id
+        JOIN tasker_task_namespaces tn ON nt.task_namespace_id = tn.task_namespace_id
         JOIN LATERAL (SELECT * FROM get_task_execution_context(t.task_id)) tec ON true
         WHERE t.complete = false 
             AND tec.ready_steps > 0 
@@ -171,13 +171,13 @@ BEGIN
             -- Use computed priority for fair ordering
             -- Aligned with Rust TaskPriority enum: Low=1, Normal=2, High=3, Urgent=4
             -- High-throughput timeframes: tasks should process in seconds, escalation in minutes
-            CASE 
+            (CASE 
                 WHEN t.priority >= 4 THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 300, 2)
                 WHEN t.priority = 3  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 180, 3)
                 WHEN t.priority = 2  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 120, 4)
                 WHEN t.priority = 1  THEN t.priority + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60, 5)
                 ELSE                      0 + LEAST(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 30, 6)
-            END DESC,
+            END)::float8 DESC,
             t.created_at ASC
         LIMIT p_limit
         FOR UPDATE OF t SKIP LOCKED
@@ -185,12 +185,12 @@ BEGIN
     WHERE t.task_id = ready_tasks.task_id
     RETURNING 
         t.task_id,
-        (SELECT name FROM tasker_task_namespaces WHERE id = 
+        (SELECT name FROM tasker_task_namespaces WHERE task_namespace_id = 
             (SELECT task_namespace_id FROM tasker_named_tasks WHERE named_task_id = t.named_task_id)
         ) as namespace_name,
         t.priority,
-        ready_tasks.computed_priority_calc as computed_priority,
-        ready_tasks.age_hours_calc as age_hours,
+        ready_tasks.computed_priority_calc::float8 as computed_priority,
+        ready_tasks.age_hours_calc::float8 as age_hours,
         (SELECT ready_steps FROM get_task_execution_context(t.task_id)) as ready_steps_count,
         t.claim_timeout_seconds;
 END;

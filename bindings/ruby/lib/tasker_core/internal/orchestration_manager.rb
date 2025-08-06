@@ -28,14 +28,12 @@ module TaskerCore
 
       # Get the orchestration system (pgmq-based initialization)
       def orchestration_system
-        unless @initialized
-          bootstrap_orchestration_system
-        end
+        bootstrap_orchestration_system unless @initialized
 
         {
           'architecture' => 'pgmq',
           'mode' => orchestration_mode,
-          'queues_initialized' => queues_initialized?,
+          'pgmq_available' => pgmq_available?,
           'embedded_orchestrator_available' => embedded_orchestrator_available?
         }
       end
@@ -54,44 +52,77 @@ module TaskerCore
           architecture: 'pgmq',
           mode: orchestration_mode,
           pgmq_available: pgmq_available?,
-          embedded_orchestrator_available: embedded_orchestrator_available?,
-          queues_initialized: queues_initialized?
+          embedded_orchestrator_available: embedded_orchestrator_available?
         }
 
         # Add handler registry information for distributed mode
-        if orchestration_mode == 'distributed' && @registry
-          base_info[:handler_registry] = {
-            available: true,
-            stats: @registry.stats
-          }
-        else
-          base_info[:handler_registry] = { available: false }
-        end
+        base_info[:handler_registry] = if orchestration_mode == 'distributed' && @registry
+                                         {
+                                           available: true,
+                                           stats: @registry.stats
+                                         }
+                                       else
+                                         { available: false }
+                                       end
 
         base_info
       end
 
       # Reset the orchestration system (for testing)
       def reset!
+        logger.info '🧹 Starting orchestration system reset...'
+
         @initialized = false
         @status = 'reset'
         @initialized_at = nil
         @orchestration_mode = nil
         @base_task_handler = nil
-        @pgmq_client = nil
-        @registry = nil
 
         # Stop embedded orchestrator if running
         if @embedded_orchestrator
           begin
+            logger.debug '🔌 Stopping embedded orchestrator...'
             TaskerCore.stop_embedded_orchestration! if orchestration_mode == 'embedded'
+            logger.debug '✅ Embedded orchestrator stopped'
           rescue StandardError => e
-            @logger.warn "Failed to stop embedded orchestrator during reset: #{e.message}"
+            logger.warn "⚠️ Failed to stop embedded orchestrator during reset: #{e.message}"
           end
           @embedded_orchestrator = nil
         end
 
-        logger.info "🔄 Orchestration system reset"
+        # Close pgmq client connections
+        if @pgmq_client
+          begin
+            logger.debug '🔌 Closing pgmq client connections...'
+            @pgmq_client.close if @pgmq_client.respond_to?(:close)
+            logger.debug '✅ pgmq client connections closed'
+          rescue StandardError => e
+            logger.warn "⚠️ Failed to close pgmq client during reset: #{e.message}"
+          end
+          @pgmq_client = nil
+        end
+
+        # Reset registry
+        if @registry
+          begin
+            logger.debug '🔄 Resetting handler registry...'
+            # Note: DistributedHandlerRegistry is a singleton, so we don't nil it
+            # but we do clear any cached state if needed
+            logger.debug '✅ Handler registry reset'
+          rescue StandardError => e
+            logger.warn "⚠️ Failed to reset handler registry: #{e.message}"
+          end
+        end
+        @registry = nil
+
+        # Force garbage collection to clean up any lingering objects
+        begin
+          GC.start
+        rescue StandardError => e
+          logger.warn "⚠️ Garbage collection failed during reset: #{e.message}"
+        end
+
+        logger.info '🔄 Orchestration system reset completed'
       end
 
       # Bootstrap the orchestration system based on configuration mode
@@ -113,9 +144,7 @@ module TaskerCore
         bootstrap_core_queues
 
         # Bootstrap handler registry for distributed mode
-        if mode == 'distributed'
-          bootstrap_distributed_handlers
-        end
+        bootstrap_distributed_handlers if mode == 'distributed'
 
         @initialized = true
         @status = 'initialized'
@@ -143,25 +172,19 @@ module TaskerCore
 
         # Default to embedded mode if not specified or in test environment
         if @orchestration_mode.nil?
-          if config.dig('execution', 'environment') == 'test'
-            @orchestration_mode = 'embedded'
-          else
-            @orchestration_mode = 'distributed'
-          end
+          @orchestration_mode = if config.dig('execution', 'environment') == 'test'
+                                  'embedded'
+                                else
+                                  'distributed'
+                                end
         end
 
         @orchestration_mode
-      rescue StandardError => e
-        logger.warn "⚠️ Failed to determine orchestration mode: #{e.message}, defaulting to distributed"
-        @orchestration_mode = 'distributed'
       end
 
       # Check if pgmq is available
       def pgmq_available?
         pgmq_client&.respond_to?(:send_message)
-      rescue StandardError => e
-        logger.debug "PGMQ availability check failed: #{e.message}"
-        false
       end
 
       # Check if embedded orchestrator is available
@@ -169,66 +192,53 @@ module TaskerCore
         return false unless orchestration_mode == 'embedded'
 
         TaskerCore.respond_to?(:embedded_orchestrator) &&
-          TaskerCore.embedded_orchestrator&.respond_to?(:running?)
-      rescue StandardError => e
-        logger.debug "Embedded orchestrator availability check failed: #{e.message}"
-        false
-      end
-
-      # Check if core queues are initialized
-      def queues_initialized?
-        # TODO: Implement queue existence checking in Phase 4.5
-        # For now, assume queues exist if pgmq is available
-        pgmq_available?
+          TaskerCore.embedded_orchestrator.respond_to?(:running?)
       end
 
       private
 
       # Bootstrap embedded mode orchestration
       def bootstrap_embedded_mode
-        logger.debug "🔌 Initializing embedded orchestrator"
+        logger.debug '🔌 Initializing embedded orchestrator'
 
-        config = TaskerCore::Config.instance.effective_config
-        auto_start = config.dig('orchestration', 'embedded_orchestrator', 'auto_start')
+        # Load task templates into database before starting Rust orchestrator
+        # This ensures the Rust TaskHandlerRegistry can find configurations
+        bootstrap_embedded_task_templates
 
-        if auto_start
-          begin
-            TaskerCore.start_embedded_orchestration!
-            @embedded_orchestrator = TaskerCore.embedded_orchestrator
-            logger.debug "✅ Embedded orchestrator started automatically"
-          rescue StandardError => e
-            logger.warn "⚠️ Failed to auto-start embedded orchestrator: #{e.message}"
-            logger.warn "Call TaskerCore.start_embedded_orchestration! manually if needed"
-          end
-        else
-          logger.debug "🔧 Embedded orchestrator available but auto_start disabled"
-        end
+        # Discover all viable namespaces from the database
+        viable_namespaces = discover_viable_namespaces
+        logger.info "🔍 Discovered viable namespaces for orchestration: #{viable_namespaces.join(', ')}"
+
+        # In embedded mode, start orchestration with all discovered namespaces
+        TaskerCore.start_embedded_orchestration!(viable_namespaces)
+        @embedded_orchestrator = TaskerCore.embedded_orchestrator
+        logger.debug '✅ Embedded orchestrator started'
       end
 
       # Bootstrap distributed mode orchestration
       def bootstrap_distributed_mode
-        logger.debug "🌐 Initializing distributed orchestration"
+        logger.debug '🌐 Initializing distributed orchestration'
 
-        # In distributed mode, we check pgmq availability but don't fail if unavailable
-        # Workers will register themselves and poll queues autonomously when database is available
-        if pgmq_available?
-          logger.debug "✅ Distributed orchestration ready with pgmq client"
-        else
-          logger.warn "⚠️ PGMQ client not available - distributed orchestration will be limited"
-          logger.warn "Ensure DATABASE_URL is set and PostgreSQL is running with pgmq extension"
+        # In distributed mode, pgmq must be available
+        unless pgmq_available?
+          raise TaskerCore::Errors::OrchestrationError,
+                'PGMQ client not available for distributed orchestration. ' \
+                'Ensure DATABASE_URL is set and PostgreSQL is running with pgmq extension'
         end
+
+        logger.debug '✅ Distributed orchestration ready with pgmq client'
       end
 
       # Bootstrap core orchestration queues based on configuration
       def bootstrap_core_queues
-        logger.debug "🗂️ Bootstrapping core orchestration queues"
+        logger.debug '🗂️ Bootstrapping core orchestration queues'
 
         config = TaskerCore::Config.instance.effective_config
         queue_config = config.dig('orchestration', 'queues')
 
         unless queue_config
-          logger.warn "⚠️ No orchestration.queues configuration found, skipping queue bootstrap"
-          return
+          raise TaskerCore::Errors::ConfigurationError,
+                'No orchestration.queues configuration found. Cannot bootstrap queues.'
         end
 
         core_queues = [
@@ -237,52 +247,92 @@ module TaskerCore
           queue_config['batch_results']
         ].compact
 
-        worker_queues = queue_config.dig('worker_queues')&.values || []
+        worker_queues = queue_config['worker_queues']&.values || []
         all_queues = core_queues + worker_queues
 
         logger.debug "📋 Core queues to bootstrap: #{all_queues.join(', ')}"
 
-        # Create queues using pgmq client if available
-        if pgmq_available?
-          created_count = 0
-          failed_count = 0
-
-          all_queues.each do |queue_name|
-            begin
-              pgmq_client.create_queue(queue_name)
-              logger.debug "✅ Queue created: #{queue_name}"
-              created_count += 1
-            rescue StandardError => e
-              logger.warn "⚠️ Failed to create queue #{queue_name}: #{e.message}"
-              failed_count += 1
-            end
-          end
-
-          logger.info "🗂️ Queue bootstrap complete: #{created_count} created, #{failed_count} failed"
-        else
-          logger.warn "⚠️ PGMQ client not available, queues will be created on-demand"
-          all_queues.each do |queue_name|
-            logger.debug "📋 Queue planned: #{queue_name}"
-          end
+        # Create queues using pgmq client - must be available
+        unless pgmq_available?
+          raise TaskerCore::Errors::OrchestrationError,
+                'PGMQ client not available for queue bootstrap'
         end
+
+        created_count = 0
+        failed_queues = []
+
+        all_queues.each do |queue_name|
+          pgmq_client.create_queue(queue_name)
+          logger.debug "✅ Queue created: #{queue_name}"
+          created_count += 1
+        rescue StandardError => e
+          failed_queues << "#{queue_name}: #{e.message}"
+        end
+
+        unless failed_queues.empty?
+          raise TaskerCore::Errors::OrchestrationError,
+                "Failed to create required queues: #{failed_queues.join(', ')}"
+        end
+
+        logger.info "🗂️ Queue bootstrap complete: #{created_count} created, 0 failed"
       end
 
       # Bootstrap distributed handler registry
       def bootstrap_distributed_handlers
-        logger.debug "🔧 Bootstrapping distributed handler registry"
+        logger.debug '🔧 Bootstrapping distributed handler registry'
+
+        # Initialize distributed handler registry and bootstrap handlers
+        result = registry.bootstrap_handlers
+
+        unless result['status'] == 'success'
+          raise TaskerCore::Errors::OrchestrationError,
+                "Handler registry bootstrap failed: #{result['error']}"
+        end
+
+        logger.info "✅ Handler registry bootstrapped: #{result['registered_handlers']} handlers registered"
+      end
+
+      # Bootstrap task templates for embedded mode
+      # This ensures task configurations are available in the database
+      # before the Rust orchestrator tries to use them
+      def bootstrap_embedded_task_templates
+        logger.debug '🔧 Loading task templates for embedded mode'
+
+        # Use the registry to discover and load task templates
+        # This mirrors what distributed mode does but is specifically for embedded
+        templates = registry.send(:discover_task_templates)
+
+        logger.info "✅ embedded mode task template bootstrap complete: #{templates.size} templates loaded"
+      end
+
+      # Discover all viable namespaces from the database
+      # Queries the tasker_task_namespaces table populated by task template loading
+      # FAIL-FAST: No fallbacks - if we can't query the database, we have bigger problems
+      def discover_viable_namespaces
+        unless pgmq_available?
+          raise TaskerCore::Errors::OrchestrationError,
+                'Cannot discover namespaces: PGMQ not available. Check DATABASE_URL and PostgreSQL connection.'
+        end
 
         begin
-          # Initialize distributed handler registry and bootstrap handlers
-          result = registry.bootstrap_handlers
+          namespaces = TaskerCore::Database::Models::TaskNamespace.all.pluck(:name)
 
-          if result['status'] == 'success'
-            logger.info "✅ Handler registry bootstrapped: #{result['registered_handlers']} handlers registered"
-          else
-            logger.warn "⚠️ Handler registry bootstrap had issues: #{result['error']}"
+          # FAIL-FAST: Empty namespaces means task templates weren't loaded properly
+          if namespaces.empty?
+            raise TaskerCore::Errors::OrchestrationError,
+                  'No namespaces found in tasker_task_namespaces table. ' \
+                  'Task templates must be loaded before starting orchestration. ' \
+                  'Check bootstrap_embedded_task_templates or distributed handler registry.'
           end
 
+          namespaces
+        rescue PG::Error => e
+          raise TaskerCore::Errors::OrchestrationError,
+                "Failed to query tasker_task_namespaces table: #{e.message}. " \
+                'Check database schema and migrations.'
         rescue StandardError => e
-          logger.warn "⚠️ Failed to bootstrap distributed handler registry: #{e.message}"
+          raise TaskerCore::Errors::OrchestrationError,
+                "Unexpected error discovering namespaces: #{e.message}"
         end
       end
     end

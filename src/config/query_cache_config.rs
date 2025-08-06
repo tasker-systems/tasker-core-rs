@@ -254,11 +254,7 @@ impl QueryCacheConfigLoader {
             .or_else(|_| env::var("RUST_ENV"))
             .unwrap_or_else(|_| "production".to_string());
 
-        let config_file = match environment.as_str() {
-            "test" => "config/tasker-config-test.yaml",
-            "development" => "config/tasker-config-development.yaml",
-            _ => "config/tasker-config.yaml",
-        };
+        let config_file = "config/tasker-config.yaml";
 
         info!("Loading query cache configuration from: {}", config_file);
 

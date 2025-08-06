@@ -14,7 +14,7 @@
 //! - **Multi-Language Ready**: Ruby types can be converted to shared types for other bindings
 //! - **Performance**: Maintains <100μs FFI overhead while enabling cross-language operations
 
-use crate::context::json_to_ruby_value;
+use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use magnus::{Error, IntoValue, Module, RArray, RHash, RString, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -670,6 +670,16 @@ pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> 
         Some(s) => Ok(RString::new(&s).into_value()),
         None => Ok(().into_value()), // nil
     }
+}
+
+/// Convert Ruby Value to serde_json::Value for FFI operations
+pub fn ruby_value_to_json_value(ruby_value: Value) -> Result<serde_json::Value, Error> {
+    ruby_value_to_json(ruby_value)
+}
+
+/// Convert serde_json::Value to Ruby Value for FFI operations
+pub fn json_value_to_ruby_value(json_value: serde_json::Value) -> Result<Value, Error> {
+    json_to_ruby_value(json_value)
 }
 
 /// Optimized WorkflowStepInput structure using Magnus wrapped classes

@@ -657,6 +657,12 @@ impl StateManager {
         Ok(())
     }
 
+    /// Mark a task as in progress when steps have been enqueued
+    pub async fn mark_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
+        debug!(task_id = task_id, "Marking task as in progress");
+        self.transition_task_state(task_id, TaskState::InProgress).await
+    }
+
     /// Mark step as in progress - transitions state machine and sets in_process column
     pub async fn mark_step_in_progress(&self, step_id: i64) -> OrchestrationResult<()> {
         // 1. Transition state machine to InProgress

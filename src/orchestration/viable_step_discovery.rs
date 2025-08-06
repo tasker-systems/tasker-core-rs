@@ -42,7 +42,6 @@ use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::{EventPublisher, ViableStep as EventsViableStep};
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
 use crate::orchestration::types::ViableStep;
-use crate::state_machine::persistence::{resolve_state_with_retry, StepTransitionPersistence};
 use std::collections::HashMap;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -50,7 +49,6 @@ use tracing::{debug, error, info, instrument, warn};
 pub struct ViableStepDiscovery {
     sql_executor: SqlFunctionExecutor,
     event_publisher: EventPublisher,
-    step_persistence: StepTransitionPersistence,
     pool: sqlx::PgPool,
 }
 
@@ -64,103 +62,59 @@ impl ViableStepDiscovery {
         Self {
             sql_executor,
             event_publisher,
-            step_persistence: StepTransitionPersistence,
             pool,
         }
     }
 
-    /// Find all viable steps for a task using SQL functions + state verification
+    /// Find all viable steps for a task using optimized SQL function
     #[instrument(skip(self), fields(task_id = task_id))]
     pub async fn find_viable_steps(&self, task_id: i64) -> OrchestrationResult<Vec<ViableStep>> {
         debug!(task_id = task_id, "Finding viable steps");
 
-        // 1. Get step readiness status using SqlFunctionExecutor
-        let readiness_statuses = self
+        // Use get_ready_steps which already handles all filtering and business logic
+        let ready_steps = self
             .sql_executor
-            .get_step_readiness_status(task_id, None)
+            .get_ready_steps(task_id)
             .await
             .map_err(|e| DiscoveryError::SqlFunctionError {
-                function_name: "get_step_readiness_status".to_string(),
+                function_name: "get_ready_steps".to_string(),
                 reason: e.to_string(),
             })?;
 
         debug!(
             task_id = task_id,
-            total_statuses = readiness_statuses.len(),
-            "Retrieved step readiness statuses from SQL function"
+            ready_count = ready_steps.len(),
+            "Retrieved ready steps from SQL function"
         );
 
-        // Log each status for debugging
-        for status in &readiness_statuses {
-            debug!(
-                task_id = task_id,
-                step_name = %status.name,
-                current_state = %status.current_state,
-                ready_for_execution = status.ready_for_execution,
-                dependencies_satisfied = status.dependencies_satisfied,
-                retry_eligible = status.retry_eligible,
-                attempts = status.attempts,
-                retry_limit = status.retry_limit,
-                total_parents = status.total_parents,
-                completed_parents = status.completed_parents,
-                "Step readiness status details"
-            );
-        }
-
-        // 2. Filter to only steps that are ready for execution
-        // SQL function returns all steps but marks readiness - we only want the ready ones
-        let candidate_steps: Vec<_> = readiness_statuses
+        // Convert to ViableStep objects (no additional verification needed - SQL function handles everything)
+        let viable_steps: Vec<ViableStep> = ready_steps
             .into_iter()
-            .filter(|status| status.ready_for_execution)
+            .map(|status| {
+                debug!(
+                    task_id = task_id,
+                    step_id = status.workflow_step_id,
+                    step_name = %status.name,
+                    current_state = %status.current_state,
+                    dependencies_satisfied = status.dependencies_satisfied,
+                    "Found viable step"
+                );
+
+                ViableStep {
+                    step_id: status.workflow_step_id,
+                    task_id: status.task_id,
+                    name: status.name,
+                    named_step_id: status.named_step_id,
+                    current_state: status.current_state,
+                    dependencies_satisfied: status.dependencies_satisfied,
+                    retry_eligible: status.retry_eligible,
+                    attempts: status.attempts,
+                    retry_limit: status.retry_limit,
+                    last_failure_at: status.last_failure_at,
+                    next_retry_at: status.next_retry_at,
+                }
+            })
             .collect();
-
-        debug!(
-            task_id = task_id,
-            ready_steps = candidate_steps.len(),
-            "Filtered to ready steps"
-        );
-
-        // 3. Convert to ViableStep objects and verify state machine consistency
-        let mut viable_steps = Vec::new();
-        for status in candidate_steps {
-            match self.verify_step_state_consistency(&status).await {
-                Ok(true) => {
-                    let viable_step = ViableStep {
-                        step_id: status.workflow_step_id,
-                        task_id: status.task_id,
-                        name: status.name,
-                        named_step_id: status.named_step_id,
-                        current_state: status.current_state,
-                        dependencies_satisfied: status.dependencies_satisfied,
-                        retry_eligible: status.retry_eligible,
-                        attempts: status.attempts,
-                        retry_limit: status.retry_limit,
-                        last_failure_at: status.last_failure_at,
-                        next_retry_at: status.next_retry_at,
-                    };
-                    viable_steps.push(viable_step);
-                }
-                Ok(false) => {
-                    warn!(
-                        task_id = task_id,
-                        step_id = status.workflow_step_id,
-                        "Step failed state machine consistency check"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        task_id = task_id,
-                        step_id = status.workflow_step_id,
-                        error = %e,
-                        "Error verifying step state consistency"
-                    );
-                    // Continue with other steps rather than failing entire discovery
-                }
-            }
-        }
-
-        // 4. Sort by named_step_id (lower ID = higher priority)
-        viable_steps.sort_by(|a, b| a.named_step_id.cmp(&b.named_step_id));
 
         info!(
             task_id = task_id,
@@ -168,7 +122,7 @@ impl ViableStepDiscovery {
             "Completed viable step discovery"
         );
 
-        // 5. Publish discovery event
+        // Publish discovery event
         let events_viable_steps: Vec<EventsViableStep> = viable_steps
             .iter()
             .map(|step| EventsViableStep {
@@ -191,45 +145,6 @@ impl ViableStepDiscovery {
             .await?;
 
         Ok(viable_steps)
-    }
-
-    /// Verify that a step's SQL-reported readiness matches state machine state
-    async fn verify_step_state_consistency(
-        &self,
-        status: &crate::database::sql_functions::StepReadinessStatus,
-    ) -> OrchestrationResult<bool> {
-        // Get current state from state machine persistence layer with retry logic
-        let current_state = resolve_state_with_retry(
-            &self.step_persistence,
-            status.workflow_step_id,
-            &self.pool,
-            3, // max retries
-        )
-        .await
-        .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
-
-        // Verify state consistency
-        match current_state {
-            Some(state) => {
-                // Step should be in 'pending' state to be viable for execution
-                let is_consistent = state == "pending" && status.ready_for_execution;
-
-                if !is_consistent {
-                    debug!(
-                        step_id = status.workflow_step_id,
-                        current_state = state,
-                        sql_ready = status.ready_for_execution,
-                        "State machine and SQL readiness mismatch"
-                    );
-                }
-
-                Ok(is_consistent)
-            }
-            None => {
-                // No state transitions yet - step should be ready if SQL says so
-                Ok(status.ready_for_execution)
-            }
-        }
     }
 
     /// Get dependency levels using SQL function

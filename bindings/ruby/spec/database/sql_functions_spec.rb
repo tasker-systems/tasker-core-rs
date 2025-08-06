@@ -36,12 +36,12 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#task_execution_context' do
         it 'can call get_task_execution_context() with BIGINT casting' do
-          task_id = 12345
+          task_id = 12_345
           expect { sql_functions.task_execution_context(task_id) }.not_to raise_error
         end
 
         it 'returns nil when task does not exist' do
-          task_id = 99999
+          task_id = 99_999
           result = sql_functions.task_execution_context(task_id)
           expect(result).to be_nil
         end
@@ -49,12 +49,12 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#task_execution_contexts_batch' do
         it 'can call get_task_execution_contexts_batch() with BIGINT[] casting' do
-          task_ids = [12345, 67890, 11111]
+          task_ids = [12_345, 67_890, 11_111]
           expect { sql_functions.task_execution_contexts_batch(task_ids) }.not_to raise_error
         end
 
         it 'returns empty array when no tasks exist' do
-          task_ids = [99998, 99999]
+          task_ids = [99_998, 99_999]
           result = sql_functions.task_execution_contexts_batch(task_ids)
           expect(result).to eq([])
         end
@@ -62,18 +62,18 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#step_readiness_status' do
         it 'can call get_step_readiness_status() with BIGINT casting' do
-          task_id = 12345
+          task_id = 12_345
           expect { sql_functions.step_readiness_status(task_id) }.not_to raise_error
         end
 
         it 'can call get_step_readiness_status() with step_ids array' do
-          task_id = 12345
+          task_id = 12_345
           step_ids = [1, 2, 3]
           expect { sql_functions.step_readiness_status(task_id, step_ids: step_ids) }.not_to raise_error
         end
 
         it 'returns empty array when no steps exist' do
-          task_id = 99999
+          task_id = 99_999
           result = sql_functions.step_readiness_status(task_id)
           expect(result).to eq([])
         end
@@ -81,12 +81,12 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#step_readiness_status_batch' do
         it 'can call get_step_readiness_status_batch() with BIGINT[] casting' do
-          task_ids = [12345, 67890]
+          task_ids = [12_345, 67_890]
           expect { sql_functions.step_readiness_status_batch(task_ids) }.not_to raise_error
         end
 
         it 'returns empty array when no tasks exist' do
-          task_ids = [99998, 99999]
+          task_ids = [99_998, 99_999]
           result = sql_functions.step_readiness_status_batch(task_ids)
           expect(result).to eq([])
         end
@@ -94,12 +94,12 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#calculate_dependency_levels' do
         it 'can call calculate_dependency_levels() with BIGINT casting' do
-          task_id = 12345
+          task_id = 12_345
           expect { sql_functions.calculate_dependency_levels(task_id) }.not_to raise_error
         end
 
         it 'returns empty array when no dependencies exist' do
-          task_id = 99999
+          task_id = 99_999
           result = sql_functions.calculate_dependency_levels(task_id)
           expect(result).to eq([])
         end
@@ -159,7 +159,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
         end
 
         it 'can call functions with parameters' do
-          task_id = 12345
+          task_id = 12_345
           expect { sql_functions.execute_function('get_task_execution_context', task_id) }.not_to raise_error
         end
       end
@@ -168,7 +168,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
     context 'helper methods using SQL functions' do
       describe '#task_complete?' do
         it 'returns false for non-existent task' do
-          task_id = 99999
+          task_id = 99_999
           result = sql_functions.task_complete?(task_id)
           expect(result).to be false
         end
@@ -176,7 +176,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
 
       describe '#task_progress' do
         it 'returns nil for non-existent task' do
-          task_id = 99999
+          task_id = 99_999
           result = sql_functions.task_progress(task_id)
           expect(result).to be_nil
         end
@@ -203,7 +203,9 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
         end
 
         it 'wraps PG::Error in TaskerCore::Error' do
-          expect { sql_functions_with_bad_connection.system_health_counts }.to raise_error(TaskerCore::Error, /Connection failed/)
+          expect do
+            sql_functions_with_bad_connection.system_health_counts
+          end.to raise_error(TaskerCore::Error, /Connection failed/)
         end
       end
     end
@@ -211,7 +213,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
     context 'type casting validation' do
       describe 'parameter type casting' do
         it 'properly handles nil values in arrays' do
-          task_ids = [12345, nil, 67890].compact
+          task_ids = [12_345, nil, 67_890].compact
           expect { sql_functions.task_execution_contexts_batch(task_ids) }.not_to raise_error
         end
 
@@ -221,7 +223,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
         end
 
         it 'properly handles nil optional parameters' do
-          task_id = 12345
+          task_id = 12_345
           expect { sql_functions.step_readiness_status(task_id, step_ids: nil) }.not_to raise_error
         end
       end
@@ -239,7 +241,7 @@ RSpec.describe TaskerCore::Database::SqlFunctions do
       end
 
       it 'logs debug messages with operation details' do
-        task_id = 12345
+        task_id = 12_345
         expect(logger).to receive(:debug).with(/Getting task execution context for task_id: #{task_id}/)
         expect(logger).to receive(:warn).with(/No execution context found for task_id: #{task_id}/)
 

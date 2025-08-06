@@ -1,0 +1,9 @@
+# Require all function-related files
+require_relative 'functions/function_wrapper'
+require_relative 'functions/function_based_analytics_metrics'
+require_relative 'functions/function_based_dependency_levels'
+require_relative 'functions/function_based_slowest_steps'
+require_relative 'functions/function_based_slowest_tasks'
+require_relative 'functions/function_based_step_readiness_status'
+require_relative 'functions/function_based_system_health_counts'
+require_relative 'functions/function_based_task_execution_context'

@@ -14,11 +14,11 @@ module TaskerCore
       # Step execution status enum
       class StepExecutionStatus < Dry::Struct
         attribute :status, Types::String.enum('success', 'failed', 'cancelled', 'timeout')
-        
+
         def success?
           status == 'success'
         end
-        
+
         def failed?
           status == 'failed'
         end
@@ -26,12 +26,13 @@ module TaskerCore
 
       # Step execution error details
       class StepExecutionError < Dry::Struct
-        attribute :error_type, Types::String.enum('HandlerNotFound', 'HandlerException', 'ProcessingError', 'MaxRetriesExceeded')
+        attribute :error_type,
+                  Types::String.enum('HandlerNotFound', 'HandlerException', 'ProcessingError', 'MaxRetriesExceeded')
         attribute :message, Types::String
         attribute :retryable, Types::Bool.default(true)
         attribute? :error_code, Types::String.optional
         attribute? :stack_trace, Types::String.optional
-        
+
         def to_h
           {
             error_type: error_type,
@@ -113,9 +114,9 @@ module TaskerCore
 
         # Validation for step completion data
         def valid?
-          !step_name.empty? && 
-          %w[complete failed pending].include?(status) &&
-          results.is_a?(Hash)
+          !step_name.empty? &&
+            %w[complete failed pending].include?(status) &&
+            results.is_a?(Hash)
         end
 
         # Check if step completed successfully
@@ -136,6 +137,7 @@ module TaskerCore
         # Get execution duration in seconds
         def duration_seconds
           return nil unless duration_ms
+
           duration_ms / 1000.0
         end
 

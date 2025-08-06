@@ -12,13 +12,13 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
   let(:sql_functions) { TaskerCore::Database.create_sql_functions }
   let(:queue_worker) { TaskerCore::Messaging.create_queue_worker(namespace, poll_interval: 0.1) }
 
-  before(:each) do
+  before do
     # Ensure queue exists and is clean
     pgmq_client.create_queue(queue_name)
     pgmq_client.purge_queue(queue_name)
   end
 
-  after(:each) do
+  after do
     # Clean up
     queue_worker.stop if queue_worker.running?
     pgmq_client.close
@@ -29,7 +29,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
     it 'can create and manage queues' do
       # Test queue creation
       expect { pgmq_client.create_queue(queue_name) }.not_to raise_error
-      
+
       # Test queue metrics
       metrics = pgmq_client.queue_stats(queue_name)
       expect(metrics).to include(:total_messages, :queue_length, :collected_at)
@@ -241,7 +241,7 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
         task_name: 'process_order',
         task_version: '1.0.0',
         step_name: 'validate_order',
-        step_payload: { 'order_id' => 'INVALID_123' },  # Will fail validation
+        step_payload: { 'order_id' => 'INVALID_123' }, # Will fail validation
         metadata: TaskerCore::Types::StepMessageMetadata.new
       )
 
@@ -319,12 +319,12 @@ RSpec.describe 'PGMQ Architecture Integration', type: :integration do
       # Wait for worker to process the message
       # Note: This is a simple polling check - in real scenarios we'd use better synchronization
       processed = false
-      timeout = 5.0  # 5 second timeout
+      timeout = 5.0 # 5 second timeout
       start_time = Time.now
-      
+
       while Time.now - start_time < timeout && !processed
         sleep 0.1
-        
+
         # Check if message was processed (removed from queue)
         metrics = pgmq_client.queue_stats(queue_name)
         processed = metrics[:queue_length] == 0

@@ -135,9 +135,7 @@ module OrderFulfillment
         )
 
         # Validate payment was successful
-        unless gateway_response[:status] == 'succeeded'
-          handle_payment_failure(gateway_response)
-        end
+        handle_payment_failure(gateway_response) unless gateway_response[:status] == 'succeeded'
 
         {
           payment_id: payment_id,
@@ -154,7 +152,7 @@ module OrderFulfillment
         # Simulate network timeout (2% chance)
         if rand < 0.02
           raise TaskerCore::Errors::TimeoutError.new(
-            "Payment gateway timeout",
+            'Payment gateway timeout',
             timeout_duration: 45,
             context: { payment_id: payment_id, amount: amount }
           )
@@ -163,7 +161,7 @@ module OrderFulfillment
         # Simulate rate limiting (1% chance)
         if rand < 0.01
           raise TaskerCore::Errors::RetryableError.new(
-            "Payment gateway rate limited",
+            'Payment gateway rate limited',
             retry_after: 30,
             context: { payment_id: payment_id, service: 'payment_gateway' }
           )
@@ -172,7 +170,7 @@ module OrderFulfillment
         # Simulate network error (2% chance)
         if rand < 0.02
           raise TaskerCore::Errors::NetworkError.new(
-            "Payment gateway network error",
+            'Payment gateway network error',
             status_code: 502,
             context: { payment_id: payment_id, gateway: 'stripe_api' }
           )
@@ -202,7 +200,7 @@ module OrderFulfillment
         end
 
         # Success case
-        processing_time = (50 + rand(200)).to_i  # Simulate 50-250ms processing time
+        processing_time = rand(50..249).to_i # Simulate 50-250ms processing time
         {
           status: 'succeeded',
           transaction_id: "TXN-#{SecureRandom.hex(8).upcase}",
@@ -210,7 +208,7 @@ module OrderFulfillment
           currency: 'USD',
           payment_method_type: method,
           reference: "#{payment_id}-#{Time.now.to_i}",
-          gateway_fee: (amount * 0.029).round(2),  # 2.9% gateway fee
+          gateway_fee: (amount * 0.029).round(2), # 2.9% gateway fee
           processed_at: Time.now.iso8601,
           processing_time_ms: processing_time,
           load_indicator: processing_time > 200 ? 'high' : 'normal'

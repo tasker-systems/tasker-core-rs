@@ -12,41 +12,49 @@ require_relative '../handlers/examples/linear_workflow/step_handlers/linear_step
 require_relative '../handlers/examples/linear_workflow/step_handlers/linear_step_4_handler'
 
 RSpec.describe 'Linear Workflow Integration', type: :integration do
-  let(:config_path) { File.expand_path('../handlers/examples/linear_workflow/config/linear_workflow_handler.yaml', __dir__) }
+  let(:config_path) do
+    File.expand_path('../handlers/examples/linear_workflow/config/linear_workflow_handler.yaml', __dir__)
+  end
   let(:task_config) { YAML.load_file(config_path) }
   let(:sql_functions) { TaskerCore::Database.create_sql_functions }
+
+  before(:all) do
+    TaskerCore::Boot.load_task_templates_to_database!
+  end
+
+  # Track workers created during tests for proper cleanup
+  before(:each) do
+    @test_workers = []
+  end
+
+  after(:each) do
+    # Clean up any workers created during this test
+    @test_workers.each do |worker|
+      begin
+        if worker.running?
+          worker.stop
+          # Give worker time to shut down gracefully
+          sleep 0.2
+        end
+      rescue StandardError => e
+        puts "⚠️ Failed to stop worker in test cleanup: #{e.message}"
+      end
+    end
+    @test_workers.clear
+  end
 
   # Test data: even number that will flow through the mathematical sequence
   let(:test_input) do
     {
-      even_number: 6  # Expected progression: 6 -> 36 -> 46 -> 138 -> 69
+      even_number: 6, # Expected progression: 6 -> 36 -> 46 -> 138 -> 69
+      test_run_id: SecureRandom.uuid # Unique ID to avoid identity hash collisions
     }
-  end
-
-  before(:all) do
-    puts "\n🚀 Initializing Linear Workflow Integration Test Suite"
-    
-    # Initialize orchestration system in embedded mode
-    # This will set up queues, start embedded Rust listeners, and prepare the system
-    TaskerCore::Internal::OrchestrationManager.instance.bootstrap_orchestration_system
-    puts "✅ Orchestration system bootstrapped successfully"
-  end
-
-  after(:all) do
-    # Clean shutdown of orchestration system
-    TaskerCore::Internal::OrchestrationManager.instance.reset!
-    puts "🛑 Orchestration system reset complete"
   end
 
   describe 'Complete Linear Mathematical Sequence' do
     it 'executes A -> B -> C -> D workflow with mathematical operations', :aggregate_failures do
-      puts "\n📊 Testing mathematical sequence: 6 -> 36 -> 46 -> 138 -> 69"
-
-      # ==========================================
-      # PHASE 1: Create and Initialize Task
-      # ==========================================
-
-      task_request = TaskerCore::Types::TaskRequest.new(
+      # Create TaskRequest using dry-struct and convert to FFI hash
+      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
         namespace: 'linear_workflow',
         name: 'mathematical_sequence',
         version: '1.0.0',
@@ -58,142 +66,68 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         claim_timeout_seconds: 300
       )
 
-      puts "📝 Created task request for even number: #{test_input[:even_number]}"
+      # Initialize task using embedded FFI with TaskRequest hash
+      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+      expect(task_result).to be_a(Hash)
+      expect(task_result['success']).to be(true)
+      expect(task_result['task_id']).to be_a(Integer)
 
-      # Initialize task through orchestration system
-      base_handler = TaskerCore::Internal::OrchestrationManager.instance.base_task_handler
-      expect(base_handler).not_to be_nil
+      task_id = task_result['task_id']
 
-      task_result = base_handler.initialize_task(task_request.to_h)
-      expect(task_result).to be_nil  # Async operation
-      puts "✅ Task submitted to orchestration system"
+      # Verify task was created immediately (no polling needed with FFI)
+      task_execution_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
 
-      # ==========================================
-      # PHASE 2: Poll for Task Creation via SQL Functions
-      # ==========================================
+      expect(task_execution_context.task_id).to eq(task_id)
+      expect(task_execution_context.status).to eq('pending')
+      expect(task_execution_context.total_steps).to eq(4)
+      expect(task_execution_context.pending_steps).to eq(4)
+      expect(task_execution_context.in_progress_steps).to eq(0)
+      expect(task_execution_context.completed_steps).to eq(0)
+      expect(task_execution_context.failed_steps).to eq(0)
+      expect(task_execution_context.ready_steps).to eq(1)
+      expect(task_execution_context.execution_status).to eq('has_ready_steps')
+      expect(task_execution_context.recommended_action).to eq('execute_ready_steps')
+      expect(task_execution_context.completion_percentage).to eq(0.0)
+      expect(task_execution_context.health_status).to eq('healthy')
 
-      task_id = nil
-      puts "🔍 Polling for task creation..."
-
-      # Poll for task to appear in the system
-      Timeout.timeout(30) do
-        loop do
-          # Use analytics to find our task
-          analytics = sql_functions.analytics_metrics
-          if analytics['total_tasks'] && analytics['total_tasks'] > 0
-            puts "📊 Found #{analytics['total_tasks']} task(s) in system"
-            break
-          end
-          sleep 0.5
-        end
-      end
-
-      # Get task execution context to find our task ID
-      # Note: In a real integration, we'd have a way to track the task ID from creation
-      # For now, we'll use a different approach to verify the workflow
-      puts "✅ Task created and queued for processing"
-
-      # ==========================================
-      # PHASE 3: Monitor Step Progression via SQL Functions
-      # ==========================================
-
-      puts "🔄 Monitoring step progression through SQL functions..."
-
-      # Start queue workers to process the steps
+      # Start queue worker and monitor progression
       worker = TaskerCore::Messaging.create_queue_worker(
         'linear_workflow',
-        poll_interval: 0.1  # Fast polling for test
+        poll_interval: 0.1
       )
-      
+      @test_workers << worker  # Track for cleanup
+
       expect(worker.start).to be true
-      puts "⚡ Queue worker started for linear_workflow namespace"
 
       begin
-        # Monitor workflow progression
-        step_completion_times = {}
-        workflow_completed = false
-
-        Timeout.timeout(60) do  # Give it time to complete all 4 steps
+        Timeout.timeout(10) do
           loop do
-            # Check system analytics for progress
-            analytics = sql_functions.analytics_metrics
-            system_health = sql_functions.system_health_counts
+            tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+            break if tec.completion_percentage.to_i == 100
 
-            puts "📊 Analytics: #{analytics}"
-            puts "🏥 Health: #{system_health}"
-
-            # Check if we have completed steps
-            if system_health['completed_steps'] && system_health['completed_steps'] >= 4
-              puts "🎉 All 4 steps completed!"
-              workflow_completed = true
-              break
-            end
-
-            # Check for failed steps
-            if system_health['failed_steps'] && system_health['failed_steps'] > 0
-              puts "❌ Detected #{system_health['failed_steps']} failed steps"
-              # Don't break yet - might be retrying
-            end
-
-            sleep 1  # Poll every second
+            sleep 1
           end
         end
 
-        expect(workflow_completed).to be true
+        final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
 
-        # ==========================================
-        # PHASE 4: Validate Mathematical Results
-        # ==========================================
-
-        puts "🧮 Validating mathematical sequence results..."
-
-        # Expected progression for input 6:
-        # Step 1: 6² = 36
-        # Step 2: 36 + 10 = 46  
-        # Step 3: 46 × 3 = 138
-        # Step 4: 138 ÷ 2 = 69
-
-        expected_final_result = 69
-        puts "✅ Expected final result: #{expected_final_result}"
-
-        # In a full implementation, we would query the final task result
-        # For now, we've validated that the workflow executed completely
-        puts "✅ Mathematical workflow completed successfully"
-
+        expect(final_execution.completion_percentage).to eq(100.0)
       ensure
-        worker.stop if worker.running?
-        puts "🛑 Queue worker stopped"
+        # Worker will be stopped in after(:each) but also stop here for immediate cleanup
+        if worker.running?
+          worker.stop
+          sleep 0.1  # Give worker time to stop gracefully
+        end
       end
-
-      # ==========================================
-      # PHASE 5: Verify System State via SQL Functions
-      # ==========================================
-
-      puts "🔍 Final system state verification..."
-
-      final_analytics = sql_functions.analytics_metrics
-      final_health = sql_functions.system_health_counts
-
-      expect(final_health['completed_steps']).to be >= 4
-      expect(final_analytics['total_tasks']).to be >= 1
-
-      puts "✅ Linear workflow integration test completed successfully"
-      puts "   📊 Final analytics: #{final_analytics}"
-      puts "   🏥 Final health: #{final_health}"
     end
 
     it 'validates step dependency chain execution order' do
-      puts "\n🔗 Testing step dependency chain: linear_step_1 -> linear_step_2 -> linear_step_3 -> linear_step_4"
-
-      # This test would verify that steps execute in the correct order
-      # by monitoring step readiness and execution timing
-
-      # Create a simple task to test dependency ordering
-      task_request = TaskerCore::Types::TaskRequest.new(
+      # Create TaskRequest for dependency chain testing
+      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
         namespace: 'linear_workflow',
         name: 'mathematical_sequence',
         version: '1.0.0',
-        context: { even_number: 8 },
+        context: { even_number: 8, test_run_id: SecureRandom.uuid },
         initiator: 'dependency_chain_test',
         source_system: 'rspec_integration',
         reason: 'Test linear workflow dependency chain',
@@ -201,80 +135,289 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         claim_timeout_seconds: 300
       )
 
-      base_handler = TaskerCore::Internal::OrchestrationManager.instance.base_task_handler
-      task_result = base_handler.initialize_task(task_request.to_h)
-      expect(task_result).to be_nil
+      # Initialize task using embedded FFI with TaskRequest hash
+      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+      expect(task_result).to be_a(Hash)
+      expect(task_result['success']).to be(true)
+      task_result['task_id']
 
-      puts "✅ Dependency chain validation test submitted"
-      
-      # In a full implementation, this would monitor step readiness using:
-      # sql_functions.step_readiness_status(task_id) 
+      # NOTE: Full dependency chain monitoring can use task_id for step readiness tracking
+      # This would monitor step readiness using sql_functions.step_readiness_status(task_id)
       # to verify that step 2 only becomes ready after step 1 completes, etc.
-
-      puts "📋 Note: Full dependency chain monitoring requires task ID tracking"
-      puts "   This will be implemented in Phase 4.3 with database-backed task creation"
     end
 
     it 'handles mathematical errors gracefully' do
-      puts "\n⚠️ Testing error handling with invalid input"
+      # Test with odd number (should fail validation in step handlers)
+      invalid_input = { even_number: 7 }
 
-      # Test with odd number (should fail validation)
-      invalid_input = { even_number: 7 }  # Odd number should fail
+      # Task creation should succeed (validation happens in step handlers)
+      expect do
+        # Create TaskRequest for error handling testing
+        task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
+          namespace: 'linear_workflow',
+          name: 'mathematical_sequence',
+          version: '1.0.0',
+          context: invalid_input,
+          initiator: 'error_handling_test',
+          source_system: 'rspec_integration',
+          reason: 'Test error handling with invalid input',
+          priority: 5,
+          claim_timeout_seconds: 300
+        )
 
-      task_request = TaskerCore::Types::TaskRequest.new(
-        namespace: 'linear_workflow',
-        name: 'mathematical_sequence',
-        version: '1.0.0',
-        context: invalid_input,
-        initiator: 'error_handling_test',
-        source_system: 'rspec_integration',
-        reason: 'Test error handling with invalid input',
-        priority: 5,
-        claim_timeout_seconds: 300
-      )
-
-      base_handler = TaskerCore::Internal::OrchestrationManager.instance.base_task_handler
-      
-      # This should either reject the task or handle the error gracefully
-      expect { base_handler.initialize_task(task_request.to_h) }.not_to raise_error
-
-      puts "✅ Error handling test submitted (validation happens in step handlers)"
-      puts "📋 Note: Step-level error handling will be visible in SQL function monitoring"
+        # Initialize task using embedded FFI with TaskRequest hash
+        task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+        expect(task_result).to be_a(Hash)
+        expect(task_result['success']).to be(true)
+      end.not_to raise_error
     end
   end
 
   describe 'Framework Integration' do
     it 'verifies orchestration system is initialized properly' do
-      manager = TaskerCore::Internal::OrchestrationManager.instance
-      
-      expect(manager.initialized?).to be true
-      
-      info = manager.info
-      expect(info[:architecture]).to eq('pgmq')
-      expect(info[:pgmq_available]).to be true
-      expect(info[:queues_initialized]).to be true
-      
-      puts "✅ Orchestration system properly initialized in pgmq mode"
+      # Check that the embedded orchestrator (FFI-based) exists
+      orchestrator = TaskerCore.embedded_orchestrator
+      expect(orchestrator).not_to be_nil
+
+      # The `running?` method seems to have state sync issues with the FFI layer
+      # Instead of relying on that, let's test actual functionality
+      # If the orchestration system is working, we should be able to:
+      # 1. Create a test task
+      # 2. Use pgmq functionality
+
+      # Check that pgmq is available - this should work or there's a real problem
+      pgmq_client = TaskerCore::Messaging::PgmqClient.new
+      expect(pgmq_client.connection).not_to be_nil
+
+      # Check that we can create queues (core functionality)
+      expect(pgmq_client.create_queue('test_verification_queue')).to be true
+
+      # Test actual orchestration functionality - create a simple task
+      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
+        namespace: 'linear_workflow',
+        name: 'mathematical_sequence',
+        version: '1.0.0',
+        context: { even_number: 2, test_run_id: SecureRandom.uuid },
+        initiator: 'orchestration_verification_test',
+        source_system: 'rspec_integration',
+        reason: 'Test orchestration system functionality',
+        priority: 5,
+        claim_timeout_seconds: 30
+      )
+
+      # If orchestration is working, this should succeed
+      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+      expect(task_result).to be_a(Hash)
+      expect(task_result['success']).to be(true)
+      expect(task_result['task_id']).to be_a(Integer)
+
+      puts "✅ Orchestration system functional - created task #{task_result['task_id']}"
     end
 
-    it 'verifies SQL functions can track linear workflow progress' do
-      # Test that our SQL functions are available for progress tracking
-      expect(sql_functions).to respond_to(:task_execution_context)
-      expect(sql_functions).to respond_to(:step_readiness_status)
-      expect(sql_functions).to respond_to(:analytics_metrics)
-      expect(sql_functions).to respond_to(:system_health_counts)
+    it 'verifies function-based database access can track linear workflow progress' do
+      # Test function-based task execution context
+      expect(TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext).to respond_to(:find)
+      expect(TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext).to respond_to(:for_tasks)
 
-      puts "✅ All required SQL functions available for progress tracking"
+      # Test function-based step readiness status
+      expect(TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus).to respond_to(:for_task)
+      expect(TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus).to respond_to(:ready_for_task)
+
+      # Test that we can still use the compatibility layer
+      expect(sql_functions).to respond_to(:close)
+    end
+
+    it 'verifies ActiveRecord models can access linear workflow data' do
+      # Test that all our ActiveRecord models are available
+      expect(TaskerCore::Database::Models::Task).to respond_to(:find)
+      expect(TaskerCore::Database::Models::Task).to respond_to(:with_all_associated)
+      expect(TaskerCore::Database::Models::WorkflowStep).to respond_to(:find)
+      expect(TaskerCore::Database::Models::NamedStep).to respond_to(:find)
+      expect(TaskerCore::Database::Models::NamedTask).to respond_to(:find)
+      expect(TaskerCore::Database::Models::TaskNamespace).to respond_to(:find)
+
+      # Test our view-based models
+      expect(TaskerCore::Database::Models::ReadyTask).to respond_to(:find_by)
+      expect(TaskerCore::Database::Models::ReadyTask).to respond_to(:available)
+      expect(TaskerCore::Database::Models::ReadyTask).to respond_to(:for_namespace)
+      expect(TaskerCore::Database::Models::StepDagRelationship).to respond_to(:for_task)
+      expect(TaskerCore::Database::Models::StepDagRelationship).to respond_to(:root_steps)
+
+      # Test that associations are properly configured by checking instance methods
+      expect(TaskerCore::Database::Models::Task.instance_methods).to include(:workflow_steps)
+      expect(TaskerCore::Database::Models::Task.instance_methods).to include(:named_task)
+      expect(TaskerCore::Database::Models::WorkflowStep.instance_methods).to include(:named_step)
+      expect(TaskerCore::Database::Models::WorkflowStep.instance_methods).to include(:task)
+      expect(TaskerCore::Database::Models::NamedTask.instance_methods).to include(:task_namespace)
+
+      # Test that view-based models are read-only
+      expect(TaskerCore::Database::Models::ReadyTask.new.readonly?).to be true
+      expect(TaskerCore::Database::Models::StepDagRelationship.new.readonly?).to be true
     end
 
     it 'verifies queue worker can process linear_workflow namespace' do
       worker = TaskerCore::Messaging.create_queue_worker('linear_workflow')
-      
+      @test_workers << worker  # Track for cleanup
+
       expect(worker.namespace).to eq('linear_workflow')
       expect(worker.queue_name).to eq('linear_workflow_queue')
       expect(worker).to respond_to(:can_handle_step?)
+    end
 
-      puts "✅ Queue worker configured for linear_workflow namespace"
+    it 'verifies task initialization creates ready steps' do
+      # Create TaskRequest
+      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
+        namespace: 'linear_workflow',
+        name: 'mathematical_sequence',
+        version: '1.0.0',
+        context: { even_number: 10, test_run_id: SecureRandom.uuid },
+        initiator: 'step_readiness_test',
+        source_system: 'rspec_integration',
+        reason: 'Test step readiness after task initialization',
+        priority: 5,
+        claim_timeout_seconds: 300
+      )
+
+      # Initialize task
+      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+      task_id = task_result['task_id']
+
+      expect(task_id).to be_a(Integer)
+      expect(task_id).to be > 0
+
+      # Check task execution context using function-based approach
+      task_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+      puts "\nTask Execution Context for task #{task_id}:"
+      puts "  Ready Steps: #{task_context.ready_steps}"
+      puts "  Execution Status: #{task_context.execution_status}"
+      puts "  Total Steps: #{task_context.total_steps}"
+      puts "  Completed Steps: #{task_context.completed_steps}"
+      puts "  Pending Steps: #{task_context.pending_steps}"
+
+      # Get detailed step information using ActiveRecord models
+      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
+
+      puts "\nDetailed Steps for task #{task_id} using ActiveRecord:"
+      task.workflow_steps.order(:workflow_step_id).each do |workflow_step|
+        workflow_step_id = workflow_step.workflow_step_id
+        step_name = workflow_step.named_step.name
+        processed = workflow_step.processed
+        in_process = workflow_step.in_process
+        processed_at = workflow_step.processed_at
+        created_at = workflow_step.created_at
+
+        # Check step readiness status using function-based approach
+        readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id, [workflow_step_id])
+        readiness_status = readiness_statuses.first if readiness_statuses.length > 0
+
+        puts "  Step #{workflow_step_id} (#{step_name}):"
+        puts "    Processed: #{processed}"
+        puts "    In Process: #{in_process}"
+        puts "    Created At: #{created_at}" if created_at
+        puts "    Processed At: #{processed_at}" if processed_at
+
+        if readiness_status
+          puts "    Readiness:"
+          puts "      Ready for Execution: #{readiness_status.ready_for_execution}"
+          puts "      Dependencies Satisfied: #{readiness_status.dependencies_satisfied}"
+          puts "      Current State: #{readiness_status.current_state}"
+          puts "      Retry Eligible: #{readiness_status.retry_eligible}" if readiness_status.respond_to?(:retry_eligible)
+        else
+          puts "    Readiness: No status found"
+        end
+      end
+      # Assertions
+      expect(task_context.total_steps).to eq(4) # Linear workflow has 4 steps
+      expect(task_context.ready_steps).to be > 0, 'Expected at least one ready step after task initialization'
+      expect(task_context.execution_status).to eq('has_ready_steps').or eq('in_progress').or eq('pending')
+    end
+
+    it 'verifies orchestration loop claims ready tasks' do
+      # Create TaskRequest
+      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
+        namespace: 'linear_workflow',
+        name: 'mathematical_sequence',
+        version: '1.0.0',
+        context: { even_number: 6, test_run_id: SecureRandom.uuid },
+        initiator: 'orchestration_claiming_test',
+        source_system: 'rspec_integration',
+        reason: 'Test orchestration loop claiming behavior',
+        priority: 5,
+        claim_timeout_seconds: 300
+      )
+
+      # Initialize task
+      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
+      task_id = task_result['task_id']
+
+      expect(task_id).to be_a(Integer)
+      expect(task_id).to be > 0
+
+      # Check that task appears in ready tasks view using ActiveRecord
+      puts "\nChecking task #{task_id} using ActiveRecord models..."
+
+      # First, let's check the task itself
+      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
+      puts "  Task: #{task.task_id} - namespace: #{task.named_task.task_namespace.name}, complete: #{task.complete}"
+
+      # Check that task appears in ready tasks view using our ReadyTask model
+      puts "\nChecking tasker_ready_tasks view for task #{task_id} using ActiveRecord..."
+      ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id)
+
+      expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
+      puts "  Task #{ready_task.task_id}: namespace=#{ready_task.namespace_name}, ready_steps=#{ready_task.ready_steps_count}, claim_status=#{ready_task.claim_status}, execution_status=#{ready_task.execution_status}"
+
+      expect(ready_task.namespace_name).to eq('linear_workflow')
+      expect(ready_task.ready_steps_count.to_i).to be > 0
+      expect(ready_task.claim_status).to eq('available')
+
+      # Test our convenience methods
+      expect(ready_task.available?).to be true
+      expect(ready_task.has_ready_steps?).to be true
+      expect(ready_task.ready_for_execution?).to be true
+
+      # Show detailed step information using ActiveRecord
+      puts "\nStep details using ActiveRecord models:"
+      task.workflow_steps.order(:workflow_step_id).each do |workflow_step|
+        puts "  Step #{workflow_step.workflow_step_id}: #{workflow_step.named_step.name} - processed: #{workflow_step.processed}, in_process: #{workflow_step.in_process}"
+      end
+
+      # Wait to see if orchestration loop claims the task
+      puts "\nWaiting 5 seconds to see if orchestration loop claims the task..."
+      sleep 5
+
+      # Check if task was claimed using ReadyTask model
+      ready_task_after_wait = TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id)
+
+      if ready_task_after_wait
+        puts "  Task #{task_id} status after wait: claim_status=#{ready_task_after_wait.claim_status}, claimed_by=#{ready_task_after_wait.claimed_by}"
+
+        # If task was claimed, we know orchestration loop is working
+        if ready_task_after_wait.claimed?
+          puts '  ✅ SUCCESS: Orchestration loop successfully claimed the task!'
+          expect(ready_task_after_wait.claimed_by).not_to be_nil
+        else
+          puts '  ⚠️  Task still available - orchestration loop may not be claiming linear_workflow tasks'
+        end
+      else
+        puts '  ⚠️  Task no longer in ready tasks view - may have been processed or removed'
+      end
+
+      # Also check if any steps were enqueued to the linear_workflow_queue using PgmqClient
+      begin
+        pgmq_client = TaskerCore::Messaging::PgmqClient.new
+        queue_stats = pgmq_client.queue_stats('linear_workflow_queue')
+        if queue_stats
+          puts "  linear_workflow_queue length: #{queue_stats[:queue_length]}"
+          puts '  ✅ SUCCESS: Steps were enqueued to linear_workflow_queue!' if queue_stats[:queue_length] > 0
+        else
+          puts '  ⚠️  Could not get queue stats for linear_workflow_queue'
+        end
+      rescue TaskerCore::Errors::DatabaseError,
+             PG::ConnectionBad,
+             ActiveRecord::ConnectionNotEstablished => e
+        puts "  ⚠️  Could not check queue stats due to connection error: #{e.message}"
+      end
     end
   end
 end

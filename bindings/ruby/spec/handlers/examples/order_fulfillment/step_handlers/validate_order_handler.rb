@@ -24,7 +24,7 @@ module OrderFulfillment
             validated_items: validation_results[:items],
             order_total: validation_results[:total],
             validation_status: 'complete',
-            validated_at: Time.now.iso8601,
+            validated_at: Time.now.iso8601
           },
           metadata: {
             operation: 'validate_order',
@@ -123,11 +123,11 @@ module OrderFulfillment
         total_amount = validated_items.sum { |item| item[:line_total] }
 
         # Validate reasonable order total
-        if total_amount > 50000.00
+        if total_amount > 50_000.00
           raise TaskerCore::Errors::PermanentError.new(
             "Order total $#{total_amount} exceeds maximum allowed value",
             error_code: 'ORDER_TOTAL_TOO_HIGH',
-            context: { total_amount: total_amount, max_allowed: 50000.00 }
+            context: { total_amount: total_amount, max_allowed: 50_000.00 }
           )
         end
 

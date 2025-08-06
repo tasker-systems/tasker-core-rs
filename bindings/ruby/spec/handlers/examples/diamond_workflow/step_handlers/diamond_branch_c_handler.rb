@@ -4,10 +4,10 @@ module DiamondWorkflow
   module StepHandlers
     # Diamond Branch C: Right parallel branch that squares the input
     class DiamondBranchCHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(_task, sequence, _step)
         # Get result from diamond_start
-        start_result = sequence.get("diamond_start")&.dig("result")
-        raise "Diamond start result not found" unless start_result
+        start_result = sequence.get('diamond_start')&.dig('result')
+        raise 'Diamond start result not found' unless start_result
 
         # Square the start result (single parent operation)
         result = start_result * start_result
@@ -18,12 +18,12 @@ module DiamondWorkflow
         TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
-            operation: "square",
-            step_type: "single_parent",
+            operation: 'square',
+            step_type: 'single_parent',
             input_refs: {
-              start_result: "sequence.diamond_start.result"
+              start_result: 'sequence.diamond_start.result'
             },
-            branch: "right"
+            branch: 'right'
           }
         )
       end

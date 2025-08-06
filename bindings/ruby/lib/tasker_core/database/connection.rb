@@ -1,75 +1,69 @@
 # frozen_string_literal: true
 
 require 'pg'
+require 'active_record'
 require 'singleton'
+require_relative '../config'
 
 module TaskerCore
   module Database
-    # Simple singleton database connection for registry operations
-    #
-    # This provides a lightweight connection wrapper specifically for 
-    # the step handler registry to query named_tasks and configurations.
     class Connection
       include Singleton
 
       attr_reader :connection
 
       def initialize
-        @connection = create_connection
+        establish_connection
+        @connection = ActiveRecord::Base.connection.raw_connection
       end
 
-      # Execute a query and return one result
-      #
-      # @param sql [String] SQL query
-      # @param params [Array] Query parameters
-      # @return [Hash, nil] Single result hash or nil
-      def query_one(sql, params = [])
-        result = @connection.exec_params(sql, params)
-        return nil if result.ntuples == 0
-        
-        result[0]
-      rescue PG::Error => e
-        raise TaskerCore::Error.new("Database query failed: #{e.message}")
-      ensure
-        result&.clear
+      def execute(query)
+        ActiveRecord::Base.connection.execute(query)
       end
 
-      # Execute a query and return all results
-      #
-      # @param sql [String] SQL query  
-      # @param params [Array] Query parameters
-      # @return [Array<Hash>] Array of result hashes
-      def query_all(sql, params = [])
-        result = @connection.exec_params(sql, params)
-        result.to_a
-      rescue PG::Error => e
-        raise TaskerCore::Error.new("Database query failed: #{e.message}")
-      ensure
-        result&.clear
+      def close
+        ActiveRecord::Base.connection.close
       end
 
-      # Test if connection is still valid
-      #
-      # @return [Boolean] true if connection is healthy
-      def healthy?
-        @connection.exec('SELECT 1').ntuples == 1
-      rescue
-        false
+      # Get the current database configuration
+      def database_config
+        @database_config ||= TaskerCore::Config.instance.activerecord_database_config
       end
 
-      # Close and recreate connection
+      # Get the current database name
+      def database_name
+        database_config[:database]
+      end
+
+      # Get the current database URL
+      def database_url
+        TaskerCore::Config.instance.database_url
+      end
+
+      # Check if connection is active
+      def connected?
+        ActiveRecord::Base.connected?
+      end
+
+      # Reconnect to database
       def reconnect!
-        @connection&.close
-        @connection = create_connection
+        ActiveRecord::Base.connection.reconnect!
+        @connection = ActiveRecord::Base.connection.raw_connection
       end
 
       private
 
-      def create_connection
-        database_url = ENV['DATABASE_URL'] || 'postgresql://localhost/tasker_development'
-        PG.connect(database_url)
-      rescue PG::Error => e
-        raise TaskerCore::Error.new("Failed to connect to database: #{e.message}")
+      def establish_connection
+        config = TaskerCore::Config.instance
+        db_config = config.activerecord_database_config
+
+        ActiveRecord::Base.establish_connection(db_config)
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        raise TaskerCore::Errors::DatabaseError, "Failed to establish database connection: #{e.message}"
+      rescue ActiveRecord::DatabaseConnectionError => e
+        raise TaskerCore::Errors::DatabaseError, "Database connection error: #{e.message}"
+      rescue TaskerCore::Errors::ConfigurationError => e
+        raise TaskerCore::Errors::DatabaseError, "Database configuration error: #{e.message}"
       end
     end
   end

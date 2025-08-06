@@ -43,7 +43,7 @@ module TaskerCore
         @validation_enabled = true
         @logger = TaskerCore::Logging::Logger.instance
 
-        logger.info "DistributedHandlerRegistry initialized with callable support"
+        logger.info 'DistributedHandlerRegistry initialized with callable support'
       end
 
       # Register a callable object directly
@@ -62,7 +62,8 @@ module TaskerCore
       # @param block [Proc] Block that will be called with (task, sequence, step)
       # @return [void]
       def register_proc(handler_class, &block)
-        raise ArgumentError, "Block required for register_proc" unless block_given?
+        raise ArgumentError, 'Block required for register_proc' unless block_given?
+
         register_callable(handler_class, block)
       end
 
@@ -100,7 +101,7 @@ module TaskerCore
 
         # Priority 3: Instance with .call method
         instance = get_handler_instance(handler_key)
-        return instance if instance&.respond_to?(:call)
+        return instance if instance.respond_to?(:call)
 
         nil
       end
@@ -110,16 +111,15 @@ module TaskerCore
       # @return [Object, nil] Handler instance or nil if not found
       def get_handler_instance(handler_class)
         # Direct class instantiation
-        begin
-          klass = handler_class.to_s.constantize
-          klass.new
-        rescue NameError => e
-          logger.warn "Could not instantiate handler class #{handler_class}: #{e.message}"
-          nil
-        rescue => e
-          logger.error "Error instantiating #{handler_class}: #{e.message}"
-          nil
-        end
+
+        klass = handler_class.to_s.constantize
+        klass.new
+      rescue NameError => e
+        logger.warn "Could not instantiate handler class #{handler_class}: #{e.message}"
+        nil
+      rescue StandardError => e
+        logger.error "Error instantiating #{handler_class}: #{e.message}"
+        nil
       end
 
       # Remove a registered callable
@@ -146,14 +146,14 @@ module TaskerCore
       # @return [void]
       def clear_callables!
         @callables.clear
-        logger.info "Cleared all registered callables"
+        logger.info 'Cleared all registered callables'
       end
 
       # Enable or disable callable validation
       # @param enabled [Boolean] Whether to validate callable interfaces
       # @return [void]
       def validation_enabled=(enabled)
-        @validation_enabled = !!enabled
+        @validation_enabled = !enabled.nil?
         logger&.debug "Callable validation #{enabled ? 'enabled' : 'disabled'}"
       end
 
@@ -176,36 +176,43 @@ module TaskerCore
       # @param template_data [Hash] TaskTemplate data structure
       # @return [Hash] Registration result with status and details
       def register_task_template(template_data)
-        begin
-          # Create TaskTemplate using dry-struct (handles validation automatically)
-          template = TaskerCore::Types::TaskTemplate.new(template_data)
+        # Create TaskTemplate using dry-struct (handles validation automatically)
+        template = TaskerCore::Types::TaskTemplate.new(template_data)
 
-          unless template.valid_for_registration?
-            return { success: false, error: "TaskTemplate failed registration validation" }
-          end
-
-          logger.info "📝 Registering TaskTemplate: #{template.template_key}"
-
-          # Register in database
-          if register_task_template_in_database(template)
-            {
-              success: true,
-              template_key: template.template_key,
-              registered_at: Time.now.utc.iso8601,
-              message: "TaskTemplate registered in database-backed registry"
-            }
-          else
-            { success: false, error: "Database registration failed" }
-          end
-        rescue Dry::Struct::Error => e
-          error_msg = "TaskTemplate validation failed: #{e.message}"
-          logger.error error_msg
-          { success: false, error: error_msg }
-        rescue StandardError => e
-          error_msg = "Registration failed: #{e.message}"
-          logger.error error_msg
-          { success: false, error: error_msg }
+        unless template.valid_for_registration?
+          error_msg = "TaskTemplate failed registration validation: #{template.template_key}"
+          logger.warn "⚠️ #{error_msg}"
+          return { success: false, error: error_msg }
         end
+
+        # Ensure all required fields for Rust deserialization are present
+        validate_rust_compatibility!(template)
+
+        logger.info "📝 Registering TaskTemplate: #{template.template_key}"
+
+        # Register in database
+        if register_task_template_in_database(template)
+          {
+            success: true,
+            template_key: template.template_key,
+            registered_at: Time.now.utc.iso8601,
+            message: 'TaskTemplate registered in database-backed registry'
+          }
+        else
+          { success: false, error: 'Database registration failed' }
+        end
+      rescue Dry::Struct::Error => e
+        error_msg = "TaskTemplate validation failed: #{e.message}"
+        logger.error "❌ #{error_msg}"
+        { success: false, error: error_msg }
+      rescue ArgumentError => e
+        error_msg = "TaskTemplate compatibility check failed: #{e.message}"
+        logger.error "❌ #{error_msg}"
+        { success: false, error: error_msg }
+      rescue StandardError => e
+        error_msg = "Registration failed: #{e.message}"
+        logger.error error_msg
+        { success: false, error: error_msg }
       end
 
       # Register a TaskTemplate from YAML file
@@ -222,17 +229,17 @@ module TaskerCore
 
         begin
           template = load_task_template_from_file(file_path)
-          return { success: false, error: "Failed to load valid TaskTemplate from file" } unless template
+          return { success: false, error: 'Failed to load valid TaskTemplate from file' } unless template
 
           if register_task_template_in_database(template)
             {
               success: true,
               template_key: template.template_key,
               registered_at: Time.now.utc.iso8601,
-              message: "TaskTemplate registered from YAML file"
+              message: 'TaskTemplate registered from YAML file'
             }
           else
-            { success: false, error: "Database registration failed" }
+            { success: false, error: 'Database registration failed' }
           end
         rescue StandardError => e
           error_msg = "Failed to register TaskTemplate from #{file_path}: #{e.message}"
@@ -291,7 +298,7 @@ module TaskerCore
       # List registered TaskTemplates from database
       # @return [Hash] List of registered templates with metadata
       def list_registered_task_templates
-        logger.debug "📋 Listing registered TaskTemplates"
+        logger.debug '📋 Listing registered TaskTemplates'
 
         begin
           templates = load_task_templates_from_database
@@ -299,7 +306,7 @@ module TaskerCore
             success: true,
             templates: templates.map(&:template_key),
             total_count: templates.size,
-            message: "TaskTemplates loaded from database-backed registry"
+            message: 'TaskTemplates loaded from database-backed registry'
           }
         rescue StandardError => e
           error_msg = "Failed to list registered templates: #{e.message}"
@@ -318,25 +325,25 @@ module TaskerCore
         logger.debug "🔍 Checking registration status: #{template_key}"
 
         begin
-          return { success: false, registered: false, template_key: template_key, message: "Database not available" } unless database_available?
+          # Use ActiveRecord to check if the template exists
+          registered = TaskerCore::Database::Models::NamedTask
+                         .joins(:task_namespace)
+                         .exists?(
+                           task_namespace: { name: namespace },
+                           name: name,
+                           version: version
+                         )
 
-          db = get_database_connection
-          result = db.exec_params(
-            "SELECT EXISTS(
-               SELECT 1 FROM task_namespaces ns
-               JOIN named_tasks nt ON ns.id = nt.namespace_id
-               WHERE ns.name = $1 AND nt.name = $2 AND nt.version = $3
-             )",
-            [namespace, name, version]
-          )
-
-          registered = result[0]['exists'] == 't'
           {
             success: true,
             registered: registered,
             template_key: template_key,
-            message: registered ? "TaskTemplate found in database" : "TaskTemplate not found in database"
+            message: registered ? 'TaskTemplate found in database' : 'TaskTemplate not found in database'
           }
+        rescue ActiveRecord::StatementInvalid => e
+          error_msg = "Database query failed while checking template status: #{e.message}"
+          logger.error error_msg
+          { success: false, error: error_msg }
         rescue StandardError => e
           error_msg = "Failed to check template status: #{e.message}"
           logger.error error_msg
@@ -347,7 +354,7 @@ module TaskerCore
       # Bootstrap handler registry by loading task templates from database
       # @return [Hash] Bootstrap operation result
       def bootstrap_handlers
-        logger.info "🔧 Bootstrapping distributed handler registry"
+        logger.info '🔧 Bootstrapping distributed handler registry'
 
         begin
           # Database TaskTemplate loading is fully implemented (lines 695-770)
@@ -359,18 +366,16 @@ module TaskerCore
           discoverable_handlers = discover_handler_classes
 
           discoverable_handlers.each do |handler_class|
-            begin
-              # Try to register handler class if it exists and has proper interface
-              register_class(handler_class, handler_class.constantize)
-              registered_count += 1
-              logger.debug "✅ Handler registered: #{handler_class}"
-            rescue NameError
-              logger.debug "⚠️ Handler class not found: #{handler_class}"
-              failed_count += 1
-            rescue StandardError => e
-              logger.warn "❌ Failed to register handler #{handler_class}: #{e.message}"
-              failed_count += 1
-            end
+            # Try to register handler class if it exists and has proper interface
+            register_class(handler_class, handler_class.constantize)
+            registered_count += 1
+            logger.debug "✅ Handler registered: #{handler_class}"
+          rescue NameError
+            logger.debug "⚠️ Handler class not found: #{handler_class}"
+            failed_count += 1
+          rescue StandardError => e
+            logger.warn "❌ Failed to register handler #{handler_class}: #{e.message}"
+            failed_count += 1
           end
 
           {
@@ -390,13 +395,46 @@ module TaskerCore
         end
       end
 
+      # Validate that TaskTemplate has all required fields for Rust deserialization
+      # @param template [TaskerCore::Types::TaskTemplate] TaskTemplate to validate
+      # @raise [ArgumentError] if required fields are missing
+      def validate_rust_compatibility!(template)
+        # Check for required fields that Rust TaskTemplate expects
+        required_fields = {
+          name: template.name,
+          namespace_name: template.namespace_name,
+          version: template.version,
+          task_handler_class: template.task_handler_class
+        }
+
+        missing_fields = []
+        required_fields.each do |field, value|
+          missing_fields << field if value.nil? || (value.respond_to?(:empty?) && value.empty?)
+        end
+
+        unless missing_fields.empty?
+          raise ArgumentError,
+                "TaskTemplate missing required fields for Rust compatibility: #{missing_fields.join(', ')}"
+        end
+
+        # Validate step templates have required fields
+        template.step_templates.each_with_index do |step, index|
+          if step.name.nil? || step.name.empty?
+            raise ArgumentError, "Step template at index #{index} missing required 'name' field"
+          end
+          if step.handler_class.nil? || step.handler_class.empty?
+            raise ArgumentError, "Step template '#{step.name}' missing required 'handler_class' field"
+          end
+        end
+
+        logger.debug "✅ TaskTemplate passed Rust compatibility validation: #{template.template_key}"
+      end
+
       private
 
       # Validate that a callable has the correct interface
       def validate_callable_interface!(callable)
-        unless callable.respond_to?(:call)
-          raise ArgumentError, "Callable must respond to .call method"
-        end
+        raise ArgumentError, 'Callable must respond to .call method' unless callable.respond_to?(:call)
 
         # Check arity if possible (some callables don't support arity inspection)
         if callable.respond_to?(:arity)
@@ -439,12 +477,10 @@ module TaskerCore
 
         # Only include handlers that actually exist in the current environment
         handlers.uniq.select do |handler_class|
-          begin
-            handler_class.constantize
-            true
-          rescue NameError
-            false
-          end
+          handler_class.constantize
+          true
+        rescue NameError
+          false
         end
       end
 
@@ -452,26 +488,40 @@ module TaskerCore
       # @return [Array<TaskerCore::Types::TaskTemplate>] Array of TaskTemplate instances
       def discover_task_templates
         templates = []
+        failed_templates = []
 
         # Get search paths from configuration
         search_patterns = get_search_patterns_from_config
 
         search_patterns.each do |pattern|
           Dir.glob(pattern).each do |file_path|
-            begin
-              template = load_task_template_from_file(file_path)
-              if template&.valid_for_registration?
-                # Register in database using the database-first registry approach
-                register_task_template_in_database(template)
+            template = load_task_template_from_file(file_path)
+            if template&.valid_for_registration?
+              # Register in database using the database-first registry approach
+              register_success = register_task_template_in_database(template)
+              if register_success
                 templates << template
                 logger.info "✅ Loaded TaskTemplate from #{file_path}: #{template.template_key}"
               else
-                logger.warn "⚠️ Invalid TaskTemplate in #{file_path}"
+                failed_templates << { file: file_path, error: 'Database registration failed' }
+                logger.error "❌ FAIL-FAST: Database registration failed for #{file_path}"
               end
-            rescue StandardError => e
-              logger.warn "⚠️ Failed to load TaskTemplate from #{file_path}: #{e.message}"
+            else
+              failed_templates << { file: file_path, error: 'TaskTemplate failed validation for registration' }
+              logger.error "❌ FAIL-FAST: Invalid TaskTemplate in #{file_path}"
             end
+          rescue StandardError => e
+            failed_templates << { file: file_path, error: e.message }
+            logger.error "❌ FAIL-FAST: Failed to load TaskTemplate from #{file_path}: #{e.message}"
+            logger.error "❌ FAIL-FAST: #{e.backtrace.first(3).join("\n")}"
           end
+        end
+
+        # FAIL-FAST: If any critical templates failed to load, raise an error
+        unless failed_templates.empty?
+          error_summary = failed_templates.map { |f| "#{f[:file]}: #{f[:error]}" }.join("\n")
+          raise TaskerCore::Errors::OrchestrationError,
+                "FAIL-FAST: TaskTemplate loading failed for #{failed_templates.size} template(s):\n#{error_summary}"
         end
 
         # Also load from database (for templates loaded by other processes)
@@ -488,7 +538,7 @@ module TaskerCore
         config = load_tasker_config
         env = current_environment
 
-        patterns = config.dig('task_templates', 'search_paths', env) || []
+        patterns = config.dig(env, 'task_templates', 'search_paths') || []
 
         if patterns.empty?
           logger.warn "No TaskTemplate search paths configured for environment: #{env}, using defaults"
@@ -496,34 +546,19 @@ module TaskerCore
           patterns = default_search_patterns_for_environment(env)
         end
 
-        # Expand relative paths from project root
-        project_root = find_project_root
+        # Use centralized PathResolver for consistent path resolution
         expanded_patterns = patterns.map do |pattern|
-          if pattern.start_with?('/')
-            pattern # Absolute path
-          else
-            File.join(project_root, pattern)
-          end
+          Utils::PathResolver.resolve_config_path(pattern)
         end
 
         logger.debug "📁 TaskTemplate search patterns for #{env}: #{expanded_patterns}"
         expanded_patterns
       end
 
-      # Find the project root directory
+      # Find the project root directory (delegated to PathResolver)
       # @return [String] Path to project root
       def find_project_root
-        # Start from current file and walk up until we find a Cargo.toml or Gemfile
-        current_dir = File.dirname(__FILE__)
-
-        while current_dir != '/'
-          return current_dir if File.exist?(File.join(current_dir, 'Cargo.toml'))
-          return current_dir if File.exist?(File.join(current_dir, 'Gemfile'))
-          current_dir = File.dirname(current_dir)
-        end
-
-        # Fallback to current directory
-        Dir.pwd
+        Utils::PathResolver.project_root
       end
 
       # Load TaskTemplate data from a YAML file using dry-struct
@@ -531,20 +566,38 @@ module TaskerCore
       # @return [TaskerCore::Types::TaskTemplate, nil] TaskTemplate instance or nil if invalid
       def load_task_template_from_file(file_path)
         raw_data = YAML.load_file(file_path)
-        return nil unless raw_data.is_a?(Hash)
+        unless raw_data.is_a?(Hash)
+          raise TaskerCore::Errors::ConfigurationError,
+                "FAIL-FAST: TaskTemplate file #{file_path} does not contain a valid YAML hash"
+        end
 
-        # Convert string keys to symbols and set defaults
+        # FAIL-FAST: Validate required fields before normalization
+        required_fields = %w[name namespace_name task_handler_class step_templates]
+        missing_fields = required_fields.select { |field| raw_data[field].nil? || raw_data[field].to_s.strip.empty? }
+        unless missing_fields.empty?
+          raise TaskerCore::Errors::ConfigurationError,
+                "FAIL-FAST: TaskTemplate #{file_path} missing required fields: #{missing_fields.join(', ')}"
+        end
+
+        # FAIL-FAST: Ensure step_templates is not empty
+        step_templates = raw_data['step_templates']
+        if step_templates.nil? || !step_templates.is_a?(Array) || step_templates.empty?
+          raise TaskerCore::Errors::ConfigurationError,
+                "FAIL-FAST: TaskTemplate #{file_path} must have non-empty step_templates array"
+        end
+
+        # Convert string keys to symbols and set defaults (NO EMPTY FALLBACKS)
         normalized_data = {
-          name: raw_data['name'] || File.basename(file_path, File.extname(file_path)),
-          namespace_name: raw_data['namespace_name'] || 'default',
+          name: raw_data['name'],
+          namespace_name: raw_data['namespace_name'],
           version: raw_data['version'] || '1.0.0',
           task_handler_class: raw_data['task_handler_class'],
           module_namespace: raw_data['module_namespace'],
-          description: raw_data['description'],
+          description: raw_data['description'] || "TaskTemplate for #{raw_data['name']}",
           default_dependent_system: raw_data['default_dependent_system'],
           schema: raw_data['schema'],
           named_steps: raw_data['named_steps'] || [],
-          step_templates: normalize_step_templates_to_structs(raw_data['step_templates'] || []),
+          step_templates: normalize_step_templates_to_structs(raw_data['step_templates']),
           environments: normalize_environments_to_structs(raw_data['environments'] || {}),
           handler_config: raw_data['handler_config'] || {},
           custom_events: raw_data['custom_events'] || [],
@@ -552,13 +605,16 @@ module TaskerCore
         }
 
         # Create TaskTemplate using dry-struct (handles validation automatically)
+        # This will raise Dry::Struct::Error if validation fails - let it bubble up
         TaskerCore::Types::TaskTemplate.new(normalized_data)
       rescue Dry::Struct::Error => e
-        logger.warn "TaskTemplate validation failed for #{file_path}: #{e.message}"
-        nil
+        # FAIL-FAST: Don't catch validation errors, re-raise with context
+        raise TaskerCore::Errors::ConfigurationError,
+              "FAIL-FAST: TaskTemplate validation failed for #{file_path}: #{e.message}"
       rescue StandardError => e
-        logger.error "Error loading TaskTemplate from #{file_path}: #{e.message}"
-        nil
+        # FAIL-FAST: Don't catch other errors, re-raise with context
+        raise TaskerCore::Errors::ConfigurationError,
+              "FAIL-FAST: Error loading TaskTemplate from #{file_path}: #{e.message}"
       end
 
       # Normalize step templates to dry-struct instances
@@ -614,57 +670,32 @@ module TaskerCore
       # @param template [TaskerCore::Types::TaskTemplate] TaskTemplate instance
       # @return [Boolean] Success indicator
       def register_task_template_in_database(template)
-        return false unless database_available?
-
         begin
           logger.debug "📝 Database registration: #{template.template_key}"
 
-          # Use database connection from embedded orchestrator or pgmq client
-          db = get_database_connection
+          # Create configuration that matches Rust TaskTemplate structure exactly
+          # Rust expects a flat structure with all required fields at the top level
+          configuration = {
+            # Required fields for Rust TaskTemplate deserialization
+            name: template.name,
+            namespace_name: template.namespace_name,
+            version: template.version,
+            task_handler_class: template.task_handler_class,
 
-          db.transaction do
-            # 1. Find or create namespace
-            namespace_result = db.exec_params(
-              "INSERT INTO task_namespaces (name, created_at, updated_at)
-               VALUES ($1, NOW(), NOW())
-               ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-               RETURNING id",
-              [template.namespace_name]
-            )
-            namespace_id = namespace_result[0]['id']
+            # Optional fields that Rust expects
+            module_namespace: template.module_namespace,
+            default_dependent_system: template.default_dependent_system,
+            schema: template.schema,
+            named_steps: template.named_steps,
+            environments: serialize_environments(template.environments),
+            custom_events: template.custom_events,
 
-            # 2. Insert or update named task
-            configuration = {
-              description: template.description,
-              default_dependent_system: template.default_dependent_system,
-              schema: template.schema,
-              named_steps: template.named_steps,
-              environments: serialize_environments(template.environments),
-              handler_config: template.handler_config,
-              custom_events: template.custom_events
-            }
-
-            task_result = db.exec_params(
-              "INSERT INTO named_tasks (namespace_id, name, version, task_handler_class, module_namespace, description, configuration, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-               ON CONFLICT (namespace_id, name, version) DO UPDATE SET
-                 task_handler_class = EXCLUDED.task_handler_class,
-                 module_namespace = EXCLUDED.module_namespace,
-                 description = EXCLUDED.description,
-                 configuration = EXCLUDED.configuration,
-                 updated_at = NOW()
-               RETURNING id",
-              [namespace_id, template.name, template.version, template.task_handler_class,
-               template.module_namespace, template.description, configuration.to_json]
-            )
-            task_id = task_result[0]['id']
-
-            # 3. Clear existing step templates and insert new ones
-            db.exec_params("DELETE FROM step_templates WHERE named_task_id = $1", [task_id])
-
-            template.step_templates.each_with_index do |step, index|
-              step_config = {
+            # Store step templates as part of the configuration
+            step_templates: template.step_templates.map do |step|
+              {
+                name: step.name,
                 description: step.description,
+                handler_class: step.handler_class,
                 handler_config: step.handler_config,
                 depends_on_step: step.depends_on_step,
                 depends_on_steps: step.depends_on_steps,
@@ -672,17 +703,45 @@ module TaskerCore
                 default_retry_limit: step.default_retry_limit,
                 timeout_seconds: step.timeout_seconds
               }
+            end,
 
-              db.exec_params(
-                "INSERT INTO step_templates (named_task_id, name, handler_class, position, configuration, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
-                [task_id, step.name, step.handler_class, index, step_config.to_json]
-              )
-            end
+            # Task-level handler config (separate from step-level configs)
+            default_context: nil,          # Rust expects this field
+            default_options: nil,          # Rust expects this field
+
+            # Additional Ruby-specific fields for compatibility
+            handler_class: template.task_handler_class,  # Backward compatibility
+            handler_config: template.handler_config      # Task-level handler config
+          }
+
+          # Use ActiveRecord transaction for database operations
+          TaskerCore::Database::Models::NamedTask.transaction do
+            # 1. Find or create namespace using ActiveRecord
+            namespace = TaskerCore::Database::Models::TaskNamespace.find_or_create_by!(
+              name: template.namespace_name
+            )
+
+            # 2. Find or create named task using ActiveRecord
+            named_task = TaskerCore::Database::Models::NamedTask.find_or_initialize_by(
+              task_namespace: namespace,
+              name: template.name,
+              version: template.version
+            )
+
+            # Update or set attributes
+            named_task.description = template.description
+            named_task.configuration = configuration
+            named_task.save!
+
+            # NOTE: We're storing step templates in the configuration JSONB column
+            # because the current schema doesn't have a step_templates table
           end
 
           logger.info "✅ TaskTemplate registered in database: #{template.template_key}"
           true
+        rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotSaved => e
+          logger.error "Database validation failed for #{template.template_key}: #{e.message}"
+          false
         rescue StandardError => e
           logger.error "Database registration failed for #{template.template_key}: #{e.message}"
           false
@@ -692,112 +751,85 @@ module TaskerCore
       # Load TaskTemplates from database (for templates registered by other processes)
       # @return [Array<TaskerCore::Types::TaskTemplate>] Array of TaskTemplate instances from database
       def load_task_templates_from_database
-        return [] unless database_available?
-
         begin
-          logger.debug "🔍 Loading TaskTemplates from database"
+          logger.debug '🔍 Loading TaskTemplates from database'
 
-          db = get_database_connection
+          # Use ActiveRecord to load named tasks with their namespaces
+          named_tasks = TaskerCore::Database::Models::NamedTask.includes(:task_namespace).all
 
-          # Query all named tasks with their namespaces and step templates
-          result = db.exec(
-            "SELECT nt.id, ns.name as namespace_name, nt.name, nt.version,
-                    nt.task_handler_class, nt.module_namespace, nt.description, nt.configuration,
-                    array_agg(
-                      json_build_object(
-                        'name', st.name,
-                        'handler_class', st.handler_class,
-                        'position', st.position,
-                        'configuration', st.configuration
-                      ) ORDER BY st.position
-                    ) FILTER (WHERE st.id IS NOT NULL) as step_templates
-             FROM task_namespaces ns
-             JOIN named_tasks nt ON ns.id = nt.namespace_id
-             LEFT JOIN step_templates st ON nt.id = st.named_task_id
-             GROUP BY nt.id, ns.name, nt.name, nt.version, nt.task_handler_class,
-                      nt.module_namespace, nt.description, nt.configuration
-             ORDER BY ns.name, nt.name, nt.version"
-          )
+          templates = named_tasks.map do |nt|
+            config = nt.config # Use the accessor method which handles JSON parsing and indifferent access
 
-          templates = result.map do |row|
-            config = JSON.parse(row['configuration'] || '{}')
-            step_templates_data = JSON.parse(row['step_templates'] || '[]')
+            # Handle both nested (new) and flat (old) configuration structures
+            if config['handler_config'].is_a?(Hash)
+              # New nested structure - extract from handler_config
+              handler_config = config['handler_config']
+              task_handler_class = handler_config['task_handler_class'] || handler_config['handler_class'] || config['handler_class']
+              module_namespace = handler_config['module_namespace']
+              step_templates_data = handler_config['step_templates'] || []
+              environments_data = handler_config['environments'] || {}
+              named_steps = handler_config['named_steps'] || []
+              schema = handler_config['schema']
+              custom_events = handler_config['custom_events'] || []
+              default_dependent_system = handler_config['default_dependent_system'] || config['default_dependent_system']
+            else
+              # Old flat structure for backwards compatibility
+              task_handler_class = config['task_handler_class'] || config['handler_class']
+              module_namespace = config['module_namespace']
+              step_templates_data = config['step_templates'] || []
+              environments_data = config['environments'] || {}
+              named_steps = config['named_steps'] || []
+              schema = config['schema']
+              custom_events = config['custom_events'] || []
+              default_dependent_system = config['default_dependent_system']
+              handler_config = config
+            end
 
             # Convert step templates to dry-structs
             step_templates = step_templates_data.map do |step_data|
-              step_config = JSON.parse(step_data['configuration'] || '{}')
               TaskerCore::Types::StepTemplate.new(
                 name: step_data['name'],
-                description: step_config['description'],
+                description: step_data['description'],
                 handler_class: step_data['handler_class'],
-                handler_config: step_config['handler_config'] || {},
-                depends_on_step: step_config['depends_on_step'],
-                depends_on_steps: step_config['depends_on_steps'] || [],
-                default_retryable: step_config['default_retryable'] || false,
-                default_retry_limit: step_config['default_retry_limit'] || 0,
-                timeout_seconds: step_config['timeout_seconds']
+                handler_config: step_data['handler_config'] || {},
+                depends_on_step: step_data['depends_on_step'],
+                depends_on_steps: step_data['depends_on_steps'] || [],
+                default_retryable: step_data['default_retryable'] || false,
+                default_retry_limit: step_data['default_retry_limit'] || 0,
+                timeout_seconds: step_data['timeout_seconds']
               )
             end
 
             # Convert environments to dry-structs
-            environments = normalize_environments_to_structs(config['environments'] || {})
+            environments = normalize_environments_to_structs(environments_data)
 
             TaskerCore::Types::TaskTemplate.new(
-              name: row['name'],
-              namespace_name: row['namespace_name'],
-              version: row['version'],
-              task_handler_class: row['task_handler_class'],
-              module_namespace: row['module_namespace'],
-              description: row['description'],
-              default_dependent_system: config['default_dependent_system'],
-              schema: config['schema'],
-              named_steps: config['named_steps'] || [],
+              name: nt.name,
+              namespace_name: nt.namespace_name,
+              version: nt.version,
+              task_handler_class: task_handler_class,
+              module_namespace: module_namespace,
+              description: nt.description,
+              default_dependent_system: default_dependent_system,
+              schema: schema,
+              named_steps: named_steps,
               step_templates: step_templates,
               environments: environments,
-              handler_config: config['handler_config'] || {},
-              custom_events: config['custom_events'] || [],
+              handler_config: (handler_config.is_a?(Hash) && handler_config['handler_config']) || {},
+              custom_events: custom_events,
               loaded_from: 'database'
             )
           end
 
           logger.info "📄 Loaded #{templates.size} TaskTemplates from database"
           templates
+        rescue ActiveRecord::StatementInvalid => e
+          logger.warn "Database query failed while loading TaskTemplates: #{e.message}"
+          []
         rescue StandardError => e
           logger.warn "Failed to load TaskTemplates from database: #{e.message}"
           []
         end
-      end
-
-      # Check if database is available for TaskTemplate operations
-      # @return [Boolean] Database availability
-      def database_available?
-        begin
-          db = get_database_connection
-          # Test connection with a simple query
-          db.exec("SELECT 1")
-          true
-        rescue StandardError => e
-          logger.debug "Database not available: #{e.message}"
-          false
-        end
-      end
-
-      # Get database connection from orchestration system
-      # @return [PG::Connection] Database connection
-      def get_database_connection
-        # Try to get connection from embedded orchestrator first
-        if defined?(TaskerCore::EmbeddedOrchestrator)
-          orchestrator = TaskerCore::EmbeddedOrchestrator.instance
-          return orchestrator.database_connection if orchestrator.running?
-        end
-
-        # Fallback to pgmq client connection
-
-        pgmq_client = TaskerCore::Messaging::PgmqClient.new
-        pgmq_client.send(:connection)
-      rescue StandardError => e
-        logger.error "Failed to get database connection: #{e.message}"
-        raise e
       end
 
       # Serialize environments hash for database storage
@@ -833,21 +865,17 @@ module TaskerCore
       # @return [Hash] Configuration hash
       def load_tasker_config
         env = current_environment
-        project_root = find_project_root
+        project_root = Utils::PathResolver.project_root
 
         # Try to load environment-specific config first
         config_file = File.join(project_root, 'config', "tasker-config-#{env}.yaml")
-        if File.exist?(config_file)
-          return YAML.load_file(config_file)
-        end
+        return YAML.load_file(config_file) if File.exist?(config_file)
 
         # Fallback to default config
         default_config_file = File.join(project_root, 'config', 'tasker-config.yaml')
-        if File.exist?(default_config_file)
-          return YAML.load_file(default_config_file)
-        end
+        return YAML.load_file(default_config_file) if File.exist?(default_config_file)
 
-        logger.warn "No TaskerCore configuration file found, using empty config"
+        logger.warn 'No TaskerCore configuration file found, using empty config'
         {}
       rescue StandardError => e
         logger.warn "Error loading Tasker configuration: #{e.message}"

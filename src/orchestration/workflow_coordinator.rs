@@ -758,6 +758,7 @@ impl WorkflowCoordinator {
             // Step data as JSON for handler access
             serde_json::json!({
                 "step_id": step.step_id,
+                "workflow_step_id": step.step_id, // Ruby expects workflow_step_id field
                 "task_id": step.task_id,
                 "named_step_id": step.named_step_id,
                 "name": step.name,

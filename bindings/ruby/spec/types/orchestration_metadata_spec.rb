@@ -27,12 +27,12 @@ RSpec.describe 'Orchestration Metadata Flow' do
       metadata = worker.send(:extract_orchestration_metadata, handler_result)
 
       expect(metadata).to eq({
-        http_headers: { 'X-Test' => 'value' },
-        execution_hints: { hint: 'test' },
-        backoff_hints: { suggested_backoff_seconds: 30 },
-        error_context: nil,
-        custom: {}
-      })
+                               http_headers: { 'X-Test' => 'value' },
+                               execution_hints: { hint: 'test' },
+                               backoff_hints: { suggested_backoff_seconds: 30 },
+                               error_context: nil,
+                               custom: {}
+                             })
     end
 
     it 'supports legacy metadata key for backward compatibility' do
@@ -131,9 +131,9 @@ RSpec.describe 'Orchestration Metadata Flow' do
         shipment_id: 'SHIP-456',
         _orchestration_metadata: {
           backoff_hints: {
-            carrier_rate_limit_remaining: 5,  # Low remaining calls
+            carrier_rate_limit_remaining: 5, # Low remaining calls
             carrier_rate_limit_reset_at: (Time.now + 3600).iso8601,
-            suggested_backoff_seconds: 60  # Suggests 60 second backoff
+            suggested_backoff_seconds: 60 # Suggests 60 second backoff
           }
         }
       }

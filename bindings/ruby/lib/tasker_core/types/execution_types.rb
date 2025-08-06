@@ -52,32 +52,24 @@ module TaskerCore
       CommandTypeEnum = Types::Coercible::String.enum(
         # Task management operations
         'InitializeTask',
-
         # Step execution operations
         'ExecuteBatch',
-
         # Task readiness operations
         'TryTaskIfReady',
-
         # Result reporting
         'ReportPartialResult',
         'ReportBatchCompletion',
-
         # Worker lifecycle management
         'RegisterWorker',
         'UnregisterWorker',
         'WorkerHeartbeat',
-
         # Task handler registration
         'RegisterTaskHandler',
         'UnregisterTaskHandler',
-
         # System operations
         'HealthCheck',
-
         # Generic FFI operation (future migration path)
         'FfiOperation',
-
         # Response types
         'Success',
         'Error',
@@ -132,12 +124,12 @@ module TaskerCore
 
         # Extract the response type from payload
         def response_type
-          payload.dig(:type) || payload.dig('type')
+          payload[:type] || payload['type']
         end
 
         # Extract the response data from payload
         def response_data
-          payload.dig(:data) || payload.dig('data') || {}
+          payload[:data] || payload['data'] || {}
         end
 
         # Check if this is a success response
@@ -206,9 +198,9 @@ module TaskerCore
 
         # Validate this is actually a health check response
         def validate_response_type!
-          unless response_type == 'HealthCheckResult'
-            raise ArgumentError, "Expected HealthCheckResult, got #{response_type}"
-          end
+          return if response_type == 'HealthCheckResult'
+
+          raise ArgumentError, "Expected HealthCheckResult, got #{response_type}"
         end
       end
 
@@ -249,9 +241,9 @@ module TaskerCore
 
         # Validate this is actually a worker registration response
         def validate_response_type!
-          unless worker_registered? || command_type == 'Success'
-            raise ArgumentError, "Expected WorkerRegistered or Success, got #{response_type}"
-          end
+          return if worker_registered? || command_type == 'Success'
+
+          raise ArgumentError, "Expected WorkerRegistered or Success, got #{response_type}"
         end
       end
 
@@ -292,9 +284,9 @@ module TaskerCore
 
         # Validate this is actually a heartbeat response
         def validate_response_type!
-          unless heartbeat_acknowledged?
-            raise ArgumentError, "Expected HeartbeatAcknowledged or Success, got #{response_type}"
-          end
+          return if heartbeat_acknowledged?
+
+          raise ArgumentError, "Expected HeartbeatAcknowledged or Success, got #{response_type}"
         end
       end
 
@@ -336,9 +328,9 @@ module TaskerCore
 
         # Validate this is actually a task readiness response
         def validate_response_type!
-          unless response_type == 'TaskReadinessResult'
-            raise ArgumentError, "Expected TaskReadinessResult, got #{response_type}"
-          end
+          return if response_type == 'TaskReadinessResult'
+
+          raise ArgumentError, "Expected TaskReadinessResult, got #{response_type}"
         end
       end
 
@@ -374,9 +366,9 @@ module TaskerCore
 
         # Validate this is actually a worker unregistration response
         def validate_response_type!
-          unless worker_unregistered?
-            raise ArgumentError, "Expected WorkerUnregistered or Success, got #{response_type}"
-          end
+          return if worker_unregistered?
+
+          raise ArgumentError, "Expected WorkerUnregistered or Success, got #{response_type}"
         end
       end
 
@@ -473,9 +465,9 @@ module TaskerCore
 
         # Validate this is actually an ExecuteBatch command
         def validate_response_type!
-          unless execute_batch?
-            raise ArgumentError, "Expected ExecuteBatch, got #{command_type}"
-          end
+          return if execute_batch?
+
+          raise ArgumentError, "Expected ExecuteBatch, got #{command_type}"
         end
       end
 
@@ -539,9 +531,9 @@ module TaskerCore
         end
 
         def validate_response_type!
-          unless task_initialized?
-            raise ArgumentError, "Expected TaskInitialized, got #{response_type}"
-          end
+          return if task_initialized?
+
+          raise ArgumentError, "Expected TaskInitialized, got #{response_type}"
         end
       end
 
@@ -608,9 +600,9 @@ module TaskerCore
         end
 
         def validate_response_type!
-          unless handler_registered?
-            raise ArgumentError, "Expected TaskHandlerRegistered, got #{response_type}"
-          end
+          return if handler_registered?
+
+          raise ArgumentError, "Expected TaskHandlerRegistered, got #{response_type}"
         end
       end
 
@@ -649,9 +641,9 @@ module TaskerCore
         end
 
         def validate_response_type!
-          unless handler_unregistered?
-            raise ArgumentError, "Expected TaskHandlerUnregistered, got #{response_type}"
-          end
+          return if handler_unregistered?
+
+          raise ArgumentError, "Expected TaskHandlerUnregistered, got #{response_type}"
         end
       end
 
@@ -705,52 +697,52 @@ module TaskerCore
 
             # Determine the appropriate response class based on command and response type
             response_class = case response_type
-            when 'HealthCheckResult'
-              HealthCheckResponse
-            when 'WorkerRegistered'
-              WorkerRegistrationResponse
-            when 'HeartbeatAcknowledged'
-              HeartbeatResponse
-            when 'WorkerUnregistered'
-              WorkerUnregistrationResponse
-            when 'TaskReadinessResult'
-              TaskReadinessResponse
-            when 'ExecuteBatch'
-              ExecuteBatchResponse
-            when 'TaskInitialized'
-              TaskInitializedResponse
-            when 'TaskHandlerRegistered'
-              TaskHandlerRegistrationResponse
-            when 'TaskHandlerUnregistered'
-              TaskHandlerUnregistrationResponse
-            else
-              # Handle generic Success/Error responses based on command type
-              if command_type == 'Error' || command_type&.end_with?('Error')
-                ErrorResponse
-              else
-                # Try to infer from command type for Success responses
-                case command_type
-                when /Health/i
-                  HealthCheckResponse
-                when /RegisterWorker/i, /Worker.*Success/
-                  WorkerRegistrationResponse
-                when /RegisterTaskHandler/i
-                  TaskHandlerRegistrationResponse
-                when /UnregisterTaskHandler/i
-                  TaskHandlerUnregistrationResponse
-                when /InitializeTask/i
-                  TaskInitializedResponse
-                when /Heartbeat/i
-                  HeartbeatResponse
-                when /Unregister/i
-                  WorkerUnregistrationResponse
-                when 'ExecuteBatch'
-                  ExecuteBatchResponse
-                else
-                  BaseResponse
-                end
-              end
-            end
+                             when 'HealthCheckResult'
+                               HealthCheckResponse
+                             when 'WorkerRegistered'
+                               WorkerRegistrationResponse
+                             when 'HeartbeatAcknowledged'
+                               HeartbeatResponse
+                             when 'WorkerUnregistered'
+                               WorkerUnregistrationResponse
+                             when 'TaskReadinessResult'
+                               TaskReadinessResponse
+                             when 'ExecuteBatch'
+                               ExecuteBatchResponse
+                             when 'TaskInitialized'
+                               TaskInitializedResponse
+                             when 'TaskHandlerRegistered'
+                               TaskHandlerRegistrationResponse
+                             when 'TaskHandlerUnregistered'
+                               TaskHandlerUnregistrationResponse
+                             else
+                               # Handle generic Success/Error responses based on command type
+                               if command_type == 'Error' || command_type&.end_with?('Error')
+                                 ErrorResponse
+                               else
+                                 # Try to infer from command type for Success responses
+                                 case command_type
+                                 when /Health/i
+                                   HealthCheckResponse
+                                 when /RegisterWorker/i, /Worker.*Success/
+                                   WorkerRegistrationResponse
+                                 when /RegisterTaskHandler/i
+                                   TaskHandlerRegistrationResponse
+                                 when /UnregisterTaskHandler/i
+                                   TaskHandlerUnregistrationResponse
+                                 when /InitializeTask/i
+                                   TaskInitializedResponse
+                                 when /Heartbeat/i
+                                   HeartbeatResponse
+                                 when /Unregister/i
+                                   WorkerUnregistrationResponse
+                                 when 'ExecuteBatch'
+                                   ExecuteBatchResponse
+                                 else
+                                   BaseResponse
+                                 end
+                               end
+                             end
 
             # Create the typed response
             response = response_class.new(raw_response)
@@ -831,10 +823,10 @@ module TaskerCore
         def self.from_step_request(step_request)
           # Handle case where task_context might be nil or not accessible
           raw_task_context = step_request.task_context
-          
+
           # Ensure we have a hash to work with
           task_context_hash = raw_task_context.is_a?(Hash) ? raw_task_context : {}
-          
+
           task_data = task_context_hash.merge(
             'id' => step_request.task_id,
             'task_id' => step_request.task_id
@@ -892,15 +884,11 @@ module TaskerCore
           super || dependencies_list.map { |dep_data| OpenStruct.new(dep_data) }
         end
 
-        private
-
         # Collect step dependencies from previous results and step results
         def self.collect_step_dependencies(step_request, step_results)
-          dependencies = []
-
           # Add previous results as dependencies
-          step_request.previous_results.each do |step_name, result_data|
-            dependencies << {
+          dependencies = step_request.previous_results.map do |step_name, result_data|
+            {
               'step_name' => step_name,
               'result' => result_data,
               'status' => 'completed'

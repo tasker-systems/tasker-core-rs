@@ -43,7 +43,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
       it 'returns the result unchanged' do
         original = described_class.success(result: { data: 'test' })
         result = described_class.from_handler_output(original)
-        
+
         expect(result).to eq(original)
       end
     end
@@ -57,7 +57,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
         }
 
         result = described_class.from_handler_output(hash_output)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Success)
         expect(result.success).to be true
         expect(result.result).to eq({ validated: true })
@@ -75,7 +75,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
         }
 
         result = described_class.from_handler_output(hash_output)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Error)
         expect(result.success).to be false
         expect(result.error_type).to eq('ValidationError')
@@ -89,7 +89,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
         hash_output = { customer_id: 123, total: 100.50 }
 
         result = described_class.from_handler_output(hash_output)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Success)
         expect(result.success).to be true
         expect(result.result).to eq(hash_output)
@@ -101,7 +101,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
     context 'with non-hash value' do
       it 'wraps as success result' do
         result = described_class.from_handler_output(42)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Success)
         expect(result.success).to be true
         expect(result.result).to eq(42)
@@ -121,7 +121,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
         )
 
         result = described_class.from_exception(exception)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Error)
         expect(result.success).to be false
         expect(result.error_type).to eq('PermanentError')
@@ -142,7 +142,7 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
         )
 
         result = described_class.from_exception(exception)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Error)
         expect(result.success).to be false
         expect(result.error_type).to eq('RetryableError')
@@ -154,10 +154,10 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
     context 'with generic exception' do
       it 'creates UnexpectedError result' do
         exception = StandardError.new('Something went wrong')
-        exception.set_backtrace(['line1', 'line2', 'line3'])
+        exception.set_backtrace(%w[line1 line2 line3])
 
         result = described_class.from_exception(exception)
-        
+
         expect(result).to be_a(TaskerCore::Types::StepHandlerCallResult::Error)
         expect(result.success).to be false
         expect(result.error_type).to eq('UnexpectedError')
@@ -185,11 +185,11 @@ RSpec.describe TaskerCore::Types::StepHandlerCallResult do
       )
 
       expect(result.metadata[:input_refs]).to eq({
-        customer_id: 'task.context.customer_info.id',
-        order_items: 'task.context.order_items',
-        previous_validation: 'sequence.validate_customer.result'
-      })
-      
+                                                   customer_id: 'task.context.customer_info.id',
+                                                   order_items: 'task.context.order_items',
+                                                   previous_validation: 'sequence.validate_customer.result'
+                                                 })
+
       # Verify we're not duplicating the actual data
       expect(result.metadata).not_to have_key(:customer_info)
       expect(result.metadata).not_to have_key(:order_items)

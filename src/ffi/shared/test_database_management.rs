@@ -1,0 +1,478 @@
+//! # Comprehensive Test Database Management
+//!
+//! Environment-aware database management system for testing across all language bindings.
+//! Provides setup/teardown operations for database schema, test data, and message queues.
+//!
+//! ## Key Features
+//! - **Environment Detection**: Only operates in test environments (TASKER_ENV=test, RAILS_ENV=test)
+//! - **Comprehensive Cleanup**: Tasks, steps, transitions, edges, named entities, queues
+//! - **Queue Integration**: Manages both database and pgmq queue lifecycle
+//! - **Cross-Language**: Available through embedded_bridge for Ruby, Python, etc.
+//! - **Safe Defaults**: Fail-fast if not in test environment
+
+use crate::ffi::shared::errors::SharedFFIError;
+use crate::messaging::pgmq_client::PgmqClient;
+use serde_json::{json, Value};
+use sqlx::{PgPool, Row};
+use std::time::SystemTime;
+use tracing::{debug, error, info, warn};
+
+/// Environment detection for test safety
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestEnvironment {
+    Test,
+    Development,
+    Production,
+    Unknown,
+}
+
+impl TestEnvironment {
+    /// Detect current environment from various environment variables
+    pub fn detect() -> Self {
+        // Check common test environment variables
+        let rails_env = std::env::var("RAILS_ENV").unwrap_or_default().to_lowercase();
+        let tasker_env = std::env::var("TASKER_ENV").unwrap_or_default().to_lowercase(); 
+        let app_env = std::env::var("APP_ENV").unwrap_or_default().to_lowercase();
+        let node_env = std::env::var("NODE_ENV").unwrap_or_default().to_lowercase();
+        
+        // Check for test environment indicators
+        if rails_env == "test" || tasker_env == "test" || app_env == "test" || node_env == "test" {
+            return Self::Test;
+        }
+        
+        // Check for development environment
+        if rails_env == "development" || tasker_env == "development" || app_env == "development" || node_env == "development" {
+            return Self::Development;
+        }
+        
+        // Check for production environment
+        if rails_env == "production" || tasker_env == "production" || app_env == "production" || node_env == "production" {
+            return Self::Production;
+        }
+        
+        Self::Unknown
+    }
+    
+    /// Check if current environment is safe for destructive operations
+    pub fn is_test_safe(&self) -> bool {
+        matches!(self, Self::Test)
+    }
+}
+
+/// Migration status for idempotent setup
+#[derive(Debug, Clone)]
+pub struct MigrationStatus {
+    pub needs_migration: bool,
+    pub current_version: String,
+    pub existing_tables: u32,
+    pub total_expected_tables: u32,
+}
+
+/// Comprehensive test database management operations
+#[derive(Clone)]
+pub struct TestDatabaseManager {
+    pool: PgPool,
+    environment: TestEnvironment,
+}
+
+impl TestDatabaseManager {
+    /// Create new TestDatabaseManager with environment validation
+    pub fn new(pool: PgPool) -> Result<Self, SharedFFIError> {
+        let environment = TestEnvironment::detect();
+        
+        info!(
+            "🧪 TestDatabaseManager: Detected environment: {:?}",
+            environment
+        );
+        
+        Ok(Self { pool, environment })
+    }
+    
+    /// Ensure we're in a test environment before destructive operations
+    fn ensure_test_environment(&self) -> Result<(), SharedFFIError> {
+        if !self.environment.is_test_safe() {
+            let error_msg = format!(
+                "TestDatabaseManager destructive operations only allowed in test environment. Current: {:?}",
+                self.environment
+            );
+            error!("🛑 {}", error_msg);
+            return Err(SharedFFIError::EnvironmentNotSafe(error_msg));
+        }
+        Ok(())
+    }
+    
+    /// **SETUP**: Complete test database setup with schema and initial data
+    pub async fn setup_test_database(&self, database_url: &str) -> Result<Value, SharedFFIError> {
+        self.ensure_test_environment()?;
+        
+        info!("🧪 Setting up test database for {}", database_url);
+        
+        // Step 1: Check if migrations are needed (idempotent setup)
+        debug!("Step 1: Checking migration status");
+        let migration_result = match self.check_migration_status().await {
+            Ok(status) if status.needs_migration => {
+                debug!("Running database migrations");
+                match crate::database::migrations::DatabaseMigrations::run_all(&self.pool).await {
+                    Ok(()) => {
+                        debug!("✅ Database migrations completed successfully");
+                        json!({ "migrations": "applied", "schema_version": status.current_version })
+                    }
+                    Err(e) => {
+                        warn!("⚠️ Migration failed (schema may already exist): {}", e);
+                        json!({ "migrations": "skipped", "reason": e.to_string(), "schema_version": status.current_version })
+                    }
+                }
+            }
+            Ok(status) => {
+                debug!("✅ Database schema already up to date");
+                json!({ "migrations": "up_to_date", "schema_version": status.current_version })
+            }
+            Err(e) => {
+                warn!("⚠️ Could not check migration status: {}", e);
+                json!({ "migrations": "unknown", "error": e })
+            }
+        };
+        
+        // Step 2: Initialize pgmq extension if not exists
+        debug!("Step 2: Ensuring pgmq extension");
+        let pgmq_result = match sqlx::query("CREATE EXTENSION IF NOT EXISTS pgmq")
+            .execute(&self.pool)
+            .await
+        {
+            Ok(_) => {
+                debug!("✅ pgmq extension ready");
+                json!({ "pgmq_extension": "ready" })
+            }
+            Err(e) => {
+                warn!("⚠️ pgmq extension setup issue (may already exist): {}", e);
+                json!({ "pgmq_extension": "warning", "message": e.to_string() })
+            }
+        };
+        
+        // Step 3: Clean any existing test data (idempotent setup)
+        debug!("Step 3: Cleaning existing test data");
+        let cleanup_result = self.cleanup_test_data().await?;
+        
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+            
+        Ok(json!({
+            "status": "success",
+            "message": "Test database setup completed successfully",
+            "database_url": database_url,
+            "environment": format!("{:?}", self.environment),
+            "operations": {
+                "migrations": migration_result,
+                "pgmq_extension": pgmq_result,
+                "cleanup": cleanup_result
+            },
+            "timestamp": timestamp
+        }))
+    }
+    
+    /// **TEARDOWN**: Complete test database teardown
+    pub async fn teardown_test_database(&self, database_url: &str) -> Result<Value, SharedFFIError> {
+        self.ensure_test_environment()?;
+        
+        info!("🧪 Tearing down test database for {}", database_url);
+        
+        // Step 1: Clean all test data
+        debug!("Step 1: Cleaning all test data");
+        let data_cleanup = self.cleanup_test_data().await?;
+        
+        // Step 2: Clean all queues
+        debug!("Step 2: Cleaning all pgmq queues");
+        let queue_cleanup = self.cleanup_test_queues().await?;
+        
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+            
+        Ok(json!({
+            "status": "success", 
+            "message": "Test database teardown completed successfully",
+            "database_url": database_url,
+            "environment": format!("{:?}", self.environment),
+            "operations": {
+                "data_cleanup": data_cleanup,
+                "queue_cleanup": queue_cleanup
+            },
+            "timestamp": timestamp
+        }))
+    }
+    
+    /// **CLEANUP**: Comprehensive test data cleanup
+    pub async fn cleanup_test_data(&self) -> Result<Value, SharedFFIError> {
+        self.ensure_test_environment()?;
+        
+        info!("🧹 Cleaning up all test data");
+        
+        let mut cleanup_operations = Vec::new();
+        let mut total_deleted = 0i64;
+        
+        // TRUNCATE with CASCADE handles foreign key constraints automatically
+        // Order is less critical, but we'll keep a logical flow: data tables -> reference tables
+        let tables_to_clean = vec![
+            ("tasker_task_annotations", "task annotations"),
+            ("tasker_workflow_step_edges", "workflow step edges"),
+            ("tasker_workflow_step_transitions", "workflow step transitions"),
+            ("tasker_task_transitions", "task transitions"),
+            ("tasker_workflow_steps", "workflow steps"),
+            ("tasker_tasks", "tasks"),
+            ("tasker_named_tasks_named_steps", "named tasks named steps"),
+            ("tasker_named_tasks", "named tasks"),
+            ("tasker_named_steps", "named steps"),
+            ("tasker_task_namespaces", "task namespaces"),
+            ("tasker_dependent_system_object_maps", "dependent system object maps"),
+            ("tasker_dependent_systems", "dependent systems"),
+            ("tasker_annotation_types", "annotation types"),
+        ];
+
+        for (table_name, description) in tables_to_clean {
+            match self.cleanup_table(table_name, description).await {
+                Ok(count) => {
+                    cleanup_operations.push(json!({ "table": table_name, "truncated": count }));
+                    total_deleted += count;
+                }
+                Err(e) => cleanup_operations.push(json!({ "table": table_name, "error": e.to_string() }))
+            }
+        }
+        
+        info!("✅ Test data cleanup completed: {} total records deleted", total_deleted);
+        
+        Ok(json!({
+            "status": "success",
+            "message": "Test data cleanup completed",
+            "total_deleted": total_deleted,
+            "operations": cleanup_operations,
+            "environment": format!("{:?}", self.environment)
+        }))
+    }
+    
+    /// **QUEUE CLEANUP**: Clean all pgmq queues  
+    pub async fn cleanup_test_queues(&self) -> Result<Value, SharedFFIError> {
+        self.ensure_test_environment()?;
+        
+        info!("🧹 Cleaning up all pgmq queues");
+        
+        // Create pgmq client to manage queues using the existing pool
+        let pgmq_client = PgmqClient::new_with_pool(self.pool.clone()).await;
+        
+        // List all existing queues
+        let queue_list_query = "SELECT queue_name FROM pgmq.list_queues()";
+        let queue_rows = sqlx::query(queue_list_query)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| SharedFFIError::QueueOperationFailed(format!("Failed to list queues: {}", e)))?;
+        
+        let mut cleanup_operations = Vec::new();
+        let mut total_queues_deleted = 0;
+        
+        for row in queue_rows {
+            let queue_name: String = row.get("queue_name");
+            
+            match pgmq_client.drop_queue(&queue_name).await {
+                Ok(_) => {
+                    debug!("✅ Dropped queue: {}", queue_name);
+                    cleanup_operations.push(json!({
+                        "queue": queue_name,
+                        "status": "deleted"
+                    }));
+                    total_queues_deleted += 1;
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to drop queue {}: {}", queue_name, e);
+                    cleanup_operations.push(json!({
+                        "queue": queue_name,
+                        "status": "error",
+                        "error": e.to_string()
+                    }));
+                }
+            }
+        }
+        
+        info!("✅ Queue cleanup completed: {} queues processed", total_queues_deleted);
+        
+        Ok(json!({
+            "status": "success",
+            "message": "Queue cleanup completed",
+            "total_queues_processed": total_queues_deleted,
+            "operations": cleanup_operations,
+            "environment": format!("{:?}", self.environment)
+        }))
+    }
+    
+    /// Helper: Clean individual table with row count using TRUNCATE
+    async fn cleanup_table(&self, table_name: &str, description: &str) -> Result<i64, String> {
+        // First get count for reporting
+        let count_query = format!("SELECT COUNT(*) as count FROM {}", table_name);
+        let row_count = match sqlx::query(&count_query).fetch_one(&self.pool).await {
+            Ok(row) => row.get::<i64, _>("count"),
+            Err(_) => 0, // If count fails, just proceed with truncate
+        };
+
+        // Use TRUNCATE for efficient cleanup (faster than DELETE and resets sequences)
+        let truncate_query = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", table_name);
+        
+        match sqlx::query(&truncate_query).execute(&self.pool).await {
+            Ok(_) => {
+                if row_count > 0 {
+                    debug!("✅ Truncated {}: {} rows cleared", description, row_count);
+                } else {
+                    debug!("✅ Truncated {}: table was empty", description);
+                }
+                Ok(row_count)
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to truncate {}: {}", description, e);
+                warn!("⚠️ {}", error_msg);
+                Err(error_msg)
+            }
+        }
+    }
+    
+    /// **UTILITY**: Get test database statistics
+    pub async fn get_test_database_stats(&self) -> Result<Value, SharedFFIError> {
+        info!("📊 Getting test database statistics");
+        
+        let tables = vec![
+            "tasker_task_namespaces",
+            "tasker_named_tasks", 
+            "tasker_named_steps",
+            "tasker_tasks",
+            "tasker_workflow_steps",
+            "tasker_workflow_step_edges",
+            "tasker_task_transitions",
+            "tasker_workflow_step_transitions",
+            "tasker_dependent_systems",
+        ];
+        
+        let mut stats = Vec::new();
+        let mut total_records = 0i64;
+        
+        for table in tables {
+            let count_query = format!("SELECT COUNT(*) as count FROM {}", table);
+            
+            match sqlx::query(&count_query).fetch_one(&self.pool).await {
+                Ok(row) => {
+                    let count: i64 = row.get("count");
+                    stats.push(json!({
+                        "table": table,
+                        "count": count
+                    }));
+                    total_records += count;
+                }
+                Err(e) => {
+                    stats.push(json!({
+                        "table": table,
+                        "error": e.to_string()
+                    }));
+                }
+            }
+        }
+        
+        // Get queue statistics
+        let queue_stats = match self.get_queue_statistics().await {
+            Ok(qs) => qs,
+            Err(_) => json!({ "error": "Failed to get queue statistics" })
+        };
+        
+        Ok(json!({
+            "status": "success",
+            "environment": format!("{:?}", self.environment),
+            "total_records": total_records,
+            "table_stats": stats,
+            "queue_stats": queue_stats,
+            "timestamp": SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        }))
+    }
+    
+    /// Helper: Check migration status to determine if migrations are needed
+    async fn check_migration_status(&self) -> Result<MigrationStatus, String> {
+        // Check if core tables exist to determine if schema is set up
+        let core_tables = vec![
+            "tasker_tasks",
+            "tasker_workflow_steps", 
+            "tasker_task_namespaces",
+            "tasker_named_tasks",
+            "tasker_named_steps"
+        ];
+
+        let mut existing_tables = 0;
+        for table in &core_tables {
+            let check_query = format!(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public')",
+                table
+            );
+            
+            match sqlx::query(&check_query).fetch_one(&self.pool).await {
+                Ok(row) => {
+                    if row.get::<bool, _>("exists") {
+                        existing_tables += 1;
+                    }
+                }
+                Err(e) => {
+                    return Err(format!("Failed to check table existence: {}", e));
+                }
+            }
+        }
+
+        // Get current migration version if migrations table exists
+        let current_version = match sqlx::query("SELECT version FROM tasker_schema_migrations ORDER BY version DESC LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await
+        {
+            Ok(Some(row)) => row.get::<String, _>("version"),
+            Ok(None) => "none".to_string(),
+            Err(_) => "no_migration_table".to_string(),
+        };
+
+        let needs_migration = existing_tables < core_tables.len();
+        
+        debug!(
+            "Migration status: {}/{} core tables exist, needs_migration: {}, current_version: {}",
+            existing_tables, core_tables.len(), needs_migration, current_version
+        );
+
+        Ok(MigrationStatus {
+            needs_migration,
+            current_version,
+            existing_tables: existing_tables as u32,
+            total_expected_tables: core_tables.len() as u32,
+        })
+    }
+
+    /// Helper: Get queue statistics
+    async fn get_queue_statistics(&self) -> Result<Value, SharedFFIError> {
+        let queue_list_query = "SELECT queue_name FROM pgmq.list_queues()";
+        
+        match sqlx::query(queue_list_query).fetch_all(&self.pool).await {
+            Ok(rows) => {
+                let queue_names: Vec<String> = rows.iter()
+                    .map(|row| row.get::<String, _>("queue_name"))
+                    .collect();
+                    
+                Ok(json!({
+                    "total_queues": queue_names.len(),
+                    "queue_names": queue_names
+                }))
+            }
+            Err(e) => {
+                Ok(json!({
+                    "error": format!("Failed to get queue stats: {}", e)
+                }))
+            }
+        }
+    }
+}
+
+/// Create TestDatabaseManager from existing database pool
+pub fn create_test_database_manager(pool: PgPool) -> Result<TestDatabaseManager, SharedFFIError> {
+    TestDatabaseManager::new(pool)
+}

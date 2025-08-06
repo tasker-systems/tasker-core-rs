@@ -58,7 +58,7 @@ module TaskerCore
       # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Faraday::Response] HTTP response object
-      def process(_task, _sequence, step)
+      def process(_task, _sequence, _step)
         # Subclasses should override this method to make their specific API calls
         # This base implementation shows the pattern but needs to be customized
 

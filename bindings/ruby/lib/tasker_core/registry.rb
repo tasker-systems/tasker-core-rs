@@ -35,7 +35,7 @@ module TaskerCore
 
     # Check if we can handle a step (convenience method)
     #
-    # @param step_message [TaskerCore::Types::StepMessage] Step message  
+    # @param step_message [TaskerCore::Types::StepMessage] Step message
     # @return [Boolean] true if handler is available
     def can_handle_step?(step_message)
       step_handler_registry.can_handle_step?(step_message)

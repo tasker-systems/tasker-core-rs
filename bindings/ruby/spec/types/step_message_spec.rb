@@ -71,16 +71,15 @@ RSpec.describe TaskerCore::Types::StepMessage do
 
     it 'provides collection methods' do
       expect(dependency_chain.count).to eq(2)
-      expect(dependency_chain.names).to eq(['validate_order', 'check_inventory'])
+      expect(dependency_chain.names).to eq(%w[validate_order check_inventory])
       expect(dependency_chain.has?('validate_order')).to be true
       expect(dependency_chain.include?('not_found')).to be false
       expect(dependency_chain.empty?).to be false
     end
 
     it 'supports iteration' do
-      names = []
-      dependency_chain.each { |dep| names << dep.step_name }
-      expect(names).to eq(['validate_order', 'check_inventory'])
+      names = dependency_chain.map(&:step_name)
+      expect(names).to eq(%w[validate_order check_inventory])
     end
 
     it 'converts to array and hash' do
@@ -96,7 +95,7 @@ RSpec.describe TaskerCore::Types::StepMessage do
         { step_name: 'hash_step', step_id: 999, named_step_id: 3, results: { data: 'test' } }
       ]
       chain = TaskerCore::Types::DependencyChain.new(hash_deps)
-      
+
       step = chain.get('hash_step')
       expect(step).to be_a(TaskerCore::Types::StepDependencyResult)
       expect(step.step_name).to eq('hash_step')
@@ -105,9 +104,9 @@ RSpec.describe TaskerCore::Types::StepMessage do
   end
 
   describe 'StepExecutionContext' do
-    let(:task_data) { { task_id: 67890, namespace: 'fulfillment' } }
-    let(:step_data) { { step_id: 12345, step_name: 'process_payment' } }
-    
+    let(:task_data) { { task_id: 67_890, namespace: 'fulfillment' } }
+    let(:step_data) { { step_id: 12_345, step_name: 'process_payment' } }
+
     let(:dependencies) do
       [
         TaskerCore::Types::StepDependencyResult.new(
@@ -144,10 +143,10 @@ RSpec.describe TaskerCore::Types::StepMessage do
         deps = context.dependencies
         expect(deps).to be_a(TaskerCore::Types::DependencyChain)
         expect(deps.count).to eq(2)
-        
+
         validate_step = deps.get('validate_order')
         expect(validate_step.results).to eq(status: 'validated')
-        
+
         inventory_step = deps['check_inventory']
         expect(inventory_step.results).to eq(status: 'available')
       end
@@ -176,9 +175,9 @@ RSpec.describe TaskerCore::Types::StepMessage do
   end
 
   describe 'StepMessage with execution context' do
-    let(:task_data) { { task_id: 67890, namespace: 'fulfillment' } }
-    let(:step_data) { { step_id: 12345, step_name: 'process_payment' } }
-    
+    let(:task_data) { { task_id: 67_890, namespace: 'fulfillment' } }
+    let(:step_data) { { step_id: 12_345, step_name: 'process_payment' } }
+
     let(:execution_context) do
       TaskerCore::Types::StepExecutionContext.new_root_step(
         task: task_data,
@@ -187,9 +186,9 @@ RSpec.describe TaskerCore::Types::StepMessage do
     end
 
     let(:step_message) do
-      TaskerCore::Types::StepMessage.build_test(
-        step_id: 12345,
-        task_id: 67890,
+      described_class.build_test(
+        step_id: 12_345,
+        task_id: 67_890,
         namespace: 'fulfillment',
         task_name: 'process_order',
         step_name: 'process_payment',
@@ -211,8 +210,8 @@ RSpec.describe TaskerCore::Types::StepMessage do
 
     it 'deserializes from hash with execution context' do
       hash = step_message.to_h
-      deserialized = TaskerCore::Types::StepMessage.from_hash(hash)
-      
+      deserialized = described_class.from_hash(hash)
+
       expect(deserialized.execution_context).to be_a(TaskerCore::Types::StepExecutionContext)
       expect(deserialized.execution_context.task).to eq(task_data)
       expect(deserialized.execution_context.step).to eq(step_data)
@@ -246,7 +245,7 @@ RSpec.describe TaskerCore::Types::StepMessage do
 
     let(:execution_context) do
       TaskerCore::Types::StepExecutionContext.new(
-        task: { task_id: 67890, customer_id: 12345 },
+        task: { task_id: 67_890, customer_id: 12_345 },
         sequence: [order_validation, inventory_check],
         step: { step_id: 125, step_name: 'process_payment' }
       )
@@ -267,7 +266,7 @@ RSpec.describe TaskerCore::Types::StepMessage do
       expect(inventory_data.results[:reserved]).to eq(1)
 
       # Handler has access to task and step context
-      expect(task[:customer_id]).to eq(12345)
+      expect(task[:customer_id]).to eq(12_345)
       expect(step[:step_name]).to eq('process_payment')
     end
   end

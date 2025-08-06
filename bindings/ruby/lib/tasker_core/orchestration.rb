@@ -30,7 +30,7 @@ module TaskerCore
           'queues_initialized' => info[:queues_initialized],
           'checked_at' => Time.now.utc.iso8601
         }
-      rescue => e
+      rescue StandardError => e
         {
           'status' => 'unhealthy',
           'architecture' => 'pgmq',
@@ -71,19 +71,17 @@ module TaskerCore
         }
 
         base_info.merge(manager_info.transform_keys(&:to_s))
-      rescue => e
-        { 'error' => e.message, 'status' => "unavailable", 'domain' => "Orchestration", 'architecture' => 'pgmq' }
+      rescue StandardError => e
+        { 'error' => e.message, 'status' => 'unavailable', 'domain' => 'Orchestration', 'architecture' => 'pgmq' }
       end
 
       # Bootstrap orchestration queues based on configuration
       # @return [Hash] Bootstrap operation result
       def bootstrap_queues
-        logger.info "🗂️ Bootstrapping orchestration queues"
+        logger.info '🗂️ Bootstrapping orchestration queues'
 
         manager = Internal::OrchestrationManager.instance
-        unless manager.initialized?
-          manager.bootstrap_orchestration_system
-        end
+        manager.bootstrap_orchestration_system unless manager.initialized?
 
         {
           'status' => 'success',
@@ -91,7 +89,7 @@ module TaskerCore
           'queues_initialized' => manager.info[:queues_initialized],
           'bootstrapped_at' => Time.now.utc.iso8601
         }
-      rescue => e
+      rescue StandardError => e
         logger.error "❌ Failed to bootstrap queues: #{e.message}"
         {
           'status' => 'error',

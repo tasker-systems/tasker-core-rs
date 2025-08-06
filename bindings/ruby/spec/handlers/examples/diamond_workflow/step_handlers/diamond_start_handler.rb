@@ -4,10 +4,10 @@ module DiamondWorkflow
   module StepHandlers
     # Diamond Start: Initial step that squares the even number
     class DiamondStartHandler < TaskerCore::StepHandler::Base
-      def call(task, sequence, step)
+      def call(task, _sequence, _step)
         # Get the even number from task context
-        even_number = task.context.dig("even_number")
-        raise "Task context must contain an even number" unless even_number&.even?
+        even_number = task.context['even_number']
+        raise 'Task context must contain an even number' unless even_number&.even?
 
         # Square the even number (first step operation)
         result = even_number * even_number
@@ -18,12 +18,12 @@ module DiamondWorkflow
         TaskerCore::Types::StepHandlerCallResult.success(
           result: result,
           metadata: {
-            operation: "square",
-            step_type: "initial",
+            operation: 'square',
+            step_type: 'initial',
             input_refs: {
-              even_number: "task.context.even_number"
+              even_number: 'task.context.even_number'
             },
-            branches: ["diamond_branch_b", "diamond_branch_c"]
+            branches: %w[diamond_branch_b diamond_branch_c]
           }
         )
       end

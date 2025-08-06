@@ -88,7 +88,7 @@ module TaskerCore
       # @param task_request [Hash] Task initialization data
       # @return [void] No return value - operation is async via pgmq
       def initialize_task(task_request)
-        logger.info "🚀 Initializing task with pgmq architecture"
+        logger.info '🚀 Initializing task with pgmq architecture'
 
         task_request = TaskerCore::Types::TaskTypes::TaskRequest.from_hash(task_request)
 
@@ -107,7 +107,7 @@ module TaskerCore
 
           # Return void - this is now an async operation
           nil
-        rescue => e
+        rescue StandardError => e
           logger.error "❌ Failed to send task request to orchestration queue: #{e.message}"
           raise TaskerCore::Errors::OrchestrationError, "Failed to send task request: #{e.message}"
         end
@@ -153,9 +153,7 @@ module TaskerCore
         }
 
         # Include embedded orchestrator status only in embedded mode
-        if mode == 'embedded'
-          status_info[:embedded_orchestrator] = embedded_orchestrator_status
-        end
+        status_info[:embedded_orchestrator] = embedded_orchestrator_status if mode == 'embedded'
 
         status_info
       end
@@ -164,6 +162,7 @@ module TaskerCore
 
       def load_task_config_from_path(path)
         return {} unless path && File.exist?(path)
+
         YAML.load_file(path)
       rescue StandardError => e
         logger.warn "Error loading task configuration: #{e.message}"
@@ -212,7 +211,7 @@ module TaskerCore
 
         unless orchestrator.running?
           raise TaskerCore::Errors::OrchestrationError,
-                "Embedded orchestration system not running. Call TaskerCore.start_embedded_orchestration! first."
+                'Embedded orchestration system not running. Call TaskerCore.start_embedded_orchestration! first.'
         end
 
         # Enqueue steps for the task - this will publish step messages to appropriate queues
@@ -243,11 +242,11 @@ module TaskerCore
         {
           success: true,
           task_id: task_id,
-          message: "Task queued for distributed orchestration processing",
+          message: 'Task queued for distributed orchestration processing',
           mode: 'distributed',
           architecture: 'pgmq',
           processed_at: Time.now.utc.iso8601,
-          note: "Phase 4.5 will complete distributed orchestration integration"
+          note: 'Phase 4.5 will complete distributed orchestration integration'
         }
       end
     end

@@ -2,6 +2,7 @@
 
 require 'pg'
 require 'json'
+require 'active_record'
 
 module TaskerCore
   module Messaging
@@ -21,11 +22,24 @@ module TaskerCore
       DEFAULT_MESSAGE_COUNT = 1
       MAX_MESSAGE_COUNT = 100
 
-      attr_reader :connection, :logger
+      attr_reader :logger
 
-      def initialize(connection: nil, logger: nil)
-        @connection = connection || create_connection
-        @logger = logger || TaskerCore::Logging::Logger.instance
+      def initialize
+        @logger = TaskerCore::Logging::Logger.instance
+      end
+
+      # Get database connection through ActiveRecord with automatic reconnection
+      def connection
+        # Always use fresh ActiveRecord connection to avoid closed connection issues during tests
+        ActiveRecord::Base.connection.raw_connection
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.warn("⚠️ PGMQ: Connection not established, attempting to establish: #{e.message}")
+        ActiveRecord::Base.establish_connection
+        ActiveRecord::Base.connection.raw_connection
+      rescue PG::ConnectionBad => e
+        logger.warn("⚠️ PGMQ: Bad connection detected, reconnecting: #{e.message}")
+        ActiveRecord::Base.connection.reconnect!
+        ActiveRecord::Base.connection.raw_connection
       end
 
       # Create a new queue
@@ -36,13 +50,22 @@ module TaskerCore
       def create_queue(queue_name)
         logger.debug("📦 PGMQ: Creating queue: #{queue_name}")
 
-        connection.exec("SELECT pgmq.create($1)", [queue_name])
+        connection.exec('SELECT pgmq.create($1)', [queue_name])
 
         logger.info("✅ PGMQ: Queue created successfully: #{queue_name}")
         true
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to create queue #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to create queue #{queue_name}: #{e.message}"
+        raise Errors::DatabaseError, "Failed to create queue #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during queue creation: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for queue creation: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Drop/delete a queue and all its messages
@@ -52,13 +75,22 @@ module TaskerCore
       def drop_queue(queue_name)
         logger.debug("🗑️ PGMQ: Dropping queue: #{queue_name}")
 
-        connection.exec("SELECT pgmq.drop_queue($1)", [queue_name])
+        connection.exec('SELECT pgmq.drop_queue($1)', [queue_name])
 
         logger.info("✅ PGMQ: Queue dropped successfully: #{queue_name}")
         true
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to drop queue #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to drop queue #{queue_name}: #{e.message}"
+        raise Errors::DatabaseError, "Failed to drop queue #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during queue deletion: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for queue deletion: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Send a message to a queue
@@ -73,8 +105,8 @@ module TaskerCore
 
         message_json = message.is_a?(String) ? message : JSON.generate(message)
 
-        result = connection.exec("SELECT pgmq.send($1::text, $2::jsonb, $3::integer) as msg_id",
-                                [queue_name, message_json, delay_seconds])
+        result = connection.exec('SELECT pgmq.send($1::text, $2::jsonb, $3::integer) as msg_id',
+                                 [queue_name, message_json, delay_seconds])
 
         msg_id = result[0]['msg_id'].to_i
         logger.debug("✅ PGMQ: Message sent successfully: #{queue_name} -> msg_id: #{msg_id}")
@@ -82,10 +114,19 @@ module TaskerCore
         msg_id
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to send message to #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to send message to #{queue_name}: #{e.message}"
+        raise Errors::DatabaseError, "Failed to send message to #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during message sending: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for message sending: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       rescue JSON::GeneratorError => e
         logger.error("❌ PGMQ: Failed to serialize message for #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to serialize message for #{queue_name}: #{e.message}"
+        raise Errors::ValidationError, "Failed to serialize message for #{queue_name}: #{e.message}"
       end
 
       # Send a step message to the appropriate namespace queue
@@ -115,7 +156,7 @@ module TaskerCore
         logger.debug("📥 PGMQ: Reading #{quantity} messages from queue: #{queue_name} (vt: #{visibility_timeout}s)")
 
         result = connection.exec(
-          "SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)",
+          'SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)',
           [queue_name, visibility_timeout, quantity]
         )
 
@@ -135,33 +176,18 @@ module TaskerCore
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to read from queue #{queue_name}: #{e.message}")
         raise Errors::DatabaseError, "Failed to read from queue #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during message reading: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for reading messages: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       rescue JSON::ParserError => e
         logger.error("❌ PGMQ: Failed to parse message from queue #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to parse message from queue #{queue_name}: #{e.message}"
-      end
-
-      # Read step messages from a namespace queue
-      #
-      # @param namespace [String] Namespace to read from (e.g., "fulfillment")
-      # @param visibility_timeout [Integer] Visibility timeout in seconds
-      # @param qty [Integer] Number of messages to read
-      # @return [Array<Hash>] Messages with parsed step message data
-      def read_step_messages(namespace, visibility_timeout: DEFAULT_VISIBILITY_TIMEOUT, qty: DEFAULT_MESSAGE_COUNT)
-        queue_name = "#{namespace}_queue"
-        messages = read_messages(queue_name, visibility_timeout: visibility_timeout, qty: qty)
-
-        messages.map do |msg|
-          begin
-            step_message = TaskerCore::Types::StepMessage.from_hash(msg[:message])
-            {
-              queue_message: msg,
-              step_message: step_message
-            }
-          rescue StandardError => e
-            logger.warn("⚠️ PGMQ: Failed to parse step message from queue #{queue_name}: #{e.message} - message: #{msg[:message]}")
-            nil
-          end
-        end.compact
+        raise Errors::ValidationError, "Failed to parse message from queue #{queue_name}: #{e.message}"
       end
 
       # Delete a message from the queue (acknowledge processing completion)
@@ -172,7 +198,7 @@ module TaskerCore
       def delete_message(queue_name, msg_id)
         logger.debug("🗑️ PGMQ: Deleting message: #{msg_id} from queue: #{queue_name}")
 
-        result = connection.exec("SELECT pgmq.delete($1::text, $2::bigint) as deleted", [queue_name, msg_id])
+        result = connection.exec('SELECT pgmq.delete($1::text, $2::bigint) as deleted', [queue_name, msg_id])
         deleted = result[0]['deleted'] == 't'
 
         if deleted
@@ -184,7 +210,16 @@ module TaskerCore
         deleted
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to delete message #{msg_id} from #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to delete message #{msg_id} from #{queue_name}: #{e.message}"
+        raise Errors::DatabaseError, "Failed to delete message #{msg_id} from #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during message deletion: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for message deletion: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Archive a message (move to archive table for retention)
@@ -195,7 +230,7 @@ module TaskerCore
       def archive_message(queue_name, msg_id)
         logger.debug("📦 PGMQ: Archiving message: #{msg_id} from queue: #{queue_name}")
 
-        result = connection.exec("SELECT pgmq.archive($1, $2) as archived", [queue_name, msg_id])
+        result = connection.exec('SELECT pgmq.archive($1, $2) as archived', [queue_name, msg_id])
         archived = result[0]['archived'] == 't'
 
         if archived
@@ -207,7 +242,16 @@ module TaskerCore
         archived
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to archive message #{msg_id} from #{queue_name}: #{e.message}")
-        raise Errors::OrchestrationError, "Failed to archive message #{msg_id} from #{queue_name}: #{e.message}"
+        raise Errors::DatabaseError, "Failed to archive message #{msg_id} from #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during message archiving: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for message archiving: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Get queue statistics
@@ -218,11 +262,11 @@ module TaskerCore
         logger.debug("📊 PGMQ: Getting stats for queue: #{queue_name}")
 
         result = connection.exec(
-          "SELECT queue_length, newest_msg_age_sec, oldest_msg_age_sec, total_messages FROM pgmq.metrics($1)",
+          'SELECT queue_length, newest_msg_age_sec, oldest_msg_age_sec, total_messages FROM pgmq.metrics($1)',
           [queue_name]
         )
 
-        if result.ntuples > 0
+        if result.ntuples.positive?
           row = result[0]
           stats = {
             queue_name: queue_name,
@@ -241,15 +285,24 @@ module TaskerCore
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to get stats for queue #{queue_name}: #{e.message}")
         raise Errors::DatabaseError, "Failed to get stats for queue #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during queue stats: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for queue stats: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # List all available queues
       #
       # @return [Array<String>] List of queue names
       def list_queues
-        logger.debug("📋 PGMQ: Listing all queues")
+        logger.debug('📋 PGMQ: Listing all queues')
 
-        result = connection.exec("SELECT queue_name FROM pgmq.list_queues()")
+        result = connection.exec('SELECT queue_name FROM pgmq.list_queues()')
         queue_names = result.map { |row| row['queue_name'] }
 
         logger.debug("✅ PGMQ: Found #{queue_names.length} queues: #{queue_names}")
@@ -257,6 +310,15 @@ module TaskerCore
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to list queues: #{e.message}")
         raise Errors::DatabaseError, "Failed to list queues: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during queue listing: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for listing queues: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Purge all messages from a queue
@@ -266,7 +328,7 @@ module TaskerCore
       def purge_queue(queue_name)
         logger.debug("🧹 PGMQ: Purging all messages from queue: #{queue_name}")
 
-        result = connection.exec("SELECT pgmq.purge_queue($1) as purged_count", [queue_name])
+        result = connection.exec('SELECT pgmq.purge_queue($1) as purged_count', [queue_name])
         purged_count = result[0]['purged_count'].to_i
 
         logger.info("✅ PGMQ: Purged #{purged_count} messages from queue: #{queue_name}")
@@ -274,6 +336,70 @@ module TaskerCore
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to purge queue #{queue_name}: #{e.message}")
         raise Errors::DatabaseError, "Failed to purge queue #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during queue purging: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for queue purging: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
+      end
+
+      # Read step messages from a namespace queue
+      #
+      # @param namespace [String] Namespace to read messages from
+      # @param visibility_timeout [Integer] How long messages remain invisible (seconds)
+      # @param qty [Integer] Maximum number of messages to read
+      # @return [Array<QueueMessageData>] Array of typed message data objects
+      def read_step_messages(namespace, visibility_timeout: 30, qty: 5)
+        queue_name = "#{namespace}_queue"
+        logger.debug("📥 PGMQ: Reading messages from queue: #{queue_name} (limit: #{qty})")
+
+        result = connection.exec(
+          'SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)',
+          [queue_name, visibility_timeout, qty]
+        )
+
+        messages = []
+        result.each do |row|
+          # Convert to hash with proper types
+          pgmq_result = {
+            msg_id: row['msg_id'].to_i,
+            read_ct: row['read_ct'].to_i,
+            enqueued_at: row['enqueued_at'],
+            vt: row['vt'],
+            message: JSON.parse(row['message'])
+          }
+
+          # Create typed message data - this will validate the structure
+          message_data = TaskerCore::Types::QueueMessageData.from_pgmq_result(pgmq_result)
+          messages << message_data
+        rescue Dry::Struct::Error => e
+          logger.error("❌ PGMQ: Failed to parse queue message - validation error: #{e.message}")
+          logger.error("❌ PGMQ: Raw message: #{row.inspect}")
+          # Re-raise validation errors so we know messages are malformed
+          raise Errors::ValidationError, "Invalid queue message structure: #{e.message}"
+        rescue JSON::ParserError => e
+          logger.error("❌ PGMQ: Failed to parse message JSON: #{e.message}")
+          raise Errors::ValidationError, "Invalid message JSON: #{e.message}"
+        end
+
+        logger.debug("📨 PGMQ: Read #{messages.length} valid messages from queue: #{queue_name}")
+        messages
+      rescue PG::Error => e
+        logger.error("❌ PGMQ: Failed to read messages from queue #{queue_name}: #{e.message}")
+        raise Errors::DatabaseError, "Failed to read messages: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during step message reading: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for reading step messages: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
       # Ensure namespace queues exist for workflow processing
@@ -288,7 +414,7 @@ module TaskerCore
           create_queue(queue_name)
         end
 
-        logger.info("✅ PGMQ: All namespace queues ensured")
+        logger.info('✅ PGMQ: All namespace queues ensured')
         true
       end
 
@@ -311,34 +437,15 @@ module TaskerCore
         metrics
       end
 
-      # Close the database connection
+      # Close connection - no-op for ActiveRecord-managed connections
+      # This method exists for test compatibility
       def close
-        connection&.close
+        # ActiveRecord manages connections automatically
+        logger.debug('📡 PGMQ: Connection close requested (no-op for ActiveRecord connections)')
       end
 
-      private
-
-      # Create database connection
-      # Uses TaskerCore configuration or DATABASE_URL environment variable
-      def create_connection
-        # Try to use TaskerCore configuration if available
-        if defined?(TaskerCore::Config)
-          config = TaskerCore::Config.instance
-          if config.respond_to?(:database_url) && config.database_url
-            return PG.connect(config.database_url)
-          end
-        end
-
-        # Fall back to DATABASE_URL environment variable
-        database_url = ENV['DATABASE_URL']
-        if database_url
-          PG.connect(database_url)
-        else
-          raise Errors::DatabaseError, "No database connection available. Set DATABASE_URL or configure TaskerCore."
-        end
-      rescue PG::Error => e
-        raise Errors::DatabaseError, "Failed to connect to database: #{e.message}"
-      end
+      # Alias for drop_queue for consistency with test expectations
+      alias delete_queue drop_queue
     end
   end
 end

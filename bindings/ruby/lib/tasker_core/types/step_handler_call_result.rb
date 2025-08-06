@@ -30,33 +30,34 @@ module TaskerCore
       class Success < Dry::Struct
         # Always true for success results
         attribute :success, Types::Bool.default(true)
-        
+
         # The actual result data from the step handler
         # Can be any JSON-serializable value (Hash, Array, String, Number, etc.)
         attribute :result, Types::Any
-        
+
         # Optional metadata for observability
-        attribute :metadata, Types::Hash.default { {} }
+        attribute(:metadata, Types::Hash.default { {} })
       end
 
       class Error < Dry::Struct
         # Always false for error results
         attribute :success, Types::Bool.default(false)
-        
+
         # Error type (matches our error class names)
-        attribute :error_type, Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError')
-        
+        attribute :error_type,
+                  Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError')
+
         # Human-readable error message
         attribute :message, Types::String
-        
+
         # Optional error code for categorization
         attribute :error_code, Types::String.optional
-        
+
         # Whether this error should trigger a retry
         attribute :retryable, Types::Bool.default(false)
-        
+
         # Additional error context and metadata
-        attribute :metadata, Types::Hash.default { {} }
+        attribute(:metadata, Types::Hash.default { {} })
       end
 
       # Factory methods for creating results
@@ -167,7 +168,7 @@ module TaskerCore
               success: false,
               error_type: 'RetryableError',
               message: exception.message,
-              error_code: nil,  # RetryableError doesn't have error_code
+              error_code: nil, # RetryableError doesn't have error_code
               retryable: true,
               metadata: {
                 context: exception.context || {},

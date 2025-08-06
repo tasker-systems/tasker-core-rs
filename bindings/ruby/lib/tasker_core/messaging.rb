@@ -5,7 +5,7 @@ require_relative 'messaging/queue_worker'
 
 module TaskerCore
   # Messaging module for pgmq-based workflow orchestration
-  # 
+  #
   # This module provides the foundation for autonomous queue-based workers
   # that replace the complex TCP command architecture with simple, reliable
   # PostgreSQL message queues.
@@ -15,19 +15,17 @@ module TaskerCore
   # - QueueWorker: Autonomous workers that poll queues and execute steps
   module Messaging
     # Create a new pgmq client
-    # @param connection [PG::Connection] Optional database connection
-    # @param logger [Logger] Optional logger
     # @return [PgmqClient] New pgmq client instance
-    def self.create_pgmq_client(connection: nil, logger: nil)
-      PgmqClient.new(connection: connection, logger: logger)
+    def self.create_pgmq_client
+      PgmqClient.new
     end
 
     # Create a new queue worker for a namespace
     # @param namespace [String] Namespace to process (e.g., "fulfillment")
     # @param options [Hash] Worker configuration options
     # @return [QueueWorker] New queue worker instance
-    def self.create_queue_worker(namespace, **options)
-      QueueWorker.new(namespace, **options)
+    def self.create_queue_worker(namespace, **)
+      QueueWorker.new(namespace, **)
     end
 
     # Ensure all namespace queues exist
@@ -37,8 +35,6 @@ module TaskerCore
     def self.ensure_namespace_queues(namespaces, pgmq_client: nil)
       client = pgmq_client || create_pgmq_client
       client.ensure_namespace_queues(namespaces)
-    ensure
-      client&.close if client && !pgmq_client
     end
 
     # Get comprehensive queue metrics
@@ -47,8 +43,6 @@ module TaskerCore
     def self.all_queue_metrics(pgmq_client: nil)
       client = pgmq_client || create_pgmq_client
       client.all_queue_metrics
-    ensure
-      client&.close if client && !pgmq_client
     end
   end
 end

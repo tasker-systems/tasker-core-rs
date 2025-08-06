@@ -43,7 +43,8 @@ module TaskerCore
         @cache_ttl = cache_ttl
         @logger = TaskerCore::Logging::Logger.instance
         @config_cache = Concurrent::Map.new
-        @db_connection = TaskerCore::Database::Connection.instance
+        # Don't use singleton connection - create a fresh connection for thread safety
+        @db_connection = nil
       end
 
       # Resolve step handler from step_message using database-backed configuration
@@ -53,19 +54,19 @@ module TaskerCore
       def resolve_step_handler(step_message)
         # Extract step context from execution context
         execution_context = step_message.execution_context
-        return nil unless execution_context&.step&.dig('workflow_step_id')
+        return nil unless execution_context&.step&.dig(:workflow_step_id)
 
-        workflow_step_id = execution_context.step['workflow_step_id']
+        workflow_step_id = execution_context.step[:workflow_step_id]
         step_name = step_message.step_name
 
-        logger.debug("🔍 STEP_REGISTRY: Resolving handler - workflow_step_id: #{workflow_step_id}, step_name: #{step_name}")
+        @logger.debug("🔍 STEP_REGISTRY: Resolving handler - workflow_step_id: #{workflow_step_id}, step_name: #{step_name}")
 
         # Get workflow step to find named_step_id and task_id
         workflow_step = find_workflow_step(workflow_step_id)
         return nil unless workflow_step
 
         # Get task template configuration (with caching)
-        task_template = get_task_template_for_task(workflow_step['task_id'])
+        task_template = get_task_template_for_task(workflow_step.task_id)
         return nil unless task_template
 
         # Find step template by name
@@ -76,7 +77,7 @@ module TaskerCore
         handler_class = resolve_handler_class(step_template.handler_class)
         return nil unless handler_class
 
-        logger.info("✅ STEP_REGISTRY: Handler resolved - step: #{step_name}, class: #{step_template.handler_class}")
+        @logger.info("✅ STEP_REGISTRY: Handler resolved - step: #{step_name}, class: #{step_template.handler_class}")
 
         ResolvedStepHandler.new(
           handler_class_name: step_template.handler_class,
@@ -86,8 +87,8 @@ module TaskerCore
           task_template: task_template
         )
       rescue StandardError => e
-        logger.error("💥 STEP_REGISTRY: Error resolving handler for step #{step_message.step_name}: #{e.message}")
-        logger.error("💥 STEP_REGISTRY: #{e.backtrace.first(3).join("\n")}")
+        @logger.error("💥 STEP_REGISTRY: Error resolving handler for step #{step_message.step_name}: #{e.message}")
+        @logger.error("💥 STEP_REGISTRY: #{e.backtrace.first(3).join("\n")}")
         nil
       end
 
@@ -109,20 +110,20 @@ module TaskerCore
         handler_class = resolved_handler.handler_class
         handler_config = resolved_handler.handler_config
 
-        if handler_class.instance_method(:initialize).arity > 0
+        if handler_class.instance_method(:initialize).arity.positive?
           handler_class.new(handler_config)
         else
           handler_class.new
         end
       rescue StandardError => e
-        logger.error("💥 STEP_REGISTRY: Error creating handler instance: #{e.message}")
-        raise TaskerCore::Error.new("Handler instantiation failed: #{e.message}")
+        @logger.error("💥 STEP_REGISTRY: Error creating handler instance for #{resolved_handler.to_h}: #{e.message}, #{e.backtrace.join('\n')}")
+        raise TaskerCore::Error, "Handler instantiation failed: #{e.message}"
       end
 
       # Clear cache (useful for testing or configuration reloads)
       def clear_cache!
         @config_cache.clear
-        logger.info("🧹 STEP_REGISTRY: Configuration cache cleared")
+        @logger.info('🧹 STEP_REGISTRY: Configuration cache cleared')
       end
 
       # Get cache statistics for monitoring
@@ -142,47 +143,68 @@ module TaskerCore
 
       private
 
-      # Find workflow step by ID
+      # Find workflow step by ID using ActiveRecord
       def find_workflow_step(workflow_step_id)
-        sql = <<~SQL
-          SELECT workflow_step_id, task_id, named_step_id, in_process, processed
-          FROM tasker_workflow_steps
-          WHERE workflow_step_id = $1
-        SQL
-
-        @db_connection.query_one(sql, [workflow_step_id])
-      rescue => e
-        logger.error("💥 STEP_REGISTRY: Error finding workflow step #{workflow_step_id}: #{e.message}")
+        ActiveRecord::Base.with_connection do
+          TaskerCore::Database::Models::WorkflowStep.find_by(workflow_step_id: workflow_step_id)
+        end
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        @logger.error("💥 STEP_REGISTRY: Connection timeout finding workflow step #{workflow_step_id}: #{e.message}")
+        nil
+      rescue StandardError => e
+        @logger.error("💥 STEP_REGISTRY: Error finding workflow step #{workflow_step_id}: #{e.message}")
         nil
       end
 
-      # Get task template configuration for a task (with caching)
+      # Get task template configuration for a task (with caching) using ActiveRecord
       def get_task_template_for_task(task_id)
-        sql = <<~SQL
-          SELECT nt.named_task_id, nt.configuration, nt.name, tn.name as namespace_name
-          FROM tasker_tasks t
-          JOIN tasker_named_tasks nt ON t.named_task_id = nt.named_task_id
-          JOIN tasker_task_namespaces tn ON nt.task_namespace_id = tn.task_namespace_id
-          WHERE t.task_id = $1
-        SQL
+        # Use ActiveRecord with preloaded associations
+        task = ActiveRecord::Base.with_connection do
+          TaskerCore::Database::Models::Task.includes(named_task: :task_namespace).find_by(task_id: task_id)
+        end
+        return nil unless task
 
-        result = @db_connection.query_one(sql, [task_id])
-        return nil unless result
+        named_task = task.named_task
+        return nil unless named_task
 
         # Check cache first
-        cache_key = "named_task_#{result['named_task_id']}"
+        cache_key = "named_task_#{named_task.named_task_id}"
         cached_entry = @config_cache[cache_key]
 
         if cached_entry && !cache_expired?(cached_entry)
-          logger.debug("📋 STEP_REGISTRY: Using cached task template for named_task_id: #{result['named_task_id']}")
+          @logger.debug("📋 STEP_REGISTRY: Using cached task template for named_task_id: #{named_task.named_task_id}")
           return cached_entry.task_template
         end
 
-        # Parse configuration JSON into TaskTemplate
-        config_json = result['configuration']
-        return nil unless config_json
+        # Get configuration (already parsed from JSON column)
+        config_hash = named_task.configuration
+        return nil unless config_hash
+        # Convert string keys to symbols for dry-struct
+        symbolized_config = config_hash.transform_keys(&:to_sym)
 
-        task_template = TaskerCore::Types::TaskTemplate.from_hash(config_json)
+        # Transform step_templates to proper structure if present
+        if symbolized_config[:step_templates].is_a?(Array)
+          symbolized_config[:step_templates] = symbolized_config[:step_templates].map do |step|
+            step.is_a?(Hash) ? step.transform_keys(&:to_sym) : step
+          end
+        end
+
+        # Transform environments to proper structure if present (keys should remain strings)
+        if symbolized_config[:environments].is_a?(Hash)
+          symbolized_config[:environments] = symbolized_config[:environments].transform_values do |env|
+            if env.is_a?(Hash) && env['step_overrides'].is_a?(Hash)
+              {
+                step_overrides: env['step_overrides'].transform_values do |override|
+                  override.is_a?(Hash) ? override.transform_keys(&:to_sym) : override
+                end
+              }
+            else
+              env
+            end
+          end
+        end
+
+        task_template = TaskerCore::Types::TaskTemplate.new(symbolized_config)
 
         # Cache the parsed template
         cache_entry = CacheEntry.new(
@@ -192,10 +214,13 @@ module TaskerCore
         )
         @config_cache[cache_key] = cache_entry
 
-        logger.debug("💾 STEP_REGISTRY: Cached task template for named_task_id: #{result['named_task_id']}")
+        @logger.debug("💾 STEP_REGISTRY: Cached task template for named_task_id: #{named_task.named_task_id}")
         task_template
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        @logger.error("💥 STEP_REGISTRY: Connection timeout getting task template for task #{task_id}: #{e.message}")
+        nil
       rescue StandardError => e
-        logger.error("💥 STEP_REGISTRY: Error getting task template for task #{task_id}: #{e.message}")
+        @logger.error("💥 STEP_REGISTRY: Error getting task template for task #{task_id}: #{e.message}")
         nil
       end
 
@@ -204,7 +229,7 @@ module TaskerCore
         step_template = task_template.step_templates.find { |st| st.name == step_name }
 
         unless step_template
-          logger.warn("⚠️ STEP_REGISTRY: Step template '#{step_name}' not found in task template")
+          @logger.warn("⚠️ STEP_REGISTRY: Step template '#{step_name}' not found in task template")
           return nil
         end
 
@@ -218,22 +243,22 @@ module TaskerCore
 
         # Verify it's a class and has the required interface
         unless handler_class.is_a?(Class)
-          logger.warn("⚠️ STEP_REGISTRY: Handler '#{handler_class_name}' is not a class")
+          @logger.warn("⚠️ STEP_REGISTRY: Handler '#{handler_class_name}' is not a class")
           return nil
         end
 
         # Check if it has a call method (duck typing check)
         unless handler_class.instance_methods.include?(:call)
-          logger.warn("⚠️ STEP_REGISTRY: Handler '#{handler_class_name}' does not implement #call method")
+          @logger.warn("⚠️ STEP_REGISTRY: Handler '#{handler_class_name}' does not implement #call method")
           return nil
         end
 
         handler_class
       rescue NameError => e
-        logger.debug("🔍 STEP_REGISTRY: Handler class '#{handler_class_name}' not available: #{e.message}")
+        @logger.debug("🔍 STEP_REGISTRY: Handler class '#{handler_class_name}' not available: #{e.message}")
         nil
       rescue StandardError => e
-        logger.error("💥 STEP_REGISTRY: Error resolving handler class '#{handler_class_name}': #{e.message}")
+        @logger.error("💥 STEP_REGISTRY: Error resolving handler class '#{handler_class_name}': #{e.message}")
         nil
       end
 
@@ -241,6 +266,7 @@ module TaskerCore
       def cache_expired?(cache_entry)
         Time.now - cache_entry.cached_at > cache_entry.ttl
       end
+
     end
   end
 end

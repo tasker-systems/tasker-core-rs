@@ -610,4 +610,86 @@ step_templates:
 
         assert_eq!(order, vec!["step1", "step2", "step3"]);
     }
+
+    #[test]
+    fn test_tasktemplate_deserialization_from_ruby_format() {
+        // This test reproduces the exact JSON structure that Ruby stores in the database
+        // to debug the "missing field 'name'" error during deserialization
+        let json_str = r#"{
+            "name": "mathematical_sequence",
+            "namespace_name": "linear_workflow", 
+            "version": "1.0.0",
+            "task_handler_class": "LinearWorkflow::LinearWorkflowHandler",
+            "module_namespace": null,
+            "default_dependent_system": null,
+            "schema": null,
+            "named_steps": ["step_1", "step_2", "step_3", "step_4"],
+            "environments": {},
+            "custom_events": [],
+            "step_templates": [
+                {
+                    "name": "step_1",
+                    "description": "Initialize sequence with the even number from context",
+                    "handler_class": "LinearWorkflow::StepHandler::InitializeSequenceStepHandler",
+                    "handler_config": {},
+                    "depends_on_step": null,
+                    "depends_on_steps": [],
+                    "default_retryable": false,
+                    "default_retry_limit": 0,
+                    "skippable": null
+                },
+                {
+                    "name": "step_2", 
+                    "description": "Double the current value",
+                    "handler_class": "LinearWorkflow::StepHandler::DoubleValueStepHandler",
+                    "handler_config": {},
+                    "depends_on_step": "step_1",
+                    "depends_on_steps": [],
+                    "default_retryable": false,
+                    "default_retry_limit": 0,
+                    "skippable": null
+                }
+            ],
+            "default_context": null,
+            "default_options": null,
+            "handler_class": "LinearWorkflow::LinearWorkflowHandler",
+            "handler_config": {}
+        }"#;
+
+        let json_value: serde_json::Value = serde_json::from_str(json_str)
+            .expect("Should parse JSON string");
+
+        println!("🔍 Testing TaskTemplate deserialization from Ruby-generated JSON");
+        println!("📝 JSON structure: {}", serde_json::to_string_pretty(&json_value).unwrap());
+
+        // This is the exact same deserialization that fails in task_initializer.rs:845
+        match serde_json::from_value::<TaskTemplate>(json_value.clone()) {
+            Ok(task_template) => {
+                println!("✅ SUCCESS: TaskTemplate deserialized successfully!");
+                assert_eq!(task_template.name, "mathematical_sequence");
+                assert_eq!(task_template.namespace_name, "linear_workflow");
+                assert_eq!(task_template.version, "1.0.0");
+                assert_eq!(task_template.task_handler_class, "LinearWorkflow::LinearWorkflowHandler");
+                assert_eq!(task_template.step_templates.len(), 2);
+            }
+            Err(e) => {
+                println!("❌ FAILED: TaskTemplate deserialization failed!");
+                println!("   Error: {}", e);
+                
+                // Check if it's a missing field error
+                let error_str = e.to_string();
+                if error_str.contains("missing field") {
+                    println!("   This is a missing field error!");
+                    
+                    // Check what fields are actually present in the JSON
+                    if let Some(obj) = json_value.as_object() {
+                        println!("   Available fields in JSON: {:?}", obj.keys().collect::<Vec<_>>());
+                    }
+                }
+                
+                // This should not fail - if it does, we've found the root cause
+                panic!("TaskTemplate deserialization failed with Ruby-generated JSON: {}", e);
+            }
+        }
+    }
 }

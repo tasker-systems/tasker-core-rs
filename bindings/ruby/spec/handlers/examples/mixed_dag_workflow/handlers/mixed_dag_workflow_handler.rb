@@ -6,16 +6,12 @@ module MixedDagWorkflow
   # Mixed DAG Workflow Handler
   # Implements complex DAG: A -> B, A -> C, B -> D, C -> D, B -> E, C -> F, (D,E,F) -> G
   class MixedDagWorkflowHandler < TaskerCore::TaskHandler::Base
-    def initialize(task_config:)
-      super(task_config: task_config)
-    end
-
-    def handle(task, sequence, step)
+    def handle(task, _sequence, step)
       {
-        status: "success",
+        status: 'success',
         message: "Mixed DAG workflow step #{step.step_name} completed",
         metadata: {
-          workflow_type: "mixed_dag",
+          workflow_type: 'mixed_dag',
           step_name: step.step_name,
           task_id: task.task_id
         }
@@ -25,7 +21,7 @@ module MixedDagWorkflow
     private
 
     def workflow_description
-      "Complex mixed DAG workflow demonstrating multiple convergence patterns and dependency types"
+      'Complex mixed DAG workflow demonstrating multiple convergence patterns and dependency types'
     end
   end
 end

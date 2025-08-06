@@ -31,8 +31,8 @@ module TaskerCore
             'available_methods' => %w[setup_test cleanup_test create_testing_framework]
           }
         end
-      rescue => e
-        { error: e.message, status: "unavailable" }
+      rescue StandardError => e
+        { error: e.message, status: 'unavailable' }
       end
     end
   end

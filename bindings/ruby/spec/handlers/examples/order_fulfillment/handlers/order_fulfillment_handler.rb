@@ -20,9 +20,7 @@ module OrderFulfillment
     # Custom configuration based on task context
     def setup_task_specific_configuration(context)
       # Apply any configuration overrides based on customer tier
-      if context['customer_info']['tier'] == 'premium'
-        apply_premium_optimizations!(context)
-      end
+      apply_premium_optimizations!(context) if context['customer_info']['tier'] == 'premium'
 
       # Validate order constraints
       validate_order_constraints(context)
@@ -66,7 +64,7 @@ module OrderFulfillment
       # Get configuration constraints
       config = @task_config&.dig('handler_config') || {}
       max_items = config['order_validation_rules']&.dig('max_items_per_order') || 50
-      max_value = config['order_validation_rules']&.dig('max_order_value') || 10000.00
+      max_value = config['order_validation_rules']&.dig('max_order_value') || 10_000.00
       min_value = config['order_validation_rules']&.dig('min_order_value') || 0.01
 
       # Validate item count

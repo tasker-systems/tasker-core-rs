@@ -38,7 +38,7 @@ module OrderFulfillment
 
       private
 
-      def extract_and_validate_inputs(task, sequence, _step)
+      def extract_and_validate_inputs(_task, sequence, _step)
         # Get validated items from the validate_order step
         validate_order_step = sequence.steps.find { |s| s.name == 'validate_order' }
 
@@ -80,7 +80,7 @@ module OrderFulfillment
         reservation_id = "RES-#{Time.now.to_i}-#{SecureRandom.hex(4).upcase}"
 
         # Set reservation expiration (15 minutes from now)
-        expires_at = (Time.now + 15 * 60).iso8601
+        expires_at = (Time.now + (15 * 60)).iso8601
 
         # Reserve each item
         reservations = inputs[:validated_items].map do |item|
@@ -140,7 +140,7 @@ module OrderFulfillment
           # This is a retryable error - inventory might be replenished
           raise TaskerCore::Errors::RetryableError.new(
             "Insufficient stock for product #{product_id}. Available: #{available_stock}, Requested: #{quantity}",
-            retry_after: 60,  # Wait 1 minute before retrying
+            retry_after: 60, # Wait 1 minute before retrying
             context: {
               product_id: product_id,
               available: available_stock,
@@ -161,7 +161,7 @@ module OrderFulfillment
         # Simulate occasional network error (3% chance)
         if rand < 0.03
           raise TaskerCore::Errors::NetworkError.new(
-            "Network error communicating with inventory system",
+            'Network error communicating with inventory system',
             status_code: 503,
             context: { product_id: product_id, service: 'inventory_api' }
           )

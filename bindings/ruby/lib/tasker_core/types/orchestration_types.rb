@@ -19,7 +19,7 @@ module TaskerCore
 
         # Validation for required task data
         def valid?
-          task_id.is_a?(Integer) && task_id > 0 && context.is_a?(Hash)
+          task_id.is_a?(Integer) && task_id.positive? && context.is_a?(Hash)
         end
 
         def to_s
@@ -35,10 +35,10 @@ module TaskerCore
 
         # Validation for sequence coordination
         def valid?
-          sequence_number.is_a?(Integer) && sequence_number > 0 &&
-          total_steps.is_a?(Integer) && total_steps > 0 &&
-          sequence_number <= total_steps &&
-          previous_results.is_a?(Hash)
+          sequence_number.is_a?(Integer) && sequence_number.positive? &&
+            total_steps.is_a?(Integer) && total_steps.positive? &&
+            sequence_number <= total_steps &&
+            previous_results.is_a?(Hash)
         end
 
         def to_s
@@ -56,14 +56,15 @@ module TaskerCore
 
         # Validation for step execution requirements
         def valid?
-          step_id.is_a?(Integer) && step_id > 0 &&
-          step_name.is_a?(String) && !step_name.empty? &&
-          handler_config.is_a?(Hash)
+          step_id.is_a?(Integer) && step_id.positive? &&
+            step_name.is_a?(String) && !step_name.empty? &&
+            handler_config.is_a?(Hash)
         end
 
         # Extract timeout in seconds for execution
         def timeout_seconds
           return 30.0 unless timeout_ms # Default 30 second timeout
+
           timeout_ms / 1000.0
         end
 
@@ -80,8 +81,11 @@ module TaskerCore
           context = step_data[:task_context] || step_data['task_context']
           metadata = step_data[:metadata] || step_data['metadata'] || {}
 
-          raise ArgumentError, "task_id is required and must be positive integer" unless task_id.is_a?(Integer) && task_id > 0
-          raise ArgumentError, "task_context is required and must be a hash" unless context.is_a?(Hash)
+          unless task_id.is_a?(Integer) && task_id.positive?
+            raise ArgumentError,
+                  'task_id is required and must be positive integer'
+          end
+          raise ArgumentError, 'task_context is required and must be a hash' unless context.is_a?(Hash)
 
           TaskStruct.new(
             task_id: task_id,
@@ -90,15 +94,15 @@ module TaskerCore
           )
         end
 
-        # Create SequenceStruct with validation and error handling  
+        # Create SequenceStruct with validation and error handling
         def self.create_sequence(step_data)
           sequence = step_data.dig(:metadata, :sequence) || step_data.dig('metadata', 'sequence')
           total_steps = step_data.dig(:metadata, :total_steps) || step_data.dig('metadata', 'total_steps')
           previous_results = step_data[:previous_results] || step_data['previous_results']
 
-          raise ArgumentError, "sequence number is required" unless sequence.is_a?(Integer) && sequence > 0
-          raise ArgumentError, "total_steps is required" unless total_steps.is_a?(Integer) && total_steps > 0
-          raise ArgumentError, "previous_results is required and must be a hash" unless previous_results.is_a?(Hash)
+          raise ArgumentError, 'sequence number is required' unless sequence.is_a?(Integer) && sequence.positive?
+          raise ArgumentError, 'total_steps is required' unless total_steps.is_a?(Integer) && total_steps.positive?
+          raise ArgumentError, 'previous_results is required and must be a hash' unless previous_results.is_a?(Hash)
 
           SequenceStruct.new(
             sequence_number: sequence,
@@ -110,12 +114,18 @@ module TaskerCore
         # Create StepStruct with validation and error handling
         def self.create_step(step_data)
           step_id = step_data[:step_id] || step_data['step_id']
-          step_name = step_data[:step_name] || step_data['step_name'] 
+          step_name = step_data[:step_name] || step_data['step_name']
           handler_config = step_data[:handler_config] || step_data['handler_config'] || {}
           timeout_ms = step_data.dig(:metadata, :timeout_ms) || step_data.dig('metadata', 'timeout_ms')
 
-          raise ArgumentError, "step_id is required and must be positive integer" unless step_id.is_a?(Integer) && step_id > 0
-          raise ArgumentError, "step_name is required and must be non-empty string" unless step_name.is_a?(String) && !step_name.empty?
+          unless step_id.is_a?(Integer) && step_id.positive?
+            raise ArgumentError,
+                  'step_id is required and must be positive integer'
+          end
+          unless step_name.is_a?(String) && !step_name.empty?
+            raise ArgumentError,
+                  'step_name is required and must be non-empty string'
+          end
 
           StepStruct.new(
             step_id: step_id,

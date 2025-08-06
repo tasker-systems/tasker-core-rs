@@ -5,12 +5,16 @@
 
 use crate::database::DatabaseConnection;
 use crate::messaging::PgmqClient;
+use crate::orchestration::orchestration_loop::OrchestrationLoop;
 use crate::orchestration::state_manager::StateManager;
+use crate::orchestration::step_result_processor::StepResultProcessor;
 use crate::orchestration::task_initializer::TaskInitializer;
+use crate::orchestration::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::workflow_coordinator::WorkflowCoordinator;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
+use uuid::Uuid;
 
 /// Orchestration system for embedded FFI bridge
 pub struct OrchestrationSystem {
@@ -18,8 +22,11 @@ pub struct OrchestrationSystem {
     pub pgmq_client: Arc<PgmqClient>,
     pub workflow_coordinator: WorkflowCoordinator,
     pub state_manager: StateManager,
-    pub task_initializer: TaskInitializer,
+    pub shared_task_initializer: Arc<TaskInitializer>,
     pub event_publisher: crate::events::EventPublisher,
+    pub orchestration_loop: Arc<OrchestrationLoop>,
+    pub task_request_processor: Arc<TaskRequestProcessor>,
+    pub step_result_processor: Arc<StepResultProcessor>,
 }
 
 impl OrchestrationSystem {
@@ -65,13 +72,54 @@ impl OrchestrationSystem {
             pgmq_client.clone(),
         );
 
+        // Create orchestration loop for continuous step enqueueing
+        let orchestration_loop = OrchestrationLoop::new(
+            database_pool.clone(),
+            (*pgmq_client).clone(),
+            format!("embedded-orchestrator-{}", Uuid::new_v4()),
+        ).await?;
+
+        // Create task handler registry for task request processor
+        let task_handler_registry = Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
+            database_pool.clone(),
+            event_publisher.clone(),
+        ));
+
+        // Create task request processor configuration
+        let task_request_config = crate::orchestration::task_request_processor::TaskRequestProcessorConfig {
+            request_queue_name: "task_requests_queue".to_string(),
+            polling_interval_seconds: 1,
+            visibility_timeout_seconds: 300,
+            batch_size: 10,
+            max_processing_attempts: 3,
+        };
+
+        // Create task request processor for processing incoming task requests
+        // We need to share the task_initializer, so wrap it in Arc
+        let shared_task_initializer = Arc::new(task_initializer);
+        let task_request_processor = TaskRequestProcessor::new(
+            pgmq_client.clone(),
+            task_handler_registry,
+            Arc::clone(&shared_task_initializer),
+            task_request_config,
+        );
+
+        // Create step result processor for processing step results
+        let step_result_processor = StepResultProcessor::new(
+            database_pool.clone(),
+            (*pgmq_client).clone(),
+        ).await?;
+
         let system = Arc::new(Self {
             database_pool,
             pgmq_client,
             workflow_coordinator,
             state_manager,
-            task_initializer,
+            shared_task_initializer,
             event_publisher,
+            orchestration_loop: Arc::new(orchestration_loop),
+            task_request_processor: Arc::new(task_request_processor),
+            step_result_processor: Arc::new(step_result_processor),
         });
 
         info!("✅ Orchestration system initialized");
@@ -86,6 +134,31 @@ impl OrchestrationSystem {
     /// Get pgmq client reference
     pub fn pgmq_client(&self) -> Arc<PgmqClient> {
         self.pgmq_client.clone()
+    }
+
+    /// Initialize a task using the embedded orchestration system
+    pub async fn initialize_task(
+        &self,
+        task_request: crate::models::core::task_request::TaskRequest,
+    ) -> Result<crate::orchestration::TaskInitializationResult, crate::error::TaskerError> {
+        info!(
+            namespace = %task_request.namespace,
+            name = %task_request.name,
+            version = %task_request.version,
+            "🚀 EMBEDDED: Initializing task via orchestration system"
+        );
+
+        // Use the embedded task initializer with full registry support
+        let result = self.shared_task_initializer.create_task_from_request(task_request).await
+            .map_err(|e| crate::error::TaskerError::DatabaseError(format!("Task initialization failed: {}", e)))?;
+
+        info!(
+            task_id = result.task_id,
+            step_count = result.step_count,
+            "✅ EMBEDDED: Task initialized successfully via orchestration system"
+        );
+
+        Ok(result)
     }
 
     /// Enqueue ready steps for a task using pgmq architecture
@@ -114,6 +187,62 @@ impl OrchestrationSystem {
         );
 
         Ok(result)
+    }
+
+    /// Start the complete orchestration system (all processors)
+    pub async fn start_orchestration_system(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("🚀 Starting complete orchestration system for embedded mode");
+        
+        // Start all three processors concurrently
+        // This mirrors the full orchestration system architecture
+        let orchestration_loop = Arc::clone(&self.orchestration_loop);
+        let task_request_processor = Arc::clone(&self.task_request_processor);
+        let step_result_processor = Arc::clone(&self.step_result_processor);
+
+        let orchestration_handle = tokio::spawn(async move {
+            info!("🔄 ORCHESTRATION_SYSTEM: Orchestration loop task started - beginning continuous operation");
+            if let Err(e) = orchestration_loop.run_continuous().await {
+                error!("❌ ORCHESTRATION_SYSTEM: Orchestration loop failed: {}", e);
+            } else {
+                info!("✅ ORCHESTRATION_SYSTEM: Orchestration loop completed successfully");
+            }
+        });
+
+        let task_request_handle = tokio::spawn(async move {
+            if let Err(e) = task_request_processor.start_processing_loop().await {
+                tracing::error!("Task request processor failed: {}", e);
+            }
+        });
+
+        let step_result_handle = tokio::spawn(async move {
+            if let Err(e) = step_result_processor.start_processing_loop().await {
+                tracing::error!("Step result processor failed: {}", e);
+            }
+        });
+
+        info!("✅ All orchestration processors started");
+
+        // Wait for all processors to complete (they should run indefinitely)
+        let (orchestration_result, task_request_result, step_result_result) = tokio::join!(
+            orchestration_handle,
+            task_request_handle,
+            step_result_handle
+        );
+
+        // Log any errors that caused the processors to exit
+        if let Err(e) = orchestration_result {
+            tracing::error!("Orchestration loop task panicked: {}", e);
+        }
+        if let Err(e) = task_request_result {
+            tracing::error!("Task request processor task panicked: {}", e);
+        }
+        if let Err(e) = step_result_result {
+            tracing::error!("Step result processor task panicked: {}", e);
+        }
+
+        Ok(())
     }
 
     /// Initialize standard namespace queues

@@ -20,7 +20,7 @@ module TaskerCore
   class EmbeddedOrchestrator
     attr_reader :namespaces, :started_at
 
-    def initialize(namespaces = ['fulfillment', 'inventory', 'notifications'])
+    def initialize(namespaces = %w[fulfillment inventory notifications])
       @namespaces = Array(namespaces)
       @started_at = nil
       @logger = TaskerCore::Logging::Logger.instance
@@ -43,7 +43,7 @@ module TaskerCore
         @started_at = Time.now
         @logger.info "✅ EMBEDDED_ORCHESTRATOR: #{result}"
         true
-      rescue => e
+      rescue StandardError => e
         @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to start - #{e.message}"
         raise TaskerCore::OrchestrationError, "Failed to start embedded orchestration: #{e.message}"
       end
@@ -57,14 +57,14 @@ module TaskerCore
     def stop
       return false unless running?
 
-      @logger.info "🛑 EMBEDDED_ORCHESTRATOR: Stopping orchestration system"
+      @logger.info '🛑 EMBEDDED_ORCHESTRATOR: Stopping orchestration system'
 
       begin
         result = TaskerCore.stop_embedded_orchestration
         @started_at = nil
         @logger.info "✅ EMBEDDED_ORCHESTRATOR: #{result}"
         true
-      rescue => e
+      rescue StandardError => e
         @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to stop - #{e.message}"
         # Don't raise error on stop - just log and continue
         false
@@ -76,7 +76,7 @@ module TaskerCore
     # @return [Boolean] true if system is running
     def running?
       status_info[:running] == true
-    rescue
+    rescue StandardError
       false
     end
 
@@ -89,16 +89,14 @@ module TaskerCore
     #   - uptime_seconds: seconds since startup (if running)
     def status
       base_status = status_info
-      
-      if base_status[:running] && @started_at
-        base_status[:uptime_seconds] = (Time.now - @started_at).to_i
-      end
-      
+
+      base_status[:uptime_seconds] = (Time.now - @started_at).to_i if base_status[:running] && @started_at
+
       base_status.merge(
         namespaces: @namespaces,
         started_at: @started_at&.iso8601
       )
-    rescue => e
+    rescue StandardError => e
       @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to get status - #{e.message}"
       {
         running: false,
@@ -117,7 +115,7 @@ module TaskerCore
     # @return [String] result message
     # @raise [TaskerCore::OrchestrationError] if system not running or enqueueing fails
     def enqueue_steps(task_id)
-      raise TaskerCore::OrchestrationError, "Orchestration system not running" unless running?
+      raise TaskerCore::OrchestrationError, 'Orchestration system not running' unless running?
 
       @logger.info "🚀 EMBEDDED_ORCHESTRATOR: Enqueueing steps for task #{task_id}"
 
@@ -125,7 +123,7 @@ module TaskerCore
         result = TaskerCore.enqueue_task_steps(task_id)
         @logger.info "✅ EMBEDDED_ORCHESTRATOR: #{result}"
         result
-      rescue => e
+      rescue StandardError => e
         @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to enqueue steps for task #{task_id} - #{e.message}"
         raise TaskerCore::OrchestrationError, "Failed to enqueue steps: #{e.message}"
       end
@@ -146,7 +144,7 @@ module TaskerCore
     # Get raw status information from Rust
     def status_info
       TaskerCore.embedded_orchestration_status
-    rescue => e
+    rescue StandardError => e
       @logger.debug "Status check failed: #{e.message}"
       { running: false }
     end
@@ -154,7 +152,7 @@ module TaskerCore
 
   class << self
     # Global embedded orchestrator instance for convenience
-    # 
+    #
     # This provides a singleton-like interface for tests that don't need
     # multiple orchestrator instances.
     def embedded_orchestrator
@@ -163,9 +161,7 @@ module TaskerCore
 
     # Start global embedded orchestrator
     def start_embedded_orchestration!(namespaces = nil)
-      if namespaces
-        @embedded_orchestrator = EmbeddedOrchestrator.new(namespaces)
-      end
+      @embedded_orchestrator = EmbeddedOrchestrator.new(namespaces) if namespaces
       embedded_orchestrator.start
     end
 

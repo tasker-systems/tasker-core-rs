@@ -5,19 +5,6 @@ require 'tempfile'
 
 RSpec.describe TaskerCore::TaskHandler::Base do
   let(:handler) { described_class.new }
-  let(:task_id) { 12345 }
-  
-  # Bootstrap the orchestration system before any tests
-  before(:all) do
-    # Initialize the orchestration system properly for tests
-    TaskerCore::Internal::OrchestrationManager.instance.bootstrap_orchestration_system
-  end
-  
-  after(:all) do
-    # Clean up orchestration system after tests
-    TaskerCore::Internal::OrchestrationManager.instance.reset!
-  end
-  
   # Proper TaskRequest as Hash (NO task_id - that's created after processing)
   # The handler expects Hash input and converts to TaskRequest internally
   let(:task_request_hash) do
@@ -25,19 +12,18 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       'namespace' => 'fulfillment',
       'name' => 'order_processing',
       'version' => '1.0.0',
-      'context' => { 'order_id' => 12345, 'customer_id' => 67890 },
+      'context' => { 'order_id' => 12_345, 'customer_id' => 67_890 },
       'initiator' => 'rspec_test',
       'source_system' => 'test_suite',
       'reason' => 'integration_test',
-      'tags' => ['test', 'pgmq_integration']
+      'tags' => %w[test pgmq_integration]
     }
   end
-
   # Additional test with different structure
   let(:inventory_task_request_hash) do
     {
       'namespace' => 'inventory',
-      'name' => 'stock_update', 
+      'name' => 'stock_update',
       'context' => { 'product_id' => 'ABC123', 'quantity' => 50 },
       'priority' => 3,
       'max_retries' => 2,
@@ -46,21 +32,31 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       'reason' => 'testing'
     }
   end
-
   # Verify our test data can actually create valid TaskRequest objects
   let(:validated_task_request) do
     TaskerCore::Types::TaskRequest.from_hash(task_request_hash)
   end
-
   let(:validated_inventory_request) do
     TaskerCore::Types::TaskRequest.from_hash(inventory_task_request_hash)
+  end
+  let(:task_id) { 12_345 }
+
+  # Bootstrap the orchestration system before any tests
+  before(:all) do
+    # Initialize the orchestration system properly for tests
+    TaskerCore::Internal::OrchestrationManager.instance.bootstrap_orchestration_system
+  end
+
+  after(:all) do
+    # Clean up orchestration system after tests
+    TaskerCore::Internal::OrchestrationManager.instance.reset!
   end
 
   describe '#initialize' do
     it 'initializes with lazy pgmq client using bootstrapped system' do
       expect(handler.logger).not_to be_nil
       expect(handler.task_config).to eq({})
-      
+
       # pgmq_client should be lazily initialized - may fail if DB not available
       # but should still respond to expected methods
       begin
@@ -92,16 +88,16 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     context 'when orchestrator is available through bootstrapped system' do
       it 'handles orchestration using bootstrapped orchestration system' do
         result = handler.handle(task_id)
-        
+
         expect(result).to be_a(Hash)
         expect(result[:task_id]).to eq(task_id)
         expect(result[:architecture]).to eq('pgmq')
-        
+
         # With bootstrapped orchestration system, should work properly
         # The actual mode depends on configuration, but system should be functional
         expect(result).to have_key(:success)
         expect(result).to have_key(:message)
-        
+
         # In test environment, should default to embedded mode with working orchestrator
         if result[:success]
           expect(result[:message]).to be_a(String)
@@ -115,13 +111,13 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     context 'when using bootstrapped orchestration system' do
       it 'successfully processes tasks with bootstrapped orchestration' do
         result = handler.handle(task_id)
-        
+
         expect(result).to be_a(Hash)
         expect(result[:task_id]).to eq(task_id)
         expect(result[:architecture]).to eq('pgmq')
         expect(result).to have_key(:success)
         expect(result).to have_key(:message)
-        
+
         # With properly bootstrapped system, should work in configured mode
         if result[:success]
           expect(result[:message]).to be_a(String)
@@ -134,7 +130,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       it 'handles invalid task_id with validation' do
         # Test with invalid task_id
         result = handler.handle(-1)
-        
+
         expect(result).to be_a(Hash)
         expect(result[:task_id]).to eq(-1)
         expect(result[:architecture]).to eq('pgmq')
@@ -145,7 +141,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
 
     it 'validates task_id is required' do
       result = handler.handle(nil)
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be false
       expect(result[:error_type]).to eq('TaskerCore::ValidationError')
@@ -155,7 +151,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
 
     it 'validates task_id is an integer' do
       result = handler.handle('not_an_integer')
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be false
       expect(result[:error_type]).to eq('TaskerCore::ValidationError')
@@ -167,7 +163,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
   describe '#initialize_task' do
     it 'validates required fields using empty hash' do
       result = handler.initialize_task({})
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be false
       expect(result[:error_type]).to eq('ValidationError')
@@ -176,7 +172,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
 
     it 'successfully processes valid TaskRequest hash data' do
       result = handler.initialize_task(task_request_hash)
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be true
       expect(result[:namespace]).to eq('fulfillment')
@@ -188,7 +184,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
 
     it 'successfully processes different TaskRequest configurations' do
       result = handler.initialize_task(inventory_task_request_hash)
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be true
       expect(result[:namespace]).to eq('inventory')
@@ -203,7 +199,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       expect(validated_task_request.namespace).to eq('fulfillment')
       expect(validated_task_request.name).to eq('order_processing')
       expect(validated_task_request.valid_for_creation?).to be true
-      
+
       expect(validated_inventory_request).to be_a(TaskerCore::Types::TaskRequest)
       expect(validated_inventory_request.namespace).to eq('inventory')
       expect(validated_inventory_request.valid_for_creation?).to be true
@@ -218,11 +214,11 @@ RSpec.describe TaskerCore::TaskHandler::Base do
         'initiator' => 'test',
         'source_system' => 'test_suite',
         'reason' => 'unit_test',
-        'context' => { 'order_id' => 12345, 'customer_id' => 67890 }
+        'context' => { 'order_id' => 12_345, 'customer_id' => 67_890 }
       }
-      
+
       result = handler.initialize_task(hash_request)
-      
+
       expect(result[:success]).to be true
       expect(result[:namespace]).to eq('fulfillment')
       expect(result[:task_name]).to eq('order_processing')
@@ -231,9 +227,9 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     it 'validates TaskRequest structure and type coercion' do
       # Test that proper validation occurs
       invalid_request = { 'namespace' => '', 'name' => 'test' } # Missing required fields
-      
+
       result = handler.initialize_task(invalid_request)
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be false
       expect(result[:error_type]).to eq('ValidationError')
@@ -241,7 +237,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
 
     it 'handles non-hash input gracefully' do
       result = handler.initialize_task('not_a_hash')
-      
+
       expect(result).to be_a(Hash)
       expect(result[:success]).to be false
       expect(result[:error_type]).to eq('NoMethodError')
@@ -254,7 +250,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       # With bootstrapped orchestration system, should give accurate status
       result = handler.orchestration_ready?
       expect([true, false]).to include(result)
-      
+
       # Should not crash and should return boolean
       expect([true, false]).to include(result)
     end
@@ -272,12 +268,12 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       # The key is that it should return a valid status hash
       status = nil
       expect { status = handler.status }.not_to raise_error
-      
+
       expect(status).to be_a(Hash)
       expect(status[:handler_type]).to eq('TaskHandler::Base')
       expect(status[:architecture]).to eq('pgmq')
       expect(status[:orchestration_mode]).to be_a(String)
-      expect(['embedded', 'distributed']).to include(status[:orchestration_mode])
+      expect(%w[embedded distributed]).to include(status[:orchestration_mode])
       expect(status).to have_key(:orchestration_ready)
       expect(status).to have_key(:pgmq_available)
       expect(status).to have_key(:task_config_loaded)
@@ -286,7 +282,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     context 'when using bootstrapped orchestration system' do
       it 'includes appropriate orchestrator details based on mode' do
         status = handler.status
-        
+
         if status[:orchestration_mode] == 'embedded'
           # In embedded mode, should have embedded_orchestrator info
           expect(status).to have_key(:embedded_orchestrator)
@@ -300,10 +296,10 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     context 'when configuration determines mode' do
       it 'reflects actual configuration mode' do
         status = handler.status
-        
+
         # Should be one of the valid modes
-        expect(['embedded', 'distributed']).to include(status[:orchestration_mode])
-        
+        expect(%w[embedded distributed]).to include(status[:orchestration_mode])
+
         # Mode-specific checks
         if status[:orchestration_mode] == 'embedded'
           expect(status).to have_key(:embedded_orchestrator)
@@ -321,15 +317,13 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       temp_file.close
 
       handler_with_config = described_class.new(task_config_path: temp_file.path)
-      
+
       # Status should work even if pgmq_client fails
       status = nil
       expect { status = handler_with_config.status }.not_to raise_error
-      
-      if status
-        expect(status[:task_config_loaded]).to be true
-      end
-      
+
+      expect(status[:task_config_loaded]).to be true if status
+
       temp_file.unlink
     end
   end
@@ -339,11 +333,11 @@ RSpec.describe TaskerCore::TaskHandler::Base do
       # Verify the handler doesn't reference any TCP-era components in actual code
       source_path = File.join(File.dirname(__FILE__), '..', '..', 'lib', 'tasker_core', 'task_handler', 'base.rb')
       source_code = File.read(source_path)
-      
+
       # Remove comments to test only actual code
       code_lines = source_code.split("\n").reject { |line| line.strip.start_with?('#') }
       actual_code = code_lines.join("\n")
-      
+
       expect(actual_code).not_to include('command_client')
       expect(actual_code).not_to include('CommandClient')
       expect(actual_code).not_to include('create_command_client')
@@ -353,7 +347,7 @@ RSpec.describe TaskerCore::TaskHandler::Base do
     it 'uses pgmq components only' do
       source_path = File.join(File.dirname(__FILE__), '..', '..', 'lib', 'tasker_core', 'task_handler', 'base.rb')
       source_code = File.read(source_path)
-      
+
       expect(source_code).to include('PgmqClient')
       expect(source_code).to include('embedded_orchestrator')
       expect(source_code).to include('architecture: \'pgmq\'')

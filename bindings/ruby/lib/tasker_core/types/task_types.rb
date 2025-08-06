@@ -16,10 +16,10 @@ module TaskerCore
         # Core identification
         attribute :namespace, Types::Coercible::String
         attribute :name, Types::Coercible::String
-        attribute :version, Types::Coercible::String.default('1.0.0'.freeze)
+        attribute :version, Types::Coercible::String.default('1.0.0')
 
         # Task state and metadata
-        attribute :status, Types::Coercible::String.default('pending'.freeze).enum(
+        attribute :status, Types::Coercible::String.default('pending').enum(
           'pending',
           'in_progress',
           'completed',
@@ -44,16 +44,18 @@ module TaskerCore
         attribute? :parent_task_id, Types::Integer
         attribute? :correlation_id, Types::Coercible::String
         attribute? :bypass_steps, Types::Array.of(Types::Coercible::String).default([].freeze)
-        attribute? :requested_at, Types::Constructor(Time) { |value| value.is_a?(Time) ? value : Time.parse(value.to_s) }.default { Time.now }
+        attribute?(:requested_at, Types::Constructor(Time) do |value|
+          value.is_a?(Time) ? value : Time.parse(value.to_s)
+        end.default { Time.now })
 
         # Validation methods
         def valid_for_creation?
           !namespace.nil? && !namespace.empty? &&
-          !name.nil? && !name.empty? &&
-          !initiator.nil? && !initiator.empty? &&
-          !source_system.nil? && !source_system.empty? &&
-          !reason.nil? && !reason.empty? &&
-          context.is_a?(Hash)
+            !name.nil? && !name.empty? &&
+            !initiator.nil? && !initiator.empty? &&
+            !source_system.nil? && !source_system.empty? &&
+            !reason.nil? && !reason.empty? &&
+            context.is_a?(Hash)
         end
 
         # Convert to hash suitable for FFI serialization
@@ -100,15 +102,15 @@ module TaskerCore
         # Quick factory method for tests
         def self.build_test(namespace:, name:, context:, **options)
           from_hash({
-            namespace: namespace,
-            name: name,
-            context: context,
-            initiator: options[:initiator] || 'test',
-            source_system: options[:source_system] || 'rspec',
-            reason: options[:reason] || 'testing',
-            tags: options[:tags] || ['test'],
-            **options
-          })
+                      namespace: namespace,
+                      name: name,
+                      context: context,
+                      initiator: options[:initiator] || 'test',
+                      source_system: options[:source_system] || 'rspec',
+                      reason: options[:reason] || 'testing',
+                      tags: options[:tags] || ['test'],
+                      **options
+                    })
         end
 
         # Pretty string representation

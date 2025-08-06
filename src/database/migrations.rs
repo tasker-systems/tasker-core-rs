@@ -59,10 +59,14 @@ impl DatabaseMigrations {
     /// Run all migrations in order
     pub async fn run_all(pool: &PgPool) -> Result<(), sqlx::Error> {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_default();
-        let is_test = database_url.contains("test");
+        
+        // More sophisticated test detection - only drop schema for pure unit tests
+        // Integration tests (TASKER_ENV=test) should preserve schema populated by Ruby
+        let is_unit_test = database_url.contains("test") && 
+            std::env::var("TASKER_ENV").unwrap_or_default() != "test";
 
-        if is_test {
-            // For test database, use database-level locking to ensure only one thread initializes schema
+        if is_unit_test {
+            // For unit test database, use database-level locking to ensure only one thread initializes schema
             Self::run_fresh_schema_with_lock(pool).await?;
             return Ok(());
         }
@@ -318,4 +322,62 @@ impl DatabaseMigrations {
 
         Ok(())
     }
+
+    /// Check migration status without running migrations
+    /// Returns a simple status indicating if migrations are needed
+    pub async fn check_status(pool: &PgPool) -> Result<MigrationStatus, sqlx::Error> {
+        // Check if core tables exist to determine if schema is set up
+        let core_tables = vec![
+            "tasker_tasks",
+            "tasker_workflow_steps", 
+            "tasker_task_namespaces",
+            "tasker_named_tasks",
+            "tasker_named_steps"
+        ];
+
+        let mut existing_tables = 0;
+        for table in &core_tables {
+            let check_query = format!(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public')",
+                table
+            );
+            
+            match sqlx::query(&check_query).fetch_one(pool).await {
+                Ok(row) => {
+                    if row.get::<bool, _>("exists") {
+                        existing_tables += 1;
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Get current migration version if migrations table exists
+        let current_version = match sqlx::query("SELECT version FROM tasker_schema_migrations ORDER BY version DESC LIMIT 1")
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(Some(row)) => row.get::<String, _>("version"),
+            Ok(None) => "none".to_string(),
+            Err(_) => "no_migration_table".to_string(),
+        };
+
+        let needs_migration = existing_tables < core_tables.len();
+
+        Ok(MigrationStatus {
+            needs_migration,
+            current_version,
+            existing_tables: existing_tables as u32,
+            total_expected_tables: core_tables.len() as u32,
+        })
+    }
+}
+
+/// Simple migration status for connection startup checks
+#[derive(Debug, Clone)]
+pub struct MigrationStatus {
+    pub needs_migration: bool,
+    pub current_version: String,
+    pub existing_tables: u32,
+    pub total_expected_tables: u32,
 }

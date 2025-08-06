@@ -11,14 +11,16 @@ require_relative '../handlers/examples/order_fulfillment/step_handlers/process_p
 require_relative '../handlers/examples/order_fulfillment/step_handlers/ship_order_handler'
 
 RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
-  let(:config_path) { File.expand_path('../../handlers/examples/order_fulfillment/config/order_fulfillment_handler.yaml', __dir__) }
+  let(:config_path) do
+    File.expand_path('../../handlers/examples/order_fulfillment/config/order_fulfillment_handler.yaml', __dir__)
+  end
   let(:task_config) { YAML.load_file(config_path) }
 
   # Sample order data that represents a real e-commerce order
   let(:sample_order_data) do
     {
       customer_info: {
-        id: 12345,
+        id: 12_345,
         email: 'customer@example.com',
         tier: 'premium'
       },
@@ -90,31 +92,12 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       # Create and initialize the task through the framework
       # Convert TaskRequest object to hash for base_task_handler.initialize_task
       # Note: initialize_task now returns nil (async operation) or raises on error
-      begin
-        task_result = base_handler.initialize_task(task_request.to_h)
-        expect(task_result).to be_nil
-        puts "✅ Task request sent to orchestration queue successfully"
-      rescue TaskerCore::Errors::OrchestrationError => e
-        puts "❌ Task initialization failed: #{e.message}"
-        fail "Task initialization failed when it should have succeeded: #{e.message}"
-      end
+      task_result = base_handler.initialize_task(task_request.to_h)
+      expect(task_result).to be_nil
+      puts '✅ Task request sent to orchestration queue successfully'
 
       # Give the message a moment to be processed and verify it's on the queue
       sleep 0.1
-
-      # Check that the message was sent to the task_requests_queue
-      # This validates that our pgmq integration is working
-      begin
-        # Try to peek at the task_requests_queue to see if our message is there
-        # Note: This tests the pgmq integration without actually processing the message
-        puts "🔍 Verifying task request was queued in task_requests_queue"
-        # We can't easily verify the message content without potentially consuming it,
-        # so we'll trust that if no exception was raised, the message was sent successfully
-        puts "✅ Task request successfully queued for orchestration processing"
-      rescue => e
-        puts "⚠️ Could not verify queue state: #{e.message}"
-        # Don't fail the test here - the fact that initialize_task didn't raise means it worked
-      end
 
       # ==========================================
       # PHASE 2: Verify Framework SQL Functions Are Available
@@ -145,19 +128,19 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(worker).to respond_to(:stop)
       expect(worker).to respond_to(:running?)
 
-      puts "⚡ Queue worker framework operational"
+      puts '⚡ Queue worker framework operational'
 
       # ==========================================
       # PHASE 4: Verify Complete Framework Integration
       # ==========================================
 
       puts "\n🎉 FRAMEWORK VALIDATION COMPLETE!"
-      puts "   ✅ Orchestration system initialized in pgmq mode"
-      puts "   ✅ Task handler framework accepting requests"
-      puts "   ✅ SQL functions framework operational"
-      puts "   ✅ Queue worker framework ready"
-      puts "   ✅ All 7 queues created and available"
-      puts "   📋 Ready for Phase 4.3: Database-backed task creation"
+      puts '   ✅ Orchestration system initialized in pgmq mode'
+      puts '   ✅ Task handler framework accepting requests'
+      puts '   ✅ SQL functions framework operational'
+      puts '   ✅ Queue worker framework ready'
+      puts '   ✅ All 7 queues created and available'
+      puts '   📋 Ready for Phase 4.3: Database-backed task creation'
     end
 
     it 'verifies task template configuration parsing' do
@@ -171,12 +154,12 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       info = manager.info
       expect(info[:architecture]).to eq('pgmq')
 
-      puts "✅ Task template configuration parsed successfully"
-      puts "   📋 Order fulfillment workflow structure:"
-      puts "   • validate_order (level 0)"
-      puts "   • reserve_inventory (level 1, depends on validate_order)"
-      puts "   • process_payment (level 2, depends on validate_order + reserve_inventory)"
-      puts "   • ship_order (level 3, depends on process_payment)"
+      puts '✅ Task template configuration parsed successfully'
+      puts '   📋 Order fulfillment workflow structure:'
+      puts '   • validate_order (level 0)'
+      puts '   • reserve_inventory (level 1, depends on validate_order)'
+      puts '   • process_payment (level 2, depends on validate_order + reserve_inventory)'
+      puts '   • ship_order (level 3, depends on process_payment)'
     end
 
     it 'monitors performance through framework analytics' do
@@ -191,7 +174,7 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(analytics).to be_a(Hash)
       # More specific performance assertions would go here
 
-      puts "✅ Analytics framework available for performance monitoring"
+      puts '✅ Analytics framework available for performance monitoring'
     end
   end
 
@@ -207,7 +190,7 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(info[:pgmq_available]).to be true
       expect(info[:queues_initialized]).to be true
 
-      puts "✅ Orchestration system properly initialized in pgmq mode"
+      puts '✅ Orchestration system properly initialized in pgmq mode'
     end
 
     it 'verifies SQL functions are available' do
@@ -223,8 +206,8 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(sql_functions).to respond_to(:step_readiness_status_batch)
       expect(sql_functions).to respond_to(:calculate_dependency_levels)
 
-      puts "✅ All framework SQL functions available and accessible"
-      puts "   📋 Note: Task ID-dependent functions ready for Phase 4.3"
+      puts '✅ All framework SQL functions available and accessible'
+      puts '   📋 Note: Task ID-dependent functions ready for Phase 4.3'
     end
 
     it 'verifies queue worker framework is operational' do
@@ -235,7 +218,7 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(worker).to respond_to(:stop)
       expect(worker).to respond_to(:running?)
 
-      puts "✅ Queue worker framework operational"
+      puts '✅ Queue worker framework operational'
     end
   end
 end

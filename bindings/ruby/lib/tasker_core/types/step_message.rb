@@ -6,20 +6,18 @@ require 'dry-types'
 module TaskerCore
   module Types
     # Define custom types for the system
-    module Types
-      include Dry.Types()
+    include Dry.Types()
 
-      # Custom types for TaskerCore
-      StepId = Types::Integer.constrained(gt: 0)
-      TaskId = Types::Integer.constrained(gt: 0)
-      Namespace = Types::String.constrained(filled: true)
-      StepName = Types::String.constrained(filled: true)
-      TaskName = Types::String.constrained(filled: true)
-      TaskVersion = Types::String.constrained(filled: true)
-      Priority = Types::Integer.constrained(gteq: 1, lteq: 10)
-      RetryCount = Types::Integer.constrained(gteq: 0)
-      TimeoutMs = Types::Integer.constrained(gt: 0)
-    end
+    # Custom types for TaskerCore
+    StepId = Types::Integer.constrained(gteq: 0) # Allow 0 for synthetic/dependency steps
+    TaskId = Types::Integer.constrained(gt: 0)
+    Namespace = Types::String.constrained(filled: true)
+    StepName = Types::String.constrained(filled: true)
+    TaskName = Types::String # Allow empty strings for task names
+    TaskVersion = Types::String.constrained(filled: true)
+    Priority = Types::Integer.constrained(gteq: 1, lteq: 10)
+    RetryCount = Types::Integer.constrained(gteq: 0)
+    TimeoutMs = Types::Integer.constrained(gt: 0)
 
     # Result data from a dependency step that this step depends on
     class StepDependencyResult < Dry::Struct
@@ -29,7 +27,13 @@ module TaskerCore
       attribute :step_id, Types::StepId
       attribute :named_step_id, Types::Integer
       attribute :results, Types::Hash.optional.default(nil)
-      attribute :processed_at, Types::Time.optional.default(nil)
+      attribute :processed_at, Types::Constructor(Time) { |value|
+        if value.nil?
+          nil
+        else
+          (value.is_a?(Time) ? value : Time.parse(value.to_s))
+        end
+      }.optional.default(nil)
       attribute :metadata, Types::Hash.default({}.freeze)
 
       # Add metadata to the dependency result
@@ -60,7 +64,7 @@ module TaskerCore
       def get(step_name)
         @index[step_name.to_s]
       end
-      alias_method :[], :get
+      alias [] get
 
       # Get all dependencies
       # @return [Array<StepDependencyResult>] all dependency results
@@ -80,15 +84,15 @@ module TaskerCore
       def has?(step_name)
         @index.key?(step_name.to_s)
       end
-      alias_method :include?, :has?
+      alias include? has?
 
       # Get number of dependencies
       # @return [Integer] number of dependencies
       def count
         @dependencies.count
       end
-      alias_method :size, :count
-      alias_method :length, :count
+      alias size count
+      alias length count
 
       # Check if any dependencies
       # @return [Boolean] true if no dependencies
@@ -97,8 +101,8 @@ module TaskerCore
       end
 
       # Iterate over dependencies
-      def each(&block)
-        @dependencies.each(&block)
+      def each(&)
+        @dependencies.each(&)
       end
 
       # Convert to array for compatibility
@@ -158,11 +162,11 @@ module TaskerCore
       # Make the struct more flexible for additional attributes
       transform_keys(&:to_sym)
 
-      attribute :created_at, Types::Time.default { Time.now.utc }
+      attribute(:created_at, Types::Time.default { Time.now.utc })
       attribute :retry_count, Types::RetryCount.default(0)
       attribute :max_retries, Types::RetryCount.default(3)
       attribute :timeout_ms, Types::TimeoutMs.default(30_000) # 30 seconds
-      attribute :correlation_id, Types::String.optional.default { SecureRandom.uuid }
+      attribute(:correlation_id, Types::String.optional.default { SecureRandom.uuid })
       attribute :priority, Types::Priority.default(5) # Normal priority
       attribute :context, Types::Hash.default({}.freeze)
 
@@ -200,21 +204,23 @@ module TaskerCore
       # Core step identification
       attribute :step_id, Types::StepId
       attribute :task_id, Types::TaskId
-      
+
       # Task context
       attribute :namespace, Types::Namespace
       attribute :task_name, Types::TaskName
       attribute :task_version, Types::TaskVersion
       attribute :step_name, Types::StepName
-      
+
       # Step execution data
       attribute :step_payload, Types::Hash.default({}.freeze)
-      
+
       # Execution context for (task, sequence, step) pattern
-      attribute :execution_context, StepExecutionContext.default { StepExecutionContext.new(task: {}, sequence: [], step: {}) }
-      
+      attribute(:execution_context, StepExecutionContext.default do
+        StepExecutionContext.new(task: {}, sequence: [], step: {})
+      end)
+
       # Message metadata
-      attribute :metadata, StepMessageMetadata.default { StepMessageMetadata.new }
+      attribute(:metadata, StepMessageMetadata.default { StepMessageMetadata.new })
 
       # Get the queue name for this message based on namespace
       # @return [String] queue name (e.g., "fulfillment_queue")
@@ -244,22 +250,22 @@ module TaskerCore
       def self.from_hash(hash)
         # Convert string keys to symbols and handle nested metadata
         symbolized = hash.transform_keys(&:to_sym)
-        
+
         if symbolized[:metadata].is_a?(Hash)
           metadata_hash = symbolized[:metadata].transform_keys(&:to_sym)
-          
+
           # Convert created_at string back to Time object if needed
           if metadata_hash[:created_at].is_a?(String)
             metadata_hash[:created_at] = Time.parse(metadata_hash[:created_at])
           end
-          
+
           symbolized[:metadata] = StepMessageMetadata.new(metadata_hash)
         end
-        
+
         if symbolized[:execution_context].is_a?(Hash)
           symbolized[:execution_context] = StepExecutionContext.new(symbolized[:execution_context])
         end
-        
+
         new(symbolized)
       end
 
@@ -297,13 +303,13 @@ module TaskerCore
       # @param task_version [String] task version
       # @param execution_context [StepExecutionContext] execution context
       # @return [StepMessage] new step message
-      def self.build_test(step_id:, task_id:, namespace:, task_name:, step_name:, 
-                         step_payload: {}, task_version: "1.0.0", execution_context: nil)
+      def self.build_test(step_id:, task_id:, namespace:, task_name:, step_name:,
+                          step_payload: {}, task_version: '1.0.0', execution_context: nil)
         execution_context ||= StepExecutionContext.new_root_step(
           task: { task_id: task_id, namespace: namespace },
           step: { step_id: step_id, step_name: step_name }
         )
-        
+
         new(
           step_id: step_id,
           task_id: task_id,
@@ -325,24 +331,24 @@ module TaskerCore
       transform_keys(&:to_sym)
 
       attribute :status, Types::String.enum(*VALID_STATUSES)
-      
+
       # Convenience methods for status checking
       def success?
         status == 'success'
       end
-      
+
       def failed?
         status == 'failed'
       end
-      
+
       def cancelled?
         status == 'cancelled'
       end
-      
+
       def timed_out?
         status == 'timed_out'
       end
-      
+
       def retried?
         status == 'retried'
       end
@@ -366,15 +372,15 @@ module TaskerCore
       # Step identification
       attribute :step_id, Types::StepId
       attribute :task_id, Types::TaskId
-      
+
       # Execution results
       attribute :status, StepExecutionStatus
       attribute :result_data, Types::Hash.optional.default(nil)
       attribute :error, StepExecutionError.optional.default(nil)
-      
+
       # Timing information
       attribute :execution_time_ms, Types::Integer.constrained(gteq: 0)
-      attribute :completed_at, Types::Time.default { Time.now.utc }
+      attribute(:completed_at, Types::Time.default { Time.now.utc })
 
       # Convenience methods
       def success?
@@ -395,7 +401,7 @@ module TaskerCore
       # @param result_data [Hash] result data
       # @param execution_time_ms [Integer] execution time in milliseconds
       # @return [StepResult] successful result
-      def self.success(step_id:, task_id:, result_data: nil, execution_time_ms:)
+      def self.success(step_id:, task_id:, execution_time_ms:, result_data: nil)
         new(
           step_id: step_id,
           task_id: task_id,
@@ -432,7 +438,7 @@ module TaskerCore
           message: 'Step execution timed out',
           retryable: true
         )
-        
+
         new(
           step_id: step_id,
           task_id: task_id,
@@ -440,6 +446,79 @@ module TaskerCore
           error: error,
           execution_time_ms: execution_time_ms
         )
+      end
+    end
+
+    # Queue message wrapper from pgmq
+    # This represents the actual message structure returned by pgmq
+    class QueueMessage < Dry::Struct
+      transform_keys(&:to_sym)
+
+      # Required fields from pgmq
+      attribute :msg_id, Types::Integer.constrained(gt: 0)
+      attribute :read_ct, Types::Integer.constrained(gteq: 0)
+      attribute :enqueued_at, Types::Constructor(Time) { |value|
+        value.is_a?(Time) ? value : Time.parse(value.to_s)
+      }
+      attribute :vt, Types::Constructor(Time) { |value|
+        value.is_a?(Time) ? value : Time.parse(value.to_s)
+      }
+      attribute :message, Types::Hash
+
+      # Convert raw pgmq hash to typed struct
+      # @param hash [Hash] raw hash from pgmq
+      # @return [QueueMessage] typed queue message
+      def self.from_pgmq_hash(hash)
+        # Deep symbolize keys
+        symbolized = deep_symbolize_keys(hash)
+        new(symbolized)
+      end
+
+      # Get the step message from the queue message payload
+      # @return [StepMessage] parsed step message
+      def step_message
+        @step_message ||= StepMessage.from_hash(message)
+      end
+
+      # Deep symbolize keys helper
+      def self.deep_symbolize_keys(hash)
+        hash.each_with_object({}) do |(key, value), result|
+          new_key = key.is_a?(String) ? key.to_sym : key
+          result[new_key] = case value
+                            when Hash then deep_symbolize_keys(value)
+                            when Array then value.map { |v| v.is_a?(Hash) ? deep_symbolize_keys(v) : v }
+                            else value
+                            end
+        end
+      end
+    end
+
+    # Composite type for queue message with parsed step message
+    # This is what queue workers receive after reading from pgmq
+    class QueueMessageData < Dry::Struct
+      attribute :queue_message, QueueMessage
+      attribute :step_message, StepMessage
+
+      # Create from raw pgmq result
+      # @param pgmq_result [Hash] raw result from pgmq read operation
+      # @return [QueueMessageData] typed message data
+      def self.from_pgmq_result(pgmq_result)
+        queue_msg = QueueMessage.from_pgmq_hash(pgmq_result)
+        step_msg = queue_msg.step_message
+
+        new(
+          queue_message: queue_msg,
+          step_message: step_msg
+        )
+      end
+
+      # Convenience accessors
+      def msg_id
+        queue_message.msg_id
+      end
+
+      def message
+        queue_message.message
       end
     end
   end

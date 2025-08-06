@@ -8,7 +8,6 @@ require 'time'
 
 module TaskerCore
   module StepHandler
-
     class Base
       attr_reader :config, :logger, :rust_integration, :orchestration_system
 
@@ -32,7 +31,6 @@ module TaskerCore
       def call(task, sequence, step)
         raise NotImplementedError, 'Subclasses must implement #call(task, sequence, step)'
       end
-
 
       # ========================================================================
       # CONFIGURATION AND METADATA

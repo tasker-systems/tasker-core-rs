@@ -103,12 +103,13 @@ where
 }
 
 /// Main system configuration struct that mirrors Rails engine configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskerConfig {
     pub auth: AuthConfig,
     pub database: DatabaseConfig,
     pub telemetry: TelemetryConfig,
     pub engine: EngineConfig,
+    pub task_templates: TaskTemplatesConfig,
     pub health: HealthConfig,
     pub dependency_graph: DependencyGraphConfig,
     pub system: SystemConfig,
@@ -118,6 +119,30 @@ pub struct TaskerConfig {
     pub reenqueue: ReenqueueDelays,
     pub events: EventConfig,
     pub cache: CacheConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub development: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub production: Option<serde_yaml::Value>,
+}
+
+/// Task Templates configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskTemplatesConfig {
+    /// Paths to search for TaskTemplate YAML files
+    pub search_paths: Vec<String>,
+}
+
+impl Default for TaskTemplatesConfig {
+    fn default() -> Self {
+        Self {
+            search_paths: vec![
+                "config/task_templates/*.{yml,yaml}".to_string(),
+                "config/tasks/*.{yml,yaml}".to_string(),
+            ],
+        }
+    }
 }
 
 /// Authentication configuration
@@ -151,10 +176,18 @@ impl Default for AuthConfig {
 /// Database configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DatabaseConfig {
-    pub name: Option<String>,
+    pub database: Option<String>,
     pub enable_secondary_database: bool,
     pub url: Option<String>,
+    pub adapter: String,
+    pub encoding: Option<String>,
+    pub host: String,
+    pub username: String,
+    pub password: String,
     pub pool: DatabasePoolConfig,
+    pub variables: Option<std::collections::HashMap<String, serde_yaml::Value>>,
+    pub checkout_timeout: Option<u32>,
+    pub reaping_frequency: Option<u32>,
 }
 
 /// Database connection pool configuration
@@ -580,6 +613,30 @@ pub struct ConfigurationManager {
     config_directory: String,
 }
 
+impl Default for TaskerConfig {
+    fn default() -> Self {
+        Self {
+            auth: AuthConfig::default(),
+            database: DatabaseConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            engine: EngineConfig::default(),
+            task_templates: TaskTemplatesConfig::default(),
+            health: HealthConfig::default(),
+            dependency_graph: DependencyGraphConfig::default(),
+            system: SystemConfig::default(),
+            backoff: BackoffConfig::default(),
+            execution: ExecutionConfig::default(),
+            orchestration: OrchestrationConfig::default(),
+            reenqueue: ReenqueueDelays::default(),
+            events: EventConfig::default(),
+            cache: CacheConfig::default(),
+            test: None,
+            development: None,
+            production: None,
+        }
+    }
+}
+
 impl ConfigurationManager {
     /// Create a new configuration manager with default configuration
     pub fn new() -> Self {
@@ -588,6 +645,81 @@ impl ConfigurationManager {
             environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
             config_directory: "config".to_string(),
         }
+    }
+
+    /// Get effective configuration with environment overrides applied
+    pub fn effective_config(&self) -> TaskerConfig {
+        let mut config = (*self.system_config).clone();
+
+        // Apply environment-specific overrides
+        let env_overrides = match self.environment.as_str() {
+            "test" => config.test.as_ref(),
+            "development" => config.development.as_ref(),
+            "production" => config.production.as_ref(),
+            _ => None,
+        };
+
+        if let Some(overrides) = env_overrides {
+            // Apply partial overrides using selective deserialization
+            if let Ok(partial_overrides) =
+                serde_yaml::from_value::<serde_yaml::Value>(overrides.clone())
+            {
+                if let Some(mapping) = partial_overrides.as_mapping() {
+                    // Apply task_templates override if present
+                    if let Some(task_templates_value) = mapping.get("task_templates") {
+                        if let Ok(task_templates) = serde_yaml::from_value::<TaskTemplatesConfig>(
+                            task_templates_value.clone(),
+                        ) {
+                            config.task_templates = task_templates;
+                        }
+                    }
+
+                    // Apply execution override if present
+                    if let Some(execution_value) = mapping.get("execution") {
+                        if let Ok(execution) =
+                            serde_yaml::from_value::<ExecutionConfig>(execution_value.clone())
+                        {
+                            config.execution = execution;
+                        }
+                    }
+
+                    // Apply telemetry override if present
+                    if let Some(telemetry_value) = mapping.get("telemetry") {
+                        if let Ok(telemetry) =
+                            serde_yaml::from_value::<TelemetryConfig>(telemetry_value.clone())
+                        {
+                            config.telemetry = telemetry;
+                        }
+                    }
+
+                    // Apply pgmq override if present
+                    if let Some(pgmq_value) = mapping.get("pgmq") {
+                        if let Ok(pgmq_config) =
+                            serde_yaml::from_value::<serde_yaml::Value>(pgmq_value.clone())
+                        {
+                            // Apply pgmq overrides to orchestration config
+                            if let Some(poll_interval) = pgmq_config.get("poll_interval_ms") {
+                                if let Some(poll_ms) = poll_interval.as_u64() {
+                                    // Store in orchestration config for now
+                                    // TODO: Add proper pgmq config struct
+                                }
+                            }
+                        }
+                    }
+
+                    // Apply orchestration override if present
+                    if let Some(orchestration_value) = mapping.get("orchestration") {
+                        if let Ok(orchestration) = serde_yaml::from_value::<OrchestrationConfig>(
+                            orchestration_value.clone(),
+                        ) {
+                            config.orchestration = orchestration;
+                        }
+                    }
+                }
+            }
+        }
+
+        config
     }
 
     /// Load configuration from a YAML file
@@ -614,10 +746,18 @@ impl ConfigurationManager {
         })?;
 
         debug!("Configuration loaded successfully");
-        Ok(Self {
+        let manager = Self {
             system_config: Arc::new(config),
             environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
             config_directory: "config".to_string(),
+        };
+
+        // Apply environment overrides and create final config
+        let effective_config = manager.effective_config();
+        Ok(Self {
+            system_config: Arc::new(effective_config),
+            environment: manager.environment,
+            config_directory: manager.config_directory,
         })
     }
 
@@ -631,10 +771,18 @@ impl ConfigurationManager {
             }
         })?;
 
-        Ok(Self {
+        let manager = Self {
             system_config: Arc::new(config),
             environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
             config_directory: "config".to_string(),
+        };
+
+        // Apply environment overrides and create final config
+        let effective_config = manager.effective_config();
+        Ok(Self {
+            system_config: Arc::new(effective_config),
+            environment: manager.environment,
+            config_directory: manager.config_directory,
         })
     }
 
@@ -646,6 +794,11 @@ impl ConfigurationManager {
     /// Get the current environment
     pub fn environment(&self) -> &str {
         &self.environment
+    }
+
+    /// Get the task templates configuration
+    pub fn task_templates(&self) -> &TaskTemplatesConfig {
+        &self.system_config.task_templates
     }
 
     /// Set the configuration directory

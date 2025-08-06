@@ -59,7 +59,7 @@ pub use connection_pool_strategies::{
     DeploymentPattern, HealthCheckResult, OptimizedDatabaseConnection, PoolConfiguration,
     PoolMetrics,
 };
-pub use migrations::DatabaseMigrations;
+pub use migrations::{DatabaseMigrations, MigrationStatus};
 pub use optimized_queries::{OptimizedWorkerQueries, PoolStatistics, QueryResultCache};
 pub use sql_functions::{
     ActiveWorkerResult, AnalyticsMetrics, DependencyLevel, FunctionRegistry, OptimalWorkerResult,

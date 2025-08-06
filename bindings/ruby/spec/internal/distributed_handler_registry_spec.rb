@@ -14,7 +14,7 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
   end
 
   describe '#register_callable' do
-    let(:test_proc) { ->(task, sequence, step) { { status: 'success' } } }
+    let(:test_proc) { ->(_task, _sequence, _step) { { status: 'success' } } }
 
     it 'registers a callable object' do
       registry.register_callable('TestHandler', test_proc)
@@ -26,17 +26,17 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
 
     it 'validates callable interface on registration' do
       # Test with non-callable object
-      non_callable = "not a callable"
+      non_callable = 'not a callable'
 
-      expect {
+      expect do
         registry.register_callable('InvalidHandler', non_callable)
-      }.to raise_error(ArgumentError, 'Callable must respond to .call method')
+      end.to raise_error(ArgumentError, 'Callable must respond to .call method')
     end
   end
 
   describe '#register_proc' do
     it 'registers a proc as callable' do
-      registry.register_proc('ProcHandler') do |task, sequence, step|
+      registry.register_proc('ProcHandler') do |_task, _sequence, _step|
         { status: 'completed', output: 'processed' }
       end
 
@@ -50,9 +50,9 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
     end
 
     it 'raises error when no block is given' do
-      expect {
+      expect do
         registry.register_proc('InvalidHandler')
-      }.to raise_error(ArgumentError, 'Block required for register_proc')
+      end.to raise_error(ArgumentError, 'Block required for register_proc')
     end
   end
 
@@ -60,7 +60,7 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
     # Define a real callable class for testing
     let(:callable_class) do
       Class.new do
-        def call(task, sequence, step)
+        def call(task, _sequence, _step)
           { status: 'success', handler: 'class_based', task_info: task&.class&.name }
         end
       end
@@ -68,7 +68,7 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
 
     let(:class_with_class_method) do
       Class.new do
-        def self.call(task, sequence, step)
+        def self.call(_task, _sequence, _step)
           { status: 'success', handler: 'class_method_based' }
         end
       end
@@ -100,7 +100,7 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
   end
 
   describe '#get_callable_for_class' do
-    let(:test_proc) { ->(task, sequence, step) { { status: 'success', from: 'proc' } } }
+    let(:test_proc) { ->(_task, _sequence, _step) { { status: 'success', from: 'proc' } } }
 
     it 'returns registered callable with correct priority order' do
       # Test Priority 1: Direct callable registration
@@ -367,8 +367,8 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
   end
 
   describe '#stats integration' do
-    let(:proc1) { ->(task, sequence, step) { { from: 'proc1' } } }
-    let(:proc2) { ->(task, sequence, step) { { from: 'proc2' } } }
+    let(:proc1) { ->(_task, _sequence, _step) { { from: 'proc1' } } }
+    let(:proc2) { ->(_task, _sequence, _step) { { from: 'proc2' } } }
 
     it 'provides accurate statistics reflecting actual registry state' do
       # Start empty
@@ -413,7 +413,7 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
   end
 
   describe '#clear_callables!' do
-    let(:test_proc) { ->(task, sequence, step) { { status: 'success' } } }
+    let(:test_proc) { ->(_task, _sequence, _step) { { status: 'success' } } }
 
     it 'completely clears registry state' do
       # Add some callables
@@ -435,30 +435,30 @@ RSpec.describe TaskerCore::Orchestration::DistributedHandlerRegistry do
   end
 
   describe 'validation integration' do
-    let(:valid_proc) { ->(task, sequence, step) { { status: 'success' } } }
-    let(:invalid_object) { "not callable" }
+    let(:valid_proc) { ->(_task, _sequence, _step) { { status: 'success' } } }
+    let(:invalid_object) { 'not callable' }
 
     it 'enforces validation when enabled' do
       expect(registry.stats[:validation_enabled]).to be true
 
       # Valid callable should work
-      expect {
+      expect do
         registry.register_callable('ValidHandler', valid_proc)
-      }.not_to raise_error
+      end.not_to raise_error
 
       # Invalid callable should fail
-      expect {
+      expect do
         registry.register_callable('InvalidHandler', invalid_object)
-      }.to raise_error(ArgumentError)
+      end.to raise_error(ArgumentError)
     end
 
     it 'skips validation when disabled' do
       registry.validation_enabled = false
 
       # Should allow invalid callables when validation is off
-      expect {
+      expect do
         registry.register_callable('InvalidHandler', invalid_object)
-      }.not_to raise_error
+      end.not_to raise_error
 
       expect(registry.callable_registered?('InvalidHandler')).to be true
     end

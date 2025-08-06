@@ -15,6 +15,9 @@ module TaskerCore
     # Raised when there are orchestration-related issues in TaskerCore
     class OrchestrationError < Error; end
 
+    # Raised when there are database-related issues in TaskerCore
+    class DatabaseError < Error; end
+
     # Error indicating a step failed but should be retried with backoff
     # Maps to Rust StepExecutionError::Retryable
     #
