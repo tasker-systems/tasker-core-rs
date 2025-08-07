@@ -15,7 +15,7 @@ module TaskerCore
   #     step_uuid: message.ready_dependency_step_uuids
   #   )
   #   sequence = TaskerCore::Execution::StepSequence.new(dependencies)
-  #   
+  #
   #   handler.call(task, sequence, step)
   #
   module Execution
@@ -28,7 +28,7 @@ module TaskerCore
         status: 'active'
       }
     end
-    
+
     # Health check for execution framework
     def self.health
       {

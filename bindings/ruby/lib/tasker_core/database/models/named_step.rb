@@ -22,19 +22,23 @@
 #
 #  named_steps_dependent_system_id_foreign  (dependent_system_id => dependent_systems.dependent_system_id)
 #
-module TaskerCore::Database::Models
-  class NamedStep < ApplicationRecord
-    self.primary_key = :named_step_id
-    belongs_to :dependent_system
-    has_many :workflow_steps, dependent: :nullify
-    validates :name, presence: true, uniqueness: { scope: :dependent_system_id }
+module TaskerCore
+  module Database
+    module Models
+      class NamedStep < ApplicationRecord
+        self.primary_key = :named_step_id
+        belongs_to :dependent_system
+        has_many :workflow_steps, dependent: :nullify
+        validates :name, presence: true, uniqueness: { scope: :dependent_system_id }
 
-    def self.create_named_steps_from_templates(templates)
-      templates.map do |template|
-        dependent_system = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: template.dependent_system)
-        named_step = find_or_create_by!(name: template.name,
-                                              dependent_system_id: dependent_system.dependent_system_id)
-        named_step
+        def self.create_named_steps_from_templates(templates)
+          templates.map do |template|
+            dependent_system = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: template.dependent_system)
+            named_step = find_or_create_by!(name: template.name,
+                                            dependent_system_id: dependent_system.dependent_system_id)
+            named_step
+          end
+        end
       end
     end
   end

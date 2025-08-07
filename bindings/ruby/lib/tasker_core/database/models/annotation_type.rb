@@ -17,10 +17,14 @@
 #  annotation_types_name_unique  (name) UNIQUE
 #
 
-module TaskerCore::Database::Models
-  class AnnotationType < ApplicationRecord
-    self.primary_key = :annotation_type_id
-    has_many :task_annotations, dependent: :destroy
-    validates :name, presence: true, uniqueness: true
+module TaskerCore
+  module Database
+    module Models
+      class AnnotationType < ApplicationRecord
+        self.primary_key = :annotation_type_id
+        has_many :task_annotations, dependent: :destroy
+        validates :name, presence: true, uniqueness: true
+      end
+    end
   end
 end

@@ -27,38 +27,42 @@
 #  dependent_system_object_maps_dependent_system_two_id_foreign  (dependent_system_two_id => dependent_systems.dependent_system_id)
 #
 
-module TaskerCore::Database::Models
-  class DependentSystemObjectMap < ApplicationRecord
-    self.primary_key = :dependent_system_object_map_id
-    belongs_to :dependent_system_one, class_name: 'TaskerCore::Database::Models::DependentSystem'
-    belongs_to :dependent_system_two, class_name: 'TaskerCore::Database::Models::DependentSystem'
-    validates :remote_id_one, presence: true
-    validates :remote_id_two, presence: true
+module TaskerCore
+  module Database
+    module Models
+      class DependentSystemObjectMap < ApplicationRecord
+        self.primary_key = :dependent_system_object_map_id
+        belongs_to :dependent_system_one, class_name: 'TaskerCore::Database::Models::DependentSystem'
+        belongs_to :dependent_system_two, class_name: 'TaskerCore::Database::Models::DependentSystem'
+        validates :remote_id_one, presence: true
+        validates :remote_id_two, presence: true
 
-    def self.find_or_create(system_one_name, system_one_id, system_two_name, system_two_id)
-      system_one = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: system_one_name)
-      system_two = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: system_two_name)
-      # these could be in either order
-      inst = where(
-        remote_id_one: system_one_id,
-        remote_id_two: system_two_id,
-        dependent_system_one_id: system_one.dependent_system_id,
-        dependent_system_two_id: system_two.dependent_system_id
-      ).or(
-        where(
-          remote_id_one: system_two_id,
-          remote_id_two: system_one_id,
-          dependent_system_one_id: system_two.dependent_system_id,
-          dependent_system_two_id: system_one.dependent_system_id
-        )
-      ).first
-      inst ||= create(
-        remote_id_one: system_one_id,
-        remote_id_two: system_two_id,
-        dependent_system_one: system_one,
-        dependent_system_two: system_two
-      )
-      inst
+        def self.find_or_create(system_one_name, system_one_id, system_two_name, system_two_id)
+          system_one = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: system_one_name)
+          system_two = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: system_two_name)
+          # these could be in either order
+          inst = where(
+            remote_id_one: system_one_id,
+            remote_id_two: system_two_id,
+            dependent_system_one_id: system_one.dependent_system_id,
+            dependent_system_two_id: system_two.dependent_system_id
+          ).or(
+            where(
+              remote_id_one: system_two_id,
+              remote_id_two: system_one_id,
+              dependent_system_one_id: system_two.dependent_system_id,
+              dependent_system_two_id: system_one.dependent_system_id
+            )
+          ).first
+          inst ||= create(
+            remote_id_one: system_one_id,
+            remote_id_two: system_two_id,
+            dependent_system_one: system_one,
+            dependent_system_two: system_two
+          )
+          inst
+        end
+      end
     end
   end
 end

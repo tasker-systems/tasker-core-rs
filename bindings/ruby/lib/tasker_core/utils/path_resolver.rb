@@ -40,6 +40,7 @@ module TaskerCore
         # @return [String] Absolute path
         def resolve_config_path(relative_path)
           return relative_path if absolute_path?(relative_path)
+
           File.expand_path(relative_path, project_root)
         end
 
@@ -139,7 +140,7 @@ module TaskerCore
         # @return [String] Absolute path to project root
         def find_project_root
           # Start from current file location
-          current_dir = File.expand_path(File.dirname(__FILE__))
+          current_dir = __dir__
           original_dir = current_dir
 
           logger&.debug "🔍 PROJECT_ROOT: Starting search from: #{current_dir}"
@@ -159,7 +160,7 @@ module TaskerCore
             # Check if we've reached the filesystem root
             parent = File.dirname(current_dir)
             if parent == current_dir
-              logger&.debug "🚫 PROJECT_ROOT: Reached filesystem root"
+              logger&.debug '🚫 PROJECT_ROOT: Reached filesystem root'
               break
             end
 
@@ -168,7 +169,7 @@ module TaskerCore
 
           # Fallback 1: Look for Gemfile (Ruby project)
           current_dir = original_dir
-          max_levels.times do |level|
+          max_levels.times do |_level|
             gemfile_path = File.join(current_dir, 'Gemfile')
             if File.exist?(gemfile_path)
               logger&.warn "⚠️  PROJECT_ROOT: Using Gemfile location as fallback: #{current_dir}"
@@ -177,13 +178,14 @@ module TaskerCore
 
             parent = File.dirname(current_dir)
             break if parent == current_dir
+
             current_dir = parent
           end
 
           # Fallback 2: Use working directory
           fallback = Dir.pwd
           logger&.warn "⚠️  PROJECT_ROOT: No project markers found, using working directory: #{fallback}"
-          logger&.warn "⚠️  PROJECT_ROOT: This may cause path resolution issues"
+          logger&.warn '⚠️  PROJECT_ROOT: This may cause path resolution issues'
           fallback
         end
 

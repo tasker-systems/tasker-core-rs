@@ -61,7 +61,7 @@ require_relative 'tasker_core/database'          # TaskerCore::Database - SQL fu
 require_relative 'tasker_core/registry'          # TaskerCore::Registry - database-backed step handler registry
 
 # Boot sequence manager (loads after all dependencies)
-require_relative 'tasker_core/boot'              # Boot sequence manager
+require_relative 'tasker_core/boot' # Boot sequence manager
 
 # Core systems - required for domain APIs to function
 require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
@@ -279,6 +279,4 @@ end
 # Automatically boot the system when TaskerCore is loaded
 # This ensures proper initialization order for all components
 # Skip auto-boot in test mode (controlled by spec_helper) or when explicitly disabled
-unless defined?(Rails) || ENV['TASKER_SKIP_AUTO_BOOT'] || ENV['TASKER_ENV'] == 'test'
-  TaskerCore::Boot.boot!
-end
+TaskerCore::Boot.boot! unless defined?(Rails) || ENV['TASKER_SKIP_AUTO_BOOT'] || ENV['TASKER_ENV'] == 'test'

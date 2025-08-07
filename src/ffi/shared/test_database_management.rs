@@ -120,13 +120,10 @@ impl TestDatabaseManager {
         info!("🧪 Setting up test database for {}", database_url);
 
         // Step 1: Check if migrations are needed (idempotent setup)
-        debug!("Step 1: Checking migration status");
         let migration_result = match self.check_migration_status().await {
             Ok(status) if status.needs_migration => {
-                debug!("Running database migrations");
                 match crate::database::migrations::DatabaseMigrations::run_all(&self.pool).await {
                     Ok(()) => {
-                        debug!("✅ Database migrations completed successfully");
                         json!({ "migrations": "applied", "schema_version": status.current_version })
                     }
                     Err(e) => {
@@ -136,7 +133,6 @@ impl TestDatabaseManager {
                 }
             }
             Ok(status) => {
-                debug!("✅ Database schema already up to date");
                 json!({ "migrations": "up_to_date", "schema_version": status.current_version })
             }
             Err(e) => {
@@ -146,13 +142,11 @@ impl TestDatabaseManager {
         };
 
         // Step 2: Initialize pgmq extension if not exists
-        debug!("Step 2: Ensuring pgmq extension");
         let pgmq_result = match sqlx::query("CREATE EXTENSION IF NOT EXISTS pgmq")
             .execute(&self.pool)
             .await
         {
             Ok(_) => {
-                debug!("✅ pgmq extension ready");
                 json!({ "pgmq_extension": "ready" })
             }
             Err(e) => {
@@ -162,7 +156,6 @@ impl TestDatabaseManager {
         };
 
         // Step 3: Clean any existing test data (idempotent setup)
-        debug!("Step 3: Cleaning existing test data");
         let cleanup_result = self.cleanup_test_data().await?;
 
         let timestamp = SystemTime::now()
@@ -194,11 +187,9 @@ impl TestDatabaseManager {
         info!("🧪 Tearing down test database for {}", database_url);
 
         // Step 1: Clean all test data
-        debug!("Step 1: Cleaning all test data");
         let data_cleanup = self.cleanup_test_data().await?;
 
         // Step 2: Clean all queues
-        debug!("Step 2: Cleaning all pgmq queues");
         let queue_cleanup = self.cleanup_test_queues().await?;
 
         let timestamp = SystemTime::now()
@@ -293,7 +284,7 @@ impl TestDatabaseManager {
             .fetch_all(&self.pool)
             .await
             .map_err(|e| {
-                SharedFFIError::QueueOperationFailed(format!("Failed to list queues: {}", e))
+                SharedFFIError::QueueOperationFailed(format!("Failed to list queues: {e}"))
             })?;
 
         let mut cleanup_operations = Vec::new();
@@ -304,7 +295,6 @@ impl TestDatabaseManager {
 
             match pgmq_client.drop_queue(&queue_name).await {
                 Ok(_) => {
-                    debug!("✅ Dropped queue: {}", queue_name);
                     cleanup_operations.push(json!({
                         "queue": queue_name,
                         "status": "deleted"
@@ -339,26 +329,23 @@ impl TestDatabaseManager {
     /// Helper: Clean individual table with row count using TRUNCATE
     async fn cleanup_table(&self, table_name: &str, description: &str) -> Result<i64, String> {
         // First get count for reporting
-        let count_query = format!("SELECT COUNT(*) as count FROM {}", table_name);
+        let count_query = format!("SELECT COUNT(*) as count FROM {table_name}");
         let row_count = match sqlx::query(&count_query).fetch_one(&self.pool).await {
             Ok(row) => row.get::<i64, _>("count"),
             Err(_) => 0, // If count fails, just proceed with truncate
         };
 
         // Use TRUNCATE for efficient cleanup (faster than DELETE and resets sequences)
-        let truncate_query = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", table_name);
+        let truncate_query = format!("TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE");
 
         match sqlx::query(&truncate_query).execute(&self.pool).await {
             Ok(_) => {
                 if row_count > 0 {
-                    debug!("✅ Truncated {}: {} rows cleared", description, row_count);
-                } else {
-                    debug!("✅ Truncated {}: table was empty", description);
-                }
+                } 
                 Ok(row_count)
             }
             Err(e) => {
-                let error_msg = format!("Failed to truncate {}: {}", description, e);
+                let error_msg = format!("Failed to truncate {description}: {e}");
                 warn!("⚠️ {}", error_msg);
                 Err(error_msg)
             }
@@ -385,7 +372,7 @@ impl TestDatabaseManager {
         let mut total_records = 0i64;
 
         for table in tables {
-            let count_query = format!("SELECT COUNT(*) as count FROM {}", table);
+            let count_query = format!("SELECT COUNT(*) as count FROM {table}");
 
             match sqlx::query(&count_query).fetch_one(&self.pool).await {
                 Ok(row) => {
@@ -438,8 +425,7 @@ impl TestDatabaseManager {
         let mut existing_tables = 0;
         for table in &core_tables {
             let check_query = format!(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public')",
-                table
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table}' AND table_schema = 'public')"
             );
 
             match sqlx::query(&check_query).fetch_one(&self.pool).await {
@@ -449,7 +435,7 @@ impl TestDatabaseManager {
                     }
                 }
                 Err(e) => {
-                    return Err(format!("Failed to check table existence: {}", e));
+                    return Err(format!("Failed to check table existence: {e}"));
                 }
             }
         }
@@ -469,11 +455,10 @@ impl TestDatabaseManager {
         let needs_migration = existing_tables < core_tables.len();
 
         debug!(
-            "Migration status: {}/{} core tables exist, needs_migration: {}, current_version: {}",
+            "Migration check: {}/{} core tables exist, needs_migration: {}",
             existing_tables,
             core_tables.len(),
-            needs_migration,
-            current_version
+            needs_migration
         );
 
         Ok(MigrationStatus {

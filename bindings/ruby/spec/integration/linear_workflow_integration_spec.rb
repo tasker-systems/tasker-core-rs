@@ -37,15 +37,13 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
   after do
     # Clean up any workers created during this test
     @test_workers.each do |worker|
-      begin
-        if worker.running?
-          worker.stop
-          # Give worker time to shut down gracefully
-          sleep 0.2
-        end
-      rescue StandardError => e
-        puts "⚠️ Failed to stop worker in test cleanup: #{e.message}"
+      if worker.running?
+        worker.stop
+        # Give worker time to shut down gracefully
+        sleep 0.2
       end
+    rescue StandardError => e
+      puts "⚠️ Failed to stop worker in test cleanup: #{e.message}"
     end
     @test_workers.clear
   end
@@ -94,7 +92,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         'linear_workflow',
         poll_interval: 0.1
       )
-      @test_workers << worker  # Track for cleanup
+      @test_workers << worker # Track for cleanup
 
       expect(worker.start).to be true
 
@@ -115,7 +113,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         # Worker will be stopped in after(:each) but also stop here for immediate cleanup
         if worker.running?
           worker.stop
-          sleep 0.1  # Give worker time to stop gracefully
+          sleep 0.1 # Give worker time to stop gracefully
         end
       end
     end
@@ -256,7 +254,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
 
     it 'verifies queue worker can process linear_workflow namespace' do
       worker = TaskerCore::Messaging.create_queue_worker('linear_workflow')
-      @test_workers << worker  # Track for cleanup
+      @test_workers << worker # Track for cleanup
 
       expect(worker.namespace).to eq('linear_workflow')
       expect(worker.queue_name).to eq('linear_workflow_queue')
@@ -306,8 +304,9 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         created_at = workflow_step.created_at
 
         # Check step readiness status using function-based approach
-        readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id, [workflow_step_id])
-        readiness_status = readiness_statuses.first if readiness_statuses.length > 0
+        readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id,
+                                                                                                        [workflow_step_id])
+        readiness_status = readiness_statuses.first unless readiness_statuses.empty?
 
         puts "  Step #{workflow_step_id} (#{step_name}):"
         puts "    Processed: #{processed}"
@@ -316,13 +315,15 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         puts "    Processed At: #{processed_at}" if processed_at
 
         if readiness_status
-          puts "    Readiness:"
+          puts '    Readiness:'
           puts "      Ready for Execution: #{readiness_status.ready_for_execution}"
           puts "      Dependencies Satisfied: #{readiness_status.dependencies_satisfied}"
           puts "      Current State: #{readiness_status.current_state}"
-          puts "      Retry Eligible: #{readiness_status.retry_eligible}" if readiness_status.respond_to?(:retry_eligible)
+          if readiness_status.respond_to?(:retry_eligible)
+            puts "      Retry Eligible: #{readiness_status.retry_eligible}"
+          end
         else
-          puts "    Readiness: No status found"
+          puts '    Readiness: No status found'
         end
       end
       # Assertions

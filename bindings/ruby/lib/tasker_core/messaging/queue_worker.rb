@@ -121,7 +121,7 @@ module TaskerCore
 
         @worker_thread = nil
         true
-      rescue => e
+      rescue StandardError => e
         logger.error("❌ QUEUE_WORKER: Error during worker shutdown: #{e.message}")
         # Force cleanup even if there's an error
         @running = false
@@ -244,7 +244,6 @@ module TaskerCore
             error: error,
             execution_time_ms: execution_time_ms
           )
-
         rescue StandardError => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
@@ -476,12 +475,10 @@ module TaskerCore
         # 5. MAIN THREAD: Send ONLY committed message results to orchestration
         # These are the only messages orchestration should know about (they won't reappear on queue)
         execution_results.each do |result|
-          begin
-            send_result_to_orchestration(result)
-          rescue StandardError => e
-            logger.error("❌ QUEUE_WORKER: Failed to send result to orchestration: #{e.message}")
-            # Continue processing other results even if one fails
-          end
+          send_result_to_orchestration(result)
+        rescue StandardError => e
+          logger.error("❌ QUEUE_WORKER: Failed to send result to orchestration: #{e.message}")
+          # Continue processing other results even if one fails
         end
 
         # Log summary
@@ -623,7 +620,7 @@ module TaskerCore
           handler_config: step_hash[:handler_config] || step_hash['handler_config'] || {},
           attempt: 1,
           retry_limit: 3,
-          timeout_ms: 30000,
+          timeout_ms: 30_000,
           depends_on: step_hash[:depends_on] || step_hash['depends_on'] || [],
           previous_results: {}
         )
@@ -638,14 +635,14 @@ module TaskerCore
 
         # Simple messages have exactly 3 fields: task_uuid, step_uuid, ready_dependency_step_uuids
         required_keys = %w[task_uuid step_uuid ready_dependency_step_uuids]
-        message_keys = message.keys.map(&:to_s).sort
+        message.keys.map(&:to_s).sort
 
         # Check if this looks like a simple message (has the UUID fields)
         has_uuid_fields = required_keys.all? { |key| message.key?(key) || message.key?(key.to_sym) }
 
         # Additional check: no complex nested structures that indicate legacy format
         no_complex_structures = !message.key?('execution_context') && !message.key?(:execution_context) &&
-                               !message.key?('metadata') && !message.key?(:metadata)
+                                !message.key?('metadata') && !message.key?(:metadata)
 
         has_uuid_fields && no_complex_structures
       rescue StandardError => e

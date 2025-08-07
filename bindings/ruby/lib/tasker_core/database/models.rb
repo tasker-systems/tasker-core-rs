@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Require all model-related files
 require_relative 'models/application_record'
 require_relative 'models/annotation_type'

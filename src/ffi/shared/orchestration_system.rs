@@ -156,8 +156,7 @@ impl OrchestrationSystem {
             .await
             .map_err(|e| {
                 crate::error::TaskerError::DatabaseError(format!(
-                    "Task initialization failed: {}",
-                    e
+                    "Task initialization failed: {e}"
                 ))
             })?;
 

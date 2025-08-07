@@ -53,12 +53,12 @@ module TaskerCore
       # @return [TaskerCore::Types::TaskTemplate, nil] TaskTemplate or nil if not found
       def get_task_template_by_key(namespace, name, version = '1.0.0')
         named_task = TaskerCore::Database::Models::NamedTask
-                       .joins(:task_namespace)
-                       .find_by(
-                         task_namespace: { name: namespace },
-                         name: name,
-                         version: version
-                       )
+                     .joins(:task_namespace)
+                     .find_by(
+                       task_namespace: { name: namespace },
+                       name: name,
+                       version: version
+                     )
 
         return nil unless named_task
 
@@ -219,12 +219,12 @@ module TaskerCore
         logger.debug "🔍 Checking registration status: #{template_key}"
 
         registered = TaskerCore::Database::Models::NamedTask
-                       .joins(:task_namespace)
-                       .exists?(
-                         task_namespace: { name: namespace },
-                         name: name,
-                         version: version
-                       )
+                     .joins(:task_namespace)
+                     .exists?(
+                       task_namespace: { name: namespace },
+                       name: name,
+                       version: version
+                     )
 
         {
           success: true,
@@ -301,7 +301,7 @@ module TaskerCore
       def load_task_template_from_file(file_path)
         logger.debug "📖 Loading TaskTemplate from file: #{file_path}"
 
-        yaml_content = YAML.safe_load(File.read(file_path), permitted_classes: [Symbol])
+        yaml_content = YAML.safe_load_file(file_path, permitted_classes: [Symbol])
         return nil unless yaml_content.is_a?(Hash)
 
         # Convert to TaskTemplate-compatible structure
@@ -353,8 +353,6 @@ module TaskerCore
         false
       end
 
-
-
       # Validate that TaskTemplate has all required fields for Rust deserialization
       # @param template [TaskerCore::Types::TaskTemplate] TaskTemplate to validate
       # @raise [ArgumentError] if required fields are missing
@@ -388,8 +386,6 @@ module TaskerCore
 
         logger.debug "✅ TaskTemplate passed Rust compatibility validation: #{template.template_key}"
       end
-
-      private
 
       # Build database configuration structure from TaskTemplate
       # @param template [TaskerCore::Types::TaskTemplate] TaskTemplate instance

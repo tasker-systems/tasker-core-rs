@@ -59,7 +59,7 @@ module IntegrationHelpers
   #
   # @param directories [Array<String>] Relative paths to test from
   # @yield Block to execute from each directory
-  def test_from_different_directories(directories = nil)
+  def test_from_different_directories(directories = nil, &block)
     directories ||= default_test_directories
     project_root = TaskerCore::Utils::PathResolver.project_root
 
@@ -78,9 +78,7 @@ module IntegrationHelpers
           end
         end
 
-        it "resolves paths correctly" do
-          yield
-        end
+        it 'resolves paths correctly', &block
       end
     end
   end
@@ -161,10 +159,8 @@ module IntegrationHelpers
       begin
         # Check if orchestration system is running
         # This is a placeholder - adjust based on actual orchestration API
-        if orchestration_system_ready?
-          return true
-        end
-      rescue => e
+        return true if orchestration_system_ready?
+      rescue StandardError
         # Ignore errors during readiness check
       end
 
@@ -187,7 +183,7 @@ module IntegrationHelpers
       tasks: count_records('TaskerCore::Database::Models::Task'),
       workflow_steps: count_records('TaskerCore::Database::Models::TaskStep')
     }
-  rescue => e
+  rescue StandardError => e
     { connected: false, error: e.message }
   end
 
@@ -210,22 +206,20 @@ module IntegrationHelpers
     results[:total_files] = all_files.length
 
     all_files.each do |file_path|
-      begin
-        yaml_data = YAML.load_file(file_path)
-        if yaml_data.is_a?(Hash) && yaml_data['name'] && yaml_data['namespace']
-          results[:valid_files] += 1
-          results[:templates] << {
-            name: yaml_data['name'],
-            namespace: yaml_data['namespace'],
-            version: yaml_data['version'],
-            file: TaskerCore::Utils::PathResolver.relative_path_from_root(file_path)
-          }
-        else
-          results[:invalid_files] << { file: file_path, error: 'Invalid structure' }
-        end
-      rescue => e
-        results[:invalid_files] << { file: file_path, error: e.message }
+      yaml_data = YAML.load_file(file_path)
+      if yaml_data.is_a?(Hash) && yaml_data['name'] && yaml_data['namespace']
+        results[:valid_files] += 1
+        results[:templates] << {
+          name: yaml_data['name'],
+          namespace: yaml_data['namespace'],
+          version: yaml_data['version'],
+          file: TaskerCore::Utils::PathResolver.relative_path_from_root(file_path)
+        }
+      else
+        results[:invalid_files] << { file: file_path, error: 'Invalid structure' }
       end
+    rescue StandardError => e
+      results[:invalid_files] << { file: file_path, error: e.message }
     end
 
     results
@@ -251,28 +245,22 @@ module IntegrationHelpers
     end
 
     # Reset Config instance
-    if defined?(TaskerCore::Config)
-      state[:config_instance] = TaskerCore::Config.instance_variable_get(:@instance)
-    end
+    state[:config_instance] = TaskerCore::Config.instance_variable_get(:@instance) if defined?(TaskerCore::Config)
 
     state
   end
 
   def reset_tasker_state
     # Reset PathResolver cache
-    if defined?(TaskerCore::Utils::PathResolver)
-      TaskerCore::Utils::PathResolver.reset!
-    end
+    TaskerCore::Utils::PathResolver.reset! if defined?(TaskerCore::Utils::PathResolver)
 
     # Reset Config singleton
-    if defined?(TaskerCore::Config)
-      TaskerCore::Config.instance_variable_set(:@instance, nil)
-    end
+    TaskerCore::Config.instance_variable_set(:@instance, nil) if defined?(TaskerCore::Config)
 
     # Reset Boot state if it exists
-    if defined?(TaskerCore::Boot)
-      TaskerCore::Boot.instance_variable_set(:@booted, false) if TaskerCore::Boot.instance_variable_defined?(:@booted)
-    end
+    return unless defined?(TaskerCore::Boot)
+
+    TaskerCore::Boot.instance_variable_set(:@booted, false) if TaskerCore::Boot.instance_variable_defined?(:@booted)
   end
 
   def restore_tasker_state(original_state)
@@ -282,9 +270,9 @@ module IntegrationHelpers
     end
 
     # Restore Config instance
-    if defined?(TaskerCore::Config) && original_state[:config_instance]
-      TaskerCore::Config.instance_variable_set(:@instance, original_state[:config_instance])
-    end
+    return unless defined?(TaskerCore::Config) && original_state[:config_instance]
+
+    TaskerCore::Config.instance_variable_set(:@instance, original_state[:config_instance])
   end
 
   def setup_test_environment
@@ -315,8 +303,9 @@ module IntegrationHelpers
 
   def database_connected?
     return false unless defined?(ActiveRecord)
+
     ActiveRecord::Base.connected? && ActiveRecord::Base.connection.active?
-  rescue
+  rescue StandardError
     false
   end
 
@@ -325,7 +314,7 @@ module IntegrationHelpers
     model_class.count
   rescue NameError
     0
-  rescue
+  rescue StandardError
     0
   end
 

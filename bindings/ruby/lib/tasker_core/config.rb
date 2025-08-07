@@ -97,9 +97,7 @@ module TaskerCore
       effective = effective_config
       base_db_config = effective['database']
 
-      unless base_db_config
-        raise Errors::ConfigurationError, "Database configuration not found in unified config file"
-      end
+      raise Errors::ConfigurationError, 'Database configuration not found in unified config file' unless base_db_config
 
       # Build database configuration with environment-specific structure
       @database_config = {
@@ -121,9 +119,7 @@ module TaskerCore
       load_database_config! unless @database_config
 
       env_config = @database_config[env] || @database_config['default']
-      unless env_config
-        raise Errors::ConfigurationError, "Database configuration not found for environment: #{env}"
-      end
+      raise Errors::ConfigurationError, "Database configuration not found for environment: #{env}" unless env_config
 
       # Make a copy to avoid modifying the original
       config = env_config.dup
@@ -194,12 +190,13 @@ module TaskerCore
       return unless @database_config
 
       # Check if we have at least one valid configuration
-      valid_configs = @database_config.select do |key, config|
+      valid_configs = @database_config.select do |_key, config|
         config.is_a?(Hash) && config['adapter']
       end
 
       if valid_configs.empty?
-        raise Errors::ConfigurationError, "No valid database configurations found. Each configuration must have 'adapter' key."
+        raise Errors::ConfigurationError,
+              "No valid database configurations found. Each configuration must have 'adapter' key."
       end
 
       # Validate each configuration
@@ -207,7 +204,8 @@ module TaskerCore
         next unless config.is_a?(Hash)
 
         unless config['adapter']
-          raise Errors::ConfigurationError, "Missing required 'adapter' in database configuration for environment '#{env}'"
+          raise Errors::ConfigurationError,
+                "Missing required 'adapter' in database configuration for environment '#{env}'"
         end
       end
     end
@@ -243,13 +241,13 @@ module TaskerCore
     def interpolate_env_vars_in_hash(hash)
       return hash unless hash.is_a?(Hash)
 
-      hash.each_with_object({}) do |(key, value), result|
+      hash.transform_values do |value|
         if value.is_a?(Hash)
-          result[key] = interpolate_env_vars_in_hash(value)
+          interpolate_env_vars_in_hash(value)
         elsif value.is_a?(String)
           # Handle ${VAR:-default} syntax
-          result[key] = value.gsub(/\$\{([^}]+)\}/) do |match|
-            var_expr = $1
+          value.gsub(/\$\{([^}]+)\}/) do |match|
+            var_expr = ::Regexp.last_match(1)
             if var_expr.include?(':-')
               var_name, default_value = var_expr.split(':-', 2)
               ENV[var_name] || default_value
@@ -258,7 +256,7 @@ module TaskerCore
             end
           end
         else
-          result[key] = value
+          value
         end
       end
     end

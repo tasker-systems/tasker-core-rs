@@ -1,4 +1,4 @@
-use super::{DatabaseMigrations, MigrationStatus};
+use super::DatabaseMigrations;
 use sqlx::{PgPool, Row};
 use std::env;
 
@@ -37,10 +37,9 @@ impl DatabaseConnection {
                 Err(e) => {
                     return Err(sqlx::Error::Configuration(
                         format!(
-                            "Could not check migration status: {}.\n\
+                            "Could not check migration status: {e}.\n\
                          This may indicate a database connectivity issue.\n\
-                         Use SKIP_MIGRATION_CHECK=1 to bypass this check if needed.",
-                            e
+                         Use SKIP_MIGRATION_CHECK=1 to bypass this check if needed."
                         )
                         .into(),
                     ));

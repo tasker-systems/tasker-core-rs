@@ -106,7 +106,7 @@ module TaskerCore
         if @registry
           begin
             logger.debug '🔄 Resetting handler registry...'
-            # Note: StepHandlerResolver is a singleton, so we don't nil it
+            # NOTE: StepHandlerResolver is a singleton, so we don't nil it
             # but we do clear any cached state if needed
             TaskerCore::Registry::StepHandlerResolver.instance.clear_callables!
             logger.debug '✅ Handler registry reset'

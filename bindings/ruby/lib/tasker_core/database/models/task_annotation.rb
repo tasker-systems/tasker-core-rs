@@ -25,12 +25,16 @@
 #  task_annotations_task_id_foreign             (task_id => tasks.task_id)
 #
 
-module TaskerCore::Database::Models
-  class TaskAnnotation < ApplicationRecord
-    self.primary_key = :task_annotation_id
-    belongs_to :task
-    belongs_to :annotation_type
+module TaskerCore
+  module Database
+    module Models
+      class TaskAnnotation < ApplicationRecord
+        self.primary_key = :task_annotation_id
+        belongs_to :task
+        belongs_to :annotation_type
 
-    delegate :name, to: :annotation_type, prefix: true
+        delegate :name, to: :annotation_type, prefix: true
+      end
+    end
   end
 end

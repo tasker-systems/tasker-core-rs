@@ -97,29 +97,29 @@ module TaskerCore
 
       # Iterate over dependency steps
       # @yield [TaskerCore::Database::Models::WorkflowStep] each dependency step
-      def each(&block)
-        @dependency_steps.each(&block)
+      def each(&)
+        @dependency_steps.each(&)
       end
 
       # Map over dependency steps
       # @yield [TaskerCore::Database::Models::WorkflowStep] each dependency step
       # @return [Array] mapped results
-      def map(&block)
-        @dependency_steps.map(&block)
+      def map(&)
+        @dependency_steps.map(&)
       end
 
       # Filter dependency steps
       # @yield [TaskerCore::Database::Models::WorkflowStep] each dependency step
       # @return [Array<TaskerCore::Database::Models::WorkflowStep>] filtered steps
-      def select(&block)
-        @dependency_steps.select(&block)
+      def select(&)
+        @dependency_steps.select(&)
       end
 
       # Find dependency step by condition
       # @yield [TaskerCore::Database::Models::WorkflowStep] each dependency step
       # @return [TaskerCore::Database::Models::WorkflowStep, nil] first matching step
-      def find(&block)
-        @dependency_steps.find(&block)
+      def find(&)
+        @dependency_steps.find(&)
       end
 
       # Convert to array for compatibility
@@ -132,14 +132,14 @@ module TaskerCore
       # @return [Hash] hash representation
       def to_h
         {
-          dependencies: @dependency_steps.map { |step|
+          dependencies: @dependency_steps.map do |step|
             {
               step_uuid: step.step_uuid,
               name: step.name,
               results: step.results,
               complete: step.complete?
             }
-          },
+          end,
           count: count
         }
       end

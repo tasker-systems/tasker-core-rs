@@ -78,19 +78,17 @@ RSpec.configure do |config|
   end
 
   # Per-test cleanup to prevent resource leakage
-  config.after(:each) do |example|
+  config.after do |_example|
     # Clean up any queue workers created during the test
     if defined?(@test_workers) && @test_workers
       @test_workers.each do |worker|
-        begin
-          if worker.running?
-            worker.stop
-            # Give worker a moment to fully stop
-            sleep 0.1
-          end
-        rescue TaskerCore::Errors::WorkerError, ArgumentError => e
-          puts "⚠️ Failed to stop test worker: #{e.message}"
+        if worker.running?
+          worker.stop
+          # Give worker a moment to fully stop
+          sleep 0.1
         end
+      rescue TaskerCore::Errors::WorkerError, ArgumentError => e
+        puts "⚠️ Failed to stop test worker: #{e.message}"
       end
       @test_workers.clear
     end

@@ -522,13 +522,12 @@ module TaskerCore
       end
     end
 
-
     # Composite type for simple queue messages
     # This is what queue workers receive after reading simple UUID messages from pgmq
     class SimpleQueueMessageData < Dry::Struct
       transform_keys(&:to_sym)
 
-      # pgmq message metadata  
+      # pgmq message metadata
       attribute :msg_id, Types::Integer.constrained(gt: 0)
       attribute :read_ct, Types::Integer.constrained(gteq: 0)
       attribute :enqueued_at, Types::Constructor(Time) { |value|

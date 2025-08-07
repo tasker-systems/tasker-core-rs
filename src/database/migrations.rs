@@ -338,8 +338,7 @@ impl DatabaseMigrations {
         let mut existing_tables = 0;
         for table in &core_tables {
             let check_query = format!(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public')",
-                table
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table}' AND table_schema = 'public')"
             );
 
             match sqlx::query(&check_query).fetch_one(pool).await {

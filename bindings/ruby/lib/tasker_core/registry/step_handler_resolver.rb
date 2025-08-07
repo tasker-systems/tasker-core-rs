@@ -226,7 +226,7 @@ module TaskerCore
       # @param enabled [Boolean] Whether to validate callable interfaces
       # @return [void]
       def validation_enabled=(enabled)
-        @validation_enabled = !!enabled
+        @validation_enabled = !enabled.nil?
         logger&.debug "Callable validation #{enabled ? 'enabled' : 'disabled'}"
       end
 

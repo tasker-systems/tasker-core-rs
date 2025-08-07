@@ -3,13 +3,13 @@
 require 'spec_helper'
 require 'support/integration_helpers'
 
-RSpec.describe "Environment Context Integration", type: :integration do
+RSpec.describe 'Environment Context Integration', type: :integration do
   include IntegrationHelpers
 
   let(:project_root) { TaskerCore::Utils::PathResolver.project_root }
 
-  describe "path resolution consistency" do
-    it "finds the correct project root from any working directory" do
+  describe 'path resolution consistency' do
+    it 'finds the correct project root from any working directory' do
       test_directories = [
         '.',                          # Project root
         'bindings/ruby',              # Ruby bindings directory
@@ -29,7 +29,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
 
           detected_root = TaskerCore::Utils::PathResolver.project_root
           expect(detected_root).to eq(project_root),
-            "Project root detection failed from #{rel_dir}. Expected: #{project_root}, Got: #{detected_root}"
+                                   "Project root detection failed from #{rel_dir}. Expected: #{project_root}, Got: #{detected_root}"
         ensure
           Dir.chdir(original_pwd)
           TaskerCore::Utils::PathResolver.reset!
@@ -37,14 +37,14 @@ RSpec.describe "Environment Context Integration", type: :integration do
       end
     end
 
-    it "resolves template search paths consistently from different directories" do
+    it 'resolves template search paths consistently from different directories' do
       with_clean_tasker_environment do
         # Get baseline from project root
         config = TaskerCore::Config.instance
         baseline_paths = config.task_template_search_paths
         baseline_files = baseline_paths.flat_map { |pattern| Dir.glob(pattern) }
 
-        expect(baseline_files).not_to be_empty, "No template files found from project root"
+        expect(baseline_files).not_to be_empty, 'No template files found from project root'
 
         # Test from different directories
         test_directories = ['bindings/ruby', 'src', 'config']
@@ -66,11 +66,10 @@ RSpec.describe "Environment Context Integration", type: :integration do
             test_files = test_paths.flat_map { |pattern| Dir.glob(pattern) }
 
             expect(test_files.sort).to eq(baseline_files.sort),
-              "Template files differ when running from #{rel_dir}"
+                                       "Template files differ when running from #{rel_dir}"
 
             expect(test_files).not_to be_empty,
-              "No template files found when running from #{rel_dir}"
-
+                                      "No template files found when running from #{rel_dir}"
           ensure
             Dir.chdir(original_pwd)
             TaskerCore::Utils::PathResolver.reset!
@@ -80,7 +79,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
       end
     end
 
-    it "validates configuration consistently across directories" do
+    it 'validates configuration consistently across directories' do
       test_directories = ['bindings/ruby', 'config']
 
       test_directories.each do |rel_dir|
@@ -96,12 +95,11 @@ RSpec.describe "Environment Context Integration", type: :integration do
             validator = TaskerCore::ConfigValidation::Validator.new(config)
 
             expect { validator.validate! }.not_to raise_error,
-              "Configuration validation failed when running from #{rel_dir}"
+                                                  "Configuration validation failed when running from #{rel_dir}"
 
             summary = validator.validation_summary
             expect(summary[:errors]).to eq(0),
-              "Configuration errors found when running from #{rel_dir}: #{summary[:error_messages]}"
-
+                                        "Configuration errors found when running from #{rel_dir}: #{summary[:error_messages]}"
           ensure
             Dir.chdir(original_pwd)
           end
@@ -110,8 +108,8 @@ RSpec.describe "Environment Context Integration", type: :integration do
     end
   end
 
-  describe "template discovery robustness" do
-    it "discovers all expected template files regardless of working directory" do
+  describe 'template discovery robustness' do
+    it 'discovers all expected template files regardless of working directory' do
       expected_templates = %w[
         diamond_workflow
         linear_workflow
@@ -134,17 +132,16 @@ RSpec.describe "Environment Context Integration", type: :integration do
             template_results = verify_template_loading
 
             expect(template_results[:total_files]).to be > 0,
-              "No template files discovered from #{rel_dir}"
+                                                      "No template files discovered from #{rel_dir}"
 
             expect(template_results[:valid_files]).to eq(template_results[:total_files]),
-              "Invalid template files found from #{rel_dir}: #{template_results[:invalid_files]}"
+                                                      "Invalid template files found from #{rel_dir}: #{template_results[:invalid_files]}"
 
             discovered_namespaces = template_results[:templates].map { |t| t[:namespace] }.uniq
             missing_namespaces = expected_templates - discovered_namespaces
 
             expect(missing_namespaces).to be_empty,
-              "Missing expected template namespaces when running from #{rel_dir}: #{missing_namespaces}"
-
+                                          "Missing expected template namespaces when running from #{rel_dir}: #{missing_namespaces}"
           ensure
             Dir.chdir(original_pwd)
           end
@@ -152,7 +149,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
       end
     end
 
-    it "handles path resolution errors gracefully" do
+    it 'handles path resolution errors gracefully' do
       with_clean_tasker_environment do
         # Test with an invalid working directory context
         temp_dir = Dir.mktmpdir
@@ -164,7 +161,6 @@ RSpec.describe "Environment Context Integration", type: :integration do
           project_root_detected = TaskerCore::Utils::PathResolver.project_root
           expect(project_root_detected).to be_a(String)
           expect(File.directory?(project_root_detected)).to be(true)
-
         ensure
           Dir.chdir(project_root)
           FileUtils.remove_entry(temp_dir)
@@ -174,9 +170,9 @@ RSpec.describe "Environment Context Integration", type: :integration do
     end
   end
 
-  describe "database connectivity" do
-    it "maintains database connection regardless of working directory" do
-      skip "Database not available" unless database_connected?
+  describe 'database connectivity' do
+    it 'maintains database connection regardless of working directory' do
+      skip 'Database not available' unless database_connected?
 
       test_directories = ['.', 'bindings/ruby']
 
@@ -194,13 +190,12 @@ RSpec.describe "Environment Context Integration", type: :integration do
             TaskerCore::Database::Connection.establish!
 
             expect(database_connected?).to be(true),
-              "Database connection failed when running from #{rel_dir}"
+                                           "Database connection failed when running from #{rel_dir}"
 
             # Test basic database operations
             db_summary = database_state_summary
             expect(db_summary[:connected]).to be(true),
-              "Database state check failed from #{rel_dir}"
-
+                                              "Database state check failed from #{rel_dir}"
           ensure
             Dir.chdir(original_pwd)
           end
@@ -209,8 +204,8 @@ RSpec.describe "Environment Context Integration", type: :integration do
     end
   end
 
-  describe "boot sequence reliability" do
-    it "completes boot sequence successfully from different directories" do
+  describe 'boot sequence reliability' do
+    it 'completes boot sequence successfully from different directories' do
       test_directories = ['.', 'bindings/ruby']
 
       test_directories.each do |rel_dir|
@@ -223,7 +218,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
             Dir.chdir(test_dir)
 
             # Simulate boot sequence steps
-            expect {
+            expect do
               config = TaskerCore::Config.instance
               expect(config.environment).to eq('test')
 
@@ -232,9 +227,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
 
               total_files = paths.sum { |pattern| Dir.glob(pattern).count }
               expect(total_files).to be > 0
-
-            }.not_to raise_error, "Boot sequence failed from #{rel_dir}"
-
+            end.not_to raise_error, "Boot sequence failed from #{rel_dir}"
           ensure
             Dir.chdir(original_pwd)
           end
@@ -242,7 +235,7 @@ RSpec.describe "Environment Context Integration", type: :integration do
       end
     end
 
-    it "provides consistent diagnostic information across directories" do
+    it 'provides consistent diagnostic information across directories' do
       test_directories = ['.', 'bindings/ruby']
       diagnostic_results = {}
 
@@ -266,7 +259,6 @@ RSpec.describe "Environment Context Integration", type: :integration do
               validation_errors: validator.validation_summary[:errors],
               project_structure: TaskerCore::Utils::PathResolver.project_structure_summary
             }
-
           ensure
             Dir.chdir(original_pwd)
           end
@@ -278,20 +270,20 @@ RSpec.describe "Environment Context Integration", type: :integration do
         baseline = diagnostic_results.values.first
         diagnostic_results.each do |dir, results|
           expect(results[:environment]).to eq(baseline[:environment]),
-            "Environment differs in #{dir}"
+                                           "Environment differs in #{dir}"
           expect(results[:search_paths]).to eq(baseline[:search_paths]),
-            "Search path count differs in #{dir}"
+                                            "Search path count differs in #{dir}"
           expect(results[:template_files]).to eq(baseline[:template_files]),
-            "Template file count differs in #{dir}"
+                                              "Template file count differs in #{dir}"
           expect(results[:validation_errors]).to eq(baseline[:validation_errors]),
-            "Validation error count differs in #{dir}"
+                                                 "Validation error count differs in #{dir}"
         end
       end
     end
   end
 
-  describe "error handling and recovery" do
-    it "provides helpful error messages when configuration is missing" do
+  describe 'error handling and recovery' do
+    it 'provides helpful error messages when configuration is missing' do
       with_clean_tasker_environment do
         # Test with missing config file
         ENV['TASKER_CONFIG_FILE'] = '/nonexistent/config.yaml'
@@ -310,24 +302,23 @@ RSpec.describe "Environment Context Integration", type: :integration do
       end
     end
 
-    it "recovers gracefully from path resolution failures" do
+    it 'recovers gracefully from path resolution failures' do
       with_clean_tasker_environment do
         # Temporarily break path resolution
         original_method = TaskerCore::Utils::PathResolver.method(:find_project_root)
 
         TaskerCore::Utils::PathResolver.define_singleton_method(:find_project_root) do
-          raise "Simulated path resolution failure"
+          raise 'Simulated path resolution failure'
         end
 
         begin
           TaskerCore::Utils::PathResolver.reset!
 
           # Should fall back gracefully
-          expect {
+          expect do
             root = TaskerCore::Utils::PathResolver.project_root
             expect(root).to be_a(String)
-          }.not_to raise_error
-
+          end.not_to raise_error
         ensure
           # Restore original method
           TaskerCore::Utils::PathResolver.define_singleton_method(:find_project_root, original_method)
@@ -341,8 +332,9 @@ RSpec.describe "Environment Context Integration", type: :integration do
 
   def database_connected?
     return false unless defined?(ActiveRecord)
+
     ActiveRecord::Base.connected? && ActiveRecord::Base.connection.active?
-  rescue
+  rescue StandardError
     false
   end
 end

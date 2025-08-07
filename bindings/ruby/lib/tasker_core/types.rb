@@ -45,7 +45,7 @@ module TaskerCore
 
     # Step-related types
     StepCompletion = StepTypes::StepCompletion
-    
+
     # Simple message types (UUID-based) - already defined in the namespace
 
     # Orchestration-related types

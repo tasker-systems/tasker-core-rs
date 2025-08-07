@@ -104,6 +104,7 @@ where
 
 /// Main system configuration struct that mirrors Rails engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct TaskerConfig {
     pub auth: AuthConfig,
     pub database: DatabaseConfig,
@@ -613,29 +614,6 @@ pub struct ConfigurationManager {
     config_directory: String,
 }
 
-impl Default for TaskerConfig {
-    fn default() -> Self {
-        Self {
-            auth: AuthConfig::default(),
-            database: DatabaseConfig::default(),
-            telemetry: TelemetryConfig::default(),
-            engine: EngineConfig::default(),
-            task_templates: TaskTemplatesConfig::default(),
-            health: HealthConfig::default(),
-            dependency_graph: DependencyGraphConfig::default(),
-            system: SystemConfig::default(),
-            backoff: BackoffConfig::default(),
-            execution: ExecutionConfig::default(),
-            orchestration: OrchestrationConfig::default(),
-            reenqueue: ReenqueueDelays::default(),
-            events: EventConfig::default(),
-            cache: CacheConfig::default(),
-            test: None,
-            development: None,
-            production: None,
-        }
-    }
-}
 
 impl ConfigurationManager {
     /// Create a new configuration manager with default configuration

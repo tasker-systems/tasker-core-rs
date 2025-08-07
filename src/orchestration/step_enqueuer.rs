@@ -537,7 +537,7 @@ impl StepEnqueuer {
         debug!(
             "✅ STEP_ENQUEUER: Created simple message - task_uuid: {}, step_uuid: {}, {} dependencies",
             simple_message.task_uuid,
-            simple_message.step_uuid, 
+            simple_message.step_uuid,
             simple_message.ready_dependency_step_uuids.len()
         );
 
@@ -552,12 +552,12 @@ impl StepEnqueuer {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {}", e)))?;
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {e}")))?;
 
         Ok(row.task_uuid)
     }
 
-    /// Get step UUID from database by workflow_step_id  
+    /// Get step UUID from database by workflow_step_id
     async fn get_step_uuid(&self, step_id: i64) -> Result<Uuid> {
         let row = sqlx::query!(
             "SELECT step_uuid FROM tasker_workflow_steps WHERE workflow_step_id = $1",
@@ -565,7 +565,7 @@ impl StepEnqueuer {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch step UUID: {}", e)))?;
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch step UUID: {e}")))?;
 
         Ok(row.step_uuid)
     }
@@ -587,7 +587,7 @@ impl StepEnqueuer {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {}", e)))?;
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}")))?;
 
         let uuids = rows
             .into_iter()

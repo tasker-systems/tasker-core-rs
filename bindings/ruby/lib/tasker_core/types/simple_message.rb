@@ -6,8 +6,8 @@ require 'dry-types'
 module TaskerCore
   module Types
     # UUID validation regex pattern (defined at module level for reuse)
-    UUID_REGEX = /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i.freeze
-    
+    UUID_REGEX = /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
+
     # Simple message structure for UUID-based step processing
     #
     # This replaces the complex nested StepMessage with a minimal 3-field structure
@@ -34,7 +34,7 @@ module TaskerCore
     # @example Ruby processing
     #   # 1. Receive simple message
     #   task = TaskerCore::Database::Models::Task.find_by!(task_uuid: message.task_uuid)
-    #   step = TaskerCore::Database::Models::WorkflowStep.find_by!(step_uuid: message.step_uuid)  
+    #   step = TaskerCore::Database::Models::WorkflowStep.find_by!(step_uuid: message.step_uuid)
     #   dependencies = TaskerCore::Database::Models::WorkflowStep.where(
     #     step_uuid: message.ready_dependency_step_uuids
     #   ).includes(:results)
@@ -47,16 +47,15 @@ module TaskerCore
 
       # Task UUID from tasker_tasks.task_uuid
       attribute :task_uuid, Types::String.constrained(format: UUID_REGEX)
-      
-      # Step UUID from tasker_workflow_steps.step_uuid  
+
+      # Step UUID from tasker_workflow_steps.step_uuid
       attribute :step_uuid, Types::String.constrained(format: UUID_REGEX)
-      
+
       # Array of dependency step UUIDs that are ready/completed
       # Empty array means no dependencies or root step
       attribute :ready_dependency_step_uuids, Types::Array.of(
         Types::String.constrained(format: UUID_REGEX)
       ).default([].freeze)
-
 
       # Convert to hash for JSON serialization
       # @return [Hash] hash representation suitable for JSON
@@ -76,8 +75,6 @@ module TaskerCore
         new(symbolized)
       end
 
-
-
       # Validate that all UUIDs exist in the database
       # @return [Boolean] true if all referenced records exist
       def valid_references?
@@ -90,7 +87,7 @@ module TaskerCore
         TaskerCore::Database::Models::Task.exists?(task_uuid: task_uuid)
       end
 
-      # Check if the step UUID exists in the database  
+      # Check if the step UUID exists in the database
       # @return [Boolean] true if step exists
       def step_exists?
         TaskerCore::Database::Models::WorkflowStep.exists?(step_uuid: step_uuid)
@@ -102,8 +99,8 @@ module TaskerCore
         return true if ready_dependency_step_uuids.empty?
 
         existing_count = TaskerCore::Database::Models::WorkflowStep
-                          .where(step_uuid: ready_dependency_step_uuids)
-                          .count
+                         .where(step_uuid: ready_dependency_step_uuids)
+                         .count
 
         existing_count == ready_dependency_step_uuids.length
       end
@@ -134,7 +131,7 @@ module TaskerCore
 
       # Create a step message for testing with generated UUIDs
       # @param task_uuid [String] task UUID
-      # @param step_uuid [String] step UUID  
+      # @param step_uuid [String] step UUID
       # @param ready_dependency_step_uuids [Array<String>] dependency step UUIDs
       # @return [SimpleStepMessage] new simple message
       def self.build_test(task_uuid:, step_uuid:, ready_dependency_step_uuids: [])

@@ -51,26 +51,22 @@ module TaskerCore
       def validate_project_structure
         structure = Utils::PathResolver.project_structure_summary
 
-        unless structure[:exists]
-          add_error("Project root directory does not exist: #{structure[:project_root]}")
-        end
+        add_error("Project root directory does not exist: #{structure[:project_root]}") unless structure[:exists]
 
         unless structure[:cargo_toml]
-          add_warning("Cargo.toml not found - may indicate incorrect project root detection")
+          add_warning('Cargo.toml not found - may indicate incorrect project root detection')
         end
 
-        unless structure[:config_dir]
-          add_warning("config/ directory not found at project root")
-        end
+        add_warning('config/ directory not found at project root') unless structure[:config_dir]
 
         unless structure[:ruby_bindings]
           add_error("Ruby bindings directory not found: #{File.join(structure[:project_root], 'bindings', 'ruby')}")
         end
 
         # Check if we're running from an unexpected location
-        if structure[:working_directory] != structure[:project_root]
-          add_info("Running from subdirectory: #{structure[:relative_working_dir]}")
-        end
+        return unless structure[:working_directory] != structure[:project_root]
+
+        add_info("Running from subdirectory: #{structure[:relative_working_dir]}")
       end
 
       # Validate search paths configuration and file discovery
@@ -87,15 +83,15 @@ module TaskerCore
         # Add warnings from path validation
         validation_results[:warnings].each { |warning| add_warning(warning) }
 
-        if validation_results[:total_files] == 0
+        if validation_results[:total_files].zero?
           add_warning("No TaskTemplate files found in any search path for environment: #{@config.environment}")
-          add_info("Configured search paths:")
+          add_info('Configured search paths:')
           paths.each { |path| add_info("  - #{path}") }
         end
 
-        if validation_results[:valid_paths] == 0
-          add_error("None of the configured search paths contain any files")
-        end
+        return unless validation_results[:valid_paths].zero?
+
+        add_error('None of the configured search paths contain any files')
       end
 
       # Validate database configuration
@@ -108,16 +104,16 @@ module TaskerCore
         db_config = @config.database_config_for_env
 
         required_keys = %w[adapter host database username]
-        missing_keys = required_keys.select { |key| (db_config[key] || db_config[key.to_sym]).nil? || (db_config[key] || db_config[key.to_sym]).to_s.empty? }
-
-        if missing_keys.any?
-          add_error("Missing required database configuration keys: #{missing_keys.join(', ')}")
+        missing_keys = required_keys.select do |key|
+          (db_config[key] || db_config[key.to_sym]).nil? || (db_config[key] || db_config[key.to_sym]).to_s.empty?
         end
+
+        add_error("Missing required database configuration keys: #{missing_keys.join(', ')}") if missing_keys.any?
 
         # Validate database URL if present
-        if db_config['url'] && !valid_database_url?(db_config['url'])
-          add_error("Invalid database URL format: #{db_config['url']}")
-        end
+        return unless db_config['url'] && !valid_database_url?(db_config['url'])
+
+        add_error("Invalid database URL format: #{db_config['url']}")
       end
 
       # Validate template files can be parsed
@@ -129,19 +125,17 @@ module TaskerCore
 
         invalid_files = []
         template_files.each do |file_path|
-          begin
-            YAML.load_file(file_path)
-          rescue Psych::SyntaxError => e
-            invalid_files << "#{file_path}: #{e.message}"
-          rescue => e
-            invalid_files << "#{file_path}: #{e.class} - #{e.message}"
-          end
+          YAML.load_file(file_path)
+        rescue Psych::SyntaxError => e
+          invalid_files << "#{file_path}: #{e.message}"
+        rescue StandardError => e
+          invalid_files << "#{file_path}: #{e.class} - #{e.message}"
         end
 
-        if invalid_files.any?
-          add_error("Invalid TaskTemplate YAML files found:")
-          invalid_files.each { |error| add_error("  - #{error}") }
-        end
+        return unless invalid_files.any?
+
+        add_error('Invalid TaskTemplate YAML files found:')
+        invalid_files.each { |error| add_error("  - #{error}") }
       end
 
       # Get validation summary
@@ -191,19 +185,19 @@ module TaskerCore
         return unless logger
 
         if @errors.empty? && @warnings.empty?
-          logger.info "✅ CONFIG_VALIDATION: All configuration checks passed"
+          logger.info '✅ CONFIG_VALIDATION: All configuration checks passed'
         elsif @errors.empty?
           logger.info "✅ CONFIG_VALIDATION: Configuration valid (#{@warnings.length} warnings)"
         end
 
-        if Utils::PathResolver.development_mode? && (@errors.any? || @warnings.any?)
-          logger.info "🛠️  CONFIG_VALIDATION: Development mode - detailed summary:"
-          summary = validation_summary
-          logger.info "    Project root: #{summary[:project_structure][:project_root]}"
-          logger.info "    Environment: #{summary[:environment]}"
-          logger.info "    Search paths: #{summary[:search_paths].length}"
-          summary[:search_paths].each { |path| logger.info "      - #{path}" }
-        end
+        return unless Utils::PathResolver.development_mode? && (@errors.any? || @warnings.any?)
+
+        logger.info '🛠️  CONFIG_VALIDATION: Development mode - detailed summary:'
+        summary = validation_summary
+        logger.info "    Project root: #{summary[:project_structure][:project_root]}"
+        logger.info "    Environment: #{summary[:environment]}"
+        logger.info "    Search paths: #{summary[:search_paths].length}"
+        summary[:search_paths].each { |path| logger.info "      - #{path}" }
       end
 
       def valid_database_url?(url)

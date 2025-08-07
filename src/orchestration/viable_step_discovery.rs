@@ -43,7 +43,7 @@ use crate::events::{EventPublisher, ViableStep as EventsViableStep};
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
 use crate::orchestration::types::ViableStep;
 use std::collections::HashMap;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 /// High-performance step readiness discovery engine
 pub struct ViableStepDiscovery {

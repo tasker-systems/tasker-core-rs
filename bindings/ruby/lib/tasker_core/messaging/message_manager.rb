@@ -18,7 +18,9 @@ module TaskerCore
         dependency_steps = []
         unless msg_data.ready_dependency_step_uuids.empty?
           # same as above, this should be in memory because we loaded them above
-          dependency_steps = task.workflow_steps.select { |step| msg_data.ready_dependency_step_uuids.include?(step.step_uuid) }
+          dependency_steps = task.workflow_steps.select do |step|
+            msg_data.ready_dependency_step_uuids.include?(step.step_uuid)
+          end
         end
         sequence = TaskerCore::Execution::StepSequence.new(dependency_steps)
         [task, sequence, step]

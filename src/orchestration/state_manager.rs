@@ -687,7 +687,7 @@ impl StateManager {
                 .map_err(|e| OrchestrationError::StateTransitionFailed {
                     entity_type: "WorkflowStep".to_string(),
                     entity_id: step_id,
-                    reason: format!("Failed to increment retry count: {}", e),
+                    reason: format!("Failed to increment retry count: {e}"),
                 })?;
 
             // Transition back to pending for retry
@@ -698,7 +698,7 @@ impl StateManager {
                 .map_err(|e| OrchestrationError::StateTransitionFailed {
                     entity_type: "WorkflowStep".to_string(),
                     entity_id: step_id,
-                    reason: format!("Failed to transition to pending for retry: {}", e),
+                    reason: format!("Failed to transition to pending for retry: {e}"),
                 })?;
 
             tracing::info!(

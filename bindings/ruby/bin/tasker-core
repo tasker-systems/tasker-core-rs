@@ -30,9 +30,9 @@ rescue LoadError
 end
 
 def show_version
-  puts "TaskerCore CLI"
-  puts "Version: 1.0.0"
-  puts "Rust Project: tasker-core-rs"
+  puts 'TaskerCore CLI'
+  puts 'Version: 1.0.0'
+  puts 'Rust Project: tasker-core-rs'
   puts "Ruby Bindings: #{RUBY_VERSION}"
   puts
 end
@@ -82,9 +82,7 @@ end
 
 def setup_environment(options)
   # Set environment if specified
-  if options[:environment]
-    ENV['TASKER_ENV'] = options[:environment]
-  end
+  ENV['TASKER_ENV'] = options[:environment] if options[:environment]
 
   # Set logging level based on verbosity
   if options[:verbose]
@@ -95,30 +93,28 @@ def setup_environment(options)
 end
 
 def load_tasker_core
-  begin
-    require 'tasker_core'
-    require 'tasker_core/cli/diagnostics'
-    require 'tasker_core/config/validator'
-    true
-  rescue LoadError => e
-    puts "❌ Failed to load TaskerCore:"
-    puts "   #{e.message}"
+  require 'tasker_core'
+  require 'tasker_core/cli/diagnostics'
+  require 'tasker_core/config/validator'
+  true
+rescue LoadError => e
+  puts '❌ Failed to load TaskerCore:'
+  puts "   #{e.message}"
+  puts
+  puts "Make sure you're in the correct directory and dependencies are installed:"
+  puts '   bundle install'
+  puts
+  false
+rescue StandardError => e
+  puts '❌ Error loading TaskerCore:'
+  puts "   #{e.class}: #{e.message}"
+  puts
+  if ENV['TASKER_LOG_LEVEL'] == 'DEBUG'
+    puts 'Backtrace:'
+    e.backtrace.first(10).each { |line| puts "   #{line}" }
     puts
-    puts "Make sure you're in the correct directory and dependencies are installed:"
-    puts "   bundle install"
-    puts
-    false
-  rescue => e
-    puts "❌ Error loading TaskerCore:"
-    puts "   #{e.class}: #{e.message}"
-    puts
-    if ENV['TASKER_LOG_LEVEL'] == 'DEBUG'
-      puts "Backtrace:"
-      e.backtrace.first(10).each { |line| puts "   #{line}" }
-      puts
-    end
-    false
   end
+  false
 end
 
 def run_diagnose_command(subcommand, options)
@@ -133,12 +129,12 @@ def run_diagnose_command(subcommand, options)
     TaskerCore::CLI::Diagnostics.run_full_diagnostics
   end
   true
-rescue => e
-  puts "❌ Diagnostics failed:"
+rescue StandardError => e
+  puts '❌ Diagnostics failed:'
   puts "   #{e.class}: #{e.message}"
   puts
   if options[:verbose]
-    puts "Backtrace:"
+    puts 'Backtrace:'
     e.backtrace.first(15).each { |line| puts "   #{line}" }
     puts
   end
@@ -149,35 +145,33 @@ def run_validate_command(options)
   return false unless load_tasker_core
 
   begin
-    puts "🔍 Validating TaskerCore configuration..."
+    puts '🔍 Validating TaskerCore configuration...'
     puts
 
     config = TaskerCore::Config.instance
     validator = TaskerCore::ConfigValidation::Validator.new(config)
     validator.validate!
 
-    puts "✅ Configuration validation passed!"
+    puts '✅ Configuration validation passed!'
     puts "   Environment: #{config.environment}"
     puts "   Config file: #{config.find_config_file}"
 
     summary = validator.validation_summary
-    if summary[:warnings] > 0
-      puts "   Warnings: #{summary[:warnings]}"
-    end
+    puts "   Warnings: #{summary[:warnings]}" if summary[:warnings].positive?
 
     true
   rescue TaskerCore::ConfigValidation::Validator::ValidationError => e
-    puts "❌ Configuration validation failed:"
+    puts '❌ Configuration validation failed:'
     puts
     puts e.message
     puts
     false
-  rescue => e
-    puts "❌ Validation error:"
+  rescue StandardError => e
+    puts '❌ Validation error:'
     puts "   #{e.class}: #{e.message}"
     puts
     if options[:verbose]
-      puts "Backtrace:"
+      puts 'Backtrace:'
       e.backtrace.first(10).each { |line| puts "   #{line}" }
       puts
     end
@@ -187,11 +181,10 @@ end
 
 # Parse command line arguments
 options = {}
-command = nil
 subcommand = nil
 
 OptionParser.new do |opts|
-  opts.banner = "Usage: tasker-core <command> [options]"
+  opts.banner = 'Usage: tasker-core <command> [options]'
 
   opts.on('-v', '--verbose', 'Enable verbose output') do
     options[:verbose] = true
@@ -226,21 +219,21 @@ setup_environment(options)
 
 # Execute commands
 success = case command
-when 'version'
-  show_version
-  true
-when 'help', '--help', '-h'
-  show_help
-  true
-when 'diagnose'
-  run_diagnose_command(subcommand, options)
-when 'validate'
-  run_validate_command(options)
-else
-  puts "❌ Unknown command: #{command}"
-  puts
-  show_help
-  false
-end
+          when 'version'
+            show_version
+            true
+          when 'help', '--help', '-h'
+            show_help
+            true
+          when 'diagnose'
+            run_diagnose_command(subcommand, options)
+          when 'validate'
+            run_validate_command(options)
+          else
+            puts "❌ Unknown command: #{command}"
+            puts
+            show_help
+            false
+          end
 
 exit success ? 0 : 1

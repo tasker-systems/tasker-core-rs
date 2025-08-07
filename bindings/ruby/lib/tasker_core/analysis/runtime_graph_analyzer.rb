@@ -131,8 +131,8 @@ module TaskerCore
       # @api private
       def load_workflow_edges
         TaskerCore::Database::Models::WorkflowStepEdge.joins(:from_step, :to_step)
-                        .where(from_step: { task_id: task_id })
-                        .select(:from_step_id, :to_step_id)
+                                                      .where(from_step: { task_id: task_id })
+                                                      .select(:from_step_id, :to_step_id)
       end
 
       # Build forward and reverse adjacency lists for graph traversal

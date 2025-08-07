@@ -4,7 +4,6 @@ require_relative 'database/connection'
 require_relative 'database/models'
 require_relative 'database/functions'
 
-
 module TaskerCore
   module Database
     # Factory method for creating SQL functions interface

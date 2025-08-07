@@ -54,7 +54,6 @@ module TaskerCore
             registries_initialized: @registries_initialized || false,
             orchestrator_started: @orchestrator_started || false
           }
-
         rescue StandardError => e
           logger.error "💥 TaskerCore boot sequence failed: #{e.message}"
           logger.error "💥 #{e.backtrace.first(5).join("\n💥 ")}"
@@ -96,6 +95,7 @@ module TaskerCore
       # @return [Hash] Boot result
       def ensure_booted!
         return boot_status if booted?
+
         boot!
       end
 
@@ -118,9 +118,7 @@ module TaskerCore
         # Ensure ActiveRecord connection is established
         TaskerCore::Database::Connection.instance
 
-        unless database_connected?
-          raise TaskerCore::Errors::DatabaseError, 'Failed to establish database connection'
-        end
+        raise TaskerCore::Errors::DatabaseError, 'Failed to establish database connection' unless database_connected?
 
         logger.info '✅ Database connection established'
         true
@@ -225,7 +223,7 @@ module TaskerCore
         end
 
         # Ultimate fallback
-        logger.warn "⚠️ No configured namespaces found, using ultimate fallback"
+        logger.warn '⚠️ No configured namespaces found, using ultimate fallback'
         ['default']
       rescue StandardError => e
         logger.error "💥 Could not get fallback namespaces from config: #{e.message}"

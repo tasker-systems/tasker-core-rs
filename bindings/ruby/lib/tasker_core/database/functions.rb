@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Require all function-related files
 require_relative 'functions/function_wrapper'
 require_relative 'functions/function_based_analytics_metrics'

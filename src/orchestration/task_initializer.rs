@@ -44,7 +44,6 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
 use crate::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
-use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::handler_config::HandlerConfiguration;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
@@ -267,8 +266,6 @@ impl TaskInitializer {
             Some("Task record created in database"),
         );
 
-        debug!(task_id = task_id, "Created task record");
-
         // Try to load handler configuration
         let handler_config = match self
             .load_handler_configuration(&task_request_for_handler)
@@ -287,12 +284,6 @@ impl TaskInitializer {
                     )),
                 );
 
-                debug!(
-                    task_id = task_id,
-                    config_name = %task_name,
-                    step_count = config.step_templates.len(),
-                    "Loaded handler configuration"
-                );
                 Some(config)
             }
             Err(e) => {
@@ -344,21 +335,11 @@ impl TaskInitializer {
             )),
         );
 
-        debug!(
-            task_id = task_id,
-            step_count = step_count,
-            "Created workflow steps"
-        );
-
         // Initialize state machine if requested
         if self.config.initialize_state_machine {
             // Create initial database transitions within the transaction
             self.create_initial_state_transitions_in_tx(&mut tx, task_id, &step_mapping)
                 .await?;
-            debug!(
-                task_id = task_id,
-                "Created initial state transitions in transaction"
-            );
         }
 
         // Commit transaction
@@ -372,10 +353,6 @@ impl TaskInitializer {
         if self.config.initialize_state_machine {
             self.initialize_state_machines_post_transaction(task_id, &step_mapping)
                 .await?;
-            debug!(
-                task_id = task_id,
-                "Initialized StateManager-based state machines (without in_process=true)"
-            );
         }
 
         // Publish initialization event if publisher available
@@ -600,13 +577,6 @@ impl TaskInitializer {
                 })?;
 
             step_mapping.insert(step_template.name.clone(), workflow_step.workflow_step_id);
-
-            debug!(
-                step_name = %step_template.name,
-                workflow_step_id = workflow_step.workflow_step_id,
-                named_step_id = named_step.named_step_id,
-                "Created workflow step using transaction methods"
-            );
         }
 
         Ok(step_mapping)
@@ -639,14 +609,6 @@ impl TaskInitializer {
                                 dependency_name, step_template.name, e
                             ))
                         })?;
-
-                    debug!(
-                        from_step = %dependency_name,
-                        to_step = %step_template.name,
-                        from_step_id = from_step_id,
-                        to_step_id = to_step_id,
-                        "Created step dependency using transaction method"
-                    );
                 }
             }
         }
@@ -696,12 +658,6 @@ impl TaskInitializer {
                 })?;
         }
 
-        debug!(
-            task_id = task_id,
-            step_count = step_mapping.len(),
-            "Created initial state transitions using transaction methods"
-        );
-
         Ok(())
     }
 
@@ -724,13 +680,7 @@ impl TaskInitializer {
         // Initialize task state machine by evaluating its state
         // This will create the state machine and ensure it's properly initialized
         match state_manager.evaluate_task_state(task_id).await {
-            Ok(result) => {
-                debug!(
-                    task_id = task_id,
-                    current_state = %result.current_state,
-                    "Task state machine initialized with StateManager"
-                );
-            }
+            Ok(result) => {}
             Err(e) => {
                 warn!(
                     task_id = task_id,
@@ -751,13 +701,7 @@ impl TaskInitializer {
                 .await
             {
                 Ok(state_machine) => match state_machine.current_state().await {
-                    Ok(current_state) => {
-                        debug!(
-                            step_id = workflow_step_id,
-                            current_state = %current_state,
-                            "Step state machine initialized (no evaluation)"
-                        );
-                    }
+                    Ok(current_state) => {}
                     Err(e) => {
                         warn!(
                             step_id = workflow_step_id,
@@ -822,10 +766,6 @@ impl TaskInitializer {
         let version = &task_request.version;
 
         // Look up the handler metadata using the ACTUAL task request version
-        debug!(
-            "🔍 HANDLER LOOKUP: Looking for namespace='{}', name='{}', version='{}'",
-            namespace, name, version
-        );
 
         let metadata = registry.resolve_handler(task_request).await.map_err(|e| {
             TaskInitializationError::ConfigurationNotFound(format!(
@@ -834,12 +774,6 @@ impl TaskInitializer {
         })?;
 
         // Extract the config_schema from metadata and convert from full TaskHandlerInfo format
-        debug!(
-            task_name = %name,
-            namespace = %namespace,
-            config_schema_present = %metadata.config_schema.is_some(),
-            "🎯 TASK_INIT: Checking if config_schema is present"
-        );
 
         if let Some(config_json) = metadata.config_schema {
             // The database now stores the full TaskTemplate structure directly
@@ -922,7 +856,7 @@ impl TaskInitializer {
                         )));
                     }
 
-                    return Ok(handler_config);
+                    Ok(handler_config)
                 }
                 Err(task_template_error) => {
                     // Fall back to old nested format for backward compatibility
@@ -950,7 +884,7 @@ impl TaskInitializer {
                         )));
                     }
 
-                    return Ok(handler_config);
+                    Ok(handler_config)
                 }
             }
         } else {
@@ -971,11 +905,6 @@ impl TaskInitializer {
         let namespace = &task_request.namespace;
         let name = &task_request.name;
         let version = &task_request.version;
-
-        debug!(
-            "🔍 FILESYSTEM LOOKUP: Looking for namespace='{}', name='{}', version='{}'",
-            namespace, name, version
-        );
 
         // Find the task template using TaskConfigFinder
         let task_template = task_config_finder
@@ -1021,8 +950,7 @@ impl TaskInitializer {
                 })
                 .collect(),
             environments: task_template.environments.map(|envs| {
-                envs.into_iter()
-                    .map(|(key, _env_config)| {
+                envs.into_keys().map(|key| {
                         // For now, just create empty environment configs
                         // We could expand this if needed
                         (
@@ -1048,11 +976,6 @@ impl TaskInitializer {
             )));
         }
 
-        debug!(
-            "✅ FILESYSTEM LOOKUP: Successfully loaded configuration for {}/{}/{}",
-            namespace, name, version
-        );
-
         Ok(handler_config)
     }
 
@@ -1065,12 +988,6 @@ impl TaskInitializer {
         _publisher: &EventPublisher,
     ) -> Result<(), TaskInitializationError> {
         // TODO: Implement event publishing once EventPublisher interface is finalized
-        debug!(
-            task_id = task_id,
-            step_count = step_count,
-            task_name = %task_name,
-            "Would publish task_initialized event"
-        );
         Ok(())
     }
 }

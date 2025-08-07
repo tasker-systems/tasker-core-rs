@@ -44,7 +44,6 @@ use crate::orchestration::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
 use tracing::{debug, info};
-use tracing_subscriber::field::debug;
 
 /// Key for handler lookup in the registry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

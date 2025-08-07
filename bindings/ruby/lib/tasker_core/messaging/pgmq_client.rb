@@ -266,7 +266,7 @@ module TaskerCore
 
         # Use raw DELETE to bypass PGMQ function visibility timeout issues
         result = connection.exec("DELETE FROM pgmq.q_#{queue_name} WHERE msg_id = $1 RETURNING msg_id", [msg_id])
-        deleted = result.ntuples > 0
+        deleted = result.ntuples.positive?
 
         if deleted
           logger.debug("✅ PGMQ: Message force deleted successfully: #{msg_id} from #{queue_name}")
@@ -412,7 +412,6 @@ module TaskerCore
           )
 
           messages << queue_message_data
-
         rescue JSON::ParserError => e
           logger.error("❌ PGMQ: Failed to parse message JSON: #{e.message}")
           raise Errors::ValidationError, "Invalid message JSON: #{e.message}"
@@ -479,12 +478,10 @@ module TaskerCore
         metrics = {}
 
         queue_names.each do |queue_name|
-          begin
-            stats = queue_stats(queue_name)
-            metrics[queue_name] = stats if stats
-          rescue Errors::Error => e
-            logger.warn("⚠️ PGMQ: Failed to get stats for queue #{queue_name}: #{e.message}")
-          end
+          stats = queue_stats(queue_name)
+          metrics[queue_name] = stats if stats
+        rescue Errors::Error => e
+          logger.warn("⚠️ PGMQ: Failed to get stats for queue #{queue_name}: #{e.message}")
         end
 
         metrics

@@ -16,11 +16,15 @@
 #  dependent_systems_name_index   (name)
 #  dependent_systems_name_unique  (name) UNIQUE
 #
-module TaskerCore::Database::Models
-  class DependentSystem < ApplicationRecord
-    self.primary_key =  :dependent_system_id
-    has_many :dependent_system_object_maps, dependent: :destroy
-    has_many :named_steps, dependent: :destroy
-    validates :name, presence: true, uniqueness: true
+module TaskerCore
+  module Database
+    module Models
+      class DependentSystem < ApplicationRecord
+        self.primary_key =  :dependent_system_id
+        has_many :dependent_system_object_maps, dependent: :destroy
+        has_many :named_steps, dependent: :destroy
+        validates :name, presence: true, uniqueness: true
+      end
+    end
   end
 end

@@ -8,11 +8,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-use crate::events::EventPublisher;
 use crate::ffi::shared::errors::{SharedFFIError, SharedFFIResult};
 use crate::models::task_request::TaskRequest;
 use crate::orchestration::{TaskInitializationResult, TaskInitializer};
-use crate::registry::TaskHandlerRegistry;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -101,8 +99,7 @@ pub async fn initialize_task_direct(
         Err(e) => {
             warn!("Failed to create database pool: {}", e);
             return Err(SharedFFIError::DatabaseError(format!(
-                "Database connection failed: {}",
-                e
+                "Database connection failed: {e}"
             )));
         }
     };
@@ -153,8 +150,7 @@ pub async fn initialize_task_direct(
         Err(e) => {
             warn!("Failed to initialize task: {}", e);
             Err(SharedFFIError::TaskCreationFailed(format!(
-                "Task initialization failed for {}::{}/{}: {}",
-                namespace, name, version, e
+                "Task initialization failed for {namespace}::{name}/{version}: {e}"
             )))
         }
     }
@@ -180,8 +176,7 @@ pub fn initialize_task_direct_sync(
         Ok(rt) => rt,
         Err(e) => {
             return Err(SharedFFIError::Internal(format!(
-                "Failed to create async runtime: {}",
-                e
+                "Failed to create async runtime: {e}"
             )));
         }
     };
