@@ -52,10 +52,12 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
+use crate::messaging::message::SimpleStepMessage;
 use crate::messaging::message::{StepDependencyResult, StepExecutionContext};
 use crate::messaging::{PgmqClient, StepMessage, StepMessageMetadata};
 use crate::orchestration::{
-    state_manager::StateManager, task_claimer::ClaimedTask, types::ViableStep, viable_step_discovery::ViableStepDiscovery,
+    state_manager::StateManager, task_claimer::ClaimedTask, types::ViableStep,
+    viable_step_discovery::ViableStepDiscovery,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -64,6 +66,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Result of step enqueueing operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,20 +352,22 @@ impl StepEnqueuer {
             viable_step.step_id, viable_step.name, claimed_task.task_id, claimed_task.namespace_name
         );
 
-        // Create step message with execution context (task, sequence, step pattern)
-        let step_message = self.create_step_message(claimed_task, viable_step).await?;
+        // Create simple UUID-based message (simplified architecture)
+        let simple_message = self
+            .create_simple_step_message(claimed_task, viable_step)
+            .await?;
 
         // Enqueue to namespace-specific queue
         let queue_name = format!("{}_queue", claimed_task.namespace_name);
 
         info!(
-            "📝 STEP_ENQUEUER: Created step message - targeting queue '{}' with namespace '{}'",
-            queue_name, step_message.namespace
+            "📝 STEP_ENQUEUER: Created simple step message - targeting queue '{}' for step UUID '{}'",
+            queue_name, simple_message.step_uuid
         );
 
         let msg_id = self
             .pgmq_client
-            .send_json_message(&queue_name, &step_message)
+            .send_json_message(&queue_name, &simple_message)
             .await
             .map_err(|e| {
                 error!(
@@ -436,11 +441,13 @@ impl StepEnqueuer {
         });
 
         // Extract task_name and version from task_context
-        let task_name = task_context.get("task_name")
+        let task_name = task_context
+            .get("task_name")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let task_version = task_context.get("version")
+        let task_version = task_context
+            .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("1.0.0")
             .to_string();
@@ -505,6 +512,97 @@ impl StepEnqueuer {
         Ok(step_message)
     }
 
+    /// Create a simple UUID-based step message (simplified architecture)
+    ///
+    /// This creates the new 3-field message format that leverages the shared database
+    /// as the API layer, dramatically reducing message size and complexity.
+    async fn create_simple_step_message(
+        &self,
+        claimed_task: &ClaimedTask,
+        viable_step: &ViableStep,
+    ) -> Result<SimpleStepMessage> {
+        // Get task and step UUIDs from the database
+        let task_uuid = self.get_task_uuid(claimed_task.task_id).await?;
+        let step_uuid = self.get_step_uuid(viable_step.step_id).await?;
+
+        // Get ready dependency step UUIDs
+        let ready_dependency_step_uuids = self.get_ready_dependency_uuids(viable_step).await?;
+
+        let simple_message = SimpleStepMessage {
+            task_uuid,
+            step_uuid,
+            ready_dependency_step_uuids,
+        };
+
+        debug!(
+            "✅ STEP_ENQUEUER: Created simple message - task_uuid: {}, step_uuid: {}, {} dependencies",
+            simple_message.task_uuid,
+            simple_message.step_uuid, 
+            simple_message.ready_dependency_step_uuids.len()
+        );
+
+        Ok(simple_message)
+    }
+
+    /// Get task UUID from database by task_id
+    async fn get_task_uuid(&self, task_id: i64) -> Result<Uuid> {
+        let row = sqlx::query!(
+            "SELECT task_uuid FROM tasker_tasks WHERE task_id = $1",
+            task_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {}", e)))?;
+
+        Ok(row.task_uuid)
+    }
+
+    /// Get step UUID from database by workflow_step_id  
+    async fn get_step_uuid(&self, step_id: i64) -> Result<Uuid> {
+        let row = sqlx::query!(
+            "SELECT step_uuid FROM tasker_workflow_steps WHERE workflow_step_id = $1",
+            step_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch step UUID: {}", e)))?;
+
+        Ok(row.step_uuid)
+    }
+
+    /// Get UUIDs of ready dependency steps
+    async fn get_ready_dependency_uuids(&self, viable_step: &ViableStep) -> Result<Vec<Uuid>> {
+        // Query database for completed dependency steps for this step
+        let rows = sqlx::query!(
+            r#"
+            SELECT ws.step_uuid
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
+            INNER JOIN tasker_workflow_step_transitions wst ON wst.workflow_step_id = ws.workflow_step_id
+            WHERE wse.to_step_id = $1
+              AND wst.most_recent = true
+              AND wst.to_state IN ('complete', 'resolved_manually')
+            "#,
+            viable_step.step_id
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {}", e)))?;
+
+        let uuids = rows
+            .into_iter()
+            .map(|row| row.step_uuid)
+            .collect::<Vec<_>>();
+
+        debug!(
+            "📋 STEP_ENQUEUER: Found {} completed dependency UUIDs for step {}",
+            uuids.len(),
+            viable_step.step_id
+        );
+
+        Ok(uuids)
+    }
+
     /// Get task execution context for step processing
     async fn get_task_execution_context(&self, task_id: i64) -> Result<Value> {
         // Join with tasker_named_tasks to get task name and version for step handler registry
@@ -520,9 +618,7 @@ impl StepEnqueuer {
             .bind(task_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| {
-                TaskerError::DatabaseError(format!("Failed to get task context: {e}"))
-            })?;
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to get task context: {e}")))?;
 
         match row {
             Some((context, tags, task_name, version, namespace_name)) => Ok(serde_json::json!({
@@ -540,10 +636,13 @@ impl StepEnqueuer {
     }
 
     /// Get dependency results for step execution (sequence data)
-    async fn get_dependency_results(&self, viable_step: &ViableStep) -> Result<Vec<StepDependencyResult>> {
+    async fn get_dependency_results(
+        &self,
+        viable_step: &ViableStep,
+    ) -> Result<Vec<StepDependencyResult>> {
         // Query the database to get actual dependency results
         // For steps that have dependencies, we need to get the results from completed dependency steps
-        
+
         // For now, create a simple dependency result placeholder
         // In a full implementation, this would query the database for dependency step results
         let dependency_results = if viable_step.dependencies_satisfied {
@@ -551,7 +650,7 @@ impl StepEnqueuer {
             vec![StepDependencyResult {
                 step_name: format!("dependency_of_{}", viable_step.name),
                 step_id: viable_step.step_id - 1, // Placeholder - would be actual dependency step ID
-                named_step_id: viable_step.named_step_id - 1, // Placeholder  
+                named_step_id: viable_step.named_step_id - 1, // Placeholder
                 results: Some(serde_json::json!({
                     "status": "completed",
                     "dependencies_satisfied": true
@@ -563,7 +662,7 @@ impl StepEnqueuer {
             // No dependencies
             vec![]
         };
-        
+
         Ok(dependency_results)
     }
 

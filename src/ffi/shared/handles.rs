@@ -197,7 +197,6 @@ impl SharedOrchestrationHandle {
         self.orchestration_system.database_pool()
     }
 
-
     // ========================================================================
     // CORE ORCHESTRATION OPERATIONS (language-agnostic)
     // ========================================================================
@@ -207,25 +206,13 @@ impl SharedOrchestrationHandle {
         &self.orchestration_system
     }
 
-
-
-
-
-
     // ========================================================================
     // ORCHESTRATION SYSTEM ACCESS (for language bindings)
     // ========================================================================
 
-
-
     // ========================================================================
     // ZEROMQ BATCH PROCESSING (for Ruby orchestration integration)
     // ========================================================================
-
-
-
-
-
 }
 
 /// Task metadata for handler lookup
@@ -248,7 +235,6 @@ pub struct HandleInfo {
     pub orchestration_pool_size: u32,
     pub status: String,
 }
-
 
 // ===== SHARED CORE HANDLE LOGIC ENDS HERE =====
 // Language bindings should implement their own wrapper types that

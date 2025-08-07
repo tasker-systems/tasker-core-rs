@@ -29,8 +29,10 @@ module TaskerCore
       end
 
       # Get database connection through ActiveRecord with automatic reconnection
+      # IMPORTANT: Always get fresh connection from pool to avoid corruption issues
       def connection
-        # Always use fresh ActiveRecord connection to avoid closed connection issues during tests
+        # Always get a fresh connection from the ActiveRecord pool
+        # This avoids connection reuse issues and protocol corruption
         ActiveRecord::Base.connection.raw_connection
       rescue ActiveRecord::ConnectionNotEstablished => e
         logger.warn("⚠️ PGMQ: Connection not established, attempting to establish: #{e.message}")
@@ -218,7 +220,7 @@ module TaskerCore
         logger.error("❌ PGMQ: Connection pool timeout during message deletion: #{e.message}")
         raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
       rescue ActiveRecord::StatementInvalid => e
-        logger.error("❌ PGMQ: Invalid SQL statement for message deletion: #{e.message}")
+        logger.error("❌ PGMQ: Invalid SQL statement for message archiving: #{e.message}")
         raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
@@ -251,6 +253,39 @@ module TaskerCore
         raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
       rescue ActiveRecord::StatementInvalid => e
         logger.error("❌ PGMQ: Invalid SQL statement for message archiving: #{e.message}")
+        raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
+      end
+
+      # Force delete message from queue using raw SQL (bypasses visibility timeout)
+      #
+      # @param queue_name [String] Name of the queue
+      # @param msg_id [Integer] Message ID to force delete
+      # @return [Boolean] true if message was deleted, false if not found
+      def force_delete_message(queue_name, msg_id)
+        logger.debug("🗑️ PGMQ: Force deleting message: #{msg_id} from queue: #{queue_name}")
+
+        # Use raw DELETE to bypass PGMQ function visibility timeout issues
+        result = connection.exec("DELETE FROM pgmq.q_#{queue_name} WHERE msg_id = $1 RETURNING msg_id", [msg_id])
+        deleted = result.ntuples > 0
+
+        if deleted
+          logger.debug("✅ PGMQ: Message force deleted successfully: #{msg_id} from #{queue_name}")
+        else
+          logger.warn("⚠️ PGMQ: Message not found for force deletion: #{msg_id} from #{queue_name}")
+        end
+
+        deleted
+      rescue PG::Error => e
+        logger.error("❌ PGMQ: Failed to force delete message #{msg_id} from #{queue_name}: #{e.message}")
+        raise Errors::DatabaseError, "Failed to force delete message #{msg_id} from #{queue_name}: #{e.message}"
+      rescue ActiveRecord::ConnectionNotEstablished => e
+        logger.error("❌ PGMQ: Database connection not established: #{e.message}")
+        raise Errors::DatabaseError, "Database connection not established: #{e.message}"
+      rescue ActiveRecord::ConnectionTimeoutError => e
+        logger.error("❌ PGMQ: Connection pool timeout during message force deletion: #{e.message}")
+        raise Errors::TimeoutError, "Connection pool timeout: #{e.message}"
+      rescue ActiveRecord::StatementInvalid => e
+        logger.error("❌ PGMQ: Invalid SQL statement for message force deletion: #{e.message}")
         raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
@@ -352,7 +387,7 @@ module TaskerCore
       # @param namespace [String] Namespace to read messages from
       # @param visibility_timeout [Integer] How long messages remain invisible (seconds)
       # @param qty [Integer] Maximum number of messages to read
-      # @return [Array<QueueMessageData>] Array of typed message data objects
+      # @return [Array<SimpleQueueMessageData>] Array of simple message data objects
       def read_step_messages(namespace, visibility_timeout: 30, qty: 5)
         queue_name = "#{namespace}_queue"
         logger.debug("📥 PGMQ: Reading messages from queue: #{queue_name} (limit: #{qty})")
@@ -364,29 +399,31 @@ module TaskerCore
 
         messages = []
         result.each do |row|
-          # Convert to hash with proper types
-          pgmq_result = {
+          # Parse message JSON
+          message_data = JSON.parse(row['message'])
+
+          # Create simple queue message data with message hash directly
+          queue_message_data = TaskerCore::Types::SimpleQueueMessageData.new(
             msg_id: row['msg_id'].to_i,
             read_ct: row['read_ct'].to_i,
             enqueued_at: row['enqueued_at'],
             vt: row['vt'],
-            message: JSON.parse(row['message'])
-          }
+            simple_step_message: message_data
+          )
 
-          # Create typed message data - this will validate the structure
-          message_data = TaskerCore::Types::QueueMessageData.from_pgmq_result(pgmq_result)
-          messages << message_data
-        rescue Dry::Struct::Error => e
-          logger.error("❌ PGMQ: Failed to parse queue message - validation error: #{e.message}")
-          logger.error("❌ PGMQ: Raw message: #{row.inspect}")
-          # Re-raise validation errors so we know messages are malformed
-          raise Errors::ValidationError, "Invalid queue message structure: #{e.message}"
+          messages << queue_message_data
+
         rescue JSON::ParserError => e
           logger.error("❌ PGMQ: Failed to parse message JSON: #{e.message}")
           raise Errors::ValidationError, "Invalid message JSON: #{e.message}"
+        rescue Dry::Struct::Error => e
+          logger.error("❌ PGMQ: Failed to create typed message object - validation error: #{e.message}")
+          logger.error("❌ PGMQ: Raw message: #{row.inspect}")
+          # Re-raise validation errors so we know messages are malformed
+          raise Errors::ValidationError, "Invalid message structure: #{e.message}"
         end
 
-        logger.debug("📨 PGMQ: Read #{messages.length} valid messages from queue: #{queue_name}")
+        logger.debug("📨 PGMQ: Read #{messages.length} simple messages from queue: #{queue_name}")
         messages
       rescue PG::Error => e
         logger.error("❌ PGMQ: Failed to read messages from queue #{queue_name}: #{e.message}")
@@ -400,6 +437,22 @@ module TaskerCore
       rescue ActiveRecord::StatementInvalid => e
         logger.error("❌ PGMQ: Invalid SQL statement for reading step messages: #{e.message}")
         raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
+      end
+
+      private
+
+      # Check if a message has the simple UUID format
+      #
+      # @param message_data [Hash] Parsed message data
+      # @return [Boolean] true if this is a simple UUID message
+      def is_simple_message?(message_data)
+        # Simple messages have exactly 3 fields: task_uuid, step_uuid, ready_dependency_step_uuids
+        required_fields = %w[task_uuid step_uuid ready_dependency_step_uuids]
+        message_keys = message_data.keys
+
+        # Check if all required fields are present and no extra fields exist
+        required_fields.all? { |field| message_keys.include?(field) } &&
+          message_keys.length == required_fields.length
       end
 
       # Ensure namespace queues exist for workflow processing

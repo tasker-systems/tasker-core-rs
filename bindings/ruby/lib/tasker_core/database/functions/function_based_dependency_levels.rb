@@ -47,7 +47,7 @@ module TaskerCore
 
       # Associations (lazy-loaded)
       def workflow_step
-        @workflow_step ||= Tasker::WorkflowStep.find(workflow_step_id)
+        @workflow_step ||= TaskerCore::Database::Models::WorkflowStep.find(workflow_step_id)
       end
     end
   end

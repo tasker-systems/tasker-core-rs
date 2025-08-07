@@ -303,7 +303,7 @@ module TaskerCore::Database::Models
     def workflow_step_must_exist
       return if workflow_step_id.blank?
 
-      return if Tasker::WorkflowStep.exists?(workflow_step_id: workflow_step_id)
+      return if TaskerCore::Database::Models::WorkflowStep.exists?(workflow_step_id: workflow_step_id)
 
       errors.add(:workflow_step_id, 'must reference an existing workflow step')
     end

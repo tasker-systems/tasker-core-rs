@@ -521,5 +521,42 @@ module TaskerCore
         queue_message.message
       end
     end
+
+
+    # Composite type for simple queue messages
+    # This is what queue workers receive after reading simple UUID messages from pgmq
+    class SimpleQueueMessageData < Dry::Struct
+      transform_keys(&:to_sym)
+
+      # pgmq message metadata  
+      attribute :msg_id, Types::Integer.constrained(gt: 0)
+      attribute :read_ct, Types::Integer.constrained(gteq: 0)
+      attribute :enqueued_at, Types::Constructor(Time) { |value|
+        value.is_a?(Time) ? value : Time.parse(value.to_s)
+      }
+      attribute :vt, Types::Constructor(Time) { |value|
+        value.is_a?(Time) ? value : Time.parse(value.to_s)
+      }
+
+      # Simple step message payload
+      attribute :simple_step_message, Types::Hash
+
+      # Convenience accessors
+      def message_id
+        msg_id
+      end
+
+      def task_uuid
+        simple_step_message['task_uuid']
+      end
+
+      def step_uuid
+        simple_step_message['step_uuid']
+      end
+
+      def ready_dependency_step_uuids
+        simple_step_message['ready_dependency_step_uuids'] || []
+      end
+    end
   end
 end

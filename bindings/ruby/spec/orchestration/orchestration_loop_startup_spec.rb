@@ -9,8 +9,8 @@ RSpec.describe 'Orchestration Loop Startup', type: :integration do
     TaskerCore.setup_test_database(@database_url)
 
     # Register a simple task template so the orchestration has something to potentially work with
-    @registry = TaskerCore::Orchestration::DistributedHandlerRegistry.instance
-    @registry.register_task_templates_from_directory('spec/handlers/examples/linear_workflow/config')
+    @task_template_registry = TaskerCore::Registry::TaskTemplateRegistry.instance
+    @task_template_registry.register_task_templates_from_directory('spec/handlers/examples/linear_workflow/config')
   end
 
   after(:all) do

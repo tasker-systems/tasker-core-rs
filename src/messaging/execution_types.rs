@@ -219,11 +219,7 @@ mod tests {
 
     #[test]
     fn test_step_execution_result_success() {
-        let result = StepExecutionResult::success(
-            1,
-            serde_json::json!({"status": "valid"}),
-            1500,
-        );
+        let result = StepExecutionResult::success(1, serde_json::json!({"status": "valid"}), 1500);
 
         assert_eq!(result.step_id, 1);
         assert_eq!(result.status, "completed");
@@ -234,18 +230,13 @@ mod tests {
 
     #[test]
     fn test_step_execution_result_failure() {
-        let result = StepExecutionResult::failure(
-            1,
-            "Validation failed".to_string(),
-            true,
-            800,
-        );
+        let result = StepExecutionResult::failure(1, "Validation failed".to_string(), true, 800);
 
         assert_eq!(result.step_id, 1);
         assert_eq!(result.status, "failed");
         assert!(result.output.is_none());
         assert!(result.error.is_some());
-        
+
         let error = result.error.unwrap();
         assert_eq!(error.message, "Validation failed");
         assert!(error.retryable);

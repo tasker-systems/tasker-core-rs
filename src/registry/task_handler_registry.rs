@@ -44,6 +44,7 @@ use crate::orchestration::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
 use tracing::{debug, info};
+use tracing_subscriber::field::debug;
 
 /// Key for handler lookup in the registry
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -210,7 +211,6 @@ impl TaskHandlerRegistry {
 
         Ok(handler_metadata)
     }
-
 }
 
 // Note: Default implementation removed - TaskHandlerRegistry now requires database pool
@@ -226,9 +226,6 @@ impl Clone for TaskHandlerRegistry {
 
 #[cfg(test)]
 mod tests {
-    
-    
-    
 
     // Note: Worker-related tests are temporarily disabled
     // until worker models are implemented

@@ -329,9 +329,7 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id)
-        .await;
+    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
 
     match orchestration_result {
         Ok(orch_result) => {
@@ -454,9 +452,7 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id)
-        .await;
+    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
 
     match orchestration_result {
         Ok(orch_result) => {
@@ -687,9 +683,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator
-        .execute_task_workflow(task_result.task_id)
-        .await;
+    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
 
     match orchestration_result {
         Ok(orch_result) => {

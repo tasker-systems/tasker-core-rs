@@ -9,8 +9,8 @@ pub mod orchestration_messages;
 pub mod pgmq_client;
 
 pub use execution_types::{
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
-    StepRequestMetadata, StepExecutionError, StepResultMetadata,
+    StepBatchRequest, StepBatchResponse, StepExecutionError, StepExecutionRequest,
+    StepExecutionResult, StepRequestMetadata, StepResultMetadata,
 };
 pub use message::{StepMessage, StepMessageMetadata};
 pub use orchestration_messages::*;

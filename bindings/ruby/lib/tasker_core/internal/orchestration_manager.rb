@@ -12,7 +12,7 @@ module TaskerCore
     class OrchestrationManager
       include Singleton
 
-      attr_reader :initialized_at, :status, :logger, :base_task_handler, :registry
+      attr_reader :initialized_at, :status, :logger, :base_task_handler
 
       def initialize
         @initialized = false
@@ -23,7 +23,7 @@ module TaskerCore
         @pgmq_client = nil
         @embedded_orchestrator = nil
         @logger = TaskerCore::Logging::Logger.instance
-        @registry = TaskerCore::Orchestration::DistributedHandlerRegistry.instance
+        # Registry is accessed as singleton, no need to store instance
       end
 
       # Get the orchestration system (pgmq-based initialization)
@@ -56,10 +56,10 @@ module TaskerCore
         }
 
         # Add handler registry information for distributed mode
-        base_info[:handler_registry] = if orchestration_mode == 'distributed' && @registry
+        base_info[:handler_registry] = if orchestration_mode == 'distributed'
                                          {
                                            available: true,
-                                           stats: @registry.stats
+                                           stats: TaskerCore::Registry::StepHandlerResolver.instance.stats
                                          }
                                        else
                                          { available: false }
@@ -106,14 +106,16 @@ module TaskerCore
         if @registry
           begin
             logger.debug '🔄 Resetting handler registry...'
-            # Note: DistributedHandlerRegistry is a singleton, so we don't nil it
+            # Note: StepHandlerResolver is a singleton, so we don't nil it
             # but we do clear any cached state if needed
+            TaskerCore::Registry::StepHandlerResolver.instance.clear_callables!
             logger.debug '✅ Handler registry reset'
           rescue StandardError => e
             logger.warn "⚠️ Failed to reset handler registry: #{e.message}"
           end
         end
-        @registry = nil
+        # Registry is a singleton, just clear its state instead of nil-ing
+        TaskerCore::Registry::StepHandlerResolver.instance.clear_callables!
 
         # Force garbage collection to clean up any lingering objects
         begin
@@ -180,6 +182,19 @@ module TaskerCore
         end
 
         @orchestration_mode
+      end
+
+      # Get the step handler resolver (backward compatibility alias)
+      # Returns nil in embedded mode since distributed handlers aren't used
+      def distributed_handler_registry
+        return nil if orchestration_mode == 'embedded'
+
+        TaskerCore::Registry::StepHandlerResolver.instance
+      end
+
+      # Get the step handler resolver
+      def registry
+        TaskerCore::Registry::StepHandlerResolver.instance
       end
 
       # Check if pgmq is available
@@ -282,7 +297,7 @@ module TaskerCore
         logger.debug '🔧 Bootstrapping distributed handler registry'
 
         # Initialize distributed handler registry and bootstrap handlers
-        result = registry.bootstrap_handlers
+        result = TaskerCore::Registry::StepHandlerResolver.instance.bootstrap_handlers
 
         unless result['status'] == 'success'
           raise TaskerCore::Errors::OrchestrationError,
@@ -298,9 +313,9 @@ module TaskerCore
       def bootstrap_embedded_task_templates
         logger.debug '🔧 Loading task templates for embedded mode'
 
-        # Use the registry to discover and load task templates
-        # This mirrors what distributed mode does but is specifically for embedded
-        templates = registry.send(:discover_task_templates)
+        # Use TaskTemplateRegistry to load existing templates from database
+        # In embedded mode, templates should already be registered
+        templates = TaskerCore::Registry::TaskTemplateRegistry.instance.load_task_templates_from_database
 
         logger.info "✅ embedded mode task template bootstrap complete: #{templates.size} templates loaded"
       end

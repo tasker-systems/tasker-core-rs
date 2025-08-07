@@ -682,7 +682,7 @@ impl ComplexWorkflowBatchFactory {
                         "unique_id": format!("{:?}_{}_{}_{}", pattern, i, std::process::id(), chrono::Utc::now().timestamp_nanos()),
                         "timestamp": chrono::Utc::now().to_rfc3339()
                     }));
-                
+
                 let factory = ComplexWorkflowFactory::new()
                     .with_pattern(pattern)
                     .with_task_factory(unique_task);

@@ -113,15 +113,14 @@ pub use error::{Result, TaskerError};
 // };
 pub use messaging::{
     BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
-    StepMessage, StepMessageMetadata, TaskRequestMessage,
+    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, StepMessage,
+    StepMessageMetadata, TaskRequestMessage,
 };
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
     TelemetryConfig,
 };
 pub use registry::{
-    EventSubscriber, Plugin, PluginMetadata, PluginRegistry,
-    PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,
-    TaskHandlerRegistry,
+    EventSubscriber, Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats,
+    SubscriberDetail, SubscriberRegistry, SubscriberStats, TaskHandlerRegistry,
 };

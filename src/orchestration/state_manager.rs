@@ -657,10 +657,71 @@ impl StateManager {
         Ok(())
     }
 
+    /// Handle step failure with retry logic
+    /// If the step has retries remaining, transition to pending for retry
+    /// Otherwise, transition to error state
+    pub async fn handle_step_failure_with_retry(
+        &self,
+        step_id: i64,
+        error_message: String,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        // First transition to error state
+        let fail_event = StepEvent::Fail(error_message.clone());
+        step_state_machine
+            .transition(fail_event)
+            .await
+            .map_err(|e| OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            })?;
+
+        // Check if step has retries remaining
+        if !step_state_machine.has_exceeded_retry_limit() {
+            // Increment retry count
+            step_state_machine
+                .increment_retry_count()
+                .await
+                .map_err(|e| OrchestrationError::StateTransitionFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step_id,
+                    reason: format!("Failed to increment retry count: {}", e),
+                })?;
+
+            // Transition back to pending for retry
+            let retry_event = StepEvent::Retry;
+            step_state_machine
+                .transition(retry_event)
+                .await
+                .map_err(|e| OrchestrationError::StateTransitionFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step_id,
+                    reason: format!("Failed to transition to pending for retry: {}", e),
+                })?;
+
+            tracing::info!(
+                "Step {} failed but has retries remaining, transitioned to pending for retry. Error: {}",
+                step_id,
+                error_message
+            );
+        } else {
+            tracing::info!(
+                "Step {} failed and has no retries remaining, staying in error state. Error: {}",
+                step_id,
+                error_message
+            );
+        }
+
+        Ok(())
+    }
+
     /// Mark a task as in progress when steps have been enqueued
     pub async fn mark_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
         debug!(task_id = task_id, "Marking task as in progress");
-        self.transition_task_state(task_id, TaskState::InProgress).await
+        self.transition_task_state(task_id, TaskState::InProgress)
+            .await
     }
 
     /// Mark step as in progress - transitions state machine and sets in_process column

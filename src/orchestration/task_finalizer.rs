@@ -499,14 +499,6 @@ impl TaskFinalizer {
             return self.handle_unclear_state(task, None).await;
         };
 
-        // Check for failed steps first, regardless of execution status
-        if let Some(failed_steps) = context.failed_steps {
-            if failed_steps > 0 {
-                println!("TaskFinalizer: Task {task_id} - has {failed_steps} failed steps, marking as error");
-                return self.error_task(task, Some(context)).await;
-            }
-        }
-
         match context.execution_status.as_str() {
             "all_complete" | "finalize_task" => {
                 println!("TaskFinalizer: Task {task_id} - calling complete_task");

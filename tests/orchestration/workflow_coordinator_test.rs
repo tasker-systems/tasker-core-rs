@@ -65,9 +65,7 @@ async fn test_workflow_coordinator_basic_execution(pool: sqlx::PgPool) {
     // For now, we expect this to fail because there's no task in the database
     let task_id = 1;
 
-    let result = coordinator
-        .execute_task_workflow(task_id)
-        .await;
+    let result = coordinator.execute_task_workflow(task_id).await;
 
     // We expect an error because we don't have test data set up
     // but this verifies the coordinator is wired up correctly

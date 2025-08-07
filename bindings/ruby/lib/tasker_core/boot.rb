@@ -18,6 +18,7 @@ module TaskerCore
       # @param force_reload [Boolean] Force re-initialization even if already booted
       # @return [Hash] Boot result with status and timing information
       def boot!(force_reload: false)
+        Dotenv.load
         return boot_status unless force_reload || !@booted
 
         start_time = Time.now
@@ -49,7 +50,7 @@ module TaskerCore
             boot_time: @boot_time,
             environment: TaskerCore::Config.instance.environment,
             embedded_mode: embedded_mode?,
-            task_templates_loaded: @task_templates_loaded || 0,
+            registry_results: @registry_results,
             registries_initialized: @registries_initialized || false,
             orchestrator_started: @orchestrator_started || false
           }
@@ -77,7 +78,7 @@ module TaskerCore
           environment: TaskerCore::Config.instance&.environment,
           embedded_mode: embedded_mode?,
           database_connected: database_connected?,
-          task_templates_loaded: @task_templates_loaded || 0,
+          registry_results: @registry_results,
           registries_initialized: @registries_initialized || false,
           orchestrator_started: @orchestrator_started || false
         }
@@ -129,51 +130,7 @@ module TaskerCore
       def load_task_templates_to_database!
         logger.debug '📚 Loading TaskTemplates to database...'
 
-        # Get search paths from configuration (environment-appropriate)
-        search_patterns = TaskerCore::Config.instance.task_template_search_paths
-        logger.debug "📁 TaskTemplate search patterns from config: #{search_patterns}"
-
-        yaml_files = []
-        search_patterns.each do |pattern|
-          # Expand the pattern to handle glob matching
-          found_files = Dir.glob(pattern)
-          yaml_files.concat(found_files)
-          logger.debug "📁 Pattern #{pattern}: found #{found_files.length} files"
-        end
-
-        if yaml_files.empty?
-          logger.warn '⚠️ No TaskTemplate YAML files found'
-          @task_templates_loaded = 0
-          return true
-        end
-
-        # Load templates using database-backed registry
-        registry = TaskerCore::Orchestration::HandlerRegistry.instance
-        loaded_count = 0
-        failed_count = 0
-
-        yaml_files.each do |file_path|
-          begin
-            result = registry.register_task_template_from_yaml(file_path)
-            if result[:success]
-              loaded_count += 1
-            else
-              failed_count += 1
-              logger.warn "⚠️ Failed to load #{file_path}: #{result[:error]}"
-            end
-          rescue StandardError => e
-            failed_count += 1
-            logger.error "💥 Error loading #{file_path}: #{e.message}"
-          end
-        end
-
-        @task_templates_loaded = loaded_count
-        logger.info "📚 TaskTemplates loaded: #{loaded_count} successful, #{failed_count} failed"
-
-        # Fail fast if no templates loaded
-        if loaded_count == 0 && yaml_files.length > 0
-          raise TaskerCore::Errors::ConfigurationError, 'No TaskTemplates could be loaded to database'
-        end
+        TaskerCore::Utils::TemplateLoader.load_templates!
 
         true
       end
@@ -181,12 +138,8 @@ module TaskerCore
       # Step 4: Initialize registries (database-backed only)
       def initialize_registries!
         logger.debug '🔧 Initializing registries...'
-
-        # Initialize step handler registry (database-backed)
-        TaskerCore::Registry.step_handler_registry
-
-        # Initialize distributed handler registry (database-backed)
-        TaskerCore::Orchestration::HandlerRegistry.instance
+        TaskerCore::Registry::TaskTemplateRegistry.instance
+        TaskerCore::Registry::StepHandlerResolver.instance
 
         @registries_initialized = true
         logger.info '✅ Registries initialized'

@@ -44,7 +44,7 @@ module TaskerCore::Database::Models
   #
   # @example Creating a task from a task request
   #   task_request = Tasker::Types::TaskRequest.new(name: 'process_order', context: { order_id: 123 })
-  #   task = Tasker::Task.create_with_defaults!(task_request)
+  #   task = TaskerCore::Database::Models::Task.create_with_defaults!(task_request)
   #
   class Task < ApplicationRecord
     # Regular expression to sanitize strings for database operations
@@ -52,6 +52,7 @@ module TaskerCore::Database::Models
 
     self.primary_key = :task_id
     after_initialize :init_defaults, if: :new_record?
+    before_create :ensure_task_uuid
     belongs_to :named_task
     has_many :workflow_steps, dependent: :destroy
     has_many :task_annotations, dependent: :destroy
@@ -60,6 +61,7 @@ module TaskerCore::Database::Models
 
     validates :context, presence: true
     validates :requested_at, presence: true
+    validates :task_uuid, presence: true, uniqueness: true
     validate :unique_identity_hash, on: :create
 
     delegate :name, to: :named_task
@@ -112,6 +114,15 @@ module TaskerCore::Database::Models
         .includes(:task_transitions)
     }
 
+    # Includes all associated models for efficient querying
+    #
+    # @return [ActiveRecord::Relation] Tasks with all associated records preloaded
+    scope :with_steps_and_transitions, lambda {
+      includes(named_task: [:task_namespace])
+        .includes(workflow_steps: %i[named_step parents children])
+        .includes(:task_transitions)
+    }
+
     # Analytics scopes for performance metrics
 
     # Scopes tasks created within a specific time period
@@ -150,7 +161,7 @@ module TaskerCore::Database::Models
           ORDER BY task_id, sort_key DESC
         ) current_transitions ON current_transitions.task_id = tasker_tasks.task_id
       SQL
-        .where(current_transitions: { to_state: Tasker::Constants::TaskStatuses::ERROR })
+        .where(current_transitions: { to_state: TaskerCore::Constants::TaskStatuses::ERROR })
         .where('current_transitions.created_at > ?', since_time)
     }
 
@@ -226,7 +237,7 @@ module TaskerCore::Database::Models
     # @param task_request [Tasker::Types::TaskRequest] The task request containing task parameters
     # @return [Tasker::Task] A new unsaved task instance
     def self.from_task_request(task_request)
-      named_task = Tasker::NamedTask.find_or_create_by_full_name!(name: task_request.name,
+      named_task = TaskerCore::Database::Models::NamedTask.find_or_create_by_full_name!(name: task_request.name,
                                                                   namespace_name: task_request.namespace, version: task_request.version)
       # Extract values from task_request, removing nils
       request_values = get_request_options(task_request)
@@ -260,13 +271,13 @@ module TaskerCore::Database::Models
     # @return [Hash] Hash of default task options
     def self.get_default_task_request_options(named_task)
       {
-        initiator: Tasker::Constants::UNKNOWN,
-        source_system: Constants::UNKNOWN,
-        reason: Tasker::Constants::UNKNOWN,
+        initiator: 'unknown',
+        source_system: 'unknown',
+        reason: 'unknown',
         complete: false,
         tags: [],
         bypass_steps: [],
-        requested_at: Time.zone.now,
+        requested_at: Time.zone&.now || Time.current,
         named_task_id: named_task.named_task_id
       }
     end
@@ -295,11 +306,11 @@ module TaskerCore::Database::Models
     #
     # @return [Boolean] True if all steps are complete, false otherwise
     def all_steps_complete?
-      Tasker::StepReadinessStatus.all_steps_complete_for_task?(self)
+      TaskerCore::Database::Functions::StepReadinessStatus.all_steps_complete_for_task?(self)
     end
 
     def task_execution_context
-      @task_execution_context ||= Tasker::TaskExecutionContext.new(task_id)
+      @task_execution_context ||= TaskerCore::Database::Functions::TaskExecutionContext.new(task_id)
     end
 
     def reload
@@ -366,10 +377,10 @@ module TaskerCore::Database::Models
     # @return [Hash] Hash of default values
     def task_defaults
       @task_defaults ||= {
-        requested_at: Time.zone.now,
-        initiator: Tasker::Constants::UNKNOWN,
-        source_system: Tasker::Constants::UNKNOWN,
-        reason: Tasker::Constants::UNKNOWN,
+        requested_at: Time.zone&.now || Time.current,
+        initiator: 'unknown',
+        source_system: 'unknown',
+        reason: 'unknown',
         complete: false,
         tags: [],
         bypass_steps: []
@@ -380,7 +391,7 @@ module TaskerCore::Database::Models
     #
     # @return [Object] The identity strategy instance
     def identity_strategy
-      @identity_strategy ||= Tasker::Configuration.configuration.engine.identity_strategy_instance
+      @identity_strategy ||= TaskerCore::Config.instance.engine.identity_strategy_instance
     end
 
     # Sets the identity hash for this task using the configured identity strategy
@@ -388,6 +399,14 @@ module TaskerCore::Database::Models
     # @return [String] The generated identity hash
     def set_identity_hash
       self.identity_hash = identity_strategy.generate_identity_hash(self, identity_options)
+    end
+
+    # Ensures the task has a UUID before creation
+    # Fallback if DB default fails for any reason
+    #
+    # @return [void]
+    def ensure_task_uuid
+      self.task_uuid ||= SecureRandom.uuid
     end
   end
 end

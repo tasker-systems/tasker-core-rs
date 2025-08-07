@@ -58,7 +58,7 @@ impl Default for OrchestrationSystemConfig {
             task_requests_queue_name: "task_requests_queue".to_string(),
             orchestrator_id: format!("orchestrator-{timestamp}"),
             orchestration_loop_config: OrchestrationLoopConfig::default(),
-            task_request_polling_interval_ms: 250,  // 250ms = 4x/sec default
+            task_request_polling_interval_ms: 250, // 250ms = 4x/sec default
             task_request_visibility_timeout_seconds: 300, // 5 minutes
             task_request_batch_size: 10,
             active_namespaces: vec![
@@ -621,7 +621,7 @@ mod tests {
                 cycle_interval: Duration::from_secs(5),
                 ..OrchestrationLoopConfig::default()
             },
-            task_request_polling_interval_ms: 500,  // 500ms for test
+            task_request_polling_interval_ms: 500, // 500ms for test
             task_request_visibility_timeout_seconds: 600,
             task_request_batch_size: 25,
             active_namespaces: vec!["custom".to_string(), "test".to_string()],

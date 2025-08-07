@@ -77,22 +77,25 @@ impl OrchestrationSystem {
             database_pool.clone(),
             (*pgmq_client).clone(),
             format!("embedded-orchestrator-{}", Uuid::new_v4()),
-        ).await?;
+        )
+        .await?;
 
         // Create task handler registry for task request processor
-        let task_handler_registry = Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
-            database_pool.clone(),
-            event_publisher.clone(),
-        ));
+        let task_handler_registry =
+            Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            ));
 
         // Create task request processor configuration
-        let task_request_config = crate::orchestration::task_request_processor::TaskRequestProcessorConfig {
-            request_queue_name: "task_requests_queue".to_string(),
-            polling_interval_seconds: 1,
-            visibility_timeout_seconds: 300,
-            batch_size: 10,
-            max_processing_attempts: 3,
-        };
+        let task_request_config =
+            crate::orchestration::task_request_processor::TaskRequestProcessorConfig {
+                request_queue_name: "task_requests_queue".to_string(),
+                polling_interval_seconds: 1,
+                visibility_timeout_seconds: 300,
+                batch_size: 10,
+                max_processing_attempts: 3,
+            };
 
         // Create task request processor for processing incoming task requests
         // We need to share the task_initializer, so wrap it in Arc
@@ -105,10 +108,8 @@ impl OrchestrationSystem {
         );
 
         // Create step result processor for processing step results
-        let step_result_processor = StepResultProcessor::new(
-            database_pool.clone(),
-            (*pgmq_client).clone(),
-        ).await?;
+        let step_result_processor =
+            StepResultProcessor::new(database_pool.clone(), (*pgmq_client).clone()).await?;
 
         let system = Arc::new(Self {
             database_pool,
@@ -149,8 +150,16 @@ impl OrchestrationSystem {
         );
 
         // Use the embedded task initializer with full registry support
-        let result = self.shared_task_initializer.create_task_from_request(task_request).await
-            .map_err(|e| crate::error::TaskerError::DatabaseError(format!("Task initialization failed: {}", e)))?;
+        let result = self
+            .shared_task_initializer
+            .create_task_from_request(task_request)
+            .await
+            .map_err(|e| {
+                crate::error::TaskerError::DatabaseError(format!(
+                    "Task initialization failed: {}",
+                    e
+                ))
+            })?;
 
         info!(
             task_id = result.task_id,
@@ -194,7 +203,7 @@ impl OrchestrationSystem {
         &self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("🚀 Starting complete orchestration system for embedded mode");
-        
+
         // Start all three processors concurrently
         // This mirrors the full orchestration system architecture
         let orchestration_loop = Arc::clone(&self.orchestration_loop);
@@ -263,15 +272,20 @@ impl OrchestrationSystem {
 
 /// Initialize unified orchestration system (global singleton for FFI modules)
 pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
-    static GLOBAL_SYSTEM: std::sync::OnceLock<Arc<OrchestrationSystem>> = std::sync::OnceLock::new();
-    
-    GLOBAL_SYSTEM.get_or_init(|| {
-        info!("🎯 Creating global unified orchestration system");
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(async {
-            OrchestrationSystem::new().await.expect("Failed to initialize orchestration system")
+    static GLOBAL_SYSTEM: std::sync::OnceLock<Arc<OrchestrationSystem>> =
+        std::sync::OnceLock::new();
+
+    GLOBAL_SYSTEM
+        .get_or_init(|| {
+            info!("🎯 Creating global unified orchestration system");
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            rt.block_on(async {
+                OrchestrationSystem::new()
+                    .await
+                    .expect("Failed to initialize orchestration system")
+            })
         })
-    }).clone()
+        .clone()
 }
 
 /// Execute async code synchronously (for FFI modules)
@@ -279,6 +293,6 @@ pub fn execute_async<F, R>(future: F) -> R
 where
     F: std::future::Future<Output = R>,
 {
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");  
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     rt.block_on(future)
 }

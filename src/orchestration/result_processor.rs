@@ -93,7 +93,6 @@ impl OrchestrationResultProcessor {
 
         // Delegate to existing state management logic
         self.handle_partial_result(
-            0, // batch_id not used in pgmq architecture
             step_id,
             status,
             output,
@@ -110,7 +109,6 @@ impl OrchestrationResultProcessor {
     /// Extracted from ZmqPubSubExecutor::handle_partial_result() lines 402-418.
     pub async fn handle_partial_result(
         &self,
-        batch_id: i64,
         step_id: i64,
         status: String,
         output: Option<Value>,
@@ -119,9 +117,8 @@ impl OrchestrationResultProcessor {
         worker_id: String,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
-            "Processing partial result for step {} in batch {}: status={} worker={} exec_time={}ms",
+            "Processing partial result for step {} status={} worker={} exec_time={}ms",
             step_id,
-            batch_id,
             status,
             worker_id,
             execution_time_ms
@@ -129,7 +126,7 @@ impl OrchestrationResultProcessor {
 
         // Delegate to StateManager for step state updates (preserving existing orchestration logic)
         let state_update_result = match status.as_str() {
-            "completed" => {
+            "success" => {
                 self.state_manager
                     .complete_step_with_results(step_id, output.clone())
                     .await
@@ -140,7 +137,7 @@ impl OrchestrationResultProcessor {
                     .map(|e| e.message.clone())
                     .unwrap_or_else(|| "Step execution failed".to_string());
                 self.state_manager
-                    .fail_step_with_error(step_id, error_message)
+                    .handle_step_failure_with_retry(step_id, error_message)
                     .await
             }
             "in_progress" => self.state_manager.mark_step_in_progress(step_id).await,
@@ -160,7 +157,7 @@ impl OrchestrationResultProcessor {
                 );
 
                 // If step completed or failed, check if task should be finalized
-                if matches!(status.as_str(), "completed" | "failed") {
+                if matches!(status.as_str(), "success" | "failed") {
                     if let Ok(Some(workflow_step)) =
                         WorkflowStep::find_by_id(&self.pool, step_id).await
                     {

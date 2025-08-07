@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-require_relative '../functions/function_based_dependency_levels'
-require_relative '../telemetry/intelligent_cache_manager'
-
-module Tasker
+module TaskerCore
   module Analysis
     # Runtime Graph Analyzer for Workflow Dependencies
     #
@@ -36,7 +33,6 @@ module Tasker
         @task = task
         @task_id = task.task_id
         @cache = {}
-        @intelligent_cache = Tasker::Telemetry::IntelligentCacheManager.new
       end
 
       # Perform comprehensive workflow analysis
@@ -57,35 +53,15 @@ module Tasker
       #   puts "Longest path: #{analysis[:critical_paths][:longest_path_length]} steps"
       #   puts "Critical bottlenecks: #{analysis[:bottlenecks][:critical_bottlenecks]}"
       def analyze
-        # Use intelligent caching for expensive workflow analysis
-        cache_key = "tasker:analysis:runtime_graph:#{task_id}:#{task_analysis_cache_version}"
-
-        @intelligent_cache.intelligent_fetch(cache_key, base_ttl: 90.seconds) do
-          {
-            dependency_graph: build_dependency_graph,
-            critical_paths: analyze_critical_paths,
-            parallelism_opportunities: analyze_parallelism,
-            error_chains: analyze_error_chains,
-            bottlenecks: identify_bottlenecks,
-            generated_at: Time.current,
-            task_id: task_id
-          }
-        end
-      end
-
-      # Clear all cached analysis results
-      #
-      # Forces fresh analysis on next call to {#analyze}. Useful when task state
-      # has changed and you need updated analysis.
-      #
-      # @return [void]
-      def clear_cache!
-        @cache.clear
-
-        # Clear intelligent cache for this task
-        cache_key = "tasker:analysis:runtime_graph:#{task_id}:#{task_analysis_cache_version}"
-        @intelligent_cache.clear_performance_data(cache_key)
-        Rails.cache.delete(cache_key)
+        {
+          dependency_graph: build_dependency_graph,
+          critical_paths: analyze_critical_paths,
+          parallelism_opportunities: analyze_parallelism,
+          error_chains: analyze_error_chains,
+          bottlenecks: identify_bottlenecks,
+          generated_at: Time.now,
+          task_id: task_id
+        }
       end
 
       # Build complete dependency graph structure
@@ -127,7 +103,7 @@ module Tasker
       # @return [Tasker::Types::DependencyGraphConfig] Configuration for calculations
       # @api private
       def dependency_graph_config
-        @dependency_graph_config ||= Tasker::Configuration.configuration.dependency_graph
+        @dependency_graph_config ||= TaskerCore::Config.instance.dependency_graph
       end
 
       # Generate cache version based on task state for intelligent cache invalidation
@@ -154,7 +130,7 @@ module Tasker
       # @return [ActiveRecord::Relation] Workflow step edges for this task
       # @api private
       def load_workflow_edges
-        WorkflowStepEdge.joins(:from_step, :to_step)
+        TaskerCore::Database::Models::WorkflowStepEdge.joins(:from_step, :to_step)
                         .where(from_step: { task_id: task_id })
                         .select(:from_step_id, :to_step_id)
       end
@@ -225,7 +201,7 @@ module Tasker
       # @return [Hash] Step ID to dependency level mapping
       # @api private
       def calculate_dependency_levels_sql
-        Tasker::Functions::FunctionBasedDependencyLevels.levels_hash_for_task(task_id)
+        TaskerCore::Database::Functions::FunctionBasedDependencyLevels.levels_hash_for_task(task_id)
       end
 
       # Analyze critical paths through the dependency graph
@@ -393,7 +369,7 @@ module Tasker
       # @api private
       def get_step_readiness_data
         @get_step_readiness_data ||= begin
-          data = Tasker::Functions::FunctionBasedStepReadinessStatus.for_task(task_id)
+          data = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id)
           data.index_by(&:workflow_step_id)
         end
       end
@@ -406,7 +382,7 @@ module Tasker
       # @return [Object] Task execution context with metrics and status
       # @api private
       def get_task_execution_context
-        @get_task_execution_context ||= Tasker::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+        @get_task_execution_context ||= TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
       end
 
       # Calculate estimated duration for a path using configurable estimates

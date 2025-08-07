@@ -57,8 +57,8 @@ module TaskerCore::Database::Models
       ntns = named_steps_for_named_task(named_task.named_task_id).where(named_step: { name: named_step.name }).first
       return ntns if ntns
 
-      dependent_system = Tasker::DependentSystem.find_or_create_by!(name: template.dependent_system)
-      named_step = Tasker::NamedStep.find_or_create_by!(name: template.name,
+      dependent_system = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: template.dependent_system)
+      named_step = TaskerCore::Database::Models::NamedStep.find_or_create_by!(name: template.name,
                                                         dependent_system_id: dependent_system.dependent_system_id)
       find_or_create(
         named_task,

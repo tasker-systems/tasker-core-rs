@@ -284,8 +284,11 @@ impl OrchestrationLoop {
 
         // PHASE 1: Claim ready tasks with priority fairness
         let claim_start = Instant::now();
-        info!("🎯 ORCHESTRATION_LOOP: Attempting to claim {} ready tasks", self.config.tasks_per_cycle);
-        
+        info!(
+            "🎯 ORCHESTRATION_LOOP: Attempting to claim {} ready tasks",
+            self.config.tasks_per_cycle
+        );
+
         let claimed_tasks = self
             .task_claimer
             .claim_ready_tasks(
@@ -297,7 +300,8 @@ impl OrchestrationLoop {
 
         info!(
             "📊 ORCHESTRATION_LOOP: Task claiming completed - claimed {} tasks in {}ms",
-            claimed_tasks.len(), claim_duration_ms
+            claimed_tasks.len(),
+            claim_duration_ms
         );
 
         if claimed_tasks.is_empty() {

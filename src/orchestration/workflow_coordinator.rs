@@ -247,7 +247,6 @@ impl WorkflowCoordinator {
         }
     }
 
-
     /// Create a WorkflowCoordinator for testing with minimal setup
     #[cfg(any(test, feature = "test-helpers"))]
     pub async fn for_testing(pool: sqlx::PgPool) -> Self {
@@ -255,7 +254,7 @@ impl WorkflowCoordinator {
         let config_manager = Arc::new(ConfigurationManager::new());
         let event_publisher = crate::events::EventPublisher::new();
         let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);
-        
+
         Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
 
@@ -266,10 +265,9 @@ impl WorkflowCoordinator {
         let config_manager = Arc::new(ConfigurationManager::new());
         let event_publisher = crate::events::EventPublisher::new();
         let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);
-        
+
         Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
-
 
     /// Execute a complete task workflow
     ///
@@ -925,7 +923,6 @@ impl WorkflowCoordinator {
     }
 
     // execute_step_batch_pgmq method removed - deprecated in Phase 5.2
-
 
     /// Determine the namespace for a step based on its name
     async fn determine_step_namespace(&self, step: &ViableStep) -> OrchestrationResult<String> {

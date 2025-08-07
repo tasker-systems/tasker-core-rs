@@ -44,10 +44,10 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
 use crate::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
+use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::handler_config::HandlerConfiguration;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
-use crate::orchestration::config::ConfigurationManager;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -198,7 +198,7 @@ impl TaskInitializer {
         let config_manager = std::sync::Arc::new(ConfigurationManager::new());
         let registry = std::sync::Arc::new(crate::registry::TaskHandlerRegistry::new(pool.clone()));
         let task_config_finder = TaskConfigFinder::new(config_manager, registry);
-        
+
         Self {
             pool,
             config: TaskInitializationConfig::default(),
@@ -799,7 +799,9 @@ impl TaskInitializer {
 
         // Fall back to filesystem configuration using TaskConfigFinder
         if let Some(task_config_finder) = &self.task_config_finder {
-            return self.load_from_filesystem(task_request, task_config_finder).await;
+            return self
+                .load_from_filesystem(task_request, task_config_finder)
+                .await;
         }
 
         // No configuration source available
@@ -842,32 +844,40 @@ impl TaskInitializer {
         if let Some(config_json) = metadata.config_schema {
             // The database now stores the full TaskTemplate structure directly
             // Try to deserialize as TaskTemplate first (new format), then convert to HandlerConfiguration
-            match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(config_json.clone()) {
+            match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(
+                config_json.clone(),
+            ) {
                 Ok(task_template) => {
                     // Convert TaskTemplate to HandlerConfiguration
                     // We need to convert the step templates and environments from TaskTemplate types to HandlerConfiguration types
-                    let handler_step_templates = task_template.step_templates.into_iter().map(|st| {
-                        crate::orchestration::handler_config::StepTemplate {
-                            name: st.name,
-                            description: st.description,
-                            dependent_system: st.dependent_system,
-                            default_retryable: st.default_retryable,
-                            default_retry_limit: st.default_retry_limit,
-                            skippable: st.skippable,
-                            timeout_seconds: None, // TaskTemplate doesn't have this field
-                            handler_class: st.handler_class,
-                            handler_config: st.handler_config,
-                            depends_on_step: st.depends_on_step,
-                            depends_on_steps: st.depends_on_steps,
-                            custom_events: st.custom_events,
-                        }
-                    }).collect();
+                    let handler_step_templates = task_template
+                        .step_templates
+                        .into_iter()
+                        .map(|st| {
+                            crate::orchestration::handler_config::StepTemplate {
+                                name: st.name,
+                                description: st.description,
+                                dependent_system: st.dependent_system,
+                                default_retryable: st.default_retryable,
+                                default_retry_limit: st.default_retry_limit,
+                                skippable: st.skippable,
+                                timeout_seconds: None, // TaskTemplate doesn't have this field
+                                handler_class: st.handler_class,
+                                handler_config: st.handler_config,
+                                depends_on_step: st.depends_on_step,
+                                depends_on_steps: st.depends_on_steps,
+                                custom_events: st.custom_events,
+                            }
+                        })
+                        .collect();
 
                     let handler_environments = task_template.environments.map(|envs| {
-                        envs.into_iter().map(|(name, env)| {
-                            let handler_env = crate::orchestration::handler_config::EnvironmentConfig {
-                                step_templates: env.step_templates.map(|sts| {
-                                    sts.into_iter().map(|st| {
+                        envs.into_iter()
+                            .map(|(name, env)| {
+                                let handler_env =
+                                    crate::orchestration::handler_config::EnvironmentConfig {
+                                        step_templates: env.step_templates.map(|sts| {
+                                            sts.into_iter().map(|st| {
                                         crate::orchestration::handler_config::StepTemplateOverride {
                                             name: st.name,
                                             handler_config: st.handler_config,
@@ -879,12 +889,13 @@ impl TaskInitializer {
                                             timeout_seconds: None, // TaskTemplate doesn't have this field
                                         }
                                     }).collect()
-                                }),
-                                default_context: env.default_context,
-                                default_options: env.default_options,
-                            };
-                            (name, handler_env)
-                        }).collect()
+                                        }),
+                                        default_context: env.default_context,
+                                        default_options: env.default_options,
+                                    };
+                                (name, handler_env)
+                            })
+                            .collect()
                     });
 
                     let handler_config = HandlerConfiguration {
@@ -903,20 +914,20 @@ impl TaskInitializer {
                         default_context: task_template.default_context,
                         default_options: task_template.default_options,
                     };
-                    
+
                     if handler_config.step_templates.is_empty() {
                         return Err(TaskInitializationError::ConfigurationNotFound(format!(
                             "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
                             handler_config.namespace_name, handler_config.name
                         )));
                     }
-                    
+
                     return Ok(handler_config);
                 }
                 Err(task_template_error) => {
                     // Fall back to old nested format for backward compatibility
                     debug!("Failed to deserialize as TaskTemplate (new format): {}, trying old nested format", task_template_error);
-                    
+
                     let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
                         TaskInitializationError::ConfigurationNotFound(format!(
                             "Configuration is neither new TaskTemplate format nor old nested format with handler_config field for {namespace}/{name}. TaskTemplate error: {task_template_error}"
@@ -931,14 +942,14 @@ impl TaskInitializer {
                             "Failed to deserialize handler configuration for {namespace}/{name}: {e}. Handler config: {handler_config_value}"
                         ))
                             })?;
-                    
+
                     if handler_config.step_templates.is_empty() {
                         return Err(TaskInitializationError::ConfigurationNotFound(format!(
                             "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
                             handler_config.namespace_name, handler_config.name
                         )));
                     }
-                    
+
                     return Ok(handler_config);
                 }
             }
@@ -987,32 +998,43 @@ impl TaskInitializer {
             default_dependent_system: task_template.default_dependent_system,
             named_steps: task_template.named_steps,
             schema: task_template.schema,
-            step_templates: task_template.step_templates.into_iter().map(|st| {
-                crate::orchestration::handler_config::StepTemplate {
-                    name: st.name,
-                    description: st.description,
-                    dependent_system: st.dependent_system.or_else(|| Some("default".to_string())), // Use actual field with default fallback
-                    default_retryable: st.default_retryable,
-                    default_retry_limit: st.default_retry_limit,
-                    skippable: st.skippable, // Use actual field from models
-                    timeout_seconds: None, // This field exists in handler_config but not in models - keep as None for now
-                    handler_class: st.handler_class,
-                    handler_config: st.handler_config,
-                    depends_on_step: st.depends_on_step,
-                    depends_on_steps: st.depends_on_steps,
-                    custom_events: st.custom_events, // Use actual field from models
-                }
-            }).collect(),
+            step_templates: task_template
+                .step_templates
+                .into_iter()
+                .map(|st| {
+                    crate::orchestration::handler_config::StepTemplate {
+                        name: st.name,
+                        description: st.description,
+                        dependent_system: st
+                            .dependent_system
+                            .or_else(|| Some("default".to_string())), // Use actual field with default fallback
+                        default_retryable: st.default_retryable,
+                        default_retry_limit: st.default_retry_limit,
+                        skippable: st.skippable, // Use actual field from models
+                        timeout_seconds: None, // This field exists in handler_config but not in models - keep as None for now
+                        handler_class: st.handler_class,
+                        handler_config: st.handler_config,
+                        depends_on_step: st.depends_on_step,
+                        depends_on_steps: st.depends_on_steps,
+                        custom_events: st.custom_events, // Use actual field from models
+                    }
+                })
+                .collect(),
             environments: task_template.environments.map(|envs| {
-                envs.into_iter().map(|(key, _env_config)| {
-                    // For now, just create empty environment configs
-                    // We could expand this if needed
-                    (key, crate::orchestration::handler_config::EnvironmentConfig {
-                        step_templates: None,
-                        default_context: None,
-                        default_options: None,
+                envs.into_iter()
+                    .map(|(key, _env_config)| {
+                        // For now, just create empty environment configs
+                        // We could expand this if needed
+                        (
+                            key,
+                            crate::orchestration::handler_config::EnvironmentConfig {
+                                step_templates: None,
+                                default_context: None,
+                                default_options: None,
+                            },
+                        )
                     })
-                }).collect()
+                    .collect()
             }),
             handler_config: None, // TaskTemplate doesn't have a top-level handler_config
             default_context: task_template.default_context,

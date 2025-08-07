@@ -59,11 +59,11 @@ impl DatabaseMigrations {
     /// Run all migrations in order
     pub async fn run_all(pool: &PgPool) -> Result<(), sqlx::Error> {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_default();
-        
+
         // More sophisticated test detection - only drop schema for pure unit tests
         // Integration tests (TASKER_ENV=test) should preserve schema populated by Ruby
-        let is_unit_test = database_url.contains("test") && 
-            std::env::var("TASKER_ENV").unwrap_or_default() != "test";
+        let is_unit_test = database_url.contains("test")
+            && std::env::var("TASKER_ENV").unwrap_or_default() != "test";
 
         if is_unit_test {
             // For unit test database, use database-level locking to ensure only one thread initializes schema
@@ -329,10 +329,10 @@ impl DatabaseMigrations {
         // Check if core tables exist to determine if schema is set up
         let core_tables = vec![
             "tasker_tasks",
-            "tasker_workflow_steps", 
+            "tasker_workflow_steps",
             "tasker_task_namespaces",
             "tasker_named_tasks",
-            "tasker_named_steps"
+            "tasker_named_steps",
         ];
 
         let mut existing_tables = 0;
@@ -341,7 +341,7 @@ impl DatabaseMigrations {
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{}' AND table_schema = 'public')",
                 table
             );
-            
+
             match sqlx::query(&check_query).fetch_one(pool).await {
                 Ok(row) => {
                     if row.get::<bool, _>("exists") {
@@ -353,9 +353,11 @@ impl DatabaseMigrations {
         }
 
         // Get current migration version if migrations table exists
-        let current_version = match sqlx::query("SELECT version FROM tasker_schema_migrations ORDER BY version DESC LIMIT 1")
-            .fetch_optional(pool)
-            .await
+        let current_version = match sqlx::query(
+            "SELECT version FROM tasker_schema_migrations ORDER BY version DESC LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await
         {
             Ok(Some(row)) => row.get::<String, _>("version"),
             Ok(None) => "none".to_string(),

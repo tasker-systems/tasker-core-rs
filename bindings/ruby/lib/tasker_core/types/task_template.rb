@@ -18,20 +18,26 @@ module TaskerCore
       attribute :handler_config, Types::Hash.default({}.freeze)
       attribute :depends_on_step, Types::String.optional.default(nil)
       attribute :depends_on_steps, Types::Array.of(Types::String).default([].freeze)
-      attribute :default_retryable, Types::Bool.default(false)
-      attribute :default_retry_limit, Types::Integer.default(0)
+      attribute :default_retryable, Types::Bool.default(true)
+      attribute :default_retry_limit, Types::Integer.default(3)
       attribute :timeout_seconds, Types::Integer.optional.default(nil)
     end
 
-    # Environment-specific step override
     class StepOverride < Dry::Struct
-      attribute :retry_limit, Types::Integer.optional.default(nil)
-      attribute :handler_config, Types::Hash.default({}.freeze)
+      attribute :name, Types::Strict::String
+      attribute? :description, Types::String.optional.default(nil)
+      attribute? :handler_class, Types::Strict::String.optional.default(nil)
+      attribute? :handler_config, Types::Hash.default({}.freeze)
+      attribute? :depends_on_step, Types::String.optional.default(nil)
+      attribute? :depends_on_steps, Types::Array.of(Types::Coercible::String).optional.default(nil)
+      attribute? :default_retryable, Types::Bool.optional.default(nil)
+      attribute? :default_retry_limit, Types::Integer.optional.default(nil)
+      attribute? :timeout_seconds, Types::Integer.optional.default(nil)
     end
 
     # Environment configuration
     class EnvironmentConfig < Dry::Struct
-      attribute :step_overrides, Types::Hash.map(Types::String, StepOverride).default({}.freeze)
+      attribute :step_templates, Types::Array.of(StepOverride).default([].freeze)
     end
 
     # Main TaskTemplate structure
@@ -45,16 +51,16 @@ module TaskerCore
       attribute :version, Types::String.constrained(format: VERSION_PATTERN).default('1.0.0')
 
       # Optional attributes with defaults
-      attribute :task_handler_class, Types::String.optional.default(nil)
-      attribute :module_namespace, Types::String.optional.default(nil)
-      attribute :description, Types::String.optional.default(nil)
-      attribute :default_dependent_system, Types::String.optional.default(nil)
+      attribute :task_handler_class, Types::Coercible::String.optional.default(nil)
+      attribute :module_namespace, Types::Coercible::String.optional.default(nil)
+      attribute :description, Types::Coercible::String.optional.default(nil)
+      attribute :default_dependent_system, Types::Coercible::String.optional.default(nil)
       attribute :schema, Types::Hash.optional.default(nil)
-      attribute :named_steps, Types::Array.of(Types::String).default([].freeze)
+      attribute :named_steps, Types::Array.of(Types::Coercible::String).default([].freeze)
       attribute :step_templates, Types::Array.of(StepTemplate).default([].freeze)
-      attribute :environments, Types::Hash.map(Types::String, EnvironmentConfig).default({}.freeze)
+      attribute :environments, Types::Hash.map(Types::Coercible::String, EnvironmentConfig).default({}.freeze)
       attribute :handler_config, Types::Hash.default({}.freeze)
-      attribute :custom_events, Types::Array.of(Types::String).default([].freeze)
+      attribute :custom_events, Types::Array.of(Types::Coercible::String).default([].freeze)
 
       # Metadata (not persisted to database)
       attribute :loaded_from, Types::String.optional.default(nil)

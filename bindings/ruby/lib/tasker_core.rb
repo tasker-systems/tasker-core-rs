@@ -43,7 +43,8 @@ require_relative 'tasker_core/logging/logger'            # Logging system
 require_relative 'tasker_core/config'                    # Configuration management system
 # 🎯 NEW: Utility infrastructure
 require_relative 'tasker_core/utils/path_resolver' # Centralized path resolution
-require_relative 'tasker_core/config/validator'    # Configuration validation
+require_relative 'tasker_core/utils/template_loader' # Centralized template loading
+require_relative 'tasker_core/config/validator' # Configuration validation
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/internal/orchestration_manager' # Singleton orchestration manager
@@ -52,6 +53,7 @@ require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struc
 require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
 require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
 require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
+require_relative 'tasker_core/execution'         # TaskerCore::Execution - step sequence and processing
 
 # 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
 require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers

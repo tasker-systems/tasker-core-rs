@@ -43,7 +43,6 @@ impl PgmqClient {
         Ok(Self { pgmq })
     }
 
-
     /// Create new pgmq client using existing connection pool (BYOP - Bring Your Own Pool)
     pub async fn new_with_pool(pool: sqlx::PgPool) -> Self {
         info!("🚀 Creating pgmq client with shared connection pool");
@@ -129,7 +128,11 @@ impl PgmqClient {
         );
 
         let messages = match limit {
-            Some(l) => self.pgmq.read_batch(queue_name, vt, l).await?.unwrap_or_default(),
+            Some(l) => self
+                .pgmq
+                .read_batch(queue_name, vt, l)
+                .await?
+                .unwrap_or_default(),
             None => match self.pgmq.read(queue_name, vt).await? {
                 Some(msg) => vec![msg],
                 None => vec![],
@@ -252,11 +255,10 @@ impl PgmqClient {
         );
 
         // Use pgmq's transaction support - checking if available
-        let message_id = self.pgmq.send(queue_name, message).await.map_err(|e| {
-            format!(
-                "Failed to send message to {queue_name} in transaction: {e}"
-            )
-        })?;
+        let message_id =
+            self.pgmq.send(queue_name, message).await.map_err(|e| {
+                format!("Failed to send message to {queue_name} in transaction: {e}")
+            })?;
 
         debug!("✅ Message sent in transaction with id: {}", message_id);
         Ok(message_id)

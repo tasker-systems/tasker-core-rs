@@ -127,7 +127,10 @@ async fn test_create_task_with_custom_config(pool: PgPool) -> sqlx::Result<()> {
         .expect("Custom config task initialization should succeed");
 
     assert!(result.task_id > 0);
-    assert_eq!(result.step_count, 1, "Should have 1 step from custom config");
+    assert_eq!(
+        result.step_count, 1,
+        "Should have 1 step from custom config"
+    );
 
     // Note: TaskInitializer::for_testing always creates state transitions
     // This test verifies the config loading works, the state machine behavior
@@ -532,11 +535,12 @@ async fn test_state_machine_initialization_options(pool: PgPool) -> sqlx::Result
     // For now, use for_testing since we don't have for_testing_with_config yet
     let initializer_enabled = TaskInitializer::for_testing(pool.clone());
 
-    let task_request_enabled = TaskRequest::new("state_machine_enabled".to_string(), "test".to_string())
-        .with_context(serde_json::json!({"test": "state_machine_enabled"}))
-        .with_initiator("state_test_enabled".to_string())
-        .with_source_system("test_system".to_string())
-        .with_reason("State machine test enabled".to_string());
+    let task_request_enabled =
+        TaskRequest::new("state_machine_enabled".to_string(), "test".to_string())
+            .with_context(serde_json::json!({"test": "state_machine_enabled"}))
+            .with_initiator("state_test_enabled".to_string())
+            .with_source_system("test_system".to_string())
+            .with_reason("State machine test enabled".to_string());
 
     let result_enabled = initializer_enabled
         .create_task_from_request(task_request_enabled)
@@ -564,14 +568,15 @@ async fn test_state_machine_initialization_options(pool: PgPool) -> sqlx::Result
         event_metadata: Some(serde_json::json!({"test": "disabled"})),
     };
 
-    // For now, use for_testing since we don't have for_testing_with_config yet  
+    // For now, use for_testing since we don't have for_testing_with_config yet
     let initializer_disabled = TaskInitializer::for_testing(pool.clone());
 
-    let task_request_disabled = TaskRequest::new("state_machine_enabled".to_string(), "test".to_string())
-        .with_context(serde_json::json!({"test": "state_machine_disabled"}))
-        .with_initiator("state_test_disabled".to_string())
-        .with_source_system("test_system".to_string())
-        .with_reason("State machine test disabled".to_string());
+    let task_request_disabled =
+        TaskRequest::new("state_machine_enabled".to_string(), "test".to_string())
+            .with_context(serde_json::json!({"test": "state_machine_disabled"}))
+            .with_initiator("state_test_disabled".to_string())
+            .with_source_system("test_system".to_string())
+            .with_reason("State machine test disabled".to_string());
 
     let result_disabled = initializer_disabled
         .create_task_from_request(task_request_disabled)

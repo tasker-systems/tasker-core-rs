@@ -220,7 +220,7 @@ impl TaskBuilder {
             tags: None,
             context: Some(context.clone()),
             identity_hash: Task::generate_identity_hash(named_task.named_task_id, &Some(context)),
-            priority: Some(2), // Default to normal priority
+            priority: Some(2),                // Default to normal priority
             claim_timeout_seconds: Some(300), // Default to 5 minutes
         };
         Task::create(pool, new_task)

@@ -6,6 +6,7 @@ module TaskerCore::Database::Models
     PROVIDES_EDGE_NAME = 'provides'
 
     self.primary_key = :workflow_step_id
+    before_create :ensure_step_uuid
     belongs_to :task
     belongs_to :named_step
     # belongs_to :depends_on_step, class_name: 'WorkflowStep', optional: true
@@ -26,6 +27,7 @@ module TaskerCore::Database::Models
     has_many :workflow_step_transitions, inverse_of: :workflow_step, dependent: :destroy
 
     validates :named_step_id, uniqueness: { scope: :task_id, message: 'must be unique within the same task' }
+    validates :step_uuid, presence: true, uniqueness: true
     validate :name_uniqueness_within_task
 
     delegate :name, to: :named_step
@@ -434,6 +436,14 @@ module TaskerCore::Database::Models
                            .where.not(workflow_step_id: workflow_step_id) # Exclude self when updating
 
       errors.add(:base, "Step name '#{name}' must be unique within the same task") if matching_steps.exists?
+    end
+
+    # Ensures the workflow step has a UUID before creation
+    # Fallback if DB default fails for any reason
+    #
+    # @return [void]
+    def ensure_step_uuid
+      self.step_uuid ||= SecureRandom.uuid
     end
   end
 end

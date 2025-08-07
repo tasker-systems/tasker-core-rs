@@ -31,9 +31,9 @@ module TaskerCore::Database::Models
 
     def self.create_named_steps_from_templates(templates)
       templates.map do |template|
-        dependent_system = Tasker::DependentSystem.find_or_create_by!(name: template.dependent_system)
-        named_step = NamedStep.find_or_create_by!(name: template.name,
-                                                  dependent_system_id: dependent_system.dependent_system_id)
+        dependent_system = TaskerCore::Database::Models::DependentSystem.find_or_create_by!(name: template.dependent_system)
+        named_step = find_or_create_by!(name: template.name,
+                                              dependent_system_id: dependent_system.dependent_system_id)
         named_step
       end
     end

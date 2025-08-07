@@ -214,13 +214,7 @@ module TaskerCore
       end
 
       def logger
-        @logger ||= if defined?(TaskerCore) && TaskerCore.respond_to?(:logger)
-          TaskerCore.logger
-        elsif defined?(Rails) && Rails.respond_to?(:logger)
-          Rails.logger
-        else
-          nil
-        end
+        TaskerCore::Logging::Logger.instance
       end
     end
   end

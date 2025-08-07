@@ -44,6 +44,29 @@ pub struct StepMessageParams {
     pub execution_context: StepExecutionContext,
 }
 
+/// Simple UUID-based message for step execution (simplified architecture)
+///
+/// This dramatically reduces message size and complexity by using UUIDs to reference
+/// database records instead of embedding full execution context. Ruby workers use
+/// the UUIDs to fetch ActiveRecord models directly from the shared database.
+///
+/// Benefits:
+/// - 80%+ message size reduction (3 UUIDs vs complex nested JSON)  
+/// - Eliminates type conversion issues (Ruby gets real ActiveRecord models)
+/// - Prevents stale queue messages (UUIDs are globally unique)
+/// - Database as single source of truth (no data duplication)
+/// - Real ActiveRecord models for handlers (full ORM functionality)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleStepMessage {
+    /// Task UUID from tasker_tasks.task_uuid column
+    pub task_uuid: Uuid,
+    /// Step UUID from tasker_workflow_steps.step_uuid column  
+    pub step_uuid: Uuid,
+    /// UUIDs of dependency steps that are ready/completed for this step
+    /// Empty array means no dependencies or root step
+    pub ready_dependency_step_uuids: Vec<Uuid>,
+}
+
 /// Execution context that provides (task, sequence, step) to handlers
 /// This enables the immediate delete pattern by ensuring all necessary data is in the message
 #[derive(Debug, Clone, Serialize, Deserialize)]

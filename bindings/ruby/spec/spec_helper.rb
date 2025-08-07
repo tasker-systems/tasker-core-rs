@@ -26,7 +26,7 @@ RSpec.configure do |config|
     Dotenv.load
 
     # CRITICAL: Set environment to 'test' for proper TaskTemplate discovery
-    # The DistributedHandlerRegistry uses current_environment to determine search patterns
+    # The TaskTemplateRegistry uses current_environment to determine search patterns
     # Without this, it defaults to 'development' and looks in wrong directories
     ENV['RUBY_ENV'] = 'test'
 
@@ -60,7 +60,7 @@ RSpec.configure do |config|
     begin
       puts '🚀 Booting TaskerCore system with proper initialization order...'
       boot_result = TaskerCore::Boot.boot!(force_reload: true)
-      
+
       if boot_result[:success]
         puts "✅ TaskerCore boot completed in #{boot_result[:boot_time].round(3)}s"
         puts "   - Environment: #{boot_result[:environment]}"
@@ -94,26 +94,6 @@ RSpec.configure do |config|
       end
       @test_workers.clear
     end
-
-    # Don't disconnect connections aggressively - this interferes with the embedded orchestrator
-    # Only clear connection pool if there are connection errors or warnings
-    begin
-      # Check for connection issues without forcefully disconnecting
-      if defined?(ActiveRecord) && ActiveRecord::Base.connected?
-        # Just verify connection is still good, don't disconnect unless there's a problem
-        ActiveRecord::Base.connection.active?
-      end
-    rescue ActiveRecord::ConnectionNotEstablished, 
-           ActiveRecord::ConnectionTimeoutError, 
-           PG::ConnectionBad, 
-           PG::UnableToSend => e
-      puts "⚠️ Database connection issue detected, clearing pool: #{e.message}"
-      begin
-        ActiveRecord::Base.connection_pool.disconnect! if defined?(ActiveRecord)
-      rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad => disconnect_error
-        puts "⚠️ Failed to disconnect ActiveRecord connections: #{disconnect_error.message}"
-      end
-    end
   end
 
   config.after(:suite) do
@@ -131,7 +111,26 @@ RSpec.configure do |config|
       else
         puts "⚠️ Test database teardown had issues: #{result['message']}"
       end
-    rescue TaskerCore::Errors::DatabaseError, 
+      # Don't disconnect connections aggressively - this interferes with the embedded orchestrator
+      # Only clear connection pool if there are connection errors or warnings
+      begin
+        # Check for connection issues without forcefully disconnecting
+        if defined?(ActiveRecord) && ActiveRecord::Base.connected?
+          # Just verify connection is still good, don't disconnect unless there's a problem
+          ActiveRecord::Base.connection.active?
+        end
+      rescue ActiveRecord::ConnectionNotEstablished,
+             ActiveRecord::ConnectionTimeoutError,
+             PG::ConnectionBad,
+             PG::UnableToSend => e
+        puts "⚠️ Database connection issue detected, clearing pool: #{e.message}"
+        begin
+          ActiveRecord::Base.connection_pool.disconnect! if defined?(ActiveRecord)
+        rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad => disconnect_error
+          puts "⚠️ Failed to disconnect ActiveRecord connections: #{disconnect_error.message}"
+        end
+      end
+    rescue TaskerCore::Errors::DatabaseError,
            ActiveRecord::ConnectionNotEstablished => e
       puts "⚠️ Test database teardown failed (non-fatal): #{e.message}"
     end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require_relative 'internal/distributed_handler_registry'
+require_relative 'registry/task_template_registry'
+require_relative 'registry/step_handler_resolver'
 require_relative 'internal/orchestration_manager'
 
 module TaskerCore
@@ -114,6 +115,7 @@ module TaskerCore
 
     # Provide access to internal orchestration components for backward compatibility
     Manager = Internal::OrchestrationManager
-    HandlerRegistry = DistributedHandlerRegistry
+    TaskTemplateRegistry = Registry::TaskTemplateRegistry
+    StepHandlerResolver = Registry::StepHandlerResolver
   end
 end

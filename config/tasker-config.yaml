@@ -219,6 +219,7 @@ test:
   # Fast test execution settings
   pgmq:
     poll_interval_ms: 100 # 100ms polling for fast test execution (10x/sec)
+    visibility_timeout_seconds: 30 # Keep longer for business logic execution time
 
   orchestration:
     mode: "embedded"

@@ -49,13 +49,13 @@ RSpec.describe TaskerCore::Internal::OrchestrationManager do
         expect(manager.info[:architecture]).to eq('pgmq')
       end
 
-      it 'creates and initializes distributed handler registry in distributed mode' do
+      it 'creates and initializes step handler resolver in distributed mode' do
         manager.instance_variable_set(:@orchestration_mode, 'distributed')
         manager.bootstrap_orchestration_system
 
         expect(manager.info[:handler_registry][:available]).to be true
         expect(manager.distributed_handler_registry).not_to be_nil
-        expect(manager.distributed_handler_registry).to be_a(TaskerCore::Orchestration::DistributedHandlerRegistry)
+        expect(manager.distributed_handler_registry).to be_a(TaskerCore::Registry::StepHandlerResolver)
       end
 
       it 'includes handler registry stats in info for distributed mode' do

@@ -17,17 +17,24 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
   end
   let(:task_config) { YAML.load_file(config_path) }
   let(:sql_functions) { TaskerCore::Database.create_sql_functions }
+  # Test data: even number that will flow through the mathematical sequence
+  let(:test_input) do
+    {
+      even_number: 6, # Expected progression: 6 -> 36 -> 46 -> 138 -> 69
+      test_run_id: SecureRandom.uuid # Unique ID to avoid identity hash collisions
+    }
+  end
 
   before(:all) do
-    TaskerCore::Boot.load_task_templates_to_database!
+    TaskerCore::Utils::TemplateLoader.load_templates!
   end
 
   # Track workers created during tests for proper cleanup
-  before(:each) do
+  before do
     @test_workers = []
   end
 
-  after(:each) do
+  after do
     # Clean up any workers created during this test
     @test_workers.each do |worker|
       begin
@@ -41,14 +48,6 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       end
     end
     @test_workers.clear
-  end
-
-  # Test data: even number that will flow through the mathematical sequence
-  let(:test_input) do
-    {
-      even_number: 6, # Expected progression: 6 -> 36 -> 46 -> 138 -> 69
-      test_run_id: SecureRandom.uuid # Unique ID to avoid identity hash collisions
-    }
   end
 
   describe 'Complete Linear Mathematical Sequence' do

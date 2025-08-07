@@ -3,16 +3,16 @@
 //! Provides FFI methods for direct task initialization in embedded mode,
 //! bypassing the task request queue while still using the orchestrator.
 
-use std::collections::HashMap;
-use serde_json::Value;
-use tracing::{info, warn};
 use chrono;
+use serde_json::Value;
+use std::collections::HashMap;
+use tracing::{info, warn};
 
+use crate::events::EventPublisher;
 use crate::ffi::shared::errors::{SharedFFIError, SharedFFIResult};
 use crate::models::task_request::TaskRequest;
 use crate::orchestration::{TaskInitializationResult, TaskInitializer};
 use crate::registry::TaskHandlerRegistry;
-use crate::events::EventPublisher;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -31,27 +31,36 @@ impl From<TaskInitializationResult> for FFITaskInitializationResult {
             task_id: result.task_id,
             success: true,
             message: format!(
-                "Task initialized successfully with {} steps", 
+                "Task initialized successfully with {} steps",
                 result.step_count
             ),
             metadata: {
                 let mut meta = HashMap::new();
-                meta.insert("step_count".to_string(), Value::Number(result.step_count.into()));
-                meta.insert("handler_config_name".to_string(), 
-                    result.handler_config_name.map(Value::String).unwrap_or(Value::Null));
-                
+                meta.insert(
+                    "step_count".to_string(),
+                    Value::Number(result.step_count.into()),
+                );
+                meta.insert(
+                    "handler_config_name".to_string(),
+                    result
+                        .handler_config_name
+                        .map(Value::String)
+                        .unwrap_or(Value::Null),
+                );
+
                 // Convert step_mapping to metadata
-                let step_mapping_json = serde_json::to_value(&result.step_mapping).unwrap_or(Value::Null);
+                let step_mapping_json =
+                    serde_json::to_value(&result.step_mapping).unwrap_or(Value::Null);
                 meta.insert("step_mapping".to_string(), step_mapping_json);
-                
+
                 meta
-            }
+            },
         }
     }
 }
 
 /// Initialize a task directly through FFI, bypassing the task request queue
-/// 
+///
 /// This is intended for embedded mode testing where we need immediate task_id
 /// feedback while still using the orchestrator for workflow processing.
 ///
@@ -91,9 +100,10 @@ pub async fn initialize_task_direct(
         Ok(pool) => pool,
         Err(e) => {
             warn!("Failed to create database pool: {}", e);
-            return Err(SharedFFIError::DatabaseError(
-                format!("Database connection failed: {}", e)
-            ));
+            return Err(SharedFFIError::DatabaseError(format!(
+                "Database connection failed: {}",
+                e
+            )));
         }
     };
 
@@ -126,34 +136,37 @@ pub async fn initialize_task_direct(
         crate::events::EventPublisher::new(),
         registry,
     );
-    
-    match task_initializer.create_task_from_request(task_request).await {
+
+    match task_initializer
+        .create_task_from_request(task_request)
+        .await
+    {
         Ok(initialization_result) => {
             let task_id = initialization_result.task_id;
             info!(
                 "✅ FFI: Task initialized successfully - ID: {}, Steps: {}",
-                task_id,
-                initialization_result.step_count
+                task_id, initialization_result.step_count
             );
-            
+
             Ok(initialization_result.into())
         }
         Err(e) => {
             warn!("Failed to initialize task: {}", e);
-            Err(SharedFFIError::TaskCreationFailed(
-                format!("Task initialization failed for {}::{}/{}: {}", namespace, name, version, e)
-            ))
+            Err(SharedFFIError::TaskCreationFailed(format!(
+                "Task initialization failed for {}::{}/{}: {}",
+                namespace, name, version, e
+            )))
         }
     }
 }
 
 /// Synchronous wrapper for initialize_task_direct using tokio runtime
-/// 
+///
 /// This provides a sync interface for FFI bindings that can't handle async.
 pub fn initialize_task_direct_sync(
     database_url: &str,
     namespace: String,
-    name: String, 
+    name: String,
     version: String,
     context: Value,
     initiator: String,
@@ -166,9 +179,10 @@ pub fn initialize_task_direct_sync(
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            return Err(SharedFFIError::Internal(
-                format!("Failed to create async runtime: {}", e)
-            ));
+            return Err(SharedFFIError::Internal(format!(
+                "Failed to create async runtime: {}",
+                e
+            )));
         }
     };
 

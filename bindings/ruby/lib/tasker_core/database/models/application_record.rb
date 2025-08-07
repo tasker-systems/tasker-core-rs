@@ -32,6 +32,9 @@ module TaskerCore
     class ApplicationRecord < ActiveRecord::Base
       self.abstract_class = true
       self.table_name_prefix = 'tasker_'
+      def logger
+        TaskerCore::Logging::Logger.instance
+      end
     end
   end
 end

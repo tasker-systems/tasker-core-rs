@@ -3,11 +3,11 @@
 //! This test verifies that the core architectural principles for handle-based
 //! FFI integration are properly implemented in the codebase.
 
+use sqlx::PgPool;
 use std::sync::Arc;
 use tasker_core::events::EventPublisher;
 use tasker_core::orchestration::config::ConfigurationManager;
 use tasker_core::registry::task_handler_registry::TaskHandlerRegistry;
-use sqlx::PgPool;
 
 // Helper function to create a mock pool for testing
 async fn create_test_pool() -> PgPool {
@@ -15,16 +15,18 @@ async fn create_test_pool() -> PgPool {
     // In actual integration tests, this would connect to PostgreSQL
     // For now, we'll skip the actual database connection in unit tests
     // and just create a minimal pool for API testing
-    
+
     // Use the DATABASE_URL from the environment or a test default
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-    
+
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect(&database_url)
         .await
-        .expect("Failed to create test pool - make sure PostgreSQL is running and DATABASE_URL is set")
+        .expect(
+            "Failed to create test pool - make sure PostgreSQL is running and DATABASE_URL is set",
+        )
 }
 
 #[tokio::test]

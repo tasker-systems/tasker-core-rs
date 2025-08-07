@@ -35,12 +35,15 @@ impl DatabaseConnection {
                     tracing::debug!("✅ Database schema is up to date");
                 }
                 Err(e) => {
-                    return Err(sqlx::Error::Configuration(format!(
-                        "Could not check migration status: {}.\n\
+                    return Err(sqlx::Error::Configuration(
+                        format!(
+                            "Could not check migration status: {}.\n\
                          This may indicate a database connectivity issue.\n\
                          Use SKIP_MIGRATION_CHECK=1 to bypass this check if needed.",
-                        e
-                    ).into()));
+                            e
+                        )
+                        .into(),
+                    ));
                 }
             }
         }

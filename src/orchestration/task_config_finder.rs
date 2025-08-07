@@ -213,9 +213,7 @@ impl TaskConfigFinder {
         // 2. Default namespace path: <config_dir>/{name}/{version}.(yml|yaml)
         if version != "0.1.0" {
             for ext in &["yaml", "yml"] {
-                let path = base_config_dir
-                    .join(name)
-                    .join(format!("{version}.{ext}"));
+                let path = base_config_dir.join(name).join(format!("{version}.{ext}"));
                 paths.push(path);
             }
         }

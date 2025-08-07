@@ -6,7 +6,7 @@ module LinearWorkflow
     class LinearStep4Handler < TaskerCore::StepHandler::Base
       def call(task, sequence, _step)
         # Get result from previous step (linear_step_3)
-        previous_result = sequence.get('linear_step_3')&.dig('result')
+        previous_result = sequence.get_results('linear_step_3')
         raise 'Previous step result not found' unless previous_result
 
         # Square the previous result (single parent operation)
