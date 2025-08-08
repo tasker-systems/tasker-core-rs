@@ -55,7 +55,9 @@ where
         // Simple integer format: pool: 25
         Value::Number(n) => {
             if let Some(i) = n.as_u64() {
-                Ok(i as u32)
+                i.try_into().map_err(|_| {
+                    D::Error::custom("Pool size exceeds maximum allowed value (u32::MAX)")
+                })
             } else {
                 Err(D::Error::custom("Pool value must be a positive integer"))
             }
@@ -64,7 +66,9 @@ where
         Value::Object(obj) => {
             if let Some(max_conn) = obj.get("max_connections") {
                 if let Some(max_conn_num) = max_conn.as_u64() {
-                    Ok(max_conn_num as u32)
+                    max_conn_num.try_into().map_err(|_| {
+                        D::Error::custom("max_connections exceeds maximum allowed value (u32::MAX)")
+                    })
                 } else {
                     Err(D::Error::custom("max_connections must be a number"))
                 }
@@ -468,6 +472,168 @@ impl EmbeddedOrchestratorConfig {
     /// Get shutdown timeout as Duration
     pub fn shutdown_timeout(&self) -> Duration {
         Duration::from_secs(self.shutdown_timeout_seconds)
+    }
+}
+
+impl Default for TaskerConfig {
+    /// Create a safe fallback configuration with minimal defaults
+    /// Used when configuration loading fails completely
+    fn default() -> Self {
+        use std::collections::HashMap;
+
+        Self {
+            auth: AuthConfig {
+                authentication_enabled: false,
+                strategy: "none".to_string(),
+                current_user_method: "current_user".to_string(),
+                authenticate_user_method: "authenticate_user!".to_string(),
+                authorization_enabled: false,
+                authorization_coordinator_class: "Tasker::Authorization::BaseCoordinator"
+                    .to_string(),
+            },
+            database: DatabaseConfig {
+                enable_secondary_database: false,
+                url: Some(
+                    "postgresql://tasker:tasker@localhost:5432/tasker_development".to_string(),
+                ),
+                adapter: "postgresql".to_string(),
+                encoding: "unicode".to_string(),
+                host: "localhost".to_string(),
+                username: "tasker".to_string(),
+                password: "tasker".to_string(),
+                pool: 10,
+                variables: DatabaseVariables {
+                    statement_timeout: 5000,
+                },
+                checkout_timeout: 10,
+                reaping_frequency: 10,
+                database: Some("tasker_development".to_string()),
+                skip_migration_check: false,
+            },
+            telemetry: TelemetryConfig {
+                enabled: false,
+                service_name: "tasker-core-rs".to_string(),
+                sample_rate: 1.0,
+            },
+            engine: EngineConfig {
+                task_handler_directory: "tasks".to_string(),
+                task_config_directory: "tasker/tasks".to_string(),
+                identity_strategy: "default".to_string(),
+                custom_events_directories: vec!["config/tasker/events".to_string()],
+            },
+            task_templates: TaskTemplatesConfig {
+                search_paths: vec!["config/task_templates/*.{yml,yaml}".to_string()],
+            },
+            health: HealthConfig {
+                enabled: true,
+                check_interval_seconds: 60,
+                alert_thresholds: AlertThresholds {
+                    error_rate: 0.05,
+                    queue_depth: 1000.0,
+                },
+            },
+            dependency_graph: DependencyGraphConfig {
+                max_depth: 50,
+                cycle_detection_enabled: true,
+                optimization_enabled: true,
+            },
+            system: SystemConfig {
+                default_dependent_system: "default".to_string(),
+                default_queue_name: "default".to_string(),
+                version: "0.1.0".to_string(),
+                max_recursion_depth: 50,
+            },
+            backoff: BackoffConfig {
+                default_backoff_seconds: vec![1, 2, 4, 8, 16, 32],
+                max_backoff_seconds: 300,
+                backoff_multiplier: 2.0,
+                jitter_enabled: true,
+                jitter_max_percentage: 0.1,
+                reenqueue_delays: ReenqueueDelays {
+                    has_ready_steps: 0,
+                    waiting_for_dependencies: 45,
+                    processing: 10,
+                },
+                default_reenqueue_delay: 30,
+                buffer_seconds: 5,
+            },
+            execution: ExecutionConfig {
+                processing_mode: "pgmq".to_string(),
+                max_concurrent_tasks: 100,
+                max_concurrent_steps: 1000,
+                default_timeout_seconds: 3600,
+                step_execution_timeout_seconds: 300,
+                environment: "development".to_string(),
+                max_discovery_attempts: 3,
+                step_batch_size: 10,
+                max_retries: 3,
+                max_workflow_steps: 1000,
+                connection_timeout_seconds: 10,
+            },
+            reenqueue: ReenqueueConfig {
+                has_ready_steps: 1,
+                waiting_for_dependencies: 5,
+                processing: 2,
+            },
+            events: EventsConfig {
+                batch_size: 100,
+                enabled: true,
+                batch_timeout_ms: 1000,
+            },
+            cache: CacheConfig {
+                enabled: true,
+                ttl_seconds: 3600,
+                max_size: 10000,
+            },
+            query_cache: QueryCacheConfig::for_development(),
+            pgmq: PgmqConfig {
+                poll_interval_ms: 250,
+                visibility_timeout_seconds: 30,
+                batch_size: 5,
+                max_retries: 3,
+                default_namespaces: vec!["default".to_string()],
+                queue_naming_pattern: "{namespace}_queue".to_string(),
+                max_batch_size: 100,
+                shutdown_timeout_seconds: 30,
+            },
+            orchestration: OrchestrationConfig {
+                mode: "embedded".to_string(),
+                task_requests_queue_name: "task_requests_queue".to_string(),
+                tasks_per_cycle: 5,
+                cycle_interval_ms: 250,
+                task_request_polling_interval_ms: 250,
+                task_request_visibility_timeout_seconds: 300,
+                task_request_batch_size: 10,
+                active_namespaces: vec!["default".to_string()],
+                max_concurrent_orchestrators: 1,
+                enable_performance_logging: false,
+                default_claim_timeout_seconds: 300,
+                queues: QueueConfig {
+                    task_requests: "task_requests_queue".to_string(),
+                    task_processing: "task_processing_queue".to_string(),
+                    batch_results: "batch_results_queue".to_string(),
+                    step_results: "orchestration_step_results".to_string(),
+                    worker_queues: {
+                        let mut queues = HashMap::new();
+                        queues.insert("default".to_string(), "default_queue".to_string());
+                        queues
+                    },
+                    settings: QueueSettings {
+                        visibility_timeout_seconds: 30,
+                        message_retention_seconds: 604800,
+                        dead_letter_queue_enabled: true,
+                        max_receive_count: 3,
+                    },
+                },
+                embedded_orchestrator: EmbeddedOrchestratorConfig {
+                    auto_start: false,
+                    namespaces: vec!["default".to_string()],
+                    shutdown_timeout_seconds: 30,
+                },
+                enable_heartbeat: true,
+                heartbeat_interval_ms: 5000,
+            },
+        }
     }
 }
 

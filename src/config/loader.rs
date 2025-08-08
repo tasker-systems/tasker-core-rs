@@ -9,7 +9,7 @@ use serde_yaml::Value as YamlValue;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Global configuration manager singleton
 pub struct ConfigManager {
@@ -51,9 +51,18 @@ impl ConfigManager {
         // Validate the loaded configuration
         config.validate()?;
 
-        info!(
-            "✅ Configuration loaded successfully for environment '{}'. Database: {}, Pool: {}",
-            environment, config.database.host, config.database.pool
+        // Use sanitized configuration for logging to avoid exposing sensitive information
+        let sanitized_config = Self::sanitize_config_for_logging(&config);
+        debug!(
+            "Configuration loaded successfully: {}",
+            serde_json::to_string_pretty(&sanitized_config)
+                .unwrap_or_else(|_| "[serialization error]".to_string())
+        );
+
+        crate::log_config!(info, "Configuration loaded successfully",
+            environment: environment,
+            database_host: config.database.host.clone(),
+            pool_size: config.database.pool
         );
 
         // Determine project root from config directory
@@ -72,6 +81,137 @@ impl ConfigManager {
     /// Get the loaded configuration
     pub fn config(&self) -> &TaskerConfig {
         &self.config
+    }
+
+    /// Get sanitized configuration for debugging/logging that masks sensitive fields
+    ///
+    /// This method provides a safe way to log or debug configuration values without
+    /// exposing sensitive information like passwords or API keys.
+    ///
+    /// # Returns
+    ///
+    /// A JSON representation of the configuration with sensitive fields masked
+    pub fn debug_config(&self) -> serde_json::Value {
+        Self::sanitize_config_for_logging(&self.config)
+    }
+
+    /// Create an emergency fallback configuration with safe defaults
+    /// Used when configuration loading fails to prevent application crashes
+    fn emergency_fallback() -> ConfigManager {
+        warn!("Creating emergency fallback configuration with minimal safe defaults");
+
+        // Use basic defaults that are guaranteed to work
+        let fallback_config = TaskerConfig::default();
+
+        ConfigManager {
+            config: fallback_config,
+            environment: Self::detect_environment(),
+            config_directory: PathBuf::from("config"),
+            project_root: PathBuf::from("."),
+        }
+    }
+
+    /// Safely read a configuration file with resource management and size limits
+    fn read_config_file_safely(path: &Path) -> ConfigResult<String> {
+        const MAX_CONFIG_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB limit
+
+        // Check file metadata first
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| ConfigurationError::file_read_error(path.display().to_string(), e))?;
+
+        // Check file size limit
+        if metadata.len() > MAX_CONFIG_FILE_SIZE {
+            return Err(ConfigurationError::invalid_value(
+                "file_size",
+                metadata.len().to_string(),
+                format!(
+                    "Configuration file too large ({}MB > {}MB limit)",
+                    metadata.len() / (1024 * 1024),
+                    MAX_CONFIG_FILE_SIZE / (1024 * 1024)
+                ),
+            ));
+        }
+
+        // Check if it's a regular file
+        if !metadata.is_file() {
+            return Err(ConfigurationError::invalid_value(
+                "file_type",
+                "directory or special file".to_string(),
+                "Configuration path must point to a regular file",
+            ));
+        }
+
+        // Read the file with proper error context
+        std::fs::read_to_string(path)
+            .map_err(|e| ConfigurationError::file_read_error(path.display().to_string(), e))
+    }
+
+    /// Sanitize configuration for safe logging by removing or masking sensitive fields
+    ///
+    /// This method ensures sensitive information like passwords, API keys, and connection
+    /// strings are not exposed in log output while preserving debug information.
+    fn sanitize_config_for_logging(config: &TaskerConfig) -> serde_json::Value {
+        use serde_json::json;
+
+        // Start with the full config as JSON for manipulation
+        let mut config_json = json!(config);
+
+        // Define sensitive field patterns to sanitize
+        let sensitive_patterns = ["password", "secret", "key", "token", "credential", "auth"];
+
+        // Recursively sanitize sensitive fields
+        Self::sanitize_json_recursive(&mut config_json, &sensitive_patterns);
+
+        config_json
+    }
+
+    /// Recursively sanitize sensitive fields in JSON configuration
+    fn sanitize_json_recursive(value: &mut serde_json::Value, sensitive_patterns: &[&str]) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, val) in map.iter_mut() {
+                    let key_lower = key.to_lowercase();
+
+                    // Check if this field name contains sensitive patterns
+                    let is_sensitive = sensitive_patterns
+                        .iter()
+                        .any(|pattern| key_lower.contains(pattern));
+
+                    if is_sensitive {
+                        match val {
+                            serde_json::Value::String(s) => {
+                                if s.is_empty() {
+                                    *val = serde_json::Value::String("[EMPTY]".to_string());
+                                } else {
+                                    // Show only first 2 and last 2 characters for debugging
+                                    let masked = if s.len() > 4 {
+                                        format!("{}***{}", &s[..2], &s[s.len() - 2..])
+                                    } else {
+                                        "***".to_string()
+                                    };
+                                    *val = serde_json::Value::String(format!("[MASKED: {masked}]"));
+                                }
+                            }
+                            serde_json::Value::Number(n) => {
+                                *val = serde_json::Value::String(format!("[MASKED: {n}]"));
+                            }
+                            _ => {
+                                *val = serde_json::Value::String("[MASKED]".to_string());
+                            }
+                        }
+                    } else {
+                        // Recursively process nested objects
+                        Self::sanitize_json_recursive(val, sensitive_patterns);
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    Self::sanitize_json_recursive(item, sensitive_patterns);
+                }
+            }
+            _ => {} // Primitive values don't need recursive processing
+        }
     }
 
     /// Get the current environment
@@ -245,10 +385,8 @@ impl ConfigManager {
     ) -> ConfigResult<TaskerConfig> {
         let config_file = Self::find_config_file(config_directory)?;
 
-        // Read the YAML file
-        let yaml_content = std::fs::read_to_string(&config_file).map_err(|e| {
-            ConfigurationError::file_read_error(config_file.display().to_string(), e)
-        })?;
+        // Read the YAML file safely with resource management
+        let yaml_content = Self::read_config_file_safely(&config_file)?;
 
         // Parse YAML as a generic value for manipulation
         let mut yaml_data: YamlValue = serde_yaml::from_str(&yaml_content)
@@ -394,7 +532,10 @@ impl ConfigManager {
             .get_or_init(|| {
                 let _lock = CONFIG_LOCK.lock().unwrap();
                 ConfigManager::load().unwrap_or_else(|e| {
-                    panic!("Failed to load global configuration: {e}");
+                    eprintln!("Failed to load configuration: {e}");
+                    eprintln!("Using emergency fallback configuration");
+                    warn!("Configuration loading failed, using fallback: {e}");
+                    Arc::new(ConfigManager::emergency_fallback())
                 })
             })
             .clone()
@@ -860,6 +1001,63 @@ production:
         // Test custom events directories
         let events_dirs = config_manager.custom_events_directories();
         assert!(!events_dirs.is_empty());
+    }
+
+    #[test]
+    fn test_config_sanitization() {
+        let (_temp_dir, config_dir) = setup_test_config_dir();
+        let config_manager = ConfigManager::load_from_directory(Some(config_dir)).unwrap();
+
+        // Get the sanitized configuration
+        let sanitized = config_manager.debug_config();
+
+        // Verify that the password field is masked
+        let password_value = sanitized
+            .get("database")
+            .and_then(|db| db.get("password"))
+            .and_then(|p| p.as_str());
+
+        assert!(password_value.is_some(), "Password field should be present");
+        let password_str = password_value.unwrap();
+        assert!(
+            password_str.contains("[MASKED:"),
+            "Password should be masked, got: {password_str}"
+        );
+        assert!(
+            password_str.contains("te***rd"),
+            "Password should show partial content, got: {password_str}"
+        );
+
+        // Verify that non-sensitive fields are not masked
+        let host_value = sanitized
+            .get("database")
+            .and_then(|db| db.get("host"))
+            .and_then(|h| h.as_str());
+
+        assert_eq!(host_value, Some("localhost"), "Host should not be masked");
+
+        // Verify that auth section is completely masked (due to sensitive section name)
+        let auth_section = sanitized.get("auth");
+        assert!(auth_section.is_some(), "Auth section should be present");
+
+        // Auth section should be completely masked since "auth" is in sensitive patterns
+        let auth_str = auth_section.unwrap().as_str();
+        assert!(
+            auth_str.is_some(),
+            "Auth section should be masked as string"
+        );
+        assert_eq!(
+            auth_str.unwrap(),
+            "[MASKED]",
+            "Auth section should be completely masked"
+        );
+
+        // Verify that the original configuration is not modified
+        let original_password = &config_manager.config().database.password;
+        assert_eq!(
+            original_password, "test_password",
+            "Original config should not be modified"
+        );
     }
 
     #[test]

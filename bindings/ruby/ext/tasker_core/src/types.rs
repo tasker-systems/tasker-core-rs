@@ -655,7 +655,7 @@ impl RubyAnalyticsMetrics {
     }
 }
 
-/// Helper function to convert Vec<i64> to Ruby array
+/// Helper function to convert `Vec<i64>` to Ruby array
 pub fn vec_i64_to_ruby_array(vec: Vec<i64>) -> Result<RArray, Error> {
     let array = RArray::new();
     for item in vec {
@@ -664,7 +664,7 @@ pub fn vec_i64_to_ruby_array(vec: Vec<i64>) -> Result<RArray, Error> {
     Ok(array)
 }
 
-/// Helper function to convert Option<String> to Ruby value (nil or string)
+/// Helper function to convert `Option<String>` to Ruby value (nil or string)
 pub fn option_string_to_ruby_value(opt: Option<String>) -> Result<Value, Error> {
     match opt {
         Some(s) => Ok(RString::new(&s).into_value()),

@@ -104,7 +104,240 @@ fn get_log_level(environment: &str) -> String {
     }
 }
 
-/// Log structured data for task operations
+/// Unified logging macros that match Ruby TaskerCore::Logging::Logger patterns
+///
+/// These macros provide structured logging with the same emoji + component format
+/// used by the Ruby side, ensuring consistent log output across languages.
+///
+/// Log task operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_task {
+    // Full form with task_id
+    ($level:ident, $operation:expr, task_id: $task_id:expr, $($key:ident: $value:expr),* $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            task_id = $task_id,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📋 TASK_OPERATION: {}", $operation
+        );
+    };
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📋 TASK_OPERATION: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📋 TASK_OPERATION: {}", $operation
+        );
+    };
+}
+
+/// Log queue worker operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_queue_worker {
+    // Full form with namespace
+    ($level:ident, $operation:expr, namespace: $namespace:expr, $($key:ident: $value:expr),* $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            namespace = %$namespace,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔄 QUEUE_WORKER: {} (namespace: {})", $operation, $namespace
+        );
+    };
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔄 QUEUE_WORKER: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔄 QUEUE_WORKER: {}", $operation
+        );
+    };
+}
+
+/// Log orchestrator operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_orchestrator {
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🚀 ORCHESTRATOR: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🚀 ORCHESTRATOR: {}", $operation
+        );
+    };
+}
+
+/// Log step operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_step {
+    // Full form with step_id and task_id
+    ($level:ident, $operation:expr, step_id: $step_id:expr, task_id: $task_id:expr, $($key:ident: $value:expr),* $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            step_id = $step_id,
+            task_id = $task_id,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔧 STEP_OPERATION: {}", $operation
+        );
+    };
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔧 STEP_OPERATION: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🔧 STEP_OPERATION: {}", $operation
+        );
+    };
+}
+
+/// Log database operations with unified Ruby-compatible format  
+#[macro_export]
+macro_rules! log_database {
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "💾 DATABASE: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "💾 DATABASE: {}", $operation
+        );
+    };
+}
+
+/// Log FFI operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_ffi {
+    // Full form with component
+    ($level:ident, $operation:expr, component: $component:expr, $($key:ident: $value:expr),* $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            component = %$component,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🌉 FFI: {} ({})", $operation, $component
+        );
+    };
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🌉 FFI: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "🌉 FFI: {}", $operation
+        );
+    };
+}
+
+/// Log configuration operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_config {
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "⚙️ CONFIG: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "⚙️ CONFIG: {}", $operation
+        );
+    };
+}
+
+/// Log registry operations with unified Ruby-compatible format
+#[macro_export]
+macro_rules! log_registry {
+    // Full form with namespace and name
+    ($level:ident, $operation:expr, namespace: $namespace:expr, name: $name:expr, $($key:ident: $value:expr),* $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            namespace = %$namespace,
+            name = %$name,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📚 REGISTRY: {} ({}/{})", $operation, $namespace, $name
+        );
+    };
+    // Simple form - just operation
+    ($level:ident, $operation:expr $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📚 REGISTRY: {}", $operation
+        );
+    };
+    // Generic form with additional fields
+    ($level:ident, $operation:expr, $($key:ident: $value:expr),+ $(,)?) => {
+        tracing::$level!(
+            operation = %$operation,
+            $($key = ?$value,)*
+            timestamp = %chrono::Utc::now().to_rfc3339(),
+            "📚 REGISTRY: {}", $operation
+        );
+    };
+}
+
+/// Legacy function for task operations (maintained for backward compatibility)
 pub fn log_task_operation(
     operation: &str,
     task_id: Option<i64>,
@@ -113,19 +346,16 @@ pub fn log_task_operation(
     status: &str,
     details: Option<&str>,
 ) {
-    tracing::info!(
-        operation = %operation,
-        task_id = task_id,
-        task_name = task_name,
-        namespace = namespace,
-        status = %status,
-        details = details,
-        timestamp = %Utc::now().to_rfc3339(),
-        "📋 TASK_OPERATION"
+    log_task!(info, operation,
+        task_id: task_id,
+        task_name: task_name,
+        namespace: namespace,
+        status: status,
+        details: details
     );
 }
 
-/// Log structured data for step operations
+/// Legacy function for step operations (maintained for backward compatibility)
 pub fn log_step_operation(
     operation: &str,
     task_id: Option<i64>,
@@ -134,19 +364,24 @@ pub fn log_step_operation(
     status: &str,
     details: Option<&str>,
 ) {
-    tracing::info!(
-        operation = %operation,
-        task_id = task_id,
-        step_id = step_id,
-        step_name = step_name,
-        status = %status,
-        details = details,
-        timestamp = %Utc::now().to_rfc3339(),
-        "🔧 STEP_OPERATION"
-    );
+    if let (Some(step_id), Some(task_id)) = (step_id, task_id) {
+        log_step!(info, operation,
+            step_id: step_id,
+            task_id: task_id,
+            step_name: step_name,
+            status: status,
+            details: details
+        );
+    } else {
+        log_step!(info, operation,
+            step_name: step_name,
+            status: status,
+            details: details
+        );
+    }
 }
 
-/// Log structured data for FFI operations
+/// Legacy function for FFI operations (maintained for backward compatibility)
 pub fn log_ffi_operation(
     operation: &str,
     component: &str,
@@ -154,18 +389,15 @@ pub fn log_ffi_operation(
     details: Option<&str>,
     data: Option<&str>,
 ) {
-    tracing::info!(
-        operation = %operation,
-        component = %component,
-        status = %status,
-        details = details,
-        data = data,
-        timestamp = %Utc::now().to_rfc3339(),
-        "🌉 FFI_OPERATION"
+    log_ffi!(info, operation,
+        component: component,
+        status: status,
+        details: details,
+        data: data
     );
 }
 
-/// Log structured data for registry operations
+/// Legacy function for registry operations (maintained for backward compatibility)
 pub fn log_registry_operation(
     operation: &str,
     namespace: Option<&str>,
@@ -174,19 +406,24 @@ pub fn log_registry_operation(
     status: &str,
     details: Option<&str>,
 ) {
-    tracing::info!(
-        operation = %operation,
-        namespace = namespace,
-        name = name,
-        version = version,
-        status = %status,
-        details = details,
-        timestamp = %Utc::now().to_rfc3339(),
-        "📚 REGISTRY_OPERATION"
-    );
+    if let (Some(namespace), Some(name)) = (namespace, name) {
+        log_registry!(info, operation,
+            namespace: namespace,
+            name: name,
+            version: version,
+            status: status,
+            details: details
+        );
+    } else {
+        log_registry!(info, operation,
+            version: version,
+            status: status,
+            details: details
+        );
+    }
 }
 
-/// Log structured data for database operations
+/// Legacy function for database operations (maintained for backward compatibility)
 pub fn log_database_operation(
     operation: &str,
     table: Option<&str>,
@@ -195,19 +432,16 @@ pub fn log_database_operation(
     duration_ms: Option<u64>,
     details: Option<&str>,
 ) {
-    tracing::info!(
-        operation = %operation,
-        table = table,
-        record_id = record_id,
-        status = %status,
-        duration_ms = duration_ms,
-        details = details,
-        timestamp = %Utc::now().to_rfc3339(),
-        "💾 DATABASE_OPERATION"
+    log_database!(info, operation,
+        table: table,
+        record_id: record_id,
+        status: status,
+        duration_ms: duration_ms,
+        details: details
     );
 }
 
-/// Log error with full context
+/// Generic error logging with unified format
 pub fn log_error(component: &str, operation: &str, error: &str, context: Option<&str>) {
     tracing::error!(
         component = %component,
@@ -215,10 +449,29 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
         error = %error,
         context = context,
         timestamp = %Utc::now().to_rfc3339(),
-        "❌ ERROR"
+        "❌ ERROR: {} failed in {}: {}", operation, component, error
     );
 }
 
+/// Example usage of unified logging macros that match Ruby patterns
+///
+/// These examples show how to use the new macros for consistent cross-language logging:
+///
+/// ```rust
+/// use tasker_core::{log_task, log_queue_worker, log_orchestrator, log_config};
+///
+/// // Task operations - matches Ruby: "📋 TASK_OPERATION: Creating task"
+/// log_task!(info, "Creating task", task_id: Some(123), namespace: "fulfillment");
+///
+/// // Queue worker operations - matches Ruby: "🔄 QUEUE_WORKER: Processing batch"
+/// log_queue_worker!(debug, "Processing batch", namespace: "fulfillment", batch_size: 5);
+///
+/// // Orchestrator operations - matches Ruby: "🚀 ORCHESTRATOR: Starting system"
+/// log_orchestrator!(info, "Starting system", namespaces: vec!["default", "fulfillment"]);
+///
+/// // Configuration operations - matches Ruby format with ⚙️ emoji
+/// log_config!(warn, "Using fallback configuration", reason: "File not found");
+/// ```
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +509,43 @@ mod tests {
         // Clean up
         std::env::remove_var("LOG_LEVEL");
         std::env::remove_var("RUST_LOG");
+    }
+
+    #[test]
+    fn test_unified_logging_macros_compile() {
+        // These tests verify that the macros compile correctly with different parameter patterns
+
+        // Test log_task macro variations
+        log_task!(info, "test operation");
+        log_task!(debug, "test with data", task_id: Some(123), status: "running");
+        log_task!(warn, "task warning", task_id: Some(456), namespace: "test_ns", details: Some("test details"));
+
+        // Test log_queue_worker macro variations
+        log_queue_worker!(info, "worker test");
+        log_queue_worker!(debug, "processing", namespace: "test_ns");
+        log_queue_worker!(error, "worker error", namespace: "test_ns", error_count: 5);
+
+        // Test log_orchestrator macro
+        log_orchestrator!(info, "orchestrator test", active_tasks: 10);
+
+        // Test log_step macro variations
+        log_step!(info, "step test");
+        log_step!(debug, "step with ids", step_id: Some(789), task_id: Some(123));
+
+        // Test log_database macro
+        log_database!(warn, "slow query", table: Some("tasks"), duration_ms: Some(5000));
+
+        // Test log_ffi macro variations
+        log_ffi!(info, "ffi test");
+        log_ffi!(error, "ffi error", component: "ruby_bridge", error_code: 500);
+
+        // Test log_config macro
+        log_config!(info, "config loaded", environment: "test");
+
+        // Test log_registry macro variations
+        log_registry!(info, "registry test");
+        log_registry!(debug, "template registered", namespace: "fulfillment", name: "order_processing");
+
+        // Test should complete without panic - macros compile and execute
     }
 }
