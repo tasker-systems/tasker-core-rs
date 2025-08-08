@@ -6,7 +6,7 @@ module DiamondWorkflow
     class DiamondBranchCHandler < TaskerCore::StepHandler::Base
       def call(_task, sequence, _step)
         # Get result from diamond_start
-        start_result = sequence.get('diamond_start')&.dig('result')
+        start_result = sequence.get_results('diamond_start')
         raise 'Diamond start result not found' unless start_result
 
         # Square the start result (single parent operation)

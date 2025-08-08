@@ -91,6 +91,20 @@ impl Default for TaskClaimerConfig {
     }
 }
 
+impl TaskClaimerConfig {
+    /// Create TaskClaimerConfig from ConfigManager
+    pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
+        let config = config_manager.config();
+        
+        Self {
+            max_batch_size: config.orchestration.tasks_per_cycle as i32,
+            default_claim_timeout: config.orchestration.default_claim_timeout_seconds as i32,
+            heartbeat_interval: config.orchestration.heartbeat_interval(),
+            enable_heartbeat: config.orchestration.enable_heartbeat,
+        }
+    }
+}
+
 /// Task claiming component for distributed orchestration
 pub struct TaskClaimer {
     pool: PgPool,

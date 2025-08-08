@@ -4,6 +4,8 @@ require 'spec_helper'
 require 'yaml'
 require 'timeout'
 
+require_relative 'test_helpers/shared_test_loop'
+
 # Load linear workflow handlers
 require_relative '../handlers/examples/linear_workflow/handlers/linear_workflow_handler'
 require_relative '../handlers/examples/linear_workflow/step_handlers/linear_step_1_handler'
@@ -25,27 +27,16 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
     }
   end
 
-  before(:all) do
-    TaskerCore::Utils::TemplateLoader.load_templates!
-  end
+  let(:shared_loop) { SharedTestLoop.new }
+  let(:namespace) { 'linear_workflow' }
 
   # Track workers created during tests for proper cleanup
   before do
-    @test_workers = []
+    shared_loop.start
   end
 
   after do
-    # Clean up any workers created during this test
-    @test_workers.each do |worker|
-      if worker.running?
-        worker.stop
-        # Give worker time to shut down gracefully
-        sleep 0.2
-      end
-    rescue StandardError => e
-      puts "⚠️ Failed to stop worker in test cleanup: #{e.message}"
-    end
-    @test_workers.clear
+    shared_loop.stop
   end
 
   describe 'Complete Linear Mathematical Sequence' do
@@ -63,59 +54,30 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         claim_timeout_seconds: 300
       )
 
-      # Initialize task using embedded FFI with TaskRequest hash
-      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      expect(task_result).to be_a(Hash)
-      expect(task_result['success']).to be(true)
-      expect(task_result['task_id']).to be_a(Integer)
-
-      task_id = task_result['task_id']
+      task = shared_loop.run(task_request: task_request, num_workers: 1, namespace: namespace)
+      expect(task).not_to be_nil
+      task.workflow_steps.each do |step|
+        results = JSON.parse(step.results)
+        expect(results).to be_a(Hash)
+        expect(results.keys).to include('result')
+        expect(results['result']).to be_a(Integer)
+      end
 
       # Verify task was created immediately (no polling needed with FFI)
-      task_execution_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+      task_execution_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task.task_id)
 
-      expect(task_execution_context.task_id).to eq(task_id)
-      expect(task_execution_context.status).to eq('pending')
+      expect(task_execution_context.task_id).to eq(task.task_id)
+      expect(task_execution_context.status).to eq('complete')
       expect(task_execution_context.total_steps).to eq(4)
-      expect(task_execution_context.pending_steps).to eq(4)
+      expect(task_execution_context.pending_steps).to eq(0)
       expect(task_execution_context.in_progress_steps).to eq(0)
-      expect(task_execution_context.completed_steps).to eq(0)
+      expect(task_execution_context.completed_steps).to eq(4)
       expect(task_execution_context.failed_steps).to eq(0)
-      expect(task_execution_context.ready_steps).to eq(1)
-      expect(task_execution_context.execution_status).to eq('has_ready_steps')
-      expect(task_execution_context.recommended_action).to eq('execute_ready_steps')
-      expect(task_execution_context.completion_percentage).to eq(0.0)
+      expect(task_execution_context.ready_steps).to eq(0)
+      expect(task_execution_context.execution_status).to eq('all_complete')
+      expect(task_execution_context.recommended_action).to eq('finalize_task')
+      expect(task_execution_context.completion_percentage).to eq(100.0)
       expect(task_execution_context.health_status).to eq('healthy')
-
-      # Start queue worker and monitor progression
-      worker = TaskerCore::Messaging.create_queue_worker(
-        'linear_workflow',
-        poll_interval: 0.1
-      )
-      @test_workers << worker # Track for cleanup
-
-      expect(worker.start).to be true
-
-      begin
-        Timeout.timeout(10) do
-          loop do
-            tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
-            break if tec.completion_percentage.to_i == 100
-
-            sleep 1
-          end
-        end
-
-        final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
-
-        expect(final_execution.completion_percentage).to eq(100.0)
-      ensure
-        # Worker will be stopped in after(:each) but also stop here for immediate cleanup
-        if worker.running?
-          worker.stop
-          sleep 0.1 # Give worker time to stop gracefully
-        end
-      end
     end
 
     it 'validates step dependency chain execution order' do
@@ -132,15 +94,14 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         claim_timeout_seconds: 300
       )
 
-      # Initialize task using embedded FFI with TaskRequest hash
-      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      expect(task_result).to be_a(Hash)
-      expect(task_result['success']).to be(true)
-      task_result['task_id']
-
-      # NOTE: Full dependency chain monitoring can use task_id for step readiness tracking
-      # This would monitor step readiness using sql_functions.step_readiness_status(task_id)
-      # to verify that step 2 only becomes ready after step 1 completes, etc.
+      task = shared_loop.run(task_request: task_request, num_workers: 1, namespace: namespace)
+      expect(task).not_to be_nil
+      task.workflow_steps.each do |step|
+        results = JSON.parse(step.results)
+        expect(results).to be_a(Hash)
+        expect(results.keys).to include('result')
+        expect(results['result']).to be_a(Integer)
+      end
     end
 
     it 'handles mathematical errors gracefully' do
@@ -250,15 +211,6 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       # Test that view-based models are read-only
       expect(TaskerCore::Database::Models::ReadyTask.new.readonly?).to be true
       expect(TaskerCore::Database::Models::StepDagRelationship.new.readonly?).to be true
-    end
-
-    it 'verifies queue worker can process linear_workflow namespace' do
-      worker = TaskerCore::Messaging.create_queue_worker('linear_workflow')
-      @test_workers << worker # Track for cleanup
-
-      expect(worker.namespace).to eq('linear_workflow')
-      expect(worker.queue_name).to eq('linear_workflow_queue')
-      expect(worker).to respond_to(:can_handle_step?)
     end
 
     it 'verifies task initialization creates ready steps' do

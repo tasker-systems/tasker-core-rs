@@ -40,23 +40,16 @@ module OrderFulfillment
 
       def extract_and_validate_inputs(_task, sequence, _step)
         # Get validated items from the validate_order step
-        validate_order_step = sequence.steps.find { |s| s.name == 'validate_order' }
+        validate_order_results = sequence.get_results('validate_order')
 
-        unless validate_order_step
+        unless validate_order_results
           raise TaskerCore::Errors::PermanentError.new(
-            'validate_order step not found in sequence',
-            error_code: 'MISSING_DEPENDENCY_STEP'
-          )
-        end
-
-        unless validate_order_step.results
-          raise TaskerCore::Errors::PermanentError.new(
-            'validate_order step has no results',
+            'validate_order step results not found',
             error_code: 'MISSING_DEPENDENCY_RESULTS'
           )
         end
 
-        validated_items = validate_order_step.results['validated_items']
+        validated_items = validate_order_results[:validated_items]
 
         unless validated_items&.any?
           raise TaskerCore::Errors::PermanentError.new(
@@ -70,8 +63,8 @@ module OrderFulfillment
 
         {
           validated_items: validated_items,
-          customer_id: validate_order_step.results['customer_id'],
-          order_total: validate_order_step.results['order_total']
+          customer_id: validate_order_results[:customer_id],
+          order_total: validate_order_results[:order_total]
         }
       end
 
@@ -146,24 +139,6 @@ module OrderFulfillment
               available: available_stock,
               requested: quantity
             }
-          )
-        end
-
-        # Simulate occasional inventory system timeout (5% chance)
-        if rand < 0.05
-          raise TaskerCore::Errors::TimeoutError.new(
-            "Inventory system timeout while reserving product #{product_id}",
-            timeout_duration: 30,
-            context: { product_id: product_id, operation: 'reserve_inventory' }
-          )
-        end
-
-        # Simulate occasional network error (3% chance)
-        if rand < 0.03
-          raise TaskerCore::Errors::NetworkError.new(
-            'Network error communicating with inventory system',
-            status_code: 503,
-            context: { product_id: product_id, service: 'inventory_api' }
           )
         end
 

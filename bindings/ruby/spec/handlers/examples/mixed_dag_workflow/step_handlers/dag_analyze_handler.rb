@@ -6,7 +6,7 @@ module MixedDagWorkflow
     class DagAnalyzeHandler < TaskerCore::StepHandler::Base
       def call(_task, sequence, _step)
         # Get result from dag_process_right (single parent)
-        right_result = sequence.get('dag_process_right')&.dig('result')
+        right_result = sequence.get_results('dag_process_right')
         raise 'Process right result not found' unless right_result
 
         # Square the right result (single parent operation)

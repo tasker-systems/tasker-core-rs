@@ -122,6 +122,20 @@ impl Default for StepEnqueuerConfig {
     }
 }
 
+impl StepEnqueuerConfig {
+    /// Create StepEnqueuerConfig from ConfigManager
+    pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
+        let config = config_manager.config();
+        
+        Self {
+            max_steps_per_task: config.execution.step_batch_size as usize,
+            enqueue_delay_seconds: 0, // No direct mapping, keep default
+            enable_detailed_logging: config.orchestration.enable_performance_logging,
+            enqueue_timeout_seconds: config.execution.step_execution_timeout_seconds,
+        }
+    }
+}
+
 /// Step enqueueing component for individual step processing
 pub struct StepEnqueuer {
     viable_step_discovery: ViableStepDiscovery,
@@ -570,34 +584,48 @@ impl StepEnqueuer {
         Ok(row.step_uuid)
     }
 
-    /// Get UUIDs of ready dependency steps
+    /// Get UUIDs of ready dependency steps (all transitive dependencies)
     async fn get_ready_dependency_uuids(&self, viable_step: &ViableStep) -> Result<Vec<Uuid>> {
-        // Query database for completed dependency steps for this step
-        let rows = sqlx::query!(
-            r#"
-            SELECT ws.step_uuid
-            FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
-            INNER JOIN tasker_workflow_step_transitions wst ON wst.workflow_step_id = ws.workflow_step_id
-            WHERE wse.to_step_id = $1
-              AND wst.most_recent = true
-              AND wst.to_state IN ('complete', 'resolved_manually')
-            "#,
-            viable_step.step_id
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}")))?;
+        // Use our new SQL function to get ALL transitive dependencies
+        use crate::database::sql_functions::SqlFunctionExecutor;
+        let executor = SqlFunctionExecutor::new(self.pool.clone());
+        
+        let transitive_dependencies = executor
+            .get_step_transitive_dependencies(viable_step.step_id)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch transitive dependencies: {e}")))?;
 
-        let uuids = rows
+        // Only include dependencies that are processed (completed)
+        let completed_dependencies: Vec<_> = transitive_dependencies
             .into_iter()
-            .map(|row| row.step_uuid)
-            .collect::<Vec<_>>();
+            .filter(|dep| dep.processed)
+            .collect();
+
+        // Get UUIDs for completed dependencies
+        let uuids = if completed_dependencies.is_empty() {
+            Vec::new()
+        } else {
+            let step_ids: Vec<i64> = completed_dependencies
+                .iter()
+                .map(|dep| dep.workflow_step_id)
+                .collect();
+
+            let rows = sqlx::query!(
+                "SELECT step_uuid FROM tasker_workflow_steps WHERE workflow_step_id = ANY($1)",
+                &step_ids
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}")))?;
+
+            rows.into_iter().map(|row| row.step_uuid).collect()
+        };
 
         debug!(
-            "📋 STEP_ENQUEUER: Found {} completed dependency UUIDs for step {}",
+            "📋 STEP_ENQUEUER: Found {} transitive dependency UUIDs for step {} (from {} total transitive deps)",
             uuids.len(),
-            viable_step.step_id
+            viable_step.step_id,
+            completed_dependencies.len()
         );
 
         Ok(uuids)

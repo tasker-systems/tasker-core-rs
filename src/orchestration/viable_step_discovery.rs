@@ -40,6 +40,7 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::{EventPublisher, ViableStep as EventsViableStep};
+use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
 use crate::orchestration::types::ViableStep;
 use std::collections::HashMap;
@@ -437,39 +438,19 @@ impl ViableStepDiscovery {
     ///
     /// This helper method loads the results from completed dependency steps and builds
     /// a map of step_name -> result_data for use by the current step.
+    ///
+    /// Uses the get_step_transitive_dependencies SQL function to get ALL transitive dependencies
+    /// with recursive CTE traversal. This allows YAML configs to specify only immediate dependencies
+    /// while still providing all required results to step handlers.
     async fn load_step_dependencies(
         &self,
         step_id: i64,
     ) -> Result<std::collections::HashMap<String, serde_json::Value>, sqlx::Error> {
-        use crate::models::core::workflow_step::WorkflowStep;
+        use crate::database::sql_functions::SqlFunctionExecutor;
 
-        // Load the current step to get its dependencies
-        let current_step = WorkflowStep::find_by_id(&self.pool, step_id)
-            .await?
-            .ok_or_else(|| sqlx::Error::RowNotFound)?;
-
-        // Get dependency steps
-        let dependency_steps = current_step.get_dependencies(&self.pool).await?;
-
-        let mut previous_results = std::collections::HashMap::new();
-
-        for dep_step in dependency_steps {
-            // Load the step name from named_steps table
-            let step_name = sqlx::query!(
-                "SELECT name FROM tasker_named_steps WHERE named_step_id = $1",
-                dep_step.named_step_id
-            )
-            .fetch_one(&self.pool)
-            .await?
-            .name;
-
-            // Use the step's results if available, otherwise empty object
-            let result_data = dep_step.results.unwrap_or(serde_json::json!({}));
-
-            previous_results.insert(step_name, result_data);
-        }
-
-        Ok(previous_results)
+        // Use the new SQL function to get all transitive dependencies with their results
+        let executor = SqlFunctionExecutor::new(self.pool.clone());
+        executor.get_step_dependency_results_map(step_id).await
     }
 
     /// Get task template from database using database-first approach

@@ -6,7 +6,7 @@ module TreeWorkflow
     class TreeLeafDHandler < TaskerCore::StepHandler::Base
       def call(_task, sequence, _step)
         # Get result from tree_branch_left
-        branch_result = sequence.get('tree_branch_left')&.dig('result')
+        branch_result = sequence.get_results('tree_branch_left')
         raise 'Tree branch left result not found' unless branch_result
 
         # Square the branch result (single parent operation)

@@ -64,6 +64,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{types::BigDecimal, FromRow, PgPool};
 use std::collections::HashMap;
 
+// Import the orchestration models for transitive dependencies
+use crate::models::orchestration::StepTransitiveDependencies;
+
 /// Core SQL function executor with type-safe async execution.
 ///
 /// Provides a unified interface for executing PostgreSQL functions that contain
@@ -747,10 +750,148 @@ impl FunctionRegistry {
     pub fn worker_optimization(&self) -> &SqlFunctionExecutor {
         &self.executor
     }
+
+    /// Access step transitive dependencies operations
+    pub fn transitive_dependencies(&self) -> &SqlFunctionExecutor {
+        &self.executor
+    }
 }
 
 // ============================================================================
-// 7. OPTIMIZED WORKER QUERIES
+// 7. STEP TRANSITIVE DEPENDENCIES
+// ============================================================================
+
+impl SqlFunctionExecutor {
+    /// Get all transitive dependencies (ancestors) for a step using recursive SQL function
+    /// 
+    /// This function calls the `get_step_transitive_dependencies` SQL function which uses
+    /// recursive CTEs to find all ancestor steps in the dependency graph.
+    /// 
+    /// # Parameters
+    /// 
+    /// - `step_id`: The workflow step ID to find dependencies for
+    /// 
+    /// # Returns
+    /// 
+    /// Vector of `StepTransitiveDependencies` ordered by distance (direct parents first)
+    /// 
+    /// # Usage
+    /// 
+    /// ```rust,no_run
+    /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
+    /// use sqlx::PgPool;
+    /// 
+    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    /// let dependencies = executor.get_step_transitive_dependencies(step_id).await?;
+    /// 
+    /// for dep in dependencies {
+    ///     println!("Step {} depends on {} (distance: {})", 
+    ///              step_id, dep.step_name, dep.distance);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// 
+    /// Equivalent to Rails: Enhanced dependency resolution with full DAG traversal
+    pub async fn get_step_transitive_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let sql = "SELECT * FROM get_step_transitive_dependencies($1)";
+        sqlx::query_as::<_, StepTransitiveDependencies>(sql)
+            .bind(step_id)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Get transitive dependencies as a results map for step handler consumption
+    /// 
+    /// This method fetches all transitive dependencies and converts them into a map
+    /// of step_name -> results, which matches the pattern used by Ruby step handlers
+    /// with `sequence.get_results('step_name')`.
+    /// 
+    /// # Parameters
+    /// 
+    /// - `step_id`: The workflow step ID to find dependencies for
+    /// 
+    /// # Returns
+    /// 
+    /// HashMap mapping step names to their JSON results for completed dependencies
+    /// 
+    /// # Usage
+    /// 
+    /// ```rust,no_run
+    /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
+    /// use sqlx::PgPool;
+    /// 
+    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    /// let results = executor.get_step_dependency_results_map(step_id).await?;
+    /// 
+    /// if let Some(validation_result) = results.get("validate_order") {
+    ///     println!("Validation result: {:?}", validation_result);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_step_dependency_results_map(
+        &self,
+        step_id: i64,
+    ) -> Result<HashMap<String, serde_json::Value>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter_map(|dep| {
+                // Only include steps that are processed AND have non-null results
+                if dep.processed && dep.results.is_some() {
+                    let results = dep.results.unwrap();
+                    // Also ensure results is not just an empty JSON object
+                    if !results.is_null() {
+                        Some((dep.step_name, results))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// Get only completed transitive dependencies (those with results)
+    /// 
+    /// This filters the transitive dependencies to only include steps that have
+    /// been processed and have results available.
+    pub async fn get_completed_step_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter(|dep| dep.processed && dep.results.is_some())
+            .collect())
+    }
+
+    /// Get only direct parent dependencies (distance = 1)
+    /// 
+    /// This returns only the immediate parent steps, equivalent to the existing
+    /// immediate dependency queries but using the transitive function for consistency.
+    pub async fn get_direct_parent_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter(|dep| dep.distance == 1)
+            .collect())
+    }
+}
+
+// ============================================================================
+// 8. OPTIMIZED WORKER QUERIES
 // ============================================================================
 
 /// Result structure for find_active_workers_for_task function

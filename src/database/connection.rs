@@ -1,4 +1,5 @@
 use super::DatabaseMigrations;
+use crate::config::ConfigManager;
 use sqlx::{PgPool, Row};
 use std::env;
 
@@ -8,15 +9,15 @@ pub struct DatabaseConnection {
 
 impl DatabaseConnection {
     pub async fn new() -> Result<Self, sqlx::Error> {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://tasker:tasker@localhost/tasker_rust_development".to_string()
-        });
+        // Use ConfigManager for database configuration
+        let config_manager = ConfigManager::global();
+        let database_url = config_manager.config().database_url();
 
         let pool = PgPool::connect(&database_url).await?;
 
         // Check migration status (never auto-run migrations in production)
-        // Migrations should be run separately via `cargo sqlx migrate run` or similar
-        if std::env::var("SKIP_MIGRATION_CHECK").is_err() {
+        // Migrations should be run separately via `cargo sqlx migrate run` or similar  
+        if !Self::should_skip_migration_check(&config_manager) {
             match DatabaseMigrations::check_status(&pool).await {
                 Ok(status) if status.needs_migration => {
                     return Err(sqlx::Error::Configuration(format!(
@@ -65,5 +66,16 @@ impl DatabaseConnection {
 
     pub async fn close(self) {
         self.pool.close().await;
+    }
+
+    /// Determine if migration check should be skipped based on configuration
+    fn should_skip_migration_check(config_manager: &ConfigManager) -> bool {
+        // First check environment variable for backward compatibility
+        if env::var("SKIP_MIGRATION_CHECK").is_ok() {
+            return true;
+        }
+        
+        // Check configuration setting
+        config_manager.config().database.skip_migration_check
     }
 }

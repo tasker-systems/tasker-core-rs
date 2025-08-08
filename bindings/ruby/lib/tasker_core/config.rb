@@ -278,6 +278,198 @@ module TaskerCore
 
       cleaned
     end
+
+    # Enhanced configuration access methods for constants replacement
+    
+    # Get queue worker configuration defaults (replaces FALLBACK_* constants)
+    def queue_worker_defaults
+      effective = effective_config
+      pgmq_config = effective['pgmq'] || {}
+      orchestration_config = effective.dig('orchestration', 'embedded_orchestrator') || {}
+      
+      {
+        poll_interval: (pgmq_config['poll_interval_ms'] || 250) / 1000.0, # Convert to seconds
+        visibility_timeout: pgmq_config['visibility_timeout_seconds'] || 30,
+        batch_size: pgmq_config['batch_size'] || 5,
+        max_retries: pgmq_config['max_retries'] || 3,
+        shutdown_timeout: orchestration_config['shutdown_timeout_seconds'] || 30
+      }
+    rescue StandardError => e
+      # Provide safe fallbacks if config is unavailable
+      {
+        poll_interval: 0.25,
+        visibility_timeout: 30,
+        batch_size: 5,
+        max_retries: 3,
+        shutdown_timeout: 30
+      }
+    end
+
+    # Get pgmq client configuration defaults (replaces DEFAULT_* constants)
+    def pgmq_client_defaults
+      effective = effective_config
+      pgmq_config = effective['pgmq'] || {}
+      
+      {
+        visibility_timeout: pgmq_config['visibility_timeout_seconds'] || 30,
+        message_count: pgmq_config['batch_size'] || 1,
+        max_message_count: pgmq_config['max_batch_size'] || 100
+      }
+    rescue StandardError => e
+      # Provide safe fallbacks if config is unavailable
+      {
+        visibility_timeout: 30,
+        message_count: 1,
+        max_message_count: 100
+      }
+    end
+
+    # Get API timeout configuration (replaces hardcoded timeouts)
+    def api_timeouts
+      effective = effective_config
+      execution_config = effective['execution'] || {}
+      
+      {
+        timeout: execution_config['step_execution_timeout_seconds'] || 30,
+        open_timeout: execution_config['connection_timeout_seconds'] || 10
+      }
+    rescue StandardError => e
+      # Provide safe fallbacks if config is unavailable
+      {
+        timeout: 30,
+        open_timeout: 10
+      }
+    end
+
+    # Get execution limits configuration (replaces various retry/limit constants)
+    def execution_limits
+      effective = effective_config
+      execution_config = effective['execution'] || {}
+      dependency_config = effective['dependency_graph'] || {}
+      
+      {
+        max_retries: execution_config['max_retries'] || 3,
+        max_dependency_depth: dependency_config['max_depth'] || 50,
+        max_workflow_steps: execution_config['max_workflow_steps'] || 1000
+      }
+    rescue StandardError => e
+      # Provide safe fallbacks if config is unavailable
+      {
+        max_retries: 3,
+        max_dependency_depth: 50,
+        max_workflow_steps: 1000
+      }
+    end
+
+    # Validate Ruby-Rust configuration consistency
+    def validate_rust_compatibility!
+      rust_expected = {
+        'dependency_graph.max_depth' => 50,
+        'execution.max_workflow_steps' => 1000,
+        'pgmq.visibility_timeout_seconds' => 30,
+        'pgmq.batch_size' => 5,
+        'execution.max_retries' => 3
+      }
+      
+      inconsistencies = []
+      effective = effective_config
+      
+      rust_expected.each do |path, rust_default|
+        ruby_value = effective.dig(*path.split('.'))
+        if ruby_value && ruby_value != rust_default
+          inconsistencies << "#{path}: Ruby=#{ruby_value}, Rust=#{rust_default}"
+        end
+      end
+      
+      if inconsistencies.any?
+        raise Errors::ConfigurationError, "Ruby-Rust config inconsistencies: #{inconsistencies.join(', ')}"
+      end
+      
+      true
+    rescue StandardError => e
+      # Re-raise ConfigurationError as-is, wrap others
+      if e.is_a?(Errors::ConfigurationError)
+        raise
+      else
+        raise Errors::ConfigurationError, "Failed to validate Ruby-Rust compatibility: #{e.message}"
+      end
+    end
+
+    # Get configuration warnings for potential issues
+    def configuration_warnings
+      warnings = []
+      
+      begin
+        effective = effective_config
+        
+        # Check for missing new configuration sections
+        unless effective['execution']&.key?('max_retries')
+          warnings << "execution.max_retries not configured, using fallback value"
+        end
+        
+        unless effective['execution']&.key?('max_workflow_steps')
+          warnings << "execution.max_workflow_steps not configured, using fallback value"
+        end
+        
+        unless effective['pgmq']&.key?('max_batch_size')
+          warnings << "pgmq.max_batch_size not configured, using fallback value"
+        end
+        
+        unless effective['system']&.key?('max_recursion_depth')
+          warnings << "system.max_recursion_depth not configured, using fallback value"
+        end
+        
+        # Check for potential performance issues
+        if effective.dig('pgmq', 'poll_interval_ms').to_i < 50
+          warnings << "pgmq.poll_interval_ms is very low (#{effective.dig('pgmq', 'poll_interval_ms')}ms), may cause high CPU usage"
+        end
+        
+        if effective.dig('execution', 'max_workflow_steps').to_i > 10000
+          warnings << "execution.max_workflow_steps is very high (#{effective.dig('execution', 'max_workflow_steps')}), may cause memory issues"
+        end
+        
+      rescue StandardError => e
+        warnings << "Failed to check configuration: #{e.message}"
+      end
+      
+      warnings
+    end
+
+    # Environment-specific validation
+    def environment_specific_validation
+      effective = effective_config
+      env = @environment
+      
+      case env
+      when 'test'
+        # Test environment should have smaller limits for faster execution
+        if effective.dig('dependency_graph', 'max_depth').to_i > 20
+          raise Errors::ConfigurationError, "dependency_graph.max_depth too high for test environment: #{effective.dig('dependency_graph', 'max_depth')} (should be ≤ 20)"
+        end
+        
+        if effective.dig('execution', 'max_workflow_steps').to_i > 500
+          raise Errors::ConfigurationError, "execution.max_workflow_steps too high for test environment: #{effective.dig('execution', 'max_workflow_steps')} (should be ≤ 500)"
+        end
+        
+      when 'production'
+        # Production environment should have reasonable limits
+        if effective.dig('pgmq', 'poll_interval_ms').to_i < 100
+          raise Errors::ConfigurationError, "pgmq.poll_interval_ms too low for production environment: #{effective.dig('pgmq', 'poll_interval_ms')}ms (should be ≥ 100ms)"
+        end
+        
+        if effective.dig('execution', 'max_retries').to_i < 2
+          raise Errors::ConfigurationError, "execution.max_retries too low for production environment: #{effective.dig('execution', 'max_retries')} (should be ≥ 2)"
+        end
+      end
+      
+      true
+    rescue StandardError => e
+      if e.is_a?(Errors::ConfigurationError)
+        raise
+      else
+        raise Errors::ConfigurationError, "Environment-specific validation failed: #{e.message}"
+      end
+    end
   end
 
   # Convenience method for user applications to configure TaskerCore

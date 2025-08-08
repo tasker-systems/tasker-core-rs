@@ -6,7 +6,7 @@ module MixedDagWorkflow
     class DagTransformHandler < TaskerCore::StepHandler::Base
       def call(_task, sequence, _step)
         # Get result from dag_process_left (single parent)
-        left_result = sequence.get('dag_process_left')&.dig('result')
+        left_result = sequence.get_results('dag_process_left')
         raise 'Process left result not found' unless left_result
 
         # Square the left result (single parent operation)

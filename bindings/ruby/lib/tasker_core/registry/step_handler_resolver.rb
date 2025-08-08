@@ -30,13 +30,11 @@ module TaskerCore
         attribute :task_template, TaskerCore::Types::Types::Any
       end
 
-      attr_reader :logger
+      attr_reader :logger, :stats
 
       def initialize
-        @callables = Concurrent::Map.new
-        @validation_enabled = true
         @logger = TaskerCore::Logging::Logger.instance
-
+        @stats = {}
         logger.info 'StepHandlerResolver initialized for handler resolution and callable management'
       end
 
@@ -92,6 +90,24 @@ module TaskerCore
         !resolved.nil?
       end
 
+      # Get callable for step execution using priority resolution order
+      # @param handler_class [String] The handler class name/identifier
+      # @return [Object, nil] Callable object or nil if none found
+      def get_callable_for_class(handler_class)
+        handler_key = handler_class.to_s
+        begin
+          klass = handler_key.constantize
+          return klass if klass.respond_to?(:call)
+        rescue NameError
+          # Class doesn't exist, continue to next priority
+        end
+        # Priority 3: Instance with .call method
+        instance = get_handler_instance(handler_key)
+        return instance if instance.respond_to?(:call)
+
+        nil
+      end
+
       # Create handler instance with proper configuration
       #
       # @param resolved_handler [ResolvedStepHandler] Resolved handler info
@@ -117,68 +133,6 @@ module TaskerCore
         raise TaskerCore::Error, "Handler instantiation failed: #{e.message}"
       end
 
-      # === CALLABLE MANAGEMENT METHODS ===
-
-      # Register a callable object directly
-      # @param handler_class [String] The handler class name/identifier
-      # @param callable [Object] Any object that responds to .call(task, sequence, step)
-      # @return [void]
-      def register_callable(handler_class, callable)
-        validate_callable_interface!(callable) if @validation_enabled
-        @callables[handler_class.to_s] = callable
-
-        logger.debug "Registered callable for #{handler_class}: #{callable.class.name}"
-      end
-
-      # Register a Proc/Lambda for step processing
-      # @param handler_class [String] The handler class name/identifier
-      # @param block [Proc] Block that will be called with (task, sequence, step)
-      # @return [void]
-      def register_proc(handler_class, &block)
-        raise ArgumentError, 'Block required for register_proc' unless block_given?
-
-        register_callable(handler_class, block)
-      end
-
-      # Register a class that has a call method
-      # @param handler_class [String] The handler class name/identifier
-      # @param klass [Class] Class that responds to .call or can be instantiated to create callable
-      # @return [void]
-      def register_class(handler_class, klass)
-        if klass.respond_to?(:call)
-          # Class itself is callable (has class method .call)
-          register_callable(handler_class, klass)
-        else
-          # Instantiate the class and register the instance
-          instance = klass.new
-          register_callable(handler_class, instance)
-        end
-      end
-
-      # Get callable for step execution using priority resolution order
-      # @param handler_class [String] The handler class name/identifier
-      # @return [Object, nil] Callable object or nil if none found
-      def get_callable_for_class(handler_class)
-        handler_key = handler_class.to_s
-
-        # Priority 1: Direct callable registration (Procs, Lambdas, etc.)
-        return @callables[handler_key] if @callables.key?(handler_key)
-
-        # Priority 2: Class with .call method
-        begin
-          klass = handler_key.constantize
-          return klass if klass.respond_to?(:call)
-        rescue NameError
-          # Class doesn't exist, continue to next priority
-        end
-
-        # Priority 3: Instance with .call method
-        instance = get_handler_instance(handler_key)
-        return instance if instance.respond_to?(:call)
-
-        nil
-      end
-
       # Get handler instance using traditional resolution
       # @param handler_class [String] The handler class name/identifier
       # @return [Object, nil] Handler instance or nil if not found
@@ -191,54 +145,6 @@ module TaskerCore
       rescue StandardError => e
         logger.error "💥 STEP_RESOLVER: Error instantiating #{handler_class}: #{e.message}"
         nil
-      end
-
-      # Remove a registered callable
-      # @param handler_class [String] The handler class name/identifier
-      # @return [Object, nil] The removed callable or nil if not found
-      def unregister_callable(handler_class)
-        @callables.delete(handler_class.to_s)
-      end
-
-      # List all registered callables
-      # @return [Hash] Hash of handler_class => callable
-      def list_callables
-        result = {}
-        @callables.each_pair { |k, v| result[k] = v }
-        result
-      end
-
-      # Check if a callable is registered for a handler class
-      # @param handler_class [String] The handler class name/identifier
-      # @return [Boolean] True if callable is registered
-      def callable_registered?(handler_class)
-        @callables.key?(handler_class.to_s)
-      end
-
-      # Clear all registered callables
-      # @return [void]
-      def clear_callables!
-        @callables.clear
-        logger.info 'Cleared all registered callables'
-      end
-
-      # Enable or disable callable validation
-      # @param enabled [Boolean] Whether to validate callable interfaces
-      # @return [void]
-      def validation_enabled=(enabled)
-        @validation_enabled = !enabled.nil?
-        logger&.debug "Callable validation #{enabled ? 'enabled' : 'disabled'}"
-      end
-
-      # Get statistics about registered callables
-      # @return [Hash] Statistics about the resolver
-      def stats
-        {
-          total_callables: @callables.size,
-          callable_types: @callables.values.group_by(&:class).transform_values(&:size),
-          validation_enabled: @validation_enabled,
-          handler_classes: @callables.keys
-        }
       end
 
       # Bootstrap handler discovery and registration
@@ -264,16 +170,15 @@ module TaskerCore
           failed_count += 1
         end
 
-        {
+        @stats = {
           'status' => 'success',
           'registered_handlers' => registered_count,
           'failed_handlers' => failed_count,
-          'total_callables' => @callables.size,
           'bootstrapped_at' => Time.now.utc.iso8601
         }
       rescue StandardError => e
         logger.error "❌ Handler bootstrap failed: #{e.message}"
-        {
+        @stats = {
           'status' => 'error',
           'error' => e.message,
           'bootstrapped_at' => Time.now.utc.iso8601
@@ -314,39 +219,6 @@ module TaskerCore
       rescue StandardError => e
         @logger.error("💥 STEP_RESOLVER: Error resolving handler class '#{handler_class_name}': #{e.message}")
         nil
-      end
-
-      # Validate that a callable has the correct interface
-      # @param callable [Object] Callable to validate
-      # @raise [ArgumentError] if callable interface is invalid
-      def validate_callable_interface!(callable)
-        raise ArgumentError, 'Callable must respond to .call method' unless callable.respond_to?(:call)
-
-        # Check arity if possible (some callables don't support arity inspection)
-        if callable.respond_to?(:arity)
-          expected_arity = 3 # (task, sequence, step)
-          actual_arity = callable.arity
-
-          # Handle variable arity (-1 means accepts any number of args)
-          if actual_arity >= 0 && actual_arity != expected_arity
-            logger.warn "Callable arity is #{actual_arity}, expected #{expected_arity} (task, sequence, step)"
-          end
-        end
-
-        # Additional validation for common callable types
-        case callable
-        when Proc, Method
-          # These are always valid if they respond to call
-          true
-        when Class
-          # Class should have a call method
-          unless callable.respond_to?(:call)
-            raise ArgumentError, "Class #{callable.name} must have a .call class method"
-          end
-        else
-          # Instance should have call method (already checked above)
-          true
-        end
       end
 
       # Discover handler classes from all registered task templates

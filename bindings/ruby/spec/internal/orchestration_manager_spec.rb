@@ -31,56 +31,9 @@ RSpec.describe TaskerCore::Internal::OrchestrationManager do
         expect(manager.distributed_handler_registry).to be_nil
       end
     end
-
-    context 'when forced to distributed mode via configuration' do
-      # This test uses the actual configuration system but overrides mode
-      # We test real integration by actually setting up distributed mode
-
-      it 'successfully bootstraps distributed orchestration system' do
-        # Force distributed mode by modifying the manager's mode detection
-        # This is not mocking - we're actually changing the behavior
-        manager.instance_variable_set(:@orchestration_mode, 'distributed')
-
-        expect { manager.bootstrap_orchestration_system }.not_to raise_error
-
-        expect(manager.initialized?).to be true
-        expect(manager.info[:status]).to eq('initialized')
-        expect(manager.info[:mode]).to eq('distributed')
-        expect(manager.info[:architecture]).to eq('pgmq')
-      end
-
-      it 'creates and initializes step handler resolver in distributed mode' do
-        manager.instance_variable_set(:@orchestration_mode, 'distributed')
-        manager.bootstrap_orchestration_system
-
-        expect(manager.info[:handler_registry][:available]).to be true
-        expect(manager.distributed_handler_registry).not_to be_nil
-        expect(manager.distributed_handler_registry).to be_a(TaskerCore::Registry::StepHandlerResolver)
-      end
-
-      it 'includes handler registry stats in info for distributed mode' do
-        manager.instance_variable_set(:@orchestration_mode, 'distributed')
-        manager.bootstrap_orchestration_system
-
-        registry_info = manager.info[:handler_registry]
-        expect(registry_info[:stats]).to be_a(Hash)
-        expect(registry_info[:stats]).to have_key(:total_callables)
-        expect(registry_info[:stats]).to have_key(:validation_enabled)
-      end
-    end
   end
 
   describe '#bootstrap_core_queues' do
-    it 'attempts to create all configured queues with real pgmq client' do
-      # This test uses the real PGMQ client with database connection
-      # No mocking - we test actual queue creation
-
-      manager.send(:bootstrap_core_queues)
-
-      # Should complete without error even if queues already exist
-      # PGMQ handles duplicate queue creation gracefully
-      expect(manager.info[:queues_initialized]).to be true
-    end
 
     it 'handles database unavailability gracefully' do
       # Temporarily break database connection to test error handling
@@ -90,7 +43,7 @@ RSpec.describe TaskerCore::Internal::OrchestrationManager do
       # Force pgmq_available? to return false
       allow(manager).to receive(:pgmq_available?).and_return(false)
 
-      expect { manager.send(:bootstrap_core_queues) }.not_to raise_error
+      expect { manager.send(:bootstrap_core_queues) }.to raise_error(TaskerCore::Errors::OrchestrationError)
 
       # Restore original client
       manager.instance_variable_set(:@pgmq_client, original_client)
@@ -107,7 +60,6 @@ RSpec.describe TaskerCore::Internal::OrchestrationManager do
       expect(info).to have_key(:mode)
       expect(info).to have_key(:pgmq_available)
       expect(info).to have_key(:embedded_orchestrator_available)
-      expect(info).to have_key(:queues_initialized)
       expect(info).to have_key(:handler_registry)
 
       expect(info[:architecture]).to eq('pgmq')

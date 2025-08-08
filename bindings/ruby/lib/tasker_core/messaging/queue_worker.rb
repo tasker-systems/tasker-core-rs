@@ -27,12 +27,6 @@ module TaskerCore
     #   worker.start  # Begins polling loop
     #   worker.stop   # Graceful shutdown
     class QueueWorker
-      # Fallback defaults if configuration is unavailable
-      FALLBACK_POLL_INTERVAL = 0.25 # 250ms in seconds as fallback
-      FALLBACK_VISIBILITY_TIMEOUT = 30 # seconds
-      FALLBACK_BATCH_SIZE = 5
-      FALLBACK_MAX_RETRIES = 3
-      FALLBACK_SHUTDOWN_TIMEOUT = 30 # seconds
 
       attr_reader :namespace, :queue_name, :pgmq_client, :step_handler_resolver, :logger,
                   :poll_interval, :visibility_timeout, :batch_size, :max_retries, :shutdown_timeout
@@ -51,12 +45,28 @@ module TaskerCore
         @logger = TaskerCore::Logging::Logger.instance
 
         # Configuration - read from YAML with environment-specific optimization
-        config = load_configuration
-        @poll_interval = poll_interval || config[:poll_interval] || FALLBACK_POLL_INTERVAL
-        @visibility_timeout = visibility_timeout || config[:visibility_timeout] || FALLBACK_VISIBILITY_TIMEOUT
-        @batch_size = batch_size || config[:batch_size] || FALLBACK_BATCH_SIZE
-        @max_retries = max_retries || config[:max_retries] || FALLBACK_MAX_RETRIES
-        @shutdown_timeout = shutdown_timeout || config[:shutdown_timeout] || FALLBACK_SHUTDOWN_TIMEOUT
+        config_defaults = TaskerCore::Config.instance.queue_worker_defaults
+        @poll_interval = poll_interval || config_defaults[:poll_interval]
+        @visibility_timeout = visibility_timeout || config_defaults[:visibility_timeout]
+        @batch_size = batch_size || config_defaults[:batch_size]
+        @max_retries = max_retries || config_defaults[:max_retries]
+        @shutdown_timeout = shutdown_timeout || config_defaults[:shutdown_timeout]
+        
+        # Fail fast if configuration is invalid
+        if @poll_interval <= 0
+          raise TaskerCore::Errors::ConfigurationError,
+                "Invalid poll_interval: #{@poll_interval}. Must be positive number."
+        end
+        
+        if @visibility_timeout <= 0
+          raise TaskerCore::Errors::ConfigurationError,
+                "Invalid visibility_timeout: #{@visibility_timeout}. Must be positive number."
+        end
+        
+        if @batch_size <= 0
+          raise TaskerCore::Errors::ConfigurationError,
+                "Invalid batch_size: #{@batch_size}. Must be positive number."
+        end
 
         # Log configuration for debugging
         logger&.debug("🔧 QUEUE_WORKER: Configuration loaded for namespace: #{namespace} - poll_interval: #{@poll_interval}s, batch_size: #{@batch_size}")
@@ -105,17 +115,11 @@ module TaskerCore
 
         # Wait for worker thread to finish
         if @worker_thread&.alive?
-          # Give extra time during database teardown scenarios
-          extended_timeout = shutdown_timeout * 2
-
-          if @worker_thread.join(extended_timeout)
+          if @worker_thread.join(shutdown_timeout)
             logger.info("✅ QUEUE_WORKER: Worker stopped gracefully for namespace: #{namespace}")
           else
-            logger.warn("⚠️ QUEUE_WORKER: Worker shutdown timeout after #{extended_timeout}s, forcing stop for namespace: #{namespace}")
-            @worker_thread.kill
-
-            # Give the kill a moment to take effect
-            sleep 0.1
+            logger.warn("⚠️ QUEUE_WORKER: Worker shutdown timeout after #{shutdown_timeout}s, using force kill for namespace: #{namespace}")
+            force_kill
           end
         end
 
@@ -124,10 +128,39 @@ module TaskerCore
       rescue StandardError => e
         logger.error("❌ QUEUE_WORKER: Error during worker shutdown: #{e.message}")
         # Force cleanup even if there's an error
-        @running = false
-        @worker_thread&.kill
-        @worker_thread = nil
+        force_kill
         true
+      end
+
+      # Force kill the worker - aggressively terminates blocking operations
+      #
+      # @return [Boolean] true if force killed successfully
+      def force_kill
+        return true unless @worker_thread&.alive?
+
+        logger.warn("🗞️ QUEUE_WORKER: Force killing worker for namespace: #{namespace}")
+
+        begin
+          # 1. Set running to false immediately to stop new polling
+          @running = false
+          @shutdown_signal.set
+
+          # 2. Kill the thread immediately
+          @worker_thread.kill
+          logger.debug("☠️ QUEUE_WORKER: Killed worker thread for namespace: #{namespace}")
+
+          # 3. Clean up state immediately
+          @worker_thread = nil
+          logger.debug("✅ QUEUE_WORKER: Force kill completed for namespace: #{namespace}")
+
+          true
+        rescue StandardError => e
+          logger.error("❌ QUEUE_WORKER: Error during force kill: #{e.message}")
+          # Clean up state even if force kill failed
+          @running = false
+          @worker_thread = nil
+          true
+        end
       end
 
       # Check if worker is running
@@ -333,24 +366,6 @@ module TaskerCore
 
       private
 
-      # Load configuration from YAML with environment-specific timing optimization
-      def load_configuration
-        config_instance = TaskerCore::Config.instance
-        effective_config = config_instance.effective_config
-        pgmq_config = effective_config['pgmq'] || {}
-
-        {
-          # Convert milliseconds to seconds for Ruby's sleep() method
-          poll_interval: pgmq_config['poll_interval_ms'] ? pgmq_config['poll_interval_ms'] / 1000.0 : nil,
-          visibility_timeout: pgmq_config['visibility_timeout_seconds'],
-          batch_size: pgmq_config['batch_size'],
-          max_retries: pgmq_config['max_retries'],
-          shutdown_timeout: pgmq_config['shutdown_timeout_seconds']
-        }
-      rescue StandardError => e
-        logger.warn("⚠️ QUEUE_WORKER: Failed to load configuration: #{e.message}, using fallback values")
-        {}
-      end
 
       # Get orchestration results queue name from configuration
       def get_orchestration_results_queue_name
@@ -374,6 +389,10 @@ module TaskerCore
         while running? && !@shutdown_signal.set?
           begin
             poll_and_process_batch
+          rescue Interrupt => e
+            logger.info("🛑 QUEUE_WORKER: Received shutdown interrupt for #{namespace}: #{e.message}")
+            @running = false
+            break
           rescue StandardError => e
             logger.error("💥 QUEUE_WORKER: Polling loop error for #{namespace}: #{e.message}")
             logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(3).join("\n")}")
@@ -392,12 +411,13 @@ module TaskerCore
       def poll_and_process_batch
         logger.debug("🔍 QUEUE_WORKER: Polling queue '#{queue_name}' for messages (batch_size: #{batch_size})")
 
-        # Read messages from queue - now returns Array<QueueMessageData>
+        # Read messages from queue with timeout for responsive shutdown
         begin
           queue_messages = pgmq_client.read_step_messages(
             namespace,
             visibility_timeout: visibility_timeout,
-            qty: batch_size
+            qty: batch_size,
+            poll_timeout: poll_interval * 2  # Use 2x poll interval as max wait time
           )
         rescue TaskerCore::Errors::DatabaseError => e
           # Handle connection issues gracefully during shutdown/teardown

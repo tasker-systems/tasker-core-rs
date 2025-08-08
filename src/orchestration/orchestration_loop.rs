@@ -215,6 +215,25 @@ impl Default for OrchestrationLoopConfig {
     }
 }
 
+impl OrchestrationLoopConfig {
+    /// Create OrchestrationLoopConfig from ConfigManager
+    pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
+        let config = config_manager.config();
+        
+        Self {
+            tasks_per_cycle: config.orchestration.tasks_per_cycle as i32,
+            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
+            cycle_interval: config.orchestration.cycle_interval(),
+            max_cycles: None, // No direct mapping in config, keep as runtime parameter
+            enable_performance_logging: config.orchestration.enable_performance_logging,
+            enable_heartbeat: config.orchestration.enable_heartbeat,
+            task_claimer_config: TaskClaimerConfig::from_config_manager(config_manager),
+            step_enqueuer_config: StepEnqueuerConfig::from_config_manager(config_manager),
+            step_result_processor_config: StepResultProcessorConfig::from_config_manager(config_manager),
+        }
+    }
+}
+
 /// Main orchestration loop coordinator
 pub struct OrchestrationLoop {
     task_claimer: TaskClaimer,

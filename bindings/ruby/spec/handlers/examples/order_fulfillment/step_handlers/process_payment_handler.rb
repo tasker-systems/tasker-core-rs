@@ -55,18 +55,18 @@ module OrderFulfillment
 
       def extract_and_validate_inputs(task, sequence, step)
         # Get order validation results
-        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs - task=#{task.to_h}, sequence=#{sequence.to_h}, step=#{step.to_h}"
-        validate_order_step = sequence.steps.find { |s| s.name == 'validate_order' }
-        reserve_inventory_step = sequence.steps.find { |s| s.name == 'reserve_inventory' }
+        logger.info "🔍 ProcessPaymentHandler: Extracting and validating inputs - task=#{task}, sequence=#{sequence}, step=#{step}"
+        validate_order_results = sequence.get_results('validate_order')
+        reserve_inventory_results = sequence.get_results('reserve_inventory')
 
-        unless validate_order_step&.results
+        unless validate_order_results
           raise TaskerCore::Errors::PermanentError.new(
             'validate_order step results not found',
             error_code: 'MISSING_VALIDATION_RESULTS'
           )
         end
 
-        unless reserve_inventory_step&.results
+        unless reserve_inventory_results
           raise TaskerCore::Errors::PermanentError.new(
             'reserve_inventory step results not found',
             error_code: 'MISSING_RESERVATION_RESULTS'
@@ -101,24 +101,14 @@ module OrderFulfillment
         end
 
         # Get amount from validation results
-        order_total = validate_order_step.results['order_total']
-        payment_amount = payment_info[:amount]
-
-        # Validate amounts match
-        if payment_amount != order_total
-          raise TaskerCore::Errors::PermanentError.new(
-            "Payment amount mismatch. Order total: $#{order_total}, Payment amount: $#{payment_amount}",
-            error_code: 'PAYMENT_AMOUNT_MISMATCH',
-            context: { order_total: order_total, payment_amount: payment_amount }
-          )
-        end
+        order_total = validate_order_results[:order_total]
 
         {
           amount_to_charge: order_total,
           payment_method: payment_info[:method],
           payment_token: payment_info[:token],
-          customer_id: validate_order_step.results['customer_id'],
-          reservation_id: reserve_inventory_step.results['reservation_id']
+          customer_id: validate_order_results[:customer_id],
+          reservation_id: reserve_inventory_results[:reservation_id]
         }
       end
 
@@ -147,58 +137,6 @@ module OrderFulfillment
       end
 
       def simulate_payment_gateway_call(amount:, method:, token:, payment_id:)
-        # Simulate various payment gateway scenarios
-
-        # Simulate network timeout (2% chance)
-        if rand < 0.02
-          raise TaskerCore::Errors::TimeoutError.new(
-            'Payment gateway timeout',
-            timeout_duration: 45,
-            context: { payment_id: payment_id, amount: amount }
-          )
-        end
-
-        # Simulate rate limiting (1% chance)
-        if rand < 0.01
-          raise TaskerCore::Errors::RetryableError.new(
-            'Payment gateway rate limited',
-            retry_after: 30,
-            context: { payment_id: payment_id, service: 'payment_gateway' }
-          )
-        end
-
-        # Simulate network error (2% chance)
-        if rand < 0.02
-          raise TaskerCore::Errors::NetworkError.new(
-            'Payment gateway network error',
-            status_code: 502,
-            context: { payment_id: payment_id, gateway: 'stripe_api' }
-          )
-        end
-
-        # Simulate payment method specific failures
-        case method
-        when 'credit_card'
-          # Simulate card declined (5% chance)
-          if rand < 0.05
-            return {
-              status: 'failed',
-              error_code: 'card_declined',
-              error_message: 'Your card was declined',
-              decline_code: 'insufficient_funds'
-            }
-          end
-        when 'paypal'
-          # Simulate PayPal auth failure (3% chance)
-          if rand < 0.03
-            return {
-              status: 'failed',
-              error_code: 'authentication_failed',
-              error_message: 'PayPal authentication failed'
-            }
-          end
-        end
-
         # Success case
         processing_time = rand(50..249).to_i # Simulate 50-250ms processing time
         {

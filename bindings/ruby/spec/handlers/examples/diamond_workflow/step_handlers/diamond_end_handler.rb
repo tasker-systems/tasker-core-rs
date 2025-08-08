@@ -6,8 +6,8 @@ module DiamondWorkflow
     class DiamondEndHandler < TaskerCore::StepHandler::Base
       def call(task, sequence, _step)
         # Get results from both parallel branches
-        branch_b_result = sequence.get('diamond_branch_b')&.dig('result')
-        branch_c_result = sequence.get('diamond_branch_c')&.dig('result')
+        branch_b_result = sequence.get_results('diamond_branch_b')
+        branch_c_result = sequence.get_results('diamond_branch_c')
 
         raise 'Branch B result not found' unless branch_b_result
         raise 'Branch C result not found' unless branch_c_result

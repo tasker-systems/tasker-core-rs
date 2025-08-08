@@ -461,7 +461,8 @@ module TaskerCore
           normalized_step[:depends_on_steps] ||= []
           normalized_step[:handler_config] ||= {}
           normalized_step[:default_retryable] = true if normalized_step[:default_retryable].nil?
-          normalized_step[:default_retry_limit] ||= 3
+          # Use configuration-driven retry limit instead of hardcoded value
+          normalized_step[:default_retry_limit] ||= TaskerCore::Config.instance.execution_limits[:max_retries]
 
           TaskerCore::Types::StepTemplate.new(normalized_step)
         end

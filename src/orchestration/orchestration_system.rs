@@ -74,6 +74,33 @@ impl Default for OrchestrationSystemConfig {
     }
 }
 
+impl OrchestrationSystemConfig {
+    /// Create OrchestrationSystemConfig from ConfigManager
+    pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
+        use std::time::SystemTime;
+
+        let config = config_manager.config();
+        
+        // Generate a simple orchestrator ID using timestamp
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+
+        Self {
+            task_requests_queue_name: config.orchestration.task_requests_queue_name.clone(),
+            orchestrator_id: format!("orchestrator-{timestamp}"),
+            orchestration_loop_config: OrchestrationLoopConfig::from_config_manager(config_manager),
+            task_request_polling_interval_ms: config.orchestration.task_request_polling_interval_ms,
+            task_request_visibility_timeout_seconds: config.orchestration.task_request_visibility_timeout_seconds as i32,
+            task_request_batch_size: config.orchestration.task_request_batch_size as i32,
+            active_namespaces: config.orchestration.active_namespaces.clone(),
+            max_concurrent_orchestrators: config.orchestration.max_concurrent_orchestrators as usize,
+            enable_performance_logging: config.orchestration.enable_performance_logging,
+        }
+    }
+}
+
 /// Main orchestration system using OrchestrationLoop for individual step processing
 pub struct OrchestrationSystem {
     /// PostgreSQL message queue client

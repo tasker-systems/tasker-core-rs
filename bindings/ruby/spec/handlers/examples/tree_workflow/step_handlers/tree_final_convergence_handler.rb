@@ -6,10 +6,10 @@ module TreeWorkflow
     class TreeFinalConvergenceHandler < TaskerCore::StepHandler::Base
       def call(task, sequence, _step)
         # Get results from all leaf nodes
-        leaf_d_result = sequence.get('tree_leaf_d')&.dig('result')
-        leaf_e_result = sequence.get('tree_leaf_e')&.dig('result')
-        leaf_f_result = sequence.get('tree_leaf_f')&.dig('result')
-        leaf_g_result = sequence.get('tree_leaf_g')&.dig('result')
+        leaf_d_result = sequence.get_results('tree_leaf_d')
+        leaf_e_result = sequence.get_results('tree_leaf_e')
+        leaf_f_result = sequence.get_results('tree_leaf_f')
+        leaf_g_result = sequence.get_results('tree_leaf_g')
 
         raise 'Leaf D result not found' unless leaf_d_result
         raise 'Leaf E result not found' unless leaf_e_result

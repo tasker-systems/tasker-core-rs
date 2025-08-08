@@ -6,7 +6,7 @@ module MixedDagWorkflow
     class DagProcessLeftHandler < TaskerCore::StepHandler::Base
       def call(_task, sequence, _step)
         # Get result from dag_init
-        init_result = sequence.get('dag_init')&.dig('result')
+        init_result = sequence.get_results('dag_init')
         raise 'Init result not found' unless init_result
 
         # Square the init result (single parent operation)

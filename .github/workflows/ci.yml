@@ -4,9 +4,9 @@ name: "Tasker Core Rust CI"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +20,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -105,11 +105,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust-version: ['stable', 'beta']
+        rust-version: ["stable", "beta"]
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -183,7 +183,6 @@ jobs:
           name: test-results-${{ matrix.rust-version }}
           path: target/debug/deps/
 
-
   # Performance benchmarks
   benchmark:
     name: Performance Benchmarks
@@ -192,7 +191,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -252,7 +251,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -318,7 +317,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:

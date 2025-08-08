@@ -4,6 +4,8 @@ require 'spec_helper'
 require 'yaml'
 require 'timeout'
 
+require_relative 'test_helpers/shared_test_loop'
+
 require_relative '../handlers/examples/order_fulfillment/handlers/order_fulfillment_handler'
 require_relative '../handlers/examples/order_fulfillment/step_handlers/validate_order_handler'
 require_relative '../handlers/examples/order_fulfillment/step_handlers/reserve_inventory_handler'
@@ -48,177 +50,54 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
     }
   end
 
-  before(:all) do
-    # Initialize orchestration system in embedded mode
-    # This will set up queues, start embedded Rust listeners, and prepare the system
-    TaskerCore::Internal::OrchestrationManager.instance.bootstrap_orchestration_system
+  let(:namespace) { 'fulfillment' }
+  let(:shared_loop) { SharedTestLoop.new }
+
+  before do
+    shared_loop.start
   end
 
-  after(:all) do
-    # Clean shutdown of orchestration system
-    TaskerCore::Internal::OrchestrationManager.instance.reset!
+  after do
+    shared_loop.stop
   end
 
   describe 'Complete Order Fulfillment Workflow' do
     it 'executes full order fulfillment through pgmq architecture', :aggregate_failures do
-      puts "\n🚀 Starting Order Fulfillment PGMQ Integration Test"
-
-      # ==========================================
-      # PHASE 1: Task Creation Using Framework Patterns
-      # ==========================================
-
-      # Create task request using proper framework types
-      # Note: requested_at has a default Time.now, so we don't need to specify it
       task_request = TaskerCore::Types::TaskRequest.new(
         namespace: 'fulfillment',
         name: 'process_order',
         version: '1.0.0',
-        context: sample_order_data,
+        context: sample_order_data.merge({ order_id: SecureRandom.uuid }),
         initiator: 'integration_test',
         source_system: 'pgmq_integration_spec',
         reason: 'Full integration test of order fulfillment workflow',
         priority: 5,
         claim_timeout_seconds: 300
-        # requested_at: defaults to Time.now automatically
       )
 
-      puts "📝 Created task request: #{task_request.namespace}/#{task_request.name}"
+      task = shared_loop.run(task_request: task_request, num_workers: 2, namespace: namespace)
+      expect(task).not_to be_nil
 
-      # Initialize task using the base task handler from the framework
-      # This should trigger the orchestration system and enqueue the first steps
-      base_handler = TaskerCore::Internal::OrchestrationManager.instance.base_task_handler
-      expect(base_handler).not_to be_nil
+      # Validate all 4 steps completed in order
+      expect(task.workflow_steps.count).to eq(4) # validate, reserve, payment, ship
 
-      # Create and initialize the task through the framework
-      # Convert TaskRequest object to hash for base_task_handler.initialize_task
-      # Note: initialize_task now returns nil (async operation) or raises on error
-      task_result = base_handler.initialize_task(task_request.to_h)
-      expect(task_result).to be_nil
-      puts '✅ Task request sent to orchestration queue successfully'
+      task.workflow_steps.each do |step|
+        results = JSON.parse(step.results)
+        expect(results).to be_a(Hash)
+        expect(results.keys).to include('result')
 
-      # Give the message a moment to be processed and verify it's on the queue
-      sleep 0.1
-
-      # ==========================================
-      # PHASE 2: Verify Framework SQL Functions Are Available
-      # ==========================================
-
-      # Since task creation is placeholder in current phase, let's verify
-      # that our SQL functions framework is working properly
-      sql_functions = TaskerCore::Database.create_sql_functions
-
-      # Test system health function (doesn't require task IDs)
-      health_counts = sql_functions.system_health_counts
-      expect(health_counts).to be_a(Hash)
-      puts "🔧 SQL Functions framework operational - health: #{health_counts.keys.join(', ')}"
-
-      # Test analytics function (doesn't require task IDs)
-      analytics = sql_functions.analytics_metrics
-      expect(analytics).to be_a(Hash)
-      puts "📊 Analytics framework operational - metrics: #{analytics.keys.join(', ')}"
-
-      # ==========================================
-      # PHASE 3: Verify Queue Worker Framework
-      # ==========================================
-
-      # Create queue workers using the framework patterns
-      worker = TaskerCore::Messaging.create_queue_worker('fulfillment', poll_interval: 1.0)
-
-      expect(worker).to respond_to(:start)
-      expect(worker).to respond_to(:stop)
-      expect(worker).to respond_to(:running?)
-
-      puts '⚡ Queue worker framework operational'
-
-      # ==========================================
-      # PHASE 4: Verify Complete Framework Integration
-      # ==========================================
-
-      puts "\n🎉 FRAMEWORK VALIDATION COMPLETE!"
-      puts '   ✅ Orchestration system initialized in pgmq mode'
-      puts '   ✅ Task handler framework accepting requests'
-      puts '   ✅ SQL functions framework operational'
-      puts '   ✅ Queue worker framework ready'
-      puts '   ✅ All 7 queues created and available'
-      puts '   📋 Ready for Phase 4.3: Database-backed task creation'
-    end
-
-    it 'verifies task template configuration parsing' do
-      puts "\n🔗 Testing Task Template Configuration"
-
-      # Verify that the order fulfillment task template was loaded correctly
-      # during orchestration system bootstrap
-      manager = TaskerCore::Internal::OrchestrationManager.instance
-
-      expect(manager.initialized?).to be true
-      info = manager.info
-      expect(info[:architecture]).to eq('pgmq')
-
-      puts '✅ Task template configuration parsed successfully'
-      puts '   📋 Order fulfillment workflow structure:'
-      puts '   • validate_order (level 0)'
-      puts '   • reserve_inventory (level 1, depends on validate_order)'
-      puts '   • process_payment (level 2, depends on validate_order + reserve_inventory)'
-      puts '   • ship_order (level 3, depends on process_payment)'
-    end
-
-    it 'monitors performance through framework analytics' do
-      puts "\n📊 Testing Performance Monitoring"
-
-      # This test would use the analytics SQL functions to verify performance
-      # This is a placeholder for when we implement performance monitoring
-
-      sql_functions = TaskerCore::Database.create_sql_functions
-      analytics = sql_functions.analytics_metrics
-
-      expect(analytics).to be_a(Hash)
-      # More specific performance assertions would go here
-
-      puts '✅ Analytics framework available for performance monitoring'
-    end
-  end
-
-  describe 'Framework Integration Validation' do
-    it 'verifies orchestration system initialization' do
-      # Verify the orchestration system is properly initialized
-      manager = TaskerCore::Internal::OrchestrationManager.instance
-
-      expect(manager.initialized?).to be true
-
-      info = manager.info
-      expect(info[:architecture]).to eq('pgmq')
-      expect(info[:pgmq_available]).to be true
-      expect(info[:queues_initialized]).to be true
-
-      puts '✅ Orchestration system properly initialized in pgmq mode'
-    end
-
-    it 'verifies SQL functions are available' do
-      # Verify all our framework SQL functions work
-      sql_functions = TaskerCore::Database.create_sql_functions
-
-      # Test functions that don't require task IDs
-      expect { sql_functions.system_health_counts }.not_to raise_error
-      expect { sql_functions.analytics_metrics }.not_to raise_error
-
-      # Verify we can create the SQL functions instance
-      expect(sql_functions).to respond_to(:task_execution_contexts_batch)
-      expect(sql_functions).to respond_to(:step_readiness_status_batch)
-      expect(sql_functions).to respond_to(:calculate_dependency_levels)
-
-      puts '✅ All framework SQL functions available and accessible'
-      puts '   📋 Note: Task ID-dependent functions ready for Phase 4.3'
-    end
-
-    it 'verifies queue worker framework is operational' do
-      # Verify queue workers can be created through framework
-      worker = TaskerCore::Messaging.create_queue_worker('test_namespace', poll_interval: 1.0)
-
-      expect(worker).to respond_to(:start)
-      expect(worker).to respond_to(:stop)
-      expect(worker).to respond_to(:running?)
-
-      puts '✅ Queue worker framework operational'
+        # Validate specific step results
+        case step.name
+        when 'validate_order'
+          expect(results['result']).to include('customer_validated' => true)
+        when 'reserve_inventory'
+          expect(results['result']).to include('items_reserved' => 2)
+        when 'process_payment'
+          expect(results['result']).to include('payment_processed' => true)
+        when 'ship_order'
+          expect(results['result']).to include('shipping_status' => 'label_created')
+        end
+      end
     end
   end
 end

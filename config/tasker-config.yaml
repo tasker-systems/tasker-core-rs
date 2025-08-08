@@ -53,14 +53,16 @@ health:
     queue_depth: 1000.0
 
 dependency_graph:
-  max_depth: 50
+  max_depth: 50 # Replaces Rust constants::system::MAX_DEPENDENCY_DEPTH
   cycle_detection_enabled: true
   optimization_enabled: true
 
 system:
   default_dependent_system: "default"
   default_queue_name: "default"
-  version: "1.0.0"
+  version: "0.1.0" # Updated to match Rust TASKER_CORE_VERSION constant
+  # New constants unification fields
+  max_recursion_depth: 50 # Replaces potential hardcoded recursion limits
 
 backoff:
   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
@@ -84,6 +86,10 @@ execution:
   environment: "production"
   max_discovery_attempts: 3
   step_batch_size: 10
+  # New constants unification fields
+  max_retries: 3 # Replaces Ruby FALLBACK_MAX_RETRIES and DEFAULT_* constants
+  max_workflow_steps: 1000 # Replaces Rust constants::system::MAX_WORKFLOW_STEPS
+  connection_timeout_seconds: 10 # Replaces Ruby hardcoded API timeouts
 
 reenqueue:
   has_ready_steps: 1
@@ -124,8 +130,11 @@ query_cache:
 pgmq:
   poll_interval_ms: 250 # Standard polling interval for production
   visibility_timeout_seconds: 30 # Keep longer for business logic execution time
-  batch_size: 10 # Standard batch size for production
+  batch_size: 5 # Standard batch size for production (matching Ruby defaults)
   max_retries: 3 # Standard retry limit
+  # New constants unification fields
+  max_batch_size: 100 # Replaces Ruby MAX_MESSAGE_COUNT constant
+  shutdown_timeout_seconds: 30 # Replaces Ruby FALLBACK_SHUTDOWN_TIMEOUT constant
   default_namespaces:
     - default
     - fulfillment
@@ -204,12 +213,22 @@ development:
 test:
   execution:
     environment: "test"
+    # Test environment overrides - smaller limits for faster tests
+    max_workflow_steps: 100 # Smaller for test safety
+    max_retries: 2 # Fewer retries for faster test feedback
 
   database:
     database: "tasker_rust_test"
     host: "${DATABASE_HOST:-localhost}"
     username: "${POSTGRES_USER:-tasker}"
     password: "${POSTGRES_PASSWORD:-tasker}"
+
+  # Test environment constants optimization
+  dependency_graph:
+    max_depth: 10 # Smaller for faster tests
+
+  system:
+    max_recursion_depth: 25 # Smaller for test safety
 
   task_templates:
     # Test environment includes example handlers for integration testing
@@ -219,7 +238,7 @@ test:
   # Fast test execution settings
   pgmq:
     poll_interval_ms: 100 # 100ms polling for fast test execution (10x/sec)
-    visibility_timeout_seconds: 30 # Keep longer for business logic execution time
+    visibility_timeout_seconds: 5 # very short in test
 
   orchestration:
     mode: "embedded"
@@ -243,11 +262,14 @@ test:
     embedded_orchestrator:
       auto_start: true # auto-start in test mode
       namespaces: ["default", "fulfillment", "inventory", "notifications"]
-      shutdown_timeout_seconds: 30 # Production graceful shutdown timeout
+      shutdown_timeout_seconds: 5 # Production graceful shutdown timeout
 
 production:
   execution:
     environment: "production"
+    # Production environment overrides - higher limits for complex workflows
+    max_workflow_steps: 5000 # Higher for complex production workflows
+    max_retries: 5 # More retries for production reliability
 
   database:
     database: "${POSTGRES_DB:-tasker_production}"
@@ -255,6 +277,13 @@ production:
     username: "${POSTGRES_USER:-tasker}"
     password: "${POSTGRES_PASSWORD:-tasker}"
     pool: "${DB_MAX_THREADS:-25}"
+
+  # Production environment constants optimization
+  dependency_graph:
+    max_depth: 100 # Higher for complex production workflows
+
+  system:
+    max_recursion_depth: 100 # Higher for complex production scenarios
 
   telemetry:
     enabled: true

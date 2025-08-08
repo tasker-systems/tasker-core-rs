@@ -6,9 +6,9 @@ module MixedDagWorkflow
     class DagFinalizeHandler < TaskerCore::StepHandler::Base
       def call(task, sequence, _step)
         # Get results from all convergence inputs: D (multiple parent), E (single parent), F (single parent)
-        validate_result = sequence.get('dag_validate')&.dig('result')
-        transform_result = sequence.get('dag_transform')&.dig('result')
-        analyze_result = sequence.get('dag_analyze')&.dig('result')
+        validate_result = sequence.get_results('dag_validate')
+        transform_result = sequence.get_results('dag_transform')
+        analyze_result = sequence.get_results('dag_analyze')
 
         raise 'Validate result (D) not found' unless validate_result
         raise 'Transform result (E) not found' unless transform_result

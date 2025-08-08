@@ -15,14 +15,14 @@ schema:
       type: object
       required: [id, email]
       properties:
-        id: 
+        id:
           type: integer
           description: "Customer unique identifier"
-        email: 
+        email:
           type: string
           format: email
           description: "Customer email address"
-        tier: 
+        tier:
           type: string
           enum: [standard, premium]
           default: standard
@@ -34,14 +34,14 @@ schema:
         type: object
         required: [product_id, quantity, price]
         properties:
-          product_id: 
+          product_id:
             type: integer
             description: "Product unique identifier"
-          quantity: 
+          quantity:
             type: integer
             minimum: 1
             description: "Quantity to order"
-          price: 
+          price:
             type: number
             minimum: 0
             description: "Unit price in USD"
@@ -49,14 +49,14 @@ schema:
       type: object
       required: [method, token, amount]
       properties:
-        method: 
+        method:
           type: string
           enum: [credit_card, debit_card, paypal, bank_transfer]
           description: "Payment method type"
-        token: 
+        token:
           type: string
           description: "Payment token from payment gateway"
-        amount: 
+        amount:
           type: number
           minimum: 0
           description: "Total amount to charge in USD"
@@ -64,10 +64,10 @@ schema:
       type: object
       required: [address, method]
       properties:
-        address: 
+        address:
           type: string
           description: "Complete shipping address"
-        method: 
+        method:
           type: string
           enum: [standard, express, overnight]
           default: standard

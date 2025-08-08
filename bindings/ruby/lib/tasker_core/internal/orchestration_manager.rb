@@ -12,7 +12,7 @@ module TaskerCore
     class OrchestrationManager
       include Singleton
 
-      attr_reader :initialized_at, :status, :logger, :base_task_handler
+      attr_reader :initialized_at, :status, :logger
 
       def initialize
         @initialized = false
@@ -108,14 +108,12 @@ module TaskerCore
             logger.debug '🔄 Resetting handler registry...'
             # NOTE: StepHandlerResolver is a singleton, so we don't nil it
             # but we do clear any cached state if needed
-            TaskerCore::Registry::StepHandlerResolver.instance.clear_callables!
+            TaskerCore::Registry::StepHandlerResolver.instance
             logger.debug '✅ Handler registry reset'
           rescue StandardError => e
             logger.warn "⚠️ Failed to reset handler registry: #{e.message}"
           end
         end
-        # Registry is a singleton, just clear its state instead of nil-ing
-        TaskerCore::Registry::StepHandlerResolver.instance.clear_callables!
 
         # Force garbage collection to clean up any lingering objects
         begin

@@ -296,9 +296,12 @@ module TaskerCore
 
       # Apply configuration to Faraday connection
       def apply_connection_config(conn)
-        # Timeouts
-        conn.options.timeout = config[:timeout] || config['timeout'] || 30
-        conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || 10
+        # Get API timeouts from configuration
+        api_timeouts = TaskerCore::Config.instance.api_timeouts
+        
+        # Timeouts - use config values or TaskerCore configuration defaults
+        conn.options.timeout = config[:timeout] || config['timeout'] || api_timeouts[:timeout]
+        conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || api_timeouts[:open_timeout]
 
         # SSL configuration
         if (ssl_config = config[:ssl] || config['ssl'])
@@ -354,9 +357,12 @@ module TaskerCore
           config.request :json
           config.response :json
 
-          # Timeouts
-          config.options.timeout = self.config[:timeout] || 30
-          config.options.open_timeout = self.config[:open_timeout] || 10
+          # Get API timeouts from configuration
+          api_timeouts = TaskerCore::Config.instance.api_timeouts
+          
+          # Timeouts - use config values or TaskerCore configuration defaults
+          config.options.timeout = self.config[:timeout] || api_timeouts[:timeout]
+          config.options.open_timeout = self.config[:open_timeout] || api_timeouts[:open_timeout]
 
           # Authentication middleware
           setup_authentication(config)

@@ -17,10 +17,6 @@ module TaskerCore
     #   messages = client.read_messages("fulfillment_queue", visibility_timeout: 30, qty: 5)
     #   client.delete_message("fulfillment_queue", msg_id)
     class PgmqClient
-      # Default configuration
-      DEFAULT_VISIBILITY_TIMEOUT = 30
-      DEFAULT_MESSAGE_COUNT = 1
-      MAX_MESSAGE_COUNT = 100
 
       attr_reader :logger
 
@@ -152,8 +148,12 @@ module TaskerCore
       # @param visibility_timeout [Integer] Visibility timeout in seconds (default: 30)
       # @param qty [Integer] Number of messages to read (default: 1, max: 100)
       # @return [Array<Hash>] List of messages with metadata
-      def read_messages(queue_name, visibility_timeout: DEFAULT_VISIBILITY_TIMEOUT, qty: DEFAULT_MESSAGE_COUNT)
-        quantity = [qty, MAX_MESSAGE_COUNT].min
+      def read_messages(queue_name, visibility_timeout: nil, qty: nil)
+        # Get configuration defaults
+        config_defaults = TaskerCore::Config.instance.pgmq_client_defaults
+        visibility_timeout ||= config_defaults[:visibility_timeout]
+        qty ||= config_defaults[:message_count]
+        quantity = [qty, config_defaults[:max_message_count]].min
 
         logger.debug("📥 PGMQ: Reading #{quantity} messages from queue: #{queue_name} (vt: #{visibility_timeout}s)")
 
@@ -382,20 +382,39 @@ module TaskerCore
         raise Errors::DatabaseError, "Invalid SQL statement: #{e.message}"
       end
 
-      # Read step messages from a namespace queue
+      # Read step messages from a namespace queue with optional timeout
       #
       # @param namespace [String] Namespace to read messages from
       # @param visibility_timeout [Integer] How long messages remain invisible (seconds)
       # @param qty [Integer] Maximum number of messages to read
+      # @param poll_timeout [Float] Max time to wait for messages (nil = no timeout)
       # @return [Array<SimpleQueueMessageData>] Array of simple message data objects
-      def read_step_messages(namespace, visibility_timeout: 30, qty: 5)
+      def read_step_messages(namespace, visibility_timeout: 30, qty: 5, poll_timeout: nil)
         queue_name = "#{namespace}_queue"
-        logger.debug("📥 PGMQ: Reading messages from queue: #{queue_name} (limit: #{qty})")
+        logger.debug("📥 PGMQ: Reading messages from queue: #{queue_name} (limit: #{qty}, timeout: #{poll_timeout || 'none'})")
 
-        result = connection.exec(
-          'SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)',
-          [queue_name, visibility_timeout, qty]
-        )
+        # For poll_timeout, we'll use a Ruby-level timeout wrapper around the standard read
+        # This allows workers to be interrupted during database calls
+        if poll_timeout && poll_timeout > 0
+          begin
+            result = Timeout.timeout(poll_timeout) do
+              connection.exec(
+                'SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)',
+                [queue_name, visibility_timeout, qty]
+              )
+            end
+          rescue Timeout::Error
+            # Return empty array if timeout - this is expected behavior for polling
+            logger.debug("🕰️ PGMQ: Read timeout after #{poll_timeout}s for queue: #{queue_name}")
+            return []
+          end
+        else
+          # Standard blocking read (backward compatible)
+          result = connection.exec(
+            'SELECT msg_id, read_ct, enqueued_at, vt, message FROM pgmq.read($1, $2, $3)',
+            [queue_name, visibility_timeout, qty]
+          )
+        end
 
         messages = []
         result.each do |row|

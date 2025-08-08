@@ -508,7 +508,7 @@ impl TaskFinalizer {
                 println!("TaskFinalizer: Task {task_id} - calling error_task");
                 self.error_task(task, Some(context)).await
             }
-            "has_ready_steps" => {
+            "has_ready_steps" | "execute_ready_steps" => {
                 println!("TaskFinalizer: Task {task_id} - has ready steps, should execute them");
                 self.handle_ready_steps_state(task, Some(context), synchronous)
                     .await
@@ -663,7 +663,7 @@ impl TaskFinalizer {
     /// Determine reason for pending state
     fn determine_pending_reason(&self, context: &TaskExecutionContext) -> Option<String> {
         match context.execution_status.as_str() {
-            "has_ready_steps" => Some("Ready for processing".to_string()),
+            "has_ready_steps" | "execute_ready_steps" => Some("Ready for processing".to_string()),
             "waiting_for_dependencies" => Some("Waiting for dependencies".to_string()),
             "processing" => Some("Waiting for step completion".to_string()),
             _ => Some("Workflow paused".to_string()),
@@ -673,7 +673,7 @@ impl TaskFinalizer {
     /// Determine reason for reenqueue
     fn determine_reenqueue_reason(&self, context: &TaskExecutionContext) -> Option<String> {
         match context.execution_status.as_str() {
-            "has_ready_steps" => Some("Ready steps available".to_string()),
+            "has_ready_steps" | "execute_ready_steps" => Some("Ready steps available".to_string()),
             "waiting_for_dependencies" => Some("Awaiting dependencies".to_string()),
             "processing" => Some("Steps in progress".to_string()),
             _ => Some("Continuing workflow".to_string()),
@@ -713,7 +713,7 @@ impl TaskFinalizer {
             .default_reenqueue_delay as u32;
 
         match context.execution_status.as_str() {
-            "has_ready_steps" => reenqueue_delays
+            "has_ready_steps" | "execute_ready_steps" => reenqueue_delays
                 .get("has_ready_steps")
                 .map(|&d| d as u32)
                 .unwrap_or(default_delay),
@@ -743,7 +743,7 @@ impl TaskFinalizer {
         // Check context-based priorities
         if let Some(ctx) = context {
             match ctx.execution_status.as_str() {
-                "has_ready_steps" => {
+                "has_ready_steps" | "execute_ready_steps" => {
                     // Ready steps should be processed with higher priority
                     EnqueuePriority::High
                 }
