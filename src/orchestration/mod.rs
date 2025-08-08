@@ -12,7 +12,6 @@
 //! ## Core Components
 //!
 //! - **WorkflowCoordinator**: Main orchestration engine that coordinates task execution lifecycle
-//! - **StepExecutor**: Individual step execution and lifecycle management within orchestration core
 //! - **ViableStepDiscovery**: Uses SQL functions to determine which steps are ready for execution
 //! - **StateManager**: Manages state transitions using SQL functions for evaluation
 //! - **EventPublisher**: Publishes orchestration events across FFI boundaries
@@ -36,16 +35,19 @@ pub mod config;
 pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
+pub mod orchestration_loop;
+pub mod orchestration_system;
+pub mod result_processor;
 pub mod state_manager;
-pub mod step_execution_orchestrator;
-pub mod step_executor;
-pub mod step_handler;
+pub mod step_enqueuer;
+pub mod step_result_processor;
 pub mod system_events;
+pub mod task_claimer;
 pub mod task_config_finder;
 pub mod task_enqueuer;
 pub mod task_finalizer;
-pub mod task_handler;
 pub mod task_initializer;
+pub mod task_request_processor;
 pub mod types;
 pub mod viable_step_discovery;
 pub mod workflow_coordinator;
@@ -55,10 +57,21 @@ pub use backoff_calculator::{
     BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
     BackoffType,
 };
-pub use step_executor::{
-    ExecutionPriority, ExecutionStats, RetryConfig, StepExecutionConfig, StepExecutionMetrics,
-    StepExecutionRequest, StepExecutor,
+pub use orchestration_loop::{
+    AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,
+    OrchestrationCycleResult, OrchestrationLoop, OrchestrationLoopConfig, PerformanceMetrics,
+    PriorityDistribution,
 };
+pub use orchestration_system::{
+    OrchestrationStats, OrchestrationSystem, OrchestrationSystemConfig,
+};
+pub use step_enqueuer::{
+    NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer, StepEnqueuerConfig,
+};
+pub use step_result_processor::{
+    StepResultProcessingResult, StepResultProcessor, StepResultProcessorConfig,
+};
+pub use task_claimer::{ClaimedTask, TaskClaimer, TaskClaimerConfig};
 pub use task_enqueuer::{
     DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
     EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
@@ -68,6 +81,9 @@ pub use task_finalizer::{
 };
 pub use task_initializer::{
     TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
+};
+pub use task_request_processor::{
+    TaskRequestProcessor, TaskRequestProcessorConfig, TaskRequestProcessorStats,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
 pub use workflow_coordinator::{
@@ -90,16 +106,9 @@ pub use handler_config::{
     EnvironmentConfig, HandlerConfiguration, ResolvedHandlerConfiguration, StepTemplate,
     StepTemplateOverride,
 };
+pub use result_processor::{OrchestrationResultProcessor, StepError};
 pub use state_manager::StateManager;
-pub use step_execution_orchestrator::{
-    StepExecutionOrchestrator, StepExecutionOrchestratorBuilder,
-};
-pub use step_handler::{
-    BaseStepHandler, ExecutionStatus, StepExecutionContext, StepExecutionEvent, StepHandler,
-    StepHandlerExecutor, StepHandlerFactory, StepResult,
-};
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
 };
-pub use task_handler::{BaseTaskHandler, TaskExecutionContext, TaskHandler, TaskHandlerFactory};
 pub use types::*;

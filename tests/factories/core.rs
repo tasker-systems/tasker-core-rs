@@ -3,8 +3,6 @@
 //! Factories for creating the main domain objects (Task, WorkflowStep, etc.)
 //! with proper state management and relationship handling.
 
-#![allow(dead_code)]
-
 use super::base::*;
 use super::foundation::*;
 use async_trait::async_trait;
@@ -18,8 +16,8 @@ use tasker_core::models::{Task, TaskTransition, WorkflowStep, WorkflowStepTransi
 
 /// Factory for creating Task instances
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Factory methods are used across multiple test modules
 pub struct TaskFactory {
-    base: BaseFactory,
     named_task_name: Option<String>,
     named_task_namespace: String,
     named_task_version: String,
@@ -36,7 +34,6 @@ pub struct TaskFactory {
 impl Default for TaskFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             named_task_name: None, // Will use dummy_task by default
             named_task_namespace: "default".to_string(),
             named_task_version: "0.1.0".to_string(),
@@ -52,6 +49,7 @@ impl Default for TaskFactory {
     }
 }
 
+#[allow(dead_code)]
 impl TaskFactory {
     pub fn new() -> Self {
         Self::default()
@@ -123,25 +121,6 @@ impl TaskFactory {
         }));
         self
     }
-
-    /// Create an API integration task
-    pub fn api_integration(mut self) -> Self {
-        self.named_task_name = Some("api_integration_task".to_string());
-        self.context = Some(json!({
-            "api_endpoint": "https://api.partner.com/v1/orders",
-            "method": "POST",
-            "timeout": 30,
-            "retry_policy": {
-                "max_attempts": 3,
-                "backoff": "exponential"
-            }
-        }));
-        self.tags = Some(json!({
-            "integration": "partner_api",
-            "external": true
-        }));
-        self
-    }
 }
 
 #[async_trait]
@@ -176,6 +155,8 @@ impl SqlxFactory<Task> for TaskFactory {
             tags: Some(tags),
             context: Some(context),
             identity_hash,
+            priority: Some(2),                // Default to normal priority
+            claim_timeout_seconds: Some(300), // Default to 5 minutes
         };
 
         let task = Task::create(pool, new_task).await?;
@@ -233,6 +214,7 @@ impl StateFactory<Task> for TaskFactory {
 }
 
 // Convenience methods for TaskFactory states
+#[allow(dead_code)]
 impl TaskFactory {
     pub fn pending(self) -> Self {
         self.with_initial_state("pending")
@@ -241,28 +223,12 @@ impl TaskFactory {
     pub fn in_progress(self) -> Self {
         self.with_initial_state("in_progress")
     }
-
-    pub fn complete(self) -> Self {
-        self.with_initial_state("complete")
-    }
-
-    pub fn error(self) -> Self {
-        self.with_initial_state("error")
-    }
-
-    pub fn cancelled(self) -> Self {
-        self.with_initial_state("cancelled")
-    }
-
-    pub fn resolved_manually(self) -> Self {
-        self.with_initial_state("resolved_manually")
-    }
 }
 
 /// Factory for creating WorkflowStep instances
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Factory methods are used across multiple test modules
 pub struct WorkflowStepFactory {
-    base: BaseFactory,
     task_id: Option<i64>,
     named_step_name: Option<String>,
     inputs: Option<Value>,
@@ -279,7 +245,6 @@ pub struct WorkflowStepFactory {
 impl Default for WorkflowStepFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             task_id: None,
             named_step_name: None, // Will use dummy_step by default
             inputs: Some(json!({"test_input": true})),
@@ -295,6 +260,7 @@ impl Default for WorkflowStepFactory {
     }
 }
 
+#[allow(dead_code)]
 impl WorkflowStepFactory {
     pub fn new() -> Self {
         Self::default()
@@ -312,12 +278,6 @@ impl WorkflowStepFactory {
 
     pub fn with_inputs(mut self, inputs: Value) -> Self {
         self.inputs = Some(inputs);
-        self
-    }
-
-    pub fn with_results(mut self, results: Value) -> Self {
-        self.results = Some(results);
-        self.processed = true;
         self
     }
 
@@ -464,6 +424,7 @@ impl StateFactory<WorkflowStep> for WorkflowStepFactory {
 }
 
 // Convenience methods for WorkflowStepFactory states
+#[allow(dead_code)]
 impl WorkflowStepFactory {
     pub fn pending(self) -> Self {
         self.with_initial_state("pending")
@@ -475,18 +436,6 @@ impl WorkflowStepFactory {
 
     pub fn completed(self) -> Self {
         self.with_initial_state("complete")
-    }
-
-    pub fn error(self) -> Self {
-        self.with_initial_state("error")
-    }
-
-    pub fn cancelled(self) -> Self {
-        self.with_initial_state("cancelled")
-    }
-
-    pub fn resolved_manually(self) -> Self {
-        self.with_initial_state("resolved_manually")
     }
 }
 

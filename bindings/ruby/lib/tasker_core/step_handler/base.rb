@@ -8,46 +8,14 @@ require 'time'
 
 module TaskerCore
   module StepHandler
-    # Ruby wrapper that delegates to Rust RubyStepHandler for orchestration integration.
-    # This uses composition instead of inheritance to work around Magnus FFI limitations.
-    #
-    # Architecture:
-    # - Rust RubyStepHandler: Core orchestration, state management, transactions
-    # - Ruby wrapper: Business logic hooks, Ruby-specific tooling, validation
-    #
-    # Developer Interface (same as Rails engine):
-    # - process(task, sequence, step) - Main business logic (Ruby implementation)
-    # - process_results(step, output, initial_results = nil) - Optional transformation
-    #
-    # FFI Bridge Interface (called by Rust orchestration):
-    # - process_with_context(context_json) - Bridge to Rails signature
-    # - process_results_with_context(context_json, result_json) - Bridge to Rails signature
     class Base
-      # NOTE: We no longer include Dry::Events::Publisher directly because
-      # events come from the Rust orchestration layer (source of truth).
-      # This class provides Ruby-specific functionality that wraps around
-      # the Rust foundation where event publishing actually happens.
+      attr_reader :config, :logger, :rust_integration, :orchestration_system
 
-      attr_reader :config, :logger, :rust_integration, :rust_handler
-
-      def initialize(config: {}, logger: nil, rust_integration: nil)
+      def initialize(config: {}, logger: nil)
         @config = config || {}
-        @logger = logger || TaskerCore::Logging::Logger.new
-        @rust_integration = rust_integration || default_rust_integration
-
-        # Initialize the Rust RubyStepHandler with composition (delegation pattern)
-        begin
-          handler_class = self.class.name
-          step_name = @config[:name] || @config['name']
-          @rust_handler = TaskerCore::RubyStepHandler.new(handler_class, step_name, @config)
-          @logger.info 'Successfully created Rust RubyStepHandler instance'
-        rescue StandardError => e
-          @logger.error "Failed to create Rust RubyStepHandler: #{e.message}"
-          @rust_handler = nil
-        end
-
-        # NOTE: Step handlers do not register themselves with the orchestration system
-        # They are discovered through task configuration by task handlers
+        @logger = logger || TaskerCore::Logging::Logger.instance
+        orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
+        @orchestration_system = orchestration_manager.orchestration_system
       end
 
       # ========================================================================
@@ -60,21 +28,9 @@ module TaskerCore
       # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Object] Step results (Hash, Array, String, etc.)
-      def process(task, sequence, step)
-        raise NotImplementedError, 'Subclasses must implement #process(task, sequence, step)'
+      def call(task, sequence, step)
+        raise NotImplementedError, 'Subclasses must implement #call(task, sequence, step)'
       end
-
-
-      # Optional result transformation method - Rails engine signature
-      # @param step [Tasker::WorkflowStep] Current step being processed
-      # @param process_output [Object] Result from process() method
-      # @return [Object] Transformed result (defaults to process_output)
-      def process_results(_step, process_output)
-        # Default implementation returns process output unchanged
-        # Rails handlers can override this to transform results before storage
-        process_output
-      end
-
 
       # ========================================================================
       # CONFIGURATION AND METADATA
@@ -145,7 +101,7 @@ module TaskerCore
       # NOTE: In the Rails engine execution flow, step handlers are called via:
       # 1. TaskHandler.handle(task) → WorkflowCoordinator
       # 2. WorkflowCoordinator → TaskHandler.handle_one_step(task, sequence, step)
-      # 3. handle_one_step → get_step_handler(step) → step_handler.process(task, sequence, step)
+      # 3. handle_one_step → get_step_handler(step) → step_handler.call(task, sequence, step)
       #
       # The Rust foundation provides the same flow, so there's no need for a separate
       # execute_step method. The Rails engine signature process(task, sequence, step)
@@ -153,7 +109,7 @@ module TaskerCore
       #
       # The lifecycle management (events, error handling, retries) is handled by:
       # - Rust orchestration layer with TaskHandler/WorkflowCoordinator foundation
-      # - Ruby subclasses provide business logic hooks via process() and process_results()
+      # - Ruby subclasses provide business logic hooks via call()
 
       # ========================================================================
       # INTERNAL PROCESSING METHODS
@@ -280,7 +236,8 @@ module TaskerCore
 
       # Default Rust integration
       def default_rust_integration
-        TaskerCore::RailsIntegration.new
+        # Return nil - integration is optional
+        nil
       end
     end
   end

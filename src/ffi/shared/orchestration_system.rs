@@ -1,323 +1,295 @@
 //! # Shared Orchestration System
 //!
-//! Language-agnostic orchestration system core that can be shared across
-//! Ruby, Python, Node.js, WASM, and JNI bindings while preserving the
-//! handle-based architecture that eliminates connection pool exhaustion.
+//! Language-agnostic orchestration system core for the embedded FFI bridge.
+//! Uses pgmq-based architecture for reliable, queue-based workflow orchestration.
 
-use crate::database::sql_functions::SqlFunctionExecutor;
-use crate::events::EventPublisher;
-use crate::orchestration::config::{ConfigurationManager, DatabasePoolConfig};
+use crate::database::DatabaseConnection;
+use crate::messaging::PgmqClient;
+use crate::orchestration::orchestration_loop::OrchestrationLoop;
 use crate::orchestration::state_manager::StateManager;
-use crate::orchestration::step_executor::StepExecutor;
-use crate::orchestration::task_config_finder::TaskConfigFinder;
+use crate::orchestration::step_result_processor::StepResultProcessor;
 use crate::orchestration::task_initializer::TaskInitializer;
+use crate::orchestration::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::workflow_coordinator::WorkflowCoordinator;
-use crate::registry::TaskHandlerRegistry;
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::sync::OnceLock;
-use tracing::{debug, info, warn};
+use tracing::{error, info};
+use uuid::Uuid;
 
-/// Global orchestration system singleton
-static GLOBAL_ORCHESTRATION_SYSTEM: OnceLock<Arc<OrchestrationSystem>> = OnceLock::new();
-
-/// Shared orchestration resources
+/// Orchestration system for embedded FFI bridge
 pub struct OrchestrationSystem {
     pub database_pool: PgPool,
-    pub event_publisher: EventPublisher,
+    pub pgmq_client: Arc<PgmqClient>,
     pub workflow_coordinator: WorkflowCoordinator,
     pub state_manager: StateManager,
-    pub task_initializer: TaskInitializer,
-    pub task_handler_registry: TaskHandlerRegistry,
-    pub step_executor: StepExecutor,
-    pub config_manager: Arc<ConfigurationManager>,
-}
-
-/// Check if we're running in a test environment
-fn is_test_environment() -> bool {
-    std::env::var("RAILS_ENV").unwrap_or_default() == "test"
-        || std::env::var("APP_ENV").unwrap_or_default() == "test"
-        || std::env::var("RACK_ENV").unwrap_or_default() == "test"
-        || std::env::var("TASKER_ENV").unwrap_or_default() == "test"
-}
-
-/// Create a database pool from configuration instead of hardcoded values
-/// This replaces the hardcoded pool options in get_global_database_pool()
-async fn create_pool_from_config(pool_config: &DatabasePoolConfig) -> Result<PgPool, sqlx::Error> {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-
-    info!(
-        "🔧 CONFIG-DRIVEN POOL: Creating pool with config: max={}, min={}, acquire_timeout={}s",
-        pool_config.max_connections,
-        pool_config.min_connections,
-        pool_config.acquire_timeout_seconds
-    );
-
-    // Test connection first before creating pool
-    debug!("🔍 POOL: Testing connection to {}", database_url);
-    let test_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&database_url)
-        .await;
-
-    match test_pool {
-        Ok(pool) => {
-            info!("✅ POOL: Test connection successful");
-            pool.close().await;
-        }
-        Err(e) => {
-            warn!("❌ POOL: Test connection failed: {}", e);
-            return Err(e);
-        }
-    }
-
-    // Create pool with full configuration
-    let pool_options = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(pool_config.max_connections)
-        .min_connections(pool_config.min_connections)
-        .acquire_timeout(std::time::Duration::from_secs(
-            pool_config.acquire_timeout_seconds,
-        ))
-        .idle_timeout(std::time::Duration::from_secs(
-            pool_config.idle_timeout_seconds,
-        ))
-        .max_lifetime(std::time::Duration::from_secs(
-            pool_config.max_lifetime_seconds,
-        ));
-
-    debug!(
-        "🔍 POOL: Creating pool with options - max: {}, min: {}",
-        pool_config.max_connections, pool_config.min_connections
-    );
-
-    let final_pool = pool_options.connect(&database_url).await?;
-
-    info!(
-        "✅ POOL: Created successfully - size: {}, max: {}",
-        final_pool.size(),
-        final_pool.options().get_max_connections()
-    );
-
-    Ok(final_pool)
-}
-
-/// 🎯 UNIFIED ENTRY POINT: Single way to create orchestration system
-/// This replaces all the scattered initialization methods with one clear path:
-/// Configuration → Pool → OrchestrationSystem
-///
-/// # Architecture:
-/// 1. Load configuration from files (not hardcoded)
-/// 2. Create pool from configuration
-/// 3. Create orchestration system with owned pool
-/// 4. OrchestrationSystem owns the pool, TestingFramework references it
-async fn create_unified_orchestration_system(
-) -> Result<OrchestrationSystem, Box<dyn std::error::Error + Send + Sync>> {
-    info!("🎯 UNIFIED ENTRY: Creating orchestration system from configuration");
-
-    // CRITICAL FIX: Load environment variables from .env.test file
-    let is_test = is_test_environment();
-    debug!("🔍 ENV CHECK: is_test_environment() = {}", is_test);
-    debug!(
-        "🔍 ENV CHECK: RAILS_ENV = {:?}, APP_ENV = {:?}, RACK_ENV = {:?}, TASKER_ENV = {:?}",
-        std::env::var("RAILS_ENV"),
-        std::env::var("APP_ENV"),
-        std::env::var("RACK_ENV"),
-        std::env::var("TASKER_ENV")
-    );
-
-    // 1. Load configuration from environment/files
-    // Use TASKER_ENV as the primary environment variable
-    let environment = std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string());
-
-    info!(
-        "🔧 UNIFIED CONFIG: Loading configuration for environment: {}",
-        environment
-    );
-
-    // Load the config file based on environment (tasker-config-{env}.yaml)
-    let config_filename = format!("config/tasker-config-{environment}.yaml");
-
-    // First check if we're in the Ruby bindings directory and need to go up
-    let final_config_path = if std::path::Path::new("../../config").exists() {
-        format!("../../{config_filename}")
-    } else {
-        config_filename.to_string()
-    };
-
-    debug!(
-        "🔧 UNIFIED CONFIG: Loading from file: {}",
-        final_config_path
-    );
-
-    let config_manager = if std::path::Path::new(&final_config_path).exists() {
-        // Load from YAML file
-        match ConfigurationManager::load_from_file(&final_config_path).await {
-            Ok(manager) => {
-                info!(
-                    "✅ UNIFIED CONFIG: Successfully loaded configuration from {}",
-                    final_config_path
-                );
-                Arc::new(manager)
-            }
-            Err(e) => {
-                warn!(
-                    "⚠️  UNIFIED CONFIG: Failed to load config file: {}. Using defaults.",
-                    e
-                );
-                Arc::new(ConfigurationManager::new())
-            }
-        }
-    } else {
-        warn!(
-            "⚠️  UNIFIED CONFIG: Config file not found at {}. Using defaults.",
-            final_config_path
-        );
-        Arc::new(ConfigurationManager::new())
-    };
-
-    // 2. Get database pool configuration from config files (no environment-specific overrides)
-    let pool_config = config_manager.system_config().database.pool.clone();
-
-    debug!("🔧 UNIFIED CONFIG: Using pool configuration from config files: max={}, min={}, acquire_timeout={}s",
-        pool_config.max_connections,
-        pool_config.min_connections,
-        pool_config.acquire_timeout_seconds);
-
-    // 4. Create pool from configuration (not hardcoded!)
-    let database_pool = create_pool_from_config(&pool_config).await?;
-
-    // 5. Create orchestration system components using the owned pool
-    info!("🎯 UNIFIED ENTRY: Creating orchestration components with owned pool");
-
-    let event_publisher = EventPublisher::new();
-    let sql_function_executor = SqlFunctionExecutor::new(database_pool.clone());
-    let state_manager = StateManager::new(
-        sql_function_executor.clone(),
-        event_publisher.clone(),
-        database_pool.clone(),
-    );
-    let workflow_coordinator = WorkflowCoordinator::new(database_pool.clone());
-    let task_initializer = TaskInitializer::new(database_pool.clone());
-    let task_handler_registry = TaskHandlerRegistry::new();
-
-    // Create config finder
-    let task_config_finder = TaskConfigFinder::new(
-        config_manager.clone(),
-        Arc::new(task_handler_registry.clone()),
-    );
-
-    let step_executor = StepExecutor::new(
-        state_manager.clone(),
-        task_handler_registry.clone(),
-        event_publisher.clone(),
-        task_config_finder,
-    );
-
-    // Create orchestration system with owned pool (NO testing components!)
-    let orchestration_system = OrchestrationSystem {
-        database_pool,
-        event_publisher,
-        workflow_coordinator,
-        state_manager,
-        task_initializer,
-        task_handler_registry,
-        step_executor,
-        config_manager,
-    };
-
-    info!("✅ UNIFIED ENTRY: Orchestration system created successfully");
-    Ok(orchestration_system)
+    pub shared_task_initializer: Arc<TaskInitializer>,
+    pub event_publisher: crate::events::EventPublisher,
+    pub orchestration_loop: Arc<OrchestrationLoop>,
+    pub task_request_processor: Arc<TaskRequestProcessor>,
+    pub step_result_processor: Arc<StepResultProcessor>,
 }
 
 impl OrchestrationSystem {
-    /// Access the database pool owned by this orchestration system
-    /// This is the new unified way to access the pool instead of global pool functions
+    /// Create new orchestration system
+    pub async fn new() -> Result<Arc<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("🚀 Initializing orchestration system");
+
+        // Initialize database connection
+        let db_connection = DatabaseConnection::new().await?;
+        let database_pool = db_connection.pool().clone();
+
+        // Initialize pgmq client with shared pool
+        let pgmq_client = Arc::new(PgmqClient::new_with_pool(database_pool.clone()).await);
+
+        // Initialize orchestration components
+        let event_publisher = crate::events::EventPublisher::new();
+        let config_manager = Arc::new(crate::orchestration::config::ConfigurationManager::new());
+        let config = crate::orchestration::workflow_coordinator::WorkflowCoordinatorConfig::from_config_manager(&config_manager);
+
+        let sql_executor =
+            crate::database::sql_functions::SqlFunctionExecutor::new(database_pool.clone());
+        let state_manager = StateManager::new(
+            sql_executor.clone(),
+            event_publisher.clone(),
+            database_pool.clone(),
+        );
+        let task_initializer = TaskInitializer::with_state_manager_and_registry(
+            database_pool.clone(),
+            crate::orchestration::task_initializer::TaskInitializationConfig::default(),
+            event_publisher.clone(),
+            Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            )),
+        );
+
+        // Create workflow coordinator with pgmq client integration
+        let workflow_coordinator = WorkflowCoordinator::new(
+            database_pool.clone(),
+            config,
+            config_manager,
+            event_publisher.clone(),
+            pgmq_client.clone(),
+        );
+
+        // Create orchestration loop for continuous step enqueueing
+        let orchestration_loop = OrchestrationLoop::new(
+            database_pool.clone(),
+            (*pgmq_client).clone(),
+            format!("embedded-orchestrator-{}", Uuid::new_v4()),
+        )
+        .await?;
+
+        // Create task handler registry for task request processor
+        let task_handler_registry =
+            Arc::new(crate::registry::TaskHandlerRegistry::with_event_publisher(
+                database_pool.clone(),
+                event_publisher.clone(),
+            ));
+
+        // Create task request processor configuration
+        let task_request_config =
+            crate::orchestration::task_request_processor::TaskRequestProcessorConfig {
+                request_queue_name: "task_requests_queue".to_string(),
+                polling_interval_seconds: 1,
+                visibility_timeout_seconds: 300,
+                batch_size: 10,
+                max_processing_attempts: 3,
+            };
+
+        // Create task request processor for processing incoming task requests
+        // We need to share the task_initializer, so wrap it in Arc
+        let shared_task_initializer = Arc::new(task_initializer);
+        let task_request_processor = TaskRequestProcessor::new(
+            pgmq_client.clone(),
+            task_handler_registry,
+            Arc::clone(&shared_task_initializer),
+            task_request_config,
+        );
+
+        // Create step result processor for processing step results
+        let step_result_processor =
+            StepResultProcessor::new(database_pool.clone(), (*pgmq_client).clone()).await?;
+
+        let system = Arc::new(Self {
+            database_pool,
+            pgmq_client,
+            workflow_coordinator,
+            state_manager,
+            shared_task_initializer,
+            event_publisher,
+            orchestration_loop: Arc::new(orchestration_loop),
+            task_request_processor: Arc::new(task_request_processor),
+            step_result_processor: Arc::new(step_result_processor),
+        });
+
+        info!("✅ Orchestration system initialized");
+        Ok(system)
+    }
+
+    /// Get database pool reference
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool
     }
+
+    /// Get pgmq client reference
+    pub fn pgmq_client(&self) -> Arc<PgmqClient> {
+        self.pgmq_client.clone()
+    }
+
+    /// Initialize a task using the embedded orchestration system
+    pub async fn initialize_task(
+        &self,
+        task_request: crate::models::core::task_request::TaskRequest,
+    ) -> Result<crate::orchestration::TaskInitializationResult, crate::error::TaskerError> {
+        info!(
+            namespace = %task_request.namespace,
+            name = %task_request.name,
+            version = %task_request.version,
+            "🚀 EMBEDDED: Initializing task via orchestration system"
+        );
+
+        // Use the embedded task initializer with full registry support
+        let result = self
+            .shared_task_initializer
+            .create_task_from_request(task_request)
+            .await
+            .map_err(|e| {
+                crate::error::TaskerError::DatabaseError(format!("Task initialization failed: {e}"))
+            })?;
+
+        info!(
+            task_id = result.task_id,
+            step_count = result.step_count,
+            "✅ EMBEDDED: Task initialized successfully via orchestration system"
+        );
+
+        Ok(result)
+    }
+
+    /// Enqueue ready steps for a task using pgmq architecture
+    pub async fn enqueue_ready_steps(
+        &self,
+        task_id: i64,
+    ) -> Result<
+        crate::orchestration::types::TaskOrchestrationResult,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        info!(
+            task_id = task_id,
+            "🚀 pgmq: Enqueueing ready steps for task"
+        );
+
+        // Use workflow coordinator to discover and enqueue steps
+        let result = self
+            .workflow_coordinator
+            .execute_task_workflow(task_id)
+            .await?;
+
+        info!(
+            task_id = task_id,
+            result = ?result,
+            "✅ pgmq: Task workflow execution completed"
+        );
+
+        Ok(result)
+    }
+
+    /// Start the complete orchestration system (all processors)
+    pub async fn start_orchestration_system(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("🚀 Starting complete orchestration system for embedded mode");
+
+        // Start all three processors concurrently
+        // This mirrors the full orchestration system architecture
+        let orchestration_loop = Arc::clone(&self.orchestration_loop);
+        let task_request_processor = Arc::clone(&self.task_request_processor);
+        let step_result_processor = Arc::clone(&self.step_result_processor);
+
+        let orchestration_handle = tokio::spawn(async move {
+            info!("🔄 ORCHESTRATION_SYSTEM: Orchestration loop task started - beginning continuous operation");
+            if let Err(e) = orchestration_loop.run_continuous().await {
+                error!("❌ ORCHESTRATION_SYSTEM: Orchestration loop failed: {}", e);
+            } else {
+                info!("✅ ORCHESTRATION_SYSTEM: Orchestration loop completed successfully");
+            }
+        });
+
+        let task_request_handle = tokio::spawn(async move {
+            if let Err(e) = task_request_processor.start_processing_loop().await {
+                tracing::error!("Task request processor failed: {}", e);
+            }
+        });
+
+        let step_result_handle = tokio::spawn(async move {
+            if let Err(e) = step_result_processor.start_processing_loop().await {
+                tracing::error!("Step result processor failed: {}", e);
+            }
+        });
+
+        info!("✅ All orchestration processors started");
+
+        // Wait for all processors to complete (they should run indefinitely)
+        let (orchestration_result, task_request_result, step_result_result) = tokio::join!(
+            orchestration_handle,
+            task_request_handle,
+            step_result_handle
+        );
+
+        // Log any errors that caused the processors to exit
+        if let Err(e) = orchestration_result {
+            tracing::error!("Orchestration loop task panicked: {}", e);
+        }
+        if let Err(e) = task_request_result {
+            tracing::error!("Task request processor task panicked: {}", e);
+        }
+        if let Err(e) = step_result_result {
+            tracing::error!("Step result processor task panicked: {}", e);
+        }
+
+        Ok(())
+    }
+
+    /// Initialize standard namespace queues
+    pub async fn initialize_queues(
+        &self,
+        namespaces: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("🏗️ pgmq: Initializing namespace queues");
+
+        self.pgmq_client
+            .initialize_namespace_queues(namespaces)
+            .await?;
+
+        info!("✅ pgmq: All namespace queues initialized");
+        Ok(())
+    }
 }
 
-/// 🎯 UNIFIED ENTRY POINT: Single way to initialize the global orchestration system
-///
-/// This replaces all scattered initialization methods with one clear path:
-/// Configuration → Pool → OrchestrationSystem
-///
-/// # New Architecture:
-/// - Configuration-driven pool creation (not hardcoded)
-/// - OrchestrationSystem owns the database pool
-/// - TestingFramework will reference the orchestration system (not be embedded)
-/// - Single initialization path prevents multiple instances
+/// Initialize unified orchestration system (global singleton for FFI modules)
 pub fn initialize_unified_orchestration_system() -> Arc<OrchestrationSystem> {
-    info!("🎯 UNIFIED ENTRY: initialize_unified_orchestration_system called");
-    GLOBAL_ORCHESTRATION_SYSTEM
-        .get_or_init(|| {
-            info!("🎯 UNIFIED ENTRY: Using global runtime for consistent execution context");
-            let runtime = get_global_runtime();
+    static GLOBAL_SYSTEM: std::sync::OnceLock<Arc<OrchestrationSystem>> =
+        std::sync::OnceLock::new();
 
-            Arc::new(
-                runtime
-                    .block_on(create_unified_orchestration_system())
-                    .expect("Failed to create unified orchestration system"),
-            )
+    GLOBAL_SYSTEM
+        .get_or_init(|| {
+            info!("🎯 Creating global unified orchestration system");
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            rt.block_on(async {
+                OrchestrationSystem::new()
+                    .await
+                    .expect("Failed to initialize orchestration system")
+            })
         })
         .clone()
 }
 
-/// Execute async operation using the current or global runtime
-/// Global runtime for consistent async execution context
-static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-/// Get or create the global runtime
-fn get_global_runtime() -> &'static tokio::runtime::Runtime {
-    GLOBAL_RUNTIME.get_or_init(|| {
-        info!("🔧 RUNTIME: Creating global Tokio runtime for consistent execution context");
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .worker_threads(4) // Small number for FFI context
-            .thread_name("tasker-core-runtime")
-            .build()
-            .expect("Failed to create global runtime")
-    })
-}
-
+/// Execute async code synchronously (for FFI modules)
 pub fn execute_async<F, R>(future: F) -> R
 where
     F: std::future::Future<Output = R>,
 {
-    // CRITICAL FIX: Always use the same global runtime to avoid pool context issues
-    let runtime = get_global_runtime();
-    runtime.block_on(future)
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    rt.block_on(future)
 }
-
-/// Get the global event publisher
-pub fn get_global_event_publisher() -> EventPublisher {
-    initialize_unified_orchestration_system()
-        .event_publisher
-        .clone()
-}
-
-/// Get the global database pool through the unified orchestration system
-/// 🎯 UNIFIED ARCHITECTURE: All pool access goes through orchestration system
-pub fn get_global_database_pool() -> PgPool {
-    debug!("🔍 POOL TRACE: get_global_database_pool() called - delegating to orchestration system");
-
-    // Get the pool from the unified orchestration system
-    let orchestration_system = initialize_unified_orchestration_system();
-
-    // Return a clone of the orchestration system's pool
-    orchestration_system.database_pool().clone()
-}
-
-/// Get the global task handler registry
-pub fn get_global_task_handler_registry() -> TaskHandlerRegistry {
-    initialize_unified_orchestration_system()
-        .task_handler_registry
-        .clone()
-}
-
-// ===== SHARED CORE LOGIC ENDS HERE =====
-// Ruby-specific wrapper functions have been moved to bindings/ruby/
-// Language bindings should implement their own wrapper functions that
-// call the shared core functions above.

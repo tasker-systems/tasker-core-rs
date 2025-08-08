@@ -1,0 +1,43 @@
+# Identity Test Template
+# Template for testing identity hash generation and deduplication
+
+name: identity_test
+module_namespace: TestModule
+task_handler_class: IdentityTestHandler
+namespace_name: test
+version: "1.0.0"
+description: "Workflow for testing identity hash generation and task deduplication"
+default_dependent_system: test_system
+
+# Schema for identity testing
+schema:
+  type: object
+  properties:
+    unique_id:
+      type: string
+      minLength: 1
+
+# Simple workflow for identity testing
+named_steps:
+  - identity_step
+
+# Single step template for identity testing
+step_templates:
+  - name: identity_step
+    description: "Step for testing identity functionality"
+    handler_class: IdentityTestStepHandler
+    handler_config:
+      action: "test_identity"
+      generate_unique_hash: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: identity_step
+        handler_config:
+          debug_mode: true
+          log_identity_hash: true

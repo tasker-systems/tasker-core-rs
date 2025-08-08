@@ -4,9 +4,9 @@ name: "Tasker Core Rust CI"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +20,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -105,11 +105,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust-version: ['stable', 'beta']
+        rust-version: ["stable", "beta"]
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -164,10 +164,14 @@ jobs:
         run: cargo build --verbose --all-features
 
       - name: Run lib tests
-        run: cargo test --lib --verbose
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+        run: cargo test --lib --verbose --all-features
 
       - name: Run integration tests
-        run: cargo test --test '*' --verbose
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
+        run: cargo test --test '*' --verbose --all-features
 
       - name: Run doctests
         run: cargo test --doc --verbose
@@ -179,7 +183,6 @@ jobs:
           name: test-results-${{ matrix.rust-version }}
           path: target/debug/deps/
 
-
   # Performance benchmarks
   benchmark:
     name: Performance Benchmarks
@@ -188,7 +191,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -248,7 +251,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -297,10 +300,20 @@ jobs:
           echo "🗄️ Running SQL functions demonstration..."
           cargo run --example sql_functions_demo
 
-      - name: Validate Model Verification
+      - name: Validate Configuration Demo
         run: |
-          echo "📋 Running model verification..."
-          cargo run --example verify_models
+          echo "📋 Running configuration demonstration..."
+          cargo run --example config_demo
+
+      - name: Validate Error Classification Demo
+        run: |
+          echo "⚠️ Running error classification demonstration..."
+          cargo run --example error_classification_demo
+
+      - name: Validate Unified Logging Demo
+        run: |
+          echo "📝 Running unified logging demonstration..."
+          cargo run --example unified_logging_demo
 
       - name: Build all examples
         run: |
@@ -314,7 +327,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
         ports:
           - "5432:5432"
         env:
@@ -367,6 +380,8 @@ jobs:
           sqlx migrate run
 
       - name: Generate coverage report
+        env:
+          DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
@@ -375,11 +390,86 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
 
+  # Ruby bindings test
+  ruby-bindings:
+    name: Ruby Bindings Test
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+      TASKER_ENV: test
+      RAILS_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ruby-bindings
+          workspaces: |
+            . -> target
+            bindings/ruby -> target
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: bindings/ruby
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Build Ruby extension
+        run: |
+          cd bindings/ruby
+          bundle exec rake compile
+
+      - name: Run Ruby integration tests
+        run: |
+          cd bindings/ruby
+          bundle exec rspec spec/integration/ --format documentation
+
   # Final status check
   ci-success:
     name: CI Success
     runs-on: ubuntu-22.04
-    needs: [quality, security, test, validate-examples]
+    needs: [quality, security, test, validate-examples, ruby-bindings]
     if: always()
 
     steps:
@@ -389,11 +479,13 @@ jobs:
           echo "Security: ${{ needs.security.result }}"
           echo "Test: ${{ needs.test.result }}"
           echo "Validate Examples: ${{ needs.validate-examples.result }}"
+          echo "Ruby Bindings: ${{ needs.ruby-bindings.result }}"
 
           if [[ "${{ needs.quality.result }}" != "success" ||
                 "${{ needs.security.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
-                "${{ needs.validate-examples.result }}" != "success" ]]; then
+                "${{ needs.validate-examples.result }}" != "success" ||
+                "${{ needs.ruby-bindings.result }}" != "success" ]]; then
             echo "❌ One or more required jobs failed"
             exit 1
           else

@@ -1,0 +1,205 @@
+# Payment Processing Task Template
+# This demonstrates a comprehensive task definition with step dependencies
+
+name: credit_card_payment
+module_namespace: PaymentProcessing
+task_handler_class: CreditCardPaymentHandler
+namespace_name: payments
+version: "1.0.0"
+description: "Process credit card payments with validation and fraud detection"
+default_dependent_system: payment_gateway
+
+# JSON Schema for input validation
+schema:
+  type: object
+  required:
+    - order_id
+    - payment_info
+    - customer_id
+  properties:
+    order_id:
+      type: integer
+      minimum: 1
+    payment_info:
+      type: object
+      required: ["amount", "currency", "card_token"]
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+        currency:
+          type: string
+          enum: ["USD", "EUR", "GBP"]
+        card_token:
+          type: string
+          minLength: 10
+    customer_id:
+      type: integer
+      minimum: 1
+
+# Named steps in execution order
+named_steps:
+  - validate_payment
+  - check_fraud
+  - authorize_payment
+  - capture_payment
+  - send_confirmation
+
+# Step template definitions
+step_templates:
+  - name: validate_payment
+    description: "Validate payment information and check card status"
+    handler_class: PaymentProcessing::StepHandler::ValidatePaymentHandler
+    handler_config:
+      validation_rules:
+        - check_card_expiry
+        - validate_cvv
+        - check_amount_limits
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: check_fraud
+    description: "Run fraud detection algorithms"
+    depends_on_step: validate_payment
+    handler_class: PaymentProcessing::StepHandler::FraudCheckHandler
+    handler_config:
+      fraud_service_url: "${FRAUD_SERVICE_URL}"
+      risk_threshold: 0.8
+      timeout_ms: 5000
+    default_retryable: true
+    default_retry_limit: 2
+    timeout_seconds: 60
+
+  - name: authorize_payment
+    description: "Authorize payment with payment gateway"
+    depends_on_steps:
+      - validate_payment
+      - check_fraud
+    handler_class: PaymentProcessing::StepHandler::AuthorizePaymentHandler
+    handler_config:
+      gateway_url: "${PAYMENT_GATEWAY_URL}"
+      api_key: "${PAYMENT_GATEWAY_API_KEY}"
+      timeout_ms: 30000
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 120
+    retry_backoff: "exponential"
+
+  - name: capture_payment
+    description: "Capture the authorized payment"
+    depends_on_step: authorize_payment
+    handler_class: PaymentProcessing::StepHandler::CapturePaymentHandler
+    handler_config:
+      gateway_url: "${PAYMENT_GATEWAY_URL}"
+      api_key: "${PAYMENT_GATEWAY_API_KEY}"
+      auto_capture: true
+    default_retryable: true
+    default_retry_limit: 5
+    timeout_seconds: 120
+
+  - name: send_confirmation
+    description: "Send payment confirmation to customer"
+    depends_on_step: capture_payment
+    handler_class: PaymentProcessing::StepHandler::SendConfirmationHandler
+    handler_config:
+      notification_service_url: "${NOTIFICATION_SERVICE_URL}"
+      template_id: "payment_confirmation"
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Environment-specific overrides
+environments:
+  development:
+    step_templates:
+      - name: check_fraud
+        handler_config:
+          fraud_service_url: "http://localhost:8080/fraud-check"
+          risk_threshold: 0.5
+          debug_mode: true
+      - name: authorize_payment
+        handler_config:
+          gateway_url: "http://localhost:3000/api/payments"
+          api_key: "dev_key_123"
+      - name: capture_payment
+        handler_config:
+          gateway_url: "http://localhost:3000/api/payments"
+          api_key: "dev_key_123"
+          auto_capture: false
+      - name: send_confirmation
+        handler_config:
+          notification_service_url: "http://localhost:9000/notifications"
+          debug_mode: true
+
+  staging:
+    step_templates:
+      - name: check_fraud
+        handler_config:
+          fraud_service_url: "https://staging-fraud.example.com"
+          risk_threshold: 0.7
+      - name: authorize_payment
+        handler_config:
+          gateway_url: "https://staging-gateway.example.com"
+      - name: capture_payment
+        handler_config:
+          gateway_url: "https://staging-gateway.example.com"
+      - name: send_confirmation
+        handler_config:
+          notification_service_url: "https://staging-notifications.example.com"
+
+  production:
+    step_templates:
+      - name: check_fraud
+        handler_config:
+          fraud_service_url: "https://fraud-service.example.com"
+          risk_threshold: 0.8
+      - name: authorize_payment
+        handler_config:
+          gateway_url: "https://api.paymentgateway.com"
+      - name: capture_payment
+        handler_config:
+          gateway_url: "https://api.paymentgateway.com"
+      - name: send_confirmation
+        handler_config:
+          notification_service_url: "https://notifications.example.com"
+
+# Custom events for this task
+custom_events:
+  - name: payment_authorized
+    description: "Fired when payment is successfully authorized"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: integer
+        authorization_id:
+          type: string
+        amount:
+          type: number
+
+  - name: payment_captured
+    description: "Fired when payment is successfully captured"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: integer
+        transaction_id:
+          type: string
+        amount:
+          type: number
+
+  - name: fraud_detected
+    description: "Fired when fraud is detected"
+    schema:
+      type: object
+      properties:
+        order_id:
+          type: integer
+        risk_score:
+          type: number
+        reasons:
+          type: array
+          items:
+            type: string

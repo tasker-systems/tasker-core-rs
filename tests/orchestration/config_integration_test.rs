@@ -298,7 +298,7 @@ fn test_configuration_defaults_match_rails() {
 
     // Database defaults
     assert!(!config.database.enable_secondary_database);
-    assert!(config.database.name.is_none());
+    assert!(config.database.database.is_none());
 
     // Engine defaults
     assert_eq!(config.engine.task_handler_directory, "tasks");

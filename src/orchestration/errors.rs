@@ -258,6 +258,16 @@ pub enum DiscoveryError {
 
     /// Dependency cycle detected
     DependencyCycle { task_id: i64, cycle_steps: Vec<i64> },
+
+    /// Task not found
+    TaskNotFound { task_id: i64 },
+
+    /// Configuration error - task template or step template not found
+    ConfigurationError {
+        entity_type: String,
+        entity_id: String,
+        reason: String,
+    },
 }
 
 /// Step execution error types
@@ -294,6 +304,13 @@ pub enum ExecutionError {
 
     /// Retry limit exceeded
     RetryLimitExceeded { step_id: i64, max_attempts: u32 },
+
+    /// Batch creation failed during ZeroMQ publishing
+    BatchCreationFailed {
+        batch_id: String,
+        reason: String,
+        error_code: Option<String>,
+    },
 }
 
 // Implement Display for all error types
@@ -585,6 +602,19 @@ impl fmt::Display for DiscoveryError {
                     "Dependency cycle detected in task {task_id}: steps {cycle_steps:?}"
                 )
             }
+            DiscoveryError::TaskNotFound { task_id } => {
+                write!(f, "Task not found: {task_id}")
+            }
+            DiscoveryError::ConfigurationError {
+                entity_type,
+                entity_id,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Configuration error for {entity_type} '{entity_id}': {reason}"
+                )
+            }
         }
     }
 }
@@ -637,6 +667,16 @@ impl fmt::Display for ExecutionError {
                 write!(
                     f,
                     "Step {step_id} exceeded retry limit of {max_attempts} attempts"
+                )
+            }
+            ExecutionError::BatchCreationFailed {
+                batch_id,
+                reason,
+                error_code,
+            } => {
+                write!(
+                    f,
+                    "Batch creation failed for batch {batch_id}: {reason} (code: {error_code:?})"
                 )
             }
         }

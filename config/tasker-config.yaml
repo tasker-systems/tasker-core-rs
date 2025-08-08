@@ -1,6 +1,21 @@
 # Tasker Core Configuration
-# This configuration file mirrors the Rails engine defaults
+# This configuration file provides defaults and environment-specific overrides
 
+# =============================================================================
+# DATABASE POOL ARCHITECTURE NOTE
+# =============================================================================
+# This config uses STRUCTURED pool format: { max_connections, min_connections, etc }
+# 
+# Ruby workers automatically convert this to simple integer format for ActiveRecord:
+#   pool: { max_connections: 25 }  -->  pool: 25
+# 
+# This allows:
+#   - Rust orchestration: Full connection lifecycle control for performance
+#   - Ruby workers: Simple ActiveRecord integration  
+#   - Single config file: Both systems use same configuration source
+# =============================================================================
+
+# Default configuration (applies to all environments unless overridden)
 auth:
   authentication_enabled: false
   strategy: "none"
@@ -12,12 +27,22 @@ auth:
 database:
   enable_secondary_database: false
   url: "${DATABASE_URL}"
+  # Default database configuration
+  adapter: postgresql
+  encoding: unicode
+  host: localhost
+  username: tasker
+  password: tasker
   pool:
-    max_connections: 10
-    min_connections: 1
+    max_connections: 25
+    min_connections: 5
     acquire_timeout_seconds: 30
     idle_timeout_seconds: 300
     max_lifetime_seconds: 3600
+  variables:
+    statement_timeout: 5000
+  checkout_timeout: 10
+  reaping_frequency: 10
 
 telemetry:
   enabled: false
@@ -31,6 +56,14 @@ engine:
   custom_events_directories:
     - "config/tasker/events"
 
+# TaskTemplate discovery configuration (default/fallback)
+task_templates:
+  # Paths to search for TaskTemplate YAML files
+  # Default configuration - safe production paths only
+  search_paths:
+    - "config/task_templates/*.{yml,yaml}"
+    - "config/tasks/*.{yml,yaml}"
+
 health:
   enabled: true
   check_interval_seconds: 60
@@ -39,14 +72,16 @@ health:
     queue_depth: 1000.0
 
 dependency_graph:
-  max_depth: 50
+  max_depth: 50 # Replaces Rust constants::system::MAX_DEPENDENCY_DEPTH
   cycle_detection_enabled: true
   optimization_enabled: true
 
 system:
-  default_dependent_system_id: 1
+  default_dependent_system: "default"
   default_queue_name: "default"
-  version: "1.0.0"
+  version: "0.1.0" # Updated to match Rust TASKER_CORE_VERSION constant
+  # New constants unification fields
+  max_recursion_depth: 50 # Replaces potential hardcoded recursion limits
 
 backoff:
   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
@@ -62,12 +97,18 @@ backoff:
   buffer_seconds: 5
 
 execution:
+  processing_mode: "pgmq" # Use pgmq for orchestration
   max_concurrent_tasks: 100
   max_concurrent_steps: 1000
   default_timeout_seconds: 3600
   step_execution_timeout_seconds: 300
+  environment: "production"
   max_discovery_attempts: 3
   step_batch_size: 10
+  # New constants unification fields
+  max_retries: 3 # Replaces Ruby FALLBACK_MAX_RETRIES and DEFAULT_* constants
+  max_workflow_steps: 1000 # Replaces Rust constants::system::MAX_WORKFLOW_STEPS
+  connection_timeout_seconds: 10 # Replaces Ruby hardcoded API timeouts
 
 reenqueue:
   has_ready_steps: 1
@@ -83,3 +124,194 @@ cache:
   enabled: true
   ttl_seconds: 3600
   max_size: 10000
+
+# Query caching configuration for database optimization
+query_cache:
+  enabled: true
+  # Worker query caching (production settings)
+  active_workers:
+    ttl_seconds: 30 # Cache active workers for 30 seconds
+    max_entries: 1000 # Up to 1000 task-specific worker lists
+  worker_health:
+    ttl_seconds: 10 # Cache worker health for 10 seconds
+    max_entries: 500 # Up to 500 worker health snapshots
+  task_metadata:
+    ttl_seconds: 300 # Cache task metadata for 5 minutes
+    max_entries: 2000 # Up to 2000 task metadata entries
+  handler_metadata:
+    ttl_seconds: 600 # Cache handler metadata for 10 minutes
+    max_entries: 100 # Up to 100 handler definitions
+  # Global cache settings
+  cleanup_interval_seconds: 300 # Clean expired entries every 5 minutes
+  memory_pressure_threshold: 0.8 # Clear cache at 80% memory usage
+
+# pgmq configuration for PostgreSQL message queue orchestration
+pgmq:
+  poll_interval_ms: 250 # Standard polling interval for production
+  visibility_timeout_seconds: 30 # Keep longer for business logic execution time
+  batch_size: 5 # Standard batch size for production (matching Ruby defaults)
+  max_retries: 3 # Standard retry limit
+  # New constants unification fields
+  max_batch_size: 100 # Replaces Ruby MAX_MESSAGE_COUNT constant
+  shutdown_timeout_seconds: 30 # Replaces Ruby FALLBACK_SHUTDOWN_TIMEOUT constant
+  default_namespaces:
+    - default
+    - fulfillment
+    - inventory
+    - notifications
+  queue_naming_pattern: "{namespace}_queue"
+
+# orchestration mode configuration
+orchestration:
+  mode: "distributed" # Use distributed mode for production
+  task_requests_queue_name: "task_requests_queue"
+  tasks_per_cycle: 5 # Production throughput
+  cycle_interval_ms: 250 # Production cycles
+  task_request_polling_interval_ms: 250 # Production polling
+  task_request_visibility_timeout_seconds: 300 # Production timeout for business logic
+  task_request_batch_size: 10 # Production batch size
+  active_namespaces:
+    ["fulfillment", "inventory", "notifications", "payments", "analytics"]
+  max_concurrent_orchestrators: 3 # Production parallelism
+  enable_performance_logging: false # Disable for performance
+  default_claim_timeout_seconds: 300 # Production claim timeout
+
+  # Queue configuration for orchestration core
+  queues:
+    # Task request queue - handles incoming task requests from external systems
+    task_requests: "task_requests_queue"
+
+    # Task processing queue - holds tasks ready for orchestration processing
+    task_processing: "task_processing_queue"
+
+    # Batch results queue - collects completed batch execution results
+    batch_results: "batch_results_queue"
+
+    # Step results queue - collects individual step execution results from workers
+    step_results: "orchestration_step_results"
+
+    # Namespaced worker queues - workers poll these for step batches
+    worker_queues:
+      default: "default_queue"
+      fulfillment: "fulfillment_queue"
+      inventory: "inventory_queue"
+      notifications: "notifications_queue"
+
+    # Queue configuration parameters
+    settings:
+      visibility_timeout_seconds: 30
+      message_retention_seconds: 604800 # 7 days
+      dead_letter_queue_enabled: true
+      max_receive_count: 3
+
+  embedded_orchestrator:
+    auto_start: false # Don't auto-start in distributed mode
+    namespaces: ["default", "fulfillment", "inventory", "notifications"]
+    shutdown_timeout_seconds: 30 # Production graceful shutdown timeout
+
+  # Heartbeat configuration for orchestrator health monitoring
+  enable_heartbeat: true
+  heartbeat_interval_ms: 5000 # Production heartbeat intervals
+
+# Environment-specific overrides
+development:
+  execution:
+    environment: "development"
+
+  database:
+    database: "tasker_rust_development"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+
+  task_templates:
+    search_paths:
+      - "config/task_templates/*.{yml,yaml}"
+      - "config/tasks/*.{yml,yaml}"
+
+test:
+  execution:
+    environment: "test"
+    # Test environment overrides - smaller limits for faster tests
+    max_workflow_steps: 100 # Smaller for test safety
+    max_retries: 2 # Fewer retries for faster test feedback
+
+  database:
+    database: "tasker_rust_test"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+
+  # Test environment constants optimization
+  dependency_graph:
+    max_depth: 10 # Smaller for faster tests
+
+  system:
+    max_recursion_depth: 25 # Smaller for test safety
+
+  task_templates:
+    # Test environment includes example handlers for integration testing
+    search_paths:
+      - "bindings/ruby/spec/handlers/examples/**/config/*.{yml,yaml}"
+
+  # Fast test execution settings
+  pgmq:
+    poll_interval_ms: 100 # 100ms polling for fast test execution (10x/sec)
+    visibility_timeout_seconds: 5 # very short in test
+
+  orchestration:
+    mode: "embedded"
+    tasks_per_cycle: 2 # Lower throughput for tests
+    cycle_interval_ms: 100 # Very fast cycles for test responsiveness (10x/sec)
+    task_request_polling_interval_ms: 100 # Very fast polling for tests (10x/sec)
+    task_request_visibility_timeout_seconds: 60 # Shorter timeout for test business logic
+    task_request_batch_size: 5 # Smaller batches for tests
+    active_namespaces:
+      [
+        "fulfillment",
+        "inventory",
+        "notifications",
+        "payments",
+        "analytics",
+        "default",
+      ]
+    max_concurrent_orchestrators: 1 # Single orchestrator for tests
+    default_claim_timeout_seconds: 60 # Shorter claim timeout for test business logic
+    heartbeat_interval_ms: 2000 # Fast heartbeats for tests (2 second intervals)
+    embedded_orchestrator:
+      auto_start: true # auto-start in test mode
+      namespaces: ["default", "fulfillment", "inventory", "notifications"]
+      shutdown_timeout_seconds: 5 # Production graceful shutdown timeout
+
+production:
+  execution:
+    environment: "production"
+    # Production environment overrides - higher limits for complex workflows
+    max_workflow_steps: 5000 # Higher for complex production workflows
+    max_retries: 5 # More retries for production reliability
+
+  database:
+    database: "${POSTGRES_DB:-tasker_production}"
+    host: "${DATABASE_HOST:-localhost}"
+    username: "${POSTGRES_USER:-tasker}"
+    password: "${POSTGRES_PASSWORD:-tasker}"
+    pool:
+      max_connections: 50  # Higher for production
+      min_connections: 10
+      acquire_timeout_seconds: 30
+      idle_timeout_seconds: 300
+      max_lifetime_seconds: 3600
+
+  # Production environment constants optimization
+  dependency_graph:
+    max_depth: 100 # Higher for complex production workflows
+
+  system:
+    max_recursion_depth: 100 # Higher for complex production scenarios
+
+  telemetry:
+    enabled: true
+    sample_rate: 0.1
+
+  orchestration:
+    enable_performance_logging: true

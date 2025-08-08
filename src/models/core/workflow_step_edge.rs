@@ -81,6 +81,28 @@ impl WorkflowStepEdge {
         Ok(edge)
     }
 
+    /// Create a new workflow step edge within a transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_edge: NewWorkflowStepEdge,
+    ) -> Result<WorkflowStepEdge, sqlx::Error> {
+        let edge = sqlx::query_as!(
+            WorkflowStepEdge,
+            r#"
+            INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id, name, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
+            RETURNING id, from_step_id, to_step_id, name, created_at, updated_at
+            "#,
+            new_edge.from_step_id,
+            new_edge.to_step_id,
+            new_edge.name
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(edge)
+    }
+
     /// Find dependencies for a step (steps that must complete before this step)
     pub async fn find_dependencies(pool: &PgPool, step_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let dependencies = sqlx::query!(

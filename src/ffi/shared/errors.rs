@@ -40,6 +40,27 @@ pub enum SharedFFIError {
 
     /// Internal error
     Internal(String),
+
+    /// TCP executor operation failed
+    TcpExecutorError(String),
+
+    /// TCP executor not enabled/available
+    TcpExecutorNotAvailable(String),
+
+    /// Serialization/Deserialization failed
+    SerializationError(String),
+
+    /// Invalid batch data
+    InvalidBatchData(String),
+
+    /// Environment not safe for destructive operations
+    EnvironmentNotSafe(String),
+
+    /// Database migration failed
+    MigrationFailed(String),
+
+    /// Queue operation failed
+    QueueOperationFailed(String),
 }
 
 impl fmt::Display for SharedFFIError {
@@ -77,6 +98,27 @@ impl fmt::Display for SharedFFIError {
             }
             SharedFFIError::Internal(msg) => {
                 write!(f, "Internal error: {msg}")
+            }
+            SharedFFIError::TcpExecutorError(msg) => {
+                write!(f, "TCP executor error: {msg}")
+            }
+            SharedFFIError::TcpExecutorNotAvailable(msg) => {
+                write!(f, "TCP executor not available: {msg}")
+            }
+            SharedFFIError::SerializationError(msg) => {
+                write!(f, "Serialization error: {msg}")
+            }
+            SharedFFIError::InvalidBatchData(msg) => {
+                write!(f, "Invalid batch data: {msg}")
+            }
+            SharedFFIError::EnvironmentNotSafe(msg) => {
+                write!(f, "Environment not safe: {msg}")
+            }
+            SharedFFIError::MigrationFailed(msg) => {
+                write!(f, "Migration failed: {msg}")
+            }
+            SharedFFIError::QueueOperationFailed(msg) => {
+                write!(f, "Queue operation failed: {msg}")
             }
         }
     }

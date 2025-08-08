@@ -25,15 +25,16 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::orchestration::task_config_finder::TaskConfigFinder;
 //! use tasker_core::orchestration::config::ConfigurationManager;
 //! use tasker_core::registry::TaskHandlerRegistry;
 //! use std::sync::Arc;
+//! use sqlx::PgPool;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example(db_pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let config_manager = Arc::new(ConfigurationManager::new());
-//! let registry = Arc::new(TaskHandlerRegistry::new());
+//! let registry = Arc::new(TaskHandlerRegistry::new(db_pool));
 //! let finder = TaskConfigFinder::new(config_manager, registry);
 //!
 //! // Find configuration for a task
@@ -115,7 +116,11 @@ impl TaskConfigFinder {
         version: &str,
     ) -> OrchestrationResult<TaskTemplate> {
         // Try to get the template from registry
-        match self.registry.get_task_template(namespace, name, version) {
+        match self
+            .registry
+            .get_task_template(namespace, name, version)
+            .await
+        {
             Ok(template) => {
                 debug!(
                     namespace = namespace,
@@ -189,11 +194,15 @@ impl TaskConfigFinder {
         let base_config_dir = self.get_base_config_directory();
         let mut paths = Vec::new();
 
-        // 1. Versioned path: <config_dir>/tasks/{namespace}/{name}/{version}.(yml|yaml)
+        debug!(
+            "Building search paths with base_config_dir: {}",
+            base_config_dir.display()
+        );
+
+        // 1. Versioned path: <config_dir>/{namespace}/{name}/{version}.(yml|yaml)
         if namespace != "default" {
             for ext in &["yaml", "yml"] {
                 let path = base_config_dir
-                    .join("tasks")
                     .join(namespace)
                     .join(name)
                     .join(format!("{version}.{ext}"));
@@ -201,20 +210,17 @@ impl TaskConfigFinder {
             }
         }
 
-        // 2. Default namespace path: <config_dir>/tasks/{name}/{version}.(yml|yaml)
+        // 2. Default namespace path: <config_dir>/{name}/{version}.(yml|yaml)
         if version != "0.1.0" {
             for ext in &["yaml", "yml"] {
-                let path = base_config_dir
-                    .join("tasks")
-                    .join(name)
-                    .join(format!("{version}.{ext}"));
+                let path = base_config_dir.join(name).join(format!("{version}.{ext}"));
                 paths.push(path);
             }
         }
 
-        // 3. Simple default path: <config_dir>/tasks/{name}.(yml|yaml)
+        // 3. Simple default path: <config_dir>/{name}.(yml|yaml)
         for ext in &["yaml", "yml"] {
-            let path = base_config_dir.join("tasks").join(format!("{name}.{ext}"));
+            let path = base_config_dir.join(format!("{name}.{ext}"));
             paths.push(path);
         }
 
@@ -223,35 +229,21 @@ impl TaskConfigFinder {
 
     /// Get the base configuration directory from the system config
     fn get_base_config_directory(&self) -> PathBuf {
+        // For tests and development, use CARGO_MANIFEST_DIR to find the project root
+        // This is automatically set by Cargo when running tests
+        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            return PathBuf::from(manifest_dir).join("config").join("tasks");
+        }
+
+        // Allow override via TASKER_CONFIG_PATH environment variable
+        if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
+            return PathBuf::from(config_path).join("tasks");
+        }
+
+        // For production, use the configured path
         let system_config = self.config_manager.system_config();
         let task_config_dir = &system_config.engine.task_config_directory;
-
-        // Build path relative to config directory
         PathBuf::from("config").join(task_config_dir)
-    }
-
-    /// Check if a template exists in the registry
-    pub fn has_registry_template(&self, namespace: &str, name: &str, version: &str) -> bool {
-        self.registry.has_task_template(namespace, name, version)
-    }
-
-    /// Get all available templates from registry
-    pub fn list_registry_templates(
-        &self,
-        namespace: Option<&str>,
-    ) -> OrchestrationResult<Vec<String>> {
-        self.registry.list_task_templates(namespace).map_err(|e| {
-            OrchestrationError::ConfigurationError {
-                source: "TaskConfigFinder".to_string(),
-                reason: format!("Failed to list registry templates: {e}"),
-            }
-        })
-    }
-
-    /// Clear any cached configurations (useful for testing)
-    pub async fn clear_cache(&self) -> OrchestrationResult<()> {
-        // If we add caching later, this is where we'd clear it
-        Ok(())
     }
 
     /// Convert config::TaskTemplate to models::core::task_template::TaskTemplate
@@ -339,10 +331,10 @@ impl Clone for TaskConfigFinder {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_build_search_paths() {
+    #[sqlx::test]
+    async fn test_build_search_paths(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry);
 
         let paths = finder.build_search_paths("payments", "order_processing", "1.0.0");
@@ -363,10 +355,10 @@ mod tests {
             .any(|p| p.contains("order_processing.yaml")));
     }
 
-    #[tokio::test]
-    async fn test_default_namespace_and_version() {
+    #[sqlx::test]
+    async fn test_default_namespace_and_version(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry);
 
         let paths = finder.build_search_paths("default", "simple_task", "0.1.0");
@@ -380,10 +372,10 @@ mod tests {
         assert!(path_strings.iter().any(|p| p.contains("simple_task.yml")));
     }
 
-    #[tokio::test]
-    async fn test_registry_integration() {
+    #[sqlx::test]
+    async fn test_registry_integration(pool: sqlx::PgPool) {
         let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(TaskHandlerRegistry::new());
+        let registry = Arc::new(TaskHandlerRegistry::new(pool));
         let finder = TaskConfigFinder::new(config_manager, registry.clone());
 
         // Test that registry check happens first

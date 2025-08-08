@@ -18,7 +18,6 @@ group :development, :test do
 end
 
 group :test do
-  gem 'dotenv', '~> 2.8'
   gem 'simplecov', '~> 0.22'
   gem 'timecop', '~> 0.9'
   gem 'webmock', '~> 3.18'

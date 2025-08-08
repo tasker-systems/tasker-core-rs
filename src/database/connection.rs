@@ -1,4 +1,5 @@
 use super::DatabaseMigrations;
+use crate::config::ConfigManager;
 use sqlx::{PgPool, Row};
 use std::env;
 
@@ -8,15 +9,43 @@ pub struct DatabaseConnection {
 
 impl DatabaseConnection {
     pub async fn new() -> Result<Self, sqlx::Error> {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://tasker:tasker@localhost/tasker_rust_development".to_string()
-        });
+        // Use ConfigManager for database configuration
+        let config_manager = ConfigManager::global();
+        let database_url = config_manager.config().database_url();
 
         let pool = PgPool::connect(&database_url).await?;
 
-        // Run migrations if needed (skip if SKIP_MIGRATIONS is set)
-        if std::env::var("SKIP_MIGRATIONS").is_err() {
-            DatabaseMigrations::run_all(&pool).await?;
+        // Check migration status (never auto-run migrations in production)
+        // Migrations should be run separately via `cargo sqlx migrate run` or similar
+        if !Self::should_skip_migration_check(&config_manager) {
+            match DatabaseMigrations::check_status(&pool).await {
+                Ok(status) if status.needs_migration => {
+                    return Err(sqlx::Error::Configuration(format!(
+                        "Database schema is not up to date. Please run migrations before starting the system.\n\
+                         Current schema: {}/{} core tables exist, version: {}\n\
+                         Expected: All core tables present with latest migrations.\n\
+                         \n\
+                         To fix this:\n\
+                         1. Run: cargo sqlx migrate run\n\
+                         2. Or set SKIP_MIGRATION_CHECK=1 to bypass this check (not recommended for production)",
+                        status.existing_tables, status.total_expected_tables, status.current_version
+                    ).into()));
+                }
+                Ok(_) => {
+                    // Migrations are up to date, continue
+                    tracing::debug!("✅ Database schema is up to date");
+                }
+                Err(e) => {
+                    return Err(sqlx::Error::Configuration(
+                        format!(
+                            "Could not check migration status: {e}.\n\
+                         This may indicate a database connectivity issue.\n\
+                         Use SKIP_MIGRATION_CHECK=1 to bypass this check if needed."
+                        )
+                        .into(),
+                    ));
+                }
+            }
         }
 
         Ok(Self { pool })
@@ -37,5 +66,16 @@ impl DatabaseConnection {
 
     pub async fn close(self) {
         self.pool.close().await;
+    }
+
+    /// Determine if migration check should be skipped based on configuration
+    fn should_skip_migration_check(config_manager: &ConfigManager) -> bool {
+        // First check environment variable for backward compatibility
+        if env::var("SKIP_MIGRATION_CHECK").is_ok() {
+            return true;
+        }
+
+        // Check configuration setting
+        config_manager.config().database.skip_migration_check
     }
 }

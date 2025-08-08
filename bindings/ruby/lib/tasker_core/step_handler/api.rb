@@ -58,7 +58,7 @@ module TaskerCore
       # @param sequence [Tasker::Types::StepSequence] Step sequence for navigation
       # @param step [Tasker::WorkflowStep] Current step being processed
       # @return [Faraday::Response] HTTP response object
-      def process(_task, _sequence, step)
+      def process(_task, _sequence, _step)
         # Subclasses should override this method to make their specific API calls
         # This base implementation shows the pattern but needs to be customized
 
@@ -72,21 +72,6 @@ module TaskerCore
 
         # Return response - Rails framework will store this in step.results
         response
-      end
-
-      # Optional result transformation for API responses
-      # @param step [Tasker::WorkflowStep] Current step being processed
-      # @param process_output [Faraday::Response] Result from process() method
-      # @return [Object] Transformed result for storage in step.results
-      def process_results(_step, process_output)
-        # Default: Extract response body and status for storage
-        # Subclasses can override for custom response processing
-        {
-          status_code: process_output.status,
-          response_body: process_output.body,
-          response_headers: process_output.headers.to_h,
-          success: process_output.success?
-        }
       end
 
       # ========================================================================
@@ -311,9 +296,12 @@ module TaskerCore
 
       # Apply configuration to Faraday connection
       def apply_connection_config(conn)
-        # Timeouts
-        conn.options.timeout = config[:timeout] || config['timeout'] || 30
-        conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || 10
+        # Get API timeouts from configuration
+        api_timeouts = TaskerCore::Config.instance.api_timeouts
+
+        # Timeouts - use config values or TaskerCore configuration defaults
+        conn.options.timeout = config[:timeout] || config['timeout'] || api_timeouts[:timeout]
+        conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || api_timeouts[:open_timeout]
 
         # SSL configuration
         if (ssl_config = config[:ssl] || config['ssl'])
@@ -369,9 +357,12 @@ module TaskerCore
           config.request :json
           config.response :json
 
-          # Timeouts
-          config.options.timeout = self.config[:timeout] || 30
-          config.options.open_timeout = self.config[:open_timeout] || 10
+          # Get API timeouts from configuration
+          api_timeouts = TaskerCore::Config.instance.api_timeouts
+
+          # Timeouts - use config values or TaskerCore configuration defaults
+          config.options.timeout = self.config[:timeout] || api_timeouts[:timeout]
+          config.options.open_timeout = self.config[:open_timeout] || api_timeouts[:open_timeout]
 
           # Authentication middleware
           setup_authentication(config)

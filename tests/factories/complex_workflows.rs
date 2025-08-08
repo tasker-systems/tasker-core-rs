@@ -672,10 +672,20 @@ impl ComplexWorkflowBatchFactory {
 
         // Create workflows for each pattern
         for (pattern, count) in pattern_counts {
-            for _ in 0..count {
+            for i in 0..count {
+                // Create unique task factory for each workflow to avoid identity hash collisions
+                let unique_task = self.base_task_factory.clone()
+                    .with_context(serde_json::json!({
+                        "workflow_type": "complex",
+                        "pattern": format!("{:?}", pattern),
+                        "batch_index": i,
+                        "unique_id": format!("{:?}_{}_{}_{}", pattern, i, std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    }));
+
                 let factory = ComplexWorkflowFactory::new()
                     .with_pattern(pattern)
-                    .with_task_factory(self.base_task_factory.clone());
+                    .with_task_factory(unique_task);
 
                 let result = factory.create(pool).await?;
                 results.push(result);

@@ -16,7 +16,7 @@ fn config_has_expected_defaults() {
     let config = TaskerConfig::default();
 
     // Database config
-    assert_eq!(config.database.name, None);
+    assert_eq!(config.database.database, None);
     assert!(!config.database.enable_secondary_database);
 
     // Execution config

@@ -58,10 +58,14 @@
 //!
 //! For complete examples with test data setup, see `tests/database/sql_functions.rs`.
 
+use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::BigDecimal, FromRow, PgPool};
 use std::collections::HashMap;
+
+// Import the orchestration models for transitive dependencies
+use crate::models::orchestration::StepTransitiveDependencies;
 
 /// Core SQL function executor with type-safe async execution.
 ///
@@ -740,5 +744,361 @@ impl FunctionRegistry {
     /// Get the underlying executor for custom operations
     pub fn executor(&self) -> &SqlFunctionExecutor {
         &self.executor
+    }
+
+    /// Access optimized worker query operations
+    pub fn worker_optimization(&self) -> &SqlFunctionExecutor {
+        &self.executor
+    }
+
+    /// Access step transitive dependencies operations
+    pub fn transitive_dependencies(&self) -> &SqlFunctionExecutor {
+        &self.executor
+    }
+}
+
+// ============================================================================
+// 7. STEP TRANSITIVE DEPENDENCIES
+// ============================================================================
+
+impl SqlFunctionExecutor {
+    /// Get all transitive dependencies (ancestors) for a step using recursive SQL function
+    ///
+    /// This function calls the `get_step_transitive_dependencies` SQL function which uses
+    /// recursive CTEs to find all ancestor steps in the dependency graph.
+    ///
+    /// # Parameters
+    ///
+    /// - `step_id`: The workflow step ID to find dependencies for
+    ///
+    /// # Returns
+    ///
+    /// Vector of `StepTransitiveDependencies` ordered by distance (direct parents first)
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    /// let dependencies = executor.get_step_transitive_dependencies(step_id).await?;
+    ///
+    /// for dep in dependencies {
+    ///     println!("Step {} depends on {} (distance: {})",
+    ///              step_id, dep.step_name, dep.distance);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Equivalent to Rails: Enhanced dependency resolution with full DAG traversal
+    pub async fn get_step_transitive_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let sql = "SELECT * FROM get_step_transitive_dependencies($1)";
+        sqlx::query_as::<_, StepTransitiveDependencies>(sql)
+            .bind(step_id)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Get transitive dependencies as a results map for step handler consumption
+    ///
+    /// This method fetches all transitive dependencies and converts them into a map
+    /// of step_name -> results, which matches the pattern used by Ruby step handlers
+    /// with `sequence.get_results('step_name')`.
+    ///
+    /// # Parameters
+    ///
+    /// - `step_id`: The workflow step ID to find dependencies for
+    ///
+    /// # Returns
+    ///
+    /// HashMap mapping step names to their JSON results for completed dependencies
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
+    /// use sqlx::PgPool;
+    ///
+    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// let executor = SqlFunctionExecutor::new(pool);
+    /// let results = executor.get_step_dependency_results_map(step_id).await?;
+    ///
+    /// if let Some(validation_result) = results.get("validate_order") {
+    ///     println!("Validation result: {:?}", validation_result);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_step_dependency_results_map(
+        &self,
+        step_id: i64,
+    ) -> Result<HashMap<String, serde_json::Value>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter_map(|dep| {
+                // Only include steps that are processed AND have non-null results
+                if dep.processed && dep.results.is_some() {
+                    let results = dep.results.unwrap();
+                    // Also ensure results is not just an empty JSON object
+                    if !results.is_null() {
+                        Some((dep.step_name, results))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// Get only completed transitive dependencies (those with results)
+    ///
+    /// This filters the transitive dependencies to only include steps that have
+    /// been processed and have results available.
+    pub async fn get_completed_step_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter(|dep| dep.processed && dep.results.is_some())
+            .collect())
+    }
+
+    /// Get only direct parent dependencies (distance = 1)
+    ///
+    /// This returns only the immediate parent steps, equivalent to the existing
+    /// immediate dependency queries but using the transitive function for consistency.
+    pub async fn get_direct_parent_dependencies(
+        &self,
+        step_id: i64,
+    ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
+        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        Ok(dependencies
+            .into_iter()
+            .filter(|dep| dep.distance == 1)
+            .collect())
+    }
+}
+
+// ============================================================================
+// 8. OPTIMIZED WORKER QUERIES
+// ============================================================================
+
+/// Result structure for find_active_workers_for_task function
+/// Provides complete worker and task information with pre-computed health scoring
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ActiveWorkerResult {
+    pub id: i32,
+    pub worker_id: i32,
+    pub named_task_id: i32,
+    pub configuration: serde_json::Value,
+    pub priority: i32,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+    pub worker_name: String,
+    pub task_name: String,
+    pub task_version: String,
+    pub namespace_name: String,
+}
+
+/// Result structure for get_worker_health_batch function
+/// Provides comprehensive worker health information
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct WorkerHealthResult {
+    pub worker_id: i32,
+    pub worker_name: String,
+    pub status: String,
+    pub last_heartbeat_at: Option<chrono::NaiveDateTime>,
+    pub connection_healthy: bool,
+    pub current_load: i32,
+}
+
+/// Result structure for select_optimal_worker_for_task function
+/// Provides intelligent worker selection with comprehensive scoring
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct OptimalWorkerResult {
+    pub worker_id: i32,
+    pub worker_name: String,
+    pub priority: i32,
+    pub configuration: serde_json::Value,
+    pub health_score: sqlx::types::BigDecimal,
+    pub current_load: i32,
+    pub max_concurrent_steps: i32,
+    pub available_capacity: i32,
+    pub selection_score: sqlx::types::BigDecimal,
+}
+
+impl OptimalWorkerResult {
+    /// Get health score as f64
+    pub fn health_score_f64(&self) -> f64 {
+        self.health_score.to_f64().unwrap_or(0.0)
+    }
+
+    /// Get selection score as f64
+    pub fn selection_score_f64(&self) -> f64 {
+        self.selection_score.to_f64().unwrap_or(0.0)
+    }
+
+    /// Check if worker is healthy enough for task execution
+    pub fn is_healthy(&self) -> bool {
+        self.health_score_f64() > 50.0
+    }
+
+    /// Get capacity utilization percentage
+    pub fn capacity_utilization(&self) -> f64 {
+        if self.max_concurrent_steps > 0 {
+            (self.current_load as f64 / self.max_concurrent_steps as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Result structure for get_worker_pool_statistics function
+/// Provides comprehensive worker pool monitoring information
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct WorkerPoolStatistics {
+    pub total_workers: i32,
+    pub healthy_workers: i32,
+    pub registered_workers: i32,
+    pub active_workers: i32,
+    pub workers_with_recent_heartbeat: i32,
+    pub avg_health_score: Option<sqlx::types::BigDecimal>,
+}
+
+impl Default for WorkerPoolStatistics {
+    fn default() -> Self {
+        Self {
+            total_workers: 0,
+            healthy_workers: 0,
+            registered_workers: 0,
+            active_workers: 0,
+            workers_with_recent_heartbeat: 0,
+            avg_health_score: Some(BigDecimal::from(0)),
+        }
+    }
+}
+
+impl WorkerPoolStatistics {
+    /// Get average health score as f64
+    pub fn avg_health_score_f64(&self) -> f64 {
+        self.avg_health_score
+            .as_ref()
+            .and_then(|score| score.to_f64())
+            .unwrap_or(0.0)
+    }
+
+    /// Calculate worker availability percentage
+    pub fn availability_percentage(&self) -> f64 {
+        if self.total_workers > 0 {
+            (self.healthy_workers as f64 / self.total_workers as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Calculate recent heartbeat percentage
+    pub fn recent_heartbeat_percentage(&self) -> f64 {
+        if self.active_workers > 0 {
+            (self.workers_with_recent_heartbeat as f64 / self.active_workers as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Check if worker pool is healthy
+    pub fn is_healthy(&self) -> bool {
+        self.availability_percentage() > 70.0 && self.recent_heartbeat_percentage() > 80.0
+    }
+}
+
+impl SqlFunctionExecutor {
+    /// Find active workers for a specific task with optimized SQL function
+    /// Uses pre-computed query plan with health scoring and proper indexing
+    ///
+    /// Equivalent to Rails: optimized worker selection with complex JOIN operations
+    pub async fn find_active_workers_for_task(
+        &self,
+        named_task_id: i32,
+    ) -> Result<Vec<ActiveWorkerResult>, sqlx::Error> {
+        let sql = "SELECT * FROM find_active_workers_for_task($1)";
+        sqlx::query_as::<_, ActiveWorkerResult>(sql)
+            .bind(named_task_id)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Get worker health information for multiple workers in a single batch operation
+    /// Uses optimized SQL function for efficient health status retrieval
+    ///
+    /// Provides comprehensive health metrics including connection status and load information
+    pub async fn get_worker_health_batch(
+        &self,
+        worker_ids: &[i32],
+    ) -> Result<Vec<WorkerHealthResult>, sqlx::Error> {
+        let sql = "SELECT * FROM get_worker_health_batch($1)";
+        sqlx::query_as::<_, WorkerHealthResult>(sql)
+            .bind(worker_ids)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Select the optimal worker for a task using comprehensive scoring algorithm
+    /// Uses pre-computed SQL function with advanced worker selection logic
+    ///
+    /// Scoring factors:
+    /// - Worker health (40% weight)
+    /// - Priority level (30% weight)
+    /// - Available capacity (30% weight)
+    pub async fn select_optimal_worker_for_task(
+        &self,
+        named_task_id: i32,
+        required_capacity: Option<i32>,
+    ) -> Result<Option<OptimalWorkerResult>, sqlx::Error> {
+        let sql = "SELECT * FROM select_optimal_worker_for_task($1, $2)";
+        sqlx::query_as::<_, OptimalWorkerResult>(sql)
+            .bind(named_task_id)
+            .bind(required_capacity.unwrap_or(1))
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    /// Get comprehensive worker pool statistics for monitoring and health assessment
+    /// Uses optimized SQL function for efficient pool-wide metrics calculation
+    ///
+    /// Provides metrics including:
+    /// - Total, healthy, registered, and active worker counts
+    /// - Workers with recent heartbeat activity
+    /// - Average health score across all workers
+    pub async fn get_worker_pool_statistics(&self) -> Result<WorkerPoolStatistics, sqlx::Error> {
+        let sql = "SELECT * FROM get_worker_pool_statistics()";
+        let result = self.execute_single(sql).await?;
+        Ok(result.unwrap_or_default())
+    }
+
+    /// Invalidate worker-related caches for a specific task or all tasks
+    /// Uses SQL function to coordinate cache invalidation across system components
+    ///
+    /// Returns true if cache invalidation was successfully requested
+    pub async fn invalidate_worker_cache(
+        &self,
+        named_task_id: Option<i32>,
+    ) -> Result<bool, sqlx::Error> {
+        let sql = "SELECT invalidate_worker_cache($1)";
+        let result: Option<bool> = sqlx::query_scalar(sql)
+            .bind(named_task_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(result.unwrap_or(false))
     }
 }

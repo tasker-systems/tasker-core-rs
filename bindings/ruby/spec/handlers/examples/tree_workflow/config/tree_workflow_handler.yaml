@@ -1,0 +1,160 @@
+# Tree Workflow Task Configuration
+# Implements A -> (B -> (D, E), C -> (F, G)) -> H hierarchical pattern
+
+name: hierarchical_computation
+task_handler_class: TreeWorkflow::TreeWorkflowHandler
+namespace_name: tree_workflow
+version: "1.0.0"
+description: "Tree pattern with hierarchical branches: root -> branches -> leaves -> convergence"
+default_dependent_system: "default"
+
+# Tree-shaped step definitions (8 steps total)
+named_steps:
+  - tree_root              # Square the input
+  - tree_branch_left       # Square again (left branch)
+  - tree_branch_right      # Square again (right branch)
+  - tree_leaf_d            # Square branch_left result
+  - tree_leaf_e            # Square branch_left result
+  - tree_leaf_f            # Square branch_right result
+  - tree_leaf_g            # Square branch_right result
+  - tree_final_convergence # Multiply all leaves and square
+
+step_templates:
+  - name: tree_root
+    description: "Square the even number (initial step)"
+    handler_class: TreeWorkflow::StepHandlers::TreeRootHandler
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the input number (n²)"
+
+  - name: tree_branch_left
+    description: "Square the root result (left branch)"
+    handler_class: TreeWorkflow::StepHandlers::TreeBranchLeftHandler
+    depends_on_step: tree_root
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the root result for left branch ((n²)²)"
+
+  - name: tree_branch_right
+    description: "Square the root result (right branch)"
+    handler_class: TreeWorkflow::StepHandlers::TreeBranchRightHandler  
+    depends_on_step: tree_root
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the root result for right branch ((n²)²)"
+
+  - name: tree_leaf_d
+    description: "Square left branch result (leaf D)"
+    handler_class: TreeWorkflow::StepHandlers::TreeLeafDHandler
+    depends_on_step: tree_branch_left
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the left branch result"
+
+  - name: tree_leaf_e
+    description: "Square left branch result (leaf E)"
+    handler_class: TreeWorkflow::StepHandlers::TreeLeafEHandler
+    depends_on_step: tree_branch_left
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the left branch result"
+
+  - name: tree_leaf_f
+    description: "Square right branch result (leaf F)"
+    handler_class: TreeWorkflow::StepHandlers::TreeLeafFHandler
+    depends_on_step: tree_branch_right
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the right branch result"
+
+  - name: tree_leaf_g
+    description: "Square right branch result (leaf G)"
+    handler_class: TreeWorkflow::StepHandlers::TreeLeafGHandler
+    depends_on_step: tree_branch_right
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "square"
+      description: "Square the right branch result"
+
+  - name: tree_final_convergence
+    description: "Multiply all leaf results and square (final convergence)"
+    handler_class: TreeWorkflow::StepHandlers::TreeFinalConvergenceHandler
+    depends_on_steps:
+      - tree_leaf_d
+      - tree_leaf_e
+      - tree_leaf_f
+      - tree_leaf_g
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+    handler_config:
+      operation: "multiply_all_and_square"
+      description: "Multiply all leaf results together, then square"
+
+# Environment-specific overrides
+environments:
+  test:
+    step_templates:
+      - name: tree_root
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_branch_left
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_branch_right
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_leaf_d
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_leaf_e
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_leaf_f
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_leaf_g
+        handler_config:
+          timeout_seconds: 10
+      - name: tree_final_convergence
+        handler_config:
+          timeout_seconds: 15
+
+# Custom validation rules
+handler_config:
+  input_validation:
+    required_fields: ["even_number"]
+    even_number_constraint: "must_be_even"
+    value_range:
+      min: 2
+      max: 20  # Keep smaller due to exponential growth
+  
+  expected_results:
+    tree_root: "n²"
+    tree_branch_left: "(n²)²"
+    tree_branch_right: "(n²)²"
+    tree_leaf_d: "((n²)²)²"
+    tree_leaf_e: "((n²)²)²"
+    tree_leaf_f: "((n²)²)²"
+    tree_leaf_g: "((n²)²)²"
+    tree_final_convergence: "(((n²)²)² × ((n²)²)² × ((n²)²)² × ((n²)²)²)² = n³²"

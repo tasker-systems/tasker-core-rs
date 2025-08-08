@@ -12,7 +12,6 @@
 
 use super::errors::*;
 use super::orchestration_system::OrchestrationSystem;
-use crate::orchestration::types::HandlerMetadata;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -198,11 +197,6 @@ impl SharedOrchestrationHandle {
         self.orchestration_system.database_pool()
     }
 
-    /// Get event publisher from orchestration system (for event functions)
-    pub fn event_publisher(&self) -> &crate::events::EventPublisher {
-        &self.orchestration_system.event_publisher
-    }
-
     // ========================================================================
     // CORE ORCHESTRATION OPERATIONS (language-agnostic)
     // ========================================================================
@@ -212,80 +206,22 @@ impl SharedOrchestrationHandle {
         &self.orchestration_system
     }
 
-    /// Get testing factory handle for language bindings
-    pub fn testing_factory(&self) -> Arc<super::testing::SharedTestingFactory> {
-        super::testing::get_global_testing_factory()
-    }
-
-    /// Register handler using shared types
-    pub fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()> {
-        // Use validate_or_refresh for production resilience - auto-recover from expired handles
-        let _validated_handle = self.validate_or_refresh()?;
-
-        let result = super::orchestration_system::execute_async(async {
-            // Use handle's orchestration system directly - NO global lookup!
-            self.orchestration_system
-                .task_handler_registry
-                .register_ffi_handler(
-                    &metadata.namespace,
-                    &metadata.name,
-                    &metadata.version,
-                    &metadata.handler_class,
-                    metadata.config_schema,
-                )
-                .await
-        });
-
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(SharedFFIError::HandlerRegistrationFailed(e.to_string())),
-        }
-    }
-
-    /// Find handler by namespace, name, and version
-    pub fn find_handler(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> SharedFFIResult<Option<HandlerMetadata>> {
-        // Use validate_or_refresh for production resilience - auto-recover from expired handles
-        let _validated_handle = self.validate_or_refresh()?;
-
-        // Access the task handler registry directly through orchestration system
-        match self
-            .orchestration_system
-            .task_handler_registry
-            .get_handler_metadata(namespace, name, version)
-        {
-            Ok(metadata) => Ok(Some(metadata)),
-            Err(_) => Ok(None), // Handler not found - return None instead of error for graceful handling
-        }
-    }
-
-    /// Find handler from task request structure
-    pub fn find_handler_from_request(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> SharedFFIResult<Option<HandlerMetadata>> {
-        self.find_handler(namespace, name, version)
-    }
-
     // ========================================================================
     // ORCHESTRATION SYSTEM ACCESS (for language bindings)
     // ========================================================================
 
-    /// Get analytics manager for performance operations
-    pub fn analytics_manager(&self) -> Arc<super::analytics::SharedAnalyticsManager> {
-        super::analytics::get_global_analytics_manager()
-    }
+    // ========================================================================
+    // ZEROMQ BATCH PROCESSING (for Ruby orchestration integration)
+    // ========================================================================
+}
 
-    /// Get event bridge for cross-language event operations
-    pub fn event_bridge(&self) -> Arc<super::event_bridge::SharedEventBridge> {
-        super::event_bridge::get_global_event_bridge()
-    }
+/// Task metadata for handler lookup
+#[derive(Debug, Clone)]
+pub struct TaskMetadata {
+    pub task_id: i64,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
 }
 
 /// Handle information for debugging
@@ -298,17 +234,6 @@ pub struct HandleInfo {
     pub expires_in_seconds: u64,
     pub orchestration_pool_size: u32,
     pub status: String,
-}
-
-/// Trait that language bindings should implement for their handle types
-pub trait SharedOrchestrationHandleTrait {
-    fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()>;
-}
-
-impl SharedOrchestrationHandleTrait for SharedOrchestrationHandle {
-    fn register_handler(&self, metadata: HandlerMetadata) -> SharedFFIResult<()> {
-        self.register_handler(metadata)
-    }
 }
 
 // ===== SHARED CORE HANDLE LOGIC ENDS HERE =====

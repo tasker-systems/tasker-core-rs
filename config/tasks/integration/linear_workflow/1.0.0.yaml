@@ -1,0 +1,93 @@
+# Linear Workflow Test Template (A→B→C→D)
+# Demonstrates sequential step dependencies for integration testing
+
+name: linear_workflow
+module_namespace: IntegrationTest
+task_handler_class: IntegrationTest::LinearWorkflowHandler
+namespace_name: integration
+version: "1.0.0"
+description: "Linear workflow for integration testing with sequential dependencies"
+default_dependent_system: test_system
+
+# Simple schema for testing
+schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum: ["linear"]
+    test:
+      type: string
+
+# Named steps in linear order
+named_steps:
+  - step_a
+  - step_b
+  - step_c
+  - step_d
+
+# Step template definitions with linear dependencies
+step_templates:
+  - name: step_a
+    description: "First step in linear workflow"
+    handler_class: IntegrationTest::StepHandler::StepAHandler
+    handler_config:
+      action: "initialize"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: step_b
+    description: "Second step, depends on A"
+    depends_on_step: step_a
+    handler_class: IntegrationTest::StepHandler::StepBHandler
+    handler_config:
+      action: "process"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: step_c
+    description: "Third step, depends on B"
+    depends_on_step: step_b
+    handler_class: IntegrationTest::StepHandler::StepCHandler
+    handler_config:
+      action: "validate"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+  - name: step_d
+    description: "Fourth step, depends on C"
+    depends_on_step: step_c
+    handler_class: IntegrationTest::StepHandler::StepDHandler
+    handler_config:
+      action: "finalize"
+      test_mode: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: step_a
+        handler_config:
+          debug_mode: true
+          timeout_ms: 1000
+      - name: step_b
+        handler_config:
+          debug_mode: true
+          timeout_ms: 1000
+      - name: step_c
+        handler_config:
+          debug_mode: true
+          timeout_ms: 1000
+      - name: step_d
+        handler_config:
+          debug_mode: true
+          timeout_ms: 1000

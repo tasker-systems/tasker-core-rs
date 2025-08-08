@@ -10,7 +10,7 @@
 //!
 //! ## Available Registries
 //!
-//! - **HandlerFactory**: Factory for creating and caching task handlers
+//! - **TaskHandlerRegistry**: Task handler registration and resolution (orchestration-specific)
 //! - **PluginRegistry**: Dynamic plugin discovery and lifecycle management
 //! - **SubscriberRegistry**: Event subscriber management with pattern matching
 //!
@@ -18,7 +18,7 @@
 //!
 //! ```text
 //! Registry Infrastructure
-//! ├── HandlerFactory        (Task handler creation & caching)
+//! ├── TaskHandlerRegistry   (Orchestration task handlers)
 //! ├── PluginRegistry        (Plugin lifecycle management)
 //! └── SubscriberRegistry    (Event subscription management)
 //! ```
@@ -26,14 +26,13 @@
 //! ## Usage
 //!
 //! ```rust
-//! use tasker_core::registry::{HandlerFactory, PluginRegistry, SubscriberRegistry};
-//! use tasker_core::orchestration::config::ConfigurationManager;
+//! use tasker_core::registry::{TaskHandlerRegistry, PluginRegistry, SubscriberRegistry};
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create handler factory
-//! let config_manager = Arc::new(ConfigurationManager::new());
-//! let handler_factory = HandlerFactory::new(config_manager);
+//! // Create task handler registry
+//! let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
+//! let task_handler_registry = TaskHandlerRegistry::new(pool);
 //!
 //! // Create plugin registry
 //! let mut plugin_registry = PluginRegistry::new();
@@ -46,13 +45,11 @@
 //! # }
 //! ```
 
-pub mod handler_factory;
 pub mod plugin_registry;
 pub mod subscriber_registry;
 pub mod task_handler_registry;
 
 // Re-export main types for easy access
-pub use handler_factory::{HandlerCacheStats, HandlerFactory};
 pub use plugin_registry::{Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats};
 pub use subscriber_registry::{
     EventSubscriber, SubscriberDetail, SubscriberRegistry, SubscriberStats,

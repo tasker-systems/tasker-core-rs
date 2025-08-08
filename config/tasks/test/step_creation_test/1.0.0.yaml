@@ -1,0 +1,43 @@
+# Step Creation Test Template
+# Simple template for testing direct step creation functionality
+
+name: step_creation_test
+module_namespace: TestModule
+task_handler_class: StepCreationTestHandler
+namespace_name: test
+version: "1.0.0"
+description: "Simple workflow for testing step creation functionality"
+default_dependent_system: test_system
+
+# Simple schema for testing
+schema:
+  type: object
+  properties:
+    test:
+      type: string
+      enum: ["step_creation"]
+
+# Single step for testing
+named_steps:
+  - test_step
+
+# Single step template
+step_templates:
+  - name: test_step
+    description: "Test step for validation"
+    handler_class: TestStepHandler
+    handler_config:
+      action: "test"
+      validation: true
+    default_retryable: true
+    default_retry_limit: 3
+    timeout_seconds: 30
+
+# Test environment configuration
+environments:
+  test:
+    step_templates:
+      - name: test_step
+        handler_config:
+          debug_mode: true
+          timeout_ms: 5000

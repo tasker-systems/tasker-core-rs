@@ -30,39 +30,31 @@
 use magnus::{Error, Module, Ruby};
 
 mod context;
+mod embedded_bridge;
 mod error_translation;
-mod globals;
-mod handles;  // 🎯 NEW: Handle-based FFI architecture
-mod performance;
-mod test_helpers;
+mod ffi_logging;
 mod types;
 
-// Direct handler imports (simplified from handlers/ module)
-mod handlers {
-    pub mod base_task_handler;
-    pub mod ruby_step_handler;
-}
-
-// Direct model imports (simplified from models/ module)
-mod models {
-    pub mod ruby_task;
-    pub mod ruby_step;
-    pub mod ruby_step_sequence;
-}
-
-// Direct import of event bridge (moved from events/ subdirectory)
-mod event_bridge;
+// Direct model imports removed - pgmq architecture uses dry-struct data classes
 
 /// Initialize the Ruby extension focused on Rails integration
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
+    // Initialize FFI logger for debugging
+    if let Err(e) = crate::ffi_logging::init_ffi_logger() {
+        eprintln!("Warning: Failed to initialize FFI logger: {e}");
+    }
+
     // Define TaskerCore module
     let module = ruby.define_module("TaskerCore")?;
 
     // Define version constants
     module.const_set("RUST_VERSION", env!("CARGO_PKG_VERSION"))?;
     module.const_set("STATUS", "ffi_bridges_restored")?;
-    module.const_set("FEATURES", "singleton_resources,core_delegation,performance_optimization")?;
+    module.const_set(
+        "FEATURES",
+        "singleton_resources,core_delegation,performance_optimization",
+    )?;
 
     // Define error hierarchy
     let base_error = module.define_error("Error", ruby.exception_standard_error())?;
@@ -78,52 +70,18 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // Note: Magnus-wrapped structs are automatically registered when used
     // All type classes are properly namespaced (e.g., TaskerCore::Types::WorkflowStepInput)
 
-    // Register RubyStepHandler wrapper class
-    handlers::ruby_step_handler::register_ruby_step_handler_class(&ruby, &module)?;
-
-    // Register task handler bridge functions
-    handlers::base_task_handler::register_base_task_handler(&ruby, &module)?;
-
-    // 🎯 CORE: Register handle-based FFI functions at root level
-    handles::register_handle_functions(&module)?;
-    handles::register_orchestration_handle(&module)?;
-
-    // 🎯 PERFORMANCE: Organize all performance analytics under Performance:: namespace
-    let performance_module = module.define_module("Performance")?;
-    performance::register_performance_functions(performance_module)?;
-    // Register root-level performance functions that OrchestrationManager expects
-    performance::register_root_performance_functions(module)?;
-    
-    // ✅ Register Performance classes under TaskerCore::Performance:: namespace
-    performance::RubyTaskExecutionContext::define(ruby, &performance_module)?;
-    performance::RubyViableStep::define(ruby, &performance_module)?;
-    performance::RubySystemHealth::define(ruby, &performance_module)?;
-    performance::RubyAnalyticsMetrics::define(ruby, &performance_module)?;
-    performance::RubySlowestStepAnalysis::define(ruby, &performance_module)?;
-    performance::RubySlowestTaskAnalysis::define(ruby, &performance_module)?;
-    performance::RubyDependencyAnalysis::define(ruby, &performance_module)?;
-    performance::RubyDependencyLevel::define(ruby, &performance_module)?;
-
-    // 🎯 EVENTS: Organize all event functionality under Events:: namespace
-    let events_module = module.define_module("Events")?;
-    event_bridge::register_event_functions(events_module)?;
-    
-    // ✅ NEW: Register optimized Ruby event classes for primitives in, objects out pattern
-    event_bridge::register_ruby_event_classes(ruby, &events_module)?;
-
-    // 🎯 TESTHELPERS: Organize all testing utilities under TestHelpers:: namespace
-    let test_helpers_module = module.define_module("TestHelpers")?;
-    test_helpers::register_test_helper_functions(test_helpers_module)?;
-    handles::register_test_helpers_factory_functions(&test_helpers_module)?;
-    
-    // ✅ NEW: Register optimized Ruby test classes for primitives in, objects out pattern
-    test_helpers::testing_factory::register_ruby_test_classes(ruby, &test_helpers_module)?;
+    // FFI handle and performance functions removed for pgmq architecture
 
     // 🎯 TYPES: Register types under Types:: namespace to avoid conflicts
     let types_module = module.define_module("Types")?;
-    
-    // Explicitly register OrchestrationHandleInfo class
-    let _orchestration_handle_info_class = module.define_class("OrchestrationHandleInfo", ruby.class_object())?;
+
+    // FFI orchestration handle removed for pgmq architecture
+    // BaseTaskHandler simplified for step execution only
+
+    // TCP command architecture removed in favor of pgmq message queues
+
+    // 🔌 EMBEDDED BRIDGE: Register embedded orchestration functions for testing
+    embedded_bridge::init_embedded_bridge(&module)?;
 
     Ok(())
 }

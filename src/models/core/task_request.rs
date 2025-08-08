@@ -56,6 +56,12 @@ pub struct TaskRequest {
 
     /// Custom options that override task template defaults (Rust extension)
     pub options: Option<HashMap<String, serde_json::Value>>,
+
+    /// Priority for task execution (higher values = higher priority). Default: 0
+    pub priority: Option<i32>,
+
+    /// Configurable timeout for task claims in seconds. Default: 60
+    pub claim_timeout_seconds: Option<i32>,
 }
 
 /// Represents the resolved NamedTask and extracted options from a TaskRequest
@@ -72,7 +78,7 @@ impl Default for TaskRequest {
         Self {
             name: String::new(),
             namespace: "default".to_string(),
-            version: "0.1.0".to_string(),
+            version: "1.0.0".to_string(),
             context: serde_json::json!({}),
             status: "PENDING".to_string(),
             initiator: "UNKNOWN".to_string(),
@@ -83,6 +89,8 @@ impl Default for TaskRequest {
             bypass_steps: Vec::new(),
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
+            priority: None,
+            claim_timeout_seconds: None,
         }
     }
 }
@@ -148,6 +156,18 @@ impl TaskRequest {
     /// Add custom options
     pub fn with_options(mut self, options: HashMap<String, serde_json::Value>) -> Self {
         self.options = Some(options);
+        self
+    }
+
+    /// Set task priority (higher values = higher priority)
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = Some(priority);
+        self
+    }
+
+    /// Set claim timeout for distributed orchestration
+    pub fn with_claim_timeout_seconds(mut self, seconds: i32) -> Self {
+        self.claim_timeout_seconds = Some(seconds);
         self
     }
 
@@ -306,6 +326,8 @@ impl ResolvedTaskRequest {
                 self.named_task.named_task_id,
                 &Some(self.resolved_context.clone()),
             ),
+            priority: self.task_request.priority,
+            claim_timeout_seconds: self.task_request.claim_timeout_seconds,
         }
     }
 
@@ -344,7 +366,7 @@ mod tests {
     fn test_routing_key_generation() {
         // Test with default version
         let request = TaskRequest::new("order_processing".to_string(), "payments".to_string());
-        assert_eq!(request.routing_key(), "payments/order_processing:0.1.0");
+        assert_eq!(request.routing_key(), "payments/order_processing:1.0.0");
 
         // Test with specific version
         let request_v2 = request.clone().with_version("2.1.0".to_string());
@@ -354,7 +376,7 @@ mod tests {
         let (namespace, name, version) = request.handler_identifier();
         assert_eq!(namespace, "payments");
         assert_eq!(name, "order_processing");
-        assert_eq!(version, "0.1.0"); // Default version from Default impl
+        assert_eq!(version, "1.0.0"); // Default version from Default impl
     }
 
     #[test]

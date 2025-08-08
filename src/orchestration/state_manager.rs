@@ -527,7 +527,7 @@ impl StateManager {
     }
 
     /// Get or create step state machine
-    async fn get_or_create_step_state_machine(
+    pub async fn get_or_create_step_state_machine(
         &self,
         step_id: i64,
     ) -> OrchestrationResult<StepStateMachine> {
@@ -612,6 +612,147 @@ impl StateManager {
             }
         })?;
 
+        Ok(())
+    }
+
+    /// Complete step with results - stores results in database
+    pub async fn complete_step_with_results(
+        &self,
+        step_id: i64,
+        step_results: Option<serde_json::Value>,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        let event = StepEvent::Complete(step_results);
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Fail step with error information - marks step as failed in database
+    pub async fn fail_step_with_error(
+        &self,
+        step_id: i64,
+        error_message: String,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        let event = StepEvent::Fail(error_message);
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Handle step failure with retry logic
+    /// If the step has retries remaining, transition to pending for retry
+    /// Otherwise, transition to error state
+    pub async fn handle_step_failure_with_retry(
+        &self,
+        step_id: i64,
+        error_message: String,
+    ) -> OrchestrationResult<()> {
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        // First transition to error state
+        let fail_event = StepEvent::Fail(error_message.clone());
+        step_state_machine
+            .transition(fail_event)
+            .await
+            .map_err(|e| OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            })?;
+
+        // Check if step has retries remaining
+        if !step_state_machine.has_exceeded_retry_limit() {
+            // Increment retry count
+            step_state_machine
+                .increment_retry_count()
+                .await
+                .map_err(|e| OrchestrationError::StateTransitionFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step_id,
+                    reason: format!("Failed to increment retry count: {e}"),
+                })?;
+
+            // Transition back to pending for retry
+            let retry_event = StepEvent::Retry;
+            step_state_machine
+                .transition(retry_event)
+                .await
+                .map_err(|e| OrchestrationError::StateTransitionFailed {
+                    entity_type: "WorkflowStep".to_string(),
+                    entity_id: step_id,
+                    reason: format!("Failed to transition to pending for retry: {e}"),
+                })?;
+
+            tracing::info!(
+                "Step {} failed but has retries remaining, transitioned to pending for retry. Error: {}",
+                step_id,
+                error_message
+            );
+        } else {
+            tracing::info!(
+                "Step {} failed and has no retries remaining, staying in error state. Error: {}",
+                step_id,
+                error_message
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Mark a task as in progress when steps have been enqueued
+    pub async fn mark_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
+        debug!(task_id = task_id, "Marking task as in progress");
+        self.transition_task_state(task_id, TaskState::InProgress)
+            .await
+    }
+
+    /// Mark step as in progress - transitions state machine and sets in_process column
+    pub async fn mark_step_in_progress(&self, step_id: i64) -> OrchestrationResult<()> {
+        // 1. Transition state machine to InProgress
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+
+        let event = StepEvent::Start;
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step_id,
+                reason: e.to_string(),
+            }
+        })?;
+
+        // 2. Also update the in_process column to true in the database
+        // This provides a direct database flag for queries that need to check processing status
+        sqlx::query!(
+            "UPDATE tasker_workflow_steps SET in_process = true WHERE workflow_step_id = $1",
+            step_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| OrchestrationError::DatabaseError {
+            operation: "mark_step_in_progress".to_string(),
+            reason: format!("Failed to update in_process column for step {step_id}: {e}"),
+        })?;
+
+        debug!(step_id = step_id, "Marked step as in progress");
         Ok(())
     }
 

@@ -30,11 +30,6 @@ pub struct SharedDatabaseCleanup {
 impl SharedDatabaseCleanup {
     /// Create new SharedDatabaseCleanup using existing handle
     pub fn new(handle: std::sync::Arc<SharedOrchestrationHandle>) -> Result<Self, SharedFFIError> {
-        debug!(
-            "🔧 Shared FFI: Creating SharedDatabaseCleanup with handle {}",
-            handle.handle_id
-        );
-
         Ok(SharedDatabaseCleanup { handle })
     }
 
@@ -63,7 +58,6 @@ impl SharedDatabaseCleanup {
         let pool = self.database_pool();
 
         // Step 1: Terminate existing connections
-        debug!("🔧 Shared FFI: Step 1 - Terminating existing connections");
         let terminate_result = sqlx::raw_sql(
             r"
             SELECT pg_terminate_backend(pid)
@@ -76,16 +70,11 @@ impl SharedDatabaseCleanup {
         .execute(pool)
         .await;
 
-        match terminate_result {
-            Ok(_) => debug!("✅ Shared FFI: Terminated existing connections"),
-            Err(e) => debug!(
-                "⚠️ Shared FFI: Failed to terminate connections (continuing): {}",
-                e
-            ),
+        if let Err(e) = terminate_result {
+            debug!("Failed to terminate connections (continuing): {}", e);
         }
 
         // Step 2: Drop and recreate schema
-        debug!("🔧 Shared FFI: Step 2 - Dropping and recreating schema");
         let schema_drop_result = sqlx::raw_sql(
             r"
             DROP SCHEMA public CASCADE;
@@ -109,7 +98,6 @@ impl SharedDatabaseCleanup {
         }
 
         // Step 3: Create migration tracking table
-        debug!("🔧 Shared FFI: Step 3 - Creating migration tracking table");
         let migration_result = sqlx::raw_sql(
             r"
             CREATE TABLE IF NOT EXISTS tasker_schema_migrations (
@@ -163,11 +151,9 @@ impl SharedDatabaseCleanup {
 
         if is_test_env {
             // Use sequential database setup for test environment
-            debug!("🔧 Shared FFI: Using sequential database setup for test environment");
             self.sequential_database_setup(database_url).await
         } else {
             // For non-test environments, run normal migrations
-            debug!("🔧 Shared FFI: Running normal migrations for non-test environment");
 
             // Use the migrations from the core database module
             match crate::database::migrations::DatabaseMigrations::run_all(pool).await {
@@ -194,9 +180,7 @@ impl SharedDatabaseCleanup {
                                 }));
                             }
                         }
-                        Err(_e) => {
-                            debug!("⚠️ Shared FFI: Table listing failed, but migration succeeded");
-                        }
+                        Err(_e) => {}
                     }
 
                     Ok(json!({
@@ -253,11 +237,8 @@ impl SharedDatabaseCleanup {
         .await;
 
         match terminate_result {
-            Ok(_) => debug!("✅ Shared FFI: Terminated existing connections"),
-            Err(e) => debug!(
-                "⚠️ Shared FFI: Failed to terminate connections (continuing): {}",
-                e
-            ),
+            Ok(_) => {}
+            Err(e) => debug!("Failed to terminate connections (continuing): {}", e),
         }
 
         // Step 2: Drop and recreate schema
@@ -305,11 +286,6 @@ impl SharedDatabaseCleanup {
 
     /// **SHARED**: List all tables in the database using handle's pool
     pub async fn list_database_tables(&self, database_url: &str) -> Result<Value, SharedFFIError> {
-        debug!(
-            "🔧 Shared FFI: Listing database tables for {}",
-            database_url
-        );
-
         let pool = self.database_pool();
 
         // Query to get all tables in the public schema
@@ -333,7 +309,6 @@ impl SharedDatabaseCleanup {
                     }));
                 }
 
-                debug!("✅ Shared FFI: Listed {} tables successfully", tables.len());
                 Ok(json!({
                     "status": "success",
                     "database_url": database_url,
@@ -366,8 +341,6 @@ impl SharedDatabaseCleanup {
 /// This function provides access to database cleanup operations using
 /// the shared orchestration handle, ensuring consistent pool usage.
 pub fn get_global_database_cleanup() -> Result<SharedDatabaseCleanup, SharedFFIError> {
-    debug!("🔧 Shared FFI: Getting global database cleanup instance");
-
     let handle = super::handles::SharedOrchestrationHandle::get_global();
     SharedDatabaseCleanup::new(handle)
 }

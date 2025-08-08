@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+// Import StepExecutionContext from step_handler module
+
 /// Result of task orchestration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskResult {
@@ -68,6 +70,8 @@ pub enum StepStatus {
     Retrying,
     /// Step was skipped
     Skipped,
+    /// Step is in progress (published but not yet completed)
+    InProgress,
 }
 
 /// A step that is ready for execution
@@ -87,7 +91,7 @@ pub struct ViableStep {
 }
 
 /// Task execution context from SQL functions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskContext {
     pub task_id: i64,
     pub data: serde_json::Value,
@@ -102,6 +106,7 @@ pub struct HandlerMetadata {
     pub version: String,
     pub handler_class: String,
     pub config_schema: Option<serde_json::Value>,
+    pub default_dependent_system: Option<String>,
     pub registered_at: DateTime<Utc>,
 }
 
@@ -212,6 +217,15 @@ pub trait FrameworkIntegration: Send + Sync {
         task_id: i64,
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
+
+    /// Check if this framework supports native batch execution
+    ///
+    /// All frameworks now support batch execution since individual step execution
+    /// has been removed. This method can be used to distinguish between frameworks
+    /// that implement true parallelism vs sequential batch processing.
+    fn supports_batch_execution(&self) -> bool {
+        true // All frameworks must support batch execution
+    }
 }
 
 /// Task handler trait for registry
@@ -276,30 +290,34 @@ impl StepResult {
     }
 }
 
-/// Result of task orchestration (moved from coordinator.rs)
+/// Result of task orchestration - Updated for fire-and-forget ZeroMQ architecture
 #[derive(Debug)]
 pub enum TaskOrchestrationResult {
-    /// Task completed successfully
+    /// Task completed successfully (from async result processing)
     Complete {
         task_id: i64,
-        steps_executed: usize,
+        steps_completed: usize,
         total_execution_time_ms: u64,
     },
-    /// Task failed due to step failures
+    /// Task failed due to step failures (from async result processing)
     Failed {
         task_id: i64,
         error: String,
         failed_steps: Vec<i64>,
     },
-    /// Task is still in progress, should be re-queued
-    InProgress {
+    /// Fire-and-forget: Steps published to ZeroMQ, execution continuing asynchronously
+    Published {
         task_id: i64,
-        steps_executed: usize,
+        viable_steps_discovered: usize,
+        steps_published: usize,
+        batch_id: Option<String>,
+        publication_time_ms: u64,
         next_poll_delay_ms: u64,
     },
     /// Task is blocked waiting for dependencies
     Blocked {
         task_id: i64,
         blocking_reason: String,
+        viable_steps_checked: usize,
     },
 }

@@ -192,6 +192,89 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
             );
         }
 
+        // Handle transition to error state - mark as no longer in_process
+        if to_state == WorkflowStepState::Error.to_string() {
+            // When a step fails, it's no longer in process
+            sqlx::query!(
+                r#"
+                UPDATE tasker_workflow_steps 
+                SET in_process = false,
+                    updated_at = NOW()
+                WHERE workflow_step_id = $1
+                "#,
+                step.workflow_step_id
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_id,
+                reason: format!("Failed to mark step as not in process after error: {e}"),
+            })?;
+
+            tracing::info!(
+                step_id = step.workflow_step_id,
+                task_id = step.task_id,
+                "Step marked as not in_process after error"
+            );
+        }
+
+        // Handle transition to cancelled state - mark as not in_process and processed
+        if to_state == WorkflowStepState::Cancelled.to_string() {
+            sqlx::query!(
+                r#"
+                UPDATE tasker_workflow_steps 
+                SET in_process = false,
+                    processed = true,
+                    processed_at = NOW(),
+                    updated_at = NOW()
+                WHERE workflow_step_id = $1
+                "#,
+                step.workflow_step_id
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_id,
+                reason: format!("Failed to mark cancelled step as processed: {e}"),
+            })?;
+
+            tracing::info!(
+                step_id = step.workflow_step_id,
+                task_id = step.task_id,
+                "Cancelled step marked as processed and not in_process"
+            );
+        }
+
+        // Handle transition to resolved_manually state - similar to complete
+        if to_state == WorkflowStepState::ResolvedManually.to_string() {
+            sqlx::query!(
+                r#"
+                UPDATE tasker_workflow_steps 
+                SET in_process = false,
+                    processed = true,
+                    processed_at = NOW(),
+                    updated_at = NOW()
+                WHERE workflow_step_id = $1
+                "#,
+                step.workflow_step_id
+            )
+            .execute(pool)
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_id,
+                reason: format!("Failed to mark manually resolved step as processed: {e}"),
+            })?;
+
+            tracing::info!(
+                step_id = step.workflow_step_id,
+                task_id = step.task_id,
+                "Manually resolved step marked as processed and not in_process"
+            );
+        }
+
         Ok(())
     }
 
@@ -369,10 +452,16 @@ fn build_step_event_context(
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
-    // Try to parse event as JSON to extract results
+    // Try to parse event as JSON to extract results from StepEvent::Complete
     if let Ok(event_data) = serde_json::from_str::<Value>(event) {
-        if let Some(results) = event_data.get("results") {
-            return Ok(Some(results.clone()));
+        // StepEvent::Complete serializes as: {"type": "Complete", "data": { results }}
+        if let Some(event_type) = event_data.get("type") {
+            if event_type == "Complete" {
+                // Extract the data field which contains the actual step results
+                if let Some(results) = event_data.get("data") {
+                    return Ok(Some(results.clone()));
+                }
+            }
         }
     }
     Ok(None)

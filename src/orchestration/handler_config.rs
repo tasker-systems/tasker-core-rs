@@ -3,49 +3,94 @@
 //! Provides YAML-driven configuration for task handlers including step templates,
 //! environment overrides, and schema validation.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 use crate::error::{Result, TaskerError};
 
+/// Custom deserializer for numeric values that may be integers or floats in YAML
+/// Converts floats to i32 by truncating (e.g., 0.0 -> 0, 10.5 -> 10)
+fn deserialize_optional_numeric<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+
+    match value {
+        None => Ok(None),
+        Some(serde_yaml::Value::Number(n)) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Some(i as i32))
+            } else if let Some(f) = n.as_f64() {
+                // Truncate floating point to integer
+                Ok(Some(f as i32))
+            } else {
+                Err(D::Error::custom(format!("Invalid numeric value: {n}")))
+            }
+        }
+        Some(serde_yaml::Value::String(s)) => {
+            // Try to parse string as number
+            s.parse::<i32>()
+                .map(Some)
+                .or_else(|_| s.parse::<f64>().map(|f| Some(f as i32)))
+                .map_err(|_| D::Error::custom(format!("Cannot parse '{s}' as numeric")))
+        }
+        Some(other) => Err(D::Error::custom(format!(
+            "Expected numeric value, found: {other:?}"
+        ))),
+    }
+}
+
 /// HandlerConfiguration represents the complete configuration for a task handler
-/// This is loaded from YAML and used by handlers to define their step templates
+/// This matches the YAML structure exactly as stored in handler_config field
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandlerConfiguration {
-    /// The name of the task (e.g., "api_task/integration_yaml_example")
+    /// The name of the task (from YAML: name field)
     pub name: String,
 
-    /// Module namespace for organization (e.g., "ApiTask")
+    /// Module namespace for organization (optional in YAML)
     pub module_namespace: Option<String>,
 
-    /// Task handler class name (e.g., "IntegrationYamlExample")
+    /// Task handler class name (from YAML: task_handler_class field)
     pub task_handler_class: String,
 
-    /// Namespace name for categorization (e.g., "api_tests")
+    /// Namespace name for categorization (from YAML: namespace_name field)
     pub namespace_name: String,
 
-    /// Version of the task handler (e.g., "0.1.0")
+    /// Version of the task handler (from YAML: version field)
     pub version: String,
+
+    /// Description of the task handler (from YAML: description field)
+    pub description: Option<String>,
 
     /// Default dependent system for steps
     pub default_dependent_system: Option<String>,
 
     /// List of named steps that are valid for this task
+    /// If empty, will be automatically populated from step_templates
+    #[serde(default)]
     pub named_steps: Vec<String>,
 
-    /// JSON schema for task input validation
+    /// JSON schema for task input validation (from YAML: schema field)
     pub schema: Option<serde_json::Value>,
 
-    /// Step template definitions
+    /// Step template definitions (from YAML: step_templates array)
     pub step_templates: Vec<StepTemplate>,
 
-    /// Environment-specific overrides
+    /// Environment-specific overrides (from YAML: environments field)
     pub environments: Option<HashMap<String, EnvironmentConfig>>,
 
-    /// Default context values
+    /// Handler-specific configuration (from YAML: handler_config field)
+    pub handler_config: Option<serde_json::Value>,
+
+    /// Default context values (deprecated/unused in current YAML)
     pub default_context: Option<serde_json::Value>,
 
-    /// Default options for task execution
+    /// Default options for task execution (deprecated/unused in current YAML)
     pub default_options: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -65,6 +110,7 @@ pub struct StepTemplate {
     pub default_retryable: Option<bool>,
 
     /// The default maximum number of retry attempts
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub default_retry_limit: Option<i32>,
 
     /// Whether this step can be skipped in the workflow
@@ -72,6 +118,7 @@ pub struct StepTemplate {
 
     /// Step-specific timeout in seconds
     /// If not specified, uses the global timeout configuration
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub timeout_seconds: Option<i32>,
 
     /// The class that implements the step's logic
@@ -122,12 +169,14 @@ pub struct StepTemplateOverride {
     pub default_retryable: Option<bool>,
 
     /// Override for retry limit
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub default_retry_limit: Option<i32>,
 
     /// Override for skippable setting
     pub skippable: Option<bool>,
 
     /// Override for timeout_seconds setting
+    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
     pub timeout_seconds: Option<i32>,
 }
 
@@ -144,8 +193,19 @@ pub struct ResolvedHandlerConfiguration {
 impl HandlerConfiguration {
     /// Load a HandlerConfiguration from YAML content
     pub fn from_yaml(yaml_content: &str) -> Result<Self> {
-        serde_yaml::from_str(yaml_content)
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid YAML: {e}")))
+        let mut config: HandlerConfiguration = serde_yaml::from_str(yaml_content)
+            .map_err(|e| TaskerError::ValidationError(format!("Invalid YAML: {e}")))?;
+
+        // Auto-populate named_steps from step_templates if it's empty
+        if config.named_steps.is_empty() {
+            config.named_steps = config
+                .step_templates
+                .iter()
+                .map(|st| st.name.clone())
+                .collect();
+        }
+
+        Ok(config)
     }
 
     /// Load a HandlerConfiguration from a YAML file

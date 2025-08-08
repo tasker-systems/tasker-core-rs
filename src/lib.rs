@@ -37,6 +37,7 @@
 //! - [`error`] - Structured error handling
 //! - [`events`] - Event system foundation
 //! - [`orchestration`] - Workflow orchestration logic
+//! - [`messaging`] - PostgreSQL message queue (pgmq) integration
 //! - [`registry`] - Component registration and discovery
 //! - [`ffi`] - Multi-language FFI bindings
 //!
@@ -78,15 +79,20 @@
 //! ```
 
 // pub mod client; // Removed - legacy code superseded by src/ffi/shared
+pub mod config;
 pub mod constants;
 pub mod database;
 pub mod error;
 pub mod events;
+pub mod execution;
 pub mod ffi;
+pub mod logging;
+pub mod messaging;
 pub mod models;
 pub mod orchestration;
 pub mod registry;
 pub mod scopes;
+pub mod services;
 pub mod sql_functions;
 pub mod state_machine;
 pub mod validation;
@@ -101,11 +107,20 @@ pub use database::{
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
 pub use error::{Result, TaskerError};
+// Execution types moved to messaging module for pgmq architecture
+// pub use execution::{
+//     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
+// };
+pub use messaging::{
+    BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
+    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, StepMessage,
+    StepMessageMetadata, TaskRequestMessage,
+};
 pub use orchestration::{
     BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
     TelemetryConfig,
 };
 pub use registry::{
-    EventSubscriber, HandlerCacheStats, HandlerFactory, Plugin, PluginMetadata, PluginRegistry,
-    PluginState, PluginStats, SubscriberDetail, SubscriberRegistry, SubscriberStats,
+    EventSubscriber, Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats,
+    SubscriberDetail, SubscriberRegistry, SubscriberStats, TaskHandlerRegistry,
 };

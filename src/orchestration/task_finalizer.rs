@@ -47,6 +47,7 @@ use crate::events::publisher::EventPublisher;
 use crate::models::{Task, WorkflowStep};
 use crate::orchestration::task_enqueuer::{EnqueuePriority, EnqueueRequest, TaskEnqueuer};
 use crate::state_machine::{TaskEvent, TaskState, TaskStateMachine};
+use std::sync::Arc;
 
 /// Result of task finalization operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,11 +102,12 @@ pub struct TaskExecutionContext {
 /// This component provides implementation for task finalization while firing
 /// lifecycle events for observability. Enhanced with TaskExecutionContext
 /// integration for intelligent decision making.
+#[derive(Clone)]
 pub struct TaskFinalizer {
     pool: PgPool,
     sql_executor: SqlFunctionExecutor,
     event_publisher: EventPublisher,
-    task_enqueuer: TaskEnqueuer,
+    task_enqueuer: Arc<TaskEnqueuer>,
 }
 
 impl TaskFinalizer {
@@ -113,8 +115,10 @@ impl TaskFinalizer {
     pub fn new(pool: PgPool) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::with_capacity(1000); // 1000 event capacity
-        let task_enqueuer =
-            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone());
+        let task_enqueuer = Arc::new(TaskEnqueuer::with_event_publisher(
+            pool.clone(),
+            event_publisher.clone(),
+        ));
         Self {
             pool,
             sql_executor,
@@ -126,8 +130,10 @@ impl TaskFinalizer {
     /// Create a new TaskFinalizer with custom event publisher
     pub fn with_event_publisher(pool: PgPool, event_publisher: EventPublisher) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let task_enqueuer =
-            TaskEnqueuer::with_event_publisher(pool.clone(), event_publisher.clone());
+        let task_enqueuer = Arc::new(TaskEnqueuer::with_event_publisher(
+            pool.clone(),
+            event_publisher.clone(),
+        ));
         Self {
             pool,
             sql_executor,
@@ -147,7 +153,7 @@ impl TaskFinalizer {
             pool,
             sql_executor,
             event_publisher,
-            task_enqueuer,
+            task_enqueuer: Arc::new(task_enqueuer),
         }
     }
 
@@ -460,7 +466,7 @@ impl TaskFinalizer {
                 total_steps: Some(sql_context.total_steps as i32),
                 ready_steps: Some(sql_context.ready_steps as i32),
                 pending_steps: Some(sql_context.pending_steps as i32),
-                in_progress_steps: Some(0), // Not available in SQL context
+                in_progress_steps: Some(sql_context.in_progress_steps as i32),
                 completed_steps: Some(sql_context.completed_steps as i32),
                 failed_steps: Some(sql_context.failed_steps as i32),
                 recommended_action: Some(sql_context.recommended_action),
@@ -494,7 +500,7 @@ impl TaskFinalizer {
         };
 
         match context.execution_status.as_str() {
-            "all_complete" => {
+            "all_complete" | "finalize_task" => {
                 println!("TaskFinalizer: Task {task_id} - calling complete_task");
                 self.complete_task(task, Some(context)).await
             }
@@ -502,7 +508,7 @@ impl TaskFinalizer {
                 println!("TaskFinalizer: Task {task_id} - calling error_task");
                 self.error_task(task, Some(context)).await
             }
-            "has_ready_steps" => {
+            "has_ready_steps" | "execute_ready_steps" => {
                 println!("TaskFinalizer: Task {task_id} - has ready steps, should execute them");
                 self.handle_ready_steps_state(task, Some(context), synchronous)
                     .await
@@ -657,7 +663,7 @@ impl TaskFinalizer {
     /// Determine reason for pending state
     fn determine_pending_reason(&self, context: &TaskExecutionContext) -> Option<String> {
         match context.execution_status.as_str() {
-            "has_ready_steps" => Some("Ready for processing".to_string()),
+            "has_ready_steps" | "execute_ready_steps" => Some("Ready for processing".to_string()),
             "waiting_for_dependencies" => Some("Waiting for dependencies".to_string()),
             "processing" => Some("Waiting for step completion".to_string()),
             _ => Some("Workflow paused".to_string()),
@@ -667,7 +673,7 @@ impl TaskFinalizer {
     /// Determine reason for reenqueue
     fn determine_reenqueue_reason(&self, context: &TaskExecutionContext) -> Option<String> {
         match context.execution_status.as_str() {
-            "has_ready_steps" => Some("Ready steps available".to_string()),
+            "has_ready_steps" | "execute_ready_steps" => Some("Ready steps available".to_string()),
             "waiting_for_dependencies" => Some("Awaiting dependencies".to_string()),
             "processing" => Some("Steps in progress".to_string()),
             _ => Some("Continuing workflow".to_string()),
@@ -707,7 +713,7 @@ impl TaskFinalizer {
             .default_reenqueue_delay as u32;
 
         match context.execution_status.as_str() {
-            "has_ready_steps" => reenqueue_delays
+            "has_ready_steps" | "execute_ready_steps" => reenqueue_delays
                 .get("has_ready_steps")
                 .map(|&d| d as u32)
                 .unwrap_or(default_delay),
@@ -737,7 +743,7 @@ impl TaskFinalizer {
         // Check context-based priorities
         if let Some(ctx) = context {
             match ctx.execution_status.as_str() {
-                "has_ready_steps" => {
+                "has_ready_steps" | "execute_ready_steps" => {
                     // Ready steps should be processed with higher priority
                     EnqueuePriority::High
                 }

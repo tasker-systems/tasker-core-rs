@@ -49,12 +49,20 @@
 //! ```
 
 pub mod connection;
+pub mod connection_pool_strategies;
 pub mod migrations;
+pub mod optimized_queries;
 pub mod sql_functions;
 
 pub use connection::DatabaseConnection;
-pub use migrations::DatabaseMigrations;
+pub use connection_pool_strategies::{
+    DeploymentPattern, HealthCheckResult, OptimizedDatabaseConnection, PoolConfiguration,
+    PoolMetrics,
+};
+pub use migrations::{DatabaseMigrations, MigrationStatus};
+pub use optimized_queries::{OptimizedWorkerQueries, PoolStatistics, QueryResultCache};
 pub use sql_functions::{
-    AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
-    SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
+    ActiveWorkerResult, AnalyticsMetrics, DependencyLevel, FunctionRegistry, OptimalWorkerResult,
+    SlowestStepAnalysis, SlowestTaskAnalysis, SqlFunctionExecutor, StepReadinessStatus,
+    SystemHealthCounts, TaskExecutionContext, WorkerHealthResult, WorkerPoolStatistics,
 };

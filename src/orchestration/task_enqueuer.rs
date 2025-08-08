@@ -359,15 +359,12 @@ impl EnqueueHandler for EventBasedEnqueueHandler {
 /// This handler provides a direct Rust implementation that can be used
 /// for native Rust queue systems or as a foundation for other implementations.
 #[derive(Debug, Clone)]
-pub struct DirectEnqueueHandler {
-    #[allow(dead_code)] // TODO: Will be used for database-backed queue implementation
-    pool: PgPool,
-}
+pub struct DirectEnqueueHandler {}
 
 impl DirectEnqueueHandler {
     /// Create a new direct handler
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(_pool: PgPool) -> Self {
+        Self {}
     }
 }
 
@@ -436,8 +433,6 @@ impl EnqueueHandler for DirectEnqueueHandler {
 
 /// Main task enqueuer that orchestrates different handlers
 pub struct TaskEnqueuer {
-    #[allow(dead_code)] // TODO: Will be used for handler persistence and transaction management
-    pool: PgPool,
     event_publisher: EventPublisher,
     handlers: Vec<Box<dyn EnqueueHandler>>,
     default_handler: String,
@@ -453,7 +448,6 @@ impl TaskEnqueuer {
         ];
 
         Self {
-            pool,
             event_publisher,
             handlers,
             default_handler: "EventBasedEnqueueHandler".to_string(),
@@ -468,7 +462,6 @@ impl TaskEnqueuer {
         ];
 
         Self {
-            pool,
             event_publisher,
             handlers,
             default_handler: "EventBasedEnqueueHandler".to_string(),
@@ -538,6 +531,10 @@ mod tests {
             identity_hash: "test_hash".to_string(),
             created_at: Utc::now().naive_utc(),
             updated_at: Utc::now().naive_utc(),
+            claimed_at: None,
+            claimed_by: None,
+            priority: 0,
+            claim_timeout_seconds: 60,
         };
 
         let request = EnqueueRequest::new(task.clone())
@@ -576,6 +573,10 @@ mod tests {
             identity_hash: "reenqueue_test_hash".to_string(),
             created_at: Utc::now().naive_utc(),
             updated_at: Utc::now().naive_utc(),
+            claimed_at: None,
+            claimed_by: None,
+            priority: 0,
+            claim_timeout_seconds: 60,
         };
 
         let request = EnqueueRequest::reenqueue(task);

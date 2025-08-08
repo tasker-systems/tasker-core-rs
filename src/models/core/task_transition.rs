@@ -235,6 +235,60 @@ impl TaskTransition {
         Ok(transition)
     }
 
+    /// Create a new task transition within an existing transaction
+    /// This is useful when you need to create transitions as part of a larger transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_transition: NewTaskTransition,
+    ) -> Result<TaskTransition, sqlx::Error> {
+        // Get the next sort key for this task
+        let sort_key_result = sqlx::query!(
+            r#"
+            SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
+            FROM tasker_task_transitions
+            WHERE task_id = $1
+            "#,
+            new_transition.task_id
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        let next_sort_key = sort_key_result.next_sort_key.unwrap_or(1);
+
+        // Mark all existing transitions as not most recent
+        sqlx::query!(
+            r#"
+            UPDATE tasker_task_transitions 
+            SET most_recent = false, updated_at = NOW()
+            WHERE task_id = $1 AND most_recent = true
+            "#,
+            new_transition.task_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // Insert the new transition
+        let transition = sqlx::query_as!(
+            TaskTransition,
+            r#"
+            INSERT INTO tasker_task_transitions 
+            (task_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
+                      task_id, created_at, updated_at
+            "#,
+            new_transition.task_id,
+            new_transition.to_state,
+            new_transition.from_state,
+            new_transition.metadata,
+            next_sort_key
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(transition)
+    }
+
     /// Find a transition by ID
     pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(

@@ -106,7 +106,7 @@ impl TaskNamespace {
             TaskNamespace,
             r#"
             UPDATE tasker_task_namespaces
-            SET 
+            SET
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
                 updated_at = NOW()
@@ -188,5 +188,62 @@ impl TaskNamespace {
         };
 
         Self::create(pool, new_namespace).await
+    }
+
+    pub async fn find_or_create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        name: &str,
+    ) -> Result<TaskNamespace, sqlx::Error> {
+        // Try to find existing namespace first
+        if let Some(existing) = Self::find_by_name_with_transaction(tx, name).await? {
+            return Ok(existing);
+        }
+
+        // Create new namespace if not found
+        let new_namespace = NewTaskNamespace {
+            name: name.to_string(),
+            description: Some(format!("Auto-created namespace: {name}")),
+        };
+
+        Self::create_with_transaction(tx, new_namespace).await
+    }
+
+    pub async fn find_by_name_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        name: &str,
+    ) -> Result<Option<TaskNamespace>, sqlx::Error> {
+        let namespace = sqlx::query_as!(
+            TaskNamespace,
+            r#"
+            SELECT task_namespace_id, name, description, created_at, updated_at
+            FROM tasker_task_namespaces
+            WHERE name = $1
+            "#,
+            name
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        Ok(namespace)
+    }
+
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_namespace: NewTaskNamespace,
+    ) -> Result<TaskNamespace, sqlx::Error> {
+        let namespace = sqlx::query_as!(
+            TaskNamespace,
+            r#"
+            INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
+            VALUES ($1, $2, NOW(), NOW())
+            RETURNING task_namespace_id, name, description, created_at, updated_at
+            "#,
+            new_namespace.name,
+            new_namespace.description
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(namespace)
     }
 }

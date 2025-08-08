@@ -125,7 +125,7 @@ impl WorkflowStep {
                 task_id, named_step_id, retryable, retry_limit, inputs, skippable, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                       in_process, processed, processed_at, attempts, last_attempted_at,
                       backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             "#,
@@ -142,12 +142,41 @@ impl WorkflowStep {
         Ok(step)
     }
 
+    /// Create a new workflow step within a transaction
+    pub async fn create_with_transaction(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        new_step: NewWorkflowStep,
+    ) -> Result<WorkflowStep, sqlx::Error> {
+        let step = sqlx::query_as!(
+            WorkflowStep,
+            r#"
+            INSERT INTO tasker_workflow_steps (
+                task_id, named_step_id, retryable, retry_limit, inputs, skippable, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+                      in_process, processed, processed_at, attempts, last_attempted_at,
+                      backoff_request_seconds, inputs, results, skippable, created_at, updated_at
+            "#,
+            new_step.task_id,
+            new_step.named_step_id,
+            new_step.retryable.unwrap_or(true),
+            new_step.retry_limit.unwrap_or(3),
+            new_step.inputs,
+            new_step.skippable.unwrap_or(false)
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok(step)
+    }
+
     /// Find a workflow step by ID
     pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<WorkflowStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -169,7 +198,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -197,7 +226,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -217,7 +246,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -236,7 +265,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -292,8 +321,8 @@ impl WorkflowStep {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
-            SET in_process = true, 
+            UPDATE tasker_workflow_steps
+            SET in_process = true,
                 last_attempted_at = $2,
                 attempts = COALESCE(attempts, 0) + 1,
                 updated_at = NOW()
@@ -322,8 +351,8 @@ impl WorkflowStep {
 
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
-            SET processed = true, 
+            UPDATE tasker_workflow_steps
+            SET processed = true,
                 in_process = false,
                 processed_at = $2,
                 results = $3,
@@ -349,7 +378,7 @@ impl WorkflowStep {
     pub async fn set_backoff(&mut self, pool: &PgPool, seconds: i32) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
+            UPDATE tasker_workflow_steps
             SET backoff_request_seconds = $2,
                 in_process = false,
                 updated_at = NOW()
@@ -371,7 +400,7 @@ impl WorkflowStep {
     pub async fn reset_for_retry(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
+            UPDATE tasker_workflow_steps
             SET in_process = false,
                 processed = false,
                 processed_at = NULL,
@@ -402,7 +431,7 @@ impl WorkflowStep {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
+            UPDATE tasker_workflow_steps
             SET inputs = $2, updated_at = NOW()
             WHERE workflow_step_id = $1
             "#,
@@ -487,7 +516,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -503,12 +532,62 @@ impl WorkflowStep {
         Ok(steps)
     }
 
+    /// Get dependencies with step names for building execution context
+    pub async fn get_dependencies_with_names(
+        &self,
+        pool: &PgPool,
+    ) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
+        let deps = sqlx::query!(
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
+                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at,
+                   ns.name as step_name
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
+            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
+            WHERE wse.to_step_id = $1
+            ORDER BY ws.workflow_step_id
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let results = deps
+            .into_iter()
+            .map(|row| {
+                let step = WorkflowStep {
+                    workflow_step_id: row.workflow_step_id,
+                    task_id: row.task_id,
+                    named_step_id: row.named_step_id,
+                    retryable: row.retryable,
+                    retry_limit: row.retry_limit,
+                    in_process: row.in_process,
+                    processed: row.processed,
+                    processed_at: row.processed_at,
+                    attempts: row.attempts,
+                    last_attempted_at: row.last_attempted_at,
+                    backoff_request_seconds: row.backoff_request_seconds,
+                    inputs: row.inputs,
+                    results: row.results,
+                    skippable: row.skippable,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                (step, row.step_name)
+            })
+            .collect();
+
+        Ok(results)
+    }
+
     /// Get dependents (child steps) for this step
     pub async fn get_dependents(&self, pool: &PgPool) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
@@ -533,14 +612,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_transitions wst 
+            INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE wst.most_recent = true 
+            WHERE wst.most_recent = true
                 AND wst.to_state IN ('complete', 'resolved_manually')
             ORDER BY ws.workflow_step_id
             "#
@@ -556,14 +635,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_transitions wst 
+            INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE wst.most_recent = true 
+            WHERE wst.most_recent = true
                 AND wst.to_state = 'error'
             ORDER BY ws.workflow_step_id
             "#
@@ -579,14 +658,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            LEFT JOIN tasker_workflow_step_transitions wst 
+            LEFT JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
-            WHERE wst.to_state IS NULL 
+            WHERE wst.to_state IS NULL
                 OR wst.to_state IN ('pending', 'in_progress')
             ORDER BY ws.workflow_step_id
             "#
@@ -607,14 +686,14 @@ impl WorkflowStep {
                 let steps = sqlx::query_as!(
                     WorkflowStep,
                     r#"
-                    SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+                    SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                            ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                            ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                            ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
                     FROM tasker_workflow_steps ws
-                    LEFT JOIN tasker_workflow_step_transitions wst 
+                    LEFT JOIN tasker_workflow_step_transitions wst
                         ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
-                    WHERE (wst.to_state = $1) 
+                    WHERE (wst.to_state = $1)
                         OR (wst.to_state IS NULL AND $1 = 'pending')
                     ORDER BY ws.workflow_step_id
                     "#,
@@ -630,7 +709,7 @@ impl WorkflowStep {
                 let steps = sqlx::query_as!(
                     WorkflowStep,
                     r#"
-                    SELECT workflow_step_id, task_id, named_step_id, retryable, 
+                    SELECT workflow_step_id, task_id, named_step_id, retryable,
                            retry_limit, in_process, processed, processed_at,
                            attempts, last_attempted_at, backoff_request_seconds,
                            inputs, results, skippable, created_at, updated_at
@@ -654,14 +733,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_transitions wst 
+            INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE wst.most_recent = true 
+            WHERE wst.most_recent = true
                 AND wst.to_state IN ('complete', 'resolved_manually')
                 AND wst.created_at >= $1
             ORDER BY wst.created_at DESC
@@ -682,14 +761,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_transitions wst 
+            INNER JOIN tasker_workflow_step_transitions wst
                 ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE wst.most_recent = true 
+            WHERE wst.most_recent = true
                 AND wst.to_state = 'error'
                 AND wst.created_at >= $1
             ORDER BY wst.created_at DESC
@@ -710,7 +789,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, 
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
@@ -875,7 +954,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, 
+            SELECT workflow_step_id, task_id, named_step_id, retryable,
                    retry_limit, in_process, processed, processed_at,
                    attempts, last_attempted_at, backoff_request_seconds,
                    inputs, results, skippable, created_at, updated_at
@@ -897,12 +976,8 @@ impl WorkflowStep {
 
     /// Get state machine for this step (Rails: state_machine) - memoized
     /// TODO: Implement StepStateMachine integration
-    pub fn state_machine(&self) -> String {
-        // Placeholder - would return StepStateMachine instance
-        format!(
-            "StepStateMachine(workflow_step_id: {})",
-            self.workflow_step_id
-        )
+    pub fn state_machine(&self) -> StepStateMachine {
+        StepStateMachine::new(self.workflow_step_id)
     }
 
     /// Get current step status via state machine (Rails: status)
@@ -1194,17 +1269,17 @@ impl WorkflowStep {
     pub async fn dependencies_met(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
         let unmet_dependencies = sqlx::query!(
             r#"
-            SELECT COUNT(*) as count 
+            SELECT COUNT(*) as count
             FROM tasker_workflow_step_edges wse
             INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
+                FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_id, sort_key DESC
             ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
             WHERE wse.to_step_id = $1
-              AND (parent_states.to_state IS NULL 
+              AND (parent_states.to_state IS NULL
                    OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
             self.workflow_step_id
@@ -1249,17 +1324,17 @@ impl WorkflowStep {
     pub async fn count_unmet_dependencies(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
-            SELECT COUNT(*) as count 
+            SELECT COUNT(*) as count
             FROM tasker_workflow_step_edges wse
             INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
             LEFT JOIN (
                 SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
-                FROM tasker_workflow_step_transitions 
+                FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
                 ORDER BY workflow_step_id, sort_key DESC
             ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
             WHERE wse.to_step_id = $1
-              AND (parent_states.to_state IS NULL 
+              AND (parent_states.to_state IS NULL
                    OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
             self.workflow_step_id
@@ -1268,6 +1343,87 @@ impl WorkflowStep {
         .await?;
 
         Ok(result.count.unwrap_or(0))
+    }
+}
+
+/// Step-level state machine wrapper for database-driven state management
+///
+/// This struct wraps the existing database-driven state management system
+/// to provide a state machine interface that matches the Rails state machine patterns.
+/// The actual state transitions are handled by the database transition tables.
+#[derive(Debug, Clone)]
+pub struct StepStateMachine {
+    pub workflow_step_id: i64,
+}
+
+impl StepStateMachine {
+    /// Create a new step state machine wrapper
+    pub fn new(workflow_step_id: i64) -> Self {
+        Self { workflow_step_id }
+    }
+
+    /// Get the current state of this step
+    ///
+    /// Queries the tasker_workflow_step_transitions table to find the most recent
+    /// state transition for this step. Returns "pending" if no transitions exist.
+    pub async fn current_state(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            SELECT to_state
+            FROM tasker_workflow_step_transitions
+            WHERE workflow_step_id = $1 AND most_recent = true
+            ORDER BY sort_key DESC
+            LIMIT 1
+            "#,
+            self.workflow_step_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(result.map(|row| row.to_state))
+    }
+
+    /// Check if the step can transition to a specific state
+    ///
+    /// This is a placeholder for future state machine validation logic.
+    /// Currently returns true for all valid state names.
+    pub async fn can_transition_to(
+        &self,
+        _pool: &PgPool,
+        to_state: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // Valid step states from the Rails state machine
+        let valid_states = [
+            "pending",
+            "wait_for_dependencies",
+            "in_progress",
+            "complete",
+            "error",
+            "failed",
+            "resolved_manually",
+        ];
+
+        Ok(valid_states.contains(&to_state))
+    }
+
+    /// Perform a state transition
+    ///
+    /// This would typically delegate to the existing state management system
+    /// that handles state transitions through the database transition tables.
+    pub async fn transition_to(
+        &self,
+        pool: &PgPool,
+        to_state: String,
+        _reason: Option<String>,
+    ) -> Result<bool, sqlx::Error> {
+        // For now, return success indicating the transition would be handled
+        // by the existing database transition system
+        let _current_state = self.current_state(pool).await?;
+        let _can_transition = self.can_transition_to(pool, &to_state).await?;
+
+        // This would integrate with the existing state transition logic
+        // For now, just validate that we have a valid state
+        self.can_transition_to(pool, &to_state).await
     }
 }
 
@@ -1280,4 +1436,51 @@ pub struct TaskCompletionStats {
     pub pending_steps: i64,
     pub latest_completion_time: Option<NaiveDateTime>,
     pub all_complete: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct WorkflowStepWithName {
+    pub workflow_step_id: i64,
+    pub task_id: i64,
+    pub named_step_id: i32,
+    pub name: String,
+    pub retryable: bool,
+    pub retry_limit: Option<i32>,
+    pub in_process: bool,
+    pub processed: bool,
+    pub processed_at: Option<NaiveDateTime>,
+    pub attempts: Option<i32>,
+    pub last_attempted_at: Option<NaiveDateTime>,
+    pub backoff_request_seconds: Option<i32>,
+    pub inputs: Option<serde_json::Value>,
+    pub results: Option<serde_json::Value>,
+    pub skippable: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl WorkflowStepWithName {
+    // Find all workflow steps by array of IDs with named step names
+
+    pub async fn find_by_ids(
+        pool: &PgPool,
+        ids: &[i64],
+    ) -> Result<Vec<WorkflowStepWithName>, sqlx::Error> {
+        let steps = sqlx::query_as!(
+            WorkflowStepWithName,
+            r#"
+            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ns.name as name, ws.retryable, ws.retry_limit,
+                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_named_steps ns ON ws.named_step_id = ns.named_step_id
+            WHERE workflow_step_id = ANY($1)
+            "#,
+            ids
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(steps)
+    }
 }

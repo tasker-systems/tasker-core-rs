@@ -10,7 +10,6 @@ pub mod task_namespace;
 pub mod task_request;
 pub mod task_template;
 pub mod task_transition;
-// pub mod transitions; // Removed - deprecated file, functionality moved to task_transition.rs and workflow_step_transition.rs
 pub mod workflow_step;
 pub mod workflow_step_edge;
 pub mod workflow_step_transition;
