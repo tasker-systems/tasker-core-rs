@@ -155,7 +155,7 @@ impl OrchestrationSystem {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use tasker_core::orchestration::{OrchestrationSystem, config::ConfigurationManager};
     /// use sqlx::PgPool;
     ///
@@ -215,7 +215,7 @@ impl OrchestrationSystem {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use tasker_core::orchestration::OrchestrationSystem;
     /// use sqlx::PgPool;
     ///

@@ -29,24 +29,32 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_core::orchestration::workflow_coordinator::WorkflowCoordinator;
-//! use tasker_core::orchestration::types::FrameworkIntegration;
+//! use tasker_core::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
+//! use tasker_core::orchestration::config::ConfigurationManager;
+//! use tasker_core::events::publisher::EventPublisher;
+//! use tasker_core::messaging::PgmqClient;
 //! use std::sync::Arc;
 //!
 //! # async fn example(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+//! # let database_url = "postgresql://localhost/test";
+//! # let config_manager = Arc::new(ConfigurationManager::new());
+//! # let event_publisher = EventPublisher::new();
+//! # let pgmq_client = Arc::new(PgmqClient::new(database_url).await
+//! #     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?);
+//! # let config = WorkflowCoordinatorConfig::default();
 //! // Create the workflow coordinator
-//! let coordinator = WorkflowCoordinator::new(pool);
+//! let coordinator = WorkflowCoordinator::new(pool, config, config_manager, event_publisher, pgmq_client);
 //!
 //! // Execute a task workflow
 //! let task_id = 123;
-//! let result = coordinator.execute_task_workflow(task_id, framework).await?;
+//! let result = coordinator.execute_task_workflow(task_id).await?;
 //!
 //! match result {
 //!     tasker_core::orchestration::TaskOrchestrationResult::Complete { .. } => {
 //!         println!("Task completed successfully!");
 //!     },
-//!     tasker_core::orchestration::TaskOrchestrationResult::InProgress { .. } => {
-//!         println!("Task still in progress, will be re-queued");
+//!     tasker_core::orchestration::TaskOrchestrationResult::Published { .. } => {
+//!         println!("Task steps published, continuing asynchronously");
 //!     },
 //!     tasker_core::orchestration::TaskOrchestrationResult::Failed { .. } => {
 //!         println!("Task failed");

@@ -13,16 +13,19 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::config::ConfigManager;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Load configuration (environment auto-detected)
 //! let config = ConfigManager::load()?;
 //!
 //! // Access configuration values
-//! let database_url = config.database_url()?;
-//! let pool_size = config.database.pool;
-//! let timeout = config.execution.step_execution_timeout_seconds;
+//! let database_url = config.config().database_url();
+//! let pool_size = config.config().database.pool;
+//! let timeout = config.config().execution.step_execution_timeout_seconds;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod error;

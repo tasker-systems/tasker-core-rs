@@ -1186,6 +1186,8 @@ impl Task {
     ///     tags: Some(json!({"order_id": order_id, "department": "fulfillment"})),
     ///     context: Some(context),
     ///     identity_hash,
+    ///     priority: Some(5), // Default priority
+    ///     claim_timeout_seconds: Some(300), // 5 minutes default claim timeout
     /// };
     ///
     /// let task = Task::create(pool, new_task).await?;

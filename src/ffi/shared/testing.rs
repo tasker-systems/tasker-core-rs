@@ -44,7 +44,7 @@ pub fn get_global_testing_factory() -> Arc<SharedTestingFactory> {
 ///
 /// ## Usage Pattern
 ///
-/// ```rust
+/// ```rust,no_run
 /// # use tasker_core::ffi::shared::testing::SharedTestingFactory;
 /// # use tasker_core::ffi::shared::types::CreateTestTaskInput;
 /// #

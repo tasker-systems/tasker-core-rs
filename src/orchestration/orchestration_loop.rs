@@ -24,13 +24,15 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::orchestration::orchestration_loop::OrchestrationLoop;
 //! use tasker_core::messaging::PgmqClient;
 //! use sqlx::PgPool;
 //!
 //! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-//! let pgmq_client = PgmqClient::new(pool.clone()).await?;
+//! let database_url = "postgresql://localhost/tasker";
+//! let pgmq_client = PgmqClient::new(database_url).await
+//!     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
 //! let orchestrator_id = "orchestrator-host123-uuid".to_string();
 //!
 //! let orchestration_loop = OrchestrationLoop::new(

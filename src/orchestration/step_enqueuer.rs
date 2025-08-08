@@ -24,13 +24,15 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::orchestration::{step_enqueuer::StepEnqueuer, task_claimer::ClaimedTask};
 //! use tasker_core::messaging::PgmqClient;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
-//! # let pgmq_client = PgmqClient::new(pool.clone()).await?;
+//! # let database_url = "postgresql://localhost/test";
+//! # let pgmq_client = PgmqClient::new(database_url).await
+//! #     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
 //! let enqueuer = StepEnqueuer::new(pool, pgmq_client).await?;
 //!
 //! // Enqueue ready steps for a claimed task
