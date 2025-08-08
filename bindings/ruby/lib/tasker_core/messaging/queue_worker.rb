@@ -27,7 +27,6 @@ module TaskerCore
     #   worker.start  # Begins polling loop
     #   worker.stop   # Graceful shutdown
     class QueueWorker
-
       attr_reader :namespace, :queue_name, :pgmq_client, :step_handler_resolver, :logger,
                   :poll_interval, :visibility_timeout, :batch_size, :max_retries, :shutdown_timeout
 
@@ -51,18 +50,18 @@ module TaskerCore
         @batch_size = batch_size || config_defaults[:batch_size]
         @max_retries = max_retries || config_defaults[:max_retries]
         @shutdown_timeout = shutdown_timeout || config_defaults[:shutdown_timeout]
-        
+
         # Fail fast if configuration is invalid
         if @poll_interval <= 0
           raise TaskerCore::Errors::ConfigurationError,
                 "Invalid poll_interval: #{@poll_interval}. Must be positive number."
         end
-        
+
         if @visibility_timeout <= 0
           raise TaskerCore::Errors::ConfigurationError,
                 "Invalid visibility_timeout: #{@visibility_timeout}. Must be positive number."
         end
-        
+
         if @batch_size <= 0
           raise TaskerCore::Errors::ConfigurationError,
                 "Invalid batch_size: #{@batch_size}. Must be positive number."
@@ -366,7 +365,6 @@ module TaskerCore
 
       private
 
-
       # Get orchestration results queue name from configuration
       def get_orchestration_results_queue_name
         config_instance = TaskerCore::Config.instance
@@ -417,7 +415,7 @@ module TaskerCore
             namespace,
             visibility_timeout: visibility_timeout,
             qty: batch_size,
-            poll_timeout: poll_interval * 2  # Use 2x poll interval as max wait time
+            poll_timeout: poll_interval * 2 # Use 2x poll interval as max wait time
           )
         rescue TaskerCore::Errors::DatabaseError => e
           # Handle connection issues gracefully during shutdown/teardown

@@ -155,9 +155,7 @@ impl OrchestrationSystem {
             .create_task_from_request(task_request)
             .await
             .map_err(|e| {
-                crate::error::TaskerError::DatabaseError(format!(
-                    "Task initialization failed: {e}"
-                ))
+                crate::error::TaskerError::DatabaseError(format!("Task initialization failed: {e}"))
             })?;
 
         info!(

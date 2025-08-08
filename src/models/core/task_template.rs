@@ -680,7 +680,7 @@ step_templates:
             }
             Err(e) => {
                 println!("❌ FAILED: TaskTemplate deserialization failed!");
-                println!("   Error: {}", e);
+                println!("   Error: {e}");
 
                 // Check if it's a missing field error
                 let error_str = e.to_string();
@@ -697,10 +697,7 @@ step_templates:
                 }
 
                 // This should not fail - if it does, we've found the root cause
-                panic!(
-                    "TaskTemplate deserialization failed with Ruby-generated JSON: {}",
-                    e
-                );
+                panic!("TaskTemplate deserialization failed with Ruby-generated JSON: {e}");
             }
         }
     }

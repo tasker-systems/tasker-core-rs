@@ -16,7 +16,7 @@ impl DatabaseConnection {
         let pool = PgPool::connect(&database_url).await?;
 
         // Check migration status (never auto-run migrations in production)
-        // Migrations should be run separately via `cargo sqlx migrate run` or similar  
+        // Migrations should be run separately via `cargo sqlx migrate run` or similar
         if !Self::should_skip_migration_check(&config_manager) {
             match DatabaseMigrations::check_status(&pool).await {
                 Ok(status) if status.needs_migration => {
@@ -74,7 +74,7 @@ impl DatabaseConnection {
         if env::var("SKIP_MIGRATION_CHECK").is_ok() {
             return true;
         }
-        
+
         // Check configuration setting
         config_manager.config().database.skip_migration_check
     }

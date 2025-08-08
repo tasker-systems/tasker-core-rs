@@ -76,6 +76,7 @@ impl From<TaskInitializationResult> for FFITaskInitializationResult {
 ///
 /// # Returns
 /// * `FFIResult<FFITaskInitializationResult>` - Task ID and initialization details
+#[allow(clippy::too_many_arguments)]
 pub async fn initialize_task_direct(
     database_url: &str,
     namespace: String,
@@ -159,6 +160,7 @@ pub async fn initialize_task_direct(
 /// Synchronous wrapper for initialize_task_direct using tokio runtime
 ///
 /// This provides a sync interface for FFI bindings that can't handle async.
+#[allow(clippy::too_many_arguments)]
 pub fn initialize_task_direct_sync(
     database_url: &str,
     namespace: String,

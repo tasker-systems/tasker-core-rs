@@ -164,15 +164,15 @@ fn test_system_constants() {
 #[cfg(feature = "test-helpers")]
 fn test_configurable_constants_via_config_manager() {
     use tasker_core::config::ConfigManager;
-    
+
     // Test that configurable constants are now accessed through config manager
     let config_manager = ConfigManager::global();
     let config = config_manager.config();
-    
+
     // Test that configuration provides the values that were previously constants
-    assert_eq!(config.max_dependency_depth(), 50);  // Default from YAML
-    assert_eq!(config.max_workflow_steps(), 1000);  // Default from YAML
-    assert_eq!(config.system_version(), "0.1.0");   // Default from YAML
+    assert_eq!(config.max_dependency_depth(), 50); // Default from YAML
+    assert_eq!(config.max_workflow_steps(), 1000); // Default from YAML
+    assert_eq!(config.system_version(), "0.1.0"); // Default from YAML
 }
 
 #[test]
@@ -188,50 +188,59 @@ fn test_legacy_constants_still_available() {
 #[cfg(feature = "test-helpers")]
 fn test_cross_language_validation_success() {
     use tasker_core::config::ConfigManager;
-    
+
     // Test that default configuration passes cross-language validation
     let config_manager = ConfigManager::global();
     let config = config_manager.config();
-    
+
     // Print actual values to debug
     println!("Actual configuration values:");
-    println!("  dependency_graph.max_depth: {}", config.dependency_graph.max_depth);
-    println!("  execution.max_workflow_steps: {}", config.execution.max_workflow_steps);
+    println!(
+        "  dependency_graph.max_depth: {}",
+        config.dependency_graph.max_depth
+    );
+    println!(
+        "  execution.max_workflow_steps: {}",
+        config.execution.max_workflow_steps
+    );
     println!("  execution.max_retries: {}", config.execution.max_retries);
-    println!("  pgmq.visibility_timeout_seconds: {}", config.pgmq.visibility_timeout_seconds);
+    println!(
+        "  pgmq.visibility_timeout_seconds: {}",
+        config.pgmq.visibility_timeout_seconds
+    );
     println!("  pgmq.batch_size: {}", config.pgmq.batch_size);
-    
+
     // Try validation and show the result
     let result = config.validate_ruby_rust_consistency();
     match result {
         Ok(_) => println!("✅ Cross-language validation passed"),
         Err(e) => {
-            println!("❌ Cross-language validation failed: {}", e);
+            println!("❌ Cross-language validation failed: {e}");
             println!("This might indicate that the configuration file doesn't have the expected default values");
         }
     }
-    
+
     // Should provide configuration warnings
     let warnings = config.cross_language_configuration_warnings();
-    println!("Configuration warnings: {:?}", warnings);
-    
+    println!("Configuration warnings: {warnings:?}");
+
     // For now, just test that the method works without panicking
     // The actual assertion will depend on what the current config file contains
 }
 
-#[test] 
+#[test]
 #[cfg(feature = "test-helpers")]
 fn test_cross_language_validation_methods_exist() {
     use tasker_core::config::ConfigManager;
-    
+
     // Just test that the validation methods exist and can be called
     let config_manager = ConfigManager::global();
     let config = config_manager.config();
-    
+
     // Test that these methods exist and return the expected types
     let _consistency_result = config.validate_ruby_rust_consistency();
     let _warnings = config.cross_language_configuration_warnings();
-    
+
     // This test passes if the methods exist and don't panic
     // More detailed testing would require creating custom configs
 }

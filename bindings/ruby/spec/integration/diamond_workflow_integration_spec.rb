@@ -70,7 +70,7 @@ RSpec.describe 'Diamond Workflow Integration', type: :integration do
           expect(results['result']).to eq(16) # 4² = 16
         when 'diamond_branch_b'
           expect(results['result']).to eq(256)
-        when 'diamond_branch_c'
+        when 'diamond_branch_c' # rubocop:disable Lint/DuplicateBranch
           expect(results['result']).to eq(256)
         when 'diamond_end'
           expect(results['result']).to eq(4_294_967_296)

@@ -160,7 +160,7 @@ module TaskerCore
             'Timeout'
           when 'in_progress'
             'InProgress'
-          else
+          else # rubocop:disable Lint/DuplicateBranch
             'Failed' # fallback
           end
         end

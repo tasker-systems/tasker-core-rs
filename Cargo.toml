@@ -116,9 +116,10 @@ benchmarks = ["criterion"]
 test-helpers = []
 
 [[bench]]
-name = "orchestration_benchmarks"
+name = "core_benchmarks"
 harness = false
 required-features = ["benchmarks"]
+
 
 [profile.release]
 opt-level = 3

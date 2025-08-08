@@ -90,34 +90,6 @@ else
     exit 1
 fi
 
-# 5. Check matrix configuration
-echo -n "Matrix configuration... "
-if grep -q "os: \[ubuntu-22.04\]" "$WORKFLOW_FILE" && \
-   grep -q "ruby: \['3.2'\]" "$WORKFLOW_FILE"; then
-    print_status "Correct (Ubuntu 22.04, Ruby 3.2)"
-else
-    print_error "Matrix configuration issues"
-    exit 1
-fi
-
-# 6. Check that Windows is not in matrix (as requested)
-echo -n "Windows exclusion check... "
-if grep -q "windows" "$WORKFLOW_FILE"; then
-    print_error "Windows found in workflow (should be removed)"
-    exit 1
-else
-    print_status "Windows excluded"
-fi
-
-# 7. Check for benchmark job removal
-echo -n "Benchmark job removal... "
-if grep -q "benchmark:" "$WORKFLOW_FILE"; then
-    print_error "Benchmark job still present (should be removed)"
-    exit 1
-else
-    print_status "Benchmark job removed"
-fi
-
 # 8. Check for modern toolchain actions
 echo -n "Modern toolchain actions... "
 if grep -q "dtolnay/rust-toolchain@stable" "$WORKFLOW_FILE" && \

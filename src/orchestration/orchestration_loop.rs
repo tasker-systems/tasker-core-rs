@@ -219,7 +219,7 @@ impl OrchestrationLoopConfig {
     /// Create OrchestrationLoopConfig from ConfigManager
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         let config = config_manager.config();
-        
+
         Self {
             tasks_per_cycle: config.orchestration.tasks_per_cycle as i32,
             namespace_filter: None, // No direct mapping in config, keep as runtime parameter
@@ -229,7 +229,9 @@ impl OrchestrationLoopConfig {
             enable_heartbeat: config.orchestration.enable_heartbeat,
             task_claimer_config: TaskClaimerConfig::from_config_manager(config_manager),
             step_enqueuer_config: StepEnqueuerConfig::from_config_manager(config_manager),
-            step_result_processor_config: StepResultProcessorConfig::from_config_manager(config_manager),
+            step_result_processor_config: StepResultProcessorConfig::from_config_manager(
+                config_manager,
+            ),
         }
     }
 }
@@ -868,11 +870,13 @@ mod tests {
 
     #[test]
     fn test_priority_distribution_calculation() {
-        let mut distribution = PriorityDistribution::default();
-        distribution.urgent_tasks = 2;
-        distribution.high_tasks = 1;
-        distribution.normal_tasks = 3;
-        distribution.escalated_tasks = 1;
+        let distribution = PriorityDistribution {
+            urgent_tasks: 2,
+            high_tasks: 1,
+            normal_tasks: 3,
+            escalated_tasks: 1,
+            ..Default::default()
+        };
 
         assert_eq!(distribution.urgent_tasks, 2);
         assert_eq!(distribution.escalated_tasks, 1);

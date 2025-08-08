@@ -29,6 +29,15 @@ impl ConfigManager {
     /// Load configuration from a specific directory
     pub fn load_from_directory(config_dir: Option<PathBuf>) -> ConfigResult<Arc<ConfigManager>> {
         let environment = Self::detect_environment();
+        Self::load_from_directory_with_env(config_dir, &environment)
+    }
+
+    /// Load configuration from a specific directory with explicit environment
+    /// This is useful for testing without modifying global environment variables
+    pub fn load_from_directory_with_env(
+        config_dir: Option<PathBuf>,
+        environment: &str,
+    ) -> ConfigResult<Arc<ConfigManager>> {
         let config_directory = config_dir.unwrap_or_else(Self::default_config_directory);
 
         debug!(
@@ -37,7 +46,7 @@ impl ConfigManager {
             config_directory.display()
         );
 
-        let config = Self::load_and_merge_config(&config_directory, &environment)?;
+        let config = Self::load_and_merge_config(&config_directory, environment)?;
 
         // Validate the loaded configuration
         config.validate()?;
@@ -54,7 +63,7 @@ impl ConfigManager {
 
         Ok(Arc::new(ConfigManager {
             config,
-            environment,
+            environment: environment.to_string(),
             config_directory,
             project_root,
         }))
@@ -247,7 +256,7 @@ impl ConfigManager {
 
         // Apply environment-specific overrides
         if let Some(env_overrides) = yaml_data
-            .get(&YamlValue::String(environment.to_string()))
+            .get(YamlValue::String(environment.to_string()))
             .cloned()
         {
             debug!(
@@ -259,16 +268,16 @@ impl ConfigManager {
 
         // Remove environment sections to avoid confusion
         if let YamlValue::Mapping(ref mut map) = yaml_data {
-            map.remove(&YamlValue::String("development".to_string()));
-            map.remove(&YamlValue::String("test".to_string()));
-            map.remove(&YamlValue::String("production".to_string()));
+            map.remove(YamlValue::String("development".to_string()));
+            map.remove(YamlValue::String("test".to_string()));
+            map.remove(YamlValue::String("production".to_string()));
         }
 
         // Convert to our config struct
         let mut config: TaskerConfig = serde_yaml::from_value(yaml_data).map_err(|e| {
             ConfigurationError::invalid_yaml(
                 config_file.display().to_string(),
-                format!("Failed to deserialize configuration: {}", e),
+                format!("Failed to deserialize configuration: {e}"),
             )
         })?;
 
@@ -301,6 +310,7 @@ impl ConfigManager {
     }
 
     /// Expand environment variables in configuration values
+    #[allow(dead_code)]
     fn expand_environment_variables(&self, config: &mut TaskerConfig) -> ConfigResult<()> {
         // Handle database URL expansion
         if let Some(ref mut url) = config.database.url {
@@ -384,7 +394,7 @@ impl ConfigManager {
             .get_or_init(|| {
                 let _lock = CONFIG_LOCK.lock().unwrap();
                 ConfigManager::load().unwrap_or_else(|e| {
-                    panic!("Failed to load global configuration: {}", e);
+                    panic!("Failed to load global configuration: {e}");
                 })
             })
             .clone()
@@ -476,6 +486,7 @@ system:
   default_dependent_system: "default"
   default_queue_name: "default"
   version: "1.0.0"
+  max_recursion_depth: 100
 
 backoff:
   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
@@ -499,6 +510,9 @@ execution:
   environment: "development"
   max_discovery_attempts: 3
   step_batch_size: 10
+  max_retries: 3
+  max_workflow_steps: 1000
+  connection_timeout_seconds: 30
 
 reenqueue:
   has_ready_steps: 1
@@ -541,6 +555,8 @@ pgmq:
     - "default"
     - "fulfillment"
   queue_naming_pattern: "{namespace}_queue"
+  max_batch_size: 100
+  shutdown_timeout_seconds: 30
 
 orchestration:
   mode: "distributed"
@@ -649,7 +665,7 @@ production:
         assert!(result.is_err());
 
         if let Err(ConfigurationError::ConfigFileNotFound { searched_paths }) = result {
-            assert!(searched_paths.len() > 0);
+            assert!(!searched_paths.is_empty());
         } else {
             panic!("Expected ConfigFileNotFound error");
         }
@@ -685,10 +701,10 @@ production:
     fn test_environment_specific_overrides() {
         let (_temp_dir, config_dir) = setup_test_config_dir();
 
-        // Test production environment
-        env::set_var("RAILS_ENV", "production");
-        let config_manager = ConfigManager::load_from_directory(Some(config_dir.clone())).unwrap();
-        env::remove_var("RAILS_ENV");
+        // Test production environment without modifying global state
+        let config_manager =
+            ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), "production")
+                .unwrap();
 
         let config = config_manager.config();
         assert_eq!(config.execution.environment, "production");
@@ -696,13 +712,13 @@ production:
             config.database.database,
             Some("tasker_production".to_string())
         );
-        assert_eq!(config.telemetry.enabled, true);
+        assert!(config.telemetry.enabled);
         assert_eq!(config.telemetry.sample_rate, 0.1);
 
-        // Test development environment
-        env::set_var("RAILS_ENV", "development");
-        let config_manager = ConfigManager::load_from_directory(Some(config_dir)).unwrap();
-        env::remove_var("RAILS_ENV");
+        // Test development environment without modifying global state
+        let config_manager =
+            ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), "development")
+                .unwrap();
 
         let config = config_manager.config();
         assert_eq!(config.execution.environment, "development");
@@ -710,7 +726,18 @@ production:
             config.database.database,
             Some("tasker_rust_development".to_string())
         );
-        assert_eq!(config.telemetry.enabled, false); // Base config value
+        assert!(!config.telemetry.enabled); // Base config value
+
+        // Test test environment
+        let config_manager =
+            ConfigManager::load_from_directory_with_env(Some(config_dir), "test").unwrap();
+
+        let config = config_manager.config();
+        assert_eq!(config.execution.environment, "test");
+        assert_eq!(
+            config.database.database,
+            Some("tasker_rust_test".to_string())
+        );
     }
 
     #[test]

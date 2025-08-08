@@ -34,7 +34,6 @@ RSpec.describe TaskerCore::Internal::OrchestrationManager do
   end
 
   describe '#bootstrap_core_queues' do
-
     it 'handles database unavailability gracefully' do
       # Temporarily break database connection to test error handling
       original_client = manager.instance_variable_get(:@pgmq_client)

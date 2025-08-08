@@ -136,7 +136,7 @@ module OrderFulfillment
         }
       end
 
-      def simulate_payment_gateway_call(amount:, method:, token:, payment_id:)
+      def simulate_payment_gateway_call(amount:, method:, payment_id:)
         # Success case
         processing_time = rand(50..249).to_i # Simulate 50-250ms processing time
         {

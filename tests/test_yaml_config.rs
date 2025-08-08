@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(tasker_config.orchestration.tasks_per_cycle, 10);
     assert_eq!(tasker_config.orchestration.cycle_interval_ms, 2000);
     assert_eq!(tasker_config.orchestration.max_cycles, Some(5));
-    assert_eq!(tasker_config.orchestration.enable_performance_logging, true);
+    assert!(tasker_config.orchestration.enable_performance_logging);
     assert_eq!(tasker_config.orchestration.active_namespaces.len(), 3);
     assert!(tasker_config
         .orchestration
@@ -104,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .max_cycles,
         Some(5)
     );
-    assert_eq!(orchestration_system_config.enable_performance_logging, true);
+    assert!(orchestration_system_config.enable_performance_logging);
     assert_eq!(orchestration_system_config.active_namespaces.len(), 3);
 
     // Verify task claimer config
@@ -130,12 +130,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .as_secs(),
         30
     );
-    assert_eq!(
+    assert!(
         orchestration_system_config
             .orchestration_loop_config
             .task_claimer_config
-            .enable_heartbeat,
-        true
+            .enable_heartbeat
     );
 
     println!("✅ OrchestrationSystemConfig converted successfully");

@@ -11,7 +11,7 @@ class SharedTestLoop
   end
 
   def create_workers(namespace:, num_workers: 2, poll_interval: 0.1)
-    num_workers.times do |i|
+    num_workers.times do |_i|
       @test_workers << TaskerCore::Messaging.create_queue_worker(
         namespace,
         poll_interval: poll_interval # Fast polling for test
@@ -46,9 +46,7 @@ class SharedTestLoop
 
   def start
     @test_workers.each do |worker|
-      unless worker.start
-        raise TaskerCore::Errors::OrchestrationError, "Could not start worker #{worker.inspect}"
-      end
+      raise TaskerCore::Errors::OrchestrationError, "Could not start worker #{worker.inspect}" unless worker.start
 
       # Capture the actual thread handle from the worker
       worker_thread = worker.instance_variable_get(:@worker_thread)
@@ -73,7 +71,7 @@ class SharedTestLoop
         tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
         if tec.completion_percentage.to_i == 100
           # Task completed - immediately stop workers
-          @logger.info "✅ Task completed, stopping workers immediately..."
+          @logger.info '✅ Task completed, stopping workers immediately...'
           cleanup_workers
           break
         else
@@ -86,17 +84,20 @@ class SharedTestLoop
 
     final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
 
-    raise TaskerCore::Errors::OrchestrationError, "Task did not complete" unless final_execution.completion_percentage == 100.0
+    unless final_execution.completion_percentage.to_i == 100
+      raise TaskerCore::Errors::OrchestrationError,
+            'Task did not complete'
+    end
 
     TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
   end
 
   def create_task(task_request:)
     base_handler = TaskerCore::Internal::OrchestrationManager.instance.base_task_handler
-    raise TaskerCore::Errors::OrchestrationError, "Base task handler is nil" unless base_handler
+    raise TaskerCore::Errors::OrchestrationError, 'Base task handler is nil' unless base_handler
 
     task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-    raise TaskerCore::Errors::OrchestrationError, "Task creation failed" unless task_result['success']
+    raise TaskerCore::Errors::OrchestrationError, 'Task creation failed' unless task_result['success']
 
     task_result['task_id']
   end
@@ -115,9 +116,7 @@ class SharedTestLoop
       raise e
     ensure
       # Only stop workers if they weren't already stopped due to task completion
-      unless workers_stopped
-        stop
-      end
+      stop unless workers_stopped
       # Give a moment for workers to fully clean up
       sleep 0.2
       # Clear both arrays regardless

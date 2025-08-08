@@ -103,8 +103,7 @@ where
 }
 
 /// Main system configuration struct that mirrors Rails engine configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskerConfig {
     pub auth: AuthConfig,
     pub database: DatabaseConfig,
@@ -614,7 +613,6 @@ pub struct ConfigurationManager {
     config_directory: String,
 }
 
-
 impl ConfigurationManager {
     /// Create a new configuration manager with default configuration
     pub fn new() -> Self {
@@ -677,7 +675,7 @@ impl ConfigurationManager {
                         {
                             // Apply pgmq overrides to orchestration config
                             if let Some(poll_interval) = pgmq_config.get("poll_interval_ms") {
-                                if let Some(poll_ms) = poll_interval.as_u64() {
+                                if let Some(_poll_ms) = poll_interval.as_u64() {
                                     // Store in orchestration config for now
                                     // TODO: Add proper pgmq config struct
                                 }

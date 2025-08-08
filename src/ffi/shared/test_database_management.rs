@@ -339,11 +339,7 @@ impl TestDatabaseManager {
         let truncate_query = format!("TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE");
 
         match sqlx::query(&truncate_query).execute(&self.pool).await {
-            Ok(_) => {
-                if row_count > 0 {
-                } 
-                Ok(row_count)
-            }
+            Ok(_) => Ok(row_count),
             Err(e) => {
                 let error_msg = format!("Failed to truncate {description}: {e}");
                 warn!("⚠️ {}", error_msg);

@@ -11,91 +11,59 @@ use thiserror::Error;
 pub enum ConfigurationError {
     /// Configuration file not found at expected locations
     #[error("Configuration file not found. Searched paths: {searched_paths:?}")]
-    ConfigFileNotFound { 
-        searched_paths: Vec<PathBuf> 
-    },
+    ConfigFileNotFound { searched_paths: Vec<PathBuf> },
 
     /// Invalid YAML syntax in configuration file
     #[error("Invalid YAML in configuration file '{file_path}': {error}")]
-    InvalidYaml { 
-        file_path: String, 
-        error: String 
-    },
+    InvalidYaml { file_path: String, error: String },
 
     /// Missing required configuration field
     #[error("Missing required configuration field '{field}' in {context}")]
-    MissingRequiredField { 
-        field: String, 
-        context: String 
-    },
+    MissingRequiredField { field: String, context: String },
 
     /// Invalid configuration value
     #[error("Invalid value '{value}' for field '{field}': {context}")]
-    InvalidValue { 
-        field: String, 
-        value: String, 
-        context: String 
+    InvalidValue {
+        field: String,
+        value: String,
+        context: String,
     },
 
     /// Environment-specific configuration issues
     #[error("Environment configuration error for '{environment}': {error}")]
-    EnvironmentConfigError { 
-        environment: String, 
-        error: String 
-    },
+    EnvironmentConfigError { environment: String, error: String },
 
     /// Configuration merging errors
     #[error("Failed to merge environment-specific configuration: {error}")]
-    ConfigMergeError { 
-        error: String 
-    },
+    ConfigMergeError { error: String },
 
     /// File I/O errors during configuration loading
     #[error("Failed to read configuration file '{file_path}': {error}")]
-    FileReadError { 
-        file_path: String, 
-        error: String 
-    },
+    FileReadError { file_path: String, error: String },
 
     /// Environment variable expansion errors
     #[error("Failed to expand environment variable '{variable}' in configuration: {context}")]
-    EnvironmentVariableError { 
-        variable: String, 
-        context: String 
-    },
+    EnvironmentVariableError { variable: String, context: String },
 
     /// Configuration validation errors
     #[error("Configuration validation failed: {error}")]
-    ValidationError { 
-        error: String 
-    },
+    ValidationError { error: String },
 
     /// Step configuration parsing errors
     #[error("Invalid step configuration for '{step_name}': {error}")]
-    InvalidStepConfig { 
-        step_name: String, 
-        error: String 
-    },
+    InvalidStepConfig { step_name: String, error: String },
 
     /// Handler configuration parsing errors
     #[error("Invalid handler configuration for '{step_name}': {error}")]
-    InvalidHandlerConfig { 
-        step_name: String, 
-        error: String 
-    },
+    InvalidHandlerConfig { step_name: String, error: String },
 
     /// JSON serialization/deserialization errors
     #[error("JSON serialization error in {context}: {error}")]
-    JsonSerializationError { 
-        context: String, 
-        error: String 
-    },
+    JsonSerializationError { context: String, error: String },
 
     /// Database configuration errors
     #[error("Database configuration error: {error}")]
-    DatabaseConfigError { 
-        error: String 
-    },
+    DatabaseConfigError { error: String },
 }
 
 impl ConfigurationError {
@@ -122,9 +90,9 @@ impl ConfigurationError {
 
     /// Create an invalid value error
     pub fn invalid_value<F: Into<String>, V: Into<String>, C: Into<String>>(
-        field: F, 
-        value: V, 
-        context: C
+        field: F,
+        value: V,
+        context: C,
     ) -> Self {
         Self::InvalidValue {
             field: field.into(),
@@ -135,8 +103,8 @@ impl ConfigurationError {
 
     /// Create an environment configuration error
     pub fn environment_config_error<E: Into<String>, R: std::fmt::Display>(
-        environment: E, 
-        error: R
+        environment: E,
+        error: R,
     ) -> Self {
         Self::EnvironmentConfigError {
             environment: environment.into(),
@@ -154,8 +122,8 @@ impl ConfigurationError {
 
     /// Create an environment variable expansion error
     pub fn environment_variable_error<V: Into<String>, C: Into<String>>(
-        variable: V, 
-        context: C
+        variable: V,
+        context: C,
     ) -> Self {
         Self::EnvironmentVariableError {
             variable: variable.into(),
@@ -172,8 +140,8 @@ impl ConfigurationError {
 
     /// Create an invalid step config error
     pub fn invalid_step_config<S: Into<String>, E: std::fmt::Display>(
-        step_name: S, 
-        error: E
+        step_name: S,
+        error: E,
     ) -> Self {
         Self::InvalidStepConfig {
             step_name: step_name.into(),
@@ -183,8 +151,8 @@ impl ConfigurationError {
 
     /// Create an invalid handler config error
     pub fn invalid_handler_config<S: Into<String>, E: std::fmt::Display>(
-        step_name: S, 
-        error: E
+        step_name: S,
+        error: E,
     ) -> Self {
         Self::InvalidHandlerConfig {
             step_name: step_name.into(),
@@ -194,8 +162,8 @@ impl ConfigurationError {
 
     /// Create a JSON serialization error
     pub fn json_serialization_error<C: Into<String>, E: std::fmt::Display>(
-        context: C, 
-        error: E
+        context: C,
+        error: E,
     ) -> Self {
         Self::JsonSerializationError {
             context: context.into(),
@@ -223,7 +191,7 @@ mod tests {
     fn test_config_file_not_found_error() {
         let paths = vec![PathBuf::from("/path/1"), PathBuf::from("/path/2")];
         let error = ConfigurationError::config_file_not_found(paths);
-        
+
         let error_string = error.to_string();
         assert!(error_string.contains("Configuration file not found"));
         assert!(error_string.contains("/path/1"));
@@ -232,8 +200,9 @@ mod tests {
 
     #[test]
     fn test_invalid_yaml_error() {
-        let error = ConfigurationError::invalid_yaml("/path/to/config.yaml", "syntax error at line 5");
-        
+        let error =
+            ConfigurationError::invalid_yaml("/path/to/config.yaml", "syntax error at line 5");
+
         let error_string = error.to_string();
         assert!(error_string.contains("Invalid YAML"));
         assert!(error_string.contains("/path/to/config.yaml"));
@@ -242,8 +211,9 @@ mod tests {
 
     #[test]
     fn test_missing_required_field_error() {
-        let error = ConfigurationError::missing_required_field("database.host", "database configuration");
-        
+        let error =
+            ConfigurationError::missing_required_field("database.host", "database configuration");
+
         let error_string = error.to_string();
         assert!(error_string.contains("Missing required configuration field 'database.host'"));
         assert!(error_string.contains("database configuration"));
@@ -251,8 +221,12 @@ mod tests {
 
     #[test]
     fn test_invalid_value_error() {
-        let error = ConfigurationError::invalid_value("database.pool", "0", "pool size must be greater than 0");
-        
+        let error = ConfigurationError::invalid_value(
+            "database.pool",
+            "0",
+            "pool size must be greater than 0",
+        );
+
         let error_string = error.to_string();
         assert!(error_string.contains("Invalid value '0' for field 'database.pool'"));
         assert!(error_string.contains("pool size must be greater than 0"));
@@ -260,8 +234,9 @@ mod tests {
 
     #[test]
     fn test_step_config_error() {
-        let error = ConfigurationError::invalid_step_config("validate_order", "missing timeout_ms field");
-        
+        let error =
+            ConfigurationError::invalid_step_config("validate_order", "missing timeout_ms field");
+
         let error_string = error.to_string();
         assert!(error_string.contains("Invalid step configuration for 'validate_order'"));
         assert!(error_string.contains("missing timeout_ms field"));
@@ -269,8 +244,9 @@ mod tests {
 
     #[test]
     fn test_handler_config_error() {
-        let error = ConfigurationError::invalid_handler_config("process_payment", "invalid handler_class");
-        
+        let error =
+            ConfigurationError::invalid_handler_config("process_payment", "invalid handler_class");
+
         let error_string = error.to_string();
         assert!(error_string.contains("Invalid handler configuration for 'process_payment'"));
         assert!(error_string.contains("invalid handler_class"));

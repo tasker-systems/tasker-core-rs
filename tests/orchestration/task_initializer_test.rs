@@ -102,7 +102,7 @@ async fn test_create_task_with_filesystem_config(pool: PgPool) -> sqlx::Result<(
 /// Test TaskInitializer with custom configuration
 #[sqlx::test]
 async fn test_create_task_with_custom_config(pool: PgPool) -> sqlx::Result<()> {
-    let custom_config = TaskInitializationConfig {
+    let _custom_config = TaskInitializationConfig {
         default_system_id: 99,
         initialize_state_machine: false,
         event_metadata: Some(serde_json::json!({
@@ -526,7 +526,7 @@ async fn test_identity_hash_generation(pool: PgPool) -> sqlx::Result<()> {
 #[sqlx::test]
 async fn test_state_machine_initialization_options(pool: PgPool) -> sqlx::Result<()> {
     // Test with state machine enabled
-    let config_enabled = TaskInitializationConfig {
+    let _config_enabled = TaskInitializationConfig {
         default_system_id: 1,
         initialize_state_machine: true,
         event_metadata: Some(serde_json::json!({"test": "enabled"})),

@@ -679,7 +679,7 @@ impl ComplexWorkflowBatchFactory {
                         "workflow_type": "complex",
                         "pattern": format!("{:?}", pattern),
                         "batch_index": i,
-                        "unique_id": format!("{:?}_{}_{}_{}", pattern, i, std::process::id(), chrono::Utc::now().timestamp_nanos()),
+                        "unique_id": format!("{:?}_{}_{}_{}", pattern, i, std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
                         "timestamp": chrono::Utc::now().to_rfc3339()
                     }));
 

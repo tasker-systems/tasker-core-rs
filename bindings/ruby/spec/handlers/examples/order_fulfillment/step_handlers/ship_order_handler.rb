@@ -142,7 +142,7 @@ module OrderFulfillment
         }
       end
 
-      def simulate_shipping_carrier_call(shipment_id:, items:, address:, method:)
+      def simulate_shipping_carrier_call(shipment_id:, items:, method:)
         # Select carrier and service based on method
         carrier_info = select_carrier_and_service(method)
 

@@ -7,7 +7,7 @@ use magnus::r_hash::ForEach;
 use magnus::value::ReprValue;
 use magnus::{Error, IntoValue, RHash, RString, TryConvert, Value};
 use std::collections::HashMap;
-use tracing::{warn};
+use tracing::warn;
 
 /// Ruby wrapper for the Rust StepContext
 ///
@@ -312,9 +312,7 @@ pub fn ruby_value_to_json_with_validation(
             } else {
                 // Try to call to_s on any key (symbols, etc)
                 match key.funcall::<&str, (), String>("to_s", ()) {
-                    Ok(s) => {
-                        s
-                    }
+                    Ok(s) => s,
                     Err(e) => {
                         // Skip unknown key types
                         return Ok(ForEach::Continue);

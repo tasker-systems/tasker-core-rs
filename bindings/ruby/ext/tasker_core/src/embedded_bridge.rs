@@ -9,10 +9,10 @@
 //! - Same pgmq-based architecture, just running in-process
 //! - Ruby tests can start embedded orchestrator, run tests, stop orchestrator
 
+use magnus::{function, prelude::*, Error, IntoValue, RHash, RModule, TryConvert, Value};
+use std::sync::{Arc, Mutex};
 use tasker_core::ffi::shared::orchestration_system::OrchestrationSystem;
 use tasker_core::ffi::shared::test_database_management::TestDatabaseManager;
-use magnus::{function, prelude::*, Error, RHash, RModule, Value, IntoValue, TryConvert};
-use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 
@@ -48,7 +48,9 @@ impl EmbeddedOrchestrationHandle {
     /// Stop the embedded system
     fn stop(&mut self) -> Result<(), String> {
         if let Some(sender) = self.shutdown_sender.take() {
-            sender.send(()).map_err(|_| "Failed to send shutdown signal")?;
+            sender
+                .send(())
+                .map_err(|_| "Failed to send shutdown signal")?;
             info!("🛑 Embedded orchestration system shutdown requested");
             Ok(())
         } else {
@@ -88,7 +90,10 @@ struct EmbeddedSystemStatus {
 fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error> {
     let mut handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Lock acquisition failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
     })?;
 
     if handle_guard.is_some() {
@@ -100,27 +105,36 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
     // Create tokio runtime for orchestration system
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
         error!("Failed to create tokio runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
     let runtime_handle = rt.handle().clone();
 
     // Initialize orchestration system
-    let system = rt.block_on(async {
-        OrchestrationSystem::new().await.map_err(|e| {
-            error!("Failed to initialize orchestration system: {}", e);
-            format!("System initialization failed: {}", e)
+    let system = rt
+        .block_on(async {
+            OrchestrationSystem::new().await.map_err(|e| {
+                error!("Failed to initialize orchestration system: {}", e);
+                format!("System initialization failed: {e}")
+            })
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Initialize namespace queues
     let namespaces_refs: Vec<&str> = namespaces.iter().map(|s| s.as_str()).collect();
     rt.block_on(async {
-        system.initialize_queues(&namespaces_refs).await.map_err(|e| {
-            error!("Failed to initialize queues: {}", e);
-            format!("Queue initialization failed: {}", e)
-        })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        system
+            .initialize_queues(&namespaces_refs)
+            .await
+            .map_err(|e| {
+                error!("Failed to initialize queues: {}", e);
+                format!("Queue initialization failed: {e}")
+            })
+    })
+    .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Create shutdown channel
     let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
@@ -141,7 +155,9 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
 
             // Spawn tasks and store abort handles for clean shutdown
             let orchestration_task = tokio::spawn(async move {
-                info!("🔄 EMBEDDED: Orchestration loop task started - beginning continuous operation");
+                info!(
+                    "🔄 EMBEDDED: Orchestration loop task started - beginning continuous operation"
+                );
                 if let Err(e) = orchestration_loop.run_continuous().await {
                     error!("❌ EMBEDDED: Orchestration loop failed: {}", e);
                 } else {
@@ -216,7 +232,10 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
 fn stop_embedded_orchestration() -> Result<String, Error> {
     let mut handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Lock acquisition failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
     })?;
 
     match handle_guard.as_mut() {
@@ -236,7 +255,10 @@ fn stop_embedded_orchestration() -> Result<String, Error> {
 fn get_embedded_orchestration_status() -> Result<Value, Error> {
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Lock acquisition failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
     })?;
 
     let status = match handle_guard.as_ref() {
@@ -268,59 +290,106 @@ fn get_embedded_orchestration_status() -> Result<Value, Error> {
 fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Lock acquisition failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
     })?;
 
     let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(magnus::exception::runtime_error(), "Embedded system not running")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Embedded system not running",
+        )
     })?;
 
     // Extract values from Ruby hash and convert to Rust types
     // Note: Ruby to_ffi_hash creates symbol keys, so we need to access them as symbols
     let namespace: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("namespace"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing namespace: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("namespace"))
+            .map_err(|e| {
+                Error::new(
+                    magnus::exception::arg_error(),
+                    format!("Missing namespace: {e}"),
+                )
+            })?,
     )?;
-    
+
     let name: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("name"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing name: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("name"))
+            .map_err(|e| {
+                Error::new(magnus::exception::arg_error(), format!("Missing name: {e}"))
+            })?,
     )?;
-    
+
     let version: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("version"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing version: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("version"))
+            .map_err(|e| {
+                Error::new(
+                    magnus::exception::arg_error(),
+                    format!("Missing version: {e}"),
+                )
+            })?,
     )?;
-    
-    let context_value: Value = task_request_hash.aref(magnus::Symbol::new("context"))
-        .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing context: {}", e)))?;
+
+    let context_value: Value = task_request_hash
+        .aref(magnus::Symbol::new("context"))
+        .map_err(|e| {
+            Error::new(
+                magnus::exception::arg_error(),
+                format!("Missing context: {e}"),
+            )
+        })?;
     let context_json = crate::context::ruby_value_to_json(context_value)?;
-    
+
     let status: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("status"))
-            .unwrap_or_else(|_| "PENDING".into_value())
+        task_request_hash
+            .aref(magnus::Symbol::new("status"))
+            .unwrap_or_else(|_| "PENDING".into_value()),
     )?;
-    
+
     let initiator: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("initiator"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing initiator: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("initiator"))
+            .map_err(|e| {
+                Error::new(
+                    magnus::exception::arg_error(),
+                    format!("Missing initiator: {e}"),
+                )
+            })?,
     )?;
-    
+
     let source_system: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("source_system"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing source_system: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("source_system"))
+            .map_err(|e| {
+                Error::new(
+                    magnus::exception::arg_error(),
+                    format!("Missing source_system: {e}"),
+                )
+            })?,
     )?;
-    
+
     let reason: String = String::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("reason"))
-            .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Missing reason: {}", e)))?
+        task_request_hash
+            .aref(magnus::Symbol::new("reason"))
+            .map_err(|e| {
+                Error::new(
+                    magnus::exception::arg_error(),
+                    format!("Missing reason: {e}"),
+                )
+            })?,
     )?;
-    
+
     let complete: bool = bool::try_convert(
-        task_request_hash.aref(magnus::Symbol::new("complete"))
-            .unwrap_or_else(|_| false.into_value())
+        task_request_hash
+            .aref(magnus::Symbol::new("complete"))
+            .unwrap_or_else(|_| false.into_value()),
     )?;
-    
+
     // Extract tags array (optional)
     let tags: Vec<String> = match task_request_hash.aref(magnus::Symbol::new("tags")) {
         Ok(tags_value) => {
@@ -335,26 +404,27 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
             }
             tags_vec
         }
-        Err(_) => vec![]
+        Err(_) => vec![],
     };
-    
+
     // Extract bypass_steps array (optional)
-    let bypass_steps: Vec<String> = match task_request_hash.aref(magnus::Symbol::new("bypass_steps")) {
-        Ok(bypass_value) => {
-            let bypass_array: magnus::RArray = magnus::RArray::try_convert(bypass_value)?;
-            let mut bypass_vec = Vec::new();
-            for i in 0..bypass_array.len() {
-                if let Ok(step_value) = bypass_array.entry(i as isize) {
-                    if let Ok(step_str) = String::try_convert(step_value) {
-                        bypass_vec.push(step_str);
+    let bypass_steps: Vec<String> =
+        match task_request_hash.aref(magnus::Symbol::new("bypass_steps")) {
+            Ok(bypass_value) => {
+                let bypass_array: magnus::RArray = magnus::RArray::try_convert(bypass_value)?;
+                let mut bypass_vec = Vec::new();
+                for i in 0..bypass_array.len() {
+                    if let Ok(step_value) = bypass_array.entry(i as isize) {
+                        if let Ok(step_str) = String::try_convert(step_value) {
+                            bypass_vec.push(step_str);
+                        }
                     }
                 }
+                bypass_vec
             }
-            bypass_vec
-        }
-        Err(_) => vec![]
-    };
-    
+            Err(_) => vec![],
+        };
+
     // Extract requested_at (optional, default to now)
     let requested_at = match task_request_hash.aref(magnus::Symbol::new("requested_at")) {
         Ok(time_value) => {
@@ -362,21 +432,23 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
             chrono::NaiveDateTime::parse_from_str(&time_str, "%Y-%m-%dT%H:%M:%S")
                 .unwrap_or_else(|_| chrono::Utc::now().naive_utc())
         }
-        Err(_) => chrono::Utc::now().naive_utc()
+        Err(_) => chrono::Utc::now().naive_utc(),
     };
-    
+
     // Extract priority (optional)
-    let priority: Option<i32> = task_request_hash.aref(magnus::Symbol::new("priority"))
+    let priority: Option<i32> = task_request_hash
+        .aref(magnus::Symbol::new("priority"))
         .ok()
         .and_then(|v| i32::try_convert(v).ok());
-    
+
     // Extract claim_timeout_seconds (optional)
-    let claim_timeout_seconds: Option<i32> = task_request_hash.aref(magnus::Symbol::new("claim_timeout_seconds"))
+    let claim_timeout_seconds: Option<i32> = task_request_hash
+        .aref(magnus::Symbol::new("claim_timeout_seconds"))
         .ok()
         .and_then(|v| i32::try_convert(v).ok());
-    
+
     // Extract options hash (optional)
-    let options: Option<std::collections::HashMap<String, serde_json::Value>> = 
+    let options: Option<std::collections::HashMap<String, serde_json::Value>> =
         match task_request_hash.aref(magnus::Symbol::new("options")) {
             Ok(options_value) => {
                 // Convert options_value to JSON first, then to HashMap
@@ -386,12 +458,16 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
                     for (key, value) in options_obj {
                         options_map.insert(key.clone(), value.clone());
                     }
-                    if options_map.is_empty() { None } else { Some(options_map) }
+                    if options_map.is_empty() {
+                        None
+                    } else {
+                        Some(options_map)
+                    }
                 } else {
                     None
                 }
             }
-            Err(_) => None
+            Err(_) => None,
         };
 
     // Create task request using the same structure as the system expects
@@ -417,37 +493,45 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
     let system = handle.system.clone();
     let runtime_handle = handle.runtime_handle.clone();
 
-    let result = runtime_handle.block_on(async {
-        system.initialize_task(task_request).await.map_err(|e| {
-            error!("Failed to initialize task via orchestration system: {}", e);
-            format!("Task initialization failed: {}", e)
+    let result = runtime_handle
+        .block_on(async {
+            system.initialize_task(task_request).await.map_err(|e| {
+                error!("Failed to initialize task via orchestration system: {}", e);
+                format!("Task initialization failed: {e}")
+            })
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert to Ruby hash
     let hash = RHash::new();
     hash.aset("task_id", result.task_id)?;
     hash.aset("success", true)?;
-    hash.aset("message", format!("Task initialized via orchestration system with {} steps", result.step_count))?;
-    
+    hash.aset(
+        "message",
+        format!(
+            "Task initialized via orchestration system with {} steps",
+            result.step_count
+        ),
+    )?;
+
     // Convert metadata
     let metadata_hash = RHash::new();
     metadata_hash.aset("step_count", result.step_count)?;
     if let Some(config_name) = result.handler_config_name {
         metadata_hash.aset("handler_config_name", config_name)?;
     }
-    
+
     // Convert step_mapping to Ruby
-    let step_mapping_json = serde_json::to_value(&result.step_mapping).unwrap_or(serde_json::Value::Null);
+    let step_mapping_json =
+        serde_json::to_value(&result.step_mapping).unwrap_or(serde_json::Value::Null);
     let step_mapping_ruby = crate::context::json_to_ruby_value(step_mapping_json)?;
     metadata_hash.aset("step_mapping", step_mapping_ruby)?;
-    
+
     hash.aset("metadata", metadata_hash)?;
 
     info!(
         "✅ FFI: Task initialized via orchestration system - ID: {}, Steps: {}",
-        result.task_id,
-        result.step_count
+        result.task_id, result.step_count
     );
 
     Ok(hash.as_value())
@@ -460,32 +544,40 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
 fn enqueue_task_steps(task_id: i64) -> Result<String, Error> {
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Lock acquisition failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
     })?;
 
     let handle = handle_guard.as_ref().ok_or_else(|| {
-        Error::new(magnus::exception::runtime_error(), "Embedded system not running")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Embedded system not running",
+        )
     })?;
 
     // Execute step enqueueing on the runtime
     let system = handle.system.clone();
     let runtime_handle = handle.runtime_handle.clone();
 
-    let result = runtime_handle.block_on(async {
-        system.enqueue_ready_steps(task_id).await.map_err(|e| {
-            error!("Failed to enqueue steps for task {}: {}", task_id, e);
-            format!("Step enqueueing failed: {}", e)
+    let result = runtime_handle
+        .block_on(async {
+            system.enqueue_ready_steps(task_id).await.map_err(|e| {
+                error!("Failed to enqueue steps for task {}: {}", task_id, e);
+                format!("Step enqueueing failed: {e}")
+            })
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    Ok(format!("Enqueued steps for task {}: {:?}", task_id, result))
+    Ok(format!("Enqueued steps for task {task_id}: {result:?}"))
 }
 
 /// Setup test database (comprehensive setup with migrations and cleanup)
 ///
 /// Environment-aware database setup that only operates in test environments.
 /// Provides complete database initialization for testing.
-/// 
+///
 /// This function creates its own database connection to be independent of the orchestration system,
 /// since it's designed to fix database issues that prevent the orchestrator from starting.
 fn setup_test_database(database_url: String) -> Result<Value, Error> {
@@ -496,31 +588,39 @@ fn setup_test_database(database_url: String) -> Result<Value, Error> {
     // Create our own runtime and database pool for independence
     let rt = Runtime::new().map_err(|e| {
         error!("Failed to create async runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
-    let result = rt.block_on(async {
-        // Create independent database pool
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    let result = rt
+        .block_on(async {
+            // Create independent database pool
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&database_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
-        // Create test database manager with independent pool
-        let test_manager = TestDatabaseManager::new(pool).map_err(|e| {
-            format!("Failed to create test database manager: {}", e)
-        })?;
+            // Create test database manager with independent pool
+            let test_manager = TestDatabaseManager::new(pool)
+                .map_err(|e| format!("Failed to create test database manager: {e}"))?;
 
-        test_manager.setup_test_database(&database_url).await.map_err(|e| {
-            format!("Database setup failed: {}", e)
+            test_manager
+                .setup_test_database(&database_url)
+                .await
+                .map_err(|e| format!("Database setup failed: {e}"))
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert JSON result to Ruby value
     crate::context::json_to_ruby_value(result).map_err(|e| {
-        Error::new(magnus::exception::runtime_error(), format!("Result conversion failed: {}", e))
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Result conversion failed: {e}"),
+        )
     })
 }
 
@@ -536,31 +636,39 @@ fn teardown_test_database(database_url: String) -> Result<Value, Error> {
     // Create our own runtime and database pool for independence
     let rt = Runtime::new().map_err(|e| {
         error!("Failed to create async runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
-    let result = rt.block_on(async {
-        // Create independent database pool
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    let result = rt
+        .block_on(async {
+            // Create independent database pool
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&database_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
-        // Create test database manager with independent pool
-        let test_manager = TestDatabaseManager::new(pool).map_err(|e| {
-            format!("Failed to create test database manager: {}", e)
-        })?;
+            // Create test database manager with independent pool
+            let test_manager = TestDatabaseManager::new(pool)
+                .map_err(|e| format!("Failed to create test database manager: {e}"))?;
 
-        test_manager.teardown_test_database(&database_url).await.map_err(|e| {
-            format!("Database teardown failed: {}", e)
+            test_manager
+                .teardown_test_database(&database_url)
+                .await
+                .map_err(|e| format!("Database teardown failed: {e}"))
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert JSON result to Ruby value
     crate::context::json_to_ruby_value(result).map_err(|e| {
-        Error::new(magnus::exception::runtime_error(), format!("Result conversion failed: {}", e))
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Result conversion failed: {e}"),
+        )
     })
 }
 
@@ -576,34 +684,43 @@ fn cleanup_test_data() -> Result<Value, Error> {
     // Create our own runtime and database pool for independence
     let rt = Runtime::new().map_err(|e| {
         error!("Failed to create async runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
-    let result = rt.block_on(async {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        
-        // Create independent database pool
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    let result = rt
+        .block_on(async {
+            let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+            });
 
-        // Create test database manager with independent pool
-        let test_manager = TestDatabaseManager::new(pool).map_err(|e| {
-            format!("Failed to create test database manager: {}", e)
-        })?;
+            // Create independent database pool
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&database_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
-        test_manager.cleanup_test_data().await.map_err(|e| {
-            format!("Data cleanup failed: {}", e)
+            // Create test database manager with independent pool
+            let test_manager = TestDatabaseManager::new(pool)
+                .map_err(|e| format!("Failed to create test database manager: {e}"))?;
+
+            test_manager
+                .cleanup_test_data()
+                .await
+                .map_err(|e| format!("Data cleanup failed: {e}"))
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert JSON result to Ruby value
     crate::context::json_to_ruby_value(result).map_err(|e| {
-        Error::new(magnus::exception::runtime_error(), format!("Result conversion failed: {}", e))
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Result conversion failed: {e}"),
+        )
     })
 }
 
@@ -618,34 +735,43 @@ fn cleanup_test_queues() -> Result<Value, Error> {
     // Create our own runtime and database pool for independence
     let rt = Runtime::new().map_err(|e| {
         error!("Failed to create async runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
-    let result = rt.block_on(async {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        
-        // Create independent database pool
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    let result = rt
+        .block_on(async {
+            let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+            });
 
-        // Create test database manager with independent pool
-        let test_manager = TestDatabaseManager::new(pool).map_err(|e| {
-            format!("Failed to create test database manager: {}", e)
-        })?;
+            // Create independent database pool
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&database_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
-        test_manager.cleanup_test_queues().await.map_err(|e| {
-            format!("Queue cleanup failed: {}", e)
+            // Create test database manager with independent pool
+            let test_manager = TestDatabaseManager::new(pool)
+                .map_err(|e| format!("Failed to create test database manager: {e}"))?;
+
+            test_manager
+                .cleanup_test_queues()
+                .await
+                .map_err(|e| format!("Queue cleanup failed: {e}"))
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert JSON result to Ruby value
     crate::context::json_to_ruby_value(result).map_err(|e| {
-        Error::new(magnus::exception::runtime_error(), format!("Result conversion failed: {}", e))
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Result conversion failed: {e}"),
+        )
     })
 }
 
@@ -661,34 +787,43 @@ fn get_test_database_stats() -> Result<Value, Error> {
     // Create our own runtime and database pool for independence
     let rt = Runtime::new().map_err(|e| {
         error!("Failed to create async runtime: {}", e);
-        Error::new(magnus::exception::runtime_error(), "Runtime creation failed")
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Runtime creation failed",
+        )
     })?;
 
-    let result = rt.block_on(async {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        
-        // Create independent database pool
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    let result = rt
+        .block_on(async {
+            let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+            });
 
-        // Create test database manager with independent pool
-        let test_manager = TestDatabaseManager::new(pool).map_err(|e| {
-            format!("Failed to create test database manager: {}", e)
-        })?;
+            // Create independent database pool
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&database_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
-        test_manager.get_test_database_stats().await.map_err(|e| {
-            format!("Stats retrieval failed: {}", e)
+            // Create test database manager with independent pool
+            let test_manager = TestDatabaseManager::new(pool)
+                .map_err(|e| format!("Failed to create test database manager: {e}"))?;
+
+            test_manager
+                .get_test_database_stats()
+                .await
+                .map_err(|e| format!("Stats retrieval failed: {e}"))
         })
-    }).map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     // Convert JSON result to Ruby value
     crate::context::json_to_ruby_value(result).map_err(|e| {
-        Error::new(magnus::exception::runtime_error(), format!("Result conversion failed: {}", e))
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Result conversion failed: {e}"),
+        )
     })
 }
 
@@ -697,22 +832,44 @@ pub fn init_embedded_bridge(tasker_core_module: &RModule) -> Result<(), Error> {
     info!("🔌 Initializing embedded FFI bridge");
 
     // Define module functions for lifecycle management
-    tasker_core_module.define_singleton_method("start_embedded_orchestration", function!(start_embedded_orchestration, 1))?;
-    tasker_core_module.define_singleton_method("stop_embedded_orchestration", function!(stop_embedded_orchestration, 0))?;
-    tasker_core_module.define_singleton_method("embedded_orchestration_status", function!(get_embedded_orchestration_status, 0))?;
-    
+    tasker_core_module.define_singleton_method(
+        "start_embedded_orchestration",
+        function!(start_embedded_orchestration, 1),
+    )?;
+    tasker_core_module.define_singleton_method(
+        "stop_embedded_orchestration",
+        function!(stop_embedded_orchestration, 0),
+    )?;
+    tasker_core_module.define_singleton_method(
+        "embedded_orchestration_status",
+        function!(get_embedded_orchestration_status, 0),
+    )?;
+
     // Define task initialization function for embedded mode
-    tasker_core_module.define_singleton_method("initialize_task_embedded", function!(initialize_task_embedded, 1))?;
-    
+    tasker_core_module.define_singleton_method(
+        "initialize_task_embedded",
+        function!(initialize_task_embedded, 1),
+    )?;
+
     // Define step enqueueing function for testing
-    tasker_core_module.define_singleton_method("enqueue_task_steps", function!(enqueue_task_steps, 1))?;
-    
+    tasker_core_module
+        .define_singleton_method("enqueue_task_steps", function!(enqueue_task_steps, 1))?;
+
     // Define test database management functions
-    tasker_core_module.define_singleton_method("setup_test_database", function!(setup_test_database, 1))?;
-    tasker_core_module.define_singleton_method("teardown_test_database", function!(teardown_test_database, 1))?;
-    tasker_core_module.define_singleton_method("cleanup_test_data", function!(cleanup_test_data, 0))?;
-    tasker_core_module.define_singleton_method("cleanup_test_queues", function!(cleanup_test_queues, 0))?;
-    tasker_core_module.define_singleton_method("get_test_database_stats", function!(get_test_database_stats, 0))?;
+    tasker_core_module
+        .define_singleton_method("setup_test_database", function!(setup_test_database, 1))?;
+    tasker_core_module.define_singleton_method(
+        "teardown_test_database",
+        function!(teardown_test_database, 1),
+    )?;
+    tasker_core_module
+        .define_singleton_method("cleanup_test_data", function!(cleanup_test_data, 0))?;
+    tasker_core_module
+        .define_singleton_method("cleanup_test_queues", function!(cleanup_test_queues, 0))?;
+    tasker_core_module.define_singleton_method(
+        "get_test_database_stats",
+        function!(get_test_database_stats, 0),
+    )?;
 
     info!("✅ Embedded FFI bridge initialized with test database management");
     Ok(())

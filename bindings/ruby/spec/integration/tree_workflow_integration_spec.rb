@@ -44,7 +44,6 @@ RSpec.describe 'Tree Workflow Integration', type: :integration do
 
   describe 'Hierarchical Tree Pattern with Multiple Convergence Levels' do
     it 'executes A -> (B -> (D, E), C -> (F, G)) -> H workflow with hierarchical processing', :aggregate_failures do
-
       task_request = TaskerCore::Types::TaskRequest.new(
         namespace: 'tree_workflow',
         name: 'hierarchical_computation',

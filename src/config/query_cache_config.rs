@@ -249,7 +249,7 @@ impl QueryCacheConfigLoader {
     /// Load configuration from YAML file based on environment
     pub fn load_from_yaml() -> Result<QueryCacheConfig, Box<dyn std::error::Error>> {
         // Try to detect config file based on environment
-        let environment = env::var("RAILS_ENV")
+        let _environment = env::var("RAILS_ENV")
             .or_else(|_| env::var("TASKER_ENV"))
             .or_else(|_| env::var("RUST_ENV"))
             .unwrap_or_else(|_| "production".to_string());

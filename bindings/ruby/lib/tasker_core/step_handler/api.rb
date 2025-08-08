@@ -298,7 +298,7 @@ module TaskerCore
       def apply_connection_config(conn)
         # Get API timeouts from configuration
         api_timeouts = TaskerCore::Config.instance.api_timeouts
-        
+
         # Timeouts - use config values or TaskerCore configuration defaults
         conn.options.timeout = config[:timeout] || config['timeout'] || api_timeouts[:timeout]
         conn.options.open_timeout = config[:open_timeout] || config['open_timeout'] || api_timeouts[:open_timeout]
@@ -359,7 +359,7 @@ module TaskerCore
 
           # Get API timeouts from configuration
           api_timeouts = TaskerCore::Config.instance.api_timeouts
-          
+
           # Timeouts - use config values or TaskerCore configuration defaults
           config.options.timeout = self.config[:timeout] || api_timeouts[:timeout]
           config.options.open_timeout = self.config[:open_timeout] || api_timeouts[:open_timeout]

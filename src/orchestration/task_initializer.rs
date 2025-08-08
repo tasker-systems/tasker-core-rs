@@ -193,7 +193,6 @@ impl TaskInitializer {
     }
 
     /// Create a TaskInitializer for testing with filesystem-based configuration loading
-    #[cfg(any(test, feature = "test-helpers"))]
     pub fn for_testing(pool: PgPool) -> Self {
         let config_manager = std::sync::Arc::new(ConfigurationManager::new());
         let registry = std::sync::Arc::new(crate::registry::TaskHandlerRegistry::new(pool.clone()));
@@ -681,7 +680,7 @@ impl TaskInitializer {
         // Initialize task state machine by evaluating its state
         // This will create the state machine and ensure it's properly initialized
         match state_manager.evaluate_task_state(task_id).await {
-            Ok(result) => {}
+            Ok(_result) => {}
             Err(e) => {
                 warn!(
                     task_id = task_id,
@@ -702,7 +701,7 @@ impl TaskInitializer {
                 .await
             {
                 Ok(state_machine) => match state_machine.current_state().await {
-                    Ok(current_state) => {}
+                    Ok(_current_state) => {}
                     Err(e) => {
                         warn!(
                             step_id = workflow_step_id,
@@ -764,7 +763,7 @@ impl TaskInitializer {
         // Use the namespace and name directly from the TaskRequest
         let namespace = &task_request.namespace;
         let name = &task_request.name;
-        let version = &task_request.version;
+        let _version = &task_request.version;
 
         // Look up the handler metadata using the ACTUAL task request version
 
@@ -951,7 +950,8 @@ impl TaskInitializer {
                 })
                 .collect(),
             environments: task_template.environments.map(|envs| {
-                envs.into_keys().map(|key| {
+                envs.into_keys()
+                    .map(|key| {
                         // For now, just create empty environment configs
                         // We could expand this if needed
                         (
@@ -983,9 +983,9 @@ impl TaskInitializer {
     /// Publish task initialization event
     async fn publish_task_initialized(
         &self,
-        task_id: i64,
-        step_count: usize,
-        task_name: &str,
+        _task_id: i64,
+        _step_count: usize,
+        _task_name: &str,
         _publisher: &EventPublisher,
     ) -> Result<(), TaskInitializationError> {
         // TODO: Implement event publishing once EventPublisher interface is finalized

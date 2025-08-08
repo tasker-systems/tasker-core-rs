@@ -128,9 +128,7 @@ pub fn translate_error(error_message: &str, error_type: &str) -> Error {
 /// **MIGRATED**: Translate generic Rust errors to Ruby FFI errors (uses shared types)
 pub fn translate_generic_error(rust_error: &dyn std::error::Error) -> Error {
     debug!("🔧 Ruby FFI: Translating generic Rust error to shared error");
-    shared_error_to_ruby(SharedFFIError::Internal(format!(
-        "FFI error: {rust_error}"
-    )))
+    shared_error_to_ruby(SharedFFIError::Internal(format!("FFI error: {rust_error}")))
 }
 
 /// Create a Ruby validation error
@@ -239,9 +237,9 @@ pub fn retryable_error(
     // For now, use standard error with RetryableError prefix for compatibility
     // TODO: Implement proper Ruby exception creation once Magnus API stabilizes
     let full_message = if let Some(delay) = retry_after {
-        format!("RetryableError (retry in {}s): {}", delay, message)
+        format!("RetryableError (retry in {delay}s): {message}")
     } else {
-        format!("RetryableError: {}", message)
+        format!("RetryableError: {message}")
     };
 
     Error::new(exception::standard_error(), full_message)
@@ -263,9 +261,9 @@ pub fn permanent_error(
     // For now, use standard error with PermanentError prefix for compatibility
     // TODO: Implement proper Ruby exception creation once Magnus API stabilizes
     let full_message = if let Some(code) = error_code {
-        format!("PermanentError ({}): {}", code, message)
+        format!("PermanentError ({code}): {message}")
     } else {
-        format!("PermanentError: {}", message)
+        format!("PermanentError: {message}")
     };
 
     Error::new(exception::standard_error(), full_message)

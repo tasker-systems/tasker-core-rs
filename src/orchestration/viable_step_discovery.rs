@@ -40,7 +40,6 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::{EventPublisher, ViableStep as EventsViableStep};
-use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
 use crate::orchestration::types::ViableStep;
 use std::collections::HashMap;

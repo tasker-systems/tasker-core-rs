@@ -53,10 +53,7 @@ pub fn log_ffi_debug(component: &str, message: &str) {
     if let Some(logger) = FFI_LOGGER.get() {
         if let Ok(mut writer) = logger.lock() {
             let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let _ = writeln!(
-                writer,
-                "[{timestamp}] [DEBUG] [{component}] {message}"
-            );
+            let _ = writeln!(writer, "[{timestamp}] [DEBUG] [{component}] {message}");
             let _ = writer.flush();
         }
     }

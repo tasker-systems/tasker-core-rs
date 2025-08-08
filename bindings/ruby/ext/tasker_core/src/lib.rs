@@ -30,10 +30,10 @@
 use magnus::{Error, Module, Ruby};
 
 mod context;
+mod embedded_bridge;
 mod error_translation;
 mod ffi_logging;
 mod types;
-mod embedded_bridge;
 
 // Direct model imports removed - pgmq architecture uses dry-struct data classes
 

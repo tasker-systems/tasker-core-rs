@@ -248,7 +248,6 @@ impl WorkflowCoordinator {
     }
 
     /// Create a WorkflowCoordinator for testing with minimal setup
-    #[cfg(any(test, feature = "test-helpers"))]
     pub async fn for_testing(pool: sqlx::PgPool) -> Self {
         let config = WorkflowCoordinatorConfig::default();
         let config_manager = Arc::new(ConfigurationManager::new());
@@ -258,10 +257,11 @@ impl WorkflowCoordinator {
         Self::new(pool, config, config_manager, event_publisher, pgmq_client)
     }
 
-    #[cfg(any(test, feature = "test-helpers"))]
     pub async fn for_testing_with_timeout(pool: sqlx::PgPool, timeout_seconds: u64) -> Self {
-        let mut config = WorkflowCoordinatorConfig::default();
-        config.max_workflow_duration = std::time::Duration::from_secs(timeout_seconds);
+        let config = WorkflowCoordinatorConfig {
+            max_workflow_duration: std::time::Duration::from_secs(timeout_seconds),
+            ..Default::default()
+        };
         let config_manager = Arc::new(ConfigurationManager::new());
         let event_publisher = crate::events::EventPublisher::new();
         let pgmq_client = Arc::new(crate::messaging::PgmqClient::new_with_pool(pool.clone()).await);

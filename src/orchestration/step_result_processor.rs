@@ -101,7 +101,7 @@ impl StepResultProcessorConfig {
     /// Create StepResultProcessorConfig from ConfigManager
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         let config = config_manager.config();
-        
+
         Self {
             step_results_queue_name: config.orchestration.queues.step_results.clone(),
             batch_size: config.pgmq.batch_size as i32,

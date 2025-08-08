@@ -17,7 +17,6 @@ module TaskerCore
     #   messages = client.read_messages("fulfillment_queue", visibility_timeout: 30, qty: 5)
     #   client.delete_message("fulfillment_queue", msg_id)
     class PgmqClient
-
       attr_reader :logger
 
       def initialize
@@ -395,7 +394,7 @@ module TaskerCore
 
         # For poll_timeout, we'll use a Ruby-level timeout wrapper around the standard read
         # This allows workers to be interrupted during database calls
-        if poll_timeout && poll_timeout > 0
+        if poll_timeout&.positive?
           begin
             result = Timeout.timeout(poll_timeout) do
               connection.exec(

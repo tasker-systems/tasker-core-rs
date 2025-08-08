@@ -126,7 +126,7 @@ impl StepEnqueuerConfig {
     /// Create StepEnqueuerConfig from ConfigManager
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         let config = config_manager.config();
-        
+
         Self {
             max_steps_per_task: config.execution.step_batch_size as usize,
             enqueue_delay_seconds: 0, // No direct mapping, keep default
@@ -430,6 +430,7 @@ impl StepEnqueuer {
     }
 
     /// Create a step message with full execution context
+    #[allow(dead_code)]
     async fn create_step_message(
         &self,
         claimed_task: &ClaimedTask,
@@ -589,11 +590,13 @@ impl StepEnqueuer {
         // Use our new SQL function to get ALL transitive dependencies
         use crate::database::sql_functions::SqlFunctionExecutor;
         let executor = SqlFunctionExecutor::new(self.pool.clone());
-        
+
         let transitive_dependencies = executor
             .get_step_transitive_dependencies(viable_step.step_id)
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch transitive dependencies: {e}")))?;
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to fetch transitive dependencies: {e}"))
+            })?;
 
         // Only include dependencies that are processed (completed)
         let completed_dependencies: Vec<_> = transitive_dependencies
@@ -616,7 +619,9 @@ impl StepEnqueuer {
             )
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}")))?;
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}"))
+            })?;
 
             rows.into_iter().map(|row| row.step_uuid).collect()
         };
@@ -632,6 +637,7 @@ impl StepEnqueuer {
     }
 
     /// Get task execution context for step processing
+    #[allow(dead_code)]
     async fn get_task_execution_context(&self, task_id: i64) -> Result<Value> {
         // Join with tasker_named_tasks to get task name and version for step handler registry
         let query = "
@@ -664,6 +670,7 @@ impl StepEnqueuer {
     }
 
     /// Get dependency results for step execution (sequence data)
+    #[allow(dead_code)]
     async fn get_dependency_results(
         &self,
         viable_step: &ViableStep,

@@ -45,12 +45,6 @@ Gem::Specification.new do |spec|
   # Magnus and Rust compilation dependencies
   spec.add_dependency 'rb_sys', '~> 0.9.39'
 
-  # Development dependencies
-  spec.add_development_dependency 'benchmark-ips', '~> 2.0'
-  spec.add_development_dependency 'rake-compiler', '~> 1.2.0'
-  spec.add_development_dependency 'rspec', '~> 3.12'
-  spec.add_development_dependency 'ruby-prof', '~> 1.0'
-
   spec.add_dependency 'activemodel', '~> 8.0'
   spec.add_dependency 'activerecord', '~> 8.0'
 

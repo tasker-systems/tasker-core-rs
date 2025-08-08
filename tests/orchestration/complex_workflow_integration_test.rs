@@ -191,7 +191,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing_with_timeout(pool.clone(), 1).await;
 
     // Try to create our mock framework integration
-    let mock_integration = MockFrameworkIntegration::new();
+    let _mock_integration = MockFrameworkIntegration::new();
 
     // This call should expose the critical placeholders we need to fix
     println!("🎯 Starting WorkflowCoordinator.execute_task_workflow()...");

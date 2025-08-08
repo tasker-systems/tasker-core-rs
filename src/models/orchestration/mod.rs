@@ -37,5 +37,7 @@ pub use step_dag_relationship::{StepDagRelationship, StepDagRelationshipQuery};
 pub use step_readiness_status::{
     NewStepReadinessStatus, StepReadinessResult, StepReadinessStatus, StepReadinessWithStep,
 };
-pub use step_transitive_dependencies::{StepTransitiveDependencies, StepTransitiveDependenciesQuery};
+pub use step_transitive_dependencies::{
+    StepTransitiveDependencies, StepTransitiveDependenciesQuery,
+};
 pub use task_execution_context::TaskExecutionContext;
