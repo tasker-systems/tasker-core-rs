@@ -380,11 +380,86 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
 
+  # Ruby bindings test
+  ruby-bindings:
+    name: Ruby Bindings Test
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: ghcr.io/pgmq/pg17-pgmq:v1.5.1
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
+      TASKER_ENV: test
+      RAILS_ENV: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ruby-bindings
+          workspaces: |
+            . -> target
+            bindings/ruby -> target
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: bindings/ruby
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev postgresql-client
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Set up database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Build Ruby extension
+        run: |
+          cd bindings/ruby
+          bundle exec rake compile
+
+      - name: Run Ruby integration tests
+        run: |
+          cd bindings/ruby
+          bundle exec rspec spec/integration/ --format documentation
+
   # Final status check
   ci-success:
     name: CI Success
     runs-on: ubuntu-22.04
-    needs: [quality, security, test, validate-examples]
+    needs: [quality, security, test, validate-examples, ruby-bindings]
     if: always()
 
     steps:
@@ -394,11 +469,13 @@ jobs:
           echo "Security: ${{ needs.security.result }}"
           echo "Test: ${{ needs.test.result }}"
           echo "Validate Examples: ${{ needs.validate-examples.result }}"
+          echo "Ruby Bindings: ${{ needs.ruby-bindings.result }}"
 
           if [[ "${{ needs.quality.result }}" != "success" ||
                 "${{ needs.security.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
-                "${{ needs.validate-examples.result }}" != "success" ]]; then
+                "${{ needs.validate-examples.result }}" != "success" ||
+                "${{ needs.ruby-bindings.result }}" != "success" ]]; then
             echo "❌ One or more required jobs failed"
             exit 1
           else

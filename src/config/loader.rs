@@ -890,6 +890,10 @@ production:
     fn test_database_url_generation() {
         let (_temp_dir, config_dir) = setup_test_config_dir();
 
+        // Clear DATABASE_URL to ensure we test the component-based URL generation
+        let original_database_url = env::var("DATABASE_URL").ok();
+        env::remove_var("DATABASE_URL");
+
         env::set_var("TASKER_ENV", "test");
         let config_manager = ConfigManager::load_from_directory(Some(config_dir)).unwrap();
         env::remove_var("TASKER_ENV");
@@ -899,6 +903,11 @@ production:
         assert!(database_url.contains("test_user:test_password"));
         assert!(database_url.contains("localhost:5432"));
         assert!(database_url.contains("tasker_rust_test"));
+
+        // Restore original DATABASE_URL if it was set
+        if let Some(original_url) = original_database_url {
+            env::set_var("DATABASE_URL", original_url);
+        }
     }
 
     #[test]
