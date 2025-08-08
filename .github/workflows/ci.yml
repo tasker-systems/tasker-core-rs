@@ -300,10 +300,20 @@ jobs:
           echo "🗄️ Running SQL functions demonstration..."
           cargo run --example sql_functions_demo
 
-      - name: Validate Model Verification
+      - name: Validate Configuration Demo
         run: |
-          echo "📋 Running model verification..."
-          cargo run --example verify_models
+          echo "📋 Running configuration demonstration..."
+          cargo run --example config_demo
+
+      - name: Validate Error Classification Demo
+        run: |
+          echo "⚠️ Running error classification demonstration..."
+          cargo run --example error_classification_demo
+
+      - name: Validate Unified Logging Demo
+        run: |
+          echo "📝 Running unified logging demonstration..."
+          cargo run --example unified_logging_demo
 
       - name: Build all examples
         run: |
