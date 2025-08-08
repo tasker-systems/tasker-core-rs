@@ -1,6 +1,20 @@
 # Tasker Core Configuration
 # This configuration file provides defaults and environment-specific overrides
 
+# =============================================================================
+# DATABASE POOL ARCHITECTURE NOTE
+# =============================================================================
+# This config uses STRUCTURED pool format: { max_connections, min_connections, etc }
+# 
+# Ruby workers automatically convert this to simple integer format for ActiveRecord:
+#   pool: { max_connections: 25 }  -->  pool: 25
+# 
+# This allows:
+#   - Rust orchestration: Full connection lifecycle control for performance
+#   - Ruby workers: Simple ActiveRecord integration  
+#   - Single config file: Both systems use same configuration source
+# =============================================================================
+
 # Default configuration (applies to all environments unless overridden)
 auth:
   authentication_enabled: false
@@ -19,7 +33,12 @@ database:
   host: localhost
   username: tasker
   password: tasker
-  pool: 25
+  pool:
+    max_connections: 25
+    min_connections: 5
+    acquire_timeout_seconds: 30
+    idle_timeout_seconds: 300
+    max_lifetime_seconds: 3600
   variables:
     statement_timeout: 5000
   checkout_timeout: 10
@@ -276,7 +295,12 @@ production:
     host: "${DATABASE_HOST:-localhost}"
     username: "${POSTGRES_USER:-tasker}"
     password: "${POSTGRES_PASSWORD:-tasker}"
-    pool: "${DB_MAX_THREADS:-25}"
+    pool:
+      max_connections: 50  # Higher for production
+      min_connections: 10
+      acquire_timeout_seconds: 30
+      idle_timeout_seconds: 300
+      max_lifetime_seconds: 3600
 
   # Production environment constants optimization
   dependency_graph:

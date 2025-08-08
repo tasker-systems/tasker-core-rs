@@ -124,7 +124,6 @@ module OrderFulfillment
         carrier_response = simulate_shipping_carrier_call(
           shipment_id: shipment_id,
           items: inputs[:items_to_ship],
-          address: inputs[:shipping_address],
           method: inputs[:shipping_method]
         )
 

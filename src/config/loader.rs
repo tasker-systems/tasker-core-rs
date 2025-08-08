@@ -630,7 +630,12 @@ production:
 
     #[test]
     fn test_environment_detection() {
-        // Test default environment
+        // Clear environment variables for clean test
+        env::remove_var("RAILS_ENV");
+        env::remove_var("TASKER_ENV");
+        env::remove_var("RACK_ENV");
+
+        // Test default environment when no env vars set
         let env = ConfigManager::detect_environment();
         assert_eq!(env, "development"); // Default when no env vars set
 

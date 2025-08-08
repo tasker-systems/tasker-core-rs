@@ -120,7 +120,6 @@ module OrderFulfillment
         gateway_response = simulate_payment_gateway_call(
           amount: inputs[:amount_to_charge],
           method: inputs[:payment_method],
-          token: inputs[:payment_token],
           payment_id: payment_id
         )
 

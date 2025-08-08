@@ -29,13 +29,53 @@ pub mod error;
 pub mod loader;
 pub mod query_cache_config;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
 pub use error::ConfigurationError;
 pub use loader::ConfigManager;
 pub use query_cache_config::{CacheTypeConfig, QueryCacheConfig, QueryCacheConfigLoader};
+
+/// Custom deserializer for pool configuration that can handle both simple integer
+/// and structured hash formats for maximum compatibility
+fn deserialize_pool_config<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+
+    let value: Value = Deserialize::deserialize(deserializer)?;
+
+    match value {
+        // Simple integer format: pool: 25
+        Value::Number(n) => {
+            if let Some(i) = n.as_u64() {
+                Ok(i as u32)
+            } else {
+                Err(D::Error::custom("Pool value must be a positive integer"))
+            }
+        }
+        // Structured format: pool: { max_connections: 25, ... }
+        Value::Object(obj) => {
+            if let Some(max_conn) = obj.get("max_connections") {
+                if let Some(max_conn_num) = max_conn.as_u64() {
+                    Ok(max_conn_num as u32)
+                } else {
+                    Err(D::Error::custom("max_connections must be a number"))
+                }
+            } else {
+                Err(D::Error::custom(
+                    "Structured pool format requires max_connections field",
+                ))
+            }
+        }
+        _ => Err(D::Error::custom(
+            "Pool must be either an integer or an object with max_connections",
+        )),
+    }
+}
 
 /// Root configuration structure mirroring tasker-config.yaml
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -101,6 +141,20 @@ pub struct AuthConfig {
 }
 
 /// Database connection and pooling configuration
+///
+/// ## Architecture: Worker-Optimized Configuration
+///
+/// This configuration format is designed for **Ruby workers and ActiveRecord integration**.
+/// Uses a simple integer `pool` value that maps directly to ActiveRecord's connection pool size.
+///
+/// **Use this configuration for:**
+/// - Ruby worker processes
+/// - ActiveRecord database connections  
+/// - Simple connection pool requirements
+/// - Integration with Rails/Sinatra applications
+///
+/// **For high-performance orchestration, see:** `orchestration::config::DatabaseConfig`
+/// which provides structured pool configuration with timeouts and lifecycle management.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
     pub enable_secondary_database: bool,
@@ -110,6 +164,8 @@ pub struct DatabaseConfig {
     pub host: String,
     pub username: String,
     pub password: String,
+    /// Simple pool size for ActiveRecord compatibility (use max_connections from structured format)
+    #[serde(deserialize_with = "deserialize_pool_config")]
     pub pool: u32,
     pub variables: DatabaseVariables,
     pub checkout_timeout: u64,
