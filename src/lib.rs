@@ -40,6 +40,7 @@
 //! - [`messaging`] - PostgreSQL message queue (pgmq) integration
 //! - [`registry`] - Component registration and discovery
 //! - [`ffi`] - Multi-language FFI bindings
+//! - [`resilience`] - Circuit breaker patterns and fault tolerance
 //!
 //! ## Performance Targets
 //!
@@ -91,6 +92,7 @@ pub mod messaging;
 pub mod models;
 pub mod orchestration;
 pub mod registry;
+pub mod resilience;
 pub mod scopes;
 pub mod services;
 pub mod sql_functions;

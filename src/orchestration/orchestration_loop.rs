@@ -17,7 +17,7 @@
 //! ## Orchestration Cycle
 //!
 //! 1. **Claim**: Atomically claim ready tasks using priority fairness
-//! 2. **Discover**: Find viable steps using existing SQL-based logic  
+//! 2. **Discover**: Find viable steps using existing SQL-based logic
 //! 3. **Enqueue**: Send individual step messages to namespace queues
 //! 4. **Release**: Release task claims to make tasks available again
 //! 5. **Monitor**: Track performance, priority distribution, and system health
@@ -53,7 +53,7 @@
 //! ```
 
 use crate::error::Result;
-use crate::messaging::PgmqClient;
+use crate::messaging::{PgmqClient, PgmqClientTrait};
 use crate::orchestration::{
     step_enqueuer::{StepEnqueuer, StepEnqueuerConfig},
     step_result_processor::{StepResultProcessor, StepResultProcessorConfig},
@@ -63,6 +63,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};
@@ -258,6 +259,20 @@ impl OrchestrationLoop {
         Self::with_config(pool, pgmq_client, orchestrator_id, config).await
     }
 
+    /// Create a new orchestration loop with trait-compatible client
+    pub async fn with_trait_client<T: PgmqClientTrait>(
+        pool: PgPool,
+        pgmq_client: Arc<T>,
+        orchestrator_id: String,
+        config: OrchestrationLoopConfig,
+    ) -> Result<Self> {
+        // For backwards compatibility, we need a concrete PgmqClient
+        // TODO: Update StepEnqueuer and StepResultProcessor to accept PgmqClientTrait
+        warn!("⚠️ OrchestrationLoop using trait client but delegating to concrete client for component compatibility");
+        let concrete_client = PgmqClient::new_with_pool(pool.clone()).await;
+        Self::with_config(pool, concrete_client, orchestrator_id, config).await
+    }
+
     /// Create a new orchestration loop with custom configuration
     pub async fn with_config(
         pool: PgPool,
@@ -278,9 +293,14 @@ impl OrchestrationLoop {
         )
         .await?;
 
+        // For OrchestrationLoop, create a new standard client for StepResultProcessor
+        // This is temporary until all components accept UnifiedPgmqClient consistently
+        let step_result_client = Arc::new(crate::messaging::UnifiedPgmqClient::Standard(
+            PgmqClient::new_with_pool(pool.clone()).await,
+        ));
         let step_result_processor = StepResultProcessor::with_config(
             pool.clone(),
-            pgmq_client,
+            step_result_client,
             config.step_result_processor_config.clone(),
         )
         .await?;
@@ -328,7 +348,7 @@ impl OrchestrationLoop {
         );
 
         if claimed_tasks.is_empty() {
-            warn!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
+            info!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
             return Ok(self.create_empty_cycle_result(
                 cycle_started_at,
                 cycle_start.elapsed().as_millis() as u64,

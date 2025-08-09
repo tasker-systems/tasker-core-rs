@@ -158,6 +158,8 @@ impl TestDatabaseManager {
         // Step 3: Clean any existing test data (idempotent setup)
         let cleanup_result = self.cleanup_test_data().await?;
 
+        let cleanup_queues_result = self.cleanup_test_queues().await?;
+
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -171,7 +173,8 @@ impl TestDatabaseManager {
             "operations": {
                 "migrations": migration_result,
                 "pgmq_extension": pgmq_result,
-                "cleanup": cleanup_result
+                "cleanup": cleanup_result,
+                "cleanup_queues": cleanup_queues_result
             },
             "timestamp": timestamp
         }))
@@ -269,14 +272,11 @@ impl TestDatabaseManager {
         }))
     }
 
-    /// **QUEUE CLEANUP**: Clean all pgmq queues  
+    /// **QUEUE CLEANUP**: Clear all messages from pgmq queues (don't delete queues)
     pub async fn cleanup_test_queues(&self) -> Result<Value, SharedFFIError> {
         self.ensure_test_environment()?;
 
-        info!("🧹 Cleaning up all pgmq queues");
-
-        // Create pgmq client to manage queues using the existing pool
-        let pgmq_client = PgmqClient::new_with_pool(self.pool.clone()).await;
+        info!("🧹 Clearing all messages from pgmq queues");
 
         // List all existing queues
         let queue_list_query = "SELECT queue_name FROM pgmq.list_queues()";
@@ -288,21 +288,33 @@ impl TestDatabaseManager {
             })?;
 
         let mut cleanup_operations = Vec::new();
-        let mut total_queues_deleted = 0;
+        let mut total_queues_cleared = 0;
+        let mut total_messages_deleted = 0i64;
 
         for row in queue_rows {
             let queue_name: String = row.get("queue_name");
 
-            match pgmq_client.drop_queue(&queue_name).await {
+            // Get message count before clearing
+            let count_query = format!("SELECT COUNT(*) as count FROM pgmq.{queue_name}");
+            let message_count = match sqlx::query(&count_query).fetch_one(&self.pool).await {
+                Ok(row) => row.get::<i64, _>("count"),
+                Err(_) => 0, // If count fails, assume 0 messages
+            };
+
+            // Clear all messages from the queue using direct SQL DELETE
+            let delete_query = format!("DELETE FROM pgmq.q_{queue_name}");
+            match sqlx::query(&delete_query).execute(&self.pool).await {
                 Ok(_) => {
                     cleanup_operations.push(json!({
                         "queue": queue_name,
-                        "status": "deleted"
+                        "status": "cleared",
+                        "messages_deleted": message_count
                     }));
-                    total_queues_deleted += 1;
+                    total_queues_cleared += 1;
+                    total_messages_deleted += message_count;
                 }
                 Err(e) => {
-                    warn!("⚠️ Failed to drop queue {}: {}", queue_name, e);
+                    warn!("⚠️ Failed to clear queue {}: {}", queue_name, e);
                     cleanup_operations.push(json!({
                         "queue": queue_name,
                         "status": "error",
@@ -313,14 +325,15 @@ impl TestDatabaseManager {
         }
 
         info!(
-            "✅ Queue cleanup completed: {} queues processed",
-            total_queues_deleted
+            "✅ Queue cleanup completed: {} queues cleared, {} messages deleted",
+            total_queues_cleared, total_messages_deleted
         );
 
         Ok(json!({
             "status": "success",
-            "message": "Queue cleanup completed",
-            "total_queues_processed": total_queues_deleted,
+            "message": "Queue cleanup completed - all messages cleared",
+            "total_queues_cleared": total_queues_cleared,
+            "total_messages_deleted": total_messages_deleted,
             "operations": cleanup_operations,
             "environment": format!("{:?}", self.environment)
         }))

@@ -44,12 +44,13 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClient, StepExecutionStatus, StepResultMessage};
+use crate::messaging::{PgmqClient, PgmqClientTrait, UnifiedPgmqClient, StepExecutionStatus, StepResultMessage};
 use crate::orchestration::{
     result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer, StateManager,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -115,8 +116,8 @@ impl StepResultProcessorConfig {
 /// Processes individual step results from pgmq queues
 #[derive(Clone)]
 pub struct StepResultProcessor {
-    /// PostgreSQL message queue client
-    pgmq_client: PgmqClient,
+    /// PostgreSQL message queue client (unified for circuit breaker flexibility)
+    pgmq_client: Arc<UnifiedPgmqClient>,
     /// Orchestration result processor for step handling
     orchestration_result_processor: OrchestrationResultProcessor,
     /// Configuration
@@ -124,8 +125,8 @@ pub struct StepResultProcessor {
 }
 
 impl StepResultProcessor {
-    /// Create a new step result processor
-    pub async fn new(pool: PgPool, pgmq_client: PgmqClient) -> Result<Self> {
+    /// Create a new step result processor with unified client
+    pub async fn new(pool: PgPool, pgmq_client: Arc<UnifiedPgmqClient>) -> Result<Self> {
         let config = StepResultProcessorConfig::default();
         Self::with_config(pool, pgmq_client, config).await
     }
@@ -133,7 +134,7 @@ impl StepResultProcessor {
     /// Create a new step result processor with custom configuration
     pub async fn with_config(
         pool: PgPool,
-        pgmq_client: PgmqClient,
+        pgmq_client: Arc<UnifiedPgmqClient>,
         config: StepResultProcessorConfig,
     ) -> Result<Self> {
         // Create orchestration result processor with required dependencies

@@ -4,8 +4,8 @@
 //! to get high-performance operations from Rust while preserving the handle-based architecture.
 
 use super::errors::*;
-use super::orchestration_system::*;
 use super::types::*;
+use crate::orchestration::OrchestrationCore;
 use crate::database::sql_functions::SqlFunctionExecutor;
 use serde_json::json;
 use tracing::{debug, info};
@@ -22,11 +22,18 @@ impl Default for SharedAnalyticsManager {
 }
 
 impl SharedAnalyticsManager {
-    /// Create new analytics manager using shared orchestration system
+    /// Create new analytics manager using shared orchestration core
     pub fn new() -> Self {
-        debug!("🔧 SharedAnalyticsManager::new() - using shared orchestration system");
-        let orchestration_system = initialize_unified_orchestration_system();
-        let sql_executor = SqlFunctionExecutor::new(orchestration_system.database_pool().clone());
+        debug!("🔧 SharedAnalyticsManager::new() - using shared orchestration core");
+        
+        // Get database URL from environment
+        // Create a synchronous runtime for initialization
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        let orchestration_core = rt.block_on(async {
+            OrchestrationCore::new().await.expect("Failed to initialize OrchestrationCore")
+        });
+        
+        let sql_executor = SqlFunctionExecutor::new(orchestration_core.database_pool().clone());
 
         Self { sql_executor }
     }

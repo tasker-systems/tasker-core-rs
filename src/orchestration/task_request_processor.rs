@@ -5,7 +5,7 @@
 //! validated tasks for orchestration processing.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::{PgmqClient, TaskRequestMessage};
+use crate::messaging::{PgmqClient, PgmqClientTrait, UnifiedPgmqClient, TaskRequestMessage};
 use crate::models::core::task_request::TaskRequest;
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;
@@ -42,8 +42,8 @@ impl Default for TaskRequestProcessorConfig {
 
 /// Processes task requests and validates them for orchestration
 pub struct TaskRequestProcessor {
-    /// PostgreSQL message queue client
-    pgmq_client: Arc<PgmqClient>,
+    /// PostgreSQL message queue client (unified for circuit breaker flexibility)
+    pgmq_client: Arc<UnifiedPgmqClient>,
     /// Task handler registry for validation
     task_handler_registry: Arc<TaskHandlerRegistry>,
     /// Task initializer for creating tasks
@@ -53,9 +53,9 @@ pub struct TaskRequestProcessor {
 }
 
 impl TaskRequestProcessor {
-    /// Create a new task request processor
+    /// Create a new task request processor with unified client
     pub fn new(
-        pgmq_client: Arc<PgmqClient>,
+        pgmq_client: Arc<UnifiedPgmqClient>,
         task_handler_registry: Arc<TaskHandlerRegistry>,
         task_initializer: Arc<TaskInitializer>,
         config: TaskRequestProcessorConfig,

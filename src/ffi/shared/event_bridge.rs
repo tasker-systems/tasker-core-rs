@@ -4,8 +4,8 @@
 //! while preserving the handle-based architecture.
 
 use super::errors::*;
-use super::orchestration_system::*;
 use super::types::*;
+use crate::orchestration::OrchestrationCore;
 use crate::events::EventPublisher;
 use serde_json::json;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ fn get_callback_registry() -> &'static RwLock<HashMap<String, SharedEventCallbac
 
 /// Shared event bridge manager for cross-language event forwarding
 pub struct SharedEventBridge {
-    orchestration_system: Arc<OrchestrationSystem>,
+    orchestration_core: Arc<OrchestrationCore>,
     event_publisher: EventPublisher,
 }
 
@@ -38,14 +38,20 @@ impl Default for SharedEventBridge {
 }
 
 impl SharedEventBridge {
-    /// Create new event bridge using shared orchestration system
+    /// Create new event bridge using shared orchestration core
     pub fn new() -> Self {
-        debug!("🔧 SharedEventBridge::new() - using shared orchestration system");
-        let orchestration_system = initialize_unified_orchestration_system();
-        let event_publisher = orchestration_system.event_publisher.clone();
+        debug!("🔧 SharedEventBridge::new() - using shared orchestration core");
+        
+        // Create a synchronous runtime for initialization
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        let orchestration_core = rt.block_on(async {
+            OrchestrationCore::new().await.expect("Failed to initialize OrchestrationCore")
+        });
+        
+        let event_publisher = EventPublisher::new();
 
         Self {
-            orchestration_system,
+            orchestration_core: Arc::new(orchestration_core),
             event_publisher,
         }
     }
@@ -182,7 +188,7 @@ impl SharedEventBridge {
 
             // Use the orchestration system to get real event counts
             let system_analytics = crate::database::sql_functions::SqlFunctionExecutor::new(
-                self.orchestration_system.database_pool().clone(),
+                self.orchestration_core.database_pool().clone(),
             );
 
             let (total_events_published, events_by_type) = match system_analytics

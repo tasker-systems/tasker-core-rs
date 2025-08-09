@@ -60,7 +60,13 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'faraday', '~> 2.12.2'
   spec.add_dependency 'pg', '~> 1.5'
   # Concurrent execution support for BatchStepExecutionOrchestrator
-  spec.add_dependency 'concurrent-ruby', '~> 1.2'
+  spec.add_dependency 'concurrent-ruby', '~> 1.3.5'
+  spec.add_dependency 'concurrent-ruby-ext', '~> 1.3.5'
+
+  spec.add_dependency 'opentelemetry-exporter-otlp', '~> 0.30.0'
+  spec.add_dependency 'opentelemetry-sdk', '~> 1.8.0'
+
+  spec.add_dependency 'statesman', '~> 12.0.0'
 
   # Ensure we have a Rust toolchain for compilation
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'

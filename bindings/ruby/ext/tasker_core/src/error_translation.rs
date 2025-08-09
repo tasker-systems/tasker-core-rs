@@ -31,6 +31,14 @@ pub fn shared_error_to_ruby(error: SharedFFIError) -> Error {
             exception::standard_error(),
             format!("Orchestration initialization failed: {msg}"),
         ),
+        SharedFFIError::RuntimeError(msg) => Error::new(
+            exception::runtime_error(),
+            format!("Runtime error: {msg}"),
+        ),
+        SharedFFIError::InitializationError(msg) => Error::new(
+            exception::standard_error(),
+            format!("Initialization error: {msg}"),
+        ),
         SharedFFIError::HandleValidationFailed(msg) => Error::new(
             exception::standard_error(),
             format!("Handle validation failed: {msg}"),

@@ -11,7 +11,6 @@ use crate::orchestration::{
         OrchestrationLoopConfig,
     },
     task_request_processor::TaskRequestProcessor,
-    TaskInitializer,
 };
 use crate::registry::TaskHandlerRegistry;
 use serde::{Deserialize, Serialize};
@@ -180,32 +179,34 @@ impl OrchestrationSystem {
         config_manager: crate::orchestration::config::ConfigurationManager,
         pool: PgPool,
     ) -> Result<Self> {
+        info!("🚀 Creating OrchestrationSystem from config via unified OrchestrationCore");
+        
         let tasker_config = config_manager.system_config();
         let orchestration_system_config =
             tasker_config.orchestration.to_orchestration_system_config();
 
-        // Create pgmq client
-        let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
+        // Use OrchestrationCore with unified configuration-driven initialization
+        // This provides the unified bootstrap and circuit breaker integration
+        // Use ConfigManager directly for environment-aware bootstrap
+        let orchestration_core = crate::orchestration::OrchestrationCore::new().await?;
+        
+        info!("✅ OrchestrationCore created with unified bootstrap - circuit breaker integration resolved");
 
-        // Create task handler registry
-        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(pool.clone()));
-
-        // Create task initializer
-        let task_initializer = Arc::new(TaskInitializer::new(pool.clone()));
-
-        // Create task request processor
-        let task_request_processor = Arc::new(TaskRequestProcessor::new(
-            pgmq_client.clone(),
-            task_handler_registry.clone(),
-            task_initializer,
-            crate::orchestration::task_request_processor::TaskRequestProcessorConfig::default(),
-        ));
+        // Extract components from OrchestrationCore for compatibility wrapper
+        let pgmq_client = match orchestration_core.pgmq_client().as_ref() {
+            crate::messaging::UnifiedPgmqClient::Standard(client) => Arc::new(client.clone()),
+            crate::messaging::UnifiedPgmqClient::Protected(protected_client) => {
+                // For compatibility, extract the inner client
+                // Note: Circuit breaker protection is maintained at the OrchestrationCore level
+                Arc::new(protected_client.inner().clone())
+            }
+        };
 
         Self::new(
             pgmq_client,
-            task_request_processor,
-            task_handler_registry,
-            pool,
+            orchestration_core.task_request_processor.clone(),
+            orchestration_core.task_handler_registry.clone(),
+            orchestration_core.database_pool().clone(),
             orchestration_system_config,
         )
         .await

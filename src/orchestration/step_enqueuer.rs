@@ -310,6 +310,7 @@ impl StepEnqueuer {
         let processing_duration_ms = start_time.elapsed().as_millis() as u64;
 
         // Transition task to "in_progress" state if we successfully enqueued any steps
+        // Note: claiming only sets claimed_at/claimed_by but doesn't change execution state
         if steps_enqueued > 0 {
             if let Err(e) = self
                 .state_manager

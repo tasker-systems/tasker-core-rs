@@ -5,13 +5,13 @@
 # DATABASE POOL ARCHITECTURE NOTE
 # =============================================================================
 # This config uses STRUCTURED pool format: { max_connections, min_connections, etc }
-#
+# 
 # Ruby workers automatically convert this to simple integer format for ActiveRecord:
 #   pool: { max_connections: 25 }  -->  pool: 25
-#
+# 
 # This allows:
 #   - Rust orchestration: Full connection lifecycle control for performance
-#   - Ruby workers: Simple ActiveRecord integration
+#   - Ruby workers: Simple ActiveRecord integration  
 #   - Single config file: Both systems use same configuration source
 # =============================================================================
 
@@ -153,7 +153,7 @@ pgmq:
   max_retries: 3 # Standard retry limit
   # New constants unification fields
   max_batch_size: 100 # Replaces Ruby MAX_MESSAGE_COUNT constant
-  shutdown_timeout_seconds: 5 # Reduced default - tests override to 2, production can override to 30
+  shutdown_timeout_seconds: 30 # Replaces Ruby FALLBACK_SHUTDOWN_TIMEOUT constant
   default_namespaces:
     - default
     - fulfillment
@@ -219,21 +219,21 @@ circuit_breakers:
   enabled: true
   # Global circuit breaker settings
   global_settings:
-    max_circuit_breakers: 50 # Maximum number of circuit breakers that can be created
-    metrics_collection_interval_seconds: 30 # How often to collect and report circuit breaker metrics
-    auto_create_enabled: true # Automatically create circuit breakers for new components
-    min_state_transition_interval_seconds: 1 # Minimum time between state changes to prevent oscillation
+    max_circuit_breakers: 50  # Maximum number of circuit breakers that can be created
+    metrics_collection_interval_seconds: 30  # How often to collect and report circuit breaker metrics
+    auto_create_enabled: true  # Automatically create circuit breakers for new components
+    min_state_transition_interval_seconds: 1  # Minimum time between state changes to prevent oscillation
   # Default configuration for new circuit breakers
   default_config:
-    failure_threshold: 5 # Number of consecutive failures before opening the circuit
-    timeout_seconds: 30 # How long to wait in open state before attempting recovery
-    success_threshold: 2 # Number of successful calls needed in half-open state to close circuit
+    failure_threshold: 5  # Number of consecutive failures before opening the circuit
+    timeout_seconds: 30   # How long to wait in open state before attempting recovery
+    success_threshold: 2  # Number of successful calls needed in half-open state to close circuit
   # Component-specific configurations
   component_configs:
     pgmq:
-      failure_threshold: 3 # Queue operations should fail fast to prevent message buildup
-      timeout_seconds: 15 # Queue recovery should be quick (usually infrastructure issues)
-      success_threshold: 2 # Need fewer successful queue operations to restore confidence
+      failure_threshold: 3    # Queue operations should fail fast to prevent message buildup
+      timeout_seconds: 15     # Queue recovery should be quick (usually infrastructure issues)
+      success_threshold: 2    # Need fewer successful queue operations to restore confidence
 
 # Environment-specific overrides
 development:
@@ -254,22 +254,15 @@ development:
 test:
   execution:
     environment: "test"
-    # Test environment overrides - smaller limits and timeouts for faster tests
+    # Test environment overrides - smaller limits for faster tests
     max_workflow_steps: 100 # Smaller for test safety
     max_retries: 2 # Fewer retries for faster test feedback
-    default_timeout_seconds: 30 # Much shorter timeout for tests (vs 3600 default)
-    step_execution_timeout_seconds: 10 # Very short step timeout for tests (vs 300 default)
-    connection_timeout_seconds: 3 # Fast connection timeout for tests (vs 10 default)
 
   database:
     database: "tasker_rust_test"
     host: "${DATABASE_HOST:-localhost}"
     username: "${POSTGRES_USER:-tasker}"
     password: "${POSTGRES_PASSWORD:-tasker}"
-    variables:
-      statement_timeout: 2000 # 2 second statement timeout for tests (vs 5000 default)
-    checkout_timeout: 3 # Fast checkout for tests (vs 10 default)
-    reaping_frequency: 5 # Faster reaping for tests (vs 10 default)
 
   # Test environment constants optimization
   dependency_graph:
@@ -277,43 +270,6 @@ test:
 
   system:
     max_recursion_depth: 25 # Smaller for test safety
-
-  # Test backoff configuration - faster retry cycles
-  backoff:
-    default_backoff_seconds: [1, 2, 4] # Much shorter backoff sequence
-    max_backoff_seconds: 30 # 30s max vs 300s default
-    reenqueue_delays:
-      has_ready_steps: 0 # Immediate reenqueue for tests
-      waiting_for_dependencies: 5 # 5s vs 45s default
-      processing: 2 # 2s vs 10s default
-    default_reenqueue_delay: 5 # 5s vs 30s default
-    buffer_seconds: 1 # 1s vs 5s default
-
-  # Test events configuration - faster processing
-  events:
-    batch_size: 10 # Smaller batches for tests
-    batch_timeout_ms: 100 # Much faster timeout (vs 1000ms)
-
-  # Test cache configuration - shorter TTL
-  cache:
-    ttl_seconds: 30 # 30s vs 3600s default
-    max_size: 1000 # Smaller cache for tests
-
-  # Test query cache - very short TTL
-  query_cache:
-    active_workers:
-      ttl_seconds: 5 # 5s vs 30s default
-      max_entries: 100 # Smaller for tests
-    worker_health:
-      ttl_seconds: 2 # 2s vs 10s default
-      max_entries: 50 # Smaller for tests
-    task_metadata:
-      ttl_seconds: 10 # 10s vs 300s default
-      max_entries: 200 # Smaller for tests
-    handler_metadata:
-      ttl_seconds: 30 # 30s vs 600s default
-      max_entries: 20 # Much smaller for tests
-    cleanup_interval_seconds: 10 # 10s vs 300s default
 
   task_templates:
     # Test environment includes example handlers for integration testing
@@ -324,14 +280,13 @@ test:
   pgmq:
     poll_interval_ms: 100 # 100ms polling for fast test execution (10x/sec)
     visibility_timeout_seconds: 5 # very short in test
-    shutdown_timeout_seconds: 2 # very short in test - should match embedded_orchestrator
 
   orchestration:
     mode: "embedded"
     tasks_per_cycle: 2 # Lower throughput for tests
     cycle_interval_ms: 100 # Very fast cycles for test responsiveness (10x/sec)
     task_request_polling_interval_ms: 100 # Very fast polling for tests (10x/sec)
-    task_request_visibility_timeout_seconds: 10 # Much shorter timeout for tests (vs 300 default)
+    task_request_visibility_timeout_seconds: 60 # Shorter timeout for test business logic
     task_request_batch_size: 5 # Smaller batches for tests
     active_namespaces:
       [
@@ -343,43 +298,34 @@ test:
         "default",
       ]
     max_concurrent_orchestrators: 1 # Single orchestrator for tests
-    default_claim_timeout_seconds: 10 # Much shorter claim timeout for tests (vs 300 default)
-    heartbeat_interval_ms: 1000 # Fast heartbeats for tests (1 second intervals vs 5000ms)
+    default_claim_timeout_seconds: 60 # Shorter claim timeout for test business logic
+    heartbeat_interval_ms: 2000 # Fast heartbeats for tests (2 second intervals)
     embedded_orchestrator:
       auto_start: true # auto-start in test mode
       namespaces: ["default", "fulfillment", "inventory", "notifications"]
-      shutdown_timeout_seconds: 2 # Graceful shutdown timeout
-    queues:
-      settings:
-        visibility_timeout_seconds: 5 # Very short for tests (vs 30 default)
-        message_retention_seconds: 3600 # 1 hour vs 7 days default
-        max_receive_count: 2 # Fewer retries for tests (vs 3 default)
+      shutdown_timeout_seconds: 5 # Production graceful shutdown timeout
 
-  # Circuit breaker disabled for test environment
-  # Circuit breakers are a production resilience pattern that conflicts with test lifecycle:
-  # - Tests intentionally cause "failures" during setup/teardown
-  # - Database connections are frequently created/destroyed in tests
-  # - Fast feedback is more important than fault tolerance in tests
-  # - Test database lifecycle is managed by test framework, not circuit breakers
+  # Circuit breaker test configuration with fast timeouts
   circuit_breakers:
     enabled: true
-    # Global circuit breaker settings
     global_settings:
-      max_circuit_breakers: 10 # Maximum number of circuit breakers that can be created
-      metrics_collection_interval_seconds: 30 # How often to collect and report circuit breaker metrics
-      auto_create_enabled: true # Automatically create circuit breakers for new components
-      min_state_transition_interval_seconds: 1 # Minimum time between state changes to prevent oscillation
-    # Default configuration for new circuit breakers
+      max_circuit_breakers: 20  # Lower limit for test environment
+      metrics_collection_interval_seconds: 1  # Fast metrics collection for test feedback
+      auto_create_enabled: true
+      min_state_transition_interval_seconds: 0.01  # Very fast transitions for test speed
     default_config:
-      failure_threshold: 5 # Number of consecutive failures before opening the circuit
-      timeout_seconds: 5 # How long to wait in open state before attempting recovery
-      success_threshold: 1 # Number of successful calls needed in half-open state to close circuit
-    # Component-specific configurations
+      failure_threshold: 2  # Fail fast in tests for quick feedback
+      timeout_seconds: 1    # Short recovery time in tests
+      success_threshold: 1  # Quick recovery in tests
     component_configs:
+      database:
+        failure_threshold: 2  # Fail fast in tests
+        timeout_seconds: 2    # Slightly longer for DB in tests
+        success_threshold: 1  # Quick recovery
       pgmq:
-        failure_threshold: 3 # Queue operations should fail fast to prevent message buildup
-        timeout_seconds: 5 # Queue recovery should be quick (usually infrastructure issues)
-        success_threshold: 2 # Need fewer successful queue operations to restore confidence
+        failure_threshold: 2  # Fail fast in tests
+        timeout_seconds: 1    # Fast queue recovery in tests
+        success_threshold: 1  # Quick recovery
 
 production:
   execution:
@@ -394,15 +340,11 @@ production:
     username: "${POSTGRES_USER:-tasker}"
     password: "${POSTGRES_PASSWORD:-tasker}"
     pool:
-      max_connections: 50 # Higher for production
+      max_connections: 50  # Higher for production
       min_connections: 10
       acquire_timeout_seconds: 30
       idle_timeout_seconds: 300
       max_lifetime_seconds: 3600
-
-  # Production-specific pgmq settings
-  pgmq:
-    shutdown_timeout_seconds: 30 # Longer graceful shutdown for production
 
   # Production environment constants optimization
   dependency_graph:
@@ -423,22 +365,22 @@ production:
     enabled: true
     # Global circuit breaker settings
     global_settings:
-      max_circuit_breakers: 100 # Higher limit for production to handle more services
-      metrics_collection_interval_seconds: 10 # More frequent metrics in production for monitoring
+      max_circuit_breakers: 100  # Higher limit for production to handle more services
+      metrics_collection_interval_seconds: 10  # More frequent metrics in production for monitoring
       auto_create_enabled: true
-      min_state_transition_interval_seconds: 1 # Standard transition interval
+      min_state_transition_interval_seconds: 1  # Standard transition interval
     # Default configuration for new circuit breakers
     default_config:
-      failure_threshold: 5 # Standard production failure tolerance
-      timeout_seconds: 30 # Standard production recovery time
-      success_threshold: 2 # Standard production recovery validation
+      failure_threshold: 5   # Standard production failure tolerance
+      timeout_seconds: 30    # Standard production recovery time
+      success_threshold: 2   # Standard production recovery validation
     # Component-specific configurations
     component_configs:
       database:
-        failure_threshold: 3 # Be more aggressive about DB failures in production
-        timeout_seconds: 45 # Allow more time for DB recovery in production
-        success_threshold: 2 # Standard recovery validation
+        failure_threshold: 3   # Be more aggressive about DB failures in production
+        timeout_seconds: 45    # Allow more time for DB recovery in production
+        success_threshold: 2   # Standard recovery validation
       pgmq:
-        failure_threshold: 5 # Allow more queue failures in production (higher load)
-        timeout_seconds: 20 # Standard queue recovery time
-        success_threshold: 2 # Standard recovery validation
+        failure_threshold: 5   # Allow more queue failures in production (higher load)
+        timeout_seconds: 20    # Standard queue recovery time
+        success_threshold: 2   # Standard recovery validation
