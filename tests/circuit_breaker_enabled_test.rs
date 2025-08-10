@@ -12,11 +12,10 @@ async fn test_circuit_breakers_enabled_from_config() -> Result<(), Box<dyn std::
 
     info!("🧪 Testing circuit breakers enabled via configuration");
 
-    // Set environment variables
-    env::set_var(
-        "DATABASE_URL",
-        "postgresql://tasker:tasker@localhost/tasker_rust_test",
-    );
+    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+    env::set_var("DATABASE_URL", database_url);
     env::set_var("TASKER_ENV", "test");
 
     // Load configuration from our test config file
@@ -75,10 +74,10 @@ async fn test_auto_vs_explicit_config_comparison() -> Result<(), Box<dyn std::er
 
     info!("🧪 Testing auto-config vs explicit config manager comparison");
 
-    env::set_var(
-        "DATABASE_URL",
-        "postgresql://tasker:tasker@localhost/tasker_rust_test",
-    );
+    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+    env::set_var("DATABASE_URL", database_url);
     env::set_var("TASKER_ENV", "test");
 
     // Test 1: Auto-configuration mode
