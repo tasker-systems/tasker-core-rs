@@ -2282,6 +2282,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_magnus"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51b8b945a2dadb221f1c5490cfb411cab6c3821446b8eca50ee07e5a3893ec51"
+dependencies = [
+ "magnus",
+ "serde",
+ "tap",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2859,6 +2870,7 @@ dependencies = [
  "magnus",
  "serde",
  "serde_json",
+ "serde_magnus",
  "serde_yaml",
  "sqlx",
  "structured-logger",

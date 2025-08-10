@@ -11,7 +11,7 @@
 //! - **Production-ready** for high-throughput scenarios
 
 use super::errors::*;
-use super::orchestration_system::OrchestrationSystem;
+use crate::orchestration::OrchestrationCore;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -24,7 +24,7 @@ static GLOBAL_SHARED_HANDLE: OnceLock<Arc<SharedOrchestrationHandle>> = OnceLock
 /// This eliminates the root cause of connection pool exhaustion by ensuring
 /// all FFI operations share the same initialized Rust resources.
 pub struct SharedOrchestrationHandle {
-    pub orchestration_system: Arc<OrchestrationSystem>,
+    pub orchestration_core: Arc<OrchestrationCore>,
     pub handle_id: String,
     pub created_at: SystemTime,
 }
@@ -35,8 +35,21 @@ impl SharedOrchestrationHandle {
         info!("Creating shared orchestration handle with persistent references");
 
         // Initialize resources ONCE - these will be shared across all operations
-        let orchestration_system =
-            super::orchestration_system::initialize_unified_orchestration_system();
+        let _database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
+
+        // Create a synchronous runtime for initialization
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| SharedFFIError::RuntimeError(format!("Failed to create runtime: {e}")))?;
+
+        let orchestration_core = rt
+            .block_on(async { OrchestrationCore::new().await })
+            .map_err(|e| {
+                SharedFFIError::InitializationError(format!(
+                    "Failed to initialize OrchestrationCore: {e}"
+                ))
+            })?;
 
         let handle_id = format!(
             "shared_handle_{}",
@@ -52,7 +65,7 @@ impl SharedOrchestrationHandle {
         );
 
         Ok(Self {
-            orchestration_system,
+            orchestration_core: Arc::new(orchestration_core),
             handle_id,
             created_at: SystemTime::now(),
         })
@@ -92,7 +105,7 @@ impl SharedOrchestrationHandle {
             // Handle is still valid, return self wrapped in Arc
             debug!("✅ HANDLE VALID: Using existing handle {}", self.handle_id);
             Ok(Arc::new(SharedOrchestrationHandle {
-                orchestration_system: self.orchestration_system.clone(),
+                orchestration_core: self.orchestration_core.clone(),
                 handle_id: self.handle_id.clone(),
                 created_at: self.created_at,
             }))
@@ -187,23 +200,23 @@ impl SharedOrchestrationHandle {
             age_seconds: self.created_at.elapsed().unwrap_or_default().as_secs(),
             expires_at,
             expires_in_seconds,
-            orchestration_pool_size: self.orchestration_system.database_pool().size(),
+            orchestration_pool_size: self.orchestration_core.database_pool().size(),
             status,
         }
     }
 
-    /// Get database pool from orchestration system (for performance functions)
+    /// Get database pool from orchestration core (for performance functions)
     pub fn database_pool(&self) -> &sqlx::PgPool {
-        self.orchestration_system.database_pool()
+        self.orchestration_core.database_pool()
     }
 
     // ========================================================================
     // CORE ORCHESTRATION OPERATIONS (language-agnostic)
     // ========================================================================
 
-    /// Get orchestration system handle for language bindings
-    pub fn orchestration_system(&self) -> &Arc<OrchestrationSystem> {
-        &self.orchestration_system
+    /// Get orchestration core handle for language bindings
+    pub fn orchestration_core(&self) -> &Arc<OrchestrationCore> {
+        &self.orchestration_core
     }
 
     // ========================================================================

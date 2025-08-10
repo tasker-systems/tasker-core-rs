@@ -284,6 +284,26 @@ module TaskerCore
           }
         end
 
+        # # State machine integration
+        # def state_machine
+        #   @state_machine ||= TaskerCore::StateMachine::TaskStateMachine.new(
+        #     self,
+        #     transition_class: TaskerCore::Database::Models::TaskTransition,
+        #     association_name: :task_transitions
+        #   )
+        # end
+
+        # # Status is now entirely managed by the state machine
+        # def status
+        #   if new_record?
+        #     # For new records, return the initial state
+        #     TaskerCore::Constants::TaskStatuses::PENDING
+        #   else
+        #     # For persisted records, use state machine
+        #     state_machine.current_state
+        #   end
+        # end
+
         # Finds a workflow step by its name
         #
         # @param name [String] The name of the step to find

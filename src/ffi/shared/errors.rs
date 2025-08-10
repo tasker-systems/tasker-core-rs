@@ -11,6 +11,12 @@ pub enum SharedFFIError {
     /// Orchestration system initialization failed
     OrchestrationInitializationFailed(String),
 
+    /// Runtime creation failed
+    RuntimeError(String),
+
+    /// Initialization error
+    InitializationError(String),
+
     /// Handle validation failed (expired, invalid, etc.)
     HandleValidationFailed(String),
 
@@ -68,6 +74,12 @@ impl fmt::Display for SharedFFIError {
         match self {
             SharedFFIError::OrchestrationInitializationFailed(msg) => {
                 write!(f, "Orchestration initialization failed: {msg}")
+            }
+            SharedFFIError::RuntimeError(msg) => {
+                write!(f, "Runtime error: {msg}")
+            }
+            SharedFFIError::InitializationError(msg) => {
+                write!(f, "Initialization error: {msg}")
             }
             SharedFFIError::HandleValidationFailed(msg) => {
                 write!(f, "Handle validation failed: {msg}")

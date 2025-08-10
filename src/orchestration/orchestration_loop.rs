@@ -17,7 +17,7 @@
 //! ## Orchestration Cycle
 //!
 //! 1. **Claim**: Atomically claim ready tasks using priority fairness
-//! 2. **Discover**: Find viable steps using existing SQL-based logic  
+//! 2. **Discover**: Find viable steps using existing SQL-based logic
 //! 3. **Enqueue**: Send individual step messages to namespace queues
 //! 4. **Release**: Release task claims to make tasks available again
 //! 5. **Monitor**: Track performance, priority distribution, and system health
@@ -25,20 +25,24 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_core::orchestration::orchestration_loop::OrchestrationLoop;
-//! use tasker_core::messaging::PgmqClient;
+//! use tasker_core::orchestration::orchestration_loop::{OrchestrationLoop, OrchestrationLoopConfig};
+//! use tasker_core::messaging::{PgmqClient, UnifiedPgmqClient};
 //! use sqlx::PgPool;
+//! use std::sync::Arc;
 //!
 //! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let database_url = "postgresql://localhost/tasker";
 //! let pgmq_client = PgmqClient::new(database_url).await
 //!     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
+//! let unified_client = Arc::new(UnifiedPgmqClient::Standard(pgmq_client));
 //! let orchestrator_id = "orchestrator-host123-uuid".to_string();
+//! let config = OrchestrationLoopConfig::default();
 //!
-//! let orchestration_loop = OrchestrationLoop::new(
+//! let orchestration_loop = OrchestrationLoop::with_unified_client(
 //!     pool,
-//!     pgmq_client,
+//!     unified_client,
 //!     orchestrator_id,
+//!     config,
 //! ).await?;
 //!
 //! // Run a single orchestration cycle
@@ -63,6 +67,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};
@@ -258,6 +263,44 @@ impl OrchestrationLoop {
         Self::with_config(pool, pgmq_client, orchestrator_id, config).await
     }
 
+    /// Create a new orchestration loop with unified client (supports circuit breakers)
+    pub async fn with_unified_client(
+        pool: PgPool,
+        unified_client: Arc<crate::messaging::UnifiedPgmqClient>,
+        orchestrator_id: String,
+        config: OrchestrationLoopConfig,
+    ) -> Result<Self> {
+        let task_claimer = TaskClaimer::with_config(
+            pool.clone(),
+            orchestrator_id.clone(),
+            config.task_claimer_config.clone(),
+        );
+
+        // StepEnqueuer now accepts UnifiedPgmqClient directly
+        let step_enqueuer = StepEnqueuer::with_unified_client_and_config(
+            pool.clone(),
+            unified_client.as_ref().clone(),
+            config.step_enqueuer_config.clone(),
+        )
+        .await?;
+
+        // StepResultProcessor accepts UnifiedPgmqClient directly
+        let step_result_processor = StepResultProcessor::with_config(
+            pool.clone(),
+            unified_client.clone(),
+            config.step_result_processor_config.clone(),
+        )
+        .await?;
+
+        Ok(Self {
+            task_claimer,
+            step_enqueuer,
+            step_result_processor,
+            orchestrator_id,
+            config,
+        })
+    }
+
     /// Create a new orchestration loop with custom configuration
     pub async fn with_config(
         pool: PgPool,
@@ -278,9 +321,13 @@ impl OrchestrationLoop {
         )
         .await?;
 
+        // Create standard unified client for StepResultProcessor
+        let step_result_client = Arc::new(crate::messaging::UnifiedPgmqClient::Standard(
+            pgmq_client.clone(),
+        ));
         let step_result_processor = StepResultProcessor::with_config(
             pool.clone(),
-            pgmq_client,
+            step_result_client,
             config.step_result_processor_config.clone(),
         )
         .await?;
@@ -328,7 +375,7 @@ impl OrchestrationLoop {
         );
 
         if claimed_tasks.is_empty() {
-            warn!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
+            info!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
             return Ok(self.create_empty_cycle_result(
                 cycle_started_at,
                 cycle_start.elapsed().as_millis() as u64,

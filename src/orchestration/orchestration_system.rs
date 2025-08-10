@@ -4,14 +4,13 @@
 //! Implements priority fairness task claiming and autonomous queue-based step execution.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::PgmqClient;
+use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use crate::orchestration::{
     orchestration_loop::{
         ContinuousOrchestrationSummary, OrchestrationCycleResult, OrchestrationLoop,
         OrchestrationLoopConfig,
     },
     task_request_processor::TaskRequestProcessor,
-    TaskInitializer,
 };
 use crate::registry::TaskHandlerRegistry;
 use serde::{Deserialize, Serialize};
@@ -107,8 +106,8 @@ impl OrchestrationSystemConfig {
 
 /// Main orchestration system using OrchestrationLoop for individual step processing
 pub struct OrchestrationSystem {
-    /// PostgreSQL message queue client
-    pgmq_client: Arc<PgmqClient>,
+    /// PostgreSQL message queue client (unified for circuit breaker support)
+    pgmq_client: Arc<UnifiedPgmqClient>,
     /// Task request processor
     task_request_processor: Arc<TaskRequestProcessor>,
     /// Main orchestration loop
@@ -124,17 +123,17 @@ pub struct OrchestrationSystem {
 impl OrchestrationSystem {
     /// Create a new orchestration system
     pub async fn new(
-        pgmq_client: Arc<PgmqClient>,
+        pgmq_client: Arc<UnifiedPgmqClient>,
         task_request_processor: Arc<TaskRequestProcessor>,
         task_handler_registry: Arc<TaskHandlerRegistry>,
         pool: PgPool,
         config: OrchestrationSystemConfig,
     ) -> Result<Self> {
-        // Create orchestration loop with the configured pgmq client
+        // Create orchestration loop with the unified pgmq client (supports circuit breakers)
         let orchestration_loop = Arc::new(
-            OrchestrationLoop::with_config(
+            OrchestrationLoop::with_unified_client(
                 pool.clone(),
-                (*pgmq_client).clone(),
+                pgmq_client.clone(),
                 config.orchestrator_id.clone(),
                 config.orchestration_loop_config.clone(),
             )
@@ -157,20 +156,17 @@ impl OrchestrationSystem {
     ///
     /// ```rust,no_run
     /// use tasker_core::orchestration::{OrchestrationSystem, config::ConfigurationManager};
-    /// use sqlx::PgPool;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Load configuration from YAML
     ///     let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml").await?;
-    ///     let pool = PgPool::connect("postgresql://localhost/tasker").await?;
-    ///     
-    ///     // Bootstrap orchestration system
+    ///
+    ///     // Bootstrap orchestration system with unified architecture
     ///     let orchestration_system = OrchestrationSystem::from_config(
     ///         config_manager,
-    ///         pool,
     ///     ).await?;
-    ///     
+    ///
     ///     // Start orchestration
     ///     orchestration_system.start().await?;
     ///     Ok(())
@@ -178,34 +174,29 @@ impl OrchestrationSystem {
     /// ```
     pub async fn from_config(
         config_manager: crate::orchestration::config::ConfigurationManager,
-        pool: PgPool,
     ) -> Result<Self> {
+        info!("🚀 Creating OrchestrationSystem from config via unified OrchestrationCore");
+
         let tasker_config = config_manager.system_config();
         let orchestration_system_config =
             tasker_config.orchestration.to_orchestration_system_config();
 
-        // Create pgmq client
-        let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
+        // Use OrchestrationCore with unified configuration-driven initialization
+        // This provides the unified bootstrap and circuit breaker integration
+        // Use ConfigManager directly for environment-aware bootstrap
+        let orchestration_core = crate::orchestration::OrchestrationCore::new().await?;
 
-        // Create task handler registry
-        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(pool.clone()));
+        info!("✅ OrchestrationCore created with unified bootstrap - circuit breaker integration resolved");
 
-        // Create task initializer
-        let task_initializer = Arc::new(TaskInitializer::new(pool.clone()));
-
-        // Create task request processor
-        let task_request_processor = Arc::new(TaskRequestProcessor::new(
-            pgmq_client.clone(),
-            task_handler_registry.clone(),
-            task_initializer,
-            crate::orchestration::task_request_processor::TaskRequestProcessorConfig::default(),
-        ));
+        // Extract components from OrchestrationCore for compatibility wrapper
+        // Use the unified client directly (supports circuit breakers)
+        let pgmq_client = orchestration_core.pgmq_client();
 
         Self::new(
             pgmq_client,
-            task_request_processor,
-            task_handler_registry,
-            pool,
+            orchestration_core.task_request_processor.clone(),
+            orchestration_core.task_handler_registry.clone(),
+            orchestration_core.database_pool().clone(),
             orchestration_system_config,
         )
         .await
@@ -217,18 +208,14 @@ impl OrchestrationSystem {
     ///
     /// ```rust,no_run
     /// use tasker_core::orchestration::OrchestrationSystem;
-    /// use sqlx::PgPool;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let pool = PgPool::connect("postgresql://localhost/tasker").await?;
-    ///     
-    ///     // Bootstrap directly from config file
+    ///     // Bootstrap directly from config file with unified architecture
     ///     let orchestration_system = OrchestrationSystem::from_config_file(
     ///         "config/tasker-config.yaml",
-    ///         pool,
     ///     ).await?;
-    ///     
+    ///
     ///     // Start orchestration
     ///     orchestration_system.start().await?;
     ///     Ok(())
@@ -236,7 +223,6 @@ impl OrchestrationSystem {
     /// ```
     pub async fn from_config_file<P: AsRef<std::path::Path> + std::fmt::Debug>(
         config_path: P,
-        pool: PgPool,
     ) -> Result<Self> {
         let config_manager =
             crate::orchestration::config::ConfigurationManager::load_from_file(config_path)
@@ -245,7 +231,7 @@ impl OrchestrationSystem {
                     TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
                 })?;
 
-        Self::from_config(config_manager, pool).await
+        Self::from_config(config_manager).await
     }
 
     /// Start the complete orchestration system with OrchestrationLoop

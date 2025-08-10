@@ -37,6 +37,8 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
             bypass_steps: None,
             tags: None,
             context: None,
+            priority: Some(5),
+            claim_timeout_seconds: Some(300),
         },
     )
     .await?;
@@ -132,6 +134,8 @@ async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
             bypass_steps: None,
             tags: None,
             context: None,
+            priority: Some(5),
+            claim_timeout_seconds: Some(300),
         },
     )
     .await?;

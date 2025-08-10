@@ -8,7 +8,6 @@ pub mod database_cleanup;
 pub mod errors;
 pub mod event_bridge;
 pub mod handles;
-pub mod orchestration_system;
 pub mod task_initialization;
 pub mod test_database_management;
 pub mod testing;
@@ -20,7 +19,6 @@ pub mod types;
 // Re-export main types for convenience
 pub use errors::*;
 pub use handles::*;
-pub use orchestration_system::OrchestrationSystem;
 pub use task_initialization::*;
 pub use test_database_management::*;
 pub use types::*;

@@ -97,9 +97,14 @@ class SharedTestLoop
     raise TaskerCore::Errors::OrchestrationError, 'Base task handler is nil' unless base_handler
 
     task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-    raise TaskerCore::Errors::OrchestrationError, 'Task creation failed' unless task_result['success']
 
-    task_result['task_id']
+    unless task_result[:success]
+      error_msg = task_result[:error] || 'Unknown task creation error'
+      raise TaskerCore::Errors::OrchestrationError,
+            "Task creation failed: #{error_msg}, task result is #{task_result.inspect}"
+    end
+
+    task_result[:task_id]
   end
 
   def run(task_request:, namespace:, num_workers: 2, timeout: 10, worker_poll_interval: 0.1)

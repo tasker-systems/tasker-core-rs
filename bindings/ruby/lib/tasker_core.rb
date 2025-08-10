@@ -58,6 +58,7 @@ require_relative 'tasker_core/execution'         # TaskerCore::Execution - step 
 # 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
 require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers
 require_relative 'tasker_core/database'          # TaskerCore::Database - SQL function access
+require_relative 'tasker_core/state_machine'     # TaskerCore::StateMachine - state machine for task execution
 require_relative 'tasker_core/registry'          # TaskerCore::Registry - database-backed step handler registry
 
 # Boot sequence manager (loads after all dependencies)

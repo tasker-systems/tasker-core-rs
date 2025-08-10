@@ -46,6 +46,8 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
             named_task.named_task_id,
             &Some(json!({"input_data": "test_value"})),
         ),
+        priority: Some(5),
+        claim_timeout_seconds: Some(300),
     };
 
     let created = Task::create(&pool, new_task).await?;

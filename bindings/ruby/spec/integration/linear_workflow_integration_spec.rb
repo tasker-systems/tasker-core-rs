@@ -126,7 +126,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
         # Initialize task using embedded FFI with TaskRequest hash
         task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
         expect(task_result).to be_a(Hash)
-        expect(task_result['success']).to be(true)
+        expect(task_result[:success]).to be(true)
       end.not_to raise_error
     end
   end
@@ -166,8 +166,8 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       # If orchestration is working, this should succeed
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
       expect(task_result).to be_a(Hash)
-      expect(task_result['success']).to be(true)
-      expect(task_result['task_id']).to be_a(Integer)
+      expect(task_result[:success]).to be(true)
+      expect(task_result[:task_id]).to be_a(Integer)
 
       puts "✅ Orchestration system functional - created task #{task_result['task_id']}"
     end
@@ -229,54 +229,24 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
 
       # Initialize task
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      task_id = task_result['task_id']
+      task_id = task_result[:task_id]
 
       expect(task_id).to be_a(Integer)
       expect(task_id).to be > 0
 
       # Check task execution context using function-based approach
       task_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
-      puts "\nTask Execution Context for task #{task_id}:"
-      puts "  Ready Steps: #{task_context.ready_steps}"
-      puts "  Execution Status: #{task_context.execution_status}"
-      puts "  Total Steps: #{task_context.total_steps}"
-      puts "  Completed Steps: #{task_context.completed_steps}"
-      puts "  Pending Steps: #{task_context.pending_steps}"
 
       # Get detailed step information using ActiveRecord models
       task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
 
-      puts "\nDetailed Steps for task #{task_id} using ActiveRecord:"
-      task.workflow_steps.order(:workflow_step_id).each do |workflow_step|
-        workflow_step_id = workflow_step.workflow_step_id
-        step_name = workflow_step.named_step.name
-        processed = workflow_step.processed
-        in_process = workflow_step.in_process
-        processed_at = workflow_step.processed_at
-        created_at = workflow_step.created_at
-
+      task.workflow_steps.order(:workflow_step_id).each do |step|
         # Check step readiness status using function-based approach
         readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id,
-                                                                                                        [workflow_step_id])
+                                                                                                        [step.workflow_step_id])
         readiness_status = readiness_statuses.first unless readiness_statuses.empty?
 
-        puts "  Step #{workflow_step_id} (#{step_name}):"
-        puts "    Processed: #{processed}"
-        puts "    In Process: #{in_process}"
-        puts "    Created At: #{created_at}" if created_at
-        puts "    Processed At: #{processed_at}" if processed_at
-
-        if readiness_status
-          puts '    Readiness:'
-          puts "      Ready for Execution: #{readiness_status.ready_for_execution}"
-          puts "      Dependencies Satisfied: #{readiness_status.dependencies_satisfied}"
-          puts "      Current State: #{readiness_status.current_state}"
-          if readiness_status.respond_to?(:retry_eligible)
-            puts "      Retry Eligible: #{readiness_status.retry_eligible}"
-          end
-        else
-          puts '    Readiness: No status found'
-        end
+        expect(readiness_status.dependencies_satisfied).not_to be_nil
       end
       # Assertions
       expect(task_context.total_steps).to eq(4) # Linear workflow has 4 steps
@@ -300,24 +270,18 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
 
       # Initialize task
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      task_id = task_result['task_id']
+      task_id = task_result[:task_id]
 
       expect(task_id).to be_a(Integer)
       expect(task_id).to be > 0
 
-      # Check that task appears in ready tasks view using ActiveRecord
-      puts "\nChecking task #{task_id} using ActiveRecord models..."
-
       # First, let's check the task itself
       task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
-      puts "  Task: #{task.task_id} - namespace: #{task.named_task.task_namespace.name}, complete: #{task.complete}"
+      expect(task).not_to be_nil, 'Task should exist'
 
-      # Check that task appears in ready tasks view using our ReadyTask model
-      puts "\nChecking tasker_ready_tasks view for task #{task_id} using ActiveRecord..."
       ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id)
 
       expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
-      puts "  Task #{ready_task.task_id}: namespace=#{ready_task.namespace_name}, ready_steps=#{ready_task.ready_steps_count}, claim_status=#{ready_task.claim_status}, execution_status=#{ready_task.execution_status}"
 
       expect(ready_task.namespace_name).to eq('linear_workflow')
       expect(ready_task.ready_steps_count.to_i).to be > 0
@@ -328,48 +292,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       expect(ready_task.has_ready_steps?).to be true
       expect(ready_task.ready_for_execution?).to be true
 
-      # Show detailed step information using ActiveRecord
-      puts "\nStep details using ActiveRecord models:"
-      task.workflow_steps.order(:workflow_step_id).each do |workflow_step|
-        puts "  Step #{workflow_step.workflow_step_id}: #{workflow_step.named_step.name} - processed: #{workflow_step.processed}, in_process: #{workflow_step.in_process}"
-      end
-
-      # Wait to see if orchestration loop claims the task
-      puts "\nWaiting 5 seconds to see if orchestration loop claims the task..."
-      sleep 5
-
-      # Check if task was claimed using ReadyTask model
-      ready_task_after_wait = TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id)
-
-      if ready_task_after_wait
-        puts "  Task #{task_id} status after wait: claim_status=#{ready_task_after_wait.claim_status}, claimed_by=#{ready_task_after_wait.claimed_by}"
-
-        # If task was claimed, we know orchestration loop is working
-        if ready_task_after_wait.claimed?
-          puts '  ✅ SUCCESS: Orchestration loop successfully claimed the task!'
-          expect(ready_task_after_wait.claimed_by).not_to be_nil
-        else
-          puts '  ⚠️  Task still available - orchestration loop may not be claiming linear_workflow tasks'
-        end
-      else
-        puts '  ⚠️  Task no longer in ready tasks view - may have been processed or removed'
-      end
-
-      # Also check if any steps were enqueued to the linear_workflow_queue using PgmqClient
-      begin
-        pgmq_client = TaskerCore::Messaging::PgmqClient.new
-        queue_stats = pgmq_client.queue_stats('linear_workflow_queue')
-        if queue_stats
-          puts "  linear_workflow_queue length: #{queue_stats[:queue_length]}"
-          puts '  ✅ SUCCESS: Steps were enqueued to linear_workflow_queue!' if queue_stats[:queue_length] > 0
-        else
-          puts '  ⚠️  Could not get queue stats for linear_workflow_queue'
-        end
-      rescue TaskerCore::Errors::DatabaseError,
-             PG::ConnectionBad,
-             ActiveRecord::ConnectionNotEstablished => e
-        puts "  ⚠️  Could not check queue stats due to connection error: #{e.message}"
-      end
+      expect { TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id) }.not_to raise_error
     end
   end
 end

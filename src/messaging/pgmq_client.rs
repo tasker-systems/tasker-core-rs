@@ -329,6 +329,119 @@ impl PgmqClient {
     }
 }
 
+/// Implement PgmqClientTrait for standard PgmqClient
+#[async_trait::async_trait]
+impl crate::messaging::PgmqClientTrait for PgmqClient {
+    async fn create_queue(
+        &self,
+        queue_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.create_queue(queue_name).await
+    }
+
+    async fn send_message(
+        &self,
+        queue_name: &str,
+        message: &PgmqStepMessage,
+    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+        self.send_message(queue_name, message).await
+    }
+
+    async fn send_json_message<T: serde::Serialize + Clone + Send + Sync>(
+        &self,
+        queue_name: &str,
+        message: &T,
+    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+        self.send_json_message(queue_name, message).await
+    }
+
+    async fn read_messages(
+        &self,
+        queue_name: &str,
+        visibility_timeout: Option<i32>,
+        qty: Option<i32>,
+    ) -> Result<
+        Vec<pgmq::types::Message<serde_json::Value>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.read_messages(queue_name, visibility_timeout, qty)
+            .await
+    }
+
+    async fn delete_message(
+        &self,
+        queue_name: &str,
+        message_id: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.delete_message(queue_name, message_id).await
+    }
+
+    async fn archive_message(
+        &self,
+        queue_name: &str,
+        message_id: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.archive_message(queue_name, message_id).await
+    }
+
+    async fn purge_queue(
+        &self,
+        queue_name: &str,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        self.purge_queue(queue_name).await
+    }
+
+    async fn drop_queue(
+        &self,
+        queue_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.drop_queue(queue_name).await
+    }
+
+    async fn queue_metrics(
+        &self,
+        queue_name: &str,
+    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
+        self.queue_metrics(queue_name).await
+    }
+
+    async fn initialize_namespace_queues(
+        &self,
+        namespaces: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.initialize_namespace_queues(namespaces).await
+    }
+
+    async fn enqueue_step(
+        &self,
+        namespace: &str,
+        step_message: PgmqStepMessage,
+    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+        self.enqueue_step(namespace, step_message).await
+    }
+
+    async fn process_namespace_queue(
+        &self,
+        namespace: &str,
+        visibility_timeout: Option<i32>,
+        batch_size: i32,
+    ) -> Result<
+        Vec<pgmq::types::Message<serde_json::Value>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.process_namespace_queue(namespace, visibility_timeout, batch_size)
+            .await
+    }
+
+    async fn complete_message(
+        &self,
+        namespace: &str,
+        message_id: i64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.complete_message(namespace, message_id).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

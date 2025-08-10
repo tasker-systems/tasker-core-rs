@@ -31,7 +31,9 @@
 //! For complete implementation details, see `docs/ORCHESTRATION_ANALYSIS.md`.
 
 pub mod backoff_calculator;
+pub mod bootstrap;
 pub mod config;
+pub mod core;
 pub mod error_classifier;
 pub mod errors;
 pub mod handler_config;
@@ -57,6 +59,10 @@ pub use backoff_calculator::{
     BackoffCalculator, BackoffCalculatorConfig, BackoffContext, BackoffError, BackoffResult,
     BackoffType,
 };
+pub use bootstrap::{
+    BootstrapConfig, OrchestrationBootstrap, OrchestrationSystemHandle, SystemStatus,
+};
+pub use core::OrchestrationCore;
 pub use orchestration_loop::{
     AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,
     OrchestrationCycleResult, OrchestrationLoop, OrchestrationLoopConfig, PerformanceMetrics,

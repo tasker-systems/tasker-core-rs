@@ -281,3 +281,12 @@ pub struct EventBridgeTestResult {
     pub events_published: i64,
     pub callbacks_triggered: i64,
 }
+
+/// Execute async code synchronously (for FFI modules)
+pub fn execute_async<F, R>(future: F) -> R
+where
+    F: std::future::Future<Output = R>,
+{
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    rt.block_on(future)
+}

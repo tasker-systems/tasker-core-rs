@@ -10,8 +10,8 @@
 //! 3. **Type Safety**: Shared types for cross-language compatibility
 
 use super::errors::*;
-use super::orchestration_system::*;
 use super::types::*;
+use crate::orchestration::OrchestrationCore;
 use tracing::{debug, info};
 
 // Import core models directly (available from main crate)
@@ -70,7 +70,7 @@ pub fn get_global_testing_factory() -> Arc<SharedTestingFactory> {
 /// - **Resource Efficiency**: Shares database pool through orchestration system
 #[derive(Clone)]
 pub struct SharedTestingFactory {
-    orchestration_system: Arc<OrchestrationSystem>,
+    orchestration_core: Arc<OrchestrationCore>,
 }
 
 impl Default for SharedTestingFactory {
@@ -80,18 +80,31 @@ impl Default for SharedTestingFactory {
 }
 
 impl SharedTestingFactory {
-    /// Create a new SharedTestingFactory using the shared orchestration system
+    /// Create a new SharedTestingFactory using the shared orchestration core
     pub fn new() -> Self {
-        debug!("🔧 SharedTestingFactory::new() - using shared orchestration system");
-        let orchestration_system = initialize_unified_orchestration_system();
+        debug!("🔧 SharedTestingFactory::new() - using shared orchestration core");
+
+        // Get database URL from environment
+        let _database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
+
+        // Create a synchronous runtime for initialization
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        let orchestration_core = rt.block_on(async {
+            OrchestrationCore::new()
+                .await
+                .expect("Failed to initialize OrchestrationCore")
+        });
+
         Self {
-            orchestration_system,
+            orchestration_core: Arc::new(orchestration_core),
         }
     }
 
-    /// Get database pool from orchestration system
+    /// Get database pool from orchestration core
     pub fn database_pool(&self) -> &PgPool {
-        self.orchestration_system.database_pool()
+        self.orchestration_core.database_pool()
     }
 
     /// Create test task using shared types
@@ -390,7 +403,7 @@ impl SharedTestingFactory {
 
         let result = execute_async(async {
             // Use factory's database pool for any setup operations
-            let pool = self.orchestration_system.database_pool();
+            let pool = self.orchestration_core.database_pool();
 
             EnvironmentSetupResult {
                 status: "initialized".to_string(),
@@ -409,7 +422,7 @@ impl SharedTestingFactory {
 
         let result = execute_async(async {
             // Use factory's database pool for cleanup operations
-            let pool = self.orchestration_system.database_pool();
+            let pool = self.orchestration_core.database_pool();
 
             EnvironmentCleanupResult {
                 status: "cleaned".to_string(),

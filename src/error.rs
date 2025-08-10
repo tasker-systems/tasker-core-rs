@@ -37,6 +37,12 @@ impl From<serde_json::Error> for TaskerError {
     }
 }
 
+impl From<crate::orchestration::TaskInitializationError> for TaskerError {
+    fn from(error: crate::orchestration::TaskInitializationError) -> Self {
+        TaskerError::OrchestrationError(format!("Task initialization failed: {error}"))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, TaskerError>;
 
 /// Specific orchestration error types for detailed error handling

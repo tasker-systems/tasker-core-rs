@@ -170,9 +170,21 @@ fn test_configurable_constants_via_config_manager() {
     let config = config_manager.config();
 
     // Test that configuration provides the values that were previously constants
-    assert_eq!(config.max_dependency_depth(), 50); // Default from YAML
-    assert_eq!(config.max_workflow_steps(), 1000); // Default from YAML
-    assert_eq!(config.system_version(), "0.1.0"); // Default from YAML
+    // Note: Values depend on TASKER_ENV - test environment has smaller limits for safety
+    let expected_max_depth = if std::env::var("TASKER_ENV").as_deref() == Ok("test") {
+        10
+    } else {
+        50
+    };
+    let expected_max_steps = if std::env::var("TASKER_ENV").as_deref() == Ok("test") {
+        100
+    } else {
+        1000
+    };
+
+    assert_eq!(config.max_dependency_depth(), expected_max_depth);
+    assert_eq!(config.max_workflow_steps(), expected_max_steps);
+    assert_eq!(config.system_version(), "0.1.0");
 }
 
 #[test]
