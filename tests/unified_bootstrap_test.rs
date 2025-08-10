@@ -13,11 +13,10 @@ async fn test_unified_bootstrap_architecture() -> Result<(), Box<dyn std::error:
 
     info!("🧪 Testing unified bootstrap architecture with circuit breakers");
 
-    // Set environment variables for test
-    env::set_var(
-        "DATABASE_URL",
-        "postgresql://tasker:tasker@localhost/tasker_rust_test",
-    );
+    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+    env::set_var("DATABASE_URL", database_url);
     env::set_var("TASKER_ENV", "test");
 
     // Test: Initialize OrchestrationCore with configuration
@@ -61,6 +60,12 @@ async fn test_circuit_breaker_manager_access() -> Result<(), Box<dyn std::error:
         .try_init();
 
     info!("🔧 Testing circuit breaker manager access");
+
+    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
+    env::set_var("DATABASE_URL", database_url);
+    env::set_var("TASKER_ENV", "test");
 
     let core = tasker_core::orchestration::OrchestrationCore::new().await?;
 

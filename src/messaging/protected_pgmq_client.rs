@@ -468,8 +468,10 @@ mod tests {
     #[ignore] // Requires PostgreSQL with pgmq extension
     async fn test_protected_client_creation() {
         let config = create_test_config();
-        let database_url = "postgresql://tasker:tasker@localhost:5432/tasker_rust_test";
-        let protected_client = ProtectedPgmqClient::new_with_config(database_url, &config).await;
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost:5432/tasker_rust_test".to_string()
+        });
+        let protected_client = ProtectedPgmqClient::new_with_config(&database_url, &config).await;
 
         assert!(protected_client.is_ok());
 
@@ -505,9 +507,12 @@ mod tests {
         // Create a minimal PostgreSQL connection pool for testing
         // Since this test only tests circuit breaker state transitions and doesn't actually
         // perform PGMQ operations, we can use a minimal setup
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
         let pool = match sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect("postgresql://tasker:tasker@localhost/tasker_rust_test")
+            .connect(&database_url)
             .await
         {
             Ok(pool) => pool,
