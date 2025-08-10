@@ -10,10 +10,10 @@ use std::fmt;
 pub enum SharedFFIError {
     /// Orchestration system initialization failed
     OrchestrationInitializationFailed(String),
-    
+
     /// Runtime creation failed
     RuntimeError(String),
-    
+
     /// Initialization error
     InitializationError(String),
 

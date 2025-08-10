@@ -26,13 +26,16 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_core::orchestration::step_result_processor::StepResultProcessor;
-//! use tasker_core::messaging::PgmqClient;
+//! use tasker_core::messaging::UnifiedPgmqClient;
+//! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
-//! # let pgmq_client = PgmqClient::new_with_pool(pool.clone()).await;
+//! # let pgmq_client = Arc::new(UnifiedPgmqClient::Standard(
+//! #     tasker_core::messaging::PgmqClient::new_with_pool(pool.clone()).await
+//! # ));
 //! let processor = StepResultProcessor::new(pool, pgmq_client).await?;
 //!
 //! // Process step results continuously
@@ -44,7 +47,9 @@
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClient, PgmqClientTrait, UnifiedPgmqClient, StepExecutionStatus, StepResultMessage};
+use crate::messaging::{
+    PgmqClientTrait, StepExecutionStatus, StepResultMessage, UnifiedPgmqClient,
+};
 use crate::orchestration::{
     result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer, StateManager,
 };

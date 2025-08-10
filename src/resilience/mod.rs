@@ -30,7 +30,7 @@
 //! // Use circuit breaker to protect operations
 //! let result = circuit_breaker.call(|| async {
 //!     // Database operation here
-//!     Ok("success")
+//!     Ok::<&str, Box<dyn std::error::Error>>("success")
 //! }).await?;
 //! # Ok(())
 //! # }

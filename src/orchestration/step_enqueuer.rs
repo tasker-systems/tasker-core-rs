@@ -26,14 +26,15 @@
 //!
 //! ```rust,no_run
 //! use tasker_core::orchestration::{step_enqueuer::StepEnqueuer, task_claimer::ClaimedTask};
-//! use tasker_core::messaging::PgmqClient;
+//! use tasker_core::messaging::{PgmqClient, UnifiedPgmqClient};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
 //! # let database_url = "postgresql://localhost/test";
 //! # let pgmq_client = PgmqClient::new(database_url).await
 //! #     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
-//! let enqueuer = StepEnqueuer::new(pool, pgmq_client).await?;
+//! # let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
+//! let enqueuer = StepEnqueuer::with_unified_client(pool, unified_client).await?;
 //!
 //! // Enqueue ready steps for a claimed task
 //! let claimed_task = ClaimedTask {
@@ -56,7 +57,9 @@ use crate::error::{Result, TaskerError};
 use crate::events::EventPublisher;
 use crate::messaging::message::SimpleStepMessage;
 use crate::messaging::message::{StepDependencyResult, StepExecutionContext};
-use crate::messaging::{PgmqClient, StepMessage, StepMessageMetadata};
+use crate::messaging::{
+    PgmqClient, PgmqClientTrait, StepMessage, StepMessageMetadata, UnifiedPgmqClient,
+};
 use crate::orchestration::{
     state_manager::StateManager, task_claimer::ClaimedTask, types::ViableStep,
     viable_step_discovery::ViableStepDiscovery,
@@ -141,15 +144,21 @@ impl StepEnqueuerConfig {
 /// Step enqueueing component for individual step processing
 pub struct StepEnqueuer {
     viable_step_discovery: ViableStepDiscovery,
-    pgmq_client: PgmqClient,
+    pgmq_client: UnifiedPgmqClient,
     pool: PgPool,
     config: StepEnqueuerConfig,
     state_manager: StateManager,
 }
 
 impl StepEnqueuer {
-    /// Create a new step enqueuer instance
+    /// Create a new step enqueuer instance (backward compatibility with standard client)
     pub async fn new(pool: PgPool, pgmq_client: PgmqClient) -> Result<Self> {
+        let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
+        Self::with_unified_client(pool, unified_client).await
+    }
+
+    /// Create a new step enqueuer with unified client (supports circuit breakers)
+    pub async fn with_unified_client(pool: PgPool, pgmq_client: UnifiedPgmqClient) -> Result<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let event_publisher = EventPublisher::new();
         let viable_step_discovery =
@@ -165,10 +174,20 @@ impl StepEnqueuer {
         })
     }
 
-    /// Create a new step enqueuer with custom configuration
+    /// Create a new step enqueuer with custom configuration (backward compatibility)
     pub async fn with_config(
         pool: PgPool,
         pgmq_client: PgmqClient,
+        config: StepEnqueuerConfig,
+    ) -> Result<Self> {
+        let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
+        Self::with_unified_client_and_config(pool, unified_client, config).await
+    }
+
+    /// Create a new step enqueuer with unified client and custom configuration
+    pub async fn with_unified_client_and_config(
+        pool: PgPool,
+        pgmq_client: UnifiedPgmqClient,
         config: StepEnqueuerConfig,
     ) -> Result<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());

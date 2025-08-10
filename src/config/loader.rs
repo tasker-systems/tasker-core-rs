@@ -622,6 +622,18 @@ dependency_graph:
   max_depth: 50
   cycle_detection_enabled: true
   optimization_enabled: true
+circuit_breakers:
+  enabled: false
+  global_settings:
+    max_circuit_breakers: 50
+    metrics_collection_interval_seconds: 30
+    auto_create_enabled: true
+    min_state_transition_interval_seconds: 1.0
+  default_config:
+    failure_threshold: 3
+    timeout_seconds: 5
+    success_threshold: 2
+  component_configs: {}
 
 system:
   default_dependent_system: "default"

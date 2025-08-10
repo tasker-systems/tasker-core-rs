@@ -1,9 +1,8 @@
 //! Integration test for unified bootstrap architecture with circuit breakers
 
 use std::env;
-use tokio;
-use tracing::{info, Level};
 use tasker_core::messaging::PgmqClientTrait;
+use tracing::{info, Level};
 
 #[tokio::test]
 async fn test_unified_bootstrap_architecture() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,17 +14,26 @@ async fn test_unified_bootstrap_architecture() -> Result<(), Box<dyn std::error:
     info!("🧪 Testing unified bootstrap architecture with circuit breakers");
 
     // Set environment variables for test
-    env::set_var("DATABASE_URL", "postgresql://tasker:tasker@localhost/tasker_rust_test");
+    env::set_var(
+        "DATABASE_URL",
+        "postgresql://tasker:tasker@localhost/tasker_rust_test",
+    );
     env::set_var("TASKER_ENV", "test");
-    
+
     // Test: Initialize OrchestrationCore with configuration
     info!("🔧 Test: Initialize with configuration");
     let core = tasker_core::orchestration::OrchestrationCore::new().await?;
 
     info!("✅ OrchestrationCore initialized successfully with configuration");
-    info!("🛡️ Circuit breakers enabled: {}", core.circuit_breakers_enabled());
-    info!("📊 Database pool active: {}", !core.database_pool().is_closed());
-    
+    info!(
+        "🛡️ Circuit breakers enabled: {}",
+        core.circuit_breakers_enabled()
+    );
+    info!(
+        "📊 Database pool active: {}",
+        !core.database_pool().is_closed()
+    );
+
     // Test basic functionality - queue initialization
     let namespaces = &["test_unified_bootstrap"];
     core.initialize_queues(namespaces).await?;
@@ -38,7 +46,7 @@ async fn test_unified_bootstrap_architecture() -> Result<(), Box<dyn std::error:
         Ok(()) => info!("✅ Unified client queue initialization successful"),
         Err(e) => {
             info!("❌ Unified client failed: {}", e);
-            return Err(format!("Unified client failed: {}", e).into());
+            return Err(format!("Unified client failed: {e}").into());
         }
     }
 
@@ -53,16 +61,22 @@ async fn test_circuit_breaker_manager_access() -> Result<(), Box<dyn std::error:
         .try_init();
 
     info!("🔧 Testing circuit breaker manager access");
-    
+
     let core = tasker_core::orchestration::OrchestrationCore::new().await?;
 
     // Check circuit breaker manager is accessible
     let cb_manager = core.circuit_breaker_manager();
-    info!("🛡️ Circuit breaker manager present: {}", cb_manager.is_some());
-    
+    info!(
+        "🛡️ Circuit breaker manager present: {}",
+        cb_manager.is_some()
+    );
+
     // With configuration, circuit breakers should be enabled in test environment
-    info!("🛡️ Circuit breakers enabled: {}", core.circuit_breakers_enabled());
-    
+    info!(
+        "🛡️ Circuit breakers enabled: {}",
+        core.circuit_breakers_enabled()
+    );
+
     info!("✅ Circuit breaker manager access test passed");
     Ok(())
 }

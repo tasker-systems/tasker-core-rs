@@ -35,16 +35,21 @@ impl SharedOrchestrationHandle {
         info!("Creating shared orchestration handle with persistent references");
 
         // Initialize resources ONCE - these will be shared across all operations
-        let _database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        
+        let _database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
+
         // Create a synchronous runtime for initialization
         let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| SharedFFIError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
-        
-        let orchestration_core = rt.block_on(async {
-            OrchestrationCore::new().await
-        }).map_err(|e| SharedFFIError::InitializationError(format!("Failed to initialize OrchestrationCore: {}", e)))?;
+            .map_err(|e| SharedFFIError::RuntimeError(format!("Failed to create runtime: {e}")))?;
+
+        let orchestration_core = rt
+            .block_on(async { OrchestrationCore::new().await })
+            .map_err(|e| {
+                SharedFFIError::InitializationError(format!(
+                    "Failed to initialize OrchestrationCore: {e}"
+                ))
+            })?;
 
         let handle_id = format!(
             "shared_handle_{}",

@@ -83,17 +83,20 @@ impl SharedTestingFactory {
     /// Create a new SharedTestingFactory using the shared orchestration core
     pub fn new() -> Self {
         debug!("🔧 SharedTestingFactory::new() - using shared orchestration core");
-        
+
         // Get database URL from environment
-        let _database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-        
+        let _database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
+        });
+
         // Create a synchronous runtime for initialization
         let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
         let orchestration_core = rt.block_on(async {
-            OrchestrationCore::new().await.expect("Failed to initialize OrchestrationCore")
+            OrchestrationCore::new()
+                .await
+                .expect("Failed to initialize OrchestrationCore")
         });
-        
+
         Self {
             orchestration_core: Arc::new(orchestration_core),
         }

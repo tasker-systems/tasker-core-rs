@@ -134,7 +134,7 @@ pub struct TaskerConfig {
 
     /// Orchestration system configuration
     pub orchestration: OrchestrationConfig,
-    
+
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
 }
@@ -483,13 +483,13 @@ impl EmbeddedOrchestratorConfig {
 pub struct CircuitBreakerConfig {
     /// Whether circuit breakers are enabled globally
     pub enabled: bool,
-    
+
     /// Global circuit breaker settings
     pub global_settings: CircuitBreakerGlobalSettings,
-    
+
     /// Default configuration for new circuit breakers
     pub default_config: CircuitBreakerComponentConfig,
-    
+
     /// Specific configurations for named components
     pub component_configs: HashMap<String, CircuitBreakerComponentConfig>,
 }
@@ -499,13 +499,13 @@ pub struct CircuitBreakerConfig {
 pub struct CircuitBreakerGlobalSettings {
     /// Maximum number of circuit breakers allowed
     pub max_circuit_breakers: usize,
-    
+
     /// Interval for metrics collection and reporting in seconds
     pub metrics_collection_interval_seconds: u64,
-    
+
     /// Whether to enable automatic circuit breaker creation
     pub auto_create_enabled: bool,
-    
+
     /// Minimum interval between state transitions in seconds (prevents oscillation)
     pub min_state_transition_interval_seconds: f64,
 }
@@ -515,10 +515,10 @@ pub struct CircuitBreakerGlobalSettings {
 pub struct CircuitBreakerComponentConfig {
     /// Number of consecutive failures before opening circuit
     pub failure_threshold: usize,
-    
+
     /// Time to wait in open state before attempting recovery (in seconds)
     pub timeout_seconds: u64,
-    
+
     /// Number of successful calls in half-open state to close circuit
     pub success_threshold: usize,
 }
@@ -531,7 +531,6 @@ impl CircuitBreakerConfig {
             .cloned()
             .unwrap_or_else(|| self.default_config.clone())
     }
-    
 }
 
 impl CircuitBreakerComponentConfig {
@@ -550,9 +549,13 @@ impl CircuitBreakerGlobalSettings {
     pub fn to_resilience_config(&self) -> crate::resilience::config::GlobalCircuitBreakerSettings {
         crate::resilience::config::GlobalCircuitBreakerSettings {
             max_circuit_breakers: self.max_circuit_breakers,
-            metrics_collection_interval: Duration::from_secs(self.metrics_collection_interval_seconds),
+            metrics_collection_interval: Duration::from_secs(
+                self.metrics_collection_interval_seconds,
+            ),
             auto_create_enabled: self.auto_create_enabled,
-            min_state_transition_interval: Duration::from_secs_f64(self.min_state_transition_interval_seconds),
+            min_state_transition_interval: Duration::from_secs_f64(
+                self.min_state_transition_interval_seconds,
+            ),
         }
     }
 }
@@ -730,16 +733,22 @@ impl Default for TaskerConfig {
                 },
                 component_configs: {
                     let mut configs = HashMap::new();
-                    configs.insert("database".to_string(), CircuitBreakerComponentConfig {
-                        failure_threshold: 5,
-                        timeout_seconds: 60,
-                        success_threshold: 3,
-                    });
-                    configs.insert("pgmq".to_string(), CircuitBreakerComponentConfig {
-                        failure_threshold: 3,
-                        timeout_seconds: 15,
-                        success_threshold: 2,
-                    });
+                    configs.insert(
+                        "database".to_string(),
+                        CircuitBreakerComponentConfig {
+                            failure_threshold: 5,
+                            timeout_seconds: 60,
+                            success_threshold: 3,
+                        },
+                    );
+                    configs.insert(
+                        "pgmq".to_string(),
+                        CircuitBreakerComponentConfig {
+                            failure_threshold: 3,
+                            timeout_seconds: 15,
+                            success_threshold: 2,
+                        },
+                    );
                     configs
                 },
             },

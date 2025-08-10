@@ -1,4 +1,4 @@
-//! # Error Translation Layer - Migrated to Shared Error System  
+//! # Error Translation Layer - Migrated to Shared Error System
 //!
 //! MIGRATION STATUS: ✅ COMPLETED - Now uses shared error types from src/ffi/shared/
 //! This file provides Ruby-specific error translation while leveraging shared error types
@@ -31,10 +31,9 @@ pub fn shared_error_to_ruby(error: SharedFFIError) -> Error {
             exception::standard_error(),
             format!("Orchestration initialization failed: {msg}"),
         ),
-        SharedFFIError::RuntimeError(msg) => Error::new(
-            exception::runtime_error(),
-            format!("Runtime error: {msg}"),
-        ),
+        SharedFFIError::RuntimeError(msg) => {
+            Error::new(exception::runtime_error(), format!("Runtime error: {msg}"))
+        }
         SharedFFIError::InitializationError(msg) => Error::new(
             exception::standard_error(),
             format!("Initialization error: {msg}"),

@@ -5,8 +5,8 @@
 
 use super::errors::*;
 use super::types::*;
-use crate::orchestration::OrchestrationCore;
 use crate::events::EventPublisher;
+use crate::orchestration::OrchestrationCore;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -41,13 +41,15 @@ impl SharedEventBridge {
     /// Create new event bridge using shared orchestration core
     pub fn new() -> Self {
         debug!("🔧 SharedEventBridge::new() - using shared orchestration core");
-        
+
         // Create a synchronous runtime for initialization
         let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
         let orchestration_core = rt.block_on(async {
-            OrchestrationCore::new().await.expect("Failed to initialize OrchestrationCore")
+            OrchestrationCore::new()
+                .await
+                .expect("Failed to initialize OrchestrationCore")
         });
-        
+
         let event_publisher = EventPublisher::new();
 
         Self {

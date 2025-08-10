@@ -5,7 +5,7 @@
 //! validated tasks for orchestration processing.
 
 use crate::error::{Result, TaskerError};
-use crate::messaging::{PgmqClient, PgmqClientTrait, UnifiedPgmqClient, TaskRequestMessage};
+use crate::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
 use crate::models::core::task_request::TaskRequest;
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::registry::TaskHandlerRegistry;

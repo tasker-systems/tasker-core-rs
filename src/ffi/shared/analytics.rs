@@ -5,8 +5,8 @@
 
 use super::errors::*;
 use super::types::*;
-use crate::orchestration::OrchestrationCore;
 use crate::database::sql_functions::SqlFunctionExecutor;
+use crate::orchestration::OrchestrationCore;
 use serde_json::json;
 use tracing::{debug, info};
 
@@ -25,14 +25,16 @@ impl SharedAnalyticsManager {
     /// Create new analytics manager using shared orchestration core
     pub fn new() -> Self {
         debug!("🔧 SharedAnalyticsManager::new() - using shared orchestration core");
-        
+
         // Get database URL from environment
         // Create a synchronous runtime for initialization
         let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
         let orchestration_core = rt.block_on(async {
-            OrchestrationCore::new().await.expect("Failed to initialize OrchestrationCore")
+            OrchestrationCore::new()
+                .await
+                .expect("Failed to initialize OrchestrationCore")
         });
-        
+
         let sql_executor = SqlFunctionExecutor::new(orchestration_core.database_pool().clone());
 
         Self { sql_executor }

@@ -57,7 +57,7 @@ module TaskerCore
 
         # Log the transition for debugging
         effective_current_state = StepStateMachine.effective_current_state(step)
-        logger.debug do
+        .logger.debug do
           "Step #{step.workflow_step_id} transitioning from #{effective_current_state} to #{transition.to_state}"
         end
       end
@@ -373,26 +373,26 @@ module TaskerCore
         # @param event_name [String] The event name
         # @param context [Hash] The event context
         # @return [void]
-        def safe_fire_event(event_name, context = {})
+        def safe_fire_event(_event_name, context = {})
           # Use EventPayloadBuilder for consistent payload structure
-          step = extract_step_from_context(context)
-          task = step&.task
+          # step = extract_step_from_context(context)
+          # task = step&.task
 
-          if step && task
-            # Determine event type from event name
-            event_type = determine_event_type_from_name(event_name)
+          # if step && task
+          #   # Determine event type from event name
+          #   event_type = determine_event_type_from_name(event_name)
 
-            # TODO: Implement EventPayloadBuilder for standardized payload
-            # enhanced_context = Tasker::Events::EventPayloadBuilder.build_step_payload(
-            #   step,
-            #   task,
-            #   event_type: event_type,
-            #   additional_context: context
-            # )
-          else
-            # TODO: Implement fallback logic for enhanced context
-            # enhanced_context = build_standardized_payload(event_name, context)
-          end
+          #   # TODO: Implement EventPayloadBuilder for standardized payload
+          #   enhanced_context = Tasker::Events::EventPayloadBuilder.build_step_payload(
+          #     step,
+          #     task,
+          #     event_type: event_type,
+          #     additional_context: context
+          #   )
+          # else
+          #   # TODO: Implement fallback logic for enhanced context
+          #   enhanced_context = build_standardized_payload(event_name, context)
+          # end
 
           # publish_event(event_name, enhanced_context)
         end

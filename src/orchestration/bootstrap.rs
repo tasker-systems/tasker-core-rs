@@ -7,7 +7,7 @@
 //! - Testing environments
 //!
 //! ## Key Features
-//! 
+//!
 //! - **Environment-Aware Configuration**: Uses TaskerConfig with environment detection
 //! - **Circuit Breaker Integration**: Automatically configured based on settings
 //! - **Lifecycle Management**: Start/stop/status operations for all deployment modes
@@ -57,9 +57,9 @@ impl OrchestrationSystemHandle {
     /// Stop the orchestration system
     pub fn stop(&mut self) -> Result<()> {
         if let Some(sender) = self.shutdown_sender.take() {
-            sender
-                .send(())
-                .map_err(|_| TaskerError::OrchestrationError("Failed to send shutdown signal".to_string()))?;
+            sender.send(()).map_err(|_| {
+                TaskerError::OrchestrationError("Failed to send shutdown signal".to_string())
+            })?;
             info!("🛑 Orchestration system shutdown requested");
             Ok(())
         } else {
@@ -76,8 +76,14 @@ impl OrchestrationSystemHandle {
             circuit_breakers_enabled: self.orchestration_core.circuit_breakers_enabled(),
             database_pool_size: self.orchestration_core.database_pool().size(),
             database_pool_idle: self.orchestration_core.database_pool().num_idle(),
-            database_url_preview: self.config_manager.config().database_url()
-                .chars().take(30).collect::<String>() + "...",
+            database_url_preview: self
+                .config_manager
+                .config()
+                .database_url()
+                .chars()
+                .take(30)
+                .collect::<String>()
+                + "...",
         }
     }
 }
@@ -120,8 +126,8 @@ impl Default for BootstrapConfig {
 impl BootstrapConfig {
     /// Create BootstrapConfig from ConfigManager for configuration-driven bootstrap
     pub fn from_config_manager(
-        config_manager: &crate::config::ConfigManager, 
-        namespaces: Vec<String>
+        config_manager: &crate::config::ConfigManager,
+        namespaces: Vec<String>,
     ) -> Self {
         Self {
             namespaces,
@@ -148,39 +154,53 @@ impl OrchestrationBootstrap {
     /// Handle for managing the orchestration system lifecycle
     pub async fn bootstrap(config: BootstrapConfig) -> Result<OrchestrationSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap");
-        
+
         // Load configuration manager with environment detection
         let config_manager = if let Some(env) = &config.environment_override {
             if let Some(config_dir) = &config.config_directory {
-                ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), env)
-                    .map_err(|e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")))?
+                ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), env).map_err(
+                    |e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")),
+                )?
             } else {
-                ConfigManager::load_from_directory_with_env(None, env)
-                    .map_err(|e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")))?
+                ConfigManager::load_from_directory_with_env(None, env).map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
+                })?
             }
         } else if let Some(config_dir) = &config.config_directory {
-            ConfigManager::load_from_directory(Some(config_dir.clone()))
-                .map_err(|e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")))?
+            ConfigManager::load_from_directory(Some(config_dir.clone())).map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
+            })?
         } else {
-            ConfigManager::load()
-                .map_err(|e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")))?
+            ConfigManager::load().map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
+            })?
         };
 
-        info!("✅ BOOTSTRAP: Configuration loaded for environment: {}", config_manager.environment());
-        info!("🛡️ BOOTSTRAP: Circuit breakers enabled: {}", config_manager.config().circuit_breakers.enabled);
+        info!(
+            "✅ BOOTSTRAP: Configuration loaded for environment: {}",
+            config_manager.environment()
+        );
+        info!(
+            "🛡️ BOOTSTRAP: Circuit breakers enabled: {}",
+            config_manager.config().circuit_breakers.enabled
+        );
 
         // Initialize OrchestrationCore with unified configuration
-        let orchestration_core = Arc::new(
-            OrchestrationCore::from_config(config_manager.clone()).await?
-        );
+        let orchestration_core =
+            Arc::new(OrchestrationCore::from_config(config_manager.clone()).await?);
 
         info!("✅ BOOTSTRAP: OrchestrationCore initialized with unified configuration");
 
         // Initialize namespace queues
         if !config.namespaces.is_empty() {
             let namespace_refs: Vec<&str> = config.namespaces.iter().map(|s| s.as_str()).collect();
-            orchestration_core.initialize_queues(&namespace_refs).await?;
-            info!("✅ BOOTSTRAP: Initialized queues for namespaces: {:?}", config.namespaces);
+            orchestration_core
+                .initialize_queues(&namespace_refs)
+                .await?;
+            info!(
+                "✅ BOOTSTRAP: Initialized queues for namespaces: {:?}",
+                config.namespaces
+            );
         }
 
         // Create runtime handle
@@ -192,10 +212,11 @@ impl OrchestrationBootstrap {
         // Start processors if auto-start is enabled
         if config.auto_start_processors {
             Self::start_processors(
-                orchestration_core.clone(), 
+                orchestration_core.clone(),
                 shutdown_receiver,
-                runtime_handle.clone()
-            ).await?;
+                runtime_handle.clone(),
+            )
+            .await?;
         } else {
             info!("📋 BOOTSTRAP: Processors not auto-started - manual control mode");
             // If not auto-starting, we need to consume the receiver somehow
@@ -224,7 +245,7 @@ impl OrchestrationBootstrap {
         _runtime_handle: tokio::runtime::Handle,
     ) -> Result<()> {
         info!("🚀 BOOTSTRAP: Starting orchestration processors with sequential startup");
-        
+
         // STEP 1: Warm up the database connection pool to prevent race conditions
         info!("🔥 BOOTSTRAP: Warming up database connection pool");
         match orchestration_core.database_pool().acquire().await {
@@ -234,17 +255,19 @@ impl OrchestrationBootstrap {
             }
             Err(e) => {
                 error!("❌ BOOTSTRAP: Failed to warm up connection pool: {}", e);
-                return Err(TaskerError::DatabaseError(format!("Connection pool warmup failed: {e}")));
+                return Err(TaskerError::DatabaseError(format!(
+                    "Connection pool warmup failed: {e}"
+                )));
             }
         }
-        
+
         // STEP 2: Clone processor references for sequential startup
         let orchestration_loop = Arc::clone(&orchestration_core.orchestration_loop);
         let task_request_processor = Arc::clone(&orchestration_core.task_request_processor);
         let step_result_processor = Arc::clone(&orchestration_core.step_result_processor);
 
         // STEP 3: Start processors sequentially with small delays to prevent connection race conditions
-        
+
         // Start orchestration loop first
         let orchestration_task = tokio::spawn(async move {
             info!("🔄 BOOTSTRAP: Orchestration loop started - beginning continuous operation");
@@ -255,7 +278,7 @@ impl OrchestrationBootstrap {
             }
         });
         let orchestration_abort_handle = orchestration_task.abort_handle();
-        
+
         // Small delay to let orchestration loop initialize its connections
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -267,7 +290,7 @@ impl OrchestrationBootstrap {
             }
         });
         let task_request_abort_handle = task_request_task.abort_handle();
-        
+
         // Small delay to let task request processor initialize its connections
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -279,7 +302,7 @@ impl OrchestrationBootstrap {
             }
         });
         let step_result_abort_handle = step_result_task.abort_handle();
-        
+
         // Final small delay to ensure all processors have started before returning
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 

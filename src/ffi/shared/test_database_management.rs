@@ -11,7 +11,6 @@
 //! - **Safe Defaults**: Fail-fast if not in test environment
 
 use crate::ffi::shared::errors::SharedFFIError;
-use crate::messaging::pgmq_client::PgmqClient;
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::time::SystemTime;

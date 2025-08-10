@@ -2,7 +2,9 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{CircuitBreakerConfig, CircuitBreakerGlobalSettings, CircuitBreakerComponentConfig};
+    use crate::config::{
+        CircuitBreakerComponentConfig, CircuitBreakerConfig, CircuitBreakerGlobalSettings,
+    };
     use crate::resilience::CircuitBreakerManager;
     use std::collections::HashMap;
 
@@ -11,21 +13,30 @@ mod tests {
     async fn test_yaml_based_circuit_breaker_configuration() {
         // Create a YAML-compatible configuration structure
         let mut component_configs = HashMap::new();
-        component_configs.insert("database".to_string(), CircuitBreakerComponentConfig {
-            failure_threshold: 3,
-            timeout_seconds: 45,
-            success_threshold: 2,
-        });
-        component_configs.insert("pgmq".to_string(), CircuitBreakerComponentConfig {
-            failure_threshold: 2,
-            timeout_seconds: 10,
-            success_threshold: 1,
-        });
-        component_configs.insert("external_api".to_string(), CircuitBreakerComponentConfig {
-            failure_threshold: 4,
-            timeout_seconds: 30,
-            success_threshold: 2,
-        });
+        component_configs.insert(
+            "database".to_string(),
+            CircuitBreakerComponentConfig {
+                failure_threshold: 3,
+                timeout_seconds: 45,
+                success_threshold: 2,
+            },
+        );
+        component_configs.insert(
+            "pgmq".to_string(),
+            CircuitBreakerComponentConfig {
+                failure_threshold: 2,
+                timeout_seconds: 10,
+                success_threshold: 1,
+            },
+        );
+        component_configs.insert(
+            "external_api".to_string(),
+            CircuitBreakerComponentConfig {
+                failure_threshold: 4,
+                timeout_seconds: 30,
+                success_threshold: 2,
+            },
+        );
 
         let yaml_config = CircuitBreakerConfig {
             enabled: true,
@@ -98,7 +109,10 @@ mod tests {
         assert_eq!(test_breaker.name(), "test_component");
 
         // All circuit breakers should start in closed state and be healthy
-        let metrics = manager.get_component_metrics("test_component").await.unwrap();
+        let metrics = manager
+            .get_component_metrics("test_component")
+            .await
+            .unwrap();
         assert_eq!(metrics.total_calls, 0);
         assert_eq!(metrics.failure_count, 0);
     }

@@ -720,11 +720,11 @@ impl StateManager {
     /// Mark a task as in progress when steps have been enqueued
     pub async fn mark_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
         debug!(task_id = task_id, "Marking task as in progress");
-        
+
         // Check current state to avoid invalid transitions
         let task_state_machine = self.get_or_create_task_state_machine(task_id).await?;
         let current_state = task_state_machine.current_state().await?;
-        
+
         if current_state == TaskState::InProgress {
             debug!(
                 task_id = task_id,
@@ -733,13 +733,13 @@ impl StateManager {
             );
             return Ok(());
         }
-        
+
         debug!(
-            task_id = task_id, 
+            task_id = task_id,
             current_state = %current_state,
             "Transitioning task to in_progress"
         );
-        
+
         self.transition_task_state(task_id, TaskState::InProgress)
             .await
     }

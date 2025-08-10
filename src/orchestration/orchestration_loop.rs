@@ -25,20 +25,24 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_core::orchestration::orchestration_loop::OrchestrationLoop;
-//! use tasker_core::messaging::PgmqClient;
+//! use tasker_core::orchestration::orchestration_loop::{OrchestrationLoop, OrchestrationLoopConfig};
+//! use tasker_core::messaging::{PgmqClient, UnifiedPgmqClient};
 //! use sqlx::PgPool;
+//! use std::sync::Arc;
 //!
 //! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let database_url = "postgresql://localhost/tasker";
 //! let pgmq_client = PgmqClient::new(database_url).await
 //!     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
+//! let unified_client = Arc::new(UnifiedPgmqClient::Standard(pgmq_client));
 //! let orchestrator_id = "orchestrator-host123-uuid".to_string();
+//! let config = OrchestrationLoopConfig::default();
 //!
-//! let orchestration_loop = OrchestrationLoop::new(
+//! let orchestration_loop = OrchestrationLoop::with_unified_client(
 //!     pool,
-//!     pgmq_client,
+//!     unified_client,
 //!     orchestrator_id,
+//!     config,
 //! ).await?;
 //!
 //! // Run a single orchestration cycle
@@ -53,7 +57,7 @@
 //! ```
 
 use crate::error::Result;
-use crate::messaging::{PgmqClient, PgmqClientTrait};
+use crate::messaging::PgmqClient;
 use crate::orchestration::{
     step_enqueuer::{StepEnqueuer, StepEnqueuerConfig},
     step_result_processor::{StepResultProcessor, StepResultProcessorConfig},
@@ -259,18 +263,42 @@ impl OrchestrationLoop {
         Self::with_config(pool, pgmq_client, orchestrator_id, config).await
     }
 
-    /// Create a new orchestration loop with trait-compatible client
-    pub async fn with_trait_client<T: PgmqClientTrait>(
+    /// Create a new orchestration loop with unified client (supports circuit breakers)
+    pub async fn with_unified_client(
         pool: PgPool,
-        pgmq_client: Arc<T>,
+        unified_client: Arc<crate::messaging::UnifiedPgmqClient>,
         orchestrator_id: String,
         config: OrchestrationLoopConfig,
     ) -> Result<Self> {
-        // For backwards compatibility, we need a concrete PgmqClient
-        // TODO: Update StepEnqueuer and StepResultProcessor to accept PgmqClientTrait
-        warn!("⚠️ OrchestrationLoop using trait client but delegating to concrete client for component compatibility");
-        let concrete_client = PgmqClient::new_with_pool(pool.clone()).await;
-        Self::with_config(pool, concrete_client, orchestrator_id, config).await
+        let task_claimer = TaskClaimer::with_config(
+            pool.clone(),
+            orchestrator_id.clone(),
+            config.task_claimer_config.clone(),
+        );
+
+        // StepEnqueuer now accepts UnifiedPgmqClient directly
+        let step_enqueuer = StepEnqueuer::with_unified_client_and_config(
+            pool.clone(),
+            unified_client.as_ref().clone(),
+            config.step_enqueuer_config.clone(),
+        )
+        .await?;
+
+        // StepResultProcessor accepts UnifiedPgmqClient directly
+        let step_result_processor = StepResultProcessor::with_config(
+            pool.clone(),
+            unified_client.clone(),
+            config.step_result_processor_config.clone(),
+        )
+        .await?;
+
+        Ok(Self {
+            task_claimer,
+            step_enqueuer,
+            step_result_processor,
+            orchestrator_id,
+            config,
+        })
     }
 
     /// Create a new orchestration loop with custom configuration
@@ -293,10 +321,9 @@ impl OrchestrationLoop {
         )
         .await?;
 
-        // For OrchestrationLoop, create a new standard client for StepResultProcessor
-        // This is temporary until all components accept UnifiedPgmqClient consistently
+        // Create standard unified client for StepResultProcessor
         let step_result_client = Arc::new(crate::messaging::UnifiedPgmqClient::Standard(
-            PgmqClient::new_with_pool(pool.clone()).await,
+            pgmq_client.clone(),
         ));
         let step_result_processor = StepResultProcessor::with_config(
             pool.clone(),
