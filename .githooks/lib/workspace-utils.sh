@@ -90,7 +90,8 @@ validate_workspace() {
     # Additional checks based on type
     case "$check_type" in
         "pre-push"|"full")
-            run_workspace_command "test suite" "🧪" cargo test --all-features
+            # our CI runs these and it is prohibitive to run all tests each time we push
+            # run_workspace_command "test suite" "🧪" cargo test --all-features
             run_workspace_command "documentation build" "📚" cargo doc --no-deps --document-private-items --quiet
             ;;
         "pre-commit")

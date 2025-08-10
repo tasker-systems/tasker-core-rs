@@ -52,8 +52,8 @@ def safely_shutdown_db_connections
   end
   begin
     ActiveRecord::Base.connection_pool.disconnect! if defined?(ActiveRecord)
-  rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad => disconnect_error
-    puts "⚠️ Failed to disconnect ActiveRecord connections: #{disconnect_error.message}"
+  rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad => e
+    puts "⚠️ Failed to disconnect ActiveRecord connections: #{e.message}"
   end
 end
 
@@ -75,11 +75,17 @@ RSpec.configure do |config|
     set_environment_variables
     result = TaskerCore.setup_test_database(database_url)
 
-    raise TaskerCore::Errors::OrchestrationError, "Test database setup failed: #{result['message']}" unless result['status'] == 'success'
+    unless result['status'] == 'success'
+      raise TaskerCore::Errors::OrchestrationError,
+            "Test database setup failed: #{result['message']}"
+    end
 
     boot_result = TaskerCore::Boot.boot!(force_reload: true)
 
-    raise TaskerCore::Errors::OrchestrationError, "TaskerCore boot failed: #{boot_result[:error]}" unless boot_result[:success]
+    unless boot_result[:success]
+      raise TaskerCore::Errors::OrchestrationError,
+            "TaskerCore boot failed: #{boot_result[:error]}"
+    end
   end
 
   # Per-test cleanup to prevent stale data issues

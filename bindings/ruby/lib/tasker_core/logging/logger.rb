@@ -103,15 +103,15 @@ module TaskerCore
       # Build unified message format that matches Rust structured logging output
       def build_unified_message(component, operation, **data)
         base_message = "#{component}: #{operation}"
-        
+
         # Add structured data if provided (for JSON logs or debugging)
         if data.any? && structured_logging_enabled?
           structured_data = data.merge(
             timestamp: Time.now.utc.iso8601,
-            component: component.gsub(/[🎯📋🔄🚀🔧💾🌉⚙️📚❌⚠️✅]/, '').strip, # Remove emoji for structured field
+            component: component.gsub(/[🎯📋🔄🚀🔧💾🌉⚙️📚❌⚠✅]/, '').strip, # Remove emoji for structured field
             operation: operation
           )
-          
+
           "#{base_message} | #{JSON.generate(structured_data)}"
         else
           base_message
@@ -123,7 +123,7 @@ module TaskerCore
         # Check if message contains structured data (has JSON part)
         if msg.include?(' | {')
           base_msg, json_data = msg.split(' | ', 2)
-          
+
           # In development, show readable format
           if development_environment?
             "[#{datetime}] #{severity} TaskerCore: #{base_msg}\n"

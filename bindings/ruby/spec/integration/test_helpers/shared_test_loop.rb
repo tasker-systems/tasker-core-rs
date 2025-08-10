@@ -100,7 +100,8 @@ class SharedTestLoop
 
     unless task_result[:success]
       error_msg = task_result[:error] || 'Unknown task creation error'
-      raise TaskerCore::Errors::OrchestrationError, "Task creation failed: #{error_msg}, task result is #{task_result.inspect}"
+      raise TaskerCore::Errors::OrchestrationError,
+            "Task creation failed: #{error_msg}, task result is #{task_result.inspect}"
     end
 
     task_result[:task_id]

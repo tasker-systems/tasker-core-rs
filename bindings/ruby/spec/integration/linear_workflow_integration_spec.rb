@@ -232,7 +232,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task_id = task_result[:task_id]
 
       expect(task_id).to be_a(Integer)
-      expect(task_id).to be > 0 # rubocop:disable Style/NumericPredicate
+      expect(task_id).to be > 0
 
       # Check task execution context using function-based approach
       task_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
@@ -241,7 +241,6 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
 
       task.workflow_steps.order(:workflow_step_id).each do |step|
-
         # Check step readiness status using function-based approach
         readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id,
                                                                                                         [step.workflow_step_id])
@@ -251,7 +250,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       end
       # Assertions
       expect(task_context.total_steps).to eq(4) # Linear workflow has 4 steps
-      expect(task_context.ready_steps).to be > 0, 'Expected at least one ready step after task initialization' # rubocop:disable Style/NumericPredicate
+      expect(task_context.ready_steps).to be > 0, 'Expected at least one ready step after task initialization'
       expect(task_context.execution_status).to eq('has_ready_steps').or eq('in_progress').or eq('pending')
     end
 
@@ -274,7 +273,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task_id = task_result[:task_id]
 
       expect(task_id).to be_a(Integer)
-      expect(task_id).to be > 0 # rubocop:disable Style/NumericPredicate
+      expect(task_id).to be > 0
 
       # First, let's check the task itself
       task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
@@ -285,7 +284,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
 
       expect(ready_task.namespace_name).to eq('linear_workflow')
-      expect(ready_task.ready_steps_count.to_i).to be > 0 # rubocop:disable Style/NumericPredicate
+      expect(ready_task.ready_steps_count.to_i).to be > 0
       expect(ready_task.claim_status).to eq('available')
 
       # Test our convenience methods

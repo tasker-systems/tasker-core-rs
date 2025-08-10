@@ -57,7 +57,7 @@ module TaskerCore
 
         # Log the transition for debugging
         effective_current_state = StepStateMachine.effective_current_state(step)
-        .logger.debug do
+                                                  .logger.debug do
           "Step #{step.workflow_step_id} transitioning from #{effective_current_state} to #{transition.to_state}"
         end
       end
@@ -204,7 +204,9 @@ module TaskerCore
       # DEFENSIVE: Only creates transitions when explicitly needed
       def initialize_state_machine!
         # Check if state machine is already initialized
-        return current_state if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_id: object.workflow_step_id)
+        if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_id: object.workflow_step_id)
+          return current_state
+        end
 
         # DEFENSIVE: Use a rescue block instead of transaction to handle race conditions gracefully
         begin

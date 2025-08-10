@@ -49,6 +49,8 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
             tags: None,
             context: Some(serde_json::json!({"test": "context"})),
             identity_hash: "test_hash_workflow_step".to_string(),
+            priority: Some(5),
+            claim_timeout_seconds: Some(300),
         },
     )
     .await?;

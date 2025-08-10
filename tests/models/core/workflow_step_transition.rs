@@ -57,6 +57,8 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
                 "test_hash_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
             ),
+            priority: Some(5),
+            claim_timeout_seconds: Some(300),
         },
     )
     .await?;

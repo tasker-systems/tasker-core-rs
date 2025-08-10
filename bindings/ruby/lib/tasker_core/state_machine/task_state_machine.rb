@@ -12,7 +12,6 @@ module TaskerCore
     # This state machine manages task lifecycle states and integrates with
     # the existing event system to provide declarative state management.
     class TaskStateMachine
-
       class << self
         def logger
           TaskerCore::Logging::Logger.instance
