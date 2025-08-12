@@ -20,5 +20,4 @@ SELECT "tasker_workflow_step_edges".* FROM "tasker_workflow_step_edges" WHERE "t
 
 -- Scope: provides_to_children
 -- NOTE: This scope requires parameters - SQL generated with dummy values
-SELECT "tasker_workflow_step_edges".* FROM "tasker_workflow_step_edges" WHERE "tasker_workflow_step_edges"."name" = 'provides' AND "tasker_workflow_step_edges"."to_step_id" IN (SELECT workflow_step_id FROM "tasker_workflow_step_edges" WHERE "tasker_workflow_step_edges"."from_step_id" = NULL)
-
+SELECT "tasker_workflow_step_edges".* FROM "tasker_workflow_step_edges" WHERE "tasker_workflow_step_edges"."name" = 'provides' AND "tasker_workflow_step_edges"."to_step_id" IN (SELECT workflow_step_uuid FROM "tasker_workflow_step_edges" WHERE "tasker_workflow_step_edges"."from_step_id" = NULL)

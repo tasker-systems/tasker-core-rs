@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use uuid::Uuid;
 
 // Import StepExecutionContext from step_handler module
 
@@ -29,7 +30,7 @@ pub enum TaskResult {
 /// Information about a completed task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskCompletionInfo {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub steps_executed: usize,
     pub total_execution_time_ms: u64,
     pub completed_at: DateTime<Utc>,
@@ -39,7 +40,7 @@ pub struct TaskCompletionInfo {
 /// Information about a failed task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskErrorInfo {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub error_message: String,
     pub error_code: Option<String>,
     pub failed_steps: Vec<i64>,
@@ -49,7 +50,7 @@ pub struct TaskErrorInfo {
 /// Result of step execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub status: StepStatus,
     pub output: serde_json::Value,
     pub execution_duration: Duration,
@@ -77,10 +78,10 @@ pub enum StepStatus {
 /// A step that is ready for execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViableStep {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub name: String,
-    pub named_step_id: i32,
+    pub named_step_uuid: Uuid,
     pub current_state: String,
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
@@ -93,7 +94,7 @@ pub struct ViableStep {
 /// Task execution context from SQL functions
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskContext {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub data: serde_json::Value,
     pub metadata: HashMap<String, serde_json::Value>,
 }
@@ -157,33 +158,33 @@ pub struct RetryPolicy {
 pub enum OrchestrationEvent {
     /// Task orchestration started
     TaskOrchestrationStarted {
-        task_id: i64,
+        task_uuid: Uuid,
         framework: String,
         started_at: DateTime<Utc>,
     },
     /// Viable steps discovered
     ViableStepsDiscovered {
-        task_id: i64,
+        task_uuid: Uuid,
         step_count: usize,
         steps: Vec<ViableStep>,
     },
     /// Task orchestration completed
     TaskOrchestrationCompleted {
-        task_id: i64,
+        task_uuid: Uuid,
         result: TaskResult,
         completed_at: DateTime<Utc>,
     },
     /// Step execution started
     StepExecutionStarted {
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: String,
         started_at: DateTime<Utc>,
     },
     /// Step execution completed
     StepExecutionCompleted {
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         result: StepResult,
         completed_at: DateTime<Utc>,
     },
@@ -208,13 +209,13 @@ pub trait FrameworkIntegration: Send + Sync {
     /// Get task context for execution
     async fn get_task_context(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<TaskContext, crate::orchestration::errors::OrchestrationError>;
 
     /// Enqueue task back to framework's queue
     async fn enqueue_task(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         delay: Option<Duration>,
     ) -> Result<(), crate::orchestration::errors::OrchestrationError>;
 
@@ -295,19 +296,19 @@ impl StepResult {
 pub enum TaskOrchestrationResult {
     /// Task completed successfully (from async result processing)
     Complete {
-        task_id: i64,
+        task_uuid: Uuid,
         steps_completed: usize,
         total_execution_time_ms: u64,
     },
     /// Task failed due to step failures (from async result processing)
     Failed {
-        task_id: i64,
+        task_uuid: Uuid,
         error: String,
         failed_steps: Vec<i64>,
     },
     /// Fire-and-forget: Steps published to ZeroMQ, execution continuing asynchronously
     Published {
-        task_id: i64,
+        task_uuid: Uuid,
         viable_steps_discovered: usize,
         steps_published: usize,
         batch_id: Option<String>,
@@ -316,7 +317,7 @@ pub enum TaskOrchestrationResult {
     },
     /// Task is blocked waiting for dependencies
     Blocked {
-        task_id: i64,
+        task_uuid: Uuid,
         blocking_reason: String,
         viable_steps_checked: usize,
     },

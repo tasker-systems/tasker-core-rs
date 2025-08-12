@@ -47,7 +47,7 @@ module TaskerCore
         # Get task template from TaskTemplateRegistry
         task_template = TaskTemplateRegistry.instance.get_task_template(task)
         unless task_template
-          @logger.warn("⚠️ STEP_RESOLVER: No task template found for task #{task.task_id}")
+          @logger.warn("⚠️ STEP_RESOLVER: No task template found for task #{task.task_uuid}")
           return nil
         end
 
@@ -65,7 +65,7 @@ module TaskerCore
           return nil
         end
 
-        @logger.info("✅ STEP_RESOLVER: Handler resolved - step: #{step.named_step_id}, class: #{step_template.handler_class}")
+        @logger.info("✅ STEP_RESOLVER: Handler resolved - step: #{step.workflow_step_uuid}, class: #{step_template.handler_class}")
 
         ResolvedStepHandler.new(
           handler_class_name: step_template.handler_class,
@@ -75,7 +75,7 @@ module TaskerCore
           task_template: task_template
         )
       rescue StandardError => e
-        @logger.error("💥 STEP_RESOLVER: Error resolving handler for step #{step.named_step_id}: #{e.message}")
+        @logger.error("💥 STEP_RESOLVER: Error resolving handler for step #{step.named_step_uuid}: #{e.message}")
         @logger.error("💥 STEP_RESOLVER: #{e.backtrace.first(3).join("\n")}")
         nil
       end

@@ -15,6 +15,7 @@ use crate::orchestration::OrchestrationCore;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 /// Global handle singleton to prevent creating multiple orchestration systems
 static GLOBAL_SHARED_HANDLE: OnceLock<Arc<SharedOrchestrationHandle>> = OnceLock::new();
@@ -88,7 +89,7 @@ impl SharedOrchestrationHandle {
         if self.is_expired() {
             let expires_in = self.expires_in().unwrap_or_default();
             return Err(SharedFFIError::HandleValidationFailed(
-                format!("Handle expired {} seconds ago. Call refresh() to get a new handle or use expires_in() to check before operations.", 
+                format!("Handle expired {} seconds ago. Call refresh() to get a new handle or use expires_in() to check before operations.",
                     expires_in.as_secs())
             ));
         }
@@ -231,7 +232,7 @@ impl SharedOrchestrationHandle {
 /// Task metadata for handler lookup
 #[derive(Debug, Clone)]
 pub struct TaskMetadata {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub name: String,
     pub version: String,

@@ -21,7 +21,7 @@ module TaskerCore
   #
   #   it 'processes tasks' do
   #     task = create_test_task(name: 'test_task', context: { test: true })
-  #     step = create_test_workflow_step(task_id: task.id, name: 'test_step')
+  #     step = create_test_workflow_step(task_uuid: task.id, name: 'test_step')
   #
   #     # Your test logic here
   #   end

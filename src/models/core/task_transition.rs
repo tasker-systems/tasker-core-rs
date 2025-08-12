@@ -29,7 +29,7 @@
 //! ```sql
 //! CREATE TABLE tasker_task_transitions (
 //!   id BIGSERIAL PRIMARY KEY,
-//!   task_id BIGINT NOT NULL,
+//!   task_uuid BIGINT NOT NULL,
 //!   to_state VARCHAR NOT NULL,
 //!   from_state VARCHAR,
 //!   sort_key INTEGER NOT NULL,
@@ -41,8 +41,8 @@
 //!
 //! ## Performance Optimization
 //!
-//! - **Current State Index**: `(task_id, most_recent) WHERE most_recent = true`
-//! - **History Index**: `(task_id, sort_key)` for chronological queries
+//! - **Current State Index**: `(task_uuid, most_recent) WHERE most_recent = true`
+//! - **History Index**: `(task_uuid, sort_key)` for chronological queries
 //! - **State Index**: `(to_state, created_at)` for state-based analytics
 //!
 //! ## Rails Heritage
@@ -53,6 +53,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// Represents a single state transition in a task's lifecycle.
 ///
@@ -83,13 +84,13 @@ use sqlx::{FromRow, PgPool};
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct TaskTransition {
-    pub id: i64,
+    pub task_transition_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub sort_key: i32,
     pub most_recent: bool,
-    pub task_id: i64,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -97,7 +98,7 @@ pub struct TaskTransition {
 /// New TaskTransition for creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewTaskTransition {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -106,7 +107,7 @@ pub struct NewTaskTransition {
 /// Query builder for task transitions
 #[derive(Debug, Default)]
 pub struct TaskTransitionQuery {
-    task_id: Option<i64>,
+    task_uuid: Option<Uuid>,
     state: Option<String>,
     most_recent_only: bool,
     limit: Option<i64>,
@@ -127,14 +128,14 @@ impl TaskTransition {
     /// ```sql
     /// SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
     /// FROM tasker_task_transitions
-    /// WHERE task_id = $1
+    /// WHERE task_uuid = $1::uuid
     /// ```
     ///
     /// 2. **Previous State Update**: Mark existing transitions as historical
     /// ```sql
     /// UPDATE tasker_task_transitions
     /// SET most_recent = false, updated_at = NOW()
-    /// WHERE task_id = $1 AND most_recent = true
+    /// WHERE task_uuid = $1::uuid AND most_recent = true
     /// ```
     ///
     /// 3. **New Transition Insert**: Create transition with most_recent = true
@@ -150,14 +151,14 @@ impl TaskTransition {
     /// # Concurrency Handling
     ///
     /// Multiple concurrent transitions are handled safely through:
-    /// - **Row-level Locking**: PostgreSQL locks task_id rows during update
+    /// - **Row-level Locking**: PostgreSQL locks task_uuid rows during update
     /// - **Serializable Isolation**: Prevents phantom reads in sort key calculation
     /// - **Unique Constraints**: Database enforces single most_recent per task
     ///
     /// # Performance Characteristics
     ///
     /// - **Lock Duration**: Minimal (single transaction)
-    /// - **Index Usage**: Primary key and task_id indexes
+    /// - **Index Usage**: Primary key and task_uuid indexes
     /// - **Memory Usage**: Single row materialization
     ///
     /// # Example
@@ -166,10 +167,11 @@ impl TaskTransition {
     /// use tasker_core::models::core::task_transition::{TaskTransition, NewTaskTransition};
     /// use serde_json::json;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
     /// # async fn example(pool: &PgPool) -> Result<(), sqlx::Error> {
     /// let transition = TaskTransition::create(pool, NewTaskTransition {
-    ///     task_id: 123,
+    ///     task_uuid: Uuid::new_v4(),
     ///     to_state: "processing".to_string(),
     ///     from_state: Some("pending".to_string()),
     ///     metadata: Some(json!({"reason": "worker_assigned"})),
@@ -189,9 +191,9 @@ impl TaskTransition {
             r#"
             SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
             FROM tasker_task_transitions
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            new_transition.task_id
+            new_transition.task_uuid
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -201,11 +203,11 @@ impl TaskTransition {
         // Mark all existing transitions as not most recent
         sqlx::query!(
             r#"
-            UPDATE tasker_task_transitions 
+            UPDATE tasker_task_transitions
             SET most_recent = false, updated_at = NOW()
-            WHERE task_id = $1 AND most_recent = true
+            WHERE task_uuid = $1::uuid AND most_recent = true
             "#,
-            new_transition.task_id
+            new_transition.task_uuid
         )
         .execute(&mut *tx)
         .await?;
@@ -214,13 +216,13 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            INSERT INTO tasker_task_transitions 
-            (task_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
-                      task_id, created_at, updated_at
+            INSERT INTO tasker_task_transitions
+            (task_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                      created_at, updated_at
             "#,
-            new_transition.task_id,
+            new_transition.task_uuid,
             new_transition.to_state,
             new_transition.from_state,
             new_transition.metadata,
@@ -246,9 +248,9 @@ impl TaskTransition {
             r#"
             SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
             FROM tasker_task_transitions
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            new_transition.task_id
+            new_transition.task_uuid
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -258,11 +260,11 @@ impl TaskTransition {
         // Mark all existing transitions as not most recent
         sqlx::query!(
             r#"
-            UPDATE tasker_task_transitions 
+            UPDATE tasker_task_transitions
             SET most_recent = false, updated_at = NOW()
-            WHERE task_id = $1 AND most_recent = true
+            WHERE task_uuid = $1::uuid AND most_recent = true
             "#,
-            new_transition.task_id
+            new_transition.task_uuid
         )
         .execute(&mut **tx)
         .await?;
@@ -271,13 +273,13 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            INSERT INTO tasker_task_transitions 
-            (task_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
-                      task_id, created_at, updated_at
+            INSERT INTO tasker_task_transitions
+            (task_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                      created_at, updated_at
             "#,
-            new_transition.task_id,
+            new_transition.task_uuid,
             new_transition.to_state,
             new_transition.from_state,
             new_transition.metadata,
@@ -289,17 +291,20 @@ impl TaskTransition {
         Ok(transition)
     }
 
-    /// Find a transition by ID
-    pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<TaskTransition>, sqlx::Error> {
+    /// Find a transition by UUID
+    pub async fn find_by_uuid(
+        pool: &PgPool,
+        uuid: Uuid,
+    ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE id = $1
+            WHERE task_transition_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -310,19 +315,19 @@ impl TaskTransition {
     /// Get the current (most recent) transition for a task
     pub async fn get_current(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = $1 AND most_recent = true
+            WHERE task_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            task_id
+            task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -333,18 +338,18 @@ impl TaskTransition {
     /// Get all transitions for a task ordered by sort key
     pub async fn list_by_task(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             ORDER BY sort_key ASC
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -362,8 +367,8 @@ impl TaskTransition {
             sqlx::query_as!(
                 TaskTransition,
                 r#"
-                SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                       task_id, created_at, updated_at
+                SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                       created_at, updated_at
                 FROM tasker_task_transitions
                 WHERE to_state = $1 AND most_recent = true
                 ORDER BY created_at DESC
@@ -376,8 +381,8 @@ impl TaskTransition {
             sqlx::query_as!(
                 TaskTransition,
                 r#"
-                SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                       task_id, created_at, updated_at
+                SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                       created_at, updated_at
                 FROM tasker_task_transitions
                 WHERE to_state = $1
                 ORDER BY created_at DESC
@@ -394,18 +399,18 @@ impl TaskTransition {
     /// Get transitions for multiple tasks
     pub async fn list_by_tasks(
         pool: &PgPool,
-        task_ids: &[i64],
+        task_uuids: &[Uuid],
     ) -> Result<Vec<TaskTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = ANY($1)
-            ORDER BY task_id, sort_key ASC
+            WHERE task_uuid = ANY($1)
+            ORDER BY task_uuid, sort_key ASC
             "#,
-            task_ids
+            task_uuids
         )
         .fetch_all(pool)
         .await?;
@@ -416,19 +421,19 @@ impl TaskTransition {
     /// Get the previous transition for a task (before the current one)
     pub async fn get_previous(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<TaskTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = $1 AND most_recent = false
+            WHERE task_uuid = $1::uuid AND most_recent = false
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            task_id
+            task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -476,7 +481,7 @@ impl TaskTransition {
     /// Get transition history for a task with pagination
     pub async fn get_history(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<TaskTransition>, sqlx::Error> {
@@ -486,14 +491,14 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             ORDER BY sort_key DESC
             LIMIT $2 OFFSET $3
             "#,
-            task_id,
+            task_uuid,
             limit,
             offset
         )
@@ -511,11 +516,11 @@ impl TaskTransition {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_task_transitions 
+            UPDATE tasker_task_transitions
             SET metadata = $2, updated_at = NOW()
-            WHERE id = $1
+            WHERE task_transition_uuid = $1::uuid
             "#,
-            self.id,
+            self.task_transition_uuid,
             metadata
         )
         .execute(pool)
@@ -528,12 +533,12 @@ impl TaskTransition {
     /// Check if a task can transition from one state to another
     pub async fn can_transition(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         from_state: &str,
         _to_state: &str,
     ) -> Result<bool, sqlx::Error> {
         // Get current state
-        let current = Self::get_current(pool, task_id).await?;
+        let current = Self::get_current(pool, task_uuid).await?;
 
         if let Some(transition) = current {
             // Check if current state matches expected from_state
@@ -545,10 +550,10 @@ impl TaskTransition {
     }
 
     /// Get tasks in a specific state
-    pub async fn get_tasks_in_state(pool: &PgPool, state: &str) -> Result<Vec<i64>, sqlx::Error> {
-        let task_ids = sqlx::query!(
+    pub async fn get_tasks_in_state(pool: &PgPool, state: &str) -> Result<Vec<Uuid>, sqlx::Error> {
+        let task_uuids = sqlx::query!(
             r#"
-            SELECT DISTINCT task_id
+            SELECT DISTINCT task_uuid
             FROM tasker_task_transitions
             WHERE to_state = $1 AND most_recent = true
             "#,
@@ -557,20 +562,20 @@ impl TaskTransition {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| row.task_id)
+        .map(|row| row.task_uuid)
         .collect();
 
-        Ok(task_ids)
+        Ok(task_uuids)
     }
 
     /// Get tasks by multiple states
     pub async fn get_tasks_in_states(
         pool: &PgPool,
         states: &[String],
-    ) -> Result<Vec<i64>, sqlx::Error> {
-        let task_ids = sqlx::query!(
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        let task_uuids = sqlx::query!(
             r#"
-            SELECT DISTINCT task_id
+            SELECT DISTINCT task_uuid
             FROM tasker_task_transitions
             WHERE to_state = ANY($1) AND most_recent = true
             "#,
@@ -579,31 +584,31 @@ impl TaskTransition {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| row.task_id)
+        .map(|row| row.task_uuid)
         .collect();
 
-        Ok(task_ids)
+        Ok(task_uuids)
     }
 
     /// Delete old transitions (keep only the most recent N transitions per task)
     pub async fn cleanup_old_transitions(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         keep_count: i32,
     ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_task_transitions
-            WHERE task_id = $1 
+            WHERE task_uuid = $1
               AND sort_key < (
-                SELECT sort_key 
+                SELECT sort_key
                 FROM tasker_task_transitions
-                WHERE task_id = $1
+                WHERE task_uuid = $1
                 ORDER BY sort_key DESC
                 LIMIT 1 OFFSET $2
               )
             "#,
-            task_id,
+            task_uuid,
             keep_count as i64 - 1
         )
         .execute(pool)
@@ -616,11 +621,10 @@ impl TaskTransition {
     pub async fn get_state_summary(pool: &PgPool) -> Result<Vec<(String, i64)>, sqlx::Error> {
         let summary = sqlx::query!(
             r#"
-            SELECT to_state, COUNT(DISTINCT task_id) as count
+            SELECT to_state, COUNT(DISTINCT task_uuid) as count
             FROM tasker_task_transitions
             WHERE most_recent = true
             GROUP BY to_state
-            ORDER BY count DESC
             "#
         )
         .fetch_all(pool)
@@ -641,8 +645,8 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
             ORDER BY sort_key DESC
             "#
@@ -658,8 +662,8 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
             WHERE to_state = $1
             ORDER BY created_at DESC
@@ -680,8 +684,8 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE metadata ? $1
             ORDER BY created_at DESC
@@ -706,8 +710,8 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE to_state = $1
             ORDER BY sort_key DESC
@@ -730,8 +734,8 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE created_at BETWEEN $1 AND $2
             ORDER BY created_at DESC
@@ -754,8 +758,8 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   task_id, created_at, updated_at
+            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE metadata ->> $1 = $2
             ORDER BY created_at DESC
@@ -846,11 +850,11 @@ impl TaskTransition {
             r#"
             SELECT created_at
             FROM tasker_task_transitions
-            WHERE task_id = $1 AND sort_key < $2
+            WHERE task_uuid = $1::uuid AND sort_key < $2
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.task_id,
+            self.task_uuid,
             self.sort_key
         )
         .fetch_optional(pool)
@@ -872,10 +876,14 @@ impl TaskTransition {
     /// ```rust
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let transition = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid,
+    ///     task_uuid,
     ///     to_state: "error".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -887,9 +895,10 @@ impl TaskTransition {
     ///
     /// assert!(transition.error_transition());
     ///
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let success_transition = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "complete".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -912,10 +921,14 @@ impl TaskTransition {
     /// ```rust
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid1 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let complete_transition = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid1,
+    ///     task_uuid,
     ///     to_state: "complete".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -927,9 +940,10 @@ impl TaskTransition {
     ///
     /// assert!(complete_transition.completion_transition());
     ///
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let manual_transition = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "resolved_manually".to_string(),
     ///     from_state: Some("error".to_string()),
     ///     metadata: None,
@@ -941,9 +955,10 @@ impl TaskTransition {
     ///
     /// assert!(manual_transition.completion_transition());
     ///
+    /// let task_transition_uuid3 = Uuid::parse_str("880e8400-e29b-41d4-a716-446655440004").unwrap();
     /// let error_transition = TaskTransition {
-    ///     id: 3,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid3,
+    ///     task_uuid,
     ///     to_state: "error".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -966,10 +981,14 @@ impl TaskTransition {
     /// ```rust
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid1 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let cancelled_transition = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid1,
+    ///     task_uuid,
     ///     to_state: "cancelled".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -981,9 +1000,10 @@ impl TaskTransition {
     ///
     /// assert!(cancelled_transition.cancellation_transition());
     ///
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let running_transition = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "running".to_string(),
     ///     from_state: Some("pending".to_string()),
     ///     metadata: None,
@@ -1006,10 +1026,14 @@ impl TaskTransition {
     /// ```rust
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid1 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let complete_transition = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid1,
+    ///     task_uuid,
     ///     to_state: "complete".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -1021,14 +1045,15 @@ impl TaskTransition {
     ///
     /// assert_eq!(complete_transition.description(), "Task completed successfully");
     ///
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let custom_transition = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "custom_state".to_string(),
     ///     from_state: Some("pending".to_string()),
     ///     metadata: None,
-    ///     sort_key: 1,
-    ///     most_recent: false,
+    ///     sort_key: 3,
+    ///     most_recent: true,
     ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
     ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
     /// };
@@ -1085,27 +1110,29 @@ impl TaskTransition {
     /// ```rust
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
-    /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid1 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let transition_with_metadata = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid1,
+    ///     task_uuid,
     ///     to_state: "complete".to_string(),
     ///     from_state: Some("running".to_string()),
-    ///     metadata: Some(json!({"reason": "task_finished", "duration": 120})),
+    ///     metadata: Some(serde_json::json!({ "duration_ms": 1500 })),
     ///     sort_key: 2,
     ///     most_recent: true,
     ///     created_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
     ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
     /// };
     ///
-    /// assert!(transition_with_metadata.has_metadata("reason"));
-    /// assert!(transition_with_metadata.has_metadata("duration"));
-    /// assert!(!transition_with_metadata.has_metadata("missing_key"));
+    /// assert!(transition_with_metadata.has_metadata());
     ///
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let transition_no_metadata = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "error".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -1115,14 +1142,10 @@ impl TaskTransition {
     ///     updated_at: NaiveDateTime::from_timestamp_opt(1640995200, 0).unwrap(),
     /// };
     ///
-    /// assert!(!transition_no_metadata.has_metadata("any_key"));
+    /// assert!(!transition_no_metadata.has_metadata());
     /// ```
-    pub fn has_metadata(&self, key: &str) -> bool {
-        if let Some(metadata) = &self.metadata {
-            metadata.get(key).is_some()
-        } else {
-            false
-        }
+    pub fn has_metadata(&self) -> bool {
+        self.metadata.is_some()
     }
 
     /// Get metadata value with default (Rails: get_metadata)
@@ -1133,10 +1156,14 @@ impl TaskTransition {
     /// use tasker_core::models::task_transition::TaskTransition;
     /// use chrono::NaiveDateTime;
     /// use serde_json::{json, Value};
+    /// use uuid::Uuid;
+    ///
+    /// let task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let task_transition_uuid1 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
     ///
     /// let transition = TaskTransition {
-    ///     id: 1,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid1,
+    ///     task_uuid,
     ///     to_state: "complete".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: Some(json!({"reason": "task_finished", "duration": 120})),
@@ -1155,9 +1182,10 @@ impl TaskTransition {
     /// assert_eq!(priority, json!("normal"));
     ///
     /// // Test with transition that has no metadata
+    /// let task_transition_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
     /// let empty_transition = TaskTransition {
-    ///     id: 2,
-    ///     task_id: 123,
+    ///     task_transition_uuid: task_transition_uuid2,
+    ///     task_uuid,
     ///     to_state: "error".to_string(),
     ///     from_state: Some("running".to_string()),
     ///     metadata: None,
@@ -1206,8 +1234,8 @@ impl TaskTransitionQuery {
         Self::default()
     }
 
-    pub fn task_id(mut self, id: i64) -> Self {
-        self.task_id = Some(id);
+    pub fn task_uuid(mut self, id: Uuid) -> Self {
+        self.task_uuid = Some(id);
         self
     }
 
@@ -1234,92 +1262,92 @@ impl TaskTransitionQuery {
     pub async fn execute(self, pool: &PgPool) -> Result<Vec<TaskTransition>, sqlx::Error> {
         // Use secure static queries instead of dynamic SQL construction
         match (
-            self.task_id,
+            self.task_uuid,
             self.state,
             self.most_recent_only,
             self.limit,
             self.offset,
         ) {
-            // Most common case: by task_id only
-            (Some(task_id), None, false, None, None) => {
+            // Most common case: by task_uuid only
+            (Some(task_uuid), None, false, None, None) => {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           task_id, created_at, updated_at
+                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
-                    WHERE task_id = $1
-                    ORDER BY task_id, sort_key DESC
+                    WHERE task_uuid = $1::uuid
+                    ORDER BY task_uuid, sort_key DESC
                     "#,
-                    task_id
+                    task_uuid
                 )
                 .fetch_all(pool)
                 .await
             }
-            // By task_id and state
-            (Some(task_id), Some(state), false, None, None) => {
+            // By task_uuid and state
+            (Some(task_uuid), Some(state), false, None, None) => {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           task_id, created_at, updated_at
+                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
-                    WHERE task_id = $1 AND to_state = $2
-                    ORDER BY task_id, sort_key DESC
+                    WHERE task_uuid = $1::uuid AND to_state = $2
+                    ORDER BY task_uuid, sort_key DESC
                     "#,
-                    task_id,
+                    task_uuid,
                     state
                 )
                 .fetch_all(pool)
                 .await
             }
             // Most recent only for task
-            (Some(task_id), None, true, None, None) => {
+            (Some(task_uuid), None, true, None, None) => {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           task_id, created_at, updated_at
+                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
-                    WHERE task_id = $1 AND most_recent = true
-                    ORDER BY task_id, sort_key DESC
+                    WHERE task_uuid = $1::uuid AND most_recent = true
+                    ORDER BY task_uuid, sort_key DESC
                     "#,
-                    task_id
+                    task_uuid
                 )
                 .fetch_all(pool)
                 .await
             }
             // With pagination (limit only)
-            (Some(task_id), None, false, Some(limit), None) => {
+            (Some(task_uuid), None, false, Some(limit), None) => {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           task_id, created_at, updated_at
+                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
-                    WHERE task_id = $1
-                    ORDER BY task_id, sort_key DESC
+                    WHERE task_uuid = $1::uuid
+                    ORDER BY task_uuid, sort_key DESC
                     LIMIT $2
                     "#,
-                    task_id,
+                    task_uuid,
                     limit as i64
                 )
                 .fetch_all(pool)
                 .await
             }
             // With pagination (limit and offset)
-            (Some(task_id), None, false, Some(limit), Some(offset)) => {
+            (Some(task_uuid), None, false, Some(limit), Some(offset)) => {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           task_id, created_at, updated_at
+                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
-                    WHERE task_id = $1
-                    ORDER BY task_id, sort_key DESC
+                    WHERE task_uuid = $1::uuid
+                    ORDER BY task_uuid, sort_key DESC
                     LIMIT $2 OFFSET $3
                     "#,
-                    task_id,
+                    task_uuid,
                     limit as i64,
                     offset as i64
                 )
@@ -1328,8 +1356,8 @@ impl TaskTransitionQuery {
             }
             // Default fallback for edge cases
             _ => {
-                if let Some(task_id) = self.task_id {
-                    TaskTransition::list_by_task(pool, task_id).await
+                if let Some(task_uuid) = self.task_uuid {
+                    TaskTransition::list_by_task(pool, task_uuid).await
                 } else {
                     // Return empty for unsupported query combinations
                     Ok(Vec::new())

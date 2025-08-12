@@ -13,19 +13,19 @@
 //! The module supports several categories of SQL functions:
 //!
 //! ### 1. Step Readiness Analysis
-//! - `get_step_readiness_status(task_id, step_ids[])`: Complex dependency analysis
+//! - `get_step_readiness_status(task_uuid, step_uuids[])`: Complex dependency analysis
 //! - `calculate_backoff_delay(attempts, base_delay)`: Exponential backoff calculation
-//! - `check_step_dependencies(step_id)`: Parent completion validation
+//! - `check_step_dependencies(step_uuid)`: Parent completion validation
 //!
 //! ### 2. DAG Operations
-//! - `detect_cycle(from_step_id, to_step_id)`: Cycle detection with recursive CTEs
-//! - `calculate_step_depth(step_id)`: Topological depth calculation
-//! - `find_ready_steps(task_id)`: Parallel execution candidate discovery
+//! - `detect_cycle(from_step_uuid, to_step_uuid)`: Cycle detection with recursive CTEs
+//! - `calculate_step_depth(step_uuid)`: Topological depth calculation
+//! - `find_ready_steps(task_uuid)`: Parallel execution candidate discovery
 //!
 //! ### 3. State Management
-//! - `transition_task_state(task_id, from_state, to_state)`: Atomic state transitions
+//! - `transition_task_state(task_uuid, from_state, to_state)`: Atomic state transitions
 //! - `cleanup_stale_processes(timeout_minutes)`: Process cleanup and recovery
-//! - `finalize_task_completion(task_id)`: Task completion orchestration
+//! - `finalize_task_completion(task_uuid)`: Task completion orchestration
 //!
 //! ## Performance Benefits
 //!
@@ -45,12 +45,13 @@
 //! ```rust,no_run
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //! use sqlx::PgPool;
+//! use uuid::Uuid;
 //!
-//! # async fn example(pool: PgPool, task_id: i64) -> Result<(), sqlx::Error> {
+//! # async fn example(pool: PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
 //! let executor = SqlFunctionExecutor::new(pool);
-//! let ready_steps = executor.get_ready_steps(task_id).await?;
+//! let ready_steps = executor.get_ready_steps(task_uuid).await?;
 //! for step in ready_steps {
-//!     println!("Step {} is ready for execution", step.workflow_step_id);
+//!     println!("Step {} is ready for execution", step.workflow_step_uuid);
 //! }
 //! # Ok(())
 //! # }
@@ -61,7 +62,7 @@
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::BigDecimal, FromRow, PgPool};
+use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
 
 // Import the orchestration models for transitive dependencies
@@ -127,7 +128,7 @@ impl SqlFunctionExecutor {
     ///     .await?;
     ///
     /// if let Some(status) = result {
-    ///     println!("Step {} readiness: {}", status.workflow_step_id, status.ready_for_execution);
+    ///     println!("Step {} readiness: {}", status.workflow_step_uuid, status.ready_for_execution);
     /// }
     /// # Ok(())
     /// # }
@@ -149,47 +150,47 @@ impl SqlFunctionExecutor {
         sqlx::query_as::<_, T>(sql).fetch_all(&self.pool).await
     }
 
-    /// Execute a SQL function with task_id parameter
-    pub async fn execute_single_with_task_id<T>(
+    /// Execute a SQL function with task_uuid parameter
+    pub async fn execute_single_with_task_uuid<T>(
         &self,
         sql: &str,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         sqlx::query_as::<_, T>(sql)
-            .bind(task_id)
+            .bind(task_uuid)
             .fetch_optional(&self.pool)
             .await
     }
 
-    /// Execute a SQL function with task_id parameter returning multiple results
-    pub async fn execute_many_with_task_id<T>(
+    /// Execute a SQL function with task_uuid parameter returning multiple results
+    pub async fn execute_many_with_task_uuid<T>(
         &self,
         sql: &str,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         sqlx::query_as::<_, T>(sql)
-            .bind(task_id)
+            .bind(task_uuid)
             .fetch_all(&self.pool)
             .await
     }
 
-    /// Execute a SQL function with task_ids array parameter
-    pub async fn execute_many_with_task_ids<T>(
+    /// Execute a SQL function with task_uuids array parameter
+    pub async fn execute_many_with_task_uuids<T>(
         &self,
         sql: &str,
-        task_ids: &[i64],
+        task_uuids: &[Uuid],
     ) -> Result<Vec<T>, sqlx::Error>
     where
         T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
     {
         sqlx::query_as::<_, T>(sql)
-            .bind(task_ids)
+            .bind(task_uuids)
             .fetch_all(&self.pool)
             .await
     }
@@ -202,7 +203,7 @@ impl SqlFunctionExecutor {
 /// Result structure for calculate_dependency_levels function
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DependencyLevel {
-    pub workflow_step_id: i64,
+    pub workflow_step_uuid: Uuid,
     pub dependency_level: i32,
 }
 
@@ -213,14 +214,16 @@ impl DependencyLevel {
     ///
     /// ```rust
     /// use tasker_core::database::sql_functions::DependencyLevel;
+    /// use uuid::Uuid;
     ///
-    /// let level = DependencyLevel::new(123, 2);
-    /// assert_eq!(level.workflow_step_id, 123);
+    /// let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let level = DependencyLevel::new(uuid, 2);
+    /// assert_eq!(level.workflow_step_uuid, uuid);
     /// assert_eq!(level.dependency_level, 2);
     /// ```
-    pub fn new(workflow_step_id: i64, dependency_level: i32) -> Self {
+    pub fn new(workflow_step_uuid: Uuid, dependency_level: i32) -> Self {
         Self {
-            workflow_step_id,
+            workflow_step_uuid,
             dependency_level,
         }
     }
@@ -231,11 +234,15 @@ impl DependencyLevel {
     ///
     /// ```rust
     /// use tasker_core::database::sql_functions::DependencyLevel;
+    /// use uuid::Uuid;
     ///
-    /// let root_level = DependencyLevel::new(123, 0);
+    /// let uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    ///
+    /// let root_level = DependencyLevel::new(uuid1, 0);
     /// assert!(root_level.is_root_level());
     ///
-    /// let dependent_level = DependencyLevel::new(456, 2);
+    /// let dependent_level = DependencyLevel::new(uuid2, 2);
     /// assert!(!dependent_level.is_root_level());
     /// ```
     pub fn is_root_level(&self) -> bool {
@@ -248,10 +255,15 @@ impl DependencyLevel {
     ///
     /// ```rust
     /// use tasker_core::database::sql_functions::DependencyLevel;
+    /// use uuid::Uuid;
     ///
-    /// let level1 = DependencyLevel::new(123, 2);
-    /// let level2 = DependencyLevel::new(456, 2);
-    /// let level3 = DependencyLevel::new(789, 3);
+    /// let uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let uuid3 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440003").unwrap();
+    ///
+    /// let level1 = DependencyLevel::new(uuid1, 2);
+    /// let level2 = DependencyLevel::new(uuid2, 2);
+    /// let level3 = DependencyLevel::new(uuid3, 3);
     ///
     /// assert!(level1.can_run_parallel_with(&level2));
     /// assert!(!level1.can_run_parallel_with(&level3));
@@ -266,21 +278,21 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: FunctionBasedDependencyLevels.for_task
     pub async fn calculate_dependency_levels(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<DependencyLevel>, sqlx::Error> {
-        let sql = "SELECT * FROM calculate_dependency_levels($1::BIGINT)";
-        self.execute_many_with_task_id(sql, task_id).await
+        let sql = "SELECT * FROM calculate_dependency_levels($1::UUID)";
+        self.execute_many_with_task_uuid(sql, task_uuid).await
     }
 
     /// Get dependency levels as a hash map for efficient lookup
     pub async fn dependency_levels_hash(
         &self,
-        task_id: i64,
-    ) -> Result<HashMap<i64, i32>, sqlx::Error> {
-        let levels = self.calculate_dependency_levels(task_id).await?;
+        task_uuid: Uuid,
+    ) -> Result<HashMap<Uuid, i32>, sqlx::Error> {
+        let levels = self.calculate_dependency_levels(task_uuid).await?;
         Ok(levels
             .into_iter()
-            .map(|level| (level.workflow_step_id, level.dependency_level))
+            .map(|level| (level.workflow_step_uuid, level.dependency_level))
             .collect())
     }
 }
@@ -338,9 +350,9 @@ impl SqlFunctionExecutor {
         since_timestamp: Option<DateTime<Utc>>,
     ) -> Result<AnalyticsMetrics, sqlx::Error> {
         let sql = if since_timestamp.is_some() {
-            "SELECT * FROM get_analytics_metrics_v01($1)"
+            "SELECT * FROM get_analytics_metrics($1)"
         } else {
-            "SELECT * FROM get_analytics_metrics_v01()"
+            "SELECT * FROM get_analytics_metrics()"
         };
 
         let result = if let Some(ts) = since_timestamp {
@@ -364,9 +376,9 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedStepReadinessStatus
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct StepReadinessStatus {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
-    pub named_step_id: i32,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub name: String,
     pub current_state: String,
     pub dependencies_satisfied: bool,
@@ -423,23 +435,23 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: FunctionBasedStepReadinessStatus.for_task
     pub async fn get_step_readiness_status(
         &self,
-        task_id: i64,
-        step_ids: Option<Vec<i64>>,
+        task_uuid: Uuid,
+        step_uuids: Option<Vec<Uuid>>,
     ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
-        let sql = if step_ids.is_some() {
-            "SELECT * FROM get_step_readiness_status($1::BIGINT, $2::BIGINT[])"
+        let sql = if step_uuids.is_some() {
+            "SELECT * FROM get_step_readiness_status($1::UUID, $2::UUID[])"
         } else {
-            "SELECT * FROM get_step_readiness_status($1::BIGINT)"
+            "SELECT * FROM get_step_readiness_status($1::UUID)"
         };
 
-        if let Some(ids) = step_ids {
+        if let Some(uuids) = step_uuids {
             sqlx::query_as::<_, StepReadinessStatus>(sql)
-                .bind(task_id)
-                .bind(&ids)
+                .bind(task_uuid)
+                .bind(&uuids)
                 .fetch_all(&self.pool)
                 .await
         } else {
-            self.execute_many_with_task_id(sql, task_id).await
+            self.execute_many_with_task_uuid(sql, task_uuid).await
         }
     }
 
@@ -447,18 +459,18 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: FunctionBasedStepReadinessStatus.for_tasks_batch
     pub async fn get_step_readiness_status_batch(
         &self,
-        task_ids: Vec<i64>,
+        task_uuids: Vec<Uuid>,
     ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
-        let sql = "SELECT * FROM get_step_readiness_status_batch($1::BIGINT[])";
-        self.execute_many_with_task_ids(sql, &task_ids).await
+        let sql = "SELECT * FROM get_step_readiness_status_batch($1::uuid[])";
+        self.execute_many_with_task_uuids(sql, &task_uuids).await
     }
 
     /// Get only ready steps for execution
     pub async fn get_ready_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<StepReadinessStatus>, sqlx::Error> {
-        let all_steps = self.get_step_readiness_status(task_id, None).await?;
+        let all_steps = self.get_step_readiness_status(task_uuid, None).await?;
         Ok(all_steps
             .into_iter()
             .filter(|step| step.ready_for_execution)
@@ -548,7 +560,7 @@ impl SqlFunctionExecutor {
     /// Get system health counts
     /// Equivalent to Rails: FunctionBasedSystemHealthCounts.current
     pub async fn get_system_health_counts(&self) -> Result<SystemHealthCounts, sqlx::Error> {
-        let sql = "SELECT * FROM get_system_health_counts_v01()";
+        let sql = "SELECT * FROM get_system_health_counts()";
         let result = self.execute_single(sql).await?;
         Ok(result.unwrap_or_default())
     }
@@ -563,8 +575,8 @@ impl SqlFunctionExecutor {
 /// FIXED: Aligned with actual SQL function return columns
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskExecutionContext {
-    pub task_id: i64,
-    pub named_task_id: i32,
+    pub task_uuid: Uuid,
+    pub named_task_uuid: Uuid,
     pub status: String,
     pub total_steps: i64,
     pub pending_steps: i64,
@@ -599,7 +611,7 @@ impl TaskExecutionContext {
         &self.execution_status
     }
 
-    /// Get health status info  
+    /// Get health status info
     pub fn get_health_status(&self) -> &str {
         &self.health_status
     }
@@ -610,20 +622,20 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_task
     pub async fn get_task_execution_context(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
-        let sql = "SELECT * FROM get_task_execution_context($1::BIGINT)";
-        self.execute_single_with_task_id(sql, task_id).await
+        let sql = "SELECT * FROM get_task_execution_context($1::UUID)";
+        self.execute_single_with_task_uuid(sql, task_uuid).await
     }
 
     /// Get task execution contexts for multiple tasks (batch operation)
     /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_tasks_batch
     pub async fn get_task_execution_contexts_batch(
         &self,
-        task_ids: Vec<i64>,
+        task_uuids: Vec<Uuid>,
     ) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
-        let sql = "SELECT * FROM get_task_execution_contexts_batch($1::BIGINT[])";
-        self.execute_many_with_task_ids(sql, &task_ids).await
+        let sql = "SELECT * FROM get_task_execution_contexts_batch($1::UUID[])";
+        self.execute_many_with_task_uuids(sql, &task_uuids).await
     }
 }
 
@@ -635,7 +647,7 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedSlowestSteps
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SlowestStepAnalysis {
-    pub named_step_id: i32,
+    pub named_step_uuid: i32,
     pub step_name: String,
     pub avg_duration_seconds: f64,
     pub max_duration_seconds: f64,
@@ -650,7 +662,7 @@ pub struct SlowestStepAnalysis {
 /// Equivalent to Rails: FunctionBasedSlowestTasks
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SlowestTaskAnalysis {
-    pub named_task_id: i64,
+    pub named_task_uuid: Uuid,
     pub task_name: String,
     pub avg_duration_seconds: f64,
     pub max_duration_seconds: f64,
@@ -670,7 +682,7 @@ impl SqlFunctionExecutor {
         limit: Option<i32>,
         min_executions: Option<i32>,
     ) -> Result<Vec<SlowestStepAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_steps_v01($1, $2, NULL, NULL, NULL)";
+        let sql = "SELECT * FROM get_slowest_steps($1, $2, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestStepAnalysis>(sql)
             .bind(limit)
             .bind(min_executions)
@@ -685,7 +697,7 @@ impl SqlFunctionExecutor {
         limit: Option<i32>,
         min_executions: Option<i32>,
     ) -> Result<Vec<SlowestTaskAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_tasks_v01($1, $2, NULL, NULL, NULL)";
+        let sql = "SELECT * FROM get_slowest_tasks($1, $2, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestTaskAnalysis>(sql)
             .bind(limit)
             .bind(min_executions)
@@ -769,7 +781,7 @@ impl SqlFunctionExecutor {
     ///
     /// # Parameters
     ///
-    /// - `step_id`: The workflow step ID to find dependencies for
+    /// - `step_uuid`: The workflow step ID to find dependencies for
     ///
     /// # Returns
     ///
@@ -780,14 +792,15 @@ impl SqlFunctionExecutor {
     /// ```rust,no_run
     /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
-    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// # async fn example(pool: PgPool, step_uuid: Uuid) -> Result<(), sqlx::Error> {
     /// let executor = SqlFunctionExecutor::new(pool);
-    /// let dependencies = executor.get_step_transitive_dependencies(step_id).await?;
+    /// let dependencies = executor.get_step_transitive_dependencies(step_uuid).await?;
     ///
     /// for dep in dependencies {
     ///     println!("Step {} depends on {} (distance: {})",
-    ///              step_id, dep.step_name, dep.distance);
+    ///              step_uuid, dep.step_name, dep.distance);
     /// }
     /// # Ok(())
     /// # }
@@ -796,11 +809,11 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: Enhanced dependency resolution with full DAG traversal
     pub async fn get_step_transitive_dependencies(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
-        let sql = "SELECT * FROM get_step_transitive_dependencies($1)";
+        let sql = "SELECT * FROM get_step_transitive_dependencies($1::UUID)";
         sqlx::query_as::<_, StepTransitiveDependencies>(sql)
-            .bind(step_id)
+            .bind(step_uuid)
             .fetch_all(&self.pool)
             .await
     }
@@ -813,7 +826,7 @@ impl SqlFunctionExecutor {
     ///
     /// # Parameters
     ///
-    /// - `step_id`: The workflow step ID to find dependencies for
+    /// - `step_uuid`: The workflow step ID to find dependencies for
     ///
     /// # Returns
     ///
@@ -824,10 +837,11 @@ impl SqlFunctionExecutor {
     /// ```rust,no_run
     /// use tasker_core::database::sql_functions::SqlFunctionExecutor;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
-    /// # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+    /// # async fn example(pool: PgPool, step_uuid: Uuid) -> Result<(), sqlx::Error> {
     /// let executor = SqlFunctionExecutor::new(pool);
-    /// let results = executor.get_step_dependency_results_map(step_id).await?;
+    /// let results = executor.get_step_dependency_results_map(step_uuid).await?;
     ///
     /// if let Some(validation_result) = results.get("validate_order") {
     ///     println!("Validation result: {:?}", validation_result);
@@ -837,9 +851,9 @@ impl SqlFunctionExecutor {
     /// ```
     pub async fn get_step_dependency_results_map(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<HashMap<String, serde_json::Value>, sqlx::Error> {
-        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        let dependencies = self.get_step_transitive_dependencies(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter_map(|dep| {
@@ -865,9 +879,9 @@ impl SqlFunctionExecutor {
     /// been processed and have results available.
     pub async fn get_completed_step_dependencies(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
-        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        let dependencies = self.get_step_transitive_dependencies(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter(|dep| dep.processed && dep.results.is_some())
@@ -880,9 +894,9 @@ impl SqlFunctionExecutor {
     /// immediate dependency queries but using the transitive function for consistency.
     pub async fn get_direct_parent_dependencies(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
-        let dependencies = self.get_step_transitive_dependencies(step_id).await?;
+        let dependencies = self.get_step_transitive_dependencies(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter(|dep| dep.distance == 1)
@@ -900,7 +914,7 @@ impl SqlFunctionExecutor {
 pub struct ActiveWorkerResult {
     pub id: i32,
     pub worker_id: i32,
-    pub named_task_id: i32,
+    pub named_task_uuid: i32,
     pub configuration: serde_json::Value,
     pub priority: i32,
     pub created_at: chrono::NaiveDateTime,
@@ -1029,11 +1043,11 @@ impl SqlFunctionExecutor {
     /// Equivalent to Rails: optimized worker selection with complex JOIN operations
     pub async fn find_active_workers_for_task(
         &self,
-        named_task_id: i32,
+        named_task_uuid: i32,
     ) -> Result<Vec<ActiveWorkerResult>, sqlx::Error> {
         let sql = "SELECT * FROM find_active_workers_for_task($1)";
         sqlx::query_as::<_, ActiveWorkerResult>(sql)
-            .bind(named_task_id)
+            .bind(named_task_uuid)
             .fetch_all(&self.pool)
             .await
     }
@@ -1062,12 +1076,12 @@ impl SqlFunctionExecutor {
     /// - Available capacity (30% weight)
     pub async fn select_optimal_worker_for_task(
         &self,
-        named_task_id: i32,
+        named_task_uuid: i32,
         required_capacity: Option<i32>,
     ) -> Result<Option<OptimalWorkerResult>, sqlx::Error> {
         let sql = "SELECT * FROM select_optimal_worker_for_task($1, $2)";
         sqlx::query_as::<_, OptimalWorkerResult>(sql)
-            .bind(named_task_id)
+            .bind(named_task_uuid)
             .bind(required_capacity.unwrap_or(1))
             .fetch_optional(&self.pool)
             .await
@@ -1092,11 +1106,11 @@ impl SqlFunctionExecutor {
     /// Returns true if cache invalidation was successfully requested
     pub async fn invalidate_worker_cache(
         &self,
-        named_task_id: Option<i32>,
+        named_task_uuid: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
         let sql = "SELECT invalidate_worker_cache($1)";
         let result: Option<bool> = sqlx::query_scalar(sql)
-            .bind(named_task_id)
+            .bind(named_task_uuid)
             .fetch_optional(&self.pool)
             .await?;
         Ok(result.unwrap_or(false))

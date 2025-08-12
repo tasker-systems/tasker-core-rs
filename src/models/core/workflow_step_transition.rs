@@ -38,7 +38,7 @@
 //! ```sql
 //! CREATE TABLE tasker_workflow_step_transitions (
 //!   id bigserial PRIMARY KEY,
-//!   workflow_step_id bigint NOT NULL,
+//!   workflow_step_uuid bigint NOT NULL,
 //!   to_state text NOT NULL,
 //!   from_state text,
 //!   metadata jsonb,
@@ -65,6 +65,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// Represents a state transition for a workflow step with complete audit trail.
 ///
@@ -89,13 +90,13 @@ use sqlx::{FromRow, PgPool};
 /// - **Atomic Updates**: Transactions ensure consistency
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStepTransition {
-    pub id: i64,
+    pub workflow_step_transition_uuid: Uuid,
+    pub workflow_step_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub sort_key: i32,
     pub most_recent: bool,
-    pub workflow_step_id: i64,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -103,7 +104,7 @@ pub struct WorkflowStepTransition {
 /// New WorkflowStepTransition for creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowStepTransition {
-    pub workflow_step_id: i64,
+    pub workflow_step_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -112,7 +113,7 @@ pub struct NewWorkflowStepTransition {
 /// Query builder for workflow step transitions
 #[derive(Debug, Default)]
 pub struct WorkflowStepTransitionQuery {
-    pub workflow_step_id: Option<i64>,
+    pub workflow_step_uuid: Option<Uuid>,
     pub state: Option<String>,
     pub most_recent_only: bool,
     pub limit: Option<i64>,
@@ -134,9 +135,9 @@ impl WorkflowStepTransition {
             r#"
             SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            new_transition.workflow_step_id
+            new_transition.workflow_step_uuid
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -146,11 +147,11 @@ impl WorkflowStepTransition {
         // Mark all existing transitions as not most recent
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_step_transitions 
+            UPDATE tasker_workflow_step_transitions
             SET most_recent = false, updated_at = NOW()
-            WHERE workflow_step_id = $1 AND most_recent = true
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
             "#,
-            new_transition.workflow_step_id
+            new_transition.workflow_step_uuid
         )
         .execute(&mut *tx)
         .await?;
@@ -159,13 +160,13 @@ impl WorkflowStepTransition {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            INSERT INTO tasker_workflow_step_transitions 
-            (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
-                      workflow_step_id, created_at, updated_at
+            INSERT INTO tasker_workflow_step_transitions
+            (workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                      created_at, updated_at
             "#,
-            new_transition.workflow_step_id,
+            new_transition.workflow_step_uuid,
             new_transition.to_state,
             new_transition.from_state,
             new_transition.metadata,
@@ -191,9 +192,9 @@ impl WorkflowStepTransition {
             r#"
             SELECT COALESCE(MAX(sort_key), 0) + 1 as next_sort_key
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            new_transition.workflow_step_id
+            new_transition.workflow_step_uuid
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -203,11 +204,11 @@ impl WorkflowStepTransition {
         // Mark all existing transitions as not most recent
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_step_transitions 
+            UPDATE tasker_workflow_step_transitions
             SET most_recent = false, updated_at = NOW()
-            WHERE workflow_step_id = $1 AND most_recent = true
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
             "#,
-            new_transition.workflow_step_id
+            new_transition.workflow_step_uuid
         )
         .execute(&mut **tx)
         .await?;
@@ -216,13 +217,13 @@ impl WorkflowStepTransition {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            INSERT INTO tasker_workflow_step_transitions 
-            (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING id, to_state, from_state, metadata, sort_key, most_recent, 
-                      workflow_step_id, created_at, updated_at
+            INSERT INTO tasker_workflow_step_transitions
+            (workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
+            RETURNING workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                      created_at, updated_at
             "#,
-            new_transition.workflow_step_id,
+            new_transition.workflow_step_uuid,
             new_transition.to_state,
             new_transition.from_state,
             new_transition.metadata,
@@ -234,20 +235,20 @@ impl WorkflowStepTransition {
         Ok(transition)
     }
 
-    /// Find a transition by ID
-    pub async fn find_by_id(
+    /// Find a transition by UUID
+    pub async fn find_by_uuid(
         pool: &PgPool,
-        id: i64,
+        uuid: Uuid,
     ) -> Result<Option<WorkflowStepTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE id = $1
+            WHERE workflow_step_transition_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -258,19 +259,19 @@ impl WorkflowStepTransition {
     /// Get the current (most recent) transition for a workflow step
     pub async fn get_current(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
     ) -> Result<Option<WorkflowStepTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 AND most_recent = true
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            workflow_step_id
+            workflow_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -281,18 +282,18 @@ impl WorkflowStepTransition {
     /// Get all transitions for a workflow step ordered by sort key
     pub async fn list_by_workflow_step(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
     ) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             ORDER BY sort_key ASC
             "#,
-            workflow_step_id
+            workflow_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -310,8 +311,8 @@ impl WorkflowStepTransition {
             sqlx::query_as!(
                 WorkflowStepTransition,
                 r#"
-                SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                       workflow_step_id, created_at, updated_at
+                SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                       created_at, updated_at
                 FROM tasker_workflow_step_transitions
                 WHERE to_state = $1 AND most_recent = true
                 ORDER BY created_at DESC
@@ -324,8 +325,8 @@ impl WorkflowStepTransition {
             sqlx::query_as!(
                 WorkflowStepTransition,
                 r#"
-                SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                       workflow_step_id, created_at, updated_at
+                SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                       created_at, updated_at
                 FROM tasker_workflow_step_transitions
                 WHERE to_state = $1
                 ORDER BY created_at DESC
@@ -342,18 +343,18 @@ impl WorkflowStepTransition {
     /// Get transitions for multiple workflow steps
     pub async fn list_by_workflow_steps(
         pool: &PgPool,
-        workflow_step_ids: &[i64],
+        workflow_step_uuids: &[Uuid],
     ) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = ANY($1)
-            ORDER BY workflow_step_id, sort_key ASC
+            WHERE workflow_step_uuid = ANY($1)
+            ORDER BY workflow_step_uuid, sort_key ASC
             "#,
-            workflow_step_ids
+            workflow_step_uuids
         )
         .fetch_all(pool)
         .await?;
@@ -364,19 +365,19 @@ impl WorkflowStepTransition {
     /// Get the previous transition for a workflow step (before the current one)
     pub async fn get_previous(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
     ) -> Result<Option<WorkflowStepTransition>, sqlx::Error> {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 AND most_recent = false
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = false
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            workflow_step_id
+            workflow_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -424,7 +425,7 @@ impl WorkflowStepTransition {
     /// Get transition history for a workflow step with pagination
     pub async fn get_history(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
@@ -434,14 +435,14 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent, 
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             ORDER BY sort_key DESC
             LIMIT $2 OFFSET $3
             "#,
-            workflow_step_id,
+            workflow_step_uuid,
             limit,
             offset
         )
@@ -459,11 +460,11 @@ impl WorkflowStepTransition {
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_step_transitions 
+            UPDATE tasker_workflow_step_transitions
             SET metadata = $2, updated_at = NOW()
-            WHERE id = $1
+            WHERE workflow_step_transition_uuid = $1::uuid
             "#,
-            self.id,
+            self.workflow_step_transition_uuid,
             metadata
         )
         .execute(pool)
@@ -476,12 +477,12 @@ impl WorkflowStepTransition {
     /// Check if a workflow step can transition from one state to another
     pub async fn can_transition(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         from_state: &str,
         _to_state: &str,
     ) -> Result<bool, sqlx::Error> {
         // Get current state
-        let current = Self::get_current(pool, workflow_step_id).await?;
+        let current = Self::get_current(pool, workflow_step_uuid).await?;
 
         if let Some(transition) = current {
             // Check if current state matches expected from_state
@@ -495,47 +496,47 @@ impl WorkflowStepTransition {
     /// Get workflow steps in a specific state for a task
     pub async fn get_steps_in_state(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         state: &str,
-    ) -> Result<Vec<i64>, sqlx::Error> {
-        let step_ids = sqlx::query!(
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        let step_uuids = sqlx::query!(
             r#"
-            SELECT DISTINCT wst.workflow_step_id
+            SELECT DISTINCT wst.workflow_step_uuid
             FROM tasker_workflow_step_transitions wst
-            INNER JOIN tasker_workflow_steps ws ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE ws.task_id = $1 AND wst.to_state = $2 AND wst.most_recent = true
+            INNER JOIN tasker_workflow_steps ws ON ws.workflow_step_uuid = wst.workflow_step_uuid
+            WHERE ws.task_uuid = $1::uuid AND wst.to_state = $2 AND wst.most_recent = true
             "#,
-            task_id,
+            task_uuid,
             state
         )
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| row.workflow_step_id)
+        .map(|row| row.workflow_step_uuid)
         .collect();
 
-        Ok(step_ids)
+        Ok(step_uuids)
     }
 
     /// Delete old transitions (keep only the most recent N transitions per workflow step)
     pub async fn cleanup_old_transitions(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         keep_count: i32,
     ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 
+            WHERE workflow_step_uuid = $1::uuid
               AND sort_key < (
-                SELECT sort_key 
+                SELECT sort_key
                 FROM tasker_workflow_step_transitions
-                WHERE workflow_step_id = $1
+                WHERE workflow_step_uuid = $1::uuid
                 ORDER BY sort_key DESC
                 LIMIT 1 OFFSET $2
               )
             "#,
-            workflow_step_id,
+            workflow_step_uuid,
             (keep_count - 1) as i64
         )
         .execute(pool)
@@ -553,8 +554,8 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             ORDER BY sort_key DESC
             "#
@@ -573,8 +574,8 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             WHERE to_state = $1
             ORDER BY created_at DESC
@@ -595,8 +596,8 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             WHERE metadata ? $1
             ORDER BY created_at DESC
@@ -612,19 +613,19 @@ impl WorkflowStepTransition {
     /// Get transitions for a specific task (Rails: scope :for_task)
     pub async fn for_task(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT wst.id, wst.to_state, wst.from_state, wst.metadata, wst.sort_key, wst.most_recent,
-                   wst.workflow_step_id, wst.created_at, wst.updated_at
+            SELECT wst.workflow_step_transition_uuid, wst.to_state, wst.from_state, wst.metadata, wst.sort_key, wst.most_recent,
+                   wst.workflow_step_uuid, wst.created_at, wst.updated_at
             FROM tasker_workflow_step_transitions wst
-            INNER JOIN tasker_workflow_steps ws ON ws.workflow_step_id = wst.workflow_step_id
-            WHERE ws.task_id = $1
+            INNER JOIN tasker_workflow_steps ws ON ws.workflow_step_uuid = wst.workflow_step_uuid
+            WHERE ws.task_uuid = $1
             ORDER BY wst.created_at DESC
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -644,8 +645,8 @@ impl WorkflowStepTransition {
         let transition = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             WHERE to_state = $1
             ORDER BY sort_key DESC
@@ -668,8 +669,8 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             WHERE created_at BETWEEN $1 AND $2
             ORDER BY created_at DESC
@@ -692,8 +693,8 @@ impl WorkflowStepTransition {
         let transitions = sqlx::query_as!(
             WorkflowStepTransition,
             r#"
-            SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                   workflow_step_id, created_at, updated_at
+            SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                   workflow_step_uuid, created_at, updated_at
             FROM tasker_workflow_step_transitions
             WHERE metadata ->> $1 = $2
             ORDER BY created_at DESC
@@ -782,10 +783,10 @@ impl WorkflowStepTransition {
             r#"
             SELECT ns.name
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
-            WHERE ws.workflow_step_id = $1
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            WHERE ws.workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_one(pool)
         .await?
@@ -795,20 +796,20 @@ impl WorkflowStepTransition {
     }
 
     /// Get associated task through workflow step (Rails: delegate :task)
-    pub async fn task_id(&self, pool: &PgPool) -> Result<i64, sqlx::Error> {
-        let task_id = sqlx::query!(
+    pub async fn task_uuid(&self, pool: &PgPool) -> Result<Uuid, sqlx::Error> {
+        let task_uuid = sqlx::query!(
             r#"
-            SELECT task_id
+            SELECT task_uuid
             FROM tasker_workflow_steps
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_one(pool)
         .await?
-        .task_id;
+        .task_uuid;
 
-        Ok(task_id)
+        Ok(task_uuid)
     }
 
     /// Get duration since previous transition (Rails: duration_since_previous)
@@ -817,11 +818,11 @@ impl WorkflowStepTransition {
             r#"
             SELECT created_at
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 AND sort_key < $2
+            WHERE workflow_step_uuid = $1::uuid AND sort_key < $2
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             self.sort_key
         )
         .fetch_optional(pool)
@@ -903,8 +904,8 @@ impl WorkflowStepTransition {
             if let Ok(step_name) = self.step_name(pool).await {
                 map.insert("step_name".to_string(), serde_json::json!(step_name));
             }
-            if let Ok(task_id) = self.task_id(pool).await {
-                map.insert("task_id".to_string(), serde_json::json!(task_id));
+            if let Ok(task_uuid) = self.task_uuid(pool).await {
+                map.insert("task_uuid".to_string(), serde_json::json!(task_uuid));
             }
         }
 
@@ -1065,8 +1066,8 @@ impl WorkflowStepTransitionQuery {
         Self::default()
     }
 
-    pub fn workflow_step_id(mut self, id: i64) -> Self {
-        self.workflow_step_id = Some(id);
+    pub fn workflow_step_uuid(mut self, id: Uuid) -> Self {
+        self.workflow_step_uuid = Some(id);
         self
     }
 
@@ -1093,92 +1094,92 @@ impl WorkflowStepTransitionQuery {
     pub async fn execute(self, pool: &PgPool) -> Result<Vec<WorkflowStepTransition>, sqlx::Error> {
         // Use secure static queries instead of dynamic SQL construction
         match (
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             self.state,
             self.most_recent_only,
             self.limit,
             self.offset,
         ) {
-            // Most common case: by workflow_step_id only
-            (Some(step_id), None, false, None, None) => {
+            // Most common case: by workflow_step_uuid only
+            (Some(step_uuid), None, false, None, None) => {
                 sqlx::query_as!(
                     WorkflowStepTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           workflow_step_id, created_at, updated_at
+                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_uuid, created_at, updated_at
                     FROM tasker_workflow_step_transitions
-                    WHERE workflow_step_id = $1
-                    ORDER BY workflow_step_id, sort_key DESC
+                    WHERE workflow_step_uuid = $1::uuid
+                    ORDER BY workflow_step_uuid, sort_key DESC
                     "#,
-                    step_id
+                    step_uuid
                 )
                 .fetch_all(pool)
                 .await
             }
-            // By workflow_step_id and state
-            (Some(step_id), Some(state), false, None, None) => {
+            // By workflow_step_uuid and state
+            (Some(step_uuid), Some(state), false, None, None) => {
                 sqlx::query_as!(
                     WorkflowStepTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           workflow_step_id, created_at, updated_at
+                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_uuid, created_at, updated_at
                     FROM tasker_workflow_step_transitions
-                    WHERE workflow_step_id = $1 AND to_state = $2
-                    ORDER BY workflow_step_id, sort_key DESC
+                    WHERE workflow_step_uuid = $1::uuid AND to_state = $2
+                    ORDER BY workflow_step_uuid, sort_key DESC
                     "#,
-                    step_id,
+                    step_uuid,
                     state
                 )
                 .fetch_all(pool)
                 .await
             }
             // Most recent only for workflow step
-            (Some(step_id), None, true, None, None) => {
+            (Some(step_uuid), None, true, None, None) => {
                 sqlx::query_as!(
                     WorkflowStepTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           workflow_step_id, created_at, updated_at
+                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_uuid, created_at, updated_at
                     FROM tasker_workflow_step_transitions
-                    WHERE workflow_step_id = $1 AND most_recent = true
-                    ORDER BY workflow_step_id, sort_key DESC
+                    WHERE workflow_step_uuid = $1::uuid AND most_recent = true
+                    ORDER BY workflow_step_uuid, sort_key DESC
                     "#,
-                    step_id
+                    step_uuid
                 )
                 .fetch_all(pool)
                 .await
             }
             // With pagination (limit only)
-            (Some(step_id), None, false, Some(limit), None) => {
+            (Some(step_uuid), None, false, Some(limit), None) => {
                 sqlx::query_as!(
                     WorkflowStepTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           workflow_step_id, created_at, updated_at
+                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_uuid, created_at, updated_at
                     FROM tasker_workflow_step_transitions
-                    WHERE workflow_step_id = $1
-                    ORDER BY workflow_step_id, sort_key DESC
+                    WHERE workflow_step_uuid = $1::uuid
+                    ORDER BY workflow_step_uuid, sort_key DESC
                     LIMIT $2
                     "#,
-                    step_id,
+                    step_uuid,
                     limit as i64
                 )
                 .fetch_all(pool)
                 .await
             }
             // With pagination (limit and offset)
-            (Some(step_id), None, false, Some(limit), Some(offset)) => {
+            (Some(step_uuid), None, false, Some(limit), Some(offset)) => {
                 sqlx::query_as!(
                     WorkflowStepTransition,
                     r#"
-                    SELECT id, to_state, from_state, metadata, sort_key, most_recent,
-                           workflow_step_id, created_at, updated_at
+                    SELECT workflow_step_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                           workflow_step_uuid, created_at, updated_at
                     FROM tasker_workflow_step_transitions
-                    WHERE workflow_step_id = $1
-                    ORDER BY workflow_step_id, sort_key DESC
+                    WHERE workflow_step_uuid = $1::uuid
+                    ORDER BY workflow_step_uuid, sort_key DESC
                     LIMIT $2 OFFSET $3
                     "#,
-                    step_id,
+                    step_uuid,
                     limit as i64,
                     offset as i64
                 )
@@ -1187,8 +1188,8 @@ impl WorkflowStepTransitionQuery {
             }
             // Default fallback for edge cases
             _ => {
-                if let Some(step_id) = self.workflow_step_id {
-                    WorkflowStepTransition::list_by_workflow_step(pool, step_id).await
+                if let Some(step_uuid) = self.workflow_step_uuid {
+                    WorkflowStepTransition::list_by_workflow_step(pool, step_uuid).await
                 } else {
                     // Return empty for unsupported query combinations
                     Ok(Vec::new())

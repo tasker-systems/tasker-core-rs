@@ -41,7 +41,7 @@ impl NamedTaskScope {
     /// Ensure task namespace join exists
     fn ensure_task_namespace_join(&mut self) {
         if !self.has_task_namespace_join {
-            self.query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_id = tasker_named_tasks.task_namespace_id");
+            self.query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
             self.has_task_namespace_join = true;
         }
     }
@@ -78,12 +78,12 @@ impl NamedTaskScope {
     pub fn latest_versions(mut self) -> Self {
         // Replace the entire SELECT clause with DISTINCT ON
         let mut new_query = QueryBuilder::new(
-            "SELECT DISTINCT ON (tasker_named_tasks.task_namespace_id, tasker_named_tasks.name) tasker_named_tasks.* FROM tasker_named_tasks"
+            "SELECT DISTINCT ON (tasker_named_tasks.task_namespace_uuid, tasker_named_tasks.name) tasker_named_tasks.* FROM tasker_named_tasks"
         );
 
         // Add any existing JOINs
         if self.has_task_namespace_join {
-            new_query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_id = tasker_named_tasks.task_namespace_id");
+            new_query.push(" INNER JOIN tasker_task_namespaces task_namespace ON task_namespace.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
         }
 
         // Add any existing WHERE conditions
@@ -98,7 +98,7 @@ impl NamedTaskScope {
         }
 
         // Add the required ORDER BY for DISTINCT ON
-        new_query.push(" ORDER BY tasker_named_tasks.task_namespace_id ASC, tasker_named_tasks.name ASC, tasker_named_tasks.version DESC");
+        new_query.push(" ORDER BY tasker_named_tasks.task_namespace_uuid ASC, tasker_named_tasks.name ASC, tasker_named_tasks.version DESC");
 
         self.query = new_query;
         self

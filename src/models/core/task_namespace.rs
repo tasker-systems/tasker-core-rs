@@ -1,12 +1,14 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// TaskNamespace represents organizational hierarchy for tasks
+/// Uses UUID v7 for primary key to ensure time-ordered UUIDs
 /// Maps to `tasker_task_namespaces` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct TaskNamespace {
-    pub task_namespace_id: i32,
+    pub task_namespace_uuid: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
@@ -31,7 +33,7 @@ impl TaskNamespace {
             r#"
             INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
-            RETURNING task_namespace_id, name, description, created_at, updated_at
+            RETURNING task_namespace_uuid, name, description, created_at, updated_at
             "#,
             new_namespace.name,
             new_namespace.description
@@ -42,16 +44,19 @@ impl TaskNamespace {
         Ok(namespace)
     }
 
-    /// Find a task namespace by ID
-    pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<TaskNamespace>, sqlx::Error> {
+    /// Find a task namespace by UUID
+    pub async fn find_by_uuid(
+        pool: &PgPool,
+        uuid: Uuid,
+    ) -> Result<Option<TaskNamespace>, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            SELECT task_namespace_id, name, description, created_at, updated_at
+            SELECT task_namespace_uuid, name, description, created_at, updated_at
             FROM tasker_task_namespaces
-            WHERE task_namespace_id = $1
+            WHERE task_namespace_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -67,7 +72,7 @@ impl TaskNamespace {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            SELECT task_namespace_id, name, description, created_at, updated_at
+            SELECT task_namespace_uuid, name, description, created_at, updated_at
             FROM tasker_task_namespaces
             WHERE name = $1
             "#,
@@ -84,7 +89,7 @@ impl TaskNamespace {
         let namespaces = sqlx::query_as!(
             TaskNamespace,
             r#"
-            SELECT task_namespace_id, name, description, created_at, updated_at
+            SELECT task_namespace_uuid, name, description, created_at, updated_at
             FROM tasker_task_namespaces
             ORDER BY name
             "#
@@ -98,7 +103,7 @@ impl TaskNamespace {
     /// Update a task namespace
     pub async fn update(
         pool: &PgPool,
-        id: i32,
+        uuid: Uuid,
         name: Option<String>,
         description: Option<String>,
     ) -> Result<TaskNamespace, sqlx::Error> {
@@ -110,10 +115,10 @@ impl TaskNamespace {
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
                 updated_at = NOW()
-            WHERE task_namespace_id = $1
-            RETURNING task_namespace_id, name, description, created_at, updated_at
+            WHERE task_namespace_uuid = $1::uuid
+            RETURNING task_namespace_uuid, name, description, created_at, updated_at
             "#,
-            id,
+            uuid,
             name,
             description
         )
@@ -124,13 +129,13 @@ impl TaskNamespace {
     }
 
     /// Delete a task namespace
-    pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_task_namespaces
-            WHERE task_namespace_id = $1
+            WHERE task_namespace_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .execute(pool)
         .await?;
@@ -142,17 +147,17 @@ impl TaskNamespace {
     pub async fn is_name_unique(
         pool: &PgPool,
         name: &str,
-        exclude_id: Option<i32>,
+        exclude_uuid: Option<Uuid>,
     ) -> Result<bool, sqlx::Error> {
-        let count = if let Some(id) = exclude_id {
+        let count = if let Some(uuid) = exclude_uuid {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_task_namespaces
-                WHERE name = $1 AND task_namespace_id != $2
+                WHERE name = $1 AND task_namespace_uuid != $2::uuid
                 "#,
                 name,
-                id
+                uuid
             )
             .fetch_one(pool)
             .await?
@@ -215,7 +220,7 @@ impl TaskNamespace {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"
-            SELECT task_namespace_id, name, description, created_at, updated_at
+            SELECT task_namespace_uuid, name, description, created_at, updated_at
             FROM tasker_task_namespaces
             WHERE name = $1
             "#,
@@ -236,7 +241,7 @@ impl TaskNamespace {
             r#"
             INSERT INTO tasker_task_namespaces (name, description, created_at, updated_at)
             VALUES ($1, $2, NOW(), NOW())
-            RETURNING task_namespace_id, name, description, created_at, updated_at
+            RETURNING task_namespace_uuid, name, description, created_at, updated_at
             "#,
             new_namespace.name,
             new_namespace.description

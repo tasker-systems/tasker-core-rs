@@ -115,13 +115,16 @@ impl OptimizedWorkerQueries {
     /// - Pre-computed health scoring at database level
     pub async fn find_active_workers_for_task_optimized(
         &self,
-        named_task_id: i32,
+        named_task_uuid: i32,
     ) -> Result<Vec<ActiveWorkerResult>, sqlx::Error> {
-        let cache_key = format!("active_workers_{named_task_id}");
+        let cache_key = format!("active_workers_{named_task_uuid}");
 
         // Check cache first
         if let Some(cached_result) = self.active_workers_cache.get(&cache_key).await {
-            debug!("Returning cached active workers for task {}", named_task_id);
+            debug!(
+                "Returning cached active workers for task {}",
+                named_task_uuid
+            );
             return Ok(cached_result);
         }
 
@@ -130,14 +133,14 @@ impl OptimizedWorkerQueries {
         // Use optimized SQL function with pre-computed query plan
         let active_workers = self
             .sql_executor
-            .find_active_workers_for_task(named_task_id)
+            .find_active_workers_for_task(named_task_uuid)
             .await?;
 
         let query_duration = start_time.elapsed();
         info!(
             "SQL function active workers query completed in {:?} for task {} (found {} workers)",
             query_duration,
-            named_task_id,
+            named_task_uuid,
             active_workers.len()
         );
 
@@ -199,7 +202,7 @@ impl OptimizedWorkerQueries {
     /// Uses pre-computed SQL function with comprehensive scoring algorithm
     pub async fn select_optimal_worker_for_task(
         &self,
-        named_task_id: i32,
+        named_task_uuid: i32,
         required_capacity: i32,
     ) -> Result<Option<OptimalWorkerResult>, sqlx::Error> {
         let start_time = Instant::now();
@@ -207,7 +210,7 @@ impl OptimizedWorkerQueries {
         // Use optimized SQL function
         let optimal_worker = self
             .sql_executor
-            .select_optimal_worker_for_task(named_task_id, Some(required_capacity))
+            .select_optimal_worker_for_task(named_task_uuid, Some(required_capacity))
             .await?;
 
         let query_duration = start_time.elapsed();
@@ -216,14 +219,14 @@ impl OptimizedWorkerQueries {
             info!(
                 "SQL function optimal worker selection completed in {:?} for task {} (selected worker: {}, score: {:.2})",
                 query_duration,
-                named_task_id,
+                named_task_uuid,
                 worker.worker_name,
                 worker.selection_score_f64()
             );
         } else {
             info!(
                 "No optimal worker found in {:?} for task {} with capacity requirement {}",
-                query_duration, named_task_id, required_capacity
+                query_duration, named_task_uuid, required_capacity
             );
         }
 
@@ -235,17 +238,17 @@ impl OptimizedWorkerQueries {
     /// Uses SQL function to coordinate cache invalidation with database-level triggers
     pub async fn invalidate_worker_caches(
         &self,
-        named_task_id: Option<i32>,
+        named_task_uuid: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
         // Use SQL function for coordinated cache invalidation
         let sql_result = self
             .sql_executor
-            .invalidate_worker_cache(named_task_id)
+            .invalidate_worker_cache(named_task_uuid)
             .await?;
 
         // Also clear local application-level caches
-        if let Some(task_id) = named_task_id {
-            let cache_key = format!("active_workers_{task_id}");
+        if let Some(task_uuid) = named_task_uuid {
+            let cache_key = format!("active_workers_{task_uuid}");
             self.active_workers_cache.invalidate(&cache_key).await;
         } else {
             // Clear all caches if no specific task provided
@@ -294,10 +297,10 @@ pub struct PoolStatistics {
 // The migration includes:
 // - Strategic database indexes for optimal query performance
 // - Pre-computed SQL functions with optimized query plans:
-//   - `find_active_workers_for_task(p_named_task_id INTEGER)`
+//   - `find_active_workers_for_task(p_named_task_uuid INTEGER)`
 //   - `get_worker_health_batch(p_worker_ids INTEGER[])`
-//   - `select_optimal_worker_for_task(p_named_task_id INTEGER, p_required_capacity INTEGER)`
+//   - `select_optimal_worker_for_task(p_named_task_uuid INTEGER, p_required_capacity INTEGER)`
 //   - `get_worker_pool_statistics()`
-//   - `invalidate_worker_cache(p_named_task_id INTEGER)`
+//   - `invalidate_worker_cache(p_named_task_uuid INTEGER)`
 //
 // Run migration: `cargo sqlx migrate run` to apply these optimizations.

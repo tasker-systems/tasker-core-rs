@@ -28,12 +28,12 @@
 //!
 //! for task in claimed_tasks {
 //!     println!("Claimed task {} with computed priority {}",
-//!              task.task_id, task.computed_priority);
-//!     
+//!              task.task_uuid, task.computed_priority);
+//!
 //!     // Process the task...
-//!     
+//!
 //!     // Release the claim when done
-//!     claimer.release_task_claim(task.task_id).await?;
+//!     claimer.release_task_claim(task.task_uuid).await?;
 //! }
 //! # Ok(())
 //! # }
@@ -45,12 +45,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Represents a claimed task with priority fairness metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimedTask {
     /// Task ID that was claimed
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Namespace of the claimed task
     pub namespace_name: String,
     /// Base priority level (1=Low, 2=Normal, 3=High, 4=Urgent)
@@ -150,7 +151,7 @@ impl TaskClaimer {
         );
 
         let query = r#"
-            SELECT task_id, namespace_name, priority, computed_priority, age_hours, 
+            SELECT task_uuid, namespace_name, priority, computed_priority, age_hours,
                    ready_steps_count, claim_timeout_seconds
             FROM claim_ready_tasks($1::VARCHAR, $2::INTEGER, $3::VARCHAR)
         "#;
@@ -169,7 +170,7 @@ impl TaskClaimer {
         let claimed_tasks: Vec<ClaimedTask> = rows
             .into_iter()
             .map(|row| ClaimedTask {
-                task_id: row.task_id,
+                task_uuid: row.task_uuid,
                 namespace_name: row.namespace_name,
                 priority: row.priority,
                 computed_priority: row.computed_priority,
@@ -199,28 +200,31 @@ impl TaskClaimer {
 
     /// Release a task claim when processing is complete or on error
     #[instrument(skip(self), fields(orchestrator_id = %self.orchestrator_id))]
-    pub async fn release_task_claim(&self, task_id: i64) -> Result<bool> {
-        debug!(task_id = task_id, "Releasing task claim");
+    pub async fn release_task_claim(&self, task_uuid: Uuid) -> Result<bool> {
+        debug!(task_uuid = task_uuid.to_string(), "Releasing task claim");
 
-        let query = "SELECT release_task_claim($1::BIGINT, $2::VARCHAR) as released";
+        let query = "SELECT release_task_claim($1::UUID, $2::VARCHAR) as released";
 
         let row: (bool,) = sqlx::query_as(query)
-            .bind(task_id)
+            .bind(task_uuid)
             .bind(&self.orchestrator_id)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| {
-                error!("Failed to release task claim {}: {}", task_id, e);
+                error!("Failed to release task claim {}: {}", task_uuid, e);
                 TaskerError::DatabaseError(format!("Task claim release failed: {e}"))
             })?;
 
         let released = row.0;
 
         if released {
-            debug!(task_id = task_id, "Task claim released successfully");
+            debug!(
+                task_uuid = task_uuid.to_string(),
+                "Task claim released successfully"
+            );
         } else {
             warn!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 orchestrator_id = %self.orchestrator_id,
                 "Task claim was not released (not owned by this orchestrator or already released)"
             );
@@ -231,28 +235,34 @@ impl TaskClaimer {
 
     /// Extend a task claim to prevent timeout during long-running operations (heartbeat)
     #[instrument(skip(self), fields(orchestrator_id = %self.orchestrator_id))]
-    pub async fn extend_task_claim(&self, task_id: i64) -> Result<bool> {
-        debug!(task_id = task_id, "Extending task claim (heartbeat)");
+    pub async fn extend_task_claim(&self, task_uuid: Uuid) -> Result<bool> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            "Extending task claim (heartbeat)"
+        );
 
-        let query = "SELECT extend_task_claim($1::BIGINT, $2::VARCHAR) as extended";
+        let query = "SELECT extend_task_claim($1::UUID, $2::VARCHAR) as extended";
 
         let row: (bool,) = sqlx::query_as(query)
-            .bind(task_id)
+            .bind(task_uuid)
             .bind(&self.orchestrator_id)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| {
-                error!("Failed to extend task claim {}: {}", task_id, e);
+                error!("Failed to extend task claim {}: {}", task_uuid, e);
                 TaskerError::DatabaseError(format!("Task claim extension failed: {e}"))
             })?;
 
         let extended = row.0;
 
         if extended {
-            debug!(task_id = task_id, "Task claim extended successfully");
+            debug!(
+                task_uuid = task_uuid.to_string(),
+                "Task claim extended successfully"
+            );
         } else {
             warn!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 orchestrator_id = %self.orchestrator_id,
                 "Task claim was not extended (not owned by this orchestrator or not found)"
             );
@@ -328,7 +338,7 @@ impl TaskClaimer {
 /// Internal struct for SQL query results
 #[derive(sqlx::FromRow)]
 struct ClaimedTaskRow {
-    task_id: i64,
+    task_uuid: Uuid,
     namespace_name: String,
     priority: i32,
     computed_priority: f64,
@@ -368,8 +378,9 @@ mod tests {
 
     #[test]
     fn test_claimed_task_creation() {
+        let task_uuid = Uuid::now_v7();
         let task = ClaimedTask {
-            task_id: 123,
+            task_uuid,
             namespace_name: "fulfillment".to_string(),
             priority: 2,
             computed_priority: 4.5,
@@ -379,7 +390,7 @@ mod tests {
             claimed_at: Utc::now(),
         };
 
-        assert_eq!(task.task_id, 123);
+        assert_eq!(task.task_uuid, task_uuid);
         assert_eq!(task.namespace_name, "fulfillment");
         assert_eq!(task.priority, 2);
         assert_eq!(task.computed_priority, 4.5);

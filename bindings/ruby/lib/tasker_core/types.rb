@@ -6,8 +6,6 @@ require 'dry-types'
 # Load all type modules
 require_relative 'types/task_types'
 require_relative 'types/step_types'
-require_relative 'types/orchestration_types'
-require_relative 'types/execution_types'
 require_relative 'types/step_message'
 require_relative 'types/simple_message' # NEW: simplified UUID-based messages
 require_relative 'types/task_template' # TaskTemplate and StepTemplate types
@@ -26,10 +24,12 @@ module TaskerCore
   #     context: { order_id: "123" }
   #   )
   #
-  # @example Using orchestration types
-  #   task = TaskerCore::Types::OrchestrationTypes::StructFactory.create_task(step_data)
-  #   sequence = TaskerCore::Types::OrchestrationTypes::StructFactory.create_sequence(step_data)
-  #   step = TaskerCore::Types::OrchestrationTypes::StructFactory.create_step(step_data)
+  # @example Using simple message types
+  #   simple_message = TaskerCore::Types::SimpleStepMessage.new(
+  #     task_uuid: "task-123",
+  #     step_uuid: "step-456",
+  #     ready_dependency_step_uuids: ["dep-1", "dep-2"]
+  #   )
   #
   module Types
     include Dry.Types()
@@ -47,21 +47,5 @@ module TaskerCore
     StepCompletion = StepTypes::StepCompletion
 
     # Simple message types (UUID-based) - already defined in the namespace
-
-    # Orchestration-related types
-    TaskStruct = OrchestrationTypes::TaskStruct
-    SequenceStruct = OrchestrationTypes::SequenceStruct
-    StepStruct = OrchestrationTypes::StepStruct
-
-    # Factory methods for orchestration types
-    StructFactory = OrchestrationTypes::StructFactory
-
-    # Execution-related types (TCP executor responses)
-    HealthCheckResponse = ExecutionTypes::HealthCheckResponse
-    WorkerRegistrationResponse = ExecutionTypes::WorkerRegistrationResponse
-    HeartbeatResponse = ExecutionTypes::HeartbeatResponse
-    WorkerUnregistrationResponse = ExecutionTypes::WorkerUnregistrationResponse
-    ErrorResponse = ExecutionTypes::ErrorResponse
-    ResponseFactory = ExecutionTypes::ResponseFactory
   end
 end

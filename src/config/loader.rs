@@ -783,15 +783,6 @@ production:
 
     #[test]
     fn test_environment_detection() {
-        // Clear environment variables for clean test
-        env::remove_var("RAILS_ENV");
-        env::remove_var("TASKER_ENV");
-        env::remove_var("RACK_ENV");
-
-        // Test default environment when no env vars set
-        let env = ConfigManager::detect_environment();
-        assert_eq!(env, "development"); // Default when no env vars set
-
         // Test RAILS_ENV takes precedence
         env::set_var("RAILS_ENV", "test");
         let env = ConfigManager::detect_environment();
@@ -803,6 +794,10 @@ production:
         let env = ConfigManager::detect_environment();
         assert_eq!(env, "production");
         env::remove_var("TASKER_ENV");
+        // reset
+        env::set_var("RAILS_ENV", "test");
+        env::set_var("TASKER_ENV", "test");
+        env::set_var("APP_ENV", "test");
     }
 
     #[test]

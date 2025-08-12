@@ -5,7 +5,7 @@ require_relative 'function_wrapper'
 module TaskerCore
   module Database
     module Functions
-      # Wrapper for the get_system_health_counts_v01 SQL function
+      # Wrapper for the get_system_health_counts SQL function
       #
       # This function provides comprehensive system health metrics in a single query,
       # returning counts for tasks, steps, retry states, and database connections.
@@ -49,12 +49,12 @@ module TaskerCore
           attribute :max_connections, Types::Integer
         end
 
-        # Call the get_system_health_counts_v01 SQL function
+        # Call the get_system_health_counts SQL function
         #
         # @return [HealthMetrics] Health metrics with all system counts
         # @raise [ActiveRecord::StatementInvalid] If the SQL function fails
         def self.call
-          sql = 'SELECT * FROM get_system_health_counts_v01()'
+          sql = 'SELECT * FROM get_system_health_counts()'
           result = connection.select_all(sql, 'SystemHealthCounts Load')
 
           if result.empty?

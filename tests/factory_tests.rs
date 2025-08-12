@@ -52,8 +52,8 @@ async fn test_common_foundations_creation(pool: PgPool) -> Result<(), Box<dyn st
 
     // Should be the same as the one from common creation
     assert_eq!(
-        default_ns.task_namespace_id,
-        namespaces[0].task_namespace_id
+        default_ns.task_namespace_uuid,
+        namespaces[0].task_namespace_uuid
     );
 
     Ok(())
@@ -78,12 +78,12 @@ async fn test_workflow_step_factory(pool: PgPool) -> Result<(), Box<dyn std::err
     let task = TaskFactory::new().create(&pool).await?;
 
     let step = WorkflowStepFactory::new()
-        .for_task(task.task_id)
+        .for_task(task.task_uuid)
         .api_call_step()
         .create(&pool)
         .await?;
 
-    assert_eq!(step.task_id, task.task_id);
+    assert_eq!(step.task_uuid, task.task_uuid);
     assert!(step.inputs.is_some());
 
     Ok(())

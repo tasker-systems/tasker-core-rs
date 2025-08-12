@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Request message sent from Rust orchestrator to language handlers
 #[derive(Serialize, Debug, Clone)]
@@ -12,8 +13,8 @@ pub struct StepBatchRequest {
 /// Individual step execution request within a batch
 #[derive(Serialize, Debug, Clone)]
 pub struct StepExecutionRequest {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub step_name: String,
     pub handler_class: String,
     pub handler_config: HashMap<String, serde_json::Value>,
@@ -38,7 +39,7 @@ pub enum ResultMessage {
     /// Partial result sent by individual worker threads as steps complete
     PartialResult {
         batch_id: String,
-        step_id: i64,
+        step_uuid: Uuid,
         status: String, // "completed", "failed", "in_progress"
         output: Option<serde_json::Value>,
         error: Option<StepExecutionError>,
@@ -63,7 +64,7 @@ pub enum ResultMessage {
 /// Summary of step status in batch completion message
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepSummary {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub final_status: String,
     pub execution_time_ms: Option<i64>,
     pub worker_id: Option<String>,
@@ -80,7 +81,7 @@ pub struct StepBatchResponse {
 /// Individual step execution result within a batch response
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepExecutionResult {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub status: String, // "completed", "failed", "error"
     pub output: Option<serde_json::Value>,
     pub error: Option<StepExecutionError>,
@@ -119,7 +120,7 @@ impl ResultMessage {
     /// Create a partial result message for immediate step completion
     pub fn partial_result(
         batch_id: String,
-        step_id: i64,
+        step_uuid: Uuid,
         status: String,
         output: Option<serde_json::Value>,
         error: Option<StepExecutionError>,
@@ -129,7 +130,7 @@ impl ResultMessage {
     ) -> Self {
         Self::PartialResult {
             batch_id,
-            step_id,
+            step_uuid,
             status,
             output,
             error,
@@ -164,13 +165,13 @@ impl ResultMessage {
 
 impl StepSummary {
     pub fn new(
-        step_id: i64,
+        step_uuid: Uuid,
         final_status: String,
         execution_time_ms: Option<i64>,
         worker_id: Option<String>,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             final_status,
             execution_time_ms,
             worker_id,
@@ -192,8 +193,8 @@ impl StepExecutionRequest {
     /// Constructor with all required fields - clippy allows many args for data constructors
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: String,
         handler_class: String,
         handler_config: HashMap<String, serde_json::Value>,
@@ -203,8 +204,8 @@ impl StepExecutionRequest {
         timeout_ms: i64,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             step_name,
             handler_class,
             handler_config,
@@ -221,9 +222,9 @@ impl StepExecutionRequest {
 }
 
 impl StepExecutionResult {
-    pub fn success(step_id: i64, output: serde_json::Value, execution_time_ms: i64) -> Self {
+    pub fn success(step_uuid: Uuid, output: serde_json::Value, execution_time_ms: i64) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "completed".to_string(),
             output: Some(output),
             error: None,
@@ -237,13 +238,13 @@ impl StepExecutionResult {
     }
 
     pub fn failure(
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
         retryable: bool,
         execution_time_ms: i64,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "failed".to_string(),
             output: None,
             error: Some(StepExecutionError {
@@ -262,14 +263,14 @@ impl StepExecutionResult {
     }
 
     pub fn error(
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
         error_type: Option<String>,
         backtrace: Option<Vec<String>>,
         execution_time_ms: i64,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "error".to_string(),
             output: None,
             error: Some(StepExecutionError {
@@ -295,9 +296,10 @@ mod tests {
 
     #[test]
     fn test_partial_result_serialization() {
+        let step_uuid = Uuid::now_v7();
         let partial_result = ResultMessage::partial_result(
             "batch_123".to_string(),
-            456,
+            step_uuid,
             "completed".to_string(),
             Some(serde_json::json!({"result": "success"})),
             None,
@@ -315,12 +317,12 @@ mod tests {
         match deserialized {
             ResultMessage::PartialResult {
                 batch_id,
-                step_id,
+                step_uuid,
                 worker_id,
                 ..
             } => {
                 assert_eq!(batch_id, "batch_123");
-                assert_eq!(step_id, 456);
+                assert_eq!(step_uuid, step_uuid);
                 assert_eq!(worker_id, "worker_1");
             }
             _ => panic!("Should deserialize as PartialResult"),
@@ -329,15 +331,17 @@ mod tests {
 
     #[test]
     fn test_batch_completion_serialization() {
+        let step_uuid_01 = Uuid::now_v7();
+        let step_uuid_02 = Uuid::now_v7();
         let step_summaries = vec![
             StepSummary::new(
-                456,
+                step_uuid_01,
                 "completed".to_string(),
                 Some(1500),
                 Some("worker_1".to_string()),
             ),
             StepSummary::new(
-                457,
+                step_uuid_02,
                 "failed".to_string(),
                 Some(800),
                 Some("worker_2".to_string()),
@@ -379,9 +383,11 @@ mod tests {
             retryable: true,
         };
 
+        let step_uuid = Uuid::now_v7();
+
         let partial_result = ResultMessage::partial_result(
             "batch_456".to_string(),
-            789,
+            step_uuid,
             "failed".to_string(),
             None,
             Some(error),

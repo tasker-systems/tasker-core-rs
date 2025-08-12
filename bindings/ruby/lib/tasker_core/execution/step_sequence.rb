@@ -134,7 +134,7 @@ module TaskerCore
         {
           dependencies: @dependency_steps.map do |step|
             {
-              step_uuid: step.step_uuid,
+              step_uuid: step.workflow_step_uuid,
               name: step.name,
               results: step.results,
               complete: step.complete?

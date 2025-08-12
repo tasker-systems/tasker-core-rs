@@ -26,7 +26,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -35,7 +35,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None,
             initiator: None,
             source_system: None,
@@ -58,30 +58,30 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     });
 
     let new_transition = NewTaskTransition {
-        task_id: task.task_id,
+        task_uuid: task.task_uuid,
         from_state: Some("pending".to_string()),
         to_state: "in_progress".to_string(),
         metadata: Some(transition_metadata),
     };
 
     let created = TaskTransition::create(&pool, new_transition).await?;
-    assert_eq!(created.task_id, task.task_id);
+    assert_eq!(created.task_uuid, task.task_uuid);
     assert_eq!(created.from_state, Some("pending".to_string()));
     assert_eq!(created.to_state, "in_progress".to_string());
 
     // Test find by ID
-    let found = TaskTransition::find_by_id(&pool, created.id)
+    let found = TaskTransition::find_by_uuid(&pool, created.task_transition_uuid)
         .await?
         .expect("Task transition not found");
-    assert_eq!(found.id, created.id);
+    assert_eq!(found.task_transition_uuid, created.task_transition_uuid);
 
     // Test find by task
-    let by_task = TaskTransition::list_by_task(&pool, task.task_id).await?;
+    let by_task = TaskTransition::list_by_task(&pool, task.task_uuid).await?;
     assert!(!by_task.is_empty());
-    assert_eq!(by_task[0].task_id, task.task_id);
+    assert_eq!(by_task[0].task_uuid, task.task_uuid);
 
     // Test get current status
-    let current_transition = TaskTransition::get_current(&pool, task.task_id).await?;
+    let current_transition = TaskTransition::get_current(&pool, task.task_uuid).await?;
     assert!(current_transition.is_some());
     assert_eq!(
         current_transition.unwrap().to_state,
@@ -89,7 +89,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     );
 
     // Test get status history
-    let history = TaskTransition::get_history(&pool, task.task_id, None, None).await?;
+    let history = TaskTransition::get_history(&pool, task.task_uuid, None, None).await?;
     assert!(!history.is_empty());
 
     // Test transition to another status
@@ -100,7 +100,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     });
 
     let second_transition = NewTaskTransition {
-        task_id: task.task_id,
+        task_uuid: task.task_uuid,
         from_state: Some("in_progress".to_string()),
         to_state: "complete".to_string(),
         metadata: Some(second_metadata),
@@ -109,12 +109,12 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     let _second_created = TaskTransition::create(&pool, second_transition).await?;
 
     // Verify current status updated
-    let new_current = TaskTransition::get_current(&pool, task.task_id).await?;
+    let new_current = TaskTransition::get_current(&pool, task.task_uuid).await?;
     assert!(new_current.is_some());
     assert_eq!(new_current.unwrap().to_state, "complete".to_string());
 
     // Test list functionality
-    let list_results = TaskTransition::list_by_task(&pool, task.task_id).await?;
+    let list_results = TaskTransition::list_by_task(&pool, task.task_uuid).await?;
     assert!(!list_results.is_empty());
 
     // Test recent transitions
@@ -143,7 +143,7 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
             name: "status_test_task".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -152,7 +152,7 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             identity_hash: "status_test_hash".to_string(),
             requested_at: None,
             initiator: None,
@@ -190,7 +190,7 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
         });
 
         let transition = NewTaskTransition {
-            task_id: task.task_id,
+            task_uuid: task.task_uuid,
             from_state,
             to_state: status.to_string(),
             metadata: Some(metadata),
@@ -199,13 +199,13 @@ async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> 
         let _created = TaskTransition::create(&pool, transition).await?;
 
         // Verify current status
-        let current = TaskTransition::get_current(&pool, task.task_id).await?;
+        let current = TaskTransition::get_current(&pool, task.task_uuid).await?;
         assert!(current.is_some());
         assert_eq!(current.unwrap().to_state, status.to_string());
     }
 
     // Test status history length
-    let history = TaskTransition::get_history(&pool, task.task_id, None, None).await?;
+    let history = TaskTransition::get_history(&pool, task.task_uuid, None, None).await?;
     assert_eq!(history.len(), statuses.len());
 
     // Verify history order (most recent first)

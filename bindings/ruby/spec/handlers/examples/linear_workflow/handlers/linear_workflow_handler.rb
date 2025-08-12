@@ -13,7 +13,7 @@ module LinearWorkflow
         metadata: {
           workflow_type: 'linear',
           step_name: step.step_name,
-          task_id: task.task_id
+          task_uuid: task.task_uuid
         }
       }
     end

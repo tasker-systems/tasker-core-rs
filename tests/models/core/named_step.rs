@@ -13,31 +13,31 @@ async fn test_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Test creation
     let new_step = NewNamedStep {
-        dependent_system_id: system.dependent_system_id,
+        dependent_system_uuid: system.dependent_system_uuid,
         name: "test_step".to_string(),
         description: Some("Test step description".to_string()),
     };
 
     let step = NamedStep::create(&pool, new_step.clone()).await?;
-    assert_eq!(step.dependent_system_id, system.dependent_system_id);
+    assert_eq!(step.dependent_system_uuid, system.dependent_system_uuid);
     assert_eq!(step.description, Some("Test step description".to_string()));
 
     // Test find by ID
-    let found = NamedStep::find_by_id(&pool, step.named_step_id).await?;
+    let found = NamedStep::find_by_uuid(&pool, step.named_step_uuid).await?;
     assert!(found.is_some());
     assert_eq!(found.unwrap().name, step.name);
 
     // Test find by system and name
     let found_specific =
-        NamedStep::find_by_system_and_name(&pool, system.dependent_system_id, &step.name).await?;
+        NamedStep::find_by_system_and_name(&pool, system.dependent_system_uuid, &step.name).await?;
     assert!(found_specific.is_some());
 
     // Test find_or_create (should find existing)
     let found_or_created = NamedStep::find_or_create(&pool, new_step).await?;
-    assert_eq!(found_or_created.named_step_id, step.named_step_id);
+    assert_eq!(found_or_created.named_step_uuid, step.named_step_uuid);
 
     // Test find by system
-    let system_steps = NamedStep::find_by_system(&pool, system.dependent_system_id).await?;
+    let system_steps = NamedStep::find_by_system(&pool, system.dependent_system_uuid).await?;
     assert!(!system_steps.is_empty());
 
     // Test search by name
@@ -45,11 +45,11 @@ async fn test_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     assert!(!search_results.is_empty());
 
     // Test count by system
-    let count = NamedStep::count_by_system(&pool, system.dependent_system_id).await?;
+    let count = NamedStep::count_by_system(&pool, system.dependent_system_uuid).await?;
     assert!(count > 0);
 
     // Test delete
-    let deleted = NamedStep::delete(&pool, step.named_step_id).await?;
+    let deleted = NamedStep::delete(&pool, step.named_step_uuid).await?;
     assert!(deleted);
 
     // No cleanup needed - SQLx will roll back the test transaction automatically!
@@ -64,7 +64,7 @@ async fn test_unique_constraint(pool: PgPool) -> sqlx::Result<()> {
 
     // Create first step
     let new_step = NewNamedStep {
-        dependent_system_id: system.dependent_system_id,
+        dependent_system_uuid: system.dependent_system_uuid,
         name: step_name.clone(),
         description: None,
     };

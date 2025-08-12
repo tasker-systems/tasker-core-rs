@@ -65,10 +65,10 @@ class SharedTestLoop
     @worker_threads.clear
   end
 
-  def run_loop(task_id:, timeout:)
+  def run_loop(task_uuid:, timeout:)
     Timeout.timeout(timeout) do
       loop do
-        tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+        tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
         if tec.completion_percentage.to_i == 100
           # Task completed - immediately stop workers
           @logger.info '✅ Task completed, stopping workers immediately...'
@@ -82,14 +82,14 @@ class SharedTestLoop
       end
     end
 
-    final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+    final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
 
     unless final_execution.completion_percentage.to_i == 100
       raise TaskerCore::Errors::OrchestrationError,
             'Task did not complete'
     end
 
-    TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
+    TaskerCore::Database::Models::Task.with_all_associated.find(task_uuid)
   end
 
   def create_task(task_request:)
@@ -104,17 +104,17 @@ class SharedTestLoop
             "Task creation failed: #{error_msg}, task result is #{task_result.inspect}"
     end
 
-    task_result[:task_id]
+    task_result[:task_uuid]
   end
 
   def run(task_request:, namespace:, num_workers: 2, timeout: 10, worker_poll_interval: 0.1)
-    task_id = create_task(task_request: task_request)
+    task_uuid = create_task(task_request: task_request)
     create_workers(namespace: namespace, num_workers: num_workers, poll_interval: worker_poll_interval)
     start
     task = nil
     workers_stopped = false
     begin
-      task = run_loop(task_id: task_id, timeout: timeout)
+      task = run_loop(task_uuid: task_uuid, timeout: timeout)
       workers_stopped = true # Workers were stopped in run_loop when task completed
     rescue Timeout::Error => e
       puts "⚠️  WARNING: Task execution timed out after #{timeout} seconds"

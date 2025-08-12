@@ -42,6 +42,7 @@ use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::{EventPublisher, ViableStep as EventsViableStep};
 use crate::orchestration::errors::{DiscoveryError, OrchestrationResult};
 use crate::orchestration::types::ViableStep;
+use sqlx::types::Uuid;
 use std::collections::HashMap;
 use tracing::{debug, info, instrument, warn};
 
@@ -67,14 +68,14 @@ impl ViableStepDiscovery {
     }
 
     /// Find all viable steps for a task using optimized SQL function
-    #[instrument(skip(self), fields(task_id = task_id))]
-    pub async fn find_viable_steps(&self, task_id: i64) -> OrchestrationResult<Vec<ViableStep>> {
-        debug!(task_id = task_id, "Finding viable steps");
+    #[instrument(skip(self), fields(task_uuid = %task_uuid))]
+    pub async fn find_viable_steps(&self, task_uuid: Uuid) -> OrchestrationResult<Vec<ViableStep>> {
+        debug!(task_uuid = task_uuid.to_string(), "Finding viable steps");
 
         // Use get_ready_steps which already handles all filtering and business logic
         let ready_steps = self
             .sql_executor
-            .get_ready_steps(task_id)
+            .get_ready_steps(task_uuid)
             .await
             .map_err(|e| DiscoveryError::SqlFunctionError {
                 function_name: "get_ready_steps".to_string(),
@@ -82,7 +83,7 @@ impl ViableStepDiscovery {
             })?;
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             ready_count = ready_steps.len(),
             "Retrieved ready steps from SQL function"
         );
@@ -92,8 +93,8 @@ impl ViableStepDiscovery {
             .into_iter()
             .map(|status| {
                 debug!(
-                    task_id = task_id,
-                    step_id = status.workflow_step_id,
+                    task_uuid = task_uuid.to_string(),
+                    step_uuid = status.workflow_step_uuid.to_string(),
                     step_name = %status.name,
                     current_state = %status.current_state,
                     dependencies_satisfied = status.dependencies_satisfied,
@@ -101,10 +102,10 @@ impl ViableStepDiscovery {
                 );
 
                 ViableStep {
-                    step_id: status.workflow_step_id,
-                    task_id: status.task_id,
+                    step_uuid: status.workflow_step_uuid,
+                    task_uuid: status.task_uuid,
                     name: status.name,
-                    named_step_id: status.named_step_id,
+                    named_step_uuid: status.named_step_uuid,
                     current_state: status.current_state,
                     dependencies_satisfied: status.dependencies_satisfied,
                     retry_eligible: status.retry_eligible,
@@ -117,7 +118,7 @@ impl ViableStepDiscovery {
             .collect();
 
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             viable_steps = viable_steps.len(),
             "Completed viable step discovery"
         );
@@ -126,10 +127,10 @@ impl ViableStepDiscovery {
         let events_viable_steps: Vec<EventsViableStep> = viable_steps
             .iter()
             .map(|step| EventsViableStep {
-                step_id: step.step_id,
-                task_id: step.task_id,
+                step_uuid: step.step_uuid,
+                task_uuid: step.task_uuid,
                 name: step.name.clone(),
-                named_step_id: step.named_step_id as i64,
+                named_step_uuid: step.named_step_uuid,
                 current_state: step.current_state.clone(),
                 dependencies_satisfied: step.dependencies_satisfied,
                 retry_eligible: step.retry_eligible,
@@ -141,7 +142,7 @@ impl ViableStepDiscovery {
             .collect();
 
         self.event_publisher
-            .publish_viable_steps_discovered(task_id, &events_viable_steps)
+            .publish_viable_steps_discovered(task_uuid, &events_viable_steps)
             .await?;
 
         Ok(viable_steps)
@@ -150,10 +151,10 @@ impl ViableStepDiscovery {
     /// Get dependency levels using SQL function
     pub async fn get_dependency_levels(
         &self,
-        task_id: i64,
-    ) -> OrchestrationResult<HashMap<i64, i32>> {
+        task_uuid: Uuid,
+    ) -> OrchestrationResult<HashMap<Uuid, i32>> {
         self.sql_executor
-            .dependency_levels_hash(task_id)
+            .dependency_levels_hash(task_uuid)
             .await
             .map_err(|e| DiscoveryError::SqlFunctionError {
                 function_name: "calculate_dependency_levels".to_string(),
@@ -165,10 +166,10 @@ impl ViableStepDiscovery {
     /// Get task execution context using SQL function
     pub async fn get_execution_context(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<Option<crate::database::sql_functions::TaskExecutionContext>> {
         self.sql_executor
-            .get_task_execution_context(task_id)
+            .get_task_execution_context(task_uuid)
             .await
             .map_err(|e| DiscoveryError::SqlFunctionError {
                 function_name: "get_task_execution_context".to_string(),
@@ -180,17 +181,11 @@ impl ViableStepDiscovery {
     /// Get viable steps filtered by specific criteria
     pub async fn find_viable_steps_with_criteria(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         max_steps: Option<usize>,
-        min_priority: Option<i32>,
         step_names: Option<&[String]>,
     ) -> OrchestrationResult<Vec<ViableStep>> {
-        let mut viable_steps = self.find_viable_steps(task_id).await?;
-
-        // Apply priority filter (using named_step_id as priority)
-        if let Some(min_priority) = min_priority {
-            viable_steps.retain(|step| step.named_step_id >= min_priority);
-        }
+        let mut viable_steps = self.find_viable_steps(task_uuid).await?;
 
         // Apply step name filter
         if let Some(step_names) = step_names {
@@ -208,11 +203,11 @@ impl ViableStepDiscovery {
     /// Get readiness summary for a task (for monitoring/debugging)
     pub async fn get_task_readiness_summary(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<TaskReadinessSummary> {
         let statuses = self
             .sql_executor
-            .get_step_readiness_status(task_id, None)
+            .get_step_readiness_status(task_uuid, None)
             .await
             .map_err(|e| DiscoveryError::SqlFunctionError {
                 function_name: "get_step_readiness_status".to_string(),
@@ -235,7 +230,7 @@ impl ViableStepDiscovery {
             .count();
 
         Ok(TaskReadinessSummary {
-            task_id,
+            task_uuid,
             total_steps,
             ready_steps,
             complete_steps,
@@ -257,7 +252,7 @@ impl ViableStepDiscovery {
     /// implementation that loads real data instead of placeholder values.
     ///
     /// # Arguments
-    /// * `task_id` - The task ID to load context for
+    /// * `task_uuid` - The task ID to load context for
     /// * `viable_steps` - The viable steps discovered for execution
     /// * `task_handler_registry` - Registry to resolve handler class names and configurations
     ///
@@ -270,7 +265,7 @@ impl ViableStepDiscovery {
     /// - Step metadata like retry limits and timeouts
     pub async fn build_step_execution_requests(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         viable_steps: &[ViableStep],
         _task_handler_registry: &crate::registry::TaskHandlerRegistry,
     ) -> OrchestrationResult<Vec<crate::messaging::execution_types::StepExecutionRequest>> {
@@ -291,7 +286,7 @@ impl ViableStepDiscovery {
 
         if viable_steps_filtered.len() != viable_steps.len() {
             warn!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 original_count = viable_steps.len(),
                 filtered_count = viable_steps_filtered.len(),
                 "Some viable steps had unsatisfied dependencies and were filtered out"
@@ -300,23 +295,23 @@ impl ViableStepDiscovery {
 
         if viable_steps_filtered.is_empty() {
             debug!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 "No viable steps remaining after dependency satisfaction filter"
             );
             return Ok(vec![]);
         }
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             step_count = viable_steps_filtered.len(),
             "Building complete step execution requests with full context"
         );
 
         // 1. Load the task with orchestration metadata (namespace, name, version)
-        let task = Task::find_by_id(&self.pool, task_id)
+        let task = Task::find_by_id(&self.pool, task_uuid)
             .await
             .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
-            .ok_or(DiscoveryError::TaskNotFound { task_id })?;
+            .ok_or(DiscoveryError::TaskNotFound { task_uuid })?;
 
         let task_for_orchestration = task
             .for_orchestration(&self.pool)
@@ -324,7 +319,7 @@ impl ViableStepDiscovery {
             .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             task_name = %task_for_orchestration.task_name,
             namespace = %task_for_orchestration.namespace_name,
             version = %task_for_orchestration.task_version,
@@ -337,7 +332,7 @@ impl ViableStepDiscovery {
             .await?;
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             "Found task template for handler configuration"
         );
 
@@ -345,8 +340,8 @@ impl ViableStepDiscovery {
 
         for step in viable_steps_filtered {
             debug!(
-                task_id = task_id,
-                step_id = step.step_id,
+                task_uuid = %task_uuid,
+                step_uuid = %step.step_uuid,
                 step_name = %step.name,
                 "Building execution request for step"
             );
@@ -369,7 +364,7 @@ impl ViableStepDiscovery {
                 })?;
 
             debug!(
-                step_id = step.step_id,
+                step_uuid = %step.step_uuid,
                 handler_class = %step_template.handler_class,
                 "Found step template configuration"
             );
@@ -390,20 +385,20 @@ impl ViableStepDiscovery {
 
             // 4. Load previous step results (dependencies)
             let previous_results = self
-                .load_step_dependencies(step.step_id)
+                .load_step_dependencies(step.step_uuid)
                 .await
                 .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?;
 
             debug!(
-                step_id = step.step_id,
+                step_uuid = %step.step_uuid,
                 dependency_count = previous_results.len(),
                 "Loaded step dependency results"
             );
 
             // 5. Build the execution request with all context
             let request = StepExecutionRequest {
-                step_id: step.step_id,
-                task_id,
+                step_uuid: step.step_uuid,
+                task_uuid,
                 step_name: step.name.clone(),
                 handler_class,
                 handler_config,
@@ -425,7 +420,7 @@ impl ViableStepDiscovery {
         }
 
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             request_count = execution_requests.len(),
             "Built complete step execution requests with full context"
         );
@@ -443,13 +438,13 @@ impl ViableStepDiscovery {
     /// while still providing all required results to step handlers.
     async fn load_step_dependencies(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<std::collections::HashMap<String, serde_json::Value>, sqlx::Error> {
         use crate::database::sql_functions::SqlFunctionExecutor;
 
         // Use the new SQL function to get all transitive dependencies with their results
         let executor = SqlFunctionExecutor::new(self.pool.clone());
-        executor.get_step_dependency_results_map(step_id).await
+        executor.get_step_dependency_results_map(step_uuid).await
     }
 
     /// Get task template from database using database-first approach
@@ -480,7 +475,7 @@ impl ViableStepDiscovery {
             &self.pool,
             &task_for_orchestration.task_name,
             &task_for_orchestration.task_version,
-            task_namespace.task_namespace_id as i64,
+            task_namespace.task_namespace_uuid,
         )
         .await
         .map_err(|e| DiscoveryError::DatabaseError(e.to_string()))?
@@ -615,7 +610,7 @@ impl ViableStepDiscovery {
 /// Summary of task readiness status for monitoring
 #[derive(Debug, Clone)]
 pub struct TaskReadinessSummary {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub total_steps: usize,
     pub ready_steps: usize,
     pub complete_steps: usize,

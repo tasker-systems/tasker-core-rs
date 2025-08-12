@@ -11,13 +11,14 @@ use tasker_core::state_machine::actions::{
     ErrorStateCleanupAction, PublishTransitionEventAction, StateAction, TriggerStepDiscoveryAction,
     UpdateStepResultsAction, UpdateTaskCompletionAction,
 };
+use uuid::Uuid;
 // Removed unused imports: timeout, Duration
 
 /// Create a test task
 fn create_test_task() -> Task {
     Task {
-        task_id: 1,
-        named_task_id: 1,
+        task_uuid: Uuid::now_v7(),
+        named_task_uuid: Uuid::now_v7(),
         complete: false,
         requested_at: chrono::Utc::now().naive_utc(),
         initiator: Some("test_user".to_string()),
@@ -27,6 +28,10 @@ fn create_test_task() -> Task {
         tags: None,
         context: Some(serde_json::json!({"test": "data"})),
         identity_hash: "test_hash".to_string(),
+        claimed_at: None,
+        claimed_by: None,
+        priority: 5,
+        claim_timeout_seconds: 300,
         created_at: chrono::Utc::now().naive_utc(),
         updated_at: chrono::Utc::now().naive_utc(),
     }
@@ -35,9 +40,9 @@ fn create_test_task() -> Task {
 /// Create a test workflow step
 fn create_test_step() -> WorkflowStep {
     WorkflowStep {
-        workflow_step_id: 1,
-        task_id: 1,
-        named_step_id: 1,
+        workflow_step_uuid: Uuid::now_v7(),
+        task_uuid: Uuid::now_v7(),
+        named_step_uuid: Uuid::now_v7(),
         retryable: true,
         retry_limit: Some(3),
         in_process: false,

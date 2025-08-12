@@ -9,6 +9,7 @@ use tasker_core::models::Task;
 use tasker_core::state_machine::events::TaskEvent;
 use tasker_core::state_machine::states::TaskState;
 use tasker_core::state_machine::task_state_machine::TaskStateMachine;
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_state_transitions(pool: PgPool) -> sqlx::Result<()> {
@@ -59,9 +60,18 @@ async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 
     // Basic validation that the state machine is created with expected values
-    assert_eq!(sm.task_id(), 1);
-    assert_eq!(sm.task().task_id, 1);
-    assert_eq!(sm.task().named_task_id, 1);
+    assert!(
+        !sm.task_uuid().to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
+    assert!(
+        !sm.task().task_uuid.to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
+    assert!(
+        !sm.task().named_task_uuid.to_string().is_empty(),
+        "Named task UUID should not be empty"
+    );
     assert!(!sm.task().complete);
 
     Ok(())
@@ -89,8 +99,8 @@ fn create_test_state_machine(pool: PgPool) -> TaskStateMachine {
         NaiveDateTime::parse_from_str("2023-01-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
 
     let task = Task {
-        task_id: 1,
-        named_task_id: 1,
+        task_uuid: Uuid::now_v7(),
+        named_task_uuid: Uuid::now_v7(),
         complete: false,
         requested_at: static_timestamp,
         initiator: Some("test".to_string()),
@@ -100,6 +110,10 @@ fn create_test_state_machine(pool: PgPool) -> TaskStateMachine {
         tags: None,
         context: Some(serde_json::json!({})),
         identity_hash: "test_hash".to_string(),
+        claimed_at: None,
+        claimed_by: None,
+        priority: 5,
+        claim_timeout_seconds: 300,
         created_at: static_timestamp,
         updated_at: static_timestamp,
     };

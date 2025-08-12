@@ -3,26 +3,23 @@
 
 # == Schema Information
 #
-# Table name: dependent_systems
+# Table name: tasker_dependent_systems
 #
-#  description         :string(255)
-#  name                :string(64)       not null
-#  created_at          :datetime         not null
-#  updated_at          :datetime         not null
-#  dependent_system_id :integer          not null, primary key
-#
-# Indexes
-#
-#  dependent_systems_name_index   (name)
-#  dependent_systems_name_unique  (name) UNIQUE
+#  dependent_system_uuid :uuid             not null, primary key, default(uuid_generate_v7())
+#  name                  :string(64)       not null
+#  description           :string(255)      nullable
+#  created_at            :datetime         not null
+#  updated_at            :datetime         not null
 #
 module TaskerCore
   module Database
     module Models
       class DependentSystem < ApplicationRecord
-        self.primary_key =  :dependent_system_id
-        has_many :dependent_system_object_maps, dependent: :destroy
-        has_many :named_steps, dependent: :destroy
+        self.primary_key = :dependent_system_uuid
+        has_many :dependent_system_object_maps, foreign_key: :dependent_system_uuid,
+                                                primary_key: :dependent_system_uuid, dependent: :destroy
+        has_many :named_steps, foreign_key: :dependent_system_uuid, primary_key: :dependent_system_uuid,
+                               dependent: :destroy
         validates :name, presence: true, uniqueness: true
       end
     end

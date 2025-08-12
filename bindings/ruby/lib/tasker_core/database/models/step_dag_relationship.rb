@@ -5,7 +5,7 @@ module TaskerCore
     module Models
       class StepDagRelationship < ApplicationRecord
         self.table_name = 'tasker_step_dag_relationships'
-        self.primary_key = 'workflow_step_id'
+        self.primary_key = 'workflow_step_uuid'
 
         # Read-only model backed by database view
         def readonly?
@@ -17,7 +17,7 @@ module TaskerCore
         belongs_to :task
 
         # Scopes for common DAG queries
-        scope :for_task, ->(task_id) { where(task_id: task_id) }
+        scope :for_task, ->(task_uuid) { where(task_uuid: task_uuid) }
         scope :root_steps, -> { where(is_root_step: true) }
         scope :leaf_steps, -> { where(is_leaf_step: true) }
         scope :with_parents, -> { where('parent_count > 0') }
@@ -25,13 +25,13 @@ module TaskerCore
 
         # Efficient siblings scope leveraging existing WorkflowStepEdge logic
         # Uses the sophisticated sibling_sql that finds steps with exactly the same parent set
-        scope :siblings_of, lambda { |workflow_step_id|
+        scope :siblings_of, lambda { |workflow_step_uuid|
           # Get sibling step IDs using the existing, well-tested WorkflowStepEdge logic
-          sibling_edges = WorkflowStepEdge.siblings_of(WorkflowStep.find(workflow_step_id))
-          sibling_step_ids = sibling_edges.pluck(:to_step_id).uniq
+          sibling_edges = WorkflowStepEdge.siblings_of(WorkflowStep.find(workflow_step_uuid))
+          sibling_step_ids = sibling_edges.pluck(:to_step_uuid).uniq
 
           # Return StepDagRelationship records for these siblings
-          where(workflow_step_id: sibling_step_ids)
+          where(workflow_step_uuid: sibling_step_ids)
         }
 
         # Helper methods for DAG navigation

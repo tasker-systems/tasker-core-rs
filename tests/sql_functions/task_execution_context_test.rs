@@ -5,6 +5,7 @@
 
 use sqlx::PgPool;
 use tasker_core::models::orchestration::TaskExecutionContext;
+use uuid::Uuid;
 
 // Import our comprehensive factory system
 use crate::factories::{
@@ -29,14 +30,14 @@ mod tests {
     async fn create_task_with_initial_state(
         pool: &PgPool,
         factory: ComplexWorkflowFactory,
-    ) -> Result<(i64, Vec<i64>), sqlx::Error> {
-        let (task_id, step_ids) = factory.create(pool).await.map_err(map_factory_error)?;
+    ) -> Result<(Uuid, Vec<Uuid>), sqlx::Error> {
+        let (task_uuid, step_uuids) = factory.create(pool).await.map_err(map_factory_error)?;
 
         // Create initial "pending" state for the task
         TaskTransition::create(
             pool,
             NewTaskTransition {
-                task_id,
+                task_uuid,
                 to_state: "pending".to_string(),
                 from_state: None,
                 metadata: None,
@@ -47,28 +48,28 @@ mod tests {
 
         // Create initial "pending" state for ALL workflow steps
         // This is critical for SQL functions to identify "ready" steps
-        for &step_id in &step_ids {
+        for &step_uuid in &step_uuids {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
-        Ok((task_id, step_ids))
+        Ok((task_uuid, step_uuids))
     }
 
     #[sqlx::test]
     async fn test_task_execution_context_for_pending_task(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _step_ids) =
+        let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id).await?;
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid).await?;
         assert!(context.is_some());
 
         let ctx = context.unwrap();
-        assert_eq!(ctx.task_id, task_id);
+        assert_eq!(ctx.task_uuid, task_uuid);
         assert_eq!(ctx.total_steps, 4); // Linear has 4 steps
         assert_eq!(ctx.completed_steps, 0);
         assert_eq!(ctx.failed_steps, 0);
@@ -82,17 +83,17 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_all_complete(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Complete all steps
-        for &step_id in &step_ids {
-            WorkflowStepTransitionFactory::create_complete_lifecycle(step_id, &pool)
+        for &step_uuid in &step_uuids {
+            WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuid, &pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -108,12 +109,12 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_with_failures(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Set first step to error with retries exhausted
         WorkflowStepTransitionFactory::create_failed_lifecycle(
-            step_ids[0],
+            step_uuids[0],
             "Critical failure",
             &pool,
         )
@@ -122,15 +123,15 @@ mod tests {
 
         // Exhaust retries
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET attempts = 3, retry_limit = 3
-             WHERE workflow_step_id = $1",
-            step_ids[0]
+             WHERE workflow_step_uuid = $1",
+            step_uuids[0]
         )
         .execute(&pool)
         .await?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -146,12 +147,12 @@ mod tests {
     async fn test_task_execution_context_with_retry_eligible_failures(
         pool: PgPool,
     ) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Set first step to error but with retries remaining
         WorkflowStepTransitionFactory::create_failed_lifecycle(
-            step_ids[0],
+            step_uuids[0],
             "Temporary failure",
             &pool,
         )
@@ -160,26 +161,26 @@ mod tests {
 
         // Set retry info and back-date the error to be past the backoff period
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET attempts = 1, retry_limit = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
-             WHERE workflow_step_id = $1",
-            step_ids[0]
+             WHERE workflow_step_uuid = $1",
+            step_uuids[0]
         )
         .execute(&pool)
         .await?;
 
         // Back-date the error transition to be past the exponential backoff period
         sqlx::query!(
-            "UPDATE tasker_workflow_step_transitions 
+            "UPDATE tasker_workflow_step_transitions
              SET created_at = NOW() - INTERVAL '5 seconds'
-             WHERE workflow_step_id = $1 AND to_state = 'error' AND most_recent = true",
-            step_ids[0]
+             WHERE workflow_step_uuid = $1 AND to_state = 'error' AND most_recent = true",
+            step_uuids[0]
         )
         .execute(&pool)
         .await?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -192,20 +193,20 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_with_in_progress(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Set one step to in_progress
-        if let Some(&step_id) = step_ids.first() {
+        if let Some(&step_uuid) = step_uuids.first() {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(&pool)
                 .await
                 .map_err(map_factory_error)?;
 
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .from_state("pending")
                 .to_in_progress()
                 .create(&pool)
@@ -213,7 +214,7 @@ mod tests {
                 .map_err(map_factory_error)?;
         }
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -226,12 +227,12 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_diamond_workflow(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().diamond()).await?;
 
         // Note: Steps already initialized to pending by helper
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -239,11 +240,11 @@ mod tests {
         assert_eq!(context.ready_steps, 1); // Only root is ready
 
         // Complete root
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -255,12 +256,12 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_tree_workflow(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _step_ids) =
+        let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().tree()).await?;
 
         // Note: Steps already initialized by helper
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -272,13 +273,13 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_mixed_dag(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _step_ids) =
+        let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().mixed_dag())
                 .await?;
 
         // Note: Steps already initialized by helper
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -290,10 +291,10 @@ mod tests {
 
     #[sqlx::test]
     async fn test_task_execution_context_helper_methods(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _) =
+        let (task_uuid, _) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 
@@ -311,47 +312,47 @@ mod tests {
         // Test various scenarios for execution status
 
         // 1. All complete
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
-        for &step_id in &step_ids {
-            WorkflowStepTransitionFactory::create_complete_lifecycle(step_id, &pool)
+        for &step_uuid in &step_uuids {
+            WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuid, &pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
         assert_eq!(context.execution_status, "all_complete");
 
         // 2. Processing (has in_progress steps)
-        let (task_id2, step_ids2) =
+        let (task_uuid2, step_uuids2) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
-        if let Some(&step_id) = step_ids2.first() {
+        if let Some(&step_uuid) = step_uuids2.first() {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(&pool)
                 .await
                 .map_err(map_factory_error)?;
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .from_state("pending")
                 .to_in_progress()
                 .create(&pool)
                 .await
                 .map_err(map_factory_error)?;
         }
-        let context = TaskExecutionContext::get_for_task(&pool, task_id2)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid2)
             .await?
             .unwrap();
         assert_eq!(context.execution_status, "processing");
 
         // 3. Has ready steps
-        let (task_id, _) =
+        let (task_uuid, _) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().diamond()).await?;
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
         assert_eq!(context.execution_status, "has_ready_steps");
@@ -361,12 +362,12 @@ mod tests {
 
     #[sqlx::test]
     async fn test_backoff_timing_information(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Create a failed step with backoff timing
         WorkflowStepTransitionFactory::create_failed_lifecycle(
-            step_ids[0],
+            step_uuids[0],
             "API rate limit",
             &pool,
         )
@@ -375,17 +376,17 @@ mod tests {
 
         // Set backoff information
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET attempts = 1, retry_limit = 3, retryable = true,
                  backoff_request_seconds = 120,
                  last_attempted_at = NOW()
-             WHERE workflow_step_id = $1",
-            step_ids[0]
+             WHERE workflow_step_uuid = $1",
+            step_uuids[0]
         )
         .execute(&pool)
         .await?;
 
-        let context = TaskExecutionContext::get_for_task(&pool, task_id)
+        let context = TaskExecutionContext::get_for_task(&pool, task_uuid)
             .await?
             .unwrap();
 

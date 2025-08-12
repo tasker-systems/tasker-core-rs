@@ -6,6 +6,7 @@
 use super::common::{ScopeBuilder, SpecialQuery};
 use crate::models::WorkflowStepEdge;
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use uuid::Uuid;
 
 /// Query builder for WorkflowStepEdge scopes
 pub struct WorkflowStepEdgeScope {
@@ -45,43 +46,43 @@ impl WorkflowStepEdgeScope {
 
     /// Execute siblings_of query with proper parameter binding
     async fn execute_siblings_query(
-        step_id: i64,
+        step_uuid: Uuid,
         pool: &PgPool,
     ) -> Result<Vec<WorkflowStepEdge>, sqlx::Error> {
         sqlx::query_as::<_, WorkflowStepEdge>(
             r"
             WITH step_parents AS (
-                SELECT from_step_id
+                SELECT from_step_uuid
                 FROM tasker_workflow_step_edges
-                WHERE to_step_id = $1
+                WHERE to_step_uuid = $1
             ),
             potential_siblings AS (
-                SELECT to_step_id
+                SELECT to_step_uuid
                 FROM tasker_workflow_step_edges
-                WHERE from_step_id IN (SELECT from_step_id FROM step_parents)
-                AND to_step_id != $1
+                WHERE from_step_uuid IN (SELECT from_step_uuid FROM step_parents)
+                AND to_step_uuid != $1
             ),
             siblings AS (
-                SELECT to_step_id
+                SELECT to_step_uuid
                 FROM tasker_workflow_step_edges
-                WHERE to_step_id IN (SELECT to_step_id FROM potential_siblings)
-                GROUP BY to_step_id
-                HAVING ARRAY_AGG(from_step_id ORDER BY from_step_id) =
-                      (SELECT ARRAY_AGG(from_step_id ORDER BY from_step_id) FROM step_parents)
+                WHERE to_step_uuid IN (SELECT to_step_uuid FROM potential_siblings)
+                GROUP BY to_step_uuid
+                HAVING ARRAY_AGG(from_step_uuid ORDER BY from_step_uuid) =
+                      (SELECT ARRAY_AGG(from_step_uuid ORDER BY from_step_uuid) FROM step_parents)
             )
             SELECT e.*
             FROM tasker_workflow_step_edges e
-            JOIN siblings ON e.to_step_id = siblings.to_step_id
+            JOIN siblings ON e.to_step_uuid = siblings.to_step_uuid
             ",
         )
-        .bind(step_id)
+        .bind(step_uuid)
         .fetch_all(pool)
         .await
     }
 
     /// Execute provides_to_children query with proper parameter binding
     async fn execute_provides_to_children_query(
-        step_id: i64,
+        step_uuid: Uuid,
         pool: &PgPool,
     ) -> Result<Vec<WorkflowStepEdge>, sqlx::Error> {
         sqlx::query_as::<_, WorkflowStepEdge>(
@@ -89,14 +90,14 @@ impl WorkflowStepEdgeScope {
             SELECT tasker_workflow_step_edges.*
             FROM tasker_workflow_step_edges
             WHERE tasker_workflow_step_edges.name = 'provides'
-            AND tasker_workflow_step_edges.to_step_id IN (
-                SELECT to_step_id
+            AND tasker_workflow_step_edges.to_step_uuid IN (
+                SELECT to_step_uuid
                 FROM tasker_workflow_step_edges
-                WHERE from_step_id = $1
+                WHERE from_step_uuid = $1
             )
             ",
         )
-        .bind(step_id)
+        .bind(step_uuid)
         .fetch_all(pool)
         .await
     }
@@ -105,9 +106,9 @@ impl WorkflowStepEdgeScope {
     ///
     /// This finds all workflow steps that are direct children of the given step.
     /// Essential for DAG forward navigation.
-    pub fn children_of(mut self, step_id: i64) -> Self {
-        self.add_condition("tasker_workflow_step_edges.from_step_id = ");
-        self.query.push_bind(step_id);
+    pub fn children_of(mut self, step_uuid: Uuid) -> Self {
+        self.add_condition("tasker_workflow_step_edges.from_step_uuid = ");
+        self.query.push_bind(step_uuid);
         self
     }
 
@@ -115,9 +116,9 @@ impl WorkflowStepEdgeScope {
     ///
     /// This finds all workflow steps that are direct parents of the given step.
     /// Essential for DAG backward navigation and dependency checking.
-    pub fn parents_of(mut self, step_id: i64) -> Self {
-        self.add_condition("tasker_workflow_step_edges.to_step_id = ");
-        self.query.push_bind(step_id);
+    pub fn parents_of(mut self, step_uuid: Uuid) -> Self {
+        self.add_condition("tasker_workflow_step_edges.to_step_uuid = ");
+        self.query.push_bind(step_uuid);
         self
     }
 
@@ -134,8 +135,8 @@ impl WorkflowStepEdgeScope {
     ///
     /// This finds all 'provides' edges that point to the children of the given step.
     /// Useful for analyzing downstream dependencies.
-    pub fn provides_to_children(mut self, step_id: i64) -> Self {
-        self.special_query = Some(SpecialQuery::ProvidesToChildren(step_id));
+    pub fn provides_to_children(mut self, step_uuid: Uuid) -> Self {
+        self.special_query = Some(SpecialQuery::ProvidesToChildren(step_uuid));
         self
     }
 
@@ -151,8 +152,8 @@ impl WorkflowStepEdgeScope {
     ///
     /// This is essential for the orchestration engine to determine which steps
     /// are ready to run in parallel after their dependencies are satisfied.
-    pub fn siblings_of(mut self, step_id: i64) -> Self {
-        self.special_query = Some(SpecialQuery::SiblingsOf(step_id));
+    pub fn siblings_of(mut self, step_uuid: Uuid) -> Self {
+        self.special_query = Some(SpecialQuery::SiblingsOf(step_uuid));
         self
     }
 }
@@ -162,11 +163,11 @@ impl ScopeBuilder<WorkflowStepEdge> for WorkflowStepEdgeScope {
         // Handle special queries that need direct execution
         if let Some(special) = self.special_query {
             match special {
-                SpecialQuery::SiblingsOf(step_id) => {
-                    return Self::execute_siblings_query(step_id, pool).await;
+                SpecialQuery::SiblingsOf(step_uuid) => {
+                    return Self::execute_siblings_query(step_uuid, pool).await;
                 }
-                SpecialQuery::ProvidesToChildren(step_id) => {
-                    return Self::execute_provides_to_children_query(step_id, pool).await;
+                SpecialQuery::ProvidesToChildren(step_uuid) => {
+                    return Self::execute_provides_to_children_query(step_uuid, pool).await;
                 }
             }
         }
@@ -185,11 +186,11 @@ impl ScopeBuilder<WorkflowStepEdge> for WorkflowStepEdgeScope {
         // Handle special queries that need direct execution
         if let Some(special) = self.special_query {
             let results = match special {
-                SpecialQuery::SiblingsOf(step_id) => {
-                    Self::execute_siblings_query(step_id, pool).await?
+                SpecialQuery::SiblingsOf(step_uuid) => {
+                    Self::execute_siblings_query(step_uuid, pool).await?
                 }
-                SpecialQuery::ProvidesToChildren(step_id) => {
-                    Self::execute_provides_to_children_query(step_id, pool).await?
+                SpecialQuery::ProvidesToChildren(step_uuid) => {
+                    Self::execute_provides_to_children_query(step_uuid, pool).await?
                 }
             };
             return Ok(results.len() as i64);

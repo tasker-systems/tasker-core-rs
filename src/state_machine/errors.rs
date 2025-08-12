@@ -56,7 +56,7 @@ pub enum ActionError {
     #[error("Database update failed for {entity_type} {entity_id}: {reason}")]
     DatabaseUpdateFailed {
         entity_type: String,
-        entity_id: i64,
+        entity_id: String,
         reason: String,
     },
 
@@ -83,10 +83,10 @@ pub enum PersistenceError {
     TransitionSaveFailed { reason: String },
 
     #[error("Failed to resolve current state: {entity_id}")]
-    StateResolutionFailed { entity_id: i64 },
+    StateResolutionFailed { entity_id: String },
 
     #[error("Concurrent modification detected for entity {entity_id}")]
-    ConcurrentModification { entity_id: i64 },
+    ConcurrentModification { entity_id: String },
 
     #[error("Invalid transition data: {field}")]
     InvalidTransitionData { field: String },

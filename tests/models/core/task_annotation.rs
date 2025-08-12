@@ -19,7 +19,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task_annotation_crud".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -28,7 +28,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     let task = tasker_core::models::task::Task::create(
         &pool,
         tasker_core::models::task::NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             identity_hash: "test_hash_annotation_crud".to_string(),
             requested_at: None,
             initiator: None,
@@ -54,7 +54,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Test creation
     let new_annotation = NewTaskAnnotation {
-        task_id: task.task_id,
+        task_uuid: task.task_uuid,
         annotation_type_id: annotation_type.annotation_type_id,
         annotation: serde_json::json!({
             "key": "test_value",
@@ -66,7 +66,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     };
 
     let annotation = TaskAnnotation::create(&pool, new_annotation.clone()).await?;
-    assert_eq!(annotation.task_id, task.task_id);
+    assert_eq!(annotation.task_uuid, task.task_uuid);
     assert_eq!(
         annotation.annotation_type_id,
         annotation_type.annotation_type_id
@@ -78,7 +78,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(found.unwrap().annotation["key"], "test_value");
 
     // Test find by task
-    let task_annotations = TaskAnnotation::find_by_task(&pool, task.task_id).await?;
+    let task_annotations = TaskAnnotation::find_by_task(&pool, task.task_uuid).await?;
     assert!(!task_annotations.is_empty());
 
     // Test JSON search
@@ -88,7 +88,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     assert!(!search_results.is_empty());
 
     // Test annotations with types
-    let with_types = TaskAnnotation::find_with_types(&pool, Some(task.task_id), Some(10)).await?;
+    let with_types = TaskAnnotation::find_with_types(&pool, Some(task.task_uuid), Some(10)).await?;
     assert!(!with_types.is_empty());
     assert_eq!(with_types[0].annotation_type_name, annotation_type.name);
 
@@ -116,7 +116,7 @@ async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task_json_ops".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -125,7 +125,7 @@ async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
     let task = tasker_core::models::task::Task::create(
         &pool,
         tasker_core::models::task::NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             identity_hash: "test_hash_json_ops".to_string(),
             requested_at: None,
             initiator: None,
@@ -160,7 +160,7 @@ async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
     });
 
     let new_annotation = NewTaskAnnotation {
-        task_id: task.task_id,
+        task_uuid: task.task_uuid,
         annotation_type_id: annotation_type.annotation_type_id,
         annotation: complex_json.clone(),
     };

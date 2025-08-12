@@ -12,6 +12,7 @@ use crate::registry::TaskHandlerRegistry;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Configuration for task request processing
 #[derive(Debug, Clone)]
@@ -235,7 +236,7 @@ impl TaskRequestProcessor {
 
         info!(
             request_id = %request.request_id,
-            task_id = initialization_result.task_id,
+            task_uuid = %initialization_result.task_uuid,
             namespace = %request.namespace,
             task_name = %request.task_name,
             step_count = initialization_result.step_count,
@@ -311,7 +312,7 @@ impl TaskRequestProcessor {
     /// Process a task request directly using TaskInitializer (bypassing message queues)
     /// This is the preferred method for direct task creation with proper initialization
     #[instrument(skip(self))]
-    pub async fn process_task_request(&self, payload: &serde_json::Value) -> Result<i64> {
+    pub async fn process_task_request(&self, payload: &serde_json::Value) -> Result<Uuid> {
         // Parse the task request message
         let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
             TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
@@ -341,13 +342,13 @@ impl TaskRequestProcessor {
 
         info!(
             request_id = %request.request_id,
-            task_id = initialization_result.task_id,
+            task_uuid = %initialization_result.task_uuid,
             step_count = initialization_result.step_count,
             handler_config = ?initialization_result.handler_config_name,
             "Task initialized successfully with proper workflow setup"
         );
 
-        Ok(initialization_result.task_id)
+        Ok(initialization_result.task_uuid)
     }
 
     /// Ensure required queues exist

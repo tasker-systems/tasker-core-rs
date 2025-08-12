@@ -1,6 +1,6 @@
 //! # SQL Function-Based System Health Counts Tests
 //!
-//! This module tests the SQL function `get_system_health_counts_v01()` with
+//! This module tests the SQL function `get_system_health_counts()` with
 //! comprehensive scenarios that mirror the Rails test suite.
 //!
 //! Tests include:
@@ -12,6 +12,7 @@
 
 use sqlx::PgPool;
 use tasker_core::models::insights::SystemHealthCounts;
+use uuid::Uuid;
 
 // Import our comprehensive factory system
 use crate::factories::{
@@ -31,8 +32,8 @@ mod tests {
     async fn create_task_with_initial_state(
         pool: &PgPool,
         factory: ComplexWorkflowFactory,
-    ) -> Result<(i64, Vec<i64>), sqlx::Error> {
-        let (task_id, step_ids) = factory
+    ) -> Result<(Uuid, Vec<Uuid>), sqlx::Error> {
+        let (task_uuid, step_uuids) = factory
             .create(pool)
             .await
             .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
@@ -41,7 +42,7 @@ mod tests {
         TaskTransition::create(
             pool,
             NewTaskTransition {
-                task_id,
+                task_uuid,
                 to_state: "pending".to_string(),
                 from_state: None,
                 metadata: None,
@@ -52,30 +53,30 @@ mod tests {
 
         // Create initial "pending" state for ALL workflow steps
         // This is critical for SQL functions to identify "ready" steps
-        for &step_id in &step_ids {
+        for &step_uuid in &step_uuids {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(pool)
                 .await
                 .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
         }
 
-        Ok((task_id, step_ids))
+        Ok((task_uuid, step_uuids))
     }
 
     /// Helper to create test workflows for health count validation
     async fn create_test_workflows_for_health_counts(pool: &PgPool) -> Result<(), sqlx::Error> {
         // Create 2 complete tasks with ALL steps complete (similar to Rails test)
         for _ in 0..2 {
-            let (task_id, step_ids) =
+            let (task_uuid, step_uuids) =
                 create_task_with_initial_state(pool, ComplexWorkflowFactory::new().linear())
                     .await?;
 
             // Complete ALL steps to allow task to transition to complete
-            for step_id in step_ids {
+            for step_uuid in step_uuids {
                 // Create complete lifecycle for each step
-                WorkflowStepTransitionFactory::create_complete_lifecycle(step_id, pool)
+                WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuid, pool)
                     .await
                     .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
             }
@@ -84,7 +85,7 @@ mod tests {
             TaskTransition::create(
                 pool,
                 NewTaskTransition {
-                    task_id,
+                    task_uuid,
                     to_state: "complete".to_string(),
                     from_state: Some("pending".to_string()),
                     metadata: None,
@@ -95,18 +96,18 @@ mod tests {
         }
 
         // Create 1 pending task with all steps pending (helper handles step initialization)
-        let (_pending_task_id, _pending_step_ids) =
+        let (_pending_task_uuid, _pending_step_uuids) =
             create_task_with_initial_state(pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Create 1 error task with 1 error step, rest pending
-        let (error_task_id, error_step_ids) =
+        let (error_task_uuid, error_step_uuids) =
             create_task_with_initial_state(pool, ComplexWorkflowFactory::new().linear()).await?;
 
         // Set first step to error with retry info
-        if let Some(&first_step_id) = error_step_ids.first() {
+        if let Some(&first_step_uuid) = error_step_uuids.first() {
             // Create failed lifecycle for first step
             WorkflowStepTransitionFactory::create_failed_lifecycle(
-                first_step_id,
+                first_step_uuid,
                 "Test error for health counts",
                 pool,
             )
@@ -115,11 +116,11 @@ mod tests {
 
             // Update step with retry information
             sqlx::query!(
-                "UPDATE tasker_workflow_steps 
-                 SET attempts = 1, retry_limit = 3, retryable = true, 
+                "UPDATE tasker_workflow_steps
+                 SET attempts = 1, retry_limit = 3, retryable = true,
                      last_attempted_at = NOW() - INTERVAL '30 seconds'
-                 WHERE workflow_step_id = $1",
-                first_step_id
+                 WHERE workflow_step_uuid = $1",
+                first_step_uuid
             )
             .execute(pool)
             .await?;
@@ -131,7 +132,7 @@ mod tests {
         TaskTransition::create(
             pool,
             NewTaskTransition {
-                task_id: error_task_id,
+                task_uuid: error_task_uuid,
                 to_state: "error".to_string(),
                 from_state: Some("pending".to_string()),
                 metadata: None,
@@ -147,12 +148,12 @@ mod tests {
     async fn create_performance_test_data(pool: &PgPool) -> Result<(), sqlx::Error> {
         // Create 5 completed workflows
         for _ in 0..5 {
-            let (task_id, step_ids) =
+            let (task_uuid, step_uuids) =
                 create_task_with_initial_state(pool, ComplexWorkflowFactory::new().linear())
                     .await?;
 
-            for step_id in step_ids {
-                WorkflowStepTransitionFactory::create_complete_lifecycle(step_id, pool)
+            for step_uuid in step_uuids {
+                WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuid, pool)
                     .await
                     .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
             }
@@ -161,7 +162,7 @@ mod tests {
             TaskTransition::create(
                 pool,
                 NewTaskTransition {
-                    task_id,
+                    task_uuid,
                     to_state: "complete".to_string(),
                     from_state: Some("pending".to_string()),
                     metadata: None,
@@ -178,11 +179,11 @@ mod tests {
 
         // Create 2 workflows with errors
         for _ in 0..2 {
-            let (_task_id, step_ids) =
+            let (_task_uuid, step_uuids) =
                 create_task_with_initial_state(pool, ComplexWorkflowFactory::new().tree()).await?;
 
             // Set first step to error
-            if let Some(&first_step) = step_ids.first() {
+            if let Some(&first_step) = step_uuids.first() {
                 WorkflowStepTransitionFactory::create_failed_lifecycle(
                     first_step,
                     "Performance test error",
@@ -192,9 +193,9 @@ mod tests {
                 .map_err(|e| sqlx::Error::Protocol(format!("Factory error: {e}")))?;
 
                 sqlx::query!(
-                    "UPDATE tasker_workflow_steps 
+                    "UPDATE tasker_workflow_steps
                      SET attempts = 1, retry_limit = 3
-                     WHERE workflow_step_id = $1",
+                     WHERE workflow_step_uuid = $1",
                     first_step
                 )
                 .execute(pool)

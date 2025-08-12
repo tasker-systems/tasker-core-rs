@@ -40,9 +40,9 @@ module PaymentProcessing
     class ValidatePaymentHandler < TaskerCore::StepHandler::Base
       def process(task, _sequence, step)
         @logger.info "Validating payment for task #{begin
-          task.task_id
+          task.task_uuid
         rescue StandardError
-          task['task_id']
+          task['task_uuid']
         end}"
 
         inputs = step.respond_to?(:inputs) ? step.inputs : step['inputs']
@@ -78,9 +78,9 @@ module PaymentProcessing
     class FraudCheckHandler < TaskerCore::StepHandler::Base
       def process(task, _sequence, step)
         @logger.info "Running fraud check for task #{begin
-          task.task_id
+          task.task_uuid
         rescue StandardError
-          task['task_id']
+          task['task_uuid']
         end}"
 
         inputs = step.respond_to?(:inputs) ? step.inputs : step['inputs']
@@ -111,9 +111,9 @@ module PaymentProcessing
     class AuthorizePaymentHandler < TaskerCore::StepHandler::Base
       def process(task, _sequence, step)
         @logger.info "Authorizing payment for task #{begin
-          task.task_id
+          task.task_uuid
         rescue StandardError
-          task['task_id']
+          task['task_uuid']
         end}"
 
         inputs = step.respond_to?(:inputs) ? step.inputs : step['inputs']
@@ -141,9 +141,9 @@ module PaymentProcessing
     class CapturePaymentHandler < TaskerCore::StepHandler::Base
       def process(task, sequence, _step)
         @logger.info "Capturing payment for task #{begin
-          task.task_id
+          task.task_uuid
         rescue StandardError
-          task['task_id']
+          task['task_uuid']
         end}"
 
         # Get authorization from previous step
@@ -167,9 +167,9 @@ module PaymentProcessing
     class SendConfirmationHandler < TaskerCore::StepHandler::Base
       def process(task, sequence, _step)
         @logger.info "Sending confirmation for task #{begin
-          task.task_id
+          task.task_uuid
         rescue StandardError
-          task['task_id']
+          task['task_uuid']
         end}"
 
         # Get capture result from previous step
@@ -316,9 +316,9 @@ class CreditCardPaymentHandler < TaskerCore::TaskHandler::Base
 
   def handle(task)
     @logger.info "Starting credit card payment processing for task #{begin
-      task.task_id
+      task.task_uuid
     rescue StandardError
-      task['task_id']
+      task['task_uuid']
     end}"
 
     # Validate input according to schema
@@ -464,7 +464,7 @@ puts "\n=== Step 6: End-to-End Task Processing ==="
 begin
   # Create mock task
   mock_task = {
-    'task_id' => 123,
+    'task_uuid' => 123,
     'context' => {
       'order_id' => 456,
       'customer_id' => 789,
@@ -477,7 +477,7 @@ begin
   }
 
   puts 'Processing mock task...'
-  puts "  Task ID: #{mock_task['task_id']}"
+  puts "  Task ID: #{mock_task['task_uuid']}"
   puts "  Order ID: #{mock_task['context']['order_id']}"
   puts "  Amount: #{mock_task['context']['payment_info']['amount']}"
 
@@ -505,7 +505,7 @@ puts "\n=== Step 7: Error Handling Test ==="
 begin
   # Create mock task with invalid data
   invalid_task = {
-    'task_id' => 124,
+    'task_uuid' => 124,
     'context' => {
       'order_id' => 457,
       'customer_id' => 790,

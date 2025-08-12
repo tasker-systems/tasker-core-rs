@@ -89,41 +89,5 @@ module TaskerCore
         step_templates.all? { |step| !step.handler_class.empty? }
       end
     end
-
-    # Database models for persistence (mirror Rust structure)
-
-    # TaskNamespace database record
-    class TaskNamespaceRecord < Dry::Struct
-      attribute :id, Types::Integer
-      attribute :name, Types::Strict::String
-      attribute :created_at, Types::Time
-      attribute :updated_at, Types::Time
-    end
-
-    # NamedTask database record
-    class NamedTaskRecord < Dry::Struct
-      attribute :id, Types::Integer
-      attribute :namespace_id, Types::Integer
-      attribute :name, Types::Strict::String
-      attribute :version, Types::String
-      attribute :task_handler_class, Types::String.optional
-      attribute :module_namespace, Types::String.optional
-      attribute :description, Types::String.optional
-      attribute :configuration, Types::Hash # JSON column with full config
-      attribute :created_at, Types::Time
-      attribute :updated_at, Types::Time
-    end
-
-    # StepTemplate database record
-    class StepTemplateRecord < Dry::Struct
-      attribute :id, Types::Integer
-      attribute :named_task_id, Types::Integer
-      attribute :name, Types::Strict::String
-      attribute :handler_class, Types::Strict::String
-      attribute :position, Types::Integer
-      attribute :configuration, Types::Hash # JSON column with step config
-      attribute :created_at, Types::Time
-      attribute :updated_at, Types::Time
-    end
   end
 end

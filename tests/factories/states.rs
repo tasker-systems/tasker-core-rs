@@ -5,14 +5,13 @@
 //! This module provides factories for creating WorkflowStepTransition records
 //! with proper state machine adherence and audit trail functionality.
 
-#![allow(dead_code)]
 #![allow(clippy::wrong_self_convention)] // Builder pattern methods use `to_*` and `from_*` appropriately
 
 use super::base::*;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{types::Uuid, PgPool};
 use tasker_core::models::core::workflow_step_transition::NewWorkflowStepTransition;
 use tasker_core::models::WorkflowStepTransition;
 use tasker_core::state_machine::WorkflowStepState;
@@ -27,14 +26,14 @@ use tasker_core::state_machine::WorkflowStepState;
 /// ```rust
 /// // Create a simple transition to 'complete' state
 /// let transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_id)
+///     .for_workflow_step(step_uuid)
 ///     .to_state("complete")
 ///     .create(&pool)
 ///     .await?;
 ///
 /// // Create a transition with error metadata
 /// let error_transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_id)
+///     .for_workflow_step(step_uuid)
 ///     .to_state("error")
 ///     .with_error("Network timeout")
 ///     .create(&pool)
@@ -42,7 +41,7 @@ use tasker_core::state_machine::WorkflowStepState;
 ///
 /// // Create a retry transition
 /// let retry_transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_id)
+///     .for_workflow_step(step_uuid)
 ///     .from_state("error")
 ///     .to_state("pending")
 ///     .with_retry_attempt(2)
@@ -51,8 +50,7 @@ use tasker_core::state_machine::WorkflowStepState;
 /// ```
 #[derive(Debug, Clone)]
 pub struct WorkflowStepTransitionFactory {
-    base: BaseFactory,
-    workflow_step_id: Option<i64>,
+    workflow_step_uuid: Option<Uuid>,
     to_state: Option<String>,
     from_state: Option<String>,
     metadata: Option<Value>,
@@ -66,8 +64,7 @@ pub struct WorkflowStepTransitionFactory {
 impl Default for WorkflowStepTransitionFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
-            workflow_step_id: None,
+            workflow_step_uuid: None,
             to_state: Some("pending".to_string()), // Default to pending state
             from_state: None,
             metadata: None,
@@ -80,14 +77,21 @@ impl Default for WorkflowStepTransitionFactory {
     }
 }
 
+// NOTE: All methods in this impl block are used across multiple test files, but clippy's
+// dead code detection doesn't always catch cross-file test usage patterns. These are
+// legitimate test utilities, not dead code. Verified usage in:
+// - tests/workflow_step_transition_factory_test.rs (with_metadata, to_complete)
+// - tests/integration_tests.rs (create_retry_lifecycle, create_manual_resolution_lifecycle)
+// - tests/sql_functions/production_workflow_validation.rs (lifecycle methods)
+#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the workflow step this transition belongs to
-    pub fn for_workflow_step(mut self, workflow_step_id: i64) -> Self {
-        self.workflow_step_id = Some(workflow_step_id);
+    pub fn for_workflow_step(mut self, workflow_step_uuid: Uuid) -> Self {
+        self.workflow_step_uuid = Some(workflow_step_uuid);
         self
     }
 
@@ -115,7 +119,7 @@ impl WorkflowStepTransitionFactory {
         self
     }
 
-    /// Create a transition to 'complete' state with optional execution duration
+    /// Create a transition to 'complete' state
     pub fn to_complete(mut self) -> Self {
         self.to_state = Some(WorkflowStepState::Complete.to_string());
         self
@@ -128,35 +132,10 @@ impl WorkflowStepTransitionFactory {
         self
     }
 
-    /// Create a transition to 'error' state with error message
-    pub fn to_error(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::Error.to_string());
-        self
-    }
-
     /// Create a transition to 'error' state with specific error message
     pub fn with_error(mut self, error_message: &str) -> Self {
         self.to_state = Some(WorkflowStepState::Error.to_string());
         self.error_message = Some(error_message.to_string());
-        self
-    }
-
-    /// Create a transition to 'cancelled' state
-    pub fn to_cancelled(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::Cancelled.to_string());
-        self
-    }
-
-    /// Create a transition to 'cancelled' state with trigger reason
-    pub fn to_cancelled_by(mut self, triggered_by: &str) -> Self {
-        self.to_state = Some(WorkflowStepState::Cancelled.to_string());
-        self.triggered_by = Some(triggered_by.to_string());
-        self
-    }
-
-    /// Create a transition to 'resolved_manually' state
-    pub fn to_resolved_manually(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::ResolvedManually.to_string());
         self
     }
 
@@ -218,10 +197,10 @@ impl WorkflowStepTransitionFactory {
 #[async_trait]
 impl SqlxFactory<WorkflowStepTransition> for WorkflowStepTransitionFactory {
     async fn create(&self, pool: &PgPool) -> FactoryResult<WorkflowStepTransition> {
-        let workflow_step_id =
-            self.workflow_step_id
+        let workflow_step_uuid =
+            self.workflow_step_uuid
                 .ok_or_else(|| FactoryError::InvalidConfig {
-                    details: "workflow_step_id is required".to_string(),
+                    details: "workflow_step_uuid is required".to_string(),
                 })?;
 
         let to_state = self
@@ -236,7 +215,7 @@ impl SqlxFactory<WorkflowStepTransition> for WorkflowStepTransitionFactory {
         utils::validate_jsonb(&metadata)?;
 
         let new_transition = NewWorkflowStepTransition {
-            workflow_step_id,
+            workflow_step_uuid,
             to_state,
             from_state: self.from_state.clone(),
             metadata: Some(metadata),
@@ -261,17 +240,23 @@ impl SqlxFactory<WorkflowStepTransition> for WorkflowStepTransitionFactory {
 ///
 /// This follows the Rails pattern of creating sensible defaults that put the system
 /// into states directly rather than trying to move through the FSM layer.
+///
+/// NOTE: Lifecycle methods in this impl block are used in integration tests and
+/// production validation tests. Clippy shows them as unused due to cross-file test
+/// usage detection limitations. Verified usage in integration_tests.rs and
+/// sql_functions/production_workflow_validation.rs
+#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     /// Create a complete workflow step lifecycle (pending -> in_progress -> complete)
     pub async fn create_complete_lifecycle(
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         pool: &PgPool,
     ) -> FactoryResult<Vec<WorkflowStepTransition>> {
         let mut transitions = Vec::new();
 
         // Initial transition to pending (usually created by system)
         let pending = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .to_state("pending")
             .create(pool)
             .await?;
@@ -279,7 +264,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to in_progress
         let in_progress = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("pending")
             .to_in_progress()
             .create(pool)
@@ -288,7 +273,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to complete with duration
         let complete = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("in_progress")
             .to_complete_with_duration(2.5) // 2.5 seconds execution time
             .create(pool)
@@ -300,7 +285,7 @@ impl WorkflowStepTransitionFactory {
 
     /// Create a failed workflow step lifecycle (pending -> in_progress -> error)
     pub async fn create_failed_lifecycle(
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         error_message: &str,
         pool: &PgPool,
     ) -> FactoryResult<Vec<WorkflowStepTransition>> {
@@ -308,7 +293,7 @@ impl WorkflowStepTransitionFactory {
 
         // Initial transition to pending
         let pending = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .to_state("pending")
             .create(pool)
             .await?;
@@ -316,7 +301,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to in_progress
         let in_progress = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("pending")
             .to_in_progress()
             .create(pool)
@@ -325,7 +310,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to error
         let error = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("in_progress")
             .with_error(error_message)
             .create(pool)
@@ -337,7 +322,7 @@ impl WorkflowStepTransitionFactory {
 
     /// Create a retry lifecycle (error -> pending -> in_progress -> complete)
     pub async fn create_retry_lifecycle(
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         attempt_number: i32,
         pool: &PgPool,
     ) -> FactoryResult<Vec<WorkflowStepTransition>> {
@@ -345,15 +330,17 @@ impl WorkflowStepTransitionFactory {
 
         // Retry transition (error -> pending)
         let retry = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .with_retry_attempt(attempt_number)
+            .from_state("error")
+            .to_state("pending")
             .create(pool)
             .await?;
         transitions.push(retry);
 
         // Transition to in_progress
         let in_progress = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("pending")
             .to_in_progress()
             .create(pool)
@@ -362,7 +349,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to complete (successful retry)
         let complete = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("in_progress")
             .to_complete_with_duration(1.8) // Faster on retry
             .create(pool)
@@ -374,7 +361,7 @@ impl WorkflowStepTransitionFactory {
 
     /// Create a manually resolved lifecycle (error -> resolved_manually)
     pub async fn create_manual_resolution_lifecycle(
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
         resolver: &str,
         pool: &PgPool,
     ) -> FactoryResult<Vec<WorkflowStepTransition>> {
@@ -382,7 +369,7 @@ impl WorkflowStepTransitionFactory {
 
         // Transition to resolved_manually
         let resolved = Self::new()
-            .for_workflow_step(workflow_step_id)
+            .for_workflow_step(workflow_step_uuid)
             .from_state("error")
             .resolved_by(resolver)
             .create(pool)

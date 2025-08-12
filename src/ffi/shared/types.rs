@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Task input for shared FFI operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ pub struct TaskInput {
 /// Task output from shared FFI operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskOutput {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub name: String,
     pub version: String,
@@ -31,7 +32,7 @@ pub struct TaskOutput {
 /// Workflow step input for shared FFI operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepInput {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub name: String,
     pub dependencies: Option<Vec<i64>>,
     pub handler_class: Option<String>,
@@ -41,8 +42,8 @@ pub struct StepInput {
 /// Workflow step output from shared FFI operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepOutput {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub name: String,
     pub status: String,
     pub dependencies: Vec<i64>,
@@ -93,7 +94,7 @@ pub struct CreateTestTaskInput {
 /// Test task creation output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestTaskOutput {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub name: String,
     pub version: String,
@@ -105,7 +106,7 @@ pub struct TestTaskOutput {
 /// Test step creation input
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateTestStepInput {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub name: String,
     pub handler_class: Option<String>,
     pub dependencies: Option<Vec<i64>>,
@@ -115,8 +116,8 @@ pub struct CreateTestStepInput {
 /// Test step creation output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestStepOutput {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub name: String,
     pub handler_class: String,
     pub status: String,
@@ -168,7 +169,7 @@ pub struct EnvironmentCleanupResult {
 /// Task execution context for analytics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionContext {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub total_steps: i64,
     pub completed_steps: i64,
     pub pending_steps: i64,
@@ -178,9 +179,9 @@ pub struct TaskExecutionContext {
     pub completion_percentage: f64,
     pub estimated_duration_seconds: Option<i64>,
     pub recommended_action: String,
-    pub next_steps_to_execute: Vec<i64>,
-    pub critical_path_steps: Vec<i64>,
-    pub bottleneck_steps: Vec<i64>,
+    pub next_steps_to_execute: Vec<String>,
+    pub critical_path_steps: Vec<String>,
+    pub bottleneck_steps: Vec<String>,
 }
 
 /// Analytics metrics
@@ -201,12 +202,12 @@ pub struct AnalyticsMetrics {
 /// Dependency analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DependencyAnalysis {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub total_dependencies: i64,
     pub resolved_dependencies: i64,
     pub pending_dependencies: i64,
-    pub circular_dependencies: Vec<i64>,
-    pub critical_path: Vec<i64>,
+    pub circular_dependencies: Vec<String>,
+    pub critical_path: Vec<Uuid>,
     pub optimization_suggestions: Vec<String>,
     pub estimated_completion_time_seconds: i64,
 }

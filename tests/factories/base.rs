@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Result type for factory operations
 pub type FactoryResult<T> = Result<T, FactoryError>;
@@ -57,10 +58,10 @@ pub trait SqlxFactory<T: Send> {
 #[async_trait]
 pub trait RelationshipFactory<T> {
     /// Add a dependency on another entity
-    fn depends_on(self, entity_id: i64) -> Self;
+    fn depends_on(self, entity_uuid: Uuid) -> Self;
 
     /// Add multiple dependencies
-    fn with_dependencies(self, entity_ids: &[i64]) -> Self;
+    fn with_dependencies(self, entity_uuids: &[Uuid]) -> Self;
 
     /// Set up relationships after creation
     async fn setup_relationships(&self, entity: &T, pool: &PgPool) -> FactoryResult<()>;
@@ -83,7 +84,7 @@ pub trait StateFactory<T> {
 #[derive(Debug, Clone, Default)]
 pub struct FactoryContext {
     pub attributes: HashMap<String, Value>,
-    pub relationships: HashMap<String, Vec<i64>>,
+    pub relationships: HashMap<String, Vec<Uuid>>,
     pub states: Vec<String>,
     pub metadata: HashMap<String, Value>,
 }
@@ -98,7 +99,7 @@ impl FactoryContext {
         self
     }
 
-    pub fn with_relationship(mut self, name: &str, ids: Vec<i64>) -> Self {
+    pub fn with_relationship(mut self, name: &str, ids: Vec<Uuid>) -> Self {
         self.relationships.insert(name.to_string(), ids);
         self
     }
@@ -136,7 +137,7 @@ pub trait ContextualFactory {
 #[derive(Debug, Clone)]
 pub struct BaseFactory {
     pub context: FactoryContext,
-    pub dependencies: Vec<i64>,
+    pub dependencies: Vec<Uuid>,
     pub auto_create_dependencies: bool,
 }
 
@@ -236,7 +237,10 @@ mod tests {
         let context = FactoryContext::new()
             .set("name", "test_entity")
             .set("count", 42)
-            .with_relationship("dependencies", vec![1, 2, 3])
+            .with_relationship(
+                "dependencies",
+                vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()],
+            )
             .with_states(vec!["pending".to_string(), "active".to_string()])
             .with_metadata("test_flag", true);
 
@@ -245,10 +249,7 @@ mod tests {
             Some("test_entity".to_string())
         );
         assert_eq!(context.get::<i32>("count"), Some(42));
-        assert_eq!(
-            context.relationships.get("dependencies"),
-            Some(&vec![1, 2, 3])
-        );
+        assert_eq!(context.relationships.get("dependencies").unwrap().len(), 3);
         assert_eq!(context.states.len(), 2);
         assert!(context.metadata.contains_key("test_flag"));
     }

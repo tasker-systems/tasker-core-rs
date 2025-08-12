@@ -9,6 +9,7 @@ use tasker_core::orchestration::{
     ErrorClassification, ErrorClassifier, ErrorContext, OrchestrationError,
     StandardErrorClassifier, StepExecutionError,
 };
+use uuid::Uuid;
 
 fn main() {
     println!("=== Step Execution Error Classification Demo ===\n");
@@ -18,8 +19,8 @@ fn main() {
 
     // Create execution context
     let context = ErrorContext {
-        step_id: 123,
-        task_id: 456,
+        step_uuid: Uuid::now_v7(),
+        task_uuid: Uuid::now_v7(),
         attempt_number: 2,
         max_attempts: 5,
         execution_duration: Duration::from_secs(30),
@@ -76,8 +77,14 @@ fn main() {
     println!("   Testing behavior when max attempts reached:");
 
     let final_context = ErrorContext {
+        step_uuid: Uuid::now_v7(),
+        task_uuid: Uuid::now_v7(),
         attempt_number: 5, // Equal to max_attempts
-        ..context
+        max_attempts: context.max_attempts,
+        execution_duration: context.execution_duration,
+        step_name: context.step_name.clone(),
+        error_source: context.error_source.clone(),
+        metadata: HashMap::new(),
     };
 
     let transient_error = OrchestrationError::DatabaseError {

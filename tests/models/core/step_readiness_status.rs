@@ -33,7 +33,7 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
             ),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -43,7 +43,7 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None,
             initiator: None,
             source_system: None,
@@ -61,7 +61,7 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
     .expect("Failed to create task");
 
     // Test getting step readiness status (might be empty for a new task)
-    let _statuses = StepReadinessStatus::get_for_task(&pool, task.task_id)
+    let _statuses = StepReadinessStatus::get_for_task(&pool, task.task_uuid)
         .await
         .expect("Failed to get step readiness status");
 
@@ -96,7 +96,7 @@ async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
             ),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -106,7 +106,7 @@ async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             identity_hash: format!(
                 "test_hash_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
@@ -123,7 +123,7 @@ async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
     .await
     .expect("Failed to create task");
 
-    let summary = StepReadinessStatus::get_readiness_summary(&pool, task.task_id)
+    let summary = StepReadinessStatus::get_readiness_summary(&pool, task.task_uuid)
         .await
         .expect("Failed to get readiness summary");
 

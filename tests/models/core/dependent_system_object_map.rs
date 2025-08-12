@@ -3,7 +3,7 @@
 //! Tests for the DependentSystemObjectMap model using SQLx native testing
 
 use sqlx::PgPool;
-use tasker_core::models::dependent_system::DependentSystem;
+use tasker_core::models::core::dependent_system::DependentSystem;
 use tasker_core::models::dependent_system_object_map::{
     DependentSystemObjectMap, NewDependentSystemObjectMap,
 };
@@ -16,16 +16,16 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
 
     // Test creation
     let new_mapping = NewDependentSystemObjectMap {
-        dependent_system_one_id: system_one.dependent_system_id,
-        dependent_system_two_id: system_two.dependent_system_id,
+        dependent_system_one_uuid: system_one.dependent_system_uuid,
+        dependent_system_two_uuid: system_two.dependent_system_uuid,
         remote_id_one: "obj_123".to_string(),
         remote_id_two: "item_456".to_string(),
     };
 
     let mapping = DependentSystemObjectMap::create(&pool, new_mapping.clone()).await?;
     assert_eq!(
-        mapping.dependent_system_one_id,
-        system_one.dependent_system_id
+        mapping.dependent_system_one_uuid,
+        system_one.dependent_system_uuid
     );
     assert_eq!(mapping.remote_id_one, "obj_123");
 
@@ -38,8 +38,8 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
     // Test find by systems and remote IDs
     let found_specific = DependentSystemObjectMap::find_by_systems_and_remote_ids(
         &pool,
-        system_one.dependent_system_id,
-        system_two.dependent_system_id,
+        system_one.dependent_system_uuid,
+        system_two.dependent_system_uuid,
         "obj_123",
         "item_456",
     )
@@ -56,8 +56,8 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
     // Test find_by_systems
     let mappings = DependentSystemObjectMap::find_by_systems(
         &pool,
-        system_one.dependent_system_id,
-        system_two.dependent_system_id,
+        system_one.dependent_system_uuid,
+        system_two.dependent_system_uuid,
     )
     .await?;
     assert!(!mappings.is_empty());
@@ -65,8 +65,8 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
     // Test mapping between systems
     let between = DependentSystemObjectMap::find_by_systems(
         &pool,
-        system_one.dependent_system_id,
-        system_two.dependent_system_id,
+        system_one.dependent_system_uuid,
+        system_two.dependent_system_uuid,
     )
     .await?;
     assert!(!between.is_empty());
@@ -86,8 +86,8 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
     // Test count between systems (using find_by_systems and count)
     let mappings_count = DependentSystemObjectMap::find_by_systems(
         &pool,
-        system_one.dependent_system_id,
-        system_two.dependent_system_id,
+        system_one.dependent_system_uuid,
+        system_two.dependent_system_uuid,
     )
     .await?;
     assert!(!mappings_count.is_empty());
@@ -106,16 +106,16 @@ async fn test_mapping_stats(pool: PgPool) -> sqlx::Result<()> {
     // Create multiple mappings
     for i in 1..=3 {
         let mapping_ab = NewDependentSystemObjectMap {
-            dependent_system_one_id: system_a.dependent_system_id,
-            dependent_system_two_id: system_b.dependent_system_id,
+            dependent_system_one_uuid: system_a.dependent_system_uuid,
+            dependent_system_two_uuid: system_b.dependent_system_uuid,
             remote_id_one: format!("a_{i}"),
             remote_id_two: format!("b_{i}"),
         };
         DependentSystemObjectMap::create(&pool, mapping_ab).await?;
 
         let mapping_ac = NewDependentSystemObjectMap {
-            dependent_system_one_id: system_a.dependent_system_id,
-            dependent_system_two_id: system_c.dependent_system_id,
+            dependent_system_one_uuid: system_a.dependent_system_uuid,
+            dependent_system_two_uuid: system_c.dependent_system_uuid,
             remote_id_one: format!("a_{i}"),
             remote_id_two: format!("c_{i}"),
         };

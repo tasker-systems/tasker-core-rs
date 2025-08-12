@@ -42,7 +42,7 @@ module TaskerCore
         symbolized_config = prepare_config_for_task_template(config_hash)
         TaskerCore::Types::TaskTemplate.new(symbolized_config)
       rescue StandardError => e
-        logger.error "💥 TASK_TEMPLATE_REGISTRY: Error loading task template for task #{task.task_id}: #{e.message}"
+        logger.error "💥 TASK_TEMPLATE_REGISTRY: Error loading task template for task #{task.task_uuid}: #{e.message}"
         nil
       end
 

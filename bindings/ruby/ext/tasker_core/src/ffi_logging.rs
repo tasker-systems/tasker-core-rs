@@ -38,7 +38,7 @@ pub fn log_task_init_result(result: &crate::types::TaskHandlerInitializeResult) 
     tasker_core::log_ffi!(debug, "Task initialization result",
         component: "initialize_task",
         stage: "RESULT",
-        task_id: result.task_id,
+        task_uuid: result.task_uuid,
         step_count: result.step_count,
         handler_config_name: &result.handler_config_name
     );

@@ -11,7 +11,7 @@
 //!
 //! ## SQL Function Integration
 //!
-//! This model corresponds to the `get_step_transitive_dependencies(target_step_id)`
+//! This model corresponds to the `get_step_transitive_dependencies(target_step_uuid)`
 //! SQL function that uses recursive CTEs to traverse the DAG and return all
 //! ancestor steps with their results and processing status.
 //!
@@ -21,10 +21,11 @@
 //! use tasker_core::models::orchestration::StepTransitiveDependencies;
 //! use tasker_core::database::sql_functions::SqlFunctionExecutor;
 //! use sqlx::PgPool;
+//! use uuid::Uuid;
 //!
-//! # async fn example(pool: PgPool, step_id: i64) -> Result<(), sqlx::Error> {
+//! # async fn example(pool: PgPool, step_uuid: Uuid) -> Result<(), sqlx::Error> {
 //! let executor = SqlFunctionExecutor::new(pool);
-//! let dependencies = executor.get_step_transitive_dependencies(step_id).await?;
+//! let dependencies = executor.get_step_transitive_dependencies(step_uuid).await?;
 //!
 //! for dep in dependencies {
 //!     println!("Dependency: {} (distance: {})", dep.step_name, dep.distance);
@@ -40,6 +41,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Result structure for get_step_transitive_dependencies SQL function
 ///
@@ -48,11 +50,11 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct StepTransitiveDependencies {
     /// Primary key of the workflow step
-    pub workflow_step_id: i64,
+    pub workflow_step_uuid: Uuid,
     /// Task that this step belongs to
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Named step template ID
-    pub named_step_id: i32,
+    pub named_step_uuid: Uuid,
     /// Human-readable step name
     pub step_name: String,
     /// Step execution results (JSON)
@@ -66,18 +68,18 @@ pub struct StepTransitiveDependencies {
 impl StepTransitiveDependencies {
     /// Create a new step transitive dependency entry
     pub fn new(
-        workflow_step_id: i64,
-        task_id: i64,
-        named_step_id: i32,
+        workflow_step_uuid: Uuid,
+        task_uuid: Uuid,
+        named_step_uuid: Uuid,
         step_name: String,
         results: Option<JsonValue>,
         processed: bool,
         distance: i32,
     ) -> Self {
         Self {
-            workflow_step_id,
-            task_id,
-            named_step_id,
+            workflow_step_uuid,
+            task_uuid,
+            named_step_uuid,
             step_name,
             results,
             processed,
@@ -123,11 +125,11 @@ impl StepTransitiveDependenciesQuery {
     /// to recursively find all ancestor steps.
     pub async fn get_for_step(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
         let sql = "SELECT * FROM get_step_transitive_dependencies($1)";
         sqlx::query_as::<_, StepTransitiveDependencies>(sql)
-            .bind(step_id)
+            .bind(step_uuid)
             .fetch_all(&self.pool)
             .await
     }
@@ -138,9 +140,9 @@ impl StepTransitiveDependenciesQuery {
     /// using the step name.
     pub async fn get_as_map(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<HashMap<String, StepTransitiveDependencies>, sqlx::Error> {
-        let dependencies = self.get_for_step(step_id).await?;
+        let dependencies = self.get_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .map(|dep| (dep.step_name.clone(), dep))
@@ -153,9 +155,9 @@ impl StepTransitiveDependenciesQuery {
     /// processed and have results available.
     pub async fn get_completed_for_step(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
-        let dependencies = self.get_for_step(step_id).await?;
+        let dependencies = self.get_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter(|dep| dep.has_results())
@@ -168,9 +170,9 @@ impl StepTransitiveDependenciesQuery {
     /// but uses the transitive function for consistency.
     pub async fn get_direct_parents(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<Vec<StepTransitiveDependencies>, sqlx::Error> {
-        let dependencies = self.get_for_step(step_id).await?;
+        let dependencies = self.get_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter(|dep| dep.is_direct_parent())
@@ -183,9 +185,9 @@ impl StepTransitiveDependenciesQuery {
     /// similar to the existing `sequence.get_results()` pattern.
     pub async fn get_results_map(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> Result<HashMap<String, JsonValue>, sqlx::Error> {
-        let dependencies = self.get_completed_for_step(step_id).await?;
+        let dependencies = self.get_completed_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter_map(|dep| dep.results.map(|results| (dep.step_name, results)))

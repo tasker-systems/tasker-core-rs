@@ -21,25 +21,25 @@ async fn test_dependent_system_crud(pool: PgPool) -> sqlx::Result<()> {
     );
 
     // Test find by ID
-    let found = DependentSystem::find_by_id(&pool, created.dependent_system_id)
+    let found = DependentSystem::find_by_uuid(&pool, created.dependent_system_uuid)
         .await?
         .expect("Dependent system not found");
-    assert_eq!(found.dependent_system_id, created.dependent_system_id);
+    assert_eq!(found.dependent_system_uuid, created.dependent_system_uuid);
 
     // Test find by name
     let found_by_name = DependentSystem::find_by_name(&pool, "test_system")
         .await?
         .expect("Dependent system not found");
     assert_eq!(
-        found_by_name.dependent_system_id,
-        created.dependent_system_id
+        found_by_name.dependent_system_uuid,
+        created.dependent_system_uuid
     );
 
     // Test find_or_create_by_name (should find existing)
     let found_or_created = DependentSystem::find_or_create_by_name(&pool, "test_system").await?;
     assert_eq!(
-        found_or_created.dependent_system_id,
-        created.dependent_system_id
+        found_or_created.dependent_system_uuid,
+        created.dependent_system_uuid
     );
 
     // Test find_or_create_by_name (should create new)
@@ -106,7 +106,7 @@ async fn test_dependent_system_comprehensive_functionality(pool: PgPool) -> sqlx
 
     // Test is_name_unique excluding current ID
     let is_unique_excluded =
-        DependentSystem::is_name_unique(&pool, &created.name, Some(created.dependent_system_id))
+        DependentSystem::is_name_unique(&pool, &created.name, Some(created.dependent_system_uuid))
             .await?;
     assert!(is_unique_excluded); // Should be unique when excluding itself
 
@@ -127,12 +127,12 @@ async fn test_dependent_system_comprehensive_functionality(pool: PgPool) -> sqlx
     assert!(!search_results.is_empty());
 
     // Test delete
-    let deleted = DependentSystem::delete(&pool, created.dependent_system_id).await?;
+    let deleted = DependentSystem::delete(&pool, created.dependent_system_uuid).await?;
     assert!(deleted);
 
     // Verify deletion
     let found_after_delete =
-        DependentSystem::find_by_id(&pool, created.dependent_system_id).await?;
+        DependentSystem::find_by_uuid(&pool, created.dependent_system_uuid).await?;
     assert!(found_after_delete.is_none());
 
     Ok(())

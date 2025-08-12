@@ -11,6 +11,7 @@ use tasker_core::models::{
         NewWorkflowStepTransition, WorkflowStepTransition, WorkflowStepTransitionQuery,
     },
 };
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
@@ -36,7 +37,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             ),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -45,7 +46,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None,
             initiator: None,
             source_system: None,
@@ -72,7 +73,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     let named_step = NamedStep::create(
         &pool,
         NewNamedStep {
-            dependent_system_id: system.dependent_system_id,
+            dependent_system_uuid: system.dependent_system_uuid,
             name: format!(
                 "test_step_{}",
                 chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
@@ -85,8 +86,8 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     let workflow_step = WorkflowStep::create(
         &pool,
         NewWorkflowStep {
-            task_id: task.task_id,
-            named_step_id: named_step.named_step_id,
+            task_uuid: task.task_uuid,
+            named_step_uuid: named_step.named_step_uuid,
             retryable: Some(true),
             retry_limit: Some(3),
             inputs: None,
@@ -95,11 +96,11 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     )
     .await?;
 
-    let workflow_step_id = workflow_step.workflow_step_id;
+    let workflow_step_uuid = workflow_step.workflow_step_uuid;
 
     // Test creation
     let new_transition = NewWorkflowStepTransition {
-        workflow_step_id,
+        workflow_step_uuid,
         to_state: "ready".to_string(),
         from_state: Some("pending".to_string()),
         metadata: Some(json!({"reason": "dependencies_met"})),
@@ -111,21 +112,27 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(created.sort_key, 1);
 
     // Test find by ID
-    let found = WorkflowStepTransition::find_by_id(&pool, created.id)
+    let found = WorkflowStepTransition::find_by_uuid(&pool, created.workflow_step_transition_uuid)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(found.id, created.id);
+    assert_eq!(
+        found.workflow_step_transition_uuid,
+        created.workflow_step_transition_uuid
+    );
 
     // Test get current
-    let current = WorkflowStepTransition::get_current(&pool, workflow_step_id)
+    let current = WorkflowStepTransition::get_current(&pool, workflow_step_uuid)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(current.id, created.id);
+    assert_eq!(
+        current.workflow_step_transition_uuid,
+        created.workflow_step_transition_uuid
+    );
     assert!(current.most_recent);
 
     // Test creating another transition
     let new_transition2 = NewWorkflowStepTransition {
-        workflow_step_id,
+        workflow_step_uuid,
         to_state: "running".to_string(),
         from_state: Some("ready".to_string()),
         metadata: Some(json!({"started_at": "2024-01-01T00:00:00Z"})),
@@ -136,50 +143,58 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     assert!(created2.most_recent);
 
     // Verify first transition is no longer most recent
-    let updated_first = WorkflowStepTransition::find_by_id(&pool, created.id)
-        .await?
-        .ok_or_else(|| sqlx::Error::RowNotFound)?;
+    let updated_first =
+        WorkflowStepTransition::find_by_uuid(&pool, created.workflow_step_transition_uuid)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
     assert!(!updated_first.most_recent);
 
     // Test get history
     let history =
-        WorkflowStepTransition::get_history(&pool, workflow_step_id, Some(10), None).await?;
+        WorkflowStepTransition::get_history(&pool, workflow_step_uuid, Some(10), None).await?;
     assert_eq!(history.len(), 2);
-    assert_eq!(history[0].id, created2.id); // Most recent first
-    assert_eq!(history[1].id, created.id);
+    assert_eq!(
+        history[0].workflow_step_transition_uuid,
+        created2.workflow_step_transition_uuid
+    ); // Most recent first
+    assert_eq!(
+        history[1].workflow_step_transition_uuid,
+        created.workflow_step_transition_uuid
+    );
 
     // Test can transition
     let can_transition =
-        WorkflowStepTransition::can_transition(&pool, workflow_step_id, "running", "completed")
+        WorkflowStepTransition::can_transition(&pool, workflow_step_uuid, "running", "completed")
             .await?;
     assert!(can_transition);
 
     // Cleanup - delete in reverse dependency order (transitions first)
     sqlx::query!(
-        "DELETE FROM tasker_workflow_step_transitions WHERE workflow_step_id = $1",
-        workflow_step.workflow_step_id
+        "DELETE FROM tasker_workflow_step_transitions WHERE workflow_step_uuid = $1",
+        workflow_step.workflow_step_uuid
     )
     .execute(&pool)
     .await?;
-    WorkflowStep::delete(&pool, workflow_step.workflow_step_id).await?;
-    NamedStep::delete(&pool, named_step.named_step_id).await?;
-    Task::delete(&pool, task.task_id).await?;
-    NamedTask::delete(&pool, named_task.named_task_id).await?;
-    TaskNamespace::delete(&pool, namespace.task_namespace_id).await?;
+    WorkflowStep::delete(&pool, workflow_step.workflow_step_uuid).await?;
+    NamedStep::delete(&pool, named_step.named_step_uuid).await?;
+    Task::delete(&pool, task.task_uuid).await?;
+    NamedTask::delete(&pool, named_task.named_task_uuid).await?;
+    TaskNamespace::delete(&pool, namespace.task_namespace_uuid).await?;
 
     Ok(())
 }
 
 #[test]
 fn test_query_builder() {
+    let step_uuid = Uuid::now_v7();
     let query = WorkflowStepTransitionQuery::new()
-        .workflow_step_id(1)
+        .workflow_step_uuid(step_uuid)
         .state("completed")
         .most_recent_only()
         .limit(10)
         .offset(0);
 
-    assert_eq!(query.workflow_step_id, Some(1));
+    assert_eq!(query.workflow_step_uuid, Some(step_uuid));
     assert_eq!(query.state, Some("completed".to_string()));
     assert!(query.most_recent_only);
     assert_eq!(query.limit, Some(10));

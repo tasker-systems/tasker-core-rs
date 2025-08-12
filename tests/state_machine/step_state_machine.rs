@@ -10,6 +10,7 @@ use tasker_core::models::WorkflowStep;
 use tasker_core::state_machine::events::StepEvent;
 use tasker_core::state_machine::states::WorkflowStepState;
 use tasker_core::state_machine::step_state_machine::StepStateMachine;
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
@@ -88,9 +89,9 @@ fn create_test_step_state_machine(pool: PgPool) -> StepStateMachine {
         NaiveDateTime::parse_from_str("2023-01-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
 
     let step = WorkflowStep {
-        workflow_step_id: 1,
-        task_id: 1,
-        named_step_id: 1,
+        workflow_step_uuid: Uuid::now_v7(),
+        task_uuid: Uuid::now_v7(),
+        named_step_uuid: Uuid::now_v7(),
         retryable: true,
         retry_limit: Some(3),
         in_process: false,

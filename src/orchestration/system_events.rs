@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
+use uuid::Uuid;
 
 /// Main system events configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,15 +269,15 @@ impl SystemEventsManager {
     /// Create a properly formatted event payload for step completion
     pub fn create_step_completed_payload(
         &self,
-        task_id: i64,
-        step_id: i64,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
         step_name: &str,
         execution_duration: f64,
         attempt_number: u32,
     ) -> serde_json::Value {
         serde_json::json!({
-            "task_id": task_id.to_string(),
-            "step_id": step_id.to_string(),
+            "task_uuid": task_uuid.to_string(),
+            "step_uuid": step_uuid.to_string(),
             "step_name": step_name,
             "execution_duration": execution_duration,
             "attempt_number": attempt_number,
@@ -287,16 +288,16 @@ impl SystemEventsManager {
     /// Create a properly formatted event payload for step failure
     pub fn create_step_failed_payload(
         &self,
-        task_id: i64,
-        step_id: i64,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
         step_name: &str,
         error_message: &str,
         error_class: &str,
         attempt_number: u32,
     ) -> serde_json::Value {
         serde_json::json!({
-            "task_id": task_id.to_string(),
-            "step_id": step_id.to_string(),
+            "task_uuid": task_uuid.to_string(),
+            "step_uuid": step_uuid.to_string(),
             "step_name": step_name,
             "error_message": error_message,
             "error_class": error_class,
@@ -308,14 +309,14 @@ impl SystemEventsManager {
     /// Create a properly formatted event payload for task completion
     pub fn create_task_completed_payload(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         task_name: &str,
         total_steps: u32,
         completed_steps: u32,
         total_duration: Option<f64>,
     ) -> serde_json::Value {
         let mut payload = serde_json::json!({
-            "task_id": task_id.to_string(),
+            "task_uuid": task_uuid.to_string(),
             "task_name": task_name,
             "total_steps": total_steps,
             "completed_steps": completed_steps,
@@ -335,14 +336,14 @@ impl SystemEventsManager {
     /// Create a properly formatted event payload for viable steps discovery
     pub fn create_viable_steps_discovered_payload(
         &self,
-        task_id: i64,
-        step_ids: &[i64],
+        task_uuid: Uuid,
+        step_uuids: &[Uuid],
         processing_mode: &str,
     ) -> serde_json::Value {
         serde_json::json!({
-            "task_id": task_id.to_string(),
-            "step_ids": step_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-            "step_count": step_ids.len(),
+            "task_uuid": task_uuid.to_string(),
+            "step_uuids": step_uuids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+            "step_count": step_uuids.len(),
             "processing_mode": processing_mode,
             "timestamp": chrono::Utc::now().to_rfc3339()
         })
@@ -379,30 +380,36 @@ mod tests {
 
         let manager = SystemEventsManager::new(config);
 
+        let task_uuid = Uuid::now_v7();
+        let step_uuid = Uuid::now_v7();
+
         // Test step completed payload
-        let payload = manager.create_step_completed_payload(123, 456, "test_step", 1.5, 1);
-        assert_eq!(payload["task_id"], "123");
-        assert_eq!(payload["step_id"], "456");
+        let payload =
+            manager.create_step_completed_payload(task_uuid, step_uuid, "test_step", 1.5, 1);
+        assert_eq!(payload["task_uuid"], task_uuid.to_string());
+        assert_eq!(payload["step_uuid"], step_uuid.to_string());
         assert_eq!(payload["step_name"], "test_step");
         assert_eq!(payload["execution_duration"], 1.5);
         assert_eq!(payload["attempt_number"], 1);
         assert!(payload["timestamp"].is_string());
 
         // Test task completed payload
-        let payload = manager.create_task_completed_payload(789, "test_task", 5, 5, Some(10.0));
-        assert_eq!(payload["task_id"], "789");
+        let payload =
+            manager.create_task_completed_payload(task_uuid, "test_task", 5, 5, Some(10.0));
+        assert_eq!(payload["task_uuid"], task_uuid.to_string());
         assert_eq!(payload["task_name"], "test_task");
         assert_eq!(payload["total_steps"], 5);
         assert_eq!(payload["completed_steps"], 5);
         assert_eq!(payload["total_duration"], 10.0);
 
         // Test viable steps payload
-        let step_ids = vec![100, 200, 300];
-        let payload = manager.create_viable_steps_discovered_payload(999, &step_ids, "parallel");
-        assert_eq!(payload["task_id"], "999");
-        assert_eq!(payload["step_count"], 3);
+        let step_uuids = vec![step_uuid];
+        let payload =
+            manager.create_viable_steps_discovered_payload(task_uuid, &step_uuids, "parallel");
+        assert_eq!(payload["task_uuid"], task_uuid.to_string());
+        assert_eq!(payload["step_count"], 1);
         assert_eq!(payload["processing_mode"], "parallel");
-        assert!(payload["step_ids"].is_array());
+        assert!(payload["step_uuids"].is_array());
     }
 
     #[tokio::test]
@@ -414,7 +421,7 @@ event_metadata:
       description: "Task completed successfully"
       constant_ref: "TaskEvents::COMPLETED"
       payload_schema:
-        task_id: { type: "String", required: true }
+        task_uuid: { type: "String", required: true }
         task_name: { type: "String", required: true }
       fired_by: ["TaskHandler"]
 
@@ -436,8 +443,8 @@ state_machine_mappings:
         assert_eq!(task_completed.fired_by[0], "TaskHandler");
 
         // Test payload schema
-        assert!(task_completed.payload_schema.contains_key("task_id"));
-        assert!(task_completed.payload_schema["task_id"].required);
+        assert!(task_completed.payload_schema.contains_key("task_uuid"));
+        assert!(task_completed.payload_schema["task_uuid"].required);
 
         // Test state transitions
         let transitions = config.get_task_transitions();

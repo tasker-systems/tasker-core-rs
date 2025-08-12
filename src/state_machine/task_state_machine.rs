@@ -12,6 +12,7 @@ use super::{
 use crate::events::publisher::EventPublisher;
 use crate::models::Task;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Thread-safe task state machine for lifecycle management
 #[derive(Clone)]
@@ -37,7 +38,7 @@ impl TaskStateMachine {
     pub async fn current_state(&self) -> StateMachineResult<TaskState> {
         match self
             .persistence
-            .resolve_current_state(self.task.task_id, &self.pool)
+            .resolve_current_state(self.task.task_uuid, &self.pool)
             .await?
         {
             Some(state_str) => state_str.parse().map_err(|_| {
@@ -204,8 +205,8 @@ impl TaskStateMachine {
         &self.task
     }
 
-    /// Get task ID
-    pub fn task_id(&self) -> i64 {
-        self.task.task_id
+    /// Get task UUID
+    pub fn task_uuid(&self) -> Uuid {
+        self.task.task_uuid
     }
 }

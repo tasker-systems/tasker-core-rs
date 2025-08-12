@@ -2,27 +2,25 @@
 //!
 //! Factories for creating relationships and edges between workflow entities.
 
-#![allow(dead_code)]
-
 use super::base::*;
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::{types::Uuid, PgPool};
 use tasker_core::models::core::workflow_step_edge::NewWorkflowStepEdge;
 use tasker_core::models::WorkflowStepEdge;
 
 /// Factory for creating workflow step edges (dependencies between steps)
 #[derive(Debug, Clone)]
 pub struct WorkflowStepEdgeFactory {
-    from_step_id: Option<i64>,
-    to_step_id: Option<i64>,
+    from_step_uuid: Option<Uuid>,
+    to_step_uuid: Option<Uuid>,
     name: String,
 }
 
 impl Default for WorkflowStepEdgeFactory {
     fn default() -> Self {
         Self {
-            from_step_id: None,
-            to_step_id: None,
+            from_step_uuid: None,
+            to_step_uuid: None,
             name: "provides".to_string(),
         }
     }
@@ -33,13 +31,13 @@ impl WorkflowStepEdgeFactory {
         Self::default()
     }
 
-    pub fn with_from_step(mut self, step_id: i64) -> Self {
-        self.from_step_id = Some(step_id);
+    pub fn with_from_step(mut self, step_uuid: Uuid) -> Self {
+        self.from_step_uuid = Some(step_uuid);
         self
     }
 
-    pub fn with_to_step(mut self, step_id: i64) -> Self {
-        self.to_step_id = Some(step_id);
+    pub fn with_to_step(mut self, step_uuid: Uuid) -> Self {
+        self.to_step_uuid = Some(step_uuid);
         self
     }
 
@@ -52,39 +50,26 @@ impl WorkflowStepEdgeFactory {
     pub fn provides(self) -> Self {
         self.with_name("provides")
     }
-
-    /// Create a "depends_on" edge
-    pub fn depends_on(self) -> Self {
-        self.with_name("depends_on")
-    }
-
-    /// Create a "blocks" edge
-    pub fn blocks(self) -> Self {
-        self.with_name("blocks")
-    }
-
-    /// Create a "triggers" edge
-    pub fn triggers(self) -> Self {
-        self.with_name("triggers")
-    }
 }
 
 #[async_trait]
 impl SqlxFactory<WorkflowStepEdge> for WorkflowStepEdgeFactory {
     async fn create(&self, pool: &PgPool) -> FactoryResult<WorkflowStepEdge> {
-        let from_step_id = self
-            .from_step_id
+        let from_step_uuid = self
+            .from_step_uuid
             .ok_or_else(|| FactoryError::InvalidConfig {
-                details: "from_step_id is required".to_string(),
+                details: "from_step_uuid is required".to_string(),
             })?;
 
-        let to_step_id = self.to_step_id.ok_or_else(|| FactoryError::InvalidConfig {
-            details: "to_step_id is required".to_string(),
-        })?;
+        let to_step_uuid = self
+            .to_step_uuid
+            .ok_or_else(|| FactoryError::InvalidConfig {
+                details: "to_step_uuid is required".to_string(),
+            })?;
 
         let new_edge = NewWorkflowStepEdge {
-            from_step_id,
-            to_step_id,
+            from_step_uuid,
+            to_step_uuid,
             name: self.name.clone(),
         };
 
@@ -93,19 +78,21 @@ impl SqlxFactory<WorkflowStepEdge> for WorkflowStepEdgeFactory {
     }
 
     async fn find_or_create(&self, pool: &PgPool) -> FactoryResult<WorkflowStepEdge> {
-        let from_step_id = self
-            .from_step_id
+        let from_step_uuid = self
+            .from_step_uuid
             .ok_or_else(|| FactoryError::InvalidConfig {
-                details: "from_step_id is required".to_string(),
+                details: "from_step_uuid is required".to_string(),
             })?;
 
-        let to_step_id = self.to_step_id.ok_or_else(|| FactoryError::InvalidConfig {
-            details: "to_step_id is required".to_string(),
-        })?;
+        let to_step_uuid = self
+            .to_step_uuid
+            .ok_or_else(|| FactoryError::InvalidConfig {
+                details: "to_step_uuid is required".to_string(),
+            })?;
 
         // Try to find existing edge
         if let Some(existing) =
-            WorkflowStepEdge::find_by_steps_and_name(pool, from_step_id, to_step_id, &self.name)
+            WorkflowStepEdge::find_by_steps_and_name(pool, from_step_uuid, to_step_uuid, &self.name)
                 .await?
         {
             return Ok(existing);
@@ -126,24 +113,24 @@ mod tests {
         // Create task and steps
         let task = TaskFactory::new().create(&pool).await?;
         let step1 = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .create(&pool)
             .await?;
         let step2 = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .create(&pool)
             .await?;
 
         // Create edge
         let edge = WorkflowStepEdgeFactory::new()
-            .with_from_step(step1.workflow_step_id)
-            .with_to_step(step2.workflow_step_id)
+            .with_from_step(step1.workflow_step_uuid)
+            .with_to_step(step2.workflow_step_uuid)
             .provides()
             .create(&pool)
             .await?;
 
-        assert_eq!(edge.from_step_id, step1.workflow_step_id);
-        assert_eq!(edge.to_step_id, step2.workflow_step_id);
+        assert_eq!(edge.from_step_uuid, step1.workflow_step_uuid);
+        assert_eq!(edge.to_step_uuid, step2.workflow_step_uuid);
         assert_eq!(edge.name, "provides");
 
         Ok(())

@@ -26,6 +26,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Configuration for backoff calculation behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,16 +153,16 @@ impl BackoffCalculator {
     /// the step with backoff information.
     pub async fn calculate_and_apply_backoff(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         context: BackoffContext,
     ) -> Result<BackoffResult, BackoffError> {
         // Check for server-requested backoff first
         if let Some(retry_after) = self.extract_retry_after_header(&context) {
-            self.apply_server_requested_backoff(step_id, retry_after)
+            self.apply_server_requested_backoff(step_uuid, retry_after)
                 .await
         } else {
             // Fall back to exponential backoff
-            self.apply_exponential_backoff(step_id, &context).await
+            self.apply_exponential_backoff(step_uuid, &context).await
         }
     }
 
@@ -194,7 +195,7 @@ impl BackoffCalculator {
     /// Apply server-requested backoff from Retry-After header
     async fn apply_server_requested_backoff(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         retry_after_seconds: u32,
     ) -> Result<BackoffResult, BackoffError> {
         // Cap the server-requested delay
@@ -202,9 +203,9 @@ impl BackoffCalculator {
 
         // Update the step with backoff information
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_id = $2",
+            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_uuid = $2",
             delay_seconds as i32,
-            step_id
+            step_uuid
         )
         .execute(&self.pool)
         .await
@@ -220,13 +221,13 @@ impl BackoffCalculator {
     /// Apply exponential backoff based on attempt count
     async fn apply_exponential_backoff(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         _context: &BackoffContext,
     ) -> Result<BackoffResult, BackoffError> {
         // Get current attempt count
         let step = sqlx::query!(
-            "SELECT attempts FROM tasker_workflow_steps WHERE workflow_step_id = $1",
-            step_id
+            "SELECT attempts FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            step_uuid
         )
         .fetch_one(&self.pool)
         .await
@@ -249,9 +250,9 @@ impl BackoffCalculator {
 
         // Update the step with backoff information
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_id = $2",
+            "UPDATE tasker_workflow_steps SET backoff_request_seconds = $1 WHERE workflow_step_uuid = $2",
             delay_seconds as i32,
-            step_id
+            step_uuid
         )
         .execute(&self.pool)
         .await
@@ -285,14 +286,14 @@ impl BackoffCalculator {
     }
 
     /// Check if a step is ready to retry after backoff period
-    pub async fn is_ready_to_retry(&self, step_id: i64) -> Result<bool, BackoffError> {
+    pub async fn is_ready_to_retry(&self, step_uuid: Uuid) -> Result<bool, BackoffError> {
         let step = sqlx::query!(
             r#"
             SELECT backoff_request_seconds, last_attempted_at
             FROM tasker_workflow_steps
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1
             "#,
-            step_id
+            step_uuid
         )
         .fetch_one(&self.pool)
         .await
@@ -308,10 +309,10 @@ impl BackoffCalculator {
     }
 
     /// Clear backoff for a step (e.g., after successful execution)
-    pub async fn clear_backoff(&self, step_id: i64) -> Result<(), BackoffError> {
+    pub async fn clear_backoff(&self, step_uuid: Uuid) -> Result<(), BackoffError> {
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET backoff_request_seconds = NULL WHERE workflow_step_id = $1",
-            step_id
+            "UPDATE tasker_workflow_steps SET backoff_request_seconds = NULL WHERE workflow_step_uuid = $1",
+            step_uuid
         )
         .execute(&self.pool)
         .await

@@ -58,7 +58,7 @@ module TaskerCore
         # Log the transition for debugging
         effective_current_state = StepStateMachine.effective_current_state(step)
                                                   .logger.debug do
-          "Step #{step.workflow_step_id} transitioning from #{effective_current_state} to #{transition.to_state}"
+          "Step #{step.workflow_step_uuid} transitioning from #{effective_current_state} to #{transition.to_state}"
         end
       end
 
@@ -72,8 +72,8 @@ module TaskerCore
           StepStateMachine.safe_fire_event(
             event_name,
             {
-              task_id: step.task_id,
-              step_id: step.workflow_step_id,
+              task_uuid: step.task_uuid,
+              step_id: step.workflow_step_uuid,
               step_name: step.name,
               from_state: transition.from_state,
               to_state: transition.to_state,
@@ -165,7 +165,7 @@ module TaskerCore
 
         # Log transition creation for debugging
         logger.debug do
-          "StepStateMachine: Creating transition for step #{object.workflow_step_id}: " \
+          "StepStateMachine: Creating transition for step #{object.workflow_step_uuid}: " \
             "'#{effective_from_state}' → '#{to_state}'"
         end
 
@@ -174,7 +174,7 @@ module TaskerCore
 
         # Create the transition with proper from_state handling
         transition = TaskerCore::Database::Models::WorkflowStepTransition.create!(
-          workflow_step_id: object.workflow_step_id,
+          workflow_step_uuid: object.workflow_step_uuid,
           to_state: to_state,
           from_state: effective_from_state, # Use nil instead of empty string
           most_recent: true,
@@ -204,7 +204,7 @@ module TaskerCore
       # DEFENSIVE: Only creates transitions when explicitly needed
       def initialize_state_machine!
         # Check if state machine is already initialized
-        if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_id: object.workflow_step_id)
+        if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_uuid: object.workflow_step_uuid)
           return current_state
         end
 
@@ -212,7 +212,7 @@ module TaskerCore
         begin
           # Create the initial transition only if none exists
           initial_transition = TaskerCore::Database::Models::WorkflowStepTransition.create!(
-            workflow_step_id: object.workflow_step_id,
+            workflow_step_uuid: object.workflow_step_uuid,
             to_state: Constants::WorkflowStepStatuses::PENDING,
             from_state: nil, # Explicitly set to nil for initial transition
             most_recent: true,
@@ -223,14 +223,14 @@ module TaskerCore
           )
 
           logger.debug do
-            "StepStateMachine: Initialized state machine for step #{object.workflow_step_id} with initial transition to PENDING"
+            "StepStateMachine: Initialized state machine for step #{object.workflow_step_uuid} with initial transition to PENDING"
           end
 
           initial_transition.to_state
         rescue ActiveRecord::RecordNotUnique => e
           # Handle duplicate key violations gracefully - another thread may have initialized the state machine
           logger.debug do
-            "StepStateMachine: State machine for step #{object.workflow_step_id} already initialized by another process: #{e.message}"
+            "StepStateMachine: State machine for step #{object.workflow_step_uuid} already initialized by another process: #{e.message}"
           end
 
           # Return the current state since we know it's initialized
@@ -238,11 +238,11 @@ module TaskerCore
         rescue ActiveRecord::StatementInvalid => e
           # Handle transaction issues gracefully
           logger.warn do
-            "StepStateMachine: Transaction issue initializing state machine for step #{object.workflow_step_id}: #{e.message}"
+            "StepStateMachine: Transaction issue initializing state machine for step #{object.workflow_step_uuid}: #{e.message}"
           end
 
           # Check if the step actually has transitions now (another process may have created them)
-          if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_id: object.workflow_step_id)
+          if TaskerCore::Database::Models::WorkflowStepTransition.exists?(workflow_step_uuid: object.workflow_step_uuid)
             current_state
           else
             # If still no transitions, return the default state without creating a transition
@@ -268,7 +268,7 @@ module TaskerCore
 
           if is_idempotent
             logger.debug do
-              "StepStateMachine: Allowing idempotent transition to #{target_state} for step #{step.workflow_step_id}"
+              "StepStateMachine: Allowing idempotent transition to #{target_state} for step #{step.workflow_step_uuid}"
             end
           end
 
@@ -293,7 +293,7 @@ module TaskerCore
         def log_invalid_from_state(step, current_state, target_state, reason)
           logger.debug do
             "StepStateMachine: Cannot transition to #{target_state} from '#{current_state}' " \
-              "(step #{step.workflow_step_id}). #{reason}."
+              "(step #{step.workflow_step_uuid}). #{reason}."
           end
         end
 
@@ -303,7 +303,7 @@ module TaskerCore
         # @param target_state [String] The target state
         def log_dependencies_not_met(step, target_state)
           logger.debug do
-            "StepStateMachine: Cannot transition step #{step.workflow_step_id} to #{target_state} - " \
+            "StepStateMachine: Cannot transition step #{step.workflow_step_uuid} to #{target_state} - " \
               'dependencies not satisfied. Check parent step completion status.'
           end
         end
@@ -317,11 +317,11 @@ module TaskerCore
         def log_transition_result(step, target_state, result, reason)
           if result
             logger.debug do
-              "StepStateMachine: Allowing transition to #{target_state} for step #{step.workflow_step_id} (#{reason})"
+              "StepStateMachine: Allowing transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason})"
             end
           else
             logger.debug do
-              "StepStateMachine: Blocking transition to #{target_state} for step #{step.workflow_step_id} (#{reason} failed)"
+              "StepStateMachine: Blocking transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason} failed)"
             end
           end
         end
@@ -353,8 +353,8 @@ module TaskerCore
 
             unless is_complete
               logger.debug do
-                "StepStateMachine: Step #{step.workflow_step_id} dependency not met - " \
-                  "parent step #{parent.workflow_step_id} is '#{parent_status}', needs to be complete"
+                "StepStateMachine: Step #{step.workflow_step_uuid} dependency not met - " \
+                  "parent step #{parent.workflow_step_uuid} is '#{parent_status}', needs to be complete"
               end
             end
 
@@ -364,7 +364,7 @@ module TaskerCore
           # If there's an error checking dependencies, log it and assume dependencies are met
           # This prevents dependency checking from blocking execution in edge cases
           logger.warn do
-            "StepStateMachine: Error checking dependencies for step #{step.workflow_step_id}: #{e.message}. " \
+            "StepStateMachine: Error checking dependencies for step #{step.workflow_step_uuid}: #{e.message}. " \
               'Assuming dependencies are met.'
           end
           true
@@ -404,12 +404,11 @@ module TaskerCore
         # @param context [Hash] The event context
         # @return [WorkflowStep, nil] The step object if available
         def extract_step_from_context(context)
-          step_id = context[:step_id]
-          return nil unless step_id
+          step_uuid = context[:step_uuid]
+          return nil unless step_uuid
 
           # Try to find the step - handle both string and numeric IDs
-          TaskerCore::Database::Models::WorkflowStep.find_by(workflow_step_id: step_id) ||
-            TaskerCore::Database::Models::WorkflowStep.find_by(id: step_id)
+          TaskerCore::Database::Models::WorkflowStep.find_by(workflow_step_uuid: step_uuid)
         rescue StandardError => e
           logger.warn { "Could not find step with ID #{step_id}: #{e.message}" }
           nil
@@ -445,8 +444,8 @@ module TaskerCore
           # Base payload with core identifiers
           enhanced_context = {
             # Core identifiers (always present)
-            task_id: context[:task_id],
-            step_id: context[:step_id],
+            task_uuid: context[:task_uuid],
+            step_uuid: context[:step_uuid],
             step_name: context[:step_name],
 
             # State transition information
@@ -469,7 +468,7 @@ module TaskerCore
 
           # Merge in any additional context provided
           enhanced_context.merge!(context.except(
-                                    :task_id, :step_id, :step_name, :from_state, :to_state,
+                                    :task_uuid, :step_uuid, :step_name, :from_state, :to_state,
                                     :started_at, :completed_at, :execution_duration,
                                     :error_message, :exception_class, :attempt_number, :transitioned_at
                                   ))

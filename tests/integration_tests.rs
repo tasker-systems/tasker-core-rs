@@ -4,7 +4,7 @@
 //! working with the complete scope system to create and test complex workflow scenarios.
 //!
 //! These tests focus on:
-//! - Reusable factory patterns for complex dependencies  
+//! - Reusable factory patterns for complex dependencies
 //! - Declarative workflow scenario creation
 //! - End-to-end scope validation with real data
 //! - DAG patterns: 3-4 step linear, 5-7 step diamond/tree
@@ -116,21 +116,21 @@ impl LinearWorkflowScenario {
 
         // Create 3 sequential steps
         let step_a = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("validation_step")
             .with_inputs(json!({"data": "input_data"}))
             .create(pool)
             .await?;
 
         let step_b = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("processing_step")
             .with_inputs(json!({"validated_data": "processed"}))
             .create(pool)
             .await?;
 
         let step_c = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("finalization_step")
             .with_inputs(json!({"processed_data": "final"}))
             .create(pool)
@@ -140,15 +140,15 @@ impl LinearWorkflowScenario {
 
         // Create edges: A -> B -> C
         let edge_ab = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_a.workflow_step_id)
-            .with_to_step(step_b.workflow_step_id)
+            .with_from_step(step_a.workflow_step_uuid)
+            .with_to_step(step_b.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
 
         let edge_bc = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_b.workflow_step_id)
-            .with_to_step(step_c.workflow_step_id)
+            .with_from_step(step_b.workflow_step_uuid)
+            .with_to_step(step_c.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
@@ -185,25 +185,25 @@ impl DiamondWorkflowScenario {
 
         // Create 4 steps in diamond pattern
         let step_a = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("initialization_step")
             .create(pool)
             .await?;
 
         let step_b = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("parallel_branch_1")
             .create(pool)
             .await?;
 
         let step_c = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("parallel_branch_2")
             .create(pool)
             .await?;
 
         let step_d = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("merge_step")
             .create(pool)
             .await?;
@@ -217,29 +217,29 @@ impl DiamondWorkflowScenario {
 
         // Create diamond edges: A -> B, A -> C, B -> D, C -> D
         let edge_ab = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_a.workflow_step_id)
-            .with_to_step(step_b.workflow_step_id)
+            .with_from_step(step_a.workflow_step_uuid)
+            .with_to_step(step_b.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
 
         let edge_ac = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_a.workflow_step_id)
-            .with_to_step(step_c.workflow_step_id)
+            .with_from_step(step_a.workflow_step_uuid)
+            .with_to_step(step_c.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
 
         let edge_bd = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_b.workflow_step_id)
-            .with_to_step(step_d.workflow_step_id)
+            .with_from_step(step_b.workflow_step_uuid)
+            .with_to_step(step_d.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
 
         let edge_cd = WorkflowStepEdgeFactory::new()
-            .with_from_step(step_c.workflow_step_id)
-            .with_to_step(step_d.workflow_step_id)
+            .with_from_step(step_c.workflow_step_uuid)
+            .with_to_step(step_d.workflow_step_uuid)
             .provides()
             .create(pool)
             .await?;
@@ -276,43 +276,43 @@ impl TreeWorkflowScenario {
 
         // Create 7 steps in tree pattern
         let step_a = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("root_step")
             .create(pool)
             .await?;
 
         let step_b = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_1_main")
             .create(pool)
             .await?;
 
         let step_c = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_2_main")
             .create(pool)
             .await?;
 
         let step_d = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_1_leaf_1")
             .create(pool)
             .await?;
 
         let step_e = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_1_leaf_2")
             .create(pool)
             .await?;
 
         let step_f = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_2_leaf_1")
             .create(pool)
             .await?;
 
         let step_g = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .with_named_step("branch_2_leaf_2")
             .create(pool)
             .await?;
@@ -330,38 +330,38 @@ impl TreeWorkflowScenario {
         // Create tree edges: A -> B, A -> C, B -> D, B -> E, C -> F, C -> G
         let edges = vec![
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_a.workflow_step_id)
-                .with_to_step(step_b.workflow_step_id)
+                .with_from_step(step_a.workflow_step_uuid)
+                .with_to_step(step_b.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_a.workflow_step_id)
-                .with_to_step(step_c.workflow_step_id)
+                .with_from_step(step_a.workflow_step_uuid)
+                .with_to_step(step_c.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_b.workflow_step_id)
-                .with_to_step(step_d.workflow_step_id)
+                .with_from_step(step_b.workflow_step_uuid)
+                .with_to_step(step_d.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_b.workflow_step_id)
-                .with_to_step(step_e.workflow_step_id)
+                .with_from_step(step_b.workflow_step_uuid)
+                .with_to_step(step_e.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_c.workflow_step_id)
-                .with_to_step(step_f.workflow_step_id)
+                .with_from_step(step_c.workflow_step_uuid)
+                .with_to_step(step_f.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
             WorkflowStepEdgeFactory::new()
-                .with_from_step(step_c.workflow_step_id)
-                .with_to_step(step_g.workflow_step_id)
+                .with_from_step(step_c.workflow_step_uuid)
+                .with_to_step(step_g.workflow_step_uuid)
                 .provides()
                 .create(pool)
                 .await?,
@@ -394,31 +394,31 @@ async fn test_linear_workflow_scope_integration(
 
     // Test WorkflowStep scopes
     let steps_for_task = WorkflowStep::scope()
-        .for_task(scenario.task.task_id)
+        .for_task(scenario.task.task_uuid)
         .all(&pool)
         .await?;
     assert_eq!(steps_for_task.len(), 3);
 
     // Test WorkflowStepEdge scopes - children relationship
     let children_of_first = WorkflowStepEdge::scope()
-        .children_of(scenario.steps[0].workflow_step_id)
+        .children_of(scenario.steps[0].workflow_step_uuid)
         .all(&pool)
         .await?;
     assert_eq!(children_of_first.len(), 1);
     assert_eq!(
-        children_of_first[0].to_step_id,
-        scenario.steps[1].workflow_step_id
+        children_of_first[0].to_step_uuid,
+        scenario.steps[1].workflow_step_uuid
     );
 
     // Test parents relationship
     let parents_of_last = WorkflowStepEdge::scope()
-        .parents_of(scenario.steps[2].workflow_step_id)
+        .parents_of(scenario.steps[2].workflow_step_uuid)
         .all(&pool)
         .await?;
     assert_eq!(parents_of_last.len(), 1);
     assert_eq!(
-        parents_of_last[0].from_step_id,
-        scenario.steps[1].workflow_step_id
+        parents_of_last[0].from_step_uuid,
+        scenario.steps[1].workflow_step_uuid
     );
 
     // Test NamedTask scopes
@@ -442,21 +442,21 @@ async fn test_linear_workflow_with_state_transitions(
     // Create state transitions for the linear workflow
     // Step A: pending -> in_progress -> complete
     WorkflowStepTransitionFactory::create_complete_lifecycle(
-        scenario.steps[0].workflow_step_id,
+        scenario.steps[0].workflow_step_uuid,
         &pool,
     )
     .await?;
 
     // Step B: pending -> in_progress -> error -> pending -> in_progress -> complete (retry scenario)
     WorkflowStepTransitionFactory::create_failed_lifecycle(
-        scenario.steps[1].workflow_step_id,
+        scenario.steps[1].workflow_step_uuid,
         "Network timeout during processing",
         &pool,
     )
     .await?;
 
     WorkflowStepTransitionFactory::create_retry_lifecycle(
-        scenario.steps[1].workflow_step_id,
+        scenario.steps[1].workflow_step_uuid,
         2, // Second attempt
         &pool,
     )
@@ -464,7 +464,7 @@ async fn test_linear_workflow_with_state_transitions(
 
     // Step C: pending (waiting for dependencies)
     WorkflowStepTransitionFactory::new()
-        .for_workflow_step(scenario.steps[2].workflow_step_id)
+        .for_workflow_step(scenario.steps[2].workflow_step_uuid)
         .to_state("pending")
         .create(&pool)
         .await?;
@@ -486,7 +486,7 @@ async fn test_linear_workflow_with_state_transitions(
     assert_eq!(error_transitions.len(), 1); // Step B failed once
 
     let transitions_for_task = WorkflowStepTransition::scope()
-        .for_task(scenario.task.task_id)
+        .for_task(scenario.task.task_uuid)
         .all(&pool)
         .await?;
     assert!(transitions_for_task.len() >= 6); // All transitions for this task
@@ -515,32 +515,32 @@ async fn test_diamond_workflow_scope_integration(
     // Test the critical siblings_of scope with diamond pattern
     // In diamond: B and C are siblings (same parent A, same children D)
     let siblings_of_b = WorkflowStepEdge::scope()
-        .siblings_of(scenario.steps[1].workflow_step_id) // Step B
+        .siblings_of(scenario.steps[1].workflow_step_uuid) // Step B
         .all(&pool)
         .await?;
 
     // Should find edges pointing to step C (sibling of B)
     assert_eq!(siblings_of_b.len(), 1);
     assert_eq!(
-        siblings_of_b[0].to_step_id,
-        scenario.steps[2].workflow_step_id
+        siblings_of_b[0].to_step_uuid,
+        scenario.steps[2].workflow_step_uuid
     ); // Points to C
 
     let siblings_of_c = WorkflowStepEdge::scope()
-        .siblings_of(scenario.steps[2].workflow_step_id) // Step C
+        .siblings_of(scenario.steps[2].workflow_step_uuid) // Step C
         .all(&pool)
         .await?;
 
     // Should find edges pointing to step B (sibling of C)
     assert_eq!(siblings_of_c.len(), 1);
     assert_eq!(
-        siblings_of_c[0].to_step_id,
-        scenario.steps[1].workflow_step_id
+        siblings_of_c[0].to_step_uuid,
+        scenario.steps[1].workflow_step_uuid
     ); // Points to B
 
     // Test provides_to_children scope
     let provides_to_children_of_a = WorkflowStepEdge::scope()
-        .provides_to_children(scenario.steps[0].workflow_step_id) // Step A
+        .provides_to_children(scenario.steps[0].workflow_step_uuid) // Step A
         .all(&pool)
         .await?;
 
@@ -550,13 +550,13 @@ async fn test_diamond_workflow_scope_integration(
 
     // Test children and parents with diamond structure
     let children_of_a = WorkflowStepEdge::scope()
-        .children_of(scenario.steps[0].workflow_step_id)
+        .children_of(scenario.steps[0].workflow_step_uuid)
         .all(&pool)
         .await?;
     assert_eq!(children_of_a.len(), 2); // A has 2 children: B and C
 
     let parents_of_d = WorkflowStepEdge::scope()
-        .parents_of(scenario.steps[3].workflow_step_id)
+        .parents_of(scenario.steps[3].workflow_step_uuid)
         .all(&pool)
         .await?;
     assert_eq!(parents_of_d.len(), 2); // D has 2 parents: B and C
@@ -578,19 +578,19 @@ async fn test_tree_workflow_scope_integration(
 
     // Test tree structure with scopes
     let children_of_root = WorkflowStepEdge::scope()
-        .children_of(scenario.steps[0].workflow_step_id) // Root A
+        .children_of(scenario.steps[0].workflow_step_uuid) // Root A
         .all(&pool)
         .await?;
     assert_eq!(children_of_root.len(), 2); // A has 2 children: B and C
 
     let children_of_b = WorkflowStepEdge::scope()
-        .children_of(scenario.steps[1].workflow_step_id) // Branch 1 main (B)
+        .children_of(scenario.steps[1].workflow_step_uuid) // Branch 1 main (B)
         .all(&pool)
         .await?;
     assert_eq!(children_of_b.len(), 2); // B has 2 children: D and E
 
     let children_of_c = WorkflowStepEdge::scope()
-        .children_of(scenario.steps[2].workflow_step_id) // Branch 2 main (C)
+        .children_of(scenario.steps[2].workflow_step_uuid) // Branch 2 main (C)
         .all(&pool)
         .await?;
     assert_eq!(children_of_c.len(), 2); // C has 2 children: F and G
@@ -598,36 +598,36 @@ async fn test_tree_workflow_scope_integration(
     // Test siblings at leaf level
     // D and E are siblings (both children of B)
     let siblings_of_d = WorkflowStepEdge::scope()
-        .siblings_of(scenario.steps[3].workflow_step_id) // D
+        .siblings_of(scenario.steps[3].workflow_step_uuid) // D
         .all(&pool)
         .await?;
     assert_eq!(siblings_of_d.len(), 1); // Should find edge to E
     assert_eq!(
-        siblings_of_d[0].to_step_id,
-        scenario.steps[4].workflow_step_id
+        siblings_of_d[0].to_step_uuid,
+        scenario.steps[4].workflow_step_uuid
     ); // Points to E
 
     // F and G are siblings (both children of C)
     let siblings_of_f = WorkflowStepEdge::scope()
-        .siblings_of(scenario.steps[5].workflow_step_id) // F
+        .siblings_of(scenario.steps[5].workflow_step_uuid) // F
         .all(&pool)
         .await?;
     assert_eq!(siblings_of_f.len(), 1); // Should find edge to G
     assert_eq!(
-        siblings_of_f[0].to_step_id,
-        scenario.steps[6].workflow_step_id
+        siblings_of_f[0].to_step_uuid,
+        scenario.steps[6].workflow_step_uuid
     ); // Points to G
 
     // Test that non-siblings don't show up (D and F are NOT siblings - different parents)
     let siblings_cross_branch = WorkflowStepEdge::scope()
-        .siblings_of(scenario.steps[3].workflow_step_id) // D
+        .siblings_of(scenario.steps[3].workflow_step_uuid) // D
         .all(&pool)
         .await?;
 
     // Should only find E, not F or G
     for edge in &siblings_cross_branch {
-        assert_ne!(edge.to_step_id, scenario.steps[5].workflow_step_id); // Not F
-        assert_ne!(edge.to_step_id, scenario.steps[6].workflow_step_id); // Not G
+        assert_ne!(edge.to_step_uuid, scenario.steps[5].workflow_step_uuid); // Not F
+        assert_ne!(edge.to_step_uuid, scenario.steps[6].workflow_step_uuid); // Not G
     }
 
     Ok(())
@@ -676,19 +676,19 @@ async fn test_cross_scenario_namespace_and_task_scopes(
     // Create initial workflow step transitions to make tasks "active"
     // For this test we just need at least one step per task to be in a non-complete state
     WorkflowStepTransitionFactory::new()
-        .for_workflow_step(_linear.steps[0].workflow_step_id)
+        .for_workflow_step(_linear.steps[0].workflow_step_uuid)
         .to_state("pending")
         .create(&pool)
         .await?;
 
     WorkflowStepTransitionFactory::new()
-        .for_workflow_step(_diamond.steps[0].workflow_step_id)
+        .for_workflow_step(_diamond.steps[0].workflow_step_uuid)
         .to_state("pending")
         .create(&pool)
         .await?;
 
     WorkflowStepTransitionFactory::new()
-        .for_workflow_step(_tree.steps[0].workflow_step_id)
+        .for_workflow_step(_tree.steps[0].workflow_step_uuid)
         .to_state("pending")
         .create(&pool)
         .await?;
@@ -713,32 +713,32 @@ async fn test_comprehensive_state_transition_scenarios(
 
     // Linear workflow: Complete success
     for step in &linear.steps {
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step.workflow_step_id, &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step.workflow_step_uuid, &pool)
             .await?;
     }
 
     // Diamond workflow: Mixed states with manual resolution
     WorkflowStepTransitionFactory::create_complete_lifecycle(
-        diamond.steps[0].workflow_step_id, // A completes
+        diamond.steps[0].workflow_step_uuid, // A completes
         &pool,
     )
     .await?;
 
     WorkflowStepTransitionFactory::create_failed_lifecycle(
-        diamond.steps[1].workflow_step_id, // B fails
+        diamond.steps[1].workflow_step_uuid, // B fails
         "Downstream API unavailable",
         &pool,
     )
     .await?;
 
     WorkflowStepTransitionFactory::create_complete_lifecycle(
-        diamond.steps[2].workflow_step_id, // C completes
+        diamond.steps[2].workflow_step_uuid, // C completes
         &pool,
     )
     .await?;
 
     WorkflowStepTransitionFactory::create_manual_resolution_lifecycle(
-        diamond.steps[1].workflow_step_id, // B manually resolved
+        diamond.steps[1].workflow_step_uuid, // B manually resolved
         "ops-team@company.com",
         &pool,
     )
@@ -777,13 +777,13 @@ async fn test_comprehensive_state_transition_scenarios(
 
     // Test task-level transition queries
     let linear_transitions = WorkflowStepTransition::scope()
-        .for_task(linear.task.task_id)
+        .for_task(linear.task.task_uuid)
         .all(&pool)
         .await?;
     assert_eq!(linear_transitions.len(), 9); // 3 steps × 3 transitions each
 
     let diamond_transitions = WorkflowStepTransition::scope()
-        .for_task(diamond.task.task_id)
+        .for_task(diamond.task.task_uuid)
         .all(&pool)
         .await?;
     assert!(diamond_transitions.len() >= 10); // 4 steps with various transition counts
@@ -818,7 +818,7 @@ async fn test_task_complete_flag_integration_with_state_transitions(
         .await?;
 
     // Get the task before state transition
-    let task_before = Task::find_by_id(&pool, test_task.task_id).await?.unwrap();
+    let task_before = Task::find_by_id(&pool, test_task.task_uuid).await?.unwrap();
     assert!(!task_before.complete, "Task should initially be incomplete");
 
     // Create state machine and transition to complete
@@ -856,7 +856,7 @@ async fn test_task_complete_flag_integration_with_state_transitions(
     }
 
     // Verify the task.complete flag was updated in the database
-    let task_after = Task::find_by_id(&pool, test_task.task_id).await?.unwrap();
+    let task_after = Task::find_by_id(&pool, test_task.task_uuid).await?.unwrap();
     assert!(
         task_after.complete,
         "Task.complete should be true after state transition"
@@ -882,7 +882,7 @@ async fn test_workflow_step_flags_integration_with_state_transitions(
     let test_step = &scenario.steps[0];
 
     // Get the step before state transitions
-    let step_before = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+    let step_before = WorkflowStep::find_by_id(&pool, test_step.workflow_step_uuid)
         .await?
         .unwrap();
     assert!(
@@ -915,7 +915,7 @@ async fn test_workflow_step_flags_integration_with_state_transitions(
     );
 
     // Verify the step.in_process flag was updated
-    let step_in_progress = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+    let step_in_progress = WorkflowStep::find_by_id(&pool, test_step.workflow_step_uuid)
         .await?
         .unwrap();
     assert!(
@@ -943,7 +943,7 @@ async fn test_workflow_step_flags_integration_with_state_transitions(
     );
 
     // Verify the step.processed and processed_at flags were updated
-    let step_complete = WorkflowStep::find_by_id(&pool, test_step.workflow_step_id)
+    let step_complete = WorkflowStep::find_by_id(&pool, test_step.workflow_step_uuid)
         .await?
         .unwrap();
     assert!(

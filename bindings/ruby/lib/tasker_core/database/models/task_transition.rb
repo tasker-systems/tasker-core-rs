@@ -8,11 +8,12 @@ module TaskerCore
       # This model stores the audit trail of all task state changes, providing
       # a complete history of task lifecycle events with metadata and timestamps.
       class TaskTransition < ApplicationRecord
+        self.primary_key = :task_transition_uuid
         # NOTE: We don't include Statesman::Adapters::ActiveRecordTransition
         # because we're using PostgreSQL JSONB column for metadata
 
         # Associations
-        belongs_to :task, inverse_of: :task_transitions
+        belongs_to :task, foreign_key: :task_uuid, primary_key: :task_uuid, inverse_of: :task_transitions
 
         # Validations
         validates :to_state, inclusion: {
@@ -23,7 +24,7 @@ module TaskerCore
         # Validate that the task exists before creating transition
         validate :task_must_exist
 
-        validates :sort_key, presence: true, uniqueness: { scope: :task_id }
+        validates :sort_key, presence: true, uniqueness: { scope: :task_uuid }
         # Custom validation for metadata that allows empty hash but not nil
         validate :metadata_must_be_hash
 
@@ -101,7 +102,7 @@ module TaskerCore
         #
         # @return [Float, nil] Duration in seconds since previous transition
         def duration_since_previous
-          previous_transition = self.class.where(task_id: task_id)
+          previous_transition = self.class.where(task_uuid: task_uuid)
                                     .where(sort_key: ...sort_key)
                                     .order(sort_key: :desc)
                                     .first
@@ -226,9 +227,9 @@ module TaskerCore
         #
         # @return [void]
         def task_must_exist
-          return if task_id.blank?
+          return if task_uuid.blank?
 
-          unless TaskerCore::Database::Models::Task.exists?(task_id: task_id)
+          unless TaskerCore::Database::Models::Task.exists?(task_uuid: task_uuid)
             errors.add(:task,
                        'must exist before creating transition')
           end

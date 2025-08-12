@@ -9,7 +9,7 @@ module OrderFulfillment
         # Extract and validate all required inputs
         shipping_inputs = extract_and_validate_inputs(task, sequence, step)
 
-        puts "Processing shipment: task_id=#{task.task_id}, items=#{shipping_inputs[:items_to_ship].length}"
+        puts "Processing shipment: task_uuid=#{task.task_uuid}, items=#{shipping_inputs[:items_to_ship].length}"
 
         # Create shipping label and process shipment
         shipping_results = create_shipment(shipping_inputs)

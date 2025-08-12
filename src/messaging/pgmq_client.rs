@@ -5,12 +5,13 @@
 use pgmq::{types::Message, PGMQueue};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Queue message for step execution (pgmq-rs version)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PgmqStepMessage {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub step_name: String,
     pub step_payload: serde_json::Value,
@@ -77,7 +78,7 @@ impl PgmqClient {
     ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
         debug!(
             "📤 Sending message to queue: {} for step: {}",
-            queue_name, message.step_id
+            queue_name, message.step_uuid
         );
 
         let message_id = self
@@ -462,9 +463,12 @@ mod tests {
 
     #[test]
     fn test_step_message_serialization() {
+        let task_uuid = Uuid::now_v7();
+        let step_uuid = Uuid::now_v7();
+
         let message = PgmqStepMessage {
-            step_id: 12345,
-            task_id: 67890,
+            step_uuid,
+            task_uuid,
             namespace: "test_namespace".to_string(),
             step_name: "test_step".to_string(),
             step_payload: serde_json::json!({"key": "value"}),
@@ -480,8 +484,8 @@ mod tests {
         let deserialized: PgmqStepMessage =
             serde_json::from_str(&serialized).expect("Failed to deserialize");
 
-        assert_eq!(message.step_id, deserialized.step_id);
-        assert_eq!(message.task_id, deserialized.task_id);
+        assert_eq!(message.step_uuid, deserialized.step_uuid);
+        assert_eq!(message.task_uuid, deserialized.task_uuid);
         assert_eq!(message.namespace, deserialized.namespace);
     }
 
@@ -532,10 +536,13 @@ mod tests {
             .await
             .expect("Failed to create test queue");
 
+        let task_uuid = Uuid::now_v7();
+        let step_uuid = Uuid::now_v7();
+
         // Test: Send and receive a message
         let test_message = PgmqStepMessage {
-            step_id: 999,
-            task_id: 888,
+            step_uuid,
+            task_uuid,
             namespace: "test".to_string(),
             step_name: "test_step".to_string(),
             step_payload: serde_json::json!({"test": true}),

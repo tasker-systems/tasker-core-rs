@@ -36,7 +36,7 @@
 //!     .with_reason("Example usage".to_string());
 //!
 //! let result = initializer.create_task_from_request(task_request).await?;
-//! println!("Created task {} with {} steps", result.task_id, result.step_count);
+//! println!("Created task {} with {} steps", result.task_uuid, result.step_count);
 //! # Ok(())
 //! # }
 //! ```
@@ -49,6 +49,7 @@ use crate::orchestration::handler_config::HandlerConfiguration;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
 use serde::{Deserialize, Serialize};
+use sqlx::types::Uuid;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use tracing::{debug, error, info, instrument, warn};
@@ -57,11 +58,11 @@ use tracing::{debug, error, info, instrument, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInitializationResult {
     /// Created task ID
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Number of workflow steps created
     pub step_count: usize,
     /// Mapping of step names to workflow step IDs
-    pub step_mapping: HashMap<String, i64>,
+    pub step_mapping: HashMap<String, Uuid>,
     /// Handler configuration used (if any)
     pub handler_config_name: Option<String>,
 }
@@ -255,11 +256,11 @@ impl TaskInitializer {
 
         // Create the task within transaction
         let task = self.create_task_record(&mut tx, task_request).await?;
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         crate::logging::log_task_operation(
             "TASK_RECORD_CREATED",
-            Some(task_id),
+            Some(task_uuid),
             Some(&task_name),
             None,
             "SUCCESS",
@@ -296,7 +297,7 @@ impl TaskInitializer {
                     Some(&format!("Registry lookup failed: {e}")),
                 );
                 error!(
-                  task_id = task_id,
+                  task_uuid = task_uuid.to_string(),
                   task_name = %task_name,
                   error = %e,
                   "Failed to load handler configuration"
@@ -310,7 +311,7 @@ impl TaskInitializer {
 
         crate::logging::log_task_operation(
             "WORKFLOW_STEPS_CREATION_START",
-            Some(task_id),
+            Some(task_uuid),
             Some(&task_name),
             None,
             "STARTING",
@@ -321,12 +322,13 @@ impl TaskInitializer {
         );
 
         // Create workflow steps and dependencies
-        let (step_count, step_mapping) =
-            self.create_workflow_steps(&mut tx, task_id, config).await?;
+        let (step_count, step_mapping) = self
+            .create_workflow_steps(&mut tx, task_uuid, config)
+            .await?;
 
         crate::logging::log_task_operation(
             "WORKFLOW_STEPS_CREATED",
-            Some(task_id),
+            Some(task_uuid),
             Some(&task_name),
             None,
             "SUCCESS",
@@ -338,7 +340,7 @@ impl TaskInitializer {
         // Initialize state machine if requested
         if self.config.initialize_state_machine {
             // Create initial database transitions within the transaction
-            self.create_initial_state_transitions_in_tx(&mut tx, task_id, &step_mapping)
+            self.create_initial_state_transitions_in_tx(&mut tx, task_uuid, &step_mapping)
                 .await?;
         }
 
@@ -351,18 +353,18 @@ impl TaskInitializer {
         // Initialize StateManager-based state machines after transaction commit
         // The method has been fixed to only create state machines without setting in_process=true
         if self.config.initialize_state_machine {
-            self.initialize_state_machines_post_transaction(task_id, &step_mapping)
+            self.initialize_state_machines_post_transaction(task_uuid, &step_mapping)
                 .await?;
         }
 
         // Publish initialization event if publisher available
         if let Some(ref publisher) = self.event_publisher {
-            self.publish_task_initialized(task_id, step_count, &task_name, publisher)
+            self.publish_task_initialized(task_uuid, step_count, &task_name, publisher)
                 .await?;
         }
 
         let result = TaskInitializationResult {
-            task_id,
+            task_uuid,
             step_count,
             step_mapping: step_mapping.clone(),
             handler_config_name: Some(task_name.clone()), // Always present now that we require configuration
@@ -370,7 +372,7 @@ impl TaskInitializer {
 
         crate::logging::log_task_operation(
             "TASK_INITIALIZATION_COMPLETE",
-            Some(task_id),
+            Some(task_uuid),
             Some(&task_name),
             None,
             "SUCCESS",
@@ -381,7 +383,7 @@ impl TaskInitializer {
         );
 
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             step_count = step_count,
             task_name = %task_name,
             "Task initialization completed successfully"
@@ -397,10 +399,10 @@ impl TaskInitializer {
         task_request: TaskRequest,
     ) -> Result<Task, TaskInitializationError> {
         // First, resolve the NamedTask from the TaskRequest
-        let named_task_id = self.resolve_named_task_id(&task_request).await?;
+        let named_task_uuid = self.resolve_named_task_uuid(&task_request).await?;
 
         let mut new_task = Task::from_task_request(task_request);
-        new_task.named_task_id = named_task_id;
+        new_task.named_task_uuid = named_task_uuid;
 
         let task: Task = Task::create_with_transaction(tx, new_task)
             .await
@@ -412,10 +414,10 @@ impl TaskInitializer {
     }
 
     /// Resolve NamedTask ID from TaskRequest (create if not exists)
-    async fn resolve_named_task_id(
+    async fn resolve_named_task_uuid(
         &self,
         task_request: &TaskRequest,
-    ) -> Result<i32, TaskInitializationError> {
+    ) -> Result<Uuid, TaskInitializationError> {
         // First, find or create the task namespace
         let namespace = self
             .find_or_create_namespace(&task_request.namespace)
@@ -423,10 +425,10 @@ impl TaskInitializer {
 
         // Find or create the named task
         let named_task = self
-            .find_or_create_named_task(task_request, namespace.task_namespace_id as i64)
+            .find_or_create_named_task(task_request, namespace.task_namespace_uuid as Uuid)
             .await?;
 
-        Ok(named_task.named_task_id)
+        Ok(named_task.named_task_uuid)
     }
 
     /// Find or create a task namespace
@@ -464,14 +466,14 @@ impl TaskInitializer {
     async fn find_or_create_named_task(
         &self,
         task_request: &TaskRequest,
-        task_namespace_id: i64,
+        task_namespace_uuid: Uuid,
     ) -> Result<crate::models::NamedTask, TaskInitializationError> {
         // Try to find existing named task first
         let existing_task = crate::models::NamedTask::find_by_name_version_namespace(
             &self.pool,
             &task_request.name,
             &task_request.version,
-            task_namespace_id,
+            task_namespace_uuid,
         )
         .await
         .map_err(|e| {
@@ -487,7 +489,7 @@ impl TaskInitializer {
             name: task_request.name.clone(),
             version: Some(task_request.version.clone()),
             description: Some(format!("Auto-created task for {}", task_request.name)),
-            task_namespace_id,
+            task_namespace_uuid,
             configuration: None,
         };
 
@@ -504,11 +506,11 @@ impl TaskInitializer {
     async fn create_workflow_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        task_id: i64,
+        task_uuid: Uuid,
         config: &HandlerConfiguration,
-    ) -> Result<(usize, HashMap<String, i64>), TaskInitializationError> {
+    ) -> Result<(usize, HashMap<String, Uuid>), TaskInitializationError> {
         // Step 1: Create all named steps and workflow steps
-        let step_mapping = self.create_steps(tx, task_id, config).await?;
+        let step_mapping = self.create_steps(tx, task_uuid, config).await?;
 
         // Step 2: Create dependencies between steps
         self.create_step_dependencies(tx, config, &step_mapping)
@@ -521,9 +523,9 @@ impl TaskInitializer {
     async fn create_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        task_id: i64,
+        task_uuid: Uuid,
         config: &HandlerConfiguration,
-    ) -> Result<HashMap<String, i64>, TaskInitializationError> {
+    ) -> Result<HashMap<String, Uuid>, TaskInitializationError> {
         let mut step_mapping = HashMap::new();
 
         for step_template in &config.step_templates {
@@ -559,8 +561,8 @@ impl TaskInitializer {
 
             // Create workflow step using consistent transaction method
             let new_workflow_step = crate::models::core::workflow_step::NewWorkflowStep {
-                task_id,
-                named_step_id: named_step.named_step_id,
+                task_uuid,
+                named_step_uuid: named_step.named_step_uuid,
                 retryable: step_template.default_retryable,
                 retry_limit: step_template.default_retry_limit,
                 inputs: step_template.handler_config.clone(),
@@ -576,7 +578,7 @@ impl TaskInitializer {
                     ))
                 })?;
 
-            step_mapping.insert(step_template.name.clone(), workflow_step.workflow_step_id);
+            step_mapping.insert(step_template.name.clone(), workflow_step.workflow_step_uuid);
         }
 
         Ok(step_mapping)
@@ -587,17 +589,17 @@ impl TaskInitializer {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         config: &HandlerConfiguration,
-        step_mapping: &HashMap<String, i64>,
+        step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
         for step_template in &config.step_templates {
-            let to_step_id = step_mapping[&step_template.name];
+            let to_step_uuid = step_mapping[&step_template.name];
 
             // Create edges for all dependencies using transaction method
             for dependency_name in step_template.all_dependencies() {
-                if let Some(&from_step_id) = step_mapping.get(&dependency_name) {
+                if let Some(&from_step_uuid) = step_mapping.get(&dependency_name) {
                     let new_edge = crate::models::core::workflow_step_edge::NewWorkflowStepEdge {
-                        from_step_id,
-                        to_step_id,
+                        from_step_uuid,
+                        to_step_uuid,
                         name: "provides".to_string(),
                     };
 
@@ -620,12 +622,12 @@ impl TaskInitializer {
     async fn create_initial_state_transitions_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        task_id: i64,
-        step_mapping: &HashMap<String, i64>,
+        task_uuid: Uuid,
+        step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
         // Create initial task transition using transaction method
         let new_task_transition = crate::models::core::task_transition::NewTaskTransition {
-            task_id,
+            task_uuid,
             to_state: "pending".to_string(),
             from_state: None,
             metadata: self.config.event_metadata.clone(),
@@ -640,10 +642,10 @@ impl TaskInitializer {
             })?;
 
         // Create initial step transitions using transaction method
-        for &workflow_step_id in step_mapping.values() {
+        for &workflow_step_uuid in step_mapping.values() {
             let new_step_transition =
                 crate::models::core::workflow_step_transition::NewWorkflowStepTransition {
-                    workflow_step_id,
+                    workflow_step_uuid,
                     to_state: "pending".to_string(),
                     from_state: None,
                     metadata: self.config.event_metadata.clone(),
@@ -653,7 +655,7 @@ impl TaskInitializer {
                 .await
                 .map_err(|e| {
                     TaskInitializationError::Database(format!(
-                        "Failed to create initial step transition for step {workflow_step_id}: {e}"
+                        "Failed to create initial step transition for step {workflow_step_uuid}: {e}"
                     ))
                 })?;
         }
@@ -664,8 +666,8 @@ impl TaskInitializer {
     /// Initialize StateManager-based state machines after transaction commit
     async fn initialize_state_machines_post_transaction(
         &self,
-        task_id: i64,
-        step_mapping: &HashMap<String, i64>,
+        task_uuid: Uuid,
+        step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
         // Get or create StateManager for proper state machine initialization
         let state_manager = if let Some(ref manager) = self.state_manager {
@@ -679,11 +681,11 @@ impl TaskInitializer {
 
         // Initialize task state machine by evaluating its state
         // This will create the state machine and ensure it's properly initialized
-        match state_manager.evaluate_task_state(task_id).await {
+        match state_manager.evaluate_task_state(task_uuid).await {
             Ok(_result) => {}
             Err(e) => {
                 warn!(
-                    task_id = task_id,
+                    task_uuid = task_uuid.to_string(),
                     error = %e,
                     "Failed to initialize task state machine with StateManager, basic initialization completed"
                 );
@@ -694,17 +696,17 @@ impl TaskInitializer {
         // Initialize step state machines WITHOUT evaluating state transitions
         // We don't want to transition steps to InProgress during initialization
         // as this sets in_process=true, making them ineligible for execution
-        for &workflow_step_id in step_mapping.values() {
+        for &workflow_step_uuid in step_mapping.values() {
             // Simply verify the state machine exists, don't evaluate/transition
             match state_manager
-                .get_or_create_step_state_machine(workflow_step_id)
+                .get_or_create_step_state_machine(workflow_step_uuid)
                 .await
             {
                 Ok(state_machine) => match state_machine.current_state().await {
                     Ok(_current_state) => {}
                     Err(e) => {
                         warn!(
-                            step_id = workflow_step_id,
+                            step_uuid = workflow_step_uuid.to_string(),
                             error = %e,
                             "Failed to get current state from step state machine"
                         );
@@ -712,7 +714,7 @@ impl TaskInitializer {
                 },
                 Err(e) => {
                     warn!(
-                        step_id = workflow_step_id,
+                        step_uuid = workflow_step_uuid.to_string(),
                         error = %e,
                         "Failed to initialize step state machine, basic initialization completed"
                     );
@@ -983,7 +985,7 @@ impl TaskInitializer {
     /// Publish task initialization event
     async fn publish_task_initialized(
         &self,
-        _task_id: i64,
+        _task_uuid: Uuid,
         _step_count: usize,
         _task_name: &str,
         _publisher: &EventPublisher,
@@ -1017,6 +1019,7 @@ pub enum TaskInitializationError {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     fn create_test_task_request() -> TaskRequest {
@@ -1037,18 +1040,20 @@ mod tests {
 
     #[test]
     fn test_task_initialization_result_creation() {
+        let task_uuid = Uuid::now_v7();
+
         let mut step_mapping = HashMap::new();
-        step_mapping.insert("step1".to_string(), 123);
-        step_mapping.insert("step2".to_string(), 456);
+        step_mapping.insert("step1".to_string(), Uuid::new_v4());
+        step_mapping.insert("step2".to_string(), Uuid::new_v4());
 
         let result = TaskInitializationResult {
-            task_id: 789,
+            task_uuid,
             step_count: 2,
             step_mapping: step_mapping.clone(),
             handler_config_name: Some("test_handler".to_string()),
         };
 
-        assert_eq!(result.task_id, 789);
+        assert_eq!(result.task_uuid, task_uuid);
         assert_eq!(result.step_count, 2);
         assert_eq!(result.step_mapping.len(), 2);
         assert_eq!(result.handler_config_name, Some("test_handler".to_string()));

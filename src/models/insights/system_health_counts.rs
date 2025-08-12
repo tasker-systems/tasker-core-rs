@@ -39,7 +39,7 @@
 //!
 //! This module integrates with the PostgreSQL function:
 //!
-//! ### `get_system_health_counts_v01()`
+//! ### `get_system_health_counts()`
 //! - Computes comprehensive system health and capacity metrics
 //! - Provides task and step counts by state
 //! - Includes connection pool and capacity information
@@ -75,7 +75,7 @@ use sqlx::{FromRow, PgPool};
 /// Represents computed system health and capacity metrics.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
-/// `get_system_health_counts_v01()` SQL function.
+/// `get_system_health_counts()` SQL function.
 ///
 /// # Computed Fields
 ///
@@ -134,7 +134,7 @@ pub struct SystemHealthSummary {
 impl SystemHealthCounts {
     /// Get current system health counts using SQL function.
     ///
-    /// This method calls the `get_system_health_counts_v01()` PostgreSQL function
+    /// This method calls the `get_system_health_counts()` PostgreSQL function
     /// to compute real-time system health and capacity metrics.
     ///
     /// # Example Usage
@@ -162,7 +162,7 @@ impl SystemHealthCounts {
         let counts = sqlx::query_as!(
             SystemHealthCounts,
             r#"
-            SELECT 
+            SELECT
                 total_tasks as "total_tasks!: i64",
                 pending_tasks as "pending_tasks!: i64",
                 in_progress_tasks as "in_progress_tasks!: i64",
@@ -179,7 +179,7 @@ impl SystemHealthCounts {
                 in_backoff_steps as "in_backoff_steps!: i64",
                 active_connections as "active_connections!: i64",
                 max_connections as "max_connections!: i64"
-            FROM get_system_health_counts_v01()
+            FROM get_system_health_counts()
             "#
         )
         .fetch_optional(pool)

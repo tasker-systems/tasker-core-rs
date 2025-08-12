@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04] # macos-latest soon
-        ruby: ["3.2"] # 3.4 soon
+        ruby: ["3.4"] # 3.4 soon
 
     runs-on: ${{ matrix.os }}
 
@@ -172,7 +172,7 @@ jobs:
   #   - name: Set up Ruby
   #     uses: ruby/setup-ruby@v1
   #     with:
-  #       ruby-version: '3.2'
+  #       ruby-version: '3.4'
   #       bundler-cache: true
   #       working-directory: bindings/ruby
 

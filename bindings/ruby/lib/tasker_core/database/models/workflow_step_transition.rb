@@ -8,11 +8,13 @@ module TaskerCore
       # This model stores the audit trail of all workflow step state changes, providing
       # a complete history of step lifecycle events with metadata and timestamps.
       class WorkflowStepTransition < ApplicationRecord
+        self.primary_key = :workflow_step_transition_uuid
         # NOTE: We don't include Statesman::Adapters::ActiveRecordTransition
         # because we're using PostgreSQL JSONB column for metadata
 
         # Associations
-        belongs_to :workflow_step, inverse_of: :workflow_step_transitions
+        belongs_to :workflow_step, foreign_key: :workflow_step_uuid, primary_key: :workflow_step_uuid,
+                                   inverse_of: :workflow_step_transitions
 
         # Validations
         validates :to_state, inclusion: {
@@ -38,7 +40,7 @@ module TaskerCore
         # Validate that the workflow step exists before creating transition
         validate :workflow_step_must_exist
 
-        validates :sort_key, presence: true, uniqueness: { scope: :workflow_step_id }
+        validates :sort_key, presence: true, uniqueness: { scope: :workflow_step_uuid }
         # Custom validation for metadata that allows empty hash but not nil
         validate :metadata_must_be_hash
 
@@ -49,7 +51,7 @@ module TaskerCore
         scope :recent, -> { order(sort_key: :desc) }
         scope :to_state, ->(state) { where(to_state: state) }
         scope :with_metadata_key, ->(key) { where('metadata ? :key', key: key.to_s) }
-        scope :for_task, ->(task_id) { joins(:workflow_step).where(workflow_steps: { task_id: task_id }) }
+        scope :for_task, ->(task_uuid) { joins(:workflow_step).where(workflow_steps: { task_uuid: task_uuid }) }
 
         # Class methods for querying transitions
         class << self
@@ -83,7 +85,7 @@ module TaskerCore
           #
           # @return [ActiveRecord::Relation] Transitions from error back to pending (retries)
           def retry_transitions
-            joins("INNER JOIN #{table_name} prev ON prev.workflow_step_id = #{table_name}.workflow_step_id")
+            joins("INNER JOIN #{table_name} prev ON prev.workflow_step_uuid = #{table_name}.workflow_step_uuid")
               .where(to_state: 'pending')
               .where('prev.to_state = ? AND prev.sort_key < ?', 'error', arel_table[:sort_key])
           end
@@ -157,7 +159,7 @@ module TaskerCore
         #
         # @return [Float, nil] Duration in seconds since previous transition
         def duration_since_previous
-          previous_transition = self.class.where(workflow_step_id: workflow_step_id)
+          previous_transition = self.class.where(workflow_step_uuid: workflow_step_uuid)
                                     .where(sort_key: ...sort_key)
                                     .order(sort_key: :desc)
                                     .first
@@ -227,7 +229,7 @@ module TaskerCore
           base_metadata['transition_description'] = description
           base_metadata['transition_timestamp'] = created_at.iso8601
           base_metadata['step_name'] = step_name
-          base_metadata['task_id'] = workflow_step.task_id
+          base_metadata['task_uuid'] = workflow_step.task_uuid
 
           base_metadata
         end
@@ -303,11 +305,11 @@ module TaskerCore
         #
         # @return [void]
         def workflow_step_must_exist
-          return if workflow_step_id.blank?
+          return if workflow_step_uuid.blank?
 
-          return if TaskerCore::Database::Models::WorkflowStep.exists?(workflow_step_id: workflow_step_id)
+          return if TaskerCore::Database::Models::WorkflowStep.exists?(workflow_step_uuid: workflow_step_uuid)
 
-          errors.add(:workflow_step_id, 'must reference an existing workflow step')
+          errors.add(:workflow_step_uuid, 'must reference an existing workflow step')
         end
 
         # Prevent empty string from_state values that cause state machine failures

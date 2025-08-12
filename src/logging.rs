@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use uuid::Uuid;
 
 static LOGGER_INITIALIZED: OnceLock<()> = OnceLock::new();
 
@@ -112,11 +113,11 @@ fn get_log_level(environment: &str) -> String {
 /// Log task operations with unified Ruby-compatible format
 #[macro_export]
 macro_rules! log_task {
-    // Full form with task_id
-    ($level:ident, $operation:expr, task_id: $task_id:expr, $($key:ident: $value:expr),* $(,)?) => {
+    // Full form with task_uuid
+    ($level:ident, $operation:expr, task_uuid: $task_uuid:expr, $($key:ident: $value:expr),* $(,)?) => {
         tracing::$level!(
             operation = %$operation,
-            task_id = $task_id,
+            task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
             "📋 TASK_OPERATION: {}", $operation
@@ -198,12 +199,12 @@ macro_rules! log_orchestrator {
 /// Log step operations with unified Ruby-compatible format
 #[macro_export]
 macro_rules! log_step {
-    // Full form with step_id and task_id
-    ($level:ident, $operation:expr, step_id: $step_id:expr, task_id: $task_id:expr, $($key:ident: $value:expr),* $(,)?) => {
+    // Full form with step_uuid and task_uuid
+    ($level:ident, $operation:expr, step_uuid: $step_uuid:expr, task_uuid: $task_uuid:expr, $($key:ident: $value:expr),* $(,)?) => {
         tracing::$level!(
             operation = %$operation,
-            step_id = $step_id,
-            task_id = $task_id,
+            step_uuid = format!("{:?}", $step_uuid),
+            task_uuid = format!("{:?}", $task_uuid),
             $($key = ?$value,)*
             timestamp = %chrono::Utc::now().to_rfc3339(),
             "🔧 STEP_OPERATION: {}", $operation
@@ -228,7 +229,7 @@ macro_rules! log_step {
     };
 }
 
-/// Log database operations with unified Ruby-compatible format  
+/// Log database operations with unified Ruby-compatible format
 #[macro_export]
 macro_rules! log_database {
     // Simple form - just operation
@@ -340,14 +341,14 @@ macro_rules! log_registry {
 /// Legacy function for task operations (maintained for backward compatibility)
 pub fn log_task_operation(
     operation: &str,
-    task_id: Option<i64>,
+    task_uuid: Option<Uuid>,
     task_name: Option<&str>,
     namespace: Option<&str>,
     status: &str,
     details: Option<&str>,
 ) {
     log_task!(info, operation,
-        task_id: task_id,
+        task_uuid: task_uuid,
         task_name: task_name,
         namespace: namespace,
         status: status,
@@ -358,16 +359,16 @@ pub fn log_task_operation(
 /// Legacy function for step operations (maintained for backward compatibility)
 pub fn log_step_operation(
     operation: &str,
-    task_id: Option<i64>,
-    step_id: Option<i64>,
+    task_uuid: Option<Uuid>,
+    step_uuid: Option<Uuid>,
     step_name: Option<&str>,
     status: &str,
     details: Option<&str>,
 ) {
-    if let (Some(step_id), Some(task_id)) = (step_id, task_id) {
+    if let (Some(step_uuid), Some(task_uuid)) = (step_uuid, task_uuid) {
         log_step!(info, operation,
-            step_id: step_id,
-            task_id: task_id,
+            step_uuid: step_uuid,
+            task_uuid: task_uuid,
             step_name: step_name,
             status: status,
             details: details
@@ -461,7 +462,7 @@ pub fn log_error(component: &str, operation: &str, error: &str, context: Option<
 /// use tasker_core::{log_task, log_queue_worker, log_orchestrator, log_config};
 ///
 /// // Task operations - matches Ruby: "📋 TASK_OPERATION: Creating task"
-/// log_task!(info, "Creating task", task_id: Some(123), namespace: "fulfillment");
+/// log_task!(info, "Creating task", task_uuid: Some(123), namespace: "fulfillment");
 ///
 /// // Queue worker operations - matches Ruby: "🔄 QUEUE_WORKER: Processing batch"
 /// log_queue_worker!(debug, "Processing batch", namespace: "fulfillment", batch_size: 5);
@@ -517,8 +518,8 @@ mod tests {
 
         // Test log_task macro variations
         log_task!(info, "test operation");
-        log_task!(debug, "test with data", task_id: Some(123), status: "running");
-        log_task!(warn, "task warning", task_id: Some(456), namespace: "test_ns", details: Some("test details"));
+        log_task!(debug, "test with data", task_uuid: Some(123), status: "running");
+        log_task!(warn, "task warning", task_uuid: Some(456), namespace: "test_ns", details: Some("test details"));
 
         // Test log_queue_worker macro variations
         log_queue_worker!(info, "worker test");
@@ -530,7 +531,7 @@ mod tests {
 
         // Test log_step macro variations
         log_step!(info, "step test");
-        log_step!(debug, "step with ids", step_id: Some(789), task_id: Some(123));
+        log_step!(debug, "step with ids", step_uuid: Some(789), task_uuid: Some(123));
 
         // Test log_database macro
         log_database!(warn, "slow query", table: Some("tasks"), duration_ms: Some(5000));

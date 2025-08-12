@@ -59,7 +59,7 @@ module IntegrationHelpers
   #
   # @param directories [Array<String>] Relative paths to test from
   # @yield Block to execute from each directory
-  def test_from_different_directories(directories = nil, &block)
+  def test_from_different_directories(directories = nil, &)
     directories ||= default_test_directories
     project_root = TaskerCore::Utils::PathResolver.project_root
 
@@ -78,7 +78,7 @@ module IntegrationHelpers
           end
         end
 
-        it 'resolves paths correctly', &block
+        it('resolves paths correctly', &)
       end
     end
   end

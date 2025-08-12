@@ -23,7 +23,7 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task_crud".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -43,56 +43,56 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
         tasker_core::models::named_step::NewNamedStep {
             name: "test_step_crud".to_string(),
             description: None,
-            dependent_system_id: dependent_system.dependent_system_id,
+            dependent_system_uuid: dependent_system.dependent_system_uuid,
         },
     )
     .await?;
 
     // Test creation with custom configuration
     let new_association = NewNamedTasksNamedStep {
-        named_task_id: named_task.named_task_id,
-        named_step_id: named_step.named_step_id,
+        named_task_uuid: named_task.named_task_uuid,
+        named_step_uuid: named_step.named_step_uuid,
         skippable: Some(true),
         default_retryable: Some(false),
         default_retry_limit: Some(5),
     };
 
     let association = NamedTasksNamedStep::create(&pool, new_association.clone()).await?;
-    assert_eq!(association.named_task_id, named_task.named_task_id);
+    assert_eq!(association.named_task_uuid, named_task.named_task_uuid);
     assert!(association.skippable);
     assert!(!association.default_retryable);
     assert_eq!(association.default_retry_limit, 5);
 
     // Test find by ID
-    let found = NamedTasksNamedStep::find_by_id(&pool, association.id).await?;
+    let found = NamedTasksNamedStep::find_by_id(&pool, association.ntns_uuid).await?;
     assert!(found.is_some());
-    assert_eq!(found.unwrap().named_step_id, named_step.named_step_id);
+    assert_eq!(found.unwrap().named_step_uuid, named_step.named_step_uuid);
 
     // Test find by task and step
     let found_specific = NamedTasksNamedStep::find_by_task_and_step(
         &pool,
-        named_task.named_task_id,
-        named_step.named_step_id,
+        named_task.named_task_uuid,
+        named_step.named_step_uuid,
     )
     .await?;
     assert!(found_specific.is_some());
 
     // Test find_or_create (should find existing)
     let found_or_created = NamedTasksNamedStep::find_or_create(&pool, new_association).await?;
-    assert_eq!(found_or_created.id, association.id);
+    assert_eq!(found_or_created.ntns_uuid, association.ntns_uuid);
 
     // Test finding skippable associations
     let skippable =
-        NamedTasksNamedStep::find_skippable_by_task(&pool, named_task.named_task_id).await?;
+        NamedTasksNamedStep::find_skippable_by_task(&pool, named_task.named_task_uuid).await?;
     assert!(!skippable.is_empty());
 
     // Test finding non-retryable associations
     let non_retryable =
-        NamedTasksNamedStep::find_non_retryable_by_task(&pool, named_task.named_task_id).await?;
+        NamedTasksNamedStep::find_non_retryable_by_task(&pool, named_task.named_task_uuid).await?;
     assert!(!non_retryable.is_empty());
 
     // Cleanup
-    let deleted = NamedTasksNamedStep::delete(&pool, association.id).await?;
+    let deleted = NamedTasksNamedStep::delete(&pool, association.ntns_uuid).await?;
     assert!(deleted);
 
     Ok(())
@@ -116,7 +116,7 @@ async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task_defaults".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -136,15 +136,15 @@ async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
         tasker_core::models::named_step::NewNamedStep {
             name: "test_step_defaults".to_string(),
             description: None,
-            dependent_system_id: dependent_system.dependent_system_id,
+            dependent_system_uuid: dependent_system.dependent_system_uuid,
         },
     )
     .await?;
 
     // Test creation with default values
     let new_association = NewNamedTasksNamedStep {
-        named_task_id: named_task.named_task_id,
-        named_step_id: named_step.named_step_id,
+        named_task_uuid: named_task.named_task_uuid,
+        named_step_uuid: named_step.named_step_uuid,
         skippable: None,           // Should default to false
         default_retryable: None,   // Should default to true
         default_retry_limit: None, // Should default to 3
@@ -156,7 +156,7 @@ async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(association.default_retry_limit, 3);
 
     // Cleanup
-    NamedTasksNamedStep::delete(&pool, association.id).await?;
+    NamedTasksNamedStep::delete(&pool, association.ntns_uuid).await?;
 
     Ok(())
 }

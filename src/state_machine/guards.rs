@@ -26,7 +26,7 @@ impl StateGuard<Task> for AllStepsCompleteGuard {
             let incomplete_count = task.count_incomplete_workflow_steps(pool).await?;
             Err(dependencies_not_met(format!(
                 "Task {} has {} incomplete workflow steps",
-                task.task_id, incomplete_count
+                task.task_uuid, incomplete_count
             )))
         }
     }
@@ -49,7 +49,7 @@ impl StateGuard<WorkflowStep> for StepDependenciesMetGuard {
             let unmet_count = step.count_unmet_dependencies(pool).await?;
             Err(dependencies_not_met(format!(
                 "Step {} has {} unmet dependencies",
-                step.workflow_step_id, unmet_count
+                step.workflow_step_uuid, unmet_count
             )))
         }
     }
@@ -71,7 +71,7 @@ impl StateGuard<Task> for TaskNotInProgressGuard {
         } else {
             Err(business_rule_violation(format!(
                 "Task {} is already in progress",
-                task.task_id
+                task.task_uuid
             )))
         }
     }
@@ -93,7 +93,7 @@ impl StateGuard<WorkflowStep> for StepNotInProgressGuard {
         } else {
             Err(business_rule_violation(format!(
                 "Step {} is already in progress",
-                step.workflow_step_id
+                step.workflow_step_uuid
             )))
         }
     }
@@ -117,11 +117,11 @@ impl StateGuard<Task> for TaskCanBeResetGuard {
             match current_state {
                 Some(state) => Err(business_rule_violation(format!(
                     "Task {} cannot be reset from state '{}', must be in Error state",
-                    task.task_id, state
+                    task.task_uuid, state
                 ))),
                 None => Err(business_rule_violation(format!(
                     "Task {} has no current state",
-                    task.task_id
+                    task.task_uuid
                 ))),
             }
         }
@@ -146,11 +146,11 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
             match current_state {
                 Some(state) => Err(business_rule_violation(format!(
                     "Step {} cannot be retried from state '{}', must be in Error state",
-                    step.workflow_step_id, state
+                    step.workflow_step_uuid, state
                 ))),
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
-                    step.workflow_step_id
+                    step.workflow_step_uuid
                 ))),
             }
         }

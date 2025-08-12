@@ -10,7 +10,7 @@
 //! ## Key Features
 //!
 //! - **Individual Step Processing**: Processes one step result at a time, not batches
-//! - **State Management Integration**: Updates step states and triggers task state transitions  
+//! - **State Management Integration**: Updates step states and triggers task state transitions
 //! - **Task Finalization**: Determines when tasks are complete and triggers finalization
 //! - **Orchestration Metadata**: Processes worker metadata for intelligent backoff decisions
 //! - **Error Handling**: Robust step error processing with retry coordination
@@ -291,8 +291,8 @@ impl StepResultProcessor {
             })?;
 
         info!(
-            step_id = step_result.step_id,
-            task_id = step_result.task_id,
+            step_uuid = %step_result.step_uuid,
+            task_uuid = %step_result.task_uuid,
             status = ?step_result.status,
             execution_time_ms = step_result.execution_time_ms,
             msg_id = msg_id,
@@ -320,7 +320,7 @@ impl StepResultProcessor {
         // Process the step result using the orchestration result processor
         self.orchestration_result_processor
             .handle_step_result_with_metadata(
-                step_result.step_id,
+                step_result.step_uuid,
                 status_string,
                 step_result.results,
                 error,
@@ -333,8 +333,8 @@ impl StepResultProcessor {
             })?;
 
         info!(
-            step_id = step_result.step_id,
-            task_id = step_result.task_id,
+            step_uuid = %step_result.step_uuid,
+            task_uuid = %step_result.task_uuid,
             msg_id = msg_id,
             "Step result processed successfully"
         );

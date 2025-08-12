@@ -15,16 +15,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 Unified Logging Demo - Rust Side");
     println!("===================================\n");
 
-    // Task operations - matches Ruby: logger.log_task(:info, "Creating task", task_id: 123)
+    // Task operations - matches Ruby: logger.log_task(:info, "Creating task", task_uuid: 123)
     log_task!(
         info,
         "Creating new order fulfillment task",
-        task_id: Some(123),
+        task_uuid: Some(123),
         namespace: "fulfillment",
         priority: "high"
     );
 
-    log_task!(warn, "Task validation warning", task_id: Some(123), validation_errors: vec!["missing customer_id"]);
+    log_task!(warn, "Task validation warning", task_uuid: Some(123), validation_errors: vec!["missing customer_id"]);
 
     // Queue worker operations - matches Ruby: logger.log_queue_worker(:debug, "Processing batch", namespace: "fulfillment")
     log_queue_worker!(
@@ -51,12 +51,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mode: "embedded"
     );
 
-    // Step operations - matches Ruby: logger.log_step(:debug, "Step completed", step_id: 789, task_id: 123)
+    // Step operations - matches Ruby: logger.log_step(:debug, "Step completed", step_uuid: 789, task_uuid: 123)
     log_step!(
         info,
         "Executing payment processing step",
-        step_id: Some(789),
-        task_id: Some(123),
+        step_uuid: Some(789),
+        task_uuid: Some(123),
         step_name: "process_payment",
         amount: "$99.99"
     );
@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Structured data in JSON format");
     println!("   - ISO8601 timestamps");
     println!("\nRuby equivalent calls:");
-    println!("   logger.log_task(:info, 'Creating new order fulfillment task', task_id: 123, namespace: 'fulfillment')");
+    println!("   logger.log_task(:info, 'Creating new order fulfillment task', task_uuid: 123, namespace: 'fulfillment')");
     println!("   logger.log_queue_worker(:info, 'Starting worker', namespace: 'fulfillment', batch_size: 5)");
     println!("   logger.log_orchestrator(:info, 'Embedded orchestrator starting', namespaces: ['fulfillment'])");
 

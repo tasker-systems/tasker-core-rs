@@ -446,9 +446,9 @@ impl OrchestrationSystem {
             .process_task_request(payload)
             .await
         {
-            Ok(task_id) => {
+            Ok(task_uuid) => {
                 info!(
-                    task_id = task_id,
+                    task_uuid = task_uuid.to_string(),
                     msg_id = msg_id,
                     "Task request processed successfully - task created and available for claiming"
                 );

@@ -1,0 +1,5 @@
+# Clippy configuration file
+# See https://doc.rust-lang.org/clippy/configuration.html for more options
+
+# Allow up to 8 arguments in a function before triggering the too_many_arguments lint
+too-many-arguments-threshold = 8

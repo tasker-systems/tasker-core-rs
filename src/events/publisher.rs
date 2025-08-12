@@ -36,7 +36,7 @@
 //!
 //! // Publish a structured orchestration event
 //! let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationStarted {
-//!     task_id: 123,
+//!     task_uuid: uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap(),
 //!     framework: "rust_client".to_string(),
 //!     started_at: Utc::now(),
 //! });
@@ -235,11 +235,11 @@ impl EventPublisher {
     /// Publish task orchestration started event
     pub async fn publish_task_orchestration_started(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         framework: &str,
     ) -> Result<(), PublishError> {
         let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationStarted {
-            task_id,
+            task_uuid,
             framework: framework.to_string(),
             started_at: Utc::now(),
         });
@@ -250,11 +250,11 @@ impl EventPublisher {
     /// Publish viable steps discovered event
     pub async fn publish_viable_steps_discovered(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         steps: &[ViableStep],
     ) -> Result<(), PublishError> {
         let event = Event::orchestration(OrchestrationEvent::ViableStepsDiscovered {
-            task_id,
+            task_uuid,
             step_count: steps.len(),
             steps: steps.to_vec(),
         });
@@ -265,11 +265,11 @@ impl EventPublisher {
     /// Publish task orchestration completed event
     pub async fn publish_task_orchestration_completed(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         result: TaskResult,
     ) -> Result<(), PublishError> {
         let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationCompleted {
-            task_id,
+            task_uuid,
             result,
             completed_at: Utc::now(),
         });
@@ -280,13 +280,13 @@ impl EventPublisher {
     /// Publish step execution started event
     pub async fn publish_step_execution_started(
         &self,
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: &str,
     ) -> Result<(), PublishError> {
         let event = Event::orchestration(OrchestrationEvent::StepExecutionStarted {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             step_name: step_name.to_string(),
             started_at: Utc::now(),
         });
@@ -297,13 +297,13 @@ impl EventPublisher {
     /// Publish step execution completed event
     pub async fn publish_step_execution_completed(
         &self,
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         result: StepResult,
     ) -> Result<(), PublishError> {
         let event = Event::orchestration(OrchestrationEvent::StepExecutionCompleted {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             result,
             completed_at: Utc::now(),
         });
@@ -574,6 +574,7 @@ pub fn clear_external_event_callbacks() {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -593,9 +594,10 @@ mod tests {
     #[tokio::test]
     async fn test_orchestration_event_publishing() {
         let publisher = EventPublisher::new();
+        let task_uuid = Uuid::now_v7();
 
         let result = publisher
-            .publish_task_orchestration_started(123, "test_framework")
+            .publish_task_orchestration_started(task_uuid, "test_framework")
             .await;
         assert!(result.is_ok());
     }
@@ -694,12 +696,13 @@ mod tests {
     #[tokio::test]
     async fn test_viable_steps_event() {
         let publisher = EventPublisher::new();
+        let task_uuid = Uuid::now_v7();
 
         let steps = vec![ViableStep {
-            step_id: 1,
-            task_id: 123,
+            step_uuid: Uuid::now_v7(),
+            task_uuid,
             name: "test_step".to_string(),
-            named_step_id: 1,
+            named_step_uuid: Uuid::now_v7(),
             current_state: "pending".to_string(),
             dependencies_satisfied: true,
             retry_eligible: true,
@@ -709,7 +712,9 @@ mod tests {
             next_retry_at: None,
         }];
 
-        let result = publisher.publish_viable_steps_discovered(123, &steps).await;
+        let result = publisher
+            .publish_viable_steps_discovered(task_uuid, &steps)
+            .await;
         assert!(result.is_ok());
     }
 }

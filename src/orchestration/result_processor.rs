@@ -8,6 +8,7 @@
 
 use serde_json::Value;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::workflow_step::WorkflowStep;
@@ -65,7 +66,7 @@ impl OrchestrationResultProcessor {
     /// for intelligent backoff calculations and retry coordination.
     pub async fn handle_step_result_with_metadata(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         status: String,
         output: Option<Value>,
         error: Option<StepError>,
@@ -73,8 +74,8 @@ impl OrchestrationResultProcessor {
         orchestration_metadata: Option<OrchestrationMetadata>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
-            "Processing step result with metadata - step_id: {}, status: {}, exec_time: {}ms, has_metadata: {}",
-            step_id,
+            "Processing step result with metadata - step_uuid: {}, status: {}, exec_time: {}ms, has_metadata: {}",
+            step_uuid,
             status,
             execution_time_ms,
             orchestration_metadata.is_some()
@@ -82,10 +83,13 @@ impl OrchestrationResultProcessor {
 
         // Process orchestration metadata for backoff decisions
         if let Some(metadata) = &orchestration_metadata {
-            if let Err(e) = self.process_orchestration_metadata(step_id, metadata).await {
+            if let Err(e) = self
+                .process_orchestration_metadata(step_uuid, metadata)
+                .await
+            {
                 tracing::warn!(
                     "Failed to process orchestration metadata for step {}: {}",
-                    step_id,
+                    step_uuid,
                     e
                 );
             }
@@ -93,7 +97,7 @@ impl OrchestrationResultProcessor {
 
         // Delegate to existing state management logic
         self.handle_partial_result(
-            step_id,
+            step_uuid,
             status,
             output,
             error,
@@ -109,7 +113,7 @@ impl OrchestrationResultProcessor {
     /// Extracted from ZmqPubSubExecutor::handle_partial_result() lines 402-418.
     pub async fn handle_partial_result(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         status: String,
         output: Option<Value>,
         error: Option<StepError>,
@@ -118,7 +122,7 @@ impl OrchestrationResultProcessor {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
             "Processing partial result for step {} status={} worker={} exec_time={}ms",
-            step_id,
+            step_uuid,
             status,
             worker_id,
             execution_time_ms
@@ -128,7 +132,7 @@ impl OrchestrationResultProcessor {
         let state_update_result = match status.as_str() {
             "success" => {
                 self.state_manager
-                    .complete_step_with_results(step_id, output.clone())
+                    .complete_step_with_results(step_uuid, output.clone())
                     .await
             }
             "failed" => {
@@ -137,10 +141,10 @@ impl OrchestrationResultProcessor {
                     .map(|e| e.message.clone())
                     .unwrap_or_else(|| "Step execution failed".to_string());
                 self.state_manager
-                    .handle_step_failure_with_retry(step_id, error_message)
+                    .handle_step_failure_with_retry(step_uuid, error_message)
                     .await
             }
-            "in_progress" => self.state_manager.mark_step_in_progress(step_id).await,
+            "in_progress" => self.state_manager.mark_step_in_progress(step_uuid).await,
             _ => {
                 tracing::warn!("Unknown step status: {}", status);
                 return Err(format!("Unknown step status: {status}").into());
@@ -152,24 +156,24 @@ impl OrchestrationResultProcessor {
             Ok(_) => {
                 tracing::debug!(
                     "Successfully updated step {} to status '{}'",
-                    step_id,
+                    step_uuid,
                     status
                 );
 
                 // If step completed or failed, check if task should be finalized
                 if matches!(status.as_str(), "success" | "failed") {
                     if let Ok(Some(workflow_step)) =
-                        WorkflowStep::find_by_id(&self.pool, step_id).await
+                        WorkflowStep::find_by_id(&self.pool, step_uuid).await
                     {
                         match self
                             .task_finalizer
-                            .handle_no_viable_steps(workflow_step.task_id)
+                            .handle_no_viable_steps(workflow_step.task_uuid)
                             .await
                         {
                             Ok(finalization_result) => {
                                 tracing::info!(
                                     "Task {} finalization result: action={:?}, reason={:?}",
-                                    workflow_step.task_id,
+                                    workflow_step.task_uuid,
                                     finalization_result.action,
                                     finalization_result.reason
                                 );
@@ -177,7 +181,7 @@ impl OrchestrationResultProcessor {
                             Err(e) => {
                                 tracing::error!(
                                     "Task finalization check failed for task {}: {}",
-                                    workflow_step.task_id,
+                                    workflow_step.task_uuid,
                                     e
                                 );
                             }
@@ -185,7 +189,7 @@ impl OrchestrationResultProcessor {
                     } else {
                         tracing::error!(
                             "Failed to lookup WorkflowStep for step {} during finalization check",
-                            step_id
+                            step_uuid
                         );
                     }
                 }
@@ -193,7 +197,7 @@ impl OrchestrationResultProcessor {
             Err(e) => {
                 tracing::error!(
                     "Failed to update step {} state to '{}': {}",
-                    step_id,
+                    step_uuid,
                     status,
                     e
                 );
@@ -212,12 +216,12 @@ impl OrchestrationResultProcessor {
     /// - Explicit backoff hints from handlers
     async fn process_orchestration_metadata(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         metadata: &OrchestrationMetadata,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::debug!(
             "Processing orchestration metadata for step {}: headers={}, error_context={:?}, backoff_hint={:?}",
-            step_id,
+            step_uuid,
             metadata.headers.len(),
             metadata.error_context,
             metadata.backoff_hint
@@ -264,7 +268,7 @@ impl OrchestrationResultProcessor {
                     if let Some(context) = &backoff_hint.context {
                         backoff_context = backoff_context.with_error(context.clone());
                     }
-                    tracing::info!("Handler detected rate limit for step {}", step_id);
+                    tracing::info!("Handler detected rate limit for step {}", step_uuid);
                 }
                 crate::messaging::message::BackoffHintType::ServiceUnavailable => {
                     // Service unavailable - use longer backoff
@@ -276,7 +280,10 @@ impl OrchestrationResultProcessor {
                         "handler_delay_seconds".to_string(),
                         serde_json::Value::Number(backoff_hint.delay_seconds.into()),
                     );
-                    tracing::info!("Handler reported service unavailable for step {}", step_id);
+                    tracing::info!(
+                        "Handler reported service unavailable for step {}",
+                        step_uuid
+                    );
                 }
                 crate::messaging::message::BackoffHintType::Custom => {
                     // Custom backoff strategy
@@ -291,7 +298,7 @@ impl OrchestrationResultProcessor {
                     }
                     tracing::info!(
                         "Handler provided custom backoff strategy for step {}",
-                        step_id
+                        step_uuid
                     );
                 }
             }
@@ -300,14 +307,14 @@ impl OrchestrationResultProcessor {
         // Apply backoff calculation with enhanced context
         match self
             .backoff_calculator
-            .calculate_and_apply_backoff(step_id, backoff_context)
+            .calculate_and_apply_backoff(step_uuid, backoff_context)
             .await
         {
             Ok(backoff_result) => {
                 tracing::info!(
                     "Applied {:?} backoff to step {}: delay={}s, next_retry={}",
                     backoff_result.backoff_type,
-                    step_id,
+                    step_uuid,
                     backoff_result.delay_seconds,
                     backoff_result.next_retry_at
                 );
@@ -315,7 +322,7 @@ impl OrchestrationResultProcessor {
             Err(e) => {
                 tracing::error!(
                     "Failed to calculate backoff for step {} with metadata: {}",
-                    step_id,
+                    step_uuid,
                     e
                 );
                 return Err(e.into());

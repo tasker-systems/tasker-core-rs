@@ -33,7 +33,7 @@
 //! ).await?;
 //!
 //! // Notify subscribers of an event
-//! registry.notify_subscribers("task.started", serde_json::json!({"task_id": 123})).await?;
+//! registry.notify_subscribers("task.started", serde_json::json!({"task_uuid": 123})).await?;
 //! # Ok(())
 //! # }
 //!
@@ -502,17 +502,17 @@ mod tests {
 
         // Test different event types
         registry
-            .notify_subscribers("task.started", serde_json::json!({"task_id": 1}))
+            .notify_subscribers("task.started", serde_json::json!({"task_uuid": 1}))
             .await
             .unwrap();
 
         registry
-            .notify_subscribers("task.completed", serde_json::json!({"task_id": 1}))
+            .notify_subscribers("task.completed", serde_json::json!({"task_uuid": 1}))
             .await
             .unwrap();
 
         registry
-            .notify_subscribers("step.started", serde_json::json!({"step_id": 1}))
+            .notify_subscribers("step.started", serde_json::json!({"step_uuid": 1}))
             .await
             .unwrap();
 

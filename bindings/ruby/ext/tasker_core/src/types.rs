@@ -18,6 +18,7 @@ use crate::context::{json_to_ruby_value, ruby_value_to_json};
 use magnus::{Error, IntoValue, Module, RArray, RHash, RString, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 // Import shared types for conversion functions
 use tasker_core::ffi::shared::types::*;
@@ -49,9 +50,9 @@ impl WorkflowStepInput {
         };
 
         StepInput {
-            task_id: self.task_id,
+            task_uuid: self.task_uuid,
             name: self.name.clone(),
-            dependencies: Some(self.dependencies.iter().map(|_| 0i64).collect()), // Note: String deps converted to placeholder IDs
+            dependencies: Some(vec![]), // Note: String dependencies converted to empty for shared type compatibility
             handler_class: self.handler_class.clone(),
             config: Some(config),
         }
@@ -173,9 +174,9 @@ impl OrchestrationHandleInfo {
 // Note: This struct is manually registered in lib.rs as TaskerCore::TaskHandler::InitializeResult
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerInitializeResult {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub step_count: usize,
-    pub step_mapping: HashMap<String, i64>,
+    pub step_mapping: HashMap<String, String>, // UUID strings for Ruby FFI compatibility
     pub handler_config_name: Option<String>,
     pub workflow_steps: Vec<serde_json::Value>, // Array of step hashes for integration tests
 }
@@ -184,7 +185,7 @@ impl TaskHandlerInitializeResult {
     /// Convert to Ruby hash (simplified FFI approach)
     pub fn to_ruby_hash(&self) -> Result<magnus::RHash, magnus::Error> {
         let hash = magnus::RHash::new();
-        hash.aset("task_id", self.task_id)?;
+        hash.aset("task_uuid", self.task_uuid.to_string())?;
         hash.aset("step_count", self.step_count)?;
         hash.aset("step_mapping", self.step_mapping.clone())?;
         hash.aset("handler_config_name", self.handler_config_name.clone())?;
@@ -200,9 +201,9 @@ impl TaskHandlerInitializeResult {
         Ok(hash)
     }
 
-    /// Get task_id for Ruby access
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    /// Get task_uuid for Ruby access
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     /// Get step_count for Ruby access
@@ -211,7 +212,7 @@ impl TaskHandlerInitializeResult {
     }
 
     /// Get step_mapping for Ruby access
-    pub fn step_mapping(&self) -> HashMap<String, i64> {
+    pub fn step_mapping(&self) -> HashMap<String, String> {
         self.step_mapping.clone()
     }
 
@@ -244,7 +245,7 @@ impl TaskHandlerInitializeResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskHandlerHandleResult {
     pub status: String,
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     // Fire-and-forget specific fields
     pub viable_steps_discovered: Option<usize>,
     pub steps_published: Option<usize>,
@@ -253,7 +254,7 @@ pub struct TaskHandlerHandleResult {
     // Async completion fields (populated by result listener)
     pub steps_completed: Option<usize>,
     pub total_execution_time_ms: Option<u64>,
-    pub failed_steps: Option<Vec<i64>>,
+    pub failed_steps: Option<Vec<String>>, // UUID strings for Ruby FFI compatibility
     // Status fields
     pub blocking_reason: Option<String>,
     pub next_poll_delay_ms: Option<u64>,
@@ -266,9 +267,9 @@ impl TaskHandlerHandleResult {
         self.status.clone()
     }
 
-    /// Get task_id for Ruby access
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    /// Get task_uuid for Ruby access
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     // Fire-and-forget specific accessors
@@ -277,7 +278,7 @@ impl TaskHandlerHandleResult {
         self.viable_steps_discovered
     }
 
-    /// Get steps_published for Ruby access  
+    /// Get steps_published for Ruby access
     pub fn steps_published(&self) -> Option<usize> {
         self.steps_published
     }
@@ -304,7 +305,7 @@ impl TaskHandlerHandleResult {
     }
 
     /// Get failed_steps for Ruby access (async results)
-    pub fn failed_steps(&self) -> Option<Vec<i64>> {
+    pub fn failed_steps(&self) -> Option<Vec<String>> {
         self.failed_steps.clone()
     }
 
@@ -341,7 +342,7 @@ impl TaskHandlerHandleResult {
 ///
 /// # Usage
 /// ```rust
-/// let result = base_task_handler.handle_one_step(step_id);
+/// let result = base_task_handler.handle_one_step(step_uuid);
 /// if !result.dependencies_met {
 ///     println!("Missing dependencies: {:?}", result.missing_dependencies);
 /// }
@@ -349,9 +350,9 @@ impl TaskHandlerHandleResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepHandleResult {
     /// The ID of the executed workflow step
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// The ID of the parent task
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// The name of the step (e.g., "validate_order")
     pub step_name: String,
     /// Execution status: "completed", "failed", "retrying", "skipped", "dependencies_not_met"
@@ -395,14 +396,14 @@ impl StepHandleResult {
         self.status == "dependencies_not_met"
     }
 
-    /// Get step_id for Ruby access
-    pub fn step_id(&self) -> i64 {
-        self.step_id
+    /// Get step_uuid for Ruby access
+    pub fn step_uuid(&self) -> String {
+        self.step_uuid.to_string()
     }
 
-    /// Get task_id for Ruby access
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    /// Get task_uuid for Ruby access
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     /// Get step_name for Ruby access
@@ -686,7 +687,7 @@ pub fn json_value_to_ruby_value(json_value: serde_json::Value) -> Result<Value, 
 #[derive(Clone, Debug)]
 #[magnus::wrap(class = "TaskerCore::Types::WorkflowStepInput", free_immediately)]
 pub struct WorkflowStepInput {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub name: String,
     pub dependencies: Vec<String>,
     pub handler_class: Option<String>,
@@ -696,7 +697,7 @@ pub struct WorkflowStepInput {
 impl WorkflowStepInput {
     /// Create from Ruby parameters
     pub fn from_params(
-        task_id: i64,
+        task_uuid: Uuid,
         name: String,
         dependencies: Option<Vec<String>>,
         handler_class: Option<String>,
@@ -715,7 +716,7 @@ impl WorkflowStepInput {
         };
 
         Ok(WorkflowStepInput {
-            task_id,
+            task_uuid,
             name,
             dependencies: dependencies.unwrap_or_default(),
             handler_class,
@@ -742,7 +743,7 @@ pub struct ComplexWorkflowInput {
 #[magnus::wrap(class = "TaskerCore::TestHelpers::TestTaskResult", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestTaskResult {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub name: String,
     pub version: String,
@@ -751,9 +752,9 @@ pub struct TestTaskResult {
 }
 
 impl TestTaskResult {
-    /// Get task_id for Ruby access
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    /// Get task_uuid for Ruby access
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     /// Get namespace for Ruby access
@@ -785,8 +786,8 @@ impl TestTaskResult {
 #[magnus::wrap(class = "TaskerCore::TestHelpers::TestStepResult", free_immediately)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestStepResult {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub name: String,
     pub handler_class: Option<String>,
     pub dependencies: Vec<String>,
@@ -794,14 +795,14 @@ pub struct TestStepResult {
 }
 
 impl TestStepResult {
-    /// Get step_id for Ruby access
-    pub fn step_id(&self) -> i64 {
-        self.step_id
+    /// Get step_uuid for Ruby access
+    pub fn step_uuid(&self) -> String {
+        self.step_uuid.to_string()
     }
 
-    /// Get task_id for Ruby access
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    /// Get task_uuid for Ruby access
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     /// Get name for Ruby access
@@ -956,8 +957,10 @@ mod tests {
 
     #[test]
     fn test_workflow_step_input_creation() {
+        use uuid::Uuid;
+        let test_uuid = Uuid::now_v7();
         let input = WorkflowStepInput::from_params(
-            123,
+            test_uuid,
             "test_step".to_string(),
             Some(vec!["dep1".to_string(), "dep2".to_string()]),
             Some("TestHandler".to_string()),
@@ -965,7 +968,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(input.task_id, 123);
+        assert_eq!(input.task_uuid, test_uuid);
         assert_eq!(input.name, "test_step");
         assert_eq!(input.dependencies.len(), 2);
         assert_eq!(input.handler_class, Some("TestHandler".to_string()));
@@ -993,8 +996,10 @@ mod tests {
 
     #[test]
     fn test_shared_type_conversion_workflow_step() {
+        use uuid::Uuid;
+        let test_uuid = Uuid::now_v7();
         let workflow_input = WorkflowStepInput::from_params(
-            123,
+            test_uuid,
             "test_step".to_string(),
             Some(vec!["dep1".to_string()]),
             Some("TestHandler".to_string()),
@@ -1003,7 +1008,7 @@ mod tests {
         .unwrap();
 
         let shared_input = workflow_input.to_shared_step_input();
-        assert_eq!(shared_input.task_id, 123);
+        assert_eq!(shared_input.task_uuid, test_uuid);
         assert_eq!(shared_input.name, "test_step");
         assert_eq!(shared_input.handler_class, Some("TestHandler".to_string()));
     }
@@ -1038,15 +1043,17 @@ mod tests {
 
     #[test]
     fn test_test_helpers_poro_objects() {
+        use uuid::Uuid;
+        let test_uuid = Uuid::now_v7();
         let task_result = TestTaskResult {
-            task_id: 123,
+            task_uuid: test_uuid,
             namespace: "test".to_string(),
             name: "test_task".to_string(),
             version: "v1".to_string(),
             step_count: 5,
             created_at: "2023-01-01T00:00:00Z".to_string(),
         };
-        assert_eq!(task_result.task_id, 123);
+        assert_eq!(task_result.task_uuid, test_uuid);
         assert_eq!(task_result.namespace, "test");
 
         let env_result = TestEnvironmentResult {

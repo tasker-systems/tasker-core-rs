@@ -37,7 +37,7 @@ impl StepStateMachine {
     pub async fn current_state(&self) -> StateMachineResult<WorkflowStepState> {
         match self
             .persistence
-            .resolve_current_state(self.step.workflow_step_id, &self.pool)
+            .resolve_current_state(self.step.workflow_step_uuid, &self.pool)
             .await?
         {
             Some(state_str) => state_str.parse().map_err(|_| {
@@ -213,25 +213,13 @@ impl StepStateMachine {
     }
 
     /// Get step ID
-    pub fn step_id(&self) -> i64 {
-        self.step.workflow_step_id
+    pub fn step_uuid(&self) -> uuid::Uuid {
+        self.step.workflow_step_uuid
     }
 
     /// Get associated task ID
-    pub fn task_id(&self) -> i64 {
-        self.step.task_id
-    }
-
-    /// Update retry count after failure
-    pub async fn increment_retry_count(&mut self) -> StateMachineResult<()> {
-        // This would typically update the step's attempts in the database
-        // For now, we'll just log it since we simplified the database operations
-        tracing::info!(
-            step_id = self.step.workflow_step_id,
-            current_attempts = self.step.attempts,
-            "Incrementing retry count for step"
-        );
-        Ok(())
+    pub fn task_uuid(&self) -> uuid::Uuid {
+        self.step.task_uuid
     }
 
     /// Check if step has exceeded retry limit

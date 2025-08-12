@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Request message sent from Rust orchestrator to language handlers
 #[derive(Serialize, Debug, Clone)]
@@ -17,8 +18,8 @@ pub struct StepBatchRequest {
 /// Individual step execution request within a batch
 #[derive(Serialize, Debug, Clone)]
 pub struct StepExecutionRequest {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub step_name: String,
     pub handler_class: String,
     pub handler_config: HashMap<String, serde_json::Value>,
@@ -47,7 +48,7 @@ pub struct StepBatchResponse {
 /// Individual step execution result within a batch response
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepExecutionResult {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub status: String, // "completed", "failed", "error"
     pub output: Option<serde_json::Value>,
     pub error: Option<StepExecutionError>,
@@ -96,8 +97,8 @@ impl StepExecutionRequest {
     /// Constructor with all required fields - clippy allows many args for data constructors
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: String,
         handler_class: String,
         handler_config: HashMap<String, serde_json::Value>,
@@ -107,8 +108,8 @@ impl StepExecutionRequest {
         timeout_ms: i64,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             step_name,
             handler_class,
             handler_config,
@@ -125,9 +126,9 @@ impl StepExecutionRequest {
 }
 
 impl StepExecutionResult {
-    pub fn success(step_id: i64, output: serde_json::Value, execution_time_ms: i64) -> Self {
+    pub fn success(step_uuid: Uuid, output: serde_json::Value, execution_time_ms: i64) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "completed".to_string(),
             output: Some(output),
             error: None,
@@ -141,13 +142,13 @@ impl StepExecutionResult {
     }
 
     pub fn failure(
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
         retryable: bool,
         execution_time_ms: i64,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "failed".to_string(),
             output: None,
             error: Some(StepExecutionError {
@@ -166,14 +167,14 @@ impl StepExecutionResult {
     }
 
     pub fn error(
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
         error_type: Option<String>,
         backtrace: Option<Vec<String>>,
         execution_time_ms: i64,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: "error".to_string(),
             output: None,
             error: Some(StepExecutionError {
@@ -198,9 +199,11 @@ mod tests {
 
     #[test]
     fn test_step_execution_request_creation() {
+        let task_uuid = Uuid::now_v7();
+        let step_uuid = Uuid::now_v7();
         let request = StepExecutionRequest::new(
-            1,
-            100,
+            step_uuid,
+            task_uuid,
             "validate_order".to_string(),
             "OrderValidator".to_string(),
             HashMap::new(),
@@ -210,8 +213,8 @@ mod tests {
             30000,
         );
 
-        assert_eq!(request.step_id, 1);
-        assert_eq!(request.task_id, 100);
+        assert_eq!(request.step_uuid, step_uuid);
+        assert_eq!(request.task_uuid, task_uuid);
         assert_eq!(request.step_name, "validate_order");
         assert_eq!(request.metadata.retry_limit, 3);
         assert_eq!(request.metadata.timeout_ms, 30000);
@@ -219,9 +222,11 @@ mod tests {
 
     #[test]
     fn test_step_execution_result_success() {
-        let result = StepExecutionResult::success(1, serde_json::json!({"status": "valid"}), 1500);
+        let step_uuid = Uuid::now_v7();
+        let result =
+            StepExecutionResult::success(step_uuid, serde_json::json!({"status": "valid"}), 1500);
 
-        assert_eq!(result.step_id, 1);
+        assert_eq!(result.step_uuid, step_uuid);
         assert_eq!(result.status, "completed");
         assert!(result.output.is_some());
         assert!(result.error.is_none());
@@ -230,9 +235,11 @@ mod tests {
 
     #[test]
     fn test_step_execution_result_failure() {
-        let result = StepExecutionResult::failure(1, "Validation failed".to_string(), true, 800);
+        let step_uuid = Uuid::now_v7();
+        let result =
+            StepExecutionResult::failure(step_uuid, "Validation failed".to_string(), true, 800);
 
-        assert_eq!(result.step_id, 1);
+        assert_eq!(result.step_uuid, step_uuid);
         assert_eq!(result.status, "failed");
         assert!(result.output.is_none());
         assert!(result.error.is_some());

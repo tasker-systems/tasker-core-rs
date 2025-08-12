@@ -5,42 +5,34 @@
 #
 # Table name: tasker_named_tasks
 #
-#  description           :string(255)
+#  named_task_uuid       :uuid             not null, primary key, default(uuid_generate_v7())
+#  task_namespace_uuid   :uuid             not null
 #  name                  :string(64)       not null
-#  version               :string(16)       not null
-#  configuration         :jsonb
+#  description           :string(255)      nullable
+#  version               :string(16)       not null, default('0.1.0')
+#  configuration         :jsonb            default('{}')
 #  created_at            :datetime         not null
 #  updated_at            :datetime         not null
-#  named_task_id         :integer          not null, primary key
-#  task_namespace_id     :integer          not null
-#
-# Indexes
-#
-#  named_tasks_name_index                          (name)
-#  named_tasks_namespace_name_version_unique       (task_namespace_id,name,version) UNIQUE
-#  named_tasks_task_namespace_id_index             (task_namespace_id)
-#  named_tasks_version_index                       (version)
-#  named_tasks_configuration_gin_index             (configuration) USING gin
 #
 # Foreign Keys
 #
-#  fk_rails_...  (task_namespace_id => tasker_task_namespaces.task_namespace_id)
+#  named_tasks_task_namespace_uuid_foreign  (task_namespace_uuid => tasker_task_namespaces.task_namespace_uuid)
 #
 module TaskerCore
   module Database
     module Models
       class NamedTask < ApplicationRecord
-        self.primary_key = :named_task_id
+        self.primary_key = :named_task_uuid
 
-        belongs_to :task_namespace
-        has_many :tasks, dependent: :nullify
+        belongs_to :task_namespace, foreign_key: :task_namespace_uuid, primary_key: :task_namespace_uuid
+        has_many :tasks, foreign_key: :named_task_uuid, primary_key: :named_task_uuid, dependent: :nullify
 
         validates :name, presence: true, length: { maximum: 64 }
         validates :version, presence: true, format: {
           with: /\A\d+\.\d+\.\d+\z/,
           message: 'must be in semver format (e.g., 1.0.0)'
         }, length: { maximum: 16 }
-        validates :task_namespace_id, uniqueness: { scope: %i[name version] }
+        validates :task_namespace_uuid, uniqueness: { scope: %i[name version] }
 
         # Default version for new tasks
         DEFAULT_VERSION = '0.1.0'
@@ -102,8 +94,8 @@ module TaskerCore
         scope :with_version, ->(version) { where(version: version) }
 
         scope :latest_versions, lambda {
-          select('DISTINCT ON (task_namespace_id, name) *')
-            .order(:task_namespace_id, :name, version: :desc)
+          select('DISTINCT ON (task_namespace_uuid, name) *')
+            .order(:task_namespace_uuid, :name, version: :desc)
         }
 
         # Find latest version of a named task in a namespace

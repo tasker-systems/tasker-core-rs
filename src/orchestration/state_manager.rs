@@ -41,6 +41,7 @@
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
+use crate::models::WorkflowStep;
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use crate::state_machine::events::{StepEvent, TaskEvent};
 use crate::state_machine::states::{TaskState, WorkflowStepState};
@@ -51,11 +52,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, warn};
+use uuid::Uuid;
 
 /// State transition request for bulk operations
 #[derive(Debug, Clone)]
 pub struct StateTransitionRequest {
-    pub entity_id: i64,
+    pub entity_uuid: Uuid,
     pub entity_type: StateEntityType,
     pub target_state: String,
     pub event: StateTransitionEvent,
@@ -79,7 +81,7 @@ pub enum StateTransitionEvent {
 /// Result of state evaluation operations
 #[derive(Debug, Clone)]
 pub struct StateEvaluationResult {
-    pub entity_id: i64,
+    pub entity_uuid: Uuid,
     pub entity_type: StateEntityType,
     pub current_state: String,
     pub recommended_state: Option<String>,
@@ -94,8 +96,8 @@ pub struct StateManager {
     event_publisher: EventPublisher,
     pool: sqlx::PgPool,
     /// Cache of active state machines to avoid recreation
-    task_state_machines: Arc<Mutex<HashMap<i64, TaskStateMachine>>>,
-    step_state_machines: Arc<Mutex<HashMap<i64, StepStateMachine>>>,
+    task_state_machines: Arc<Mutex<HashMap<Uuid, TaskStateMachine>>>,
+    step_state_machines: Arc<Mutex<HashMap<Uuid, StepStateMachine>>>,
 }
 
 impl StateManager {
@@ -119,18 +121,32 @@ impl StateManager {
         &self.pool
     }
 
+    async fn get_task_uuid_for_step_uuid(&self, step_uuid: Uuid) -> OrchestrationResult<Uuid> {
+        let step = WorkflowStep::find_by_id(&self.pool, step_uuid)
+            .await
+            .map_err(|e| OrchestrationError::SqlFunctionError {
+                function_name: "find_by_id".to_string(),
+                reason: e.to_string(),
+            })?
+            .ok_or_else(|| OrchestrationError::SqlFunctionError {
+                function_name: "find_by_id".to_string(),
+                reason: format!("WorkflowStep with UUID {step_uuid} not found"),
+            })?;
+        Ok(step.task_uuid)
+    }
+
     /// Evaluate task state based on SQL function analysis and trigger transitions if needed
-    #[instrument(skip(self), fields(task_id = task_id))]
+    #[instrument(skip(self), fields(task_uuid = task_uuid.to_string()))]
     pub async fn evaluate_task_state(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<StateEvaluationResult> {
-        debug!(task_id = task_id, "Evaluating task state");
+        debug!(task_uuid = task_uuid.to_string(), "Evaluating task state");
 
         // 1. Get task execution context from SQL function
         let execution_context = self
             .sql_executor
-            .get_task_execution_context(task_id)
+            .get_task_execution_context(task_uuid)
             .await
             .map_err(|e| OrchestrationError::SqlFunctionError {
                 function_name: "get_task_execution_context".to_string(),
@@ -138,13 +154,13 @@ impl StateManager {
             })?;
 
         let context = execution_context.ok_or_else(|| OrchestrationError::InvalidTaskState {
-            task_id,
+            task_uuid,
             current_state: "unknown".to_string(),
             expected_states: vec!["pending".to_string(), "in_progress".to_string()],
         })?;
 
         // 2. Get current state from state machine
-        let task_state_machine = self.get_or_create_task_state_machine(task_id).await?;
+        let task_state_machine = self.get_or_create_task_state_machine(task_uuid).await?;
         let current_state = task_state_machine.current_state().await?;
 
         // 3. Determine recommended state based on step completion
@@ -161,7 +177,7 @@ impl StateManager {
         );
 
         let result = StateEvaluationResult {
-            entity_id: task_id,
+            entity_uuid: task_uuid,
             entity_type: StateEntityType::Task,
             current_state: current_state.to_string(),
             recommended_state: recommended_state.map(|s| s.to_string()),
@@ -172,9 +188,9 @@ impl StateManager {
         // 5. Perform transition if needed
         if transition_required {
             if let Some(target_state) = &recommended_state {
-                self.transition_task_state(task_id, *target_state).await?;
+                self.transition_task_state(task_uuid, *target_state).await?;
                 info!(
-                    task_id = task_id,
+                    task_uuid = task_uuid.to_string(),
                     from_state = %current_state,
                     to_state = %target_state,
                     "Task state transition completed"
@@ -186,37 +202,37 @@ impl StateManager {
     }
 
     /// Evaluate step state and trigger transitions if needed
-    #[instrument(skip(self), fields(step_id = step_id))]
+    #[instrument(skip(self), fields(step_uuid = step_uuid.to_string()))]
     pub async fn evaluate_step_state(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> OrchestrationResult<StateEvaluationResult> {
-        debug!(step_id = step_id, "Evaluating step state");
+        debug!(step_uuid = step_uuid.to_string(), "Evaluating step state");
 
-        // 1. First get the task_id for this step
-        let task_id_result = sqlx::query!(
-            "SELECT task_id FROM tasker_workflow_steps WHERE workflow_step_id = $1",
-            step_id
+        // 1. First get the task_uuid for this step
+        let task_uuid_result = sqlx::query!(
+            "SELECT task_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
+            step_uuid
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
-            operation: "get_task_id_for_step".to_string(),
+            operation: "get_task_uuid_for_step".to_string(),
             reason: e.to_string(),
         })?;
 
-        let task_id = task_id_result
+        let task_uuid = task_uuid_result
             .ok_or_else(|| OrchestrationError::InvalidStepState {
-                step_id,
+                step_uuid,
                 current_state: "unknown".to_string(),
                 expected_states: vec!["pending".to_string(), "in_progress".to_string()],
             })?
-            .task_id;
+            .task_uuid;
 
-        // 2. Get step readiness status from SQL function with correct task_id
+        // 2. Get step readiness status from SQL function with correct task_uuid
         let readiness_statuses = self
             .sql_executor
-            .get_step_readiness_status(task_id, Some(vec![step_id]))
+            .get_step_readiness_status(task_uuid, Some(vec![step_uuid]))
             .await
             .map_err(|e| OrchestrationError::SqlFunctionError {
                 function_name: "get_step_readiness_status".to_string(),
@@ -225,15 +241,15 @@ impl StateManager {
 
         let status = readiness_statuses
             .into_iter()
-            .find(|s| s.workflow_step_id == step_id)
+            .find(|s| s.workflow_step_uuid == step_uuid)
             .ok_or_else(|| OrchestrationError::InvalidStepState {
-                step_id,
+                step_uuid,
                 current_state: "unknown".to_string(),
                 expected_states: vec!["pending".to_string(), "in_progress".to_string()],
             })?;
 
         // 2. Get current state from state machine
-        let step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
         let current_state = step_state_machine.current_state().await?;
 
         // 3. Determine recommended state based on SQL analysis
@@ -256,7 +272,7 @@ impl StateManager {
         );
 
         let result = StateEvaluationResult {
-            entity_id: step_id,
+            entity_uuid: step_uuid,
             entity_type: StateEntityType::Step,
             current_state: current_state.to_string(),
             recommended_state: recommended_state.map(|s| s.to_string()),
@@ -267,9 +283,9 @@ impl StateManager {
         // 5. Perform transition if needed
         if transition_required {
             if let Some(target_state) = &recommended_state {
-                self.transition_step_state(step_id, *target_state).await?;
+                self.transition_step_state(step_uuid, *target_state).await?;
                 info!(
-                    step_id = step_id,
+                    step_uuid = step_uuid.to_string(),
                     from_state = %current_state,
                     to_state = %target_state,
                     "Step state transition completed"
@@ -281,23 +297,23 @@ impl StateManager {
     }
 
     /// Transition multiple steps to completed state efficiently
-    #[instrument(skip(self), fields(step_count = step_ids.len()))]
+    #[instrument(skip(self), fields(step_count = step_uuids.len()))]
     pub async fn transition_steps_to_completed(
         &self,
-        step_ids: Vec<i64>,
+        step_uuids: Vec<Uuid>,
     ) -> OrchestrationResult<Vec<StateEvaluationResult>> {
         debug!(
-            step_count = step_ids.len(),
+            step_count = step_uuids.len(),
             "Transitioning steps to completed"
         );
 
         let mut results = Vec::new();
 
-        for step_id in step_ids {
+        for step_uuid in step_uuids {
             // Get step state machine
-            let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+            let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
             let current_state = step_state_machine.current_state().await?;
-
+            let task_uuid = self.get_task_uuid_for_step_uuid(step_uuid).await?;
             // Only transition if not already complete
             if current_state != WorkflowStepState::Complete {
                 match step_state_machine
@@ -306,7 +322,7 @@ impl StateManager {
                 {
                     Ok(_) => {
                         let result = StateEvaluationResult {
-                            entity_id: step_id,
+                            entity_uuid: step_uuid,
                             entity_type: StateEntityType::Step,
                             current_state: current_state.to_string(),
                             recommended_state: Some("complete".to_string()),
@@ -318,28 +334,28 @@ impl StateManager {
                         // Publish event
                         self.event_publisher
                             .publish_step_execution_completed(
-                                step_id,
-                                0, // task_id unknown in bulk operation
+                                step_uuid,
+                                task_uuid,
                                 crate::events::StepResult::Success,
                             )
                             .await?;
                     }
                     Err(e) => {
                         warn!(
-                            step_id = step_id,
+                            step_uuid = step_uuid.to_string(),
                             error = %e,
                             "Failed to transition step to completed"
                         );
                         return Err(OrchestrationError::StateTransitionFailed {
                             entity_type: "WorkflowStep".to_string(),
-                            entity_id: step_id,
+                            entity_uuid: step_uuid,
                             reason: e.to_string(),
                         });
                     }
                 }
             } else {
                 let result = StateEvaluationResult {
-                    entity_id: step_id,
+                    entity_uuid: step_uuid,
                     entity_type: StateEntityType::Step,
                     current_state: current_state.to_string(),
                     recommended_state: None,
@@ -493,23 +509,23 @@ impl StateManager {
     /// Get or create task state machine
     async fn get_or_create_task_state_machine(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<TaskStateMachine> {
         let mut task_machines = self.task_state_machines.lock().await;
 
-        if let Some(machine) = task_machines.get(&task_id) {
+        if let Some(machine) = task_machines.get(&task_uuid) {
             // Return cloned cached instance for efficiency
             Ok(machine.clone())
         } else {
             // Need to get task from database to create state machine
-            let task = crate::models::core::task::Task::find_by_id(&self.pool, task_id)
+            let task = crate::models::core::task::Task::find_by_id(&self.pool, task_uuid)
                 .await
                 .map_err(|e| OrchestrationError::DatabaseError {
                     operation: "find_task_by_id".to_string(),
                     reason: e.to_string(),
                 })?
                 .ok_or_else(|| OrchestrationError::InvalidTaskState {
-                    task_id,
+                    task_uuid,
                     current_state: "not_found".to_string(),
                     expected_states: vec!["pending".to_string(), "in_progress".to_string()],
                 })?;
@@ -521,7 +537,7 @@ impl StateManager {
             );
 
             // Store in cache for future use
-            task_machines.insert(task_id, machine.clone());
+            task_machines.insert(task_uuid, machine.clone());
             Ok(machine)
         }
     }
@@ -529,24 +545,24 @@ impl StateManager {
     /// Get or create step state machine
     pub async fn get_or_create_step_state_machine(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> OrchestrationResult<StepStateMachine> {
         let mut step_machines = self.step_state_machines.lock().await;
 
-        if let Some(machine) = step_machines.get(&step_id) {
+        if let Some(machine) = step_machines.get(&step_uuid) {
             // Return cloned cached instance for efficiency
             Ok(machine.clone())
         } else {
             // Need to get step from database to create state machine
             let step =
-                crate::models::core::workflow_step::WorkflowStep::find_by_id(&self.pool, step_id)
+                crate::models::core::workflow_step::WorkflowStep::find_by_id(&self.pool, step_uuid)
                     .await
                     .map_err(|e| OrchestrationError::DatabaseError {
                         operation: "find_workflow_step_by_id".to_string(),
                         reason: e.to_string(),
                     })?
                     .ok_or_else(|| OrchestrationError::InvalidStepState {
-                        step_id,
+                        step_uuid,
                         current_state: "not_found".to_string(),
                         expected_states: vec!["pending".to_string(), "in_progress".to_string()],
                     })?;
@@ -558,7 +574,7 @@ impl StateManager {
             );
 
             // Store in cache for future use
-            step_machines.insert(step_id, machine.clone());
+            step_machines.insert(step_uuid, machine.clone());
             Ok(machine)
         }
     }
@@ -566,10 +582,10 @@ impl StateManager {
     /// Transition task state
     async fn transition_task_state(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         target_state: TaskState,
     ) -> OrchestrationResult<()> {
-        let mut task_state_machine = self.get_or_create_task_state_machine(task_id).await?;
+        let mut task_state_machine = self.get_or_create_task_state_machine(task_uuid).await?;
 
         let event = match target_state {
             TaskState::InProgress => TaskEvent::Start,
@@ -581,7 +597,7 @@ impl StateManager {
         task_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "Task".to_string(),
-                entity_id: task_id,
+                entity_uuid: task_uuid,
                 reason: e.to_string(),
             }
         })?;
@@ -592,10 +608,10 @@ impl StateManager {
     /// Transition step state
     async fn transition_step_state(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         target_state: WorkflowStepState,
     ) -> OrchestrationResult<()> {
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
 
         let event = match target_state {
             WorkflowStepState::InProgress => StepEvent::Start,
@@ -607,7 +623,7 @@ impl StateManager {
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step_id,
+                entity_uuid: step_uuid,
                 reason: e.to_string(),
             }
         })?;
@@ -618,17 +634,17 @@ impl StateManager {
     /// Complete step with results - stores results in database
     pub async fn complete_step_with_results(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         step_results: Option<serde_json::Value>,
     ) -> OrchestrationResult<()> {
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
 
         let event = StepEvent::Complete(step_results);
 
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step_id,
+                entity_uuid: step_uuid,
                 reason: e.to_string(),
             }
         })?;
@@ -639,17 +655,17 @@ impl StateManager {
     /// Fail step with error information - marks step as failed in database
     pub async fn fail_step_with_error(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
     ) -> OrchestrationResult<()> {
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
 
         let event = StepEvent::Fail(error_message);
 
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step_id,
+                entity_uuid: step_uuid,
                 reason: e.to_string(),
             }
         })?;
@@ -662,10 +678,10 @@ impl StateManager {
     /// Otherwise, transition to error state
     pub async fn handle_step_failure_with_retry(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         error_message: String,
     ) -> OrchestrationResult<()> {
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
 
         // First transition to error state
         let fail_event = StepEvent::Fail(error_message.clone());
@@ -674,22 +690,12 @@ impl StateManager {
             .await
             .map_err(|e| OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step_id,
+                entity_uuid: step_uuid,
                 reason: e.to_string(),
             })?;
 
         // Check if step has retries remaining
         if !step_state_machine.has_exceeded_retry_limit() {
-            // Increment retry count
-            step_state_machine
-                .increment_retry_count()
-                .await
-                .map_err(|e| OrchestrationError::StateTransitionFailed {
-                    entity_type: "WorkflowStep".to_string(),
-                    entity_id: step_id,
-                    reason: format!("Failed to increment retry count: {e}"),
-                })?;
-
             // Transition back to pending for retry
             let retry_event = StepEvent::Retry;
             step_state_machine
@@ -697,19 +703,19 @@ impl StateManager {
                 .await
                 .map_err(|e| OrchestrationError::StateTransitionFailed {
                     entity_type: "WorkflowStep".to_string(),
-                    entity_id: step_id,
+                    entity_uuid: step_uuid,
                     reason: format!("Failed to transition to pending for retry: {e}"),
                 })?;
 
             tracing::info!(
                 "Step {} failed but has retries remaining, transitioned to pending for retry. Error: {}",
-                step_id,
+                step_uuid,
                 error_message
             );
         } else {
             tracing::info!(
                 "Step {} failed and has no retries remaining, staying in error state. Error: {}",
-                step_id,
+                step_uuid,
                 error_message
             );
         }
@@ -718,16 +724,19 @@ impl StateManager {
     }
 
     /// Mark a task as in progress when steps have been enqueued
-    pub async fn mark_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
-        debug!(task_id = task_id, "Marking task as in progress");
+    pub async fn mark_task_in_progress(&self, task_uuid: Uuid) -> OrchestrationResult<()> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            "Marking task as in progress"
+        );
 
         // Check current state to avoid invalid transitions
-        let task_state_machine = self.get_or_create_task_state_machine(task_id).await?;
+        let task_state_machine = self.get_or_create_task_state_machine(task_uuid).await?;
         let current_state = task_state_machine.current_state().await?;
 
         if current_state == TaskState::InProgress {
             debug!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 current_state = %current_state,
                 "Task is already in progress, skipping transition"
             );
@@ -735,26 +744,26 @@ impl StateManager {
         }
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             current_state = %current_state,
             "Transitioning task to in_progress"
         );
 
-        self.transition_task_state(task_id, TaskState::InProgress)
+        self.transition_task_state(task_uuid, TaskState::InProgress)
             .await
     }
 
     /// Mark step as in progress - transitions state machine and sets in_process column
-    pub async fn mark_step_in_progress(&self, step_id: i64) -> OrchestrationResult<()> {
+    pub async fn mark_step_in_progress(&self, step_uuid: Uuid) -> OrchestrationResult<()> {
         // 1. Transition state machine to InProgress
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_id).await?;
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
 
         let event = StepEvent::Start;
 
         step_state_machine.transition(event).await.map_err(|e| {
             OrchestrationError::StateTransitionFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step_id,
+                entity_uuid: step_uuid,
                 reason: e.to_string(),
             }
         })?;
@@ -762,17 +771,20 @@ impl StateManager {
         // 2. Also update the in_process column to true in the database
         // This provides a direct database flag for queries that need to check processing status
         sqlx::query!(
-            "UPDATE tasker_workflow_steps SET in_process = true WHERE workflow_step_id = $1",
-            step_id
+            "UPDATE tasker_workflow_steps SET in_process = true WHERE workflow_step_uuid = $1",
+            step_uuid
         )
         .execute(&self.pool)
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
             operation: "mark_step_in_progress".to_string(),
-            reason: format!("Failed to update in_process column for step {step_id}: {e}"),
+            reason: format!("Failed to update in_process column for step {step_uuid}: {e}"),
         })?;
 
-        debug!(step_id = step_id, "Marked step as in progress");
+        debug!(
+            step_uuid = step_uuid.to_string(),
+            "Marked step as in progress"
+        );
         Ok(())
     }
 
@@ -782,14 +794,14 @@ impl StateManager {
         request: StateTransitionRequest,
     ) -> OrchestrationResult<StateEvaluationResult> {
         let mut task_state_machine = self
-            .get_or_create_task_state_machine(request.entity_id)
+            .get_or_create_task_state_machine(request.entity_uuid)
             .await?;
         let current_state = task_state_machine.current_state().await?;
 
         if let StateTransitionEvent::TaskEvent(event) = request.event {
             match task_state_machine.transition(event).await {
                 Ok(_) => Ok(StateEvaluationResult {
-                    entity_id: request.entity_id,
+                    entity_uuid: request.entity_uuid,
                     entity_type: StateEntityType::Task,
                     current_state: current_state.to_string(),
                     recommended_state: Some(request.target_state),
@@ -798,7 +810,7 @@ impl StateManager {
                 }),
                 Err(e) => Err(OrchestrationError::StateTransitionFailed {
                     entity_type: "Task".to_string(),
-                    entity_id: request.entity_id,
+                    entity_uuid: request.entity_uuid,
                     reason: e.to_string(),
                 }),
             }
@@ -816,14 +828,14 @@ impl StateManager {
         request: StateTransitionRequest,
     ) -> OrchestrationResult<StateEvaluationResult> {
         let mut step_state_machine = self
-            .get_or_create_step_state_machine(request.entity_id)
+            .get_or_create_step_state_machine(request.entity_uuid)
             .await?;
         let current_state = step_state_machine.current_state().await?;
 
         if let StateTransitionEvent::StepEvent(event) = request.event {
             match step_state_machine.transition(event).await {
                 Ok(_) => Ok(StateEvaluationResult {
-                    entity_id: request.entity_id,
+                    entity_uuid: request.entity_uuid,
                     entity_type: StateEntityType::Step,
                     current_state: current_state.to_string(),
                     recommended_state: Some(request.target_state),
@@ -832,7 +844,7 @@ impl StateManager {
                 }),
                 Err(e) => Err(OrchestrationError::StateTransitionFailed {
                     entity_type: "WorkflowStep".to_string(),
-                    entity_id: request.entity_id,
+                    entity_uuid: request.entity_uuid,
                     reason: e.to_string(),
                 }),
             }

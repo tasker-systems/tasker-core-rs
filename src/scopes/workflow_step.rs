@@ -7,6 +7,7 @@ use super::common::{state_helpers, ScopeBuilder};
 use crate::models::WorkflowStep;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use uuid::Uuid;
 
 /// Query builder for WorkflowStep scopes
 pub struct WorkflowStepScope {
@@ -46,7 +47,7 @@ impl WorkflowStepScope {
     /// Ensure workflow step transitions join exists
     fn ensure_workflow_step_transitions_join(&mut self) {
         if !self.has_workflow_step_transitions_join {
-            self.query.push(" INNER JOIN tasker_workflow_step_transitions ON tasker_workflow_step_transitions.workflow_step_id = tasker_workflow_steps.workflow_step_id");
+            self.query.push(" INNER JOIN tasker_workflow_step_transitions ON tasker_workflow_step_transitions.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid");
             self.has_workflow_step_transitions_join = true;
         }
     }
@@ -56,10 +57,10 @@ impl WorkflowStepScope {
         if !self.has_current_transitions_join {
             self.query.push(
                 " INNER JOIN ( \
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state, created_at \
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state, created_at \
                 FROM tasker_workflow_step_transitions \
-                ORDER BY workflow_step_id, sort_key DESC \
-            ) current_wst ON current_wst.workflow_step_id = tasker_workflow_steps.workflow_step_id",
+                ORDER BY workflow_step_uuid, sort_key DESC \
+            ) current_wst ON current_wst.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid",
             );
             self.has_current_transitions_join = true;
         }
@@ -69,7 +70,7 @@ impl WorkflowStepScope {
     fn ensure_tasks_join(&mut self) {
         if !self.has_tasks_join {
             self.query.push(
-                " INNER JOIN tasker_tasks ON tasker_tasks.task_id = tasker_workflow_steps.task_id",
+                " INNER JOIN tasker_tasks ON tasker_tasks.task_uuid = tasker_workflow_steps.task_uuid",
             );
             self.has_tasks_join = true;
         }
@@ -79,9 +80,9 @@ impl WorkflowStepScope {
     ///
     /// Filters workflow steps to those belonging to a specific task ID.
     /// Essential for task-scoped operations and workflow analysis.
-    pub fn for_task(mut self, task_id: i64) -> Self {
-        self.add_condition("tasker_workflow_steps.task_id = ");
-        self.query.push_bind(task_id);
+    pub fn for_task(mut self, task_uuid: Uuid) -> Self {
+        self.add_condition("tasker_workflow_steps.task_uuid = ");
+        self.query.push_bind(task_uuid);
         self
     }
 
@@ -89,9 +90,9 @@ impl WorkflowStepScope {
     ///
     /// Filters to workflow steps created from a specific named step template.
     /// Useful for finding all instances of a particular step type.
-    pub fn for_named_step(mut self, named_step_id: i32) -> Self {
-        self.add_condition("tasker_workflow_steps.named_step_id = ");
-        self.query.push_bind(named_step_id);
+    pub fn for_named_step(mut self, named_step_uuid: i32) -> Self {
+        self.add_condition("tasker_workflow_steps.named_step_uuid = ");
+        self.query.push_bind(named_step_uuid);
         self
     }
 

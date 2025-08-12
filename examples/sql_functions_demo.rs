@@ -1,6 +1,7 @@
 use tasker_core::{
     AnalyticsMetrics, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
+use uuid::Uuid;
 
 /// Demonstrates the high-performance SQL function wrapper system
 ///
@@ -20,25 +21,25 @@ async fn main() {
 
     println!("2. Dependency Level Analysis:");
     println!("   // High-performance DAG traversal");
-    println!("   let levels = functions.dependency_levels().calculate_dependency_levels(task_id).await?;");
+    println!("   let levels = functions.dependency_levels().calculate_dependency_levels(task_uuid).await?;");
     println!(
-        "   let level_map = functions.dependency_levels().dependency_levels_hash(task_id).await?;"
+        "   let level_map = functions.dependency_levels().dependency_levels_hash(task_uuid).await?;"
     );
-    println!("   // Returns: HashMap<workflow_step_id, dependency_level>\n");
+    println!("   // Returns: HashMap<workflow_step_uuid, dependency_level>\n");
 
     println!("3. Step Readiness Analysis:");
     println!("   // Complex readiness calculation with dependency satisfaction");
-    println!("   let ready_steps = functions.step_readiness().get_step_readiness_status(task_id, None).await?;");
+    println!("   let ready_steps = functions.step_readiness().get_step_readiness_status(task_uuid, None).await?;");
     println!("   // Batch processing for multiple tasks");
-    println!("   let batch_status = functions.step_readiness().get_step_readiness_status_batch(task_ids).await?;");
+    println!("   let batch_status = functions.step_readiness().get_step_readiness_status_batch(task_uuids).await?;");
     println!();
 
     // Demonstrate the data structures
     println!("4. Step Readiness Status Structure:");
     let example_step = StepReadinessStatus {
-        workflow_step_id: 123,
-        task_id: 456,
-        named_step_id: 789,
+        workflow_step_uuid: Uuid::now_v7(),
+        task_uuid: Uuid::now_v7(),
+        named_step_uuid: Uuid::now_v7(),
         name: "process_payment".to_string(),
         current_state: "pending".to_string(),
         dependencies_satisfied: true,
@@ -56,7 +57,7 @@ async fn main() {
 
     println!(
         "   Step: {} (ID: {})",
-        example_step.name, example_step.workflow_step_id
+        example_step.name, example_step.workflow_step_uuid
     );
     println!("   Ready for execution: {}", example_step.can_execute_now());
     println!(
@@ -111,8 +112,8 @@ async fn main() {
 
     println!("6. Task Execution Context:");
     let context = TaskExecutionContext {
-        task_id: 789,
-        named_task_id: 123,
+        task_uuid: Uuid::now_v7(),
+        named_task_uuid: Uuid::now_v7(),
         status: "in_progress".to_string(),
         total_steps: 10,
         pending_steps: 3,
@@ -126,7 +127,7 @@ async fn main() {
         health_status: "healthy".to_string(),
     };
 
-    println!("   Task ID: {}", context.task_id);
+    println!("   Task ID: {}", context.task_uuid);
     println!(
         "   Progress: {}% ({}/{} steps)",
         context.completion_percentage, context.completed_steps, context.total_steps

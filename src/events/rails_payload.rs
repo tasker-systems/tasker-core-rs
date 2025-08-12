@@ -16,8 +16,8 @@ use std::collections::HashMap;
 /// ## Payload Structure
 ///
 /// The payload follows Rails conventions with these core fields:
-/// - `task_id`: Task identifier (string for Rails compatibility)
-/// - `step_id`: Step identifier (optional)
+/// - `task_uuid`: Task identifier (string for Rails compatibility)
+/// - `step_uuid`: Step identifier (optional)
 /// - `timestamp`: ISO 8601 timestamp (Rails expects Time.current format)
 /// - `task_name`: Human-readable task name
 /// - `step_name`: Human-readable step name
@@ -29,9 +29,9 @@ use std::collections::HashMap;
 /// use tasker_core::events::rails_payload::RailsCompatiblePayload;
 ///
 /// let payload = RailsCompatiblePayload::new()
-///     .with_task_id("123")
+///     .with_task_uuid("123")
 ///     .with_task_name("order_processor")
-///     .with_step_id("456")
+///     .with_step_uuid("456")
 ///     .with_step_name("validate_payment")
 ///     .with_field("amount", 99.99)
 ///     .with_field("currency", "USD");
@@ -40,11 +40,11 @@ use std::collections::HashMap;
 pub struct RailsCompatiblePayload {
     /// Task identifier (string for Rails compatibility)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub task_id: Option<String>,
+    pub task_uuid: Option<String>,
 
     /// Step identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub step_id: Option<String>,
+    pub step_uuid: Option<String>,
 
     /// Event timestamp in ISO 8601 format
     pub timestamp: DateTime<Utc>,
@@ -53,7 +53,7 @@ pub struct RailsCompatiblePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_name: Option<String>,
 
-    /// Human-readable step name  
+    /// Human-readable step name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step_name: Option<String>,
 
@@ -66,8 +66,8 @@ impl RailsCompatiblePayload {
     /// Create a new payload with current timestamp
     pub fn new() -> Self {
         Self {
-            task_id: None,
-            step_id: None,
+            task_uuid: None,
+            step_uuid: None,
             timestamp: Utc::now(),
             task_name: None,
             step_name: None,
@@ -76,14 +76,14 @@ impl RailsCompatiblePayload {
     }
 
     /// Set task ID (converts to string for Rails compatibility)
-    pub fn with_task_id<T: ToString>(mut self, task_id: T) -> Self {
-        self.task_id = Some(task_id.to_string());
+    pub fn with_task_uuid<T: ToString>(mut self, task_uuid: T) -> Self {
+        self.task_uuid = Some(task_uuid.to_string());
         self
     }
 
     /// Set step ID (converts to string for Rails compatibility)
-    pub fn with_step_id<T: ToString>(mut self, step_id: T) -> Self {
-        self.step_id = Some(step_id.to_string());
+    pub fn with_step_uuid<T: ToString>(mut self, step_uuid: T) -> Self {
+        self.step_uuid = Some(step_uuid.to_string());
         self
     }
 
@@ -125,8 +125,8 @@ impl Default for RailsCompatiblePayload {
 /// Helper for creating task-related payloads
 impl RailsCompatiblePayload {
     /// Create payload for task events
-    pub fn for_task<T: ToString>(task_id: T, task_name: Option<String>) -> Self {
-        let mut payload = Self::new().with_task_id(task_id);
+    pub fn for_task<T: ToString>(task_uuid: T, task_name: Option<String>) -> Self {
+        let mut payload = Self::new().with_task_uuid(task_uuid);
         if let Some(name) = task_name {
             payload = payload.with_task_name(name);
         }
@@ -135,12 +135,14 @@ impl RailsCompatiblePayload {
 
     /// Create payload for step events
     pub fn for_step<T: ToString, S: ToString>(
-        task_id: T,
-        step_id: S,
+        task_uuid: T,
+        step_uuid: S,
         task_name: Option<String>,
         step_name: Option<String>,
     ) -> Self {
-        let mut payload = Self::new().with_task_id(task_id).with_step_id(step_id);
+        let mut payload = Self::new()
+            .with_task_uuid(task_uuid)
+            .with_step_uuid(step_uuid);
 
         if let Some(name) = task_name {
             payload = payload.with_task_name(name);
@@ -233,21 +235,21 @@ mod tests {
     #[test]
     fn test_basic_payload_creation() {
         let payload = RailsCompatiblePayload::new()
-            .with_task_id("123")
+            .with_task_uuid("123")
             .with_task_name("test_task")
-            .with_step_id("456")
+            .with_step_uuid("456")
             .with_step_name("test_step");
 
-        assert_eq!(payload.task_id, Some("123".to_string()));
+        assert_eq!(payload.task_uuid, Some("123".to_string()));
         assert_eq!(payload.task_name, Some("test_task".to_string()));
-        assert_eq!(payload.step_id, Some("456".to_string()));
+        assert_eq!(payload.step_uuid, Some("456".to_string()));
         assert_eq!(payload.step_name, Some("test_step".to_string()));
     }
 
     #[test]
     fn test_payload_with_custom_fields() {
         let payload = RailsCompatiblePayload::new()
-            .with_task_id("123")
+            .with_task_uuid("123")
             .with_field("amount", 99.99)
             .with_field("currency", "USD")
             .with_field("user_id", 42);
@@ -270,9 +272,9 @@ mod tests {
     fn test_task_payload_factory() {
         let payload = RailsCompatiblePayload::for_task("456", Some("order_processor".to_string()));
 
-        assert_eq!(payload.task_id, Some("456".to_string()));
+        assert_eq!(payload.task_uuid, Some("456".to_string()));
         assert_eq!(payload.task_name, Some("order_processor".to_string()));
-        assert!(payload.step_id.is_none());
+        assert!(payload.step_uuid.is_none());
     }
 
     #[test]
@@ -284,8 +286,8 @@ mod tests {
             Some("validate_card".to_string()),
         );
 
-        assert_eq!(payload.task_id, Some("789".to_string()));
-        assert_eq!(payload.step_id, Some("101".to_string()));
+        assert_eq!(payload.task_uuid, Some("789".to_string()));
+        assert_eq!(payload.step_uuid, Some("101".to_string()));
         assert_eq!(payload.task_name, Some("payment_processor".to_string()));
         assert_eq!(payload.step_name, Some("validate_card".to_string()));
     }
@@ -296,7 +298,7 @@ mod tests {
         let later = now + chrono::Duration::seconds(5);
 
         let payload = RailsCompatiblePayload::new()
-            .with_task_id("123")
+            .with_task_uuid("123")
             .with_timing_metrics(Some(5.0), Some(now), Some(later));
 
         assert_eq!(
@@ -310,7 +312,7 @@ mod tests {
     #[test]
     fn test_error_info() {
         let payload = RailsCompatiblePayload::new()
-            .with_task_id("123")
+            .with_task_uuid("123")
             .with_error_info(
                 Some("Payment failed".to_string()),
                 Some("PaymentError".to_string()),
@@ -334,13 +336,13 @@ mod tests {
     #[test]
     fn test_json_serialization() {
         let payload = RailsCompatiblePayload::new()
-            .with_task_id("123")
+            .with_task_uuid("123")
             .with_task_name("test")
             .with_field("status", "completed");
 
         let json = payload.to_json().unwrap();
 
-        assert_eq!(json["task_id"], serde_json::Value::from("123"));
+        assert_eq!(json["task_uuid"], serde_json::Value::from("123"));
         assert_eq!(json["task_name"], serde_json::Value::from("test"));
         assert_eq!(json["status"], serde_json::Value::from("completed"));
         assert!(json["timestamp"].is_string());
@@ -349,7 +351,7 @@ mod tests {
     #[test]
     fn test_json_deserialization() {
         let json = serde_json::json!({
-            "task_id": "456",
+            "task_uuid": "456",
             "task_name": "test_task",
             "timestamp": "2025-01-14T10:00:00Z",
             "custom_field": "value"
@@ -357,7 +359,7 @@ mod tests {
 
         let payload = RailsCompatiblePayload::from_json(json).unwrap();
 
-        assert_eq!(payload.task_id, Some("456".to_string()));
+        assert_eq!(payload.task_uuid, Some("456".to_string()));
         assert_eq!(payload.task_name, Some("test_task".to_string()));
         assert_eq!(
             payload.additional_fields["custom_field"],

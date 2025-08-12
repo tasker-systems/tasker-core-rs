@@ -22,22 +22,25 @@ async fn test_task_namespace_crud(pool: PgPool) -> sqlx::Result<()> {
     );
 
     // Test find by ID
-    let found = TaskNamespace::find_by_id(&pool, created.task_namespace_id)
+    let found = TaskNamespace::find_by_uuid(&pool, created.task_namespace_uuid)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(found.task_namespace_id, created.task_namespace_id);
+    assert_eq!(found.task_namespace_uuid, created.task_namespace_uuid);
 
     // Test find by name
     let found_by_name = TaskNamespace::find_by_name(&pool, &unique_name)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(found_by_name.task_namespace_id, created.task_namespace_id);
+    assert_eq!(
+        found_by_name.task_namespace_uuid,
+        created.task_namespace_uuid
+    );
 
     // Test update
     let updated_name = "updated_test_namespace".to_string();
     let updated = TaskNamespace::update(
         &pool,
-        created.task_namespace_id,
+        created.task_namespace_uuid,
         Some(updated_name.clone()),
         Some("Updated description".to_string()),
     )
@@ -53,11 +56,11 @@ async fn test_task_namespace_crud(pool: PgPool) -> sqlx::Result<()> {
     assert!(!is_not_unique);
 
     // Test deletion
-    let deleted = TaskNamespace::delete(&pool, created.task_namespace_id).await?;
+    let deleted = TaskNamespace::delete(&pool, created.task_namespace_uuid).await?;
     assert!(deleted);
 
     // Verify deletion
-    let not_found = TaskNamespace::find_by_id(&pool, created.task_namespace_id).await?;
+    let not_found = TaskNamespace::find_by_uuid(&pool, created.task_namespace_uuid).await?;
     assert!(not_found.is_none());
 
     // No cleanup needed - SQLx will roll back the test transaction automatically!
