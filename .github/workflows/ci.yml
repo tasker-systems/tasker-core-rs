@@ -22,18 +22,18 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     outputs:
       image: ${{ steps.image.outputs.image }}
       use_ghcr: ${{ steps.image.outputs.use_ghcr }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to GitHub Container Registry
         id: ghcr-login
         uses: docker/login-action@v3
@@ -42,7 +42,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
-      
+
       - name: Build and push PostgreSQL image to GHCR
         id: docker-build
         if: steps.ghcr-login.outcome == 'success'
@@ -56,7 +56,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/tasker-postgres:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Output image strategy
         id: image
         run: |
@@ -95,8 +95,8 @@ jobs:
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
 
     steps:
       - name: Checkout code
@@ -144,8 +144,8 @@ jobs:
         env:
           DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
           TASKER_ENV: test
-          LOG_LEVEL: info
-          RUST_LOG: info
+          LOG_LEVEL: warn
+          RUST_LOG: warn
         run: cargo doc --no-deps --document-private-items
 
   # Security audit
@@ -195,8 +195,8 @@ jobs:
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
 
     steps:
       - name: Checkout code
@@ -235,24 +235,24 @@ jobs:
         env:
           DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
           TASKER_ENV: test
-          LOG_LEVEL: info
-          RUST_LOG: info
+          LOG_LEVEL: warn
+          RUST_LOG: warn
         run: cargo build --verbose --all-features
 
       - name: Run lib tests
         env:
           DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
           TASKER_ENV: test
-          LOG_LEVEL: info
-          RUST_LOG: info
+          LOG_LEVEL: warn
+          RUST_LOG: warn
         run: cargo test --lib --verbose --all-features
 
       - name: Run integration tests
         env:
           DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
           TASKER_ENV: test
-          LOG_LEVEL: info
-          RUST_LOG: info
+          LOG_LEVEL: warn
+          RUST_LOG: warn
         run: cargo test --test '*' --verbose --all-features
 
       - name: Run doctests
@@ -290,8 +290,8 @@ jobs:
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
 
     steps:
       - name: Checkout code
@@ -354,8 +354,8 @@ jobs:
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
 
     steps:
       - name: Checkout code
@@ -437,8 +437,8 @@ jobs:
       RUSTFLAGS: -Cinstrument-coverage
       LLVM_PROFILE_FILE: cargo-test-%p-%m.profraw
       TASKER_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
 
     steps:
       - name: Checkout code
@@ -477,8 +477,8 @@ jobs:
         env:
           DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
           TASKER_ENV: test
-          LOG_LEVEL: info
-          RUST_LOG: info
+          LOG_LEVEL: warn
+          RUST_LOG: warn
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
@@ -560,10 +560,10 @@ jobs:
           cd bindings/ruby
           bundle exec rake compile
 
-      - name: Run Ruby integration tests
+      - name: Run Ruby tests
         run: |
           cd bindings/ruby
-          bundle exec rspec spec/integration/ --format documentation
+          bundle exec rspec spec/ --format documentation
 
   # Final status check
   ci-success:
