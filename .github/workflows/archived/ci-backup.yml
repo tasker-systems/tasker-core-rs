@@ -1,5 +1,5 @@
 # Comprehensive CI/CD Pipeline for Tasker Core Rust
-# Optimized with Docker image caching via GitHub Container Registry
+# Based on Rust best practices and Rails engine patterns
 name: "Tasker Core Rust CI"
 
 on:
@@ -11,86 +11,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Define the image tag for this workflow run
-  POSTGRES_IMAGE: ghcr.io/${{ github.repository_owner }}/tasker-postgres:${{ github.sha }}
 
 jobs:
-  # Build and push the PostgreSQL image once
-  build-postgres-image:
-    name: Build PostgreSQL Image
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      packages: write
-    
-    outputs:
-      image: ${{ steps.image.outputs.image }}
-      use_ghcr: ${{ steps.image.outputs.use_ghcr }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Log in to GitHub Container Registry
-        id: ghcr-login
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      
-      - name: Build and push PostgreSQL image to GHCR
-        id: docker-build
-        if: steps.ghcr-login.outcome == 'success'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.postgres-extensions
-          push: true
-          tags: |
-            ${{ env.POSTGRES_IMAGE }}
-            ghcr.io/${{ github.repository_owner }}/tasker-postgres:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Output image strategy
-        id: image
-        run: |
-          if [[ "${{ steps.docker-build.outcome }}" == "success" ]]; then
-            echo "image=${{ env.POSTGRES_IMAGE }}" >> $GITHUB_OUTPUT
-            echo "use_ghcr=true" >> $GITHUB_OUTPUT
-            echo "✅ Successfully pushed to GHCR: ${{ env.POSTGRES_IMAGE }}"
-          else
-            echo "image=ghcr.io/pgmq/pg17-pgmq:v1.5.1" >> $GITHUB_OUTPUT
-            echo "use_ghcr=false" >> $GITHUB_OUTPUT
-            echo "⚠️ GHCR not available, falling back to base PGMQ image (UUID v7 features disabled)"
-            echo "::warning::Using fallback PGMQ image without pg_uuidv7 extension. Some tests may fail."
-          fi
-
   # Code Quality and Linting
   quality:
     name: Code Quality
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
-
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -102,12 +28,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check PostgreSQL image availability
-        if: needs.build-postgres-image.outputs.use_ghcr == 'false'
+      - name: Build Custom PostgreSQL Image
         run: |
-          echo "::warning::Using fallback PGMQ image without pg_uuidv7 extension"
-          echo "::warning::UUID v7 migration tests may fail in this run"
-          echo "::notice::To fix: Enable GitHub Packages for this repository or check GHCR permissions"
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -157,6 +102,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -170,27 +141,12 @@ jobs:
   test:
     name: Test (Rust ${{ matrix.rust-version }})
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
 
     strategy:
       fail-fast: false
       matrix:
         rust-version: ["stable", "beta"]
 
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -201,6 +157,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -269,23 +251,8 @@ jobs:
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
     if: github.event_name == 'pull_request'
 
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -296,6 +263,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -315,10 +308,7 @@ jobs:
 
       - name: Set up database
         run: |
-          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
+          echo "🗄️ Running database migrations..."
           sqlx migrate run
 
       - name: Run benchmarks
@@ -334,22 +324,7 @@ jobs:
   validate-examples:
     name: Validate Examples and Demos
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
 
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -360,6 +335,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -379,10 +380,7 @@ jobs:
 
       - name: Set up database
         run: |
-          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
+          echo "🗄️ Running database migrations..."
           sqlx migrate run
 
       - name: Validate SQL Functions Demo
@@ -414,22 +412,7 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
 
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker_core_test
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: tasker_core_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -443,6 +426,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker_core_test \
+            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_DB=tasker_core_test \
+            --health-cmd="pg_isready -U tasker_core_test" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker_core_test; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -467,10 +476,7 @@ jobs:
 
       - name: Set up database
         run: |
-          until pg_isready -h localhost -p 5432 -U tasker_core_test; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
+          echo "🗄️ Running database migrations..."
           sqlx migrate run
 
       - name: Generate coverage report
@@ -491,22 +497,6 @@ jobs:
   ruby-bindings:
     name: Ruby Bindings Test
     runs-on: ubuntu-22.04
-    needs: build-postgres-image
-
-    services:
-      postgres:
-        image: ${{ needs.build-postgres-image.outputs.image }}
-        ports:
-          - "5432:5432"
-        env:
-          POSTGRES_USER: tasker
-          POSTGRES_PASSWORD: tasker
-          POSTGRES_DB: tasker_rust_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
@@ -518,6 +508,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Build Custom PostgreSQL Image
+        run: |
+          echo "🐳 Building PostgreSQL image with PGMQ and UUID v7 extensions..."
+          docker build -f Dockerfile.postgres-extensions -t tasker-postgres:test .
+
+      - name: Start Custom PostgreSQL
+        run: |
+          echo "🚀 Starting PostgreSQL with both PGMQ and UUID v7 extensions..."
+          docker run -d \
+            --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=tasker \
+            -e POSTGRES_PASSWORD=tasker \
+            -e POSTGRES_DB=tasker_rust_test \
+            --health-cmd="pg_isready -U tasker" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            tasker-postgres:test
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          timeout 60s bash -c 'until docker exec postgres pg_isready -U tasker; do sleep 2; done'
+          echo "✅ PostgreSQL is ready!"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -549,10 +565,7 @@ jobs:
 
       - name: Set up database
         run: |
-          until pg_isready -h localhost -p 5432 -U tasker; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
+          echo "🗄️ Running database migrations..."
           sqlx migrate run
 
       - name: Build Ruby extension
