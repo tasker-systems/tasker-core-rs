@@ -1,16 +1,18 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// NamedTask represents task templates/definitions with versioning
+/// Uses UUID v7 for primary key to ensure time-ordered UUIDs
 /// Maps to `tasker_named_tasks` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedTask {
-    pub named_task_id: i32,
+    pub named_task_uuid: Uuid,
     pub name: String,
     pub version: String, // Version is a string in the Rails schema
     pub description: Option<String>,
-    pub task_namespace_id: i64, // This is bigint in Rails schema
+    pub task_namespace_uuid: Uuid,
     pub configuration: Option<serde_json::Value>, // Added configuration field
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -22,7 +24,7 @@ pub struct NewNamedTask {
     pub name: String,
     pub version: Option<String>, // Defaults to "0.1.0" if not provided
     pub description: Option<String>,
-    pub task_namespace_id: i64,
+    pub task_namespace_uuid: Uuid,
     pub configuration: Option<serde_json::Value>,
 }
 
@@ -47,14 +49,14 @@ impl NamedTask {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_id, configuration, created_at, updated_at)
-            VALUES ($1, $2, $3, $4::bigint, $5, NOW(), NOW())
-            RETURNING named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            INSERT INTO tasker_named_tasks (name, version, description, task_namespace_uuid, configuration, created_at, updated_at)
+            VALUES ($1, $2, $3, $4::uuid, $5, NOW(), NOW())
+            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             "#,
             new_task.name,
             version,
             new_task.description,
-            new_task.task_namespace_id,
+            new_task.task_namespace_uuid,
             configuration
         )
         .fetch_one(pool)
@@ -63,16 +65,16 @@ impl NamedTask {
         Ok(task)
     }
 
-    /// Find a named task by ID
-    pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<NamedTask>, sqlx::Error> {
+    /// Find a named task by UUID
+    pub async fn find_by_uuid(pool: &PgPool, uuid: Uuid) -> Result<Option<NamedTask>, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE named_task_id = $1
+            WHERE named_task_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -85,18 +87,18 @@ impl NamedTask {
         pool: &PgPool,
         name: &str,
         version: &str,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<Option<NamedTask>, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint
+            WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid
             "#,
             name,
             version,
-            namespace_id
+            namespace_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -108,19 +110,19 @@ impl NamedTask {
     pub async fn find_latest_by_name_namespace(
         pool: &PgPool,
         name: &str,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<Option<NamedTask>, sqlx::Error> {
         let task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND task_namespace_id = $2::bigint
+            WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
             LIMIT 1
             "#,
             name,
-            namespace_id
+            namespace_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -132,18 +134,18 @@ impl NamedTask {
     pub async fn list_versions_by_name_namespace(
         pool: &PgPool,
         name: &str,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<Vec<NamedTask>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE name = $1 AND task_namespace_id = $2::bigint
+            WHERE name = $1 AND task_namespace_uuid = $2::uuid
             ORDER BY created_at DESC
             "#,
             name,
-            namespace_id
+            namespace_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -154,17 +156,17 @@ impl NamedTask {
     /// List all tasks in a namespace
     pub async fn list_by_namespace(
         pool: &PgPool,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<Vec<NamedTask>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE task_namespace_id = $1::bigint
+            WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
             "#,
-            namespace_id
+            namespace_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -175,18 +177,18 @@ impl NamedTask {
     /// List all tasks with their latest versions in a namespace
     pub async fn list_latest_by_namespace(
         pool: &PgPool,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<Vec<NamedTask>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT DISTINCT ON (name) 
-                named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            SELECT DISTINCT ON (name)
+                named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             FROM tasker_named_tasks
-            WHERE task_namespace_id = $1::bigint
+            WHERE task_namespace_uuid = $1::uuid
             ORDER BY name, created_at DESC
             "#,
-            namespace_id
+            namespace_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -197,7 +199,7 @@ impl NamedTask {
     /// Update a named task
     pub async fn update(
         pool: &PgPool,
-        id: i32,
+        uuid: Uuid,
         description: Option<String>,
         configuration: Option<serde_json::Value>,
     ) -> Result<NamedTask, sqlx::Error> {
@@ -205,14 +207,14 @@ impl NamedTask {
             NamedTask,
             r#"
             UPDATE tasker_named_tasks
-            SET 
+            SET
                 description = COALESCE($2, description),
                 configuration = COALESCE($3, configuration),
                 updated_at = NOW()
-            WHERE named_task_id = $1
-            RETURNING named_task_id, name, version, description, task_namespace_id, configuration, created_at, updated_at
+            WHERE named_task_uuid = $1::uuid
+            RETURNING named_task_uuid, name, version, description, task_namespace_uuid, configuration, created_at, updated_at
             "#,
-            id,
+            uuid,
             description,
             configuration
         )
@@ -223,13 +225,13 @@ impl NamedTask {
     }
 
     /// Delete a named task
-    pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_named_tasks
-            WHERE named_task_id = $1
+            WHERE named_task_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .execute(pool)
         .await?;
@@ -242,20 +244,20 @@ impl NamedTask {
         pool: &PgPool,
         name: &str,
         version: &str,
-        namespace_id: i64,
-        exclude_id: Option<i32>,
+        namespace_uuid: Uuid,
+        exclude_uuid: Option<Uuid>,
     ) -> Result<bool, sqlx::Error> {
-        let count = if let Some(id) = exclude_id {
+        let count = if let Some(uuid) = exclude_uuid {
             sqlx::query!(
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_tasks
-                WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint AND named_task_id != $4
+                WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid AND named_task_uuid != $4::uuid
                 "#,
                 name,
                 version,
-                namespace_id,
-                id
+                namespace_uuid,
+                uuid
             )
             .fetch_one(pool)
             .await?
@@ -265,11 +267,11 @@ impl NamedTask {
                 r#"
                 SELECT COUNT(*) as count
                 FROM tasker_named_tasks
-                WHERE name = $1 AND version = $2 AND task_namespace_id = $3::bigint
+                WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3::uuid
                 "#,
                 name,
                 version,
-                namespace_id
+                namespace_uuid
             )
             .fetch_one(pool)
             .await?
@@ -280,7 +282,7 @@ impl NamedTask {
     }
 
     /// Get task identifier for delegation
-    pub fn get_task_identifier(&self) -> String {
+    pub fn get_task_uuidentifier(&self) -> String {
         format!("{}:{}", self.name, self.version)
     }
 
@@ -292,13 +294,13 @@ impl NamedTask {
         let associations = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable, 
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1
+            WHERE named_task_uuid = $1::uuid
             ORDER BY created_at
             "#,
-            self.named_task_id
+            self.named_task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -310,19 +312,19 @@ impl NamedTask {
     pub async fn add_step_association(
         &self,
         pool: &PgPool,
-        named_step_id: i32,
+        named_step_uuid: Uuid,
     ) -> Result<NamedTaskStepAssociation, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTaskStepAssociation,
             r#"
-            INSERT INTO tasker_named_tasks_named_steps 
-            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at)
-            VALUES ($1, $2, false, true, 3, NOW(), NOW())
-            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, 
+            INSERT INTO tasker_named_tasks_named_steps
+            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, false, true, 3, NOW(), NOW())
+            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                       default_retry_limit, created_at, updated_at
             "#,
-            self.named_task_id,
-            named_step_id
+            self.named_task_uuid,
+            named_step_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -335,11 +337,11 @@ impl NamedTask {
         pool: &PgPool,
         name: &str,
         version: &str,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
     ) -> Result<NamedTask, sqlx::Error> {
         // Try to find existing named task first
         if let Some(existing) =
-            Self::find_by_name_version_namespace(pool, name, version, namespace_id).await?
+            Self::find_by_name_version_namespace(pool, name, version, namespace_uuid).await?
         {
             return Ok(existing);
         }
@@ -347,7 +349,7 @@ impl NamedTask {
         // Create new named task if not found
         let new_named_task = NewNamedTask {
             name: name.to_string(),
-            task_namespace_id: namespace_id,
+            task_namespace_uuid: namespace_uuid,
             description: Some(format!("Auto-created task: {name} v{version}")),
             version: Some(version.to_string()),
             configuration: Some(serde_json::json!({"auto_created": true})),

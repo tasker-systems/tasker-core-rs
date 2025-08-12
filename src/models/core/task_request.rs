@@ -209,7 +209,7 @@ impl TaskRequest {
     async fn find_named_task(&self, pool: &PgPool) -> Result<NamedTask> {
         // First, find the task namespace
         let namespace = sqlx::query!(
-            "SELECT task_namespace_id FROM tasker_task_namespaces WHERE name = $1",
+            "SELECT task_namespace_uuid FROM tasker_task_namespaces WHERE name = $1",
             self.namespace
         )
         .fetch_optional(pool)
@@ -223,14 +223,14 @@ impl TaskRequest {
         let named_task = sqlx::query_as!(
             NamedTask,
             r#"
-            SELECT named_task_id, name, version, description, task_namespace_id,
+            SELECT named_task_uuid, name, version, description, task_namespace_uuid,
                    configuration, created_at, updated_at
-            FROM tasker_named_tasks 
-            WHERE name = $1 AND version = $2 AND task_namespace_id = $3
+            FROM tasker_named_tasks
+            WHERE name = $1 AND version = $2 AND task_namespace_uuid = $3
             "#,
             self.name,
             self.version,
-            namespace.task_namespace_id as i64
+            namespace.task_namespace_uuid
         )
         .fetch_optional(pool)
         .await
@@ -302,7 +302,7 @@ impl ResolvedTaskRequest {
     /// Convert this resolved request into a NewTask for creation
     pub fn to_new_task(&self) -> NewTask {
         NewTask {
-            named_task_id: self.named_task.named_task_id,
+            named_task_uuid: self.named_task.named_task_uuid,
             requested_at: Some(self.task_request.requested_at),
             initiator: Some(self.task_request.initiator.clone()),
             source_system: Some(self.task_request.source_system.clone()),
@@ -323,7 +323,7 @@ impl ResolvedTaskRequest {
             )),
             context: Some(self.resolved_context.clone()),
             identity_hash: Task::generate_identity_hash(
-                self.named_task.named_task_id,
+                self.named_task.named_task_uuid,
                 &Some(self.resolved_context.clone()),
             ),
             priority: self.task_request.priority,
@@ -348,6 +348,7 @@ impl ResolvedTaskRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn test_task_request_creation() {
@@ -382,11 +383,11 @@ mod tests {
     #[test]
     fn test_context_merging() {
         let named_task = NamedTask {
-            named_task_id: 1,
+            named_task_uuid: Uuid::now_v7(),
             name: "test_task".to_string(),
             version: "1.0.0".to_string(),
             description: None,
-            task_namespace_id: 1,
+            task_namespace_uuid: Uuid::now_v7(),
             configuration: Some(serde_json::json!({
                 "default_context": {
                     "timeout": 300,

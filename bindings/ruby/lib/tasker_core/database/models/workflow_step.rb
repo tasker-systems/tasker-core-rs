@@ -7,34 +7,35 @@ module TaskerCore
       class WorkflowStep < ApplicationRecord
         PROVIDES_EDGE_NAME = 'provides'
 
-        self.primary_key = :workflow_step_id
-        before_create :ensure_step_uuid
-        belongs_to :task
-        belongs_to :named_step
-        # belongs_to :depends_on_step, class_name: 'WorkflowStep', optional: true
+        self.primary_key = :workflow_step_uuid
+        after_initialize :init_defaults, if: :new_record?
+        belongs_to :task, foreign_key: :task_uuid, primary_key: :task_uuid
+        belongs_to :named_step, foreign_key: :named_step_uuid, primary_key: :named_step_uuid
         has_many  :incoming_edges,
                   class_name: 'WorkflowStepEdge',
-                  foreign_key: :to_step_id,
+                  foreign_key: :to_step_uuid,
+                  primary_key: :workflow_step_uuid,
                   dependent: :destroy,
                   inverse_of: :to_step
         has_many  :outgoing_edges,
                   class_name: 'WorkflowStepEdge',
-                  foreign_key:
-                  :from_step_id,
+                  foreign_key: :from_step_uuid,
+                  primary_key: :workflow_step_uuid,
                   dependent: :destroy,
                   inverse_of: :from_step
         has_many :parents, through: :incoming_edges, source: :from_step
         has_many :children, through: :outgoing_edges, source: :to_step
         has_many :siblings, through: :outgoing_edges, source: :from_step
-        has_many :workflow_step_transitions, inverse_of: :workflow_step, dependent: :destroy
+        has_many :workflow_step_transitions, foreign_key: :workflow_step_uuid, primary_key: :workflow_step_uuid,
+                                             inverse_of: :workflow_step, dependent: :destroy
 
-        validates :named_step_id, uniqueness: { scope: :task_id, message: 'must be unique within the same task' }
-        validates :step_uuid, presence: true, uniqueness: true
+        validates :named_step_uuid, uniqueness: { scope: :task_uuid, message: 'must be unique within the same task' }
+        validates :workflow_step_uuid, presence: true, uniqueness: true
         validate :name_uniqueness_within_task
 
         delegate :name, to: :named_step
 
-        has_one :step_dag_relationship, class_name: 'TaskerCore::StepDagRelationship', primary_key: :workflow_step_id
+        has_one :step_dag_relationship, class_name: 'TaskerCore::StepDagRelationship', primary_key: :workflow_step_uuid
         # NOTE: step_readiness_status is now accessed via function-based approach, not ActiveRecord association
 
         # Optimized scopes for efficient querying using state machine transitions
@@ -79,7 +80,7 @@ module TaskerCore
         }
 
         scope :for_task, lambda { |task|
-          where(task_id: task.task_id)
+          where(task_uuid: task.task_uuid)
         }
 
         # Scopes workflow steps by their current state using state machine transitions
@@ -90,11 +91,11 @@ module TaskerCore
         scope :by_current_state, lambda { |state = nil|
           relation = joins(<<-SQL.squish)
         INNER JOIN (
-          SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+          SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
           FROM tasker_workflow_step_transitions
           WHERE most_recent = true
-          ORDER BY workflow_step_id, sort_key DESC
-        ) current_transitions ON current_transitions.workflow_step_id = tasker_workflow_steps.workflow_step_id
+          ORDER BY workflow_step_uuid, sort_key DESC
+        ) current_transitions ON current_transitions.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid
           SQL
 
           if state.present?
@@ -198,6 +199,10 @@ module TaskerCore
         #   end
         # end
 
+        def step_uuid
+          workflow_step_uuid
+        end
+
         # Service class to find steps by name
         # Reduces complexity by organizing step search logic
         class StepFinder
@@ -235,10 +240,10 @@ module TaskerCore
             # @param name [String] Name to search for
             # @return [WorkflowStep, nil] Matching step or nil
             def find_in_task_hierarchy(steps, name)
-              task_ids = extract_task_ids(steps)
+              task_uuids = extract_task_uuids(steps)
 
-              task_ids.each do |task_id|
-                found_step = find_in_single_task(task_id, name)
+              task_uuids.each do |task_uuid|
+                found_step = find_in_single_task(task_uuid, name)
                 return found_step if found_step
               end
 
@@ -249,20 +254,20 @@ module TaskerCore
             #
             # @param steps [Array<WorkflowStep>] Collection of steps
             # @return [Array<Integer>] Unique task IDs
-            def extract_task_ids(steps)
-              steps.map(&:task_id).uniq
+            def extract_task_uuids(steps)
+              steps.map(&:task_uuid).uniq
             end
 
             # Find step by name in a single task
             #
-            # @param task_id [Integer] Task ID to search in
+            # @param task_uuid [UUID] Task UUID to search in
             # @param name [String] Name to search for
             # @return [WorkflowStep, nil] Matching step or nil
-            def find_in_single_task(task_id, name)
+            def find_in_single_task(task_uuid, name)
               # Get all workflow steps for this task with their DAG relationships
               all_task_steps = WorkflowStep.joins(:named_step)
                                            .includes(:step_dag_relationship)
-                                           .where(task_id: task_id)
+                                           .where(task_uuid: task_uuid)
 
               # Find step by name using simple lookup instead of recursive traversal
               all_task_steps.joins(:named_step)
@@ -277,7 +282,7 @@ module TaskerCore
             templates.map do |template|
               named_step = named_steps.find { |ns| template.name == ns.name }
               NamedTasksNamedStep.associate_named_step_with_named_task(task.named_task, template, named_step)
-              step = where(task_id: task.task_id, named_step_id: named_step.named_step_id).first
+              step = where(task_uuid: task.task_uuid, named_step_uuid: named_step.named_step_uuid).first
               step ||= build_default_step!(task, template, named_step)
               step
             end
@@ -302,8 +307,8 @@ module TaskerCore
         def self.build_default_step!(task, template, named_step)
           # Create the step first without status
           step_attributes = {
-            task_id: task.task_id,
-            named_step_id: named_step.named_step_id,
+            task_uuid: task.task_uuid,
+            named_step_uuid: named_step.named_step_uuid,
             retryable: template.default_retryable,
             retry_limit: template.default_retry_limit,
             skippable: template.skippable,
@@ -326,15 +331,15 @@ module TaskerCore
         end
 
         def self.get_viable_steps(task, sequence)
-          # Get step IDs from sequence
-          step_ids = sequence.steps.map(&:workflow_step_id)
+          # Get step UUIDs from sequence
+          step_uuids = sequence.steps.map(&:workflow_step_uuid)
 
           # Use function-based approach for high-performance readiness checking
-          ready_statuses = StepReadinessStatus.for_task(task.task_id, step_ids)
-          ready_step_ids = ready_statuses.select(&:ready_for_execution).map(&:workflow_step_id)
+          ready_statuses = StepReadinessStatus.for_task(task.task_uuid, step_uuids)
+          ready_step_uuids = ready_statuses.select(&:ready_for_execution).map(&:workflow_step_uuid)
 
           # Return WorkflowStep objects for ready steps
-          WorkflowStep.where(workflow_step_id: ready_step_ids)
+          WorkflowStep.where(workflow_step_uuid: ready_step_uuids)
                       .includes(:named_step)
         end
 
@@ -344,7 +349,7 @@ module TaskerCore
 
         # Helper method to get step readiness status using function-based approach
         def step_readiness_status
-          @step_readiness_status ||= StepReadinessStatus.for_task(task_id, [workflow_step_id]).first
+          @step_readiness_status ||= StepReadinessStatus.for_task(task_uuid, [workflow_step_uuid]).first
         end
 
         def complete?
@@ -445,27 +450,38 @@ module TaskerCore
           end
         end
 
+        # Ensures step_uuid is set with UUID v7
+        #
+        # @return [String] The step UUID
+        def ensure_step_uuid
+          return workflow_step_uuid if workflow_step_uuid.present?
+
+          self.workflow_step_uuid = SecureRandom.uuid_v7
+        end
+
         private
+
+        # Initializes default values for a new workflow step
+        #
+        # @return [void]
+        def init_defaults
+          return unless new_record?
+
+          # Ensure workflow_step_uuid is set using UUID v7
+          ensure_step_uuid
+        end
 
         # Custom validation to ensure step names are unique within a task
         def name_uniqueness_within_task
           return unless named_step && task
 
           # Find all steps within the same task that have the same name
-          matching_steps = self.class.where(task_id: task_id)
+          matching_steps = self.class.where(task_uuid: task_uuid)
                                .joins(:named_step)
                                .where(named_step: { name: name })
-                               .where.not(workflow_step_id: workflow_step_id) # Exclude self when updating
+                               .where.not(workflow_step_uuid: workflow_step_uuid) # Exclude self when updating
 
           errors.add(:base, "Step name '#{name}' must be unique within the same task") if matching_steps.exists?
-        end
-
-        # Ensures the workflow step has a UUID before creation
-        # Fallback if DB default fails for any reason
-        #
-        # @return [void]
-        def ensure_step_uuid
-          self.step_uuid ||= SecureRandom.uuid
         end
       end
     end

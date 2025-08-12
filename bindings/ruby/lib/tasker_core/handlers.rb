@@ -54,10 +54,10 @@ module TaskerCore
 
       class << self
         # Handle task with preserved signature
-        # @param task_id [Integer] Task ID to handle
+        # @param task_uuid [Integer] Task ID to handle
         # @return [Object] Task handle result
-        def handle(task_id)
-          Base.new.handle(task_id)
+        def handle(task_uuid)
+          Base.new.handle(task_uuid)
         end
 
         # Create task handler instance

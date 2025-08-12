@@ -8,6 +8,7 @@ use tasker_core::models::{
 };
 use tasker_core::scopes::ScopeBuilder;
 use tasker_core::state_machine::{TaskState, WorkflowStepState};
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_task_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
@@ -100,7 +101,7 @@ async fn test_workflow_step_scope_by_current_state(pool: PgPool) -> Result<(), s
 async fn test_workflow_step_scope_for_task(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test filtering steps by task ID (using a dummy ID)
     let steps_for_task = WorkflowStep::scope()
-        .for_task(999999) // Non-existent task ID
+        .for_task(Uuid::now_v7()) // Non-existent task UUID
         .all(&pool)
         .await?;
 
@@ -153,7 +154,7 @@ async fn test_task_transition_scopes(pool: PgPool) -> Result<(), sqlx::Error> {
         .await?;
 
     let transitions_for_task = TaskTransition::scope()
-        .for_task(999999) // Non-existent task ID
+        .for_task(Uuid::now_v7()) // Non-existent task UUID
         .all(&pool)
         .await?;
 
@@ -217,12 +218,12 @@ async fn test_scope_first_method(pool: PgPool) -> Result<(), sqlx::Error> {
 async fn test_workflow_step_edge_scopes_basic(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test basic WorkflowStepEdge scopes with empty data
     let children = WorkflowStepEdge::scope()
-        .children_of(999999) // Non-existent step
+        .children_of(Uuid::now_v7()) // Non-existent step
         .all(&pool)
         .await?;
 
     let parents = WorkflowStepEdge::scope()
-        .parents_of(999999) // Non-existent step
+        .parents_of(Uuid::now_v7()) // Non-existent step
         .all(&pool)
         .await?;
 
@@ -243,7 +244,7 @@ async fn test_workflow_step_edge_scopes_basic(pool: PgPool) -> Result<(), sqlx::
 async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the complex siblings_of CTE scope
     let siblings = WorkflowStepEdge::scope()
-        .siblings_of(999999) // Non-existent step
+        .siblings_of(Uuid::now_v7()) // Non-existent step
         .all(&pool)
         .await?;
 
@@ -252,7 +253,7 @@ async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx
 
     // Test count method with CTE
     let sibling_count = WorkflowStepEdge::scope()
-        .siblings_of(999999)
+        .siblings_of(Uuid::now_v7())
         .count(&pool)
         .await?;
 
@@ -260,7 +261,7 @@ async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx
 
     // Test exists method with CTE
     let siblings_exist = WorkflowStepEdge::scope()
-        .siblings_of(999999)
+        .siblings_of(Uuid::now_v7())
         .exists(&pool)
         .await?;
 
@@ -273,7 +274,7 @@ async fn test_workflow_step_edge_siblings_scope(pool: PgPool) -> Result<(), sqlx
 async fn test_workflow_step_edge_provides_to_children(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the provides_to_children scope with subquery
     let provides_to_children = WorkflowStepEdge::scope()
-        .provides_to_children(999999) // Non-existent step
+        .provides_to_children(Uuid::now_v7()) // Non-existent step
         .all(&pool)
         .await?;
 
@@ -282,12 +283,12 @@ async fn test_workflow_step_edge_provides_to_children(pool: PgPool) -> Result<()
 
     // Test count and exists for this scope
     let count = WorkflowStepEdge::scope()
-        .provides_to_children(999999)
+        .provides_to_children(Uuid::now_v7())
         .count(&pool)
         .await?;
 
     let exists = WorkflowStepEdge::scope()
-        .provides_to_children(999999)
+        .provides_to_children(Uuid::now_v7())
         .exists(&pool)
         .await?;
 
@@ -328,7 +329,7 @@ async fn test_workflow_step_transition_scopes_basic(pool: PgPool) -> Result<(), 
         .await?;
 
     let task_transitions = WorkflowStepTransition::scope()
-        .for_task(999999) // Non-existent task
+        .for_task(Uuid::now_v7()) // Non-existent task
         .all(&pool)
         .await?;
 
@@ -351,7 +352,7 @@ async fn test_workflow_step_transition_scope_chaining(pool: PgPool) -> Result<()
         .await?;
 
     let task_and_state = WorkflowStepTransition::scope()
-        .for_task(999999)
+        .for_task(Uuid::now_v7())
         .to_state("error".to_string())
         .all(&pool)
         .await?;
@@ -401,7 +402,7 @@ async fn test_workflow_step_transition_scope_count_and_exists(
 async fn test_workflow_step_transition_for_task_scope(pool: PgPool) -> Result<(), sqlx::Error> {
     // Test the for_task scope with JOIN
     let transitions_for_task = WorkflowStepTransition::scope()
-        .for_task(999999) // Non-existent task ID
+        .for_task(Uuid::now_v7()) // Non-existent task UUID
         .all(&pool)
         .await?;
 
@@ -410,12 +411,12 @@ async fn test_workflow_step_transition_for_task_scope(pool: PgPool) -> Result<()
 
     // Test count and exists with JOIN
     let count = WorkflowStepTransition::scope()
-        .for_task(999999)
+        .for_task(Uuid::now_v7())
         .count(&pool)
         .await?;
 
     let exists = WorkflowStepTransition::scope()
-        .for_task(999999)
+        .for_task(Uuid::now_v7())
         .exists(&pool)
         .await?;
 

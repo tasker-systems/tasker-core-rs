@@ -2,9 +2,9 @@ require:
   - rubocop-rspec
 
 AllCops:
-  TargetRubyVersion: 3.2
+  TargetRubyVersion: 3.4
   NewCops: enable
-  SuggestExtensions: false    # Example code files
+  SuggestExtensions: false # Example code files
 
 Style/Documentation:
   Enabled: false
@@ -12,52 +12,52 @@ Style/Documentation:
 # Factory-specific configurations to prevent aggressive code removal
 Style/EmptyBlockParameter:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 Style/ExplicitBlockArgument:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # Factories often have blocks that look "unused" but contain DSL attributes
 Style/SymbolProc:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # Factory trait blocks often look redundant but define important variations
 Style/RedundantBegin:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # Factory DSL often uses blocks that look like they could be simplified
 Style/BlockDelimiters:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 Metrics/BlockLength:
   Exclude:
-    - 'spec/**/*'
-    - 'lib/tasks/**/*'
-    - 'spec/factories/**/*'  # Factories often have very long setup blocks
+    - "spec/**/*"
+    - "lib/tasks/**/*"
+    - "spec/factories/**/*" # Factories often have very long setup blocks
   Max: 120
 
 Metrics/MethodLength:
   Max: 40
   Exclude:
-    - 'spec/examples/**/*'   # Example code may have longer methods for demonstration
-    - 'db/migrate/**/*'      # Database migrations often have long setup methods
-    - 'lib/generators/**/*'  # Generator methods often have long setup and instruction methods
+    - "spec/examples/**/*" # Example code may have longer methods for demonstration
+    - "db/migrate/**/*" # Database migrations often have long setup methods
+    - "lib/generators/**/*" # Generator methods often have long setup and instruction methods
 
 Metrics/ModuleLength:
   Max: 400
   Exclude:
-    - 'spec/support/**/*'    # Test support modules may be longer
+    - "spec/support/**/*" # Test support modules may be longer
 
 Metrics/ClassLength:
   Max: 200
   Exclude:
-    - 'spec/examples/**/*'   # Example classes may be longer for demonstration
-    - 'db/migrate/**/*'      # Database migrations can be long
-    - 'lib/generators/**/*'  # Generator classes often have many methods
+    - "spec/examples/**/*" # Example classes may be longer for demonstration
+    - "db/migrate/**/*" # Database migrations can be long
+    - "lib/generators/**/*" # Generator classes often have many methods
 
 Metrics/ParameterLists:
   Max: 8
@@ -68,20 +68,20 @@ Metrics/AbcSize:
 Metrics/CyclomaticComplexity:
   Max: 8
   Exclude:
-    - 'spec/examples/**/*'   # Example code may have higher complexity for demonstration
+    - "spec/examples/**/*" # Example code may have higher complexity for demonstration
 
 Metrics/PerceivedComplexity:
   Max: 8
   Exclude:
-    - 'spec/examples/**/*'   # Example code may have higher complexity for demonstration
+    - "spec/examples/**/*" # Example code may have higher complexity for demonstration
 
 Naming/PredicatePrefix:
   Enabled: false
 
 Naming/AccessorMethodName:
   Exclude:
-    - 'spec/**/*'  # Test helpers often use descriptive method names
-    - 'spec/examples/**/*'  # Example code may use different naming patterns
+    - "spec/**/*" # Test helpers often use descriptive method names
+    - "spec/examples/**/*" # Example code may use different naming patterns
 
 Capybara/RSpec/PredicateMatcher:
   Enabled: false
@@ -98,116 +98,116 @@ RSpec/MultipleMemoizedHelpers:
 # Exclude test files from many RSpec style checks
 RSpec/VerifiedDoubles:
   Exclude:
-    - 'spec/**/*'   # Test files may use normal doubles for simplicity
+    - "spec/**/*" # Test files may use normal doubles for simplicity
 
 RSpec/MessageSpies:
   Exclude:
-    - 'spec/**/*'   # Test files may use older expectation patterns
+    - "spec/**/*" # Test files may use older expectation patterns
 
 RSpec/NestedGroups:
-  Max: 5  # Allow a bit more nesting
+  Max: 5 # Allow a bit more nesting
   Exclude:
-    - 'spec/examples/**/*'   # Example tests may have deeper nesting
+    - "spec/examples/**/*" # Example tests may have deeper nesting
 
 RSpec/ContextWording:
   Exclude:
-    - 'spec/examples/**/*'   # Example tests may use different context patterns
-    - 'spec/support/**/*'    # Shared contexts may use different naming patterns
+    - "spec/examples/**/*" # Example tests may use different context patterns
+    - "spec/support/**/*" # Shared contexts may use different naming patterns
 
 RSpec/BeforeAfterAll:
   Exclude:
-    - 'spec/**/*'   # Test files may use before(:all) for performance reasons
+    - "spec/**/*" # Test files may use before(:all) for performance reasons
 
 RSpec/InstanceVariable:
   Exclude:
-    - 'spec/**/*'   # Test files may use instance variables for test setup
+    - "spec/**/*" # Test files may use instance variables for test setup
 
 RSpec/DescribeClass:
   Exclude:
-    - 'spec/examples/**/*'   # Example integration tests may not follow this pattern
+    - "spec/examples/**/*" # Example integration tests may not follow this pattern
 
 RSpec/FilePath:
   Exclude:
-    - 'spec/examples/**/*'   # Example files may not follow standard naming
-    - 'spec/tasks/**/*'      # Integration test files may not follow standard spec naming patterns
+    - "spec/examples/**/*" # Example files may not follow standard naming
+    - "spec/tasks/**/*" # Integration test files may not follow standard spec naming patterns
 
 RSpec/SpecFilePathFormat:
   Exclude:
-    - 'spec/examples/**/*'   # Example files may not follow standard naming
-    - 'spec/tasks/**/*'      # Integration test files may not follow standard spec naming patterns
+    - "spec/examples/**/*" # Example files may not follow standard naming
+    - "spec/tasks/**/*" # Integration test files may not follow standard spec naming patterns
 
 RSpec/DescribeMethod:
   Exclude:
-    - 'spec/examples/**/*'   # Example tests may not follow method testing pattern
+    - "spec/examples/**/*" # Example tests may not follow method testing pattern
 
 # Factory-specific RSpec exclusions
 FactoryBot/CreateList:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # Factories often define many attributes that look like "excessive" setup
 RSpec/ExcessiveDocstringSpacing:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # FactoryBot DSL uses 'context' for attributes, not RSpec example groups
 RSpec/EmptyExampleGroup:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 RSpec/MissingExampleGroupArgument:
   Exclude:
-    - 'spec/factories/**/*'
+    - "spec/factories/**/*"
 
 # Line length exclusions for specific areas
 Layout/LineLength:
   Max: 120
   Exclude:
-    - 'spec/dummy/db/schema.rb'  # Auto-generated schema files
-    - 'spec/examples/**/*'       # Example code may have longer lines for clarity
-    - 'spec/factories/**/*'      # Factory files often have long lines for readability
-    - 'spec/support/**/*'        # Test support files may have longer descriptive lines
-    - 'db/migrate/**/*'          # Database migrations often have long constraint names
-    - 'app/models/**/dependent_system_object_map.rb'  # Schema comments are auto-generated
+    - "spec/dummy/db/schema.rb" # Auto-generated schema files
+    - "spec/examples/**/*" # Example code may have longer lines for clarity
+    - "spec/factories/**/*" # Factory files often have long lines for readability
+    - "spec/support/**/*" # Test support files may have longer descriptive lines
+    - "db/migrate/**/*" # Database migrations often have long constraint names
+    - "app/models/**/dependent_system_object_map.rb" # Schema comments are auto-generated
 
 # Lint exclusions for test code
 Lint/DuplicateBranch:
   Exclude:
-    - 'spec/examples/**/*'       # Example code may have intentional duplication
-    - 'spec/factories/**/*'      # Factory conditionals may look duplicated
+    - "spec/examples/**/*" # Example code may have intentional duplication
+    - "spec/factories/**/*" # Factory conditionals may look duplicated
 
 Lint/ConstantDefinitionInBlock:
   Exclude:
-    - 'spec/examples/**/*'       # Example tests may define constants in blocks
-    - 'spec/**/*'                # Test files often define constants in describe blocks
+    - "spec/examples/**/*" # Example tests may define constants in blocks
+    - "spec/**/*" # Test files often define constants in describe blocks
 
 RSpec/LeakyConstantDeclaration:
   Exclude:
-    - 'spec/examples/**/*'       # Example tests may define constants for demonstration
-    - 'spec/**/*'                # Test files often define test constants
+    - "spec/examples/**/*" # Example tests may define constants for demonstration
+    - "spec/**/*" # Test files often define test constants
 
 # Additional RSpec exclusions for test maintainability
 RSpec/IndexedLet:
   Exclude:
-    - 'spec/**/*'                # Test files may use indexed lets for test data setup
+    - "spec/**/*" # Test files may use indexed lets for test data setup
 
 RSpec/ExpectActual:
   Exclude:
-    - 'spec/**/*'                # Test files may have legitimate cases for testing booleans
+    - "spec/**/*" # Test files may have legitimate cases for testing booleans
 
 RSpec/IdenticalEqualityAssertion:
   Exclude:
-    - 'spec/**/*'                # Test files may test object identity or meta-properties
+    - "spec/**/*" # Test files may test object identity or meta-properties
 
 RSpec/RepeatedDescription:
   Exclude:
-    - 'spec/**/*'                # Test files may have valid repeated descriptions in different contexts
+    - "spec/**/*" # Test files may have valid repeated descriptions in different contexts
 
 RSpec/StubbedMock:
   Exclude:
-    - 'spec/**/*'                # Test files may use older RSpec patterns legitimately
+    - "spec/**/*" # Test files may use older RSpec patterns legitimately
 
 # Line length for generated content
 Naming/VariableNumber:
   Exclude:
-    - 'spec/**/*'                # Test files often use numbered variables for test data
+    - "spec/**/*" # Test files often use numbered variables for test data

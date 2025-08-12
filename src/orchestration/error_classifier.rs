@@ -37,11 +37,12 @@
 //! use tasker_core::orchestration::errors::OrchestrationError;
 //! use std::time::Duration;
 //! use std::collections::HashMap;
+//! use uuid::Uuid;
 //!
 //! let classifier = StandardErrorClassifier::new();
 //! let context = ErrorContext {
-//!     step_id: 123,
-//!     task_id: 456,
+//!     step_uuid: Uuid::now_v7(),
+//!     task_uuid: Uuid::now_v7(),
 //!     attempt_number: 2,
 //!     max_attempts: 5,
 //!     execution_duration: Duration::from_secs(30),
@@ -68,15 +69,16 @@ use crate::orchestration::errors::{ExecutionError, OrchestrationError, StepExecu
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Context information for error classification
 #[derive(Debug, Clone)]
 pub struct ErrorContext {
     /// Step ID where the error occurred
-    pub step_id: i64,
+    pub step_uuid: Uuid,
 
     /// Parent task ID
-    pub task_id: i64,
+    pub task_uuid: Uuid,
 
     /// Current attempt number (1-based)
     pub attempt_number: u32,
@@ -424,7 +426,7 @@ impl StandardErrorClassifier {
     fn classify_state_error(
         &self,
         entity_type: &str,
-        entity_id: i64,
+        entity_uuid: Uuid,
         reason: &str,
         context: &ErrorContext,
     ) -> ErrorClassification {
@@ -450,7 +452,7 @@ impl StandardErrorClassifier {
             error_code: "STATE_TRANSITION_ERROR".to_string(),
             error_message: format!(
                 "State transition failed for {} {} in step '{}': {}",
-                entity_type, entity_id, context.step_name, reason
+                entity_type, entity_uuid, context.step_name, reason
             ),
             remediation_suggestions: vec![
                 "Check for concurrent step executions".to_string(),
@@ -461,7 +463,7 @@ impl StandardErrorClassifier {
             confidence: 0.80,
             metadata: HashMap::from([
                 ("entity_type".to_string(), serde_json::json!(entity_type)),
-                ("entity_id".to_string(), serde_json::json!(entity_id)),
+                ("entity_uuid".to_string(), serde_json::json!(entity_uuid)),
             ]),
         }
     }
@@ -541,7 +543,7 @@ impl StandardErrorClassifier {
     ) -> ErrorClassification {
         match execution_error {
             ExecutionError::StepExecutionFailed {
-                step_id,
+                step_uuid,
                 reason,
                 error_code,
             } => {
@@ -576,24 +578,26 @@ impl StandardErrorClassifier {
                     error_code: error_code
                         .clone()
                         .unwrap_or_else(|| "STEP_EXECUTION_FAILED".to_string()),
-                    error_message: format!("Step {step_id} execution failed: {reason}"),
+                    error_message: format!("Step {step_uuid} execution failed: {reason}"),
                     remediation_suggestions: self.get_category_suggestions(category),
                     is_final_attempt: context.attempt_number >= context.max_attempts,
                     confidence: 0.75,
                     metadata: HashMap::from([
-                        ("failed_step_id".to_string(), serde_json::json!(step_id)),
+                        ("failed_step_uuid".to_string(), serde_json::json!(step_uuid)),
                         ("error_reason".to_string(), serde_json::json!(reason)),
                     ]),
                 }
             }
             ExecutionError::ExecutionTimeout {
-                step_id,
+                step_uuid,
                 timeout_duration,
-            } => {
-                self.classify_timeout_error(&format!("step_{step_id}"), *timeout_duration, context)
-            }
+            } => self.classify_timeout_error(
+                &format!("step_{step_uuid}"),
+                *timeout_duration,
+                context,
+            ),
             ExecutionError::RetryLimitExceeded {
-                step_id,
+                step_uuid,
                 max_attempts,
             } => ErrorClassification {
                 error_category: ErrorCategory::Permanent,
@@ -601,7 +605,7 @@ impl StandardErrorClassifier {
                 retry_delay: None,
                 error_code: "RETRY_LIMIT_EXCEEDED".to_string(),
                 error_message: format!(
-                    "Step {step_id} exceeded retry limit of {max_attempts} attempts"
+                    "Step {step_uuid} exceeded retry limit of {max_attempts} attempts"
                 ),
                 remediation_suggestions: vec![
                     "Review step implementation for persistent issues".to_string(),
@@ -611,7 +615,7 @@ impl StandardErrorClassifier {
                 is_final_attempt: true,
                 confidence: 1.0,
                 metadata: HashMap::from([
-                    ("failed_step_id".to_string(), serde_json::json!(step_id)),
+                    ("failed_step_uuid".to_string(), serde_json::json!(step_uuid)),
                     ("max_attempts".to_string(), serde_json::json!(max_attempts)),
                 ]),
             },
@@ -735,9 +739,9 @@ impl ErrorClassifier for StandardErrorClassifier {
             }
             OrchestrationError::StateTransitionFailed {
                 entity_type,
-                entity_id,
+                entity_uuid,
                 reason,
-            } => self.classify_state_error(entity_type, *entity_id, reason, context),
+            } => self.classify_state_error(entity_type, *entity_uuid, reason, context),
             OrchestrationError::ConfigurationError { source, reason } => {
                 self.classify_configuration_error(source, reason, context)
             }
@@ -825,9 +829,11 @@ mod tests {
     use std::time::Duration;
 
     fn create_test_context() -> ErrorContext {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         ErrorContext {
-            step_id: 123,
-            task_id: 456,
+            step_uuid,
+            task_uuid,
             attempt_number: 2,
             max_attempts: 5,
             execution_duration: Duration::from_secs(30),

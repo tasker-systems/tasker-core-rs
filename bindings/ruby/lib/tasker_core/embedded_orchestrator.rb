@@ -111,20 +111,20 @@ module TaskerCore
     # This provides a simple way for tests to trigger step enqueueing
     # without complex orchestration setup.
     #
-    # @param task_id [Integer] the task ID to process
+    # @param task_uuid [Integer] the task ID to process
     # @return [String] result message
     # @raise [TaskerCore::OrchestrationError] if system not running or enqueueing fails
-    def enqueue_steps(task_id)
+    def enqueue_steps(task_uuid)
       raise TaskerCore::OrchestrationError, 'Orchestration system not running' unless running?
 
-      @logger.info "🚀 EMBEDDED_ORCHESTRATOR: Enqueueing steps for task #{task_id}"
+      @logger.info "🚀 EMBEDDED_ORCHESTRATOR: Enqueueing steps for task #{task_uuid}"
 
       begin
-        result = TaskerCore.enqueue_task_steps(task_id)
+        result = TaskerCore.enqueue_task_steps(task_uuid)
         @logger.info "✅ EMBEDDED_ORCHESTRATOR: #{result}"
         result
       rescue StandardError => e
-        @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to enqueue steps for task #{task_id} - #{e.message}"
+        @logger.error "❌ EMBEDDED_ORCHESTRATOR: Failed to enqueue steps for task #{task_uuid} - #{e.message}"
         raise TaskerCore::OrchestrationError, "Failed to enqueue steps: #{e.message}"
       end
     end

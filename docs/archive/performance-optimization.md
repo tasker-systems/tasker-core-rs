@@ -18,7 +18,7 @@ This document consolidates performance optimization strategies and targets deriv
 #[criterion::benchmark]
 fn dependency_resolution_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("dependency_resolution");
-    
+
     for workflow_size in [10, 50, 100, 500, 1000] {
         group.bench_with_input(
             BenchmarkId::new("optimized_sql", workflow_size),
@@ -35,7 +35,7 @@ fn dependency_resolution_benchmark(c: &mut Criterion) {
 
 **Achieved Results**:
 - 10 steps: 2ms (50x improvement)
-- 100 steps: 15ms (80x improvement)  
+- 100 steps: 15ms (80x improvement)
 - 1000 steps: 85ms (120x improvement)
 
 #### 2. FFI Overhead Minimization
@@ -113,9 +113,9 @@ WITH RECURSIVE dependency_chain AS (
   FROM tasker_workflow_steps ws
   LEFT JOIN tasker_workflow_step_edges e ON e.to_step_id = ws.workflow_step_id
   WHERE ws.task_id = $1 AND e.to_step_id IS NULL
-  
+
   UNION ALL
-  
+
   -- Recursive case: steps whose dependencies are satisfied
   SELECT ws.workflow_step_id, ws.name, dc.depth + 1
   FROM tasker_workflow_steps ws
@@ -134,8 +134,8 @@ WHERE css.to_state IS NULL OR css.to_state IN ('pending', 'failed');
 #### Index Strategy
 ```sql
 -- Critical indexes for performance
-CREATE INDEX CONCURRENTLY idx_workflow_steps_task_status 
-  ON tasker_workflow_steps (task_id, status) 
+CREATE INDEX CONCURRENTLY idx_workflow_steps_task_status
+  ON tasker_workflow_steps (task_id, status)
   WHERE status IN ('pending', 'in_progress');
 
 CREATE INDEX CONCURRENTLY idx_step_edges_dependency_lookup
@@ -213,7 +213,7 @@ pub async fn process_large_workflow_stream(
 ```rust
 // Minimize object creation across FFI boundary
 pub fn create_step_context_optimized(
-    step_id: i64
+    step_uuid: Uuid
 ) -> Result<HashMap<String, serde_json::Value>, OrchestrationError> {
     // Build hash directly, avoid intermediate Rust structs
     let mut context = HashMap::with_capacity(8);
@@ -223,7 +223,7 @@ pub fn create_step_context_optimized(
 }
 
 // Cache frequently accessed data
-static TASK_CONTEXT_CACHE: Lazy<Arc<RwLock<LruCache<i64, TaskContext>>>> = 
+static TASK_CONTEXT_CACHE: Lazy<Arc<RwLock<LruCache<i64, TaskContext>>>> =
     Lazy::new(|| Arc::new(RwLock::new(LruCache::new(1000))));
 ```
 
@@ -251,9 +251,9 @@ pub async fn process_steps_parallel(
     max_parallelism: usize
 ) -> Result<Vec<StepResult>, OrchestrationError> {
     use futures::stream::{self, StreamExt};
-    
+
     let semaphore = Arc::new(Semaphore::new(max_parallelism));
-    
+
     let results: Vec<Result<StepResult, _>> = stream::iter(viable_steps)
         .map(|step| {
             let semaphore = semaphore.clone();
@@ -265,7 +265,7 @@ pub async fn process_steps_parallel(
         .buffer_unordered(max_parallelism)
         .collect()
         .await;
-    
+
     results.into_iter().collect()
 }
 ```
@@ -278,11 +278,11 @@ pub async fn batch_update_step_states(
     updates: Vec<StepStateUpdate>
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
-    
+
     // Group updates by type for efficient batching
     let mut state_updates = Vec::new();
     let mut transition_inserts = Vec::new();
-    
+
     for update in updates {
         state_updates.push((update.step_id, update.new_state));
         transition_inserts.push((
@@ -292,16 +292,16 @@ pub async fn batch_update_step_states(
             update.metadata
         ));
     }
-    
+
     // Batch update states
     for chunk in state_updates.chunks(100) {
         let step_ids: Vec<i64> = chunk.iter().map(|(id, _)| *id).collect();
         let states: Vec<String> = chunk.iter().map(|(_, state)| state.to_string()).collect();
-        
+
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET status = data_table.new_state::step_status
-             FROM (SELECT unnest($1::bigint[]) as step_id, 
+             FROM (SELECT unnest($1::bigint[]) as step_id,
                           unnest($2::text[]) as new_state) as data_table
              WHERE tasker_workflow_steps.workflow_step_id = data_table.step_id",
             &step_ids,
@@ -310,7 +310,7 @@ pub async fn batch_update_step_states(
         .execute(&mut *tx)
         .await?;
     }
-    
+
     tx.commit().await?;
     Ok(())
 }
@@ -331,7 +331,7 @@ impl BatchedEventPublisher {
         {
             let mut buffer = self.buffer.lock().await;
             buffer.push(event);
-            
+
             if buffer.len() >= self.batch_size {
                 let events = std::mem::take(&mut *buffer);
                 self.flush_events(events).await?;
@@ -339,21 +339,21 @@ impl BatchedEventPublisher {
         }
         Ok(())
     }
-    
+
     async fn flush_events(&self, events: Vec<EventMessage>) -> Result<(), EventError> {
         // Batch publish to external event system
         self.event_sink.publish_batch(events).await
     }
-    
+
     pub async fn start_background_flush(&self) {
         let buffer = self.buffer.clone();
         let interval = self.flush_interval;
-        
+
         tokio::spawn(async move {
             let mut flush_timer = tokio::time::interval(interval);
             loop {
                 flush_timer.tick().await;
-                
+
                 let events = {
                     let mut buffer = buffer.lock().await;
                     if buffer.is_empty() {
@@ -361,7 +361,7 @@ impl BatchedEventPublisher {
                     }
                     std::mem::take(&mut *buffer)
                 };
-                
+
                 if let Err(e) = self.flush_events(events).await {
                     log::error!("Failed to flush events: {}", e);
                 }
@@ -385,9 +385,9 @@ impl OptimizedEventFilter {
             entity_id: event.entity_id,
             entity_type: event.entity_type.clone(),
         };
-        
+
         let now = Instant::now();
-        
+
         // Read lock first for common case (event not seen recently)
         {
             let seen = self.seen_events.read().await;
@@ -397,13 +397,13 @@ impl OptimizedEventFilter {
                 }
             }
         }
-        
+
         // Write lock only if we need to update
         {
             let mut seen = self.seen_events.write().await;
             seen.put(key, now);
         }
-        
+
         true
     }
 }
@@ -420,18 +420,18 @@ pub struct OrchestrationMetrics {
     pub tasks_per_second: Histogram,
     pub steps_per_second: Histogram,
     pub events_per_second: Histogram,
-    
+
     // Latency metrics
     pub dependency_resolution_time: Histogram,
     pub step_execution_time: Histogram,
     pub task_completion_time: Histogram,
-    
+
     // Resource utilization
     pub database_connection_usage: Gauge,
     pub memory_usage_bytes: Gauge,
     pub active_tasks_count: Gauge,
     pub active_steps_count: Gauge,
-    
+
     // Error metrics
     pub error_rate: Counter,
     pub retry_rate: Counter,
@@ -443,26 +443,26 @@ impl OrchestrationMetrics {
         self.task_completion_time.record(duration.as_millis() as f64);
         self.steps_per_second.record(step_count as f64 / duration.as_secs_f64());
     }
-    
+
     pub fn assert_performance_targets(&self) -> Result<(), PerformanceError> {
         // Dependency resolution should be <100ms for 95th percentile
         let p95_dependency_time = self.dependency_resolution_time.quantile(0.95);
         if p95_dependency_time > 100.0 {
             return Err(PerformanceError::DependencyResolutionTooSlow(p95_dependency_time));
         }
-        
+
         // Task completion rate should be >10/second
         let task_rate = self.tasks_per_second.mean();
         if task_rate < 10.0 {
             return Err(PerformanceError::ThroughputTooLow(task_rate));
         }
-        
+
         // Error rate should be <1%
         let error_rate = self.error_rate.get() / (self.tasks_per_second.count() as f64);
         if error_rate > 0.01 {
             return Err(PerformanceError::ErrorRateTooHigh(error_rate));
         }
-        
+
         Ok(())
     }
 }
@@ -472,7 +472,7 @@ impl OrchestrationMetrics {
 ```rust
 pub async fn export_performance_metrics() -> HashMap<String, serde_json::Value> {
     let metrics = ORCHESTRATION_METRICS.read().await;
-    
+
     json!({
         "throughput": {
             "tasks_per_second": metrics.tasks_per_second.mean(),
@@ -523,30 +523,30 @@ impl LoadTestScenario {
     pub async fn execute(&self) -> LoadTestResults {
         let start_time = Instant::now();
         let mut task_futures = Vec::new();
-        
+
         // Create tasks at specified rate
         let task_interval = Duration::from_secs_f64(1.0 / self.task_creation_rate);
         let mut next_task_time = start_time;
-        
+
         while start_time.elapsed() < self.duration {
             if Instant::now() >= next_task_time {
                 let task_future = self.create_and_execute_task().await;
                 task_futures.push(task_future);
                 next_task_time += task_interval;
-                
+
                 // Limit concurrent tasks
                 if task_futures.len() >= self.concurrent_tasks {
                     // Wait for oldest task to complete
                     let _result = task_futures.remove(0).await;
                 }
             }
-            
+
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        
+
         // Wait for remaining tasks
         let results = futures::future::join_all(task_futures).await;
-        
+
         LoadTestResults::analyze(results, start_time.elapsed())
     }
 }
@@ -567,7 +567,7 @@ pub struct LoadTestResults {
 #[tokio::test]
 async fn stress_test_database_connections() {
     let pool = create_test_pool_with_limits(5).await; // Low connection limit
-    
+
     // Create more concurrent tasks than available connections
     let task_futures: Vec<_> = (0..50)
         .map(|i| {
@@ -581,24 +581,24 @@ async fn stress_test_database_connections() {
             })
         })
         .collect();
-    
+
     let results: Vec<Option<Duration>> = futures::future::join_all(task_futures)
         .await
         .into_iter()
         .map(|r| r.unwrap())
         .collect();
-    
+
     let successful_count = results.iter().filter(|r| r.is_some()).count();
     let failed_count = results.len() - successful_count;
-    
+
     // Should handle graceful degradation
     assert!(successful_count > 0, "No tasks succeeded under stress");
     assert!(failed_count < results.len() / 2, "Too many failures under stress");
-    
+
     // Check for reasonable performance under stress
     let successful_times: Vec<Duration> = results.into_iter().flatten().collect();
     let average_time = successful_times.iter().sum::<Duration>() / successful_times.len() as u32;
-    
+
     assert!(
         average_time < Duration::from_secs(30),
         "Performance degraded too much under stress: {:?}",

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio;
+use uuid::Uuid;
 
 use tasker_core::models::core::task_request::TaskRequest;
 use tasker_core::orchestration::{
@@ -41,7 +42,7 @@ async fn create_test_task_with_initializer(
 
     println!(
         "Created task {} using TaskInitializer (workflow: {})",
-        result.task_id, workflow_type
+        result.task_uuid, workflow_type
     );
     Ok(result)
 }
@@ -56,7 +57,7 @@ pub struct MockFrameworkIntegration {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct StepExecution {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub step_name: String,
     pub started_at: chrono::DateTime<chrono::Utc>,
 }
@@ -97,9 +98,9 @@ impl FrameworkIntegration for MockFrameworkIntegration {
         "MockFramework"
     }
 
-    async fn get_task_context(&self, task_id: i64) -> Result<TaskContext, OrchestrationError> {
+    async fn get_task_context(&self, task_uuid: Uuid) -> Result<TaskContext, OrchestrationError> {
         Ok(TaskContext {
-            task_id,
+            task_uuid,
             data: json!({"mock": true}),
             metadata: HashMap::new(),
         })
@@ -107,7 +108,7 @@ impl FrameworkIntegration for MockFrameworkIntegration {
 
     async fn enqueue_task(
         &self,
-        _task_id: i64,
+        _task_uuid: Uuid,
         _delay: Option<Duration>,
     ) -> Result<(), OrchestrationError> {
         Ok(())
@@ -128,15 +129,15 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
     println!(
         "Created task {} using TaskInitializer (steps: {})",
-        result.task_id, result.step_count
+        result.task_uuid, result.step_count
     );
 
-    let task_id = result.task_id;
+    let task_uuid = result.task_uuid;
 
     // Debug: First check if we actually have any workflow steps
     let step_count = sqlx::query!(
-        "SELECT COUNT(*) as count FROM tasker_workflow_steps WHERE task_id = $1",
-        task_id
+        "SELECT COUNT(*) as count FROM tasker_workflow_steps WHERE task_uuid = $1",
+        task_uuid
     )
     .fetch_one(&pool)
     .await
@@ -144,7 +145,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
     println!(
         "Task {} has {} workflow steps",
-        task_id,
+        task_uuid,
         step_count.count.unwrap_or(0)
     );
 
@@ -158,7 +159,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
         use crate::factories::{base::SqlxFactory, core::WorkflowStepFactory};
 
         let basic_step = WorkflowStepFactory::new()
-            .for_task(task_id)
+            .for_task(task_uuid)
             .with_named_step("basic_test_step")
             .pending()
             .create(&pool)
@@ -167,23 +168,25 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
         println!(
             "Created basic step {} for orchestration testing",
-            basic_step.workflow_step_id
+            basic_step.workflow_step_uuid
         );
     }
 
     // Debug: Check what the SQL function actually returns
     println!("Calling get_step_readiness_status SQL function...");
-    let readiness_results =
-        sqlx::query!("SELECT * FROM get_step_readiness_status($1, NULL)", task_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+    let readiness_results = sqlx::query!(
+        "SELECT * FROM get_step_readiness_status($1, NULL)",
+        task_uuid
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
 
     println!("Step readiness results:");
     for r in &readiness_results {
         println!(
             "  Step {:?}: current_state={:?}, ready_for_execution={:?}",
-            r.workflow_step_id, r.current_state, r.ready_for_execution
+            r.workflow_step_uuid, r.current_state, r.ready_for_execution
         );
     }
 
@@ -198,7 +201,7 @@ async fn test_orchestration_with_real_task(pool: PgPool) -> sqlx::Result<()> {
 
     let orchestration_result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        coordinator.execute_task_workflow(task_id),
+        coordinator.execute_task_workflow(task_uuid),
     )
     .await;
 
@@ -238,8 +241,9 @@ async fn test_mock_framework_integration_compilation(_pool: PgPool) -> sqlx::Res
     assert_eq!(mock_integration.framework_name(), "MockFramework");
 
     // Test get_task_context
-    let context = mock_integration.get_task_context(123).await.unwrap();
-    assert_eq!(context.task_id, 123);
+    let test_uuid = Uuid::now_v7();
+    let context = mock_integration.get_task_context(test_uuid).await.unwrap();
+    assert_eq!(context.task_uuid, test_uuid);
 
     println!("MockFrameworkIntegration works correctly");
     Ok(())
@@ -262,7 +266,7 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Create 4 steps: A→B→C→D
     let step_a = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("step_a")
         .pending()
         .create(&pool)
@@ -270,7 +274,7 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_b = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("step_b")
         .pending()
         .create(&pool)
@@ -278,7 +282,7 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_c = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("step_c")
         .pending()
         .create(&pool)
@@ -286,7 +290,7 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_d = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("step_d")
         .pending()
         .create(&pool)
@@ -295,30 +299,30 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     println!(
         "Created steps: A={}, B={}, C={}, D={}",
-        step_a.workflow_step_id,
-        step_b.workflow_step_id,
-        step_c.workflow_step_id,
-        step_d.workflow_step_id
+        step_a.workflow_step_uuid,
+        step_b.workflow_step_uuid,
+        step_c.workflow_step_uuid,
+        step_d.workflow_step_uuid
     );
 
     // Create dependencies: A→B→C→D
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_b.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_b.workflow_step_uuid)
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_b.workflow_step_id)
-        .with_to_step(step_c.workflow_step_id)
+        .with_from_step(step_b.workflow_step_uuid)
+        .with_to_step(step_c.workflow_step_uuid)
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_c.workflow_step_id)
-        .with_to_step(step_d.workflow_step_id)
+        .with_from_step(step_c.workflow_step_uuid)
+        .with_to_step(step_d.workflow_step_uuid)
         .create(&pool)
         .await
         .unwrap();
@@ -329,7 +333,9 @@ async fn test_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_uuid)
+        .await;
 
     match orchestration_result {
         Ok(orch_result) => {
@@ -374,7 +380,7 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Create 4 steps: A→(B,C)→D (diamond pattern)
     let step_a = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("setup")
         .pending()
         .create(&pool)
@@ -382,7 +388,7 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_b = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("process_a")
         .pending()
         .create(&pool)
@@ -390,7 +396,7 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_c = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("process_b")
         .pending()
         .create(&pool)
@@ -398,7 +404,7 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_d = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("finalize")
         .pending()
         .create(&pool)
@@ -407,40 +413,40 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     println!(
         "Created steps: Setup={}, ProcessA={}, ProcessB={}, Finalize={}",
-        step_a.workflow_step_id,
-        step_b.workflow_step_id,
-        step_c.workflow_step_id,
-        step_d.workflow_step_id
+        step_a.workflow_step_uuid,
+        step_b.workflow_step_uuid,
+        step_c.workflow_step_uuid,
+        step_d.workflow_step_uuid
     );
 
     // Create diamond dependencies: A→B, A→C, B→D, C→D
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_b.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_b.workflow_step_uuid)
         .with_name("setup_provides_for_process_a")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_c.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_c.workflow_step_uuid)
         .with_name("setup_provides_for_process_b")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_b.workflow_step_id)
-        .with_to_step(step_d.workflow_step_id)
+        .with_from_step(step_b.workflow_step_uuid)
+        .with_to_step(step_d.workflow_step_uuid)
         .with_name("process_a_provides_for_finalize")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_c.workflow_step_id)
-        .with_to_step(step_d.workflow_step_id)
+        .with_from_step(step_c.workflow_step_uuid)
+        .with_to_step(step_d.workflow_step_uuid)
         .with_name("process_b_provides_for_finalize")
         .create(&pool)
         .await
@@ -452,7 +458,9 @@ async fn test_diamond_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_uuid)
+        .await;
 
     match orchestration_result {
         Ok(orch_result) => {
@@ -506,7 +514,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Level 0: Root
     let step_a = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("root_initialization")
         .pending()
         .create(&pool)
@@ -515,7 +523,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Level 1: Main branches
     let step_b = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("branch_user_data")
         .pending()
         .create(&pool)
@@ -523,7 +531,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_c = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("branch_payment")
         .pending()
         .create(&pool)
@@ -531,7 +539,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_d = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("branch_inventory")
         .pending()
         .create(&pool)
@@ -540,7 +548,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Level 2: Sub-branches
     let step_e = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("validate_user_profile")
         .pending()
         .create(&pool)
@@ -548,7 +556,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_f = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("validate_user_permissions")
         .pending()
         .create(&pool)
@@ -556,7 +564,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_g = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("process_payment")
         .pending()
         .create(&pool)
@@ -564,7 +572,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_h = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("reserve_inventory")
         .pending()
         .create(&pool)
@@ -572,7 +580,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         .unwrap();
 
     let step_i = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("update_stock_levels")
         .pending()
         .create(&pool)
@@ -581,7 +589,7 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Level 3: Leaf node
     let step_j = WorkflowStepFactory::new()
-        .for_task(task_result.task_id)
+        .for_task(task_result.task_uuid)
         .with_named_step("send_payment_confirmation")
         .pending()
         .create(&pool)
@@ -590,38 +598,38 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     println!(
         "Created tree steps: Root={}, B={}, C={}, D={}, E={}, F={}, G={}, H={}, I={}, J={}",
-        step_a.workflow_step_id,
-        step_b.workflow_step_id,
-        step_c.workflow_step_id,
-        step_d.workflow_step_id,
-        step_e.workflow_step_id,
-        step_f.workflow_step_id,
-        step_g.workflow_step_id,
-        step_h.workflow_step_id,
-        step_i.workflow_step_id,
-        step_j.workflow_step_id
+        step_a.workflow_step_uuid,
+        step_b.workflow_step_uuid,
+        step_c.workflow_step_uuid,
+        step_d.workflow_step_uuid,
+        step_e.workflow_step_uuid,
+        step_f.workflow_step_uuid,
+        step_g.workflow_step_uuid,
+        step_h.workflow_step_uuid,
+        step_i.workflow_step_uuid,
+        step_j.workflow_step_uuid
     );
 
     // Create tree dependencies: Root → Main branches
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_b.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_b.workflow_step_uuid)
         .with_name("root_enables_user_data_branch")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_c.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_c.workflow_step_uuid)
         .with_name("root_enables_payment_branch")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_a.workflow_step_id)
-        .with_to_step(step_d.workflow_step_id)
+        .with_from_step(step_a.workflow_step_uuid)
+        .with_to_step(step_d.workflow_step_uuid)
         .with_name("root_enables_inventory_branch")
         .create(&pool)
         .await
@@ -629,40 +637,40 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Main branches → Sub-branches
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_b.workflow_step_id)
-        .with_to_step(step_e.workflow_step_id)
+        .with_from_step(step_b.workflow_step_uuid)
+        .with_to_step(step_e.workflow_step_uuid)
         .with_name("user_data_enables_profile_validation")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_b.workflow_step_id)
-        .with_to_step(step_f.workflow_step_id)
+        .with_from_step(step_b.workflow_step_uuid)
+        .with_to_step(step_f.workflow_step_uuid)
         .with_name("user_data_enables_permission_validation")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_c.workflow_step_id)
-        .with_to_step(step_g.workflow_step_id)
+        .with_from_step(step_c.workflow_step_uuid)
+        .with_to_step(step_g.workflow_step_uuid)
         .with_name("payment_branch_enables_processing")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_d.workflow_step_id)
-        .with_to_step(step_h.workflow_step_id)
+        .with_from_step(step_d.workflow_step_uuid)
+        .with_to_step(step_h.workflow_step_uuid)
         .with_name("inventory_branch_enables_reservation")
         .create(&pool)
         .await
         .unwrap();
 
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_d.workflow_step_id)
-        .with_to_step(step_i.workflow_step_id)
+        .with_from_step(step_d.workflow_step_uuid)
+        .with_to_step(step_i.workflow_step_uuid)
         .with_name("inventory_branch_enables_stock_update")
         .create(&pool)
         .await
@@ -670,8 +678,8 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
 
     // Payment processing → Confirmation (leaf dependency)
     WorkflowStepEdgeFactory::new()
-        .with_from_step(step_g.workflow_step_id)
-        .with_to_step(step_j.workflow_step_id)
+        .with_from_step(step_g.workflow_step_uuid)
+        .with_to_step(step_j.workflow_step_uuid)
         .with_name("payment_processing_enables_confirmation")
         .create(&pool)
         .await
@@ -683,7 +691,9 @@ async fn test_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
     let coordinator = WorkflowCoordinator::for_testing(pool.clone()).await;
 
     let start_time = Instant::now();
-    let orchestration_result = coordinator.execute_task_workflow(task_result.task_id).await;
+    let orchestration_result = coordinator
+        .execute_task_workflow(task_result.task_uuid)
+        .await;
 
     match orchestration_result {
         Ok(orch_result) => {

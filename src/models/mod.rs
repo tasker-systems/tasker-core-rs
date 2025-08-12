@@ -72,14 +72,16 @@
 //! use tasker_core::models::core::task_namespace::TaskNamespace;
 //! use serde_json::json;
 //! use sqlx::PgPool;
+//! use uuid::Uuid;
 //!
-//! # async fn example(pool: &PgPool, named_task_id: i32) -> Result<(), sqlx::Error> {
+//! # async fn example(pool: &PgPool) -> Result<(), sqlx::Error> {
+//! # let named_task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
 //! // Find active tasks (this would need to be implemented)
 //! // let active_tasks = Task::find_active(pool).await?;
 //!
 //! // Create task with context
 //! let task = Task::create(pool, NewTask {
-//!     named_task_id,
+//!     named_task_uuid,
 //!     requested_at: None,
 //!     initiator: Some("system".to_string()),
 //!     source_system: None,

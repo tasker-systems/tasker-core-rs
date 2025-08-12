@@ -41,7 +41,7 @@ module TaskerCore
         attribute? :claim_timeout_seconds, Types::Integer.default(60) # Timeout for distributed orchestration claims
         attribute? :max_retries, Types::Integer.default(3)
         attribute? :timeout_seconds, Types::Integer.default(300)
-        attribute? :parent_task_id, Types::Integer
+        attribute? :parent_task_uuid, Types::String
         attribute? :correlation_id, Types::Coercible::String
         attribute? :bypass_steps, Types::Array.of(Types::Coercible::String).default([].freeze)
         attribute?(:requested_at, Types::Constructor(Time) do |value|
@@ -64,7 +64,7 @@ module TaskerCore
           options_hash = {}
           options_hash['max_retries'] = max_retries if max_retries
           options_hash['timeout_seconds'] = timeout_seconds if timeout_seconds
-          options_hash['parent_task_id'] = parent_task_id if parent_task_id
+          options_hash['parent_task_uuid'] = parent_task_uuid if parent_task_uuid
           options_hash['correlation_id'] = correlation_id if correlation_id
 
           # Build the exact fields that Rust TaskRequest expects
@@ -125,7 +125,7 @@ module TaskerCore
 
       # Task response struct (for initialize_task results)
       class TaskResponse < Dry::Struct
-        attribute :task_id, Types::Integer
+        attribute :task_uuid, Types::String
         attribute :status, Types::Coercible::String.enum(
           'pending',
           'in_progress',
@@ -140,7 +140,7 @@ module TaskerCore
         attribute? :metadata, Types::Hash
 
         def to_s
-          "#<TaskResponse task_id=#{task_id} status=#{status} steps=#{workflow_steps.size}>"
+          "#<TaskResponse task_uuid=#{task_uuid} status=#{status} steps=#{workflow_steps.size}>"
         end
       end
     end

@@ -9,7 +9,7 @@ module OrderFulfillment
         # Extract and validate all required inputs
         reservation_inputs = extract_and_validate_inputs(task, sequence, step)
 
-        puts "Reserving inventory: task_id=#{task.task_id}, items=#{reservation_inputs[:validated_items].length}"
+        puts "Reserving inventory: task_uuid=#{task.task_uuid}, items=#{reservation_inputs[:validated_items].length}"
 
         # Reserve inventory for validated items
         reservation_results = reserve_inventory_items(reservation_inputs)

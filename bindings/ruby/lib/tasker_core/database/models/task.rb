@@ -5,37 +5,32 @@ require 'digest'
 
 # == Schema Information
 #
-# Table name: tasks
+# Table name: tasker_tasks
 #
-#  bypass_steps  :json
-#  complete      :boolean          default(FALSE), not null
-#  context       :jsonb
-#  identity_hash :string(128)      not null
-#  initiator     :string(128)
-#  reason        :string(128)
-#  requested_at  :datetime         not null
-#  source_system :string(128)
-#  tags          :jsonb
-#  created_at    :datetime         not null
-#  updated_at    :datetime         not null
-#  named_task_id :integer          not null
-#  task_id       :bigint           not null, primary key
-#
-# Indexes
-#
-#  index_tasks_on_identity_hash  (identity_hash) UNIQUE
-#  tasks_context_idx             (context) USING gin
-#  tasks_context_idx1            (context) USING gin
-#  tasks_identity_hash_index     (identity_hash)
-#  tasks_named_task_id_index     (named_task_id)
-#  tasks_requested_at_index      (requested_at)
-#  tasks_source_system_index     (source_system)
-#  tasks_tags_idx                (tags) USING gin
-#  tasks_tags_idx1               (tags) USING gin
+#  task_uuid             :uuid             not null, primary key, default(uuid_generate_v7())
+#  named_task_uuid       :uuid             not null
+#  complete              :boolean          default(FALSE), not null
+#  requested_at          :datetime         not null
+#  completed_at          :datetime         nullable
+#  initiator             :string(128)
+#  source_system         :string(128)
+#  reason                :string(128)
+#  bypass_steps          :json
+#  tags                  :jsonb
+#  context               :jsonb
+#  identity_hash         :string(128)      not null
+#  claim_id              :string           nullable
+#  reference_id          :string(255)      nullable
+#  priority              :integer          default(0), not null
+#  claim_timeout_seconds :integer          default(60), not null
+#  claimed_at            :datetime         nullable
+#  claimed_by            :string           nullable
+#  created_at            :datetime         not null
+#  updated_at            :datetime         not null
 #
 # Foreign Keys
 #
-#  tasks_named_task_id_foreign  (named_task_id => named_tasks.named_task_id)
+#  tasks_named_task_uuid_foreign  (named_task_uuid => tasker_named_tasks.named_task_uuid)
 #
 module TaskerCore
   module Database
@@ -52,14 +47,13 @@ module TaskerCore
         # Regular expression to sanitize strings for database operations
         ALPHANUM_PLUS_HYPHEN_DASH = /[^0-9a-z\-_]/i
 
-        self.primary_key = :task_id
+        self.primary_key = :task_uuid
         after_initialize :init_defaults, if: :new_record?
-        before_create :ensure_task_uuid
-        belongs_to :named_task
-        has_many :workflow_steps, dependent: :destroy
-        has_many :task_annotations, dependent: :destroy
+        belongs_to :named_task, foreign_key: :named_task_uuid, primary_key: :named_task_uuid
+        has_many :workflow_steps, foreign_key: :task_uuid, primary_key: :task_uuid, dependent: :destroy
+        has_many :task_annotations, foreign_key: :task_uuid, primary_key: :task_uuid, dependent: :destroy
         has_many :annotation_types, through: :task_annotations
-        has_many :task_transitions, inverse_of: :task, dependent: :destroy
+        has_many :task_transitions, foreign_key: :task_uuid, primary_key: :task_uuid, inverse_of: :task, dependent: :destroy
 
         validates :context, presence: true
         validates :requested_at, presence: true
@@ -93,10 +87,10 @@ module TaskerCore
               lambda { |state = nil|
                 relation = joins(<<-SQL.squish)
               INNER JOIN (
-                SELECT DISTINCT ON (task_id) task_id, to_state
+                SELECT DISTINCT ON (task_uuid) task_uuid, to_state
                 FROM tasker_task_transitions
-                ORDER BY task_id, sort_key DESC
-              ) current_transitions ON current_transitions.task_id = tasker_tasks.task_id
+                ORDER BY task_uuid, sort_key DESC
+              ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid
                 SQL
 
                 if state.present?
@@ -158,10 +152,10 @@ module TaskerCore
         scope :failed_since, lambda { |since_time|
           joins(<<-SQL.squish)
         INNER JOIN (
-          SELECT DISTINCT ON (task_id) task_id, to_state, created_at
+          SELECT DISTINCT ON (task_uuid) task_uuid, to_state, created_at
           FROM tasker_task_transitions
-          ORDER BY task_id, sort_key DESC
-        ) current_transitions ON current_transitions.task_id = tasker_tasks.task_id
+          ORDER BY task_uuid, sort_key DESC
+        ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid
           SQL
             .where(current_transitions: { to_state: TaskerCore::Constants::TaskStatuses::ERROR })
             .where('current_transitions.created_at > ?', since_time)
@@ -178,8 +172,8 @@ module TaskerCore
         EXISTS (
           SELECT 1
           FROM tasker_workflow_steps ws
-          INNER JOIN tasker_workflow_step_transitions wst ON wst.workflow_step_id = ws.workflow_step_id
-          WHERE ws.task_id = tasker_tasks.task_id
+          INNER JOIN tasker_workflow_step_transitions wst ON wst.workflow_step_uuid = ws.workflow_step_uuid
+          WHERE ws.task_uuid = tasker_tasks.task_uuid
             AND wst.most_recent = true
             AND wst.to_state NOT IN ('complete', 'error', 'skipped', 'resolved_manually')
         )
@@ -280,7 +274,7 @@ module TaskerCore
             tags: [],
             bypass_steps: [],
             requested_at: Time.zone&.now || Time.current,
-            named_task_id: named_task.named_task_id
+            named_task_uuid: named_task.named_task_uuid
           }
         end
 
@@ -332,7 +326,7 @@ module TaskerCore
         end
 
         def task_execution_context
-          @task_execution_context ||= TaskerCore::Database::Functions::TaskExecutionContext.new(task_id)
+          @task_execution_context ||= TaskerCore::Database::Functions::TaskExecutionContext.new(task_uuid)
         end
 
         def reload
@@ -351,10 +345,10 @@ module TaskerCore
         #
         # @return [void]
         def unique_identity_hash
-          return errors.add(:named_task_id, 'no task name found') unless named_task
+          return errors.add(:named_task_uuid, 'no task name found') unless named_task
 
           set_identity_hash
-          inst = self.class.where(identity_hash: identity_hash).where.not(task_id: task_id).first
+          inst = self.class.where(identity_hash: identity_hash).where.not(task_uuid: task_uuid).first
           errors.add(:identity_hash, 'is identical to a request made in the last minute') if inst
         end
 
@@ -388,10 +382,22 @@ module TaskerCore
         def init_defaults
           return unless new_record?
 
+          # Ensure task_uuid is set using UUID v7
+          ensure_task_uuid
+
           # Apply defaults only for attributes that haven't been set
           task_defaults.each do |attribute, default_value|
             self[attribute] = default_value if self[attribute].nil?
           end
+        end
+
+        # Ensures task_uuid is set with UUID v7
+        #
+        # @return [String] The task UUID
+        def ensure_task_uuid
+          return task_uuid if task_uuid.present?
+
+          self.task_uuid = SecureRandom.uuid_v7
         end
 
         # Returns a hash of default values for a task
@@ -423,13 +429,6 @@ module TaskerCore
           self.identity_hash = identity_strategy.generate_identity_hash(self, identity_options)
         end
 
-        # Ensures the task has a UUID before creation
-        # Fallback if DB default fails for any reason
-        #
-        # @return [void]
-        def ensure_task_uuid
-          self.task_uuid ||= SecureRandom.uuid
-        end
       end
     end
   end

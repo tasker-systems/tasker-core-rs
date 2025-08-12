@@ -4,5 +4,4 @@
 
 -- Scope: named_steps_for_named_task
 -- NOTE: This scope requires parameters - SQL generated with dummy values
-SELECT "tasker_named_tasks_named_steps".* FROM "tasker_named_tasks_named_steps" WHERE "tasker_named_tasks_named_steps"."named_task_id" = 1
-
+SELECT "tasker_named_tasks_named_steps".* FROM "tasker_named_tasks_named_steps" WHERE "tasker_named_tasks_named_steps"."named_task_uuid" = 1

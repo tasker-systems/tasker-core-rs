@@ -7,12 +7,12 @@ module TaskerCore
       # This class explicitly delegates to the function-based implementation for better maintainability
       class TaskExecutionContext
         # Explicit delegation of class methods to function-based implementation
-        def self.find(task_id)
-          TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+        def self.find(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
         end
 
-        def self.for_tasks(task_ids)
-          TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.for_tasks(task_ids)
+        def self.for_tasks(task_uuids)
+          TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.for_tasks(task_uuids)
         end
 
         # For backward compatibility, maintain the active method but point to function-based implementation
@@ -20,12 +20,12 @@ module TaskerCore
           TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext
         end
 
-        def initialize(task_id)
-          @task_id = task_id
+        def initialize(task_uuid)
+          @task_uuid = task_uuid
         end
 
         def workflow_summary
-          @workflow_summary ||= TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(@task_id).workflow_summary
+          @workflow_summary ||= TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(@task_uuid).workflow_summary
         end
       end
     end

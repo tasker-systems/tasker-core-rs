@@ -23,7 +23,7 @@ module TaskerCore
       attr_reader :task
 
       # @return [Integer] The task ID for database queries
-      attr_reader :task_id
+      attr_reader :task_uuid
 
       # Initialize the analyzer for a specific task
       #
@@ -31,7 +31,7 @@ module TaskerCore
       # @raise [ArgumentError] if task is nil or invalid
       def initialize(task:)
         @task = task
-        @task_id = task.task_id
+        @task_uuid = task.task_uuid
         @cache = {}
       end
 
@@ -60,7 +60,7 @@ module TaskerCore
           error_chains: analyze_error_chains,
           bottlenecks: identify_bottlenecks,
           generated_at: Time.now,
-          task_id: task_id
+          task_uuid: task_uuid
         }
       end
 
@@ -82,7 +82,7 @@ module TaskerCore
       #   puts "Root steps: #{root_steps.map { |s| s[:name] }}"
       def build_dependency_graph
         steps = load_workflow_steps
-        step_map = steps.index_by(&:workflow_step_id)
+        step_map = steps.index_by(&:workflow_step_uuid)
         edges = load_workflow_edges
         adjacency_lists = build_adjacency_lists(steps, edges)
         dependency_levels = calculate_dependency_levels_sql
@@ -131,8 +131,8 @@ module TaskerCore
       # @api private
       def load_workflow_edges
         TaskerCore::Database::Models::WorkflowStepEdge.joins(:from_step, :to_step)
-                                                      .where(from_step: { task_id: task_id })
-                                                      .select(:from_step_id, :to_step_id)
+                                                      .where(from_step: { task_uuid: task_uuid })
+                                                      .select(:from_step_uuid, :to_step_uuid)
       end
 
       # Build forward and reverse adjacency lists for graph traversal
@@ -150,14 +150,14 @@ module TaskerCore
 
         # Initialize empty lists for all steps
         steps.each do |step|
-          adjacency_list[step.workflow_step_id] = []
-          reverse_adjacency_list[step.workflow_step_id] = []
+          adjacency_list[step.workflow_step_uuid] = []
+          reverse_adjacency_list[step.workflow_step_uuid] = []
         end
 
         # Populate adjacency lists from edges
         edges.each do |edge|
-          adjacency_list[edge.from_step_id] << edge.to_step_id
-          reverse_adjacency_list[edge.to_step_id] << edge.from_step_id
+          adjacency_list[edge.from_step_uuid] << edge.to_step_uuid
+          reverse_adjacency_list[edge.to_step_uuid] << edge.from_step_uuid
         end
 
         { forward: adjacency_list, reverse: reverse_adjacency_list }
@@ -172,9 +172,9 @@ module TaskerCore
       def build_graph_nodes(steps, dependency_levels)
         steps.map do |step|
           {
-            id: step.workflow_step_id,
+            id: step.workflow_step_uuid,
             name: step.named_step.name,
-            level: dependency_levels[step.workflow_step_id] || 0
+            level: dependency_levels[step.workflow_step_uuid] || 0
           }
         end
       end
@@ -188,10 +188,10 @@ module TaskerCore
       def build_graph_edges(edges, step_map)
         edges.map do |edge|
           {
-            from: edge.from_step_id,
-            to: edge.to_step_id,
-            from_name: step_map[edge.from_step_id]&.named_step&.name,
-            to_name: step_map[edge.to_step_id]&.named_step&.name
+            from: edge.from_step_uuid,
+            to: edge.to_step_uuid,
+            from_name: step_map[edge.from_step_uuid]&.named_step&.name,
+            to_name: step_map[edge.to_step_uuid]&.named_step&.name
           }
         end
       end
@@ -201,7 +201,7 @@ module TaskerCore
       # @return [Hash] Step ID to dependency level mapping
       # @api private
       def calculate_dependency_levels_sql
-        TaskerCore::Database::Functions::FunctionBasedDependencyLevels.levels_hash_for_task(task_id)
+        TaskerCore::Database::Functions::FunctionBasedDependencyLevels.levels_hash_for_task(task_uuid)
       end
 
       # Analyze critical paths through the dependency graph
@@ -277,7 +277,7 @@ module TaskerCore
         # Get step readiness data for analysis
         step_readiness_data = get_step_readiness_data
         task_context = get_task_execution_context
-        path_steps = path.filter_map { |step_id| step_readiness_data[step_id] }
+        path_steps = path.filter_map { |step_uuid| step_readiness_data[step_uuid] }
 
         # Use efficient counting methods for path-specific metrics
         path_metrics = calculate_path_metrics(path_steps)
@@ -369,8 +369,8 @@ module TaskerCore
       # @api private
       def get_step_readiness_data
         @get_step_readiness_data ||= begin
-          data = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id)
-          data.index_by(&:workflow_step_id)
+          data = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_uuid)
+          data.index_by(&:workflow_step_uuid)
         end
       end
 
@@ -382,7 +382,7 @@ module TaskerCore
       # @return [Object] Task execution context with metrics and status
       # @api private
       def get_task_execution_context
-        @get_task_execution_context ||= TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+        @get_task_execution_context ||= TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
       end
 
       # Calculate estimated duration for a path using configurable estimates
@@ -419,7 +419,7 @@ module TaskerCore
 
           severity = calculate_bottleneck_severity(step)
           bottlenecks << {
-            step_id: step.workflow_step_id,
+            step_uuid: step.workflow_step_uuid,
             step_name: step.name,
             reason: determine_bottleneck_reason(step),
             severity: severity,
@@ -493,11 +493,11 @@ module TaskerCore
         task_context = get_task_execution_context
 
         # Group steps by dependency level
-        levels_groups = dependency_levels.group_by { |_step_id, level| level }
+        levels_groups = dependency_levels.group_by { |_step_uuid, level| level }
 
         parallelism_analysis = levels_groups.map do |level, step_level_pairs|
-          step_ids = step_level_pairs.map(&:first)
-          step_data = step_ids.filter_map { |id| step_readiness_data[id] }
+          step_uuids = step_level_pairs.map(&:first)
+          step_data = step_uuids.filter_map { |id| step_readiness_data[id] }
 
           analyze_level_parallelism(level, step_data)
         end.sort_by { |analysis| analysis[:level] }
@@ -602,9 +602,9 @@ module TaskerCore
       # Analyze the impact chain of a specific error step
       def analyze_error_impact_chain(error_step, graph, step_readiness_data)
         # Find all downstream steps affected by this error
-        downstream_steps = find_downstream_steps(error_step.workflow_step_id, graph[:adjacency_list])
-        blocked_steps = downstream_steps.select do |step_id|
-          step_data = step_readiness_data[step_id]
+        downstream_steps = find_downstream_steps(error_step.workflow_step_uuid, graph[:adjacency_list])
+        blocked_steps = downstream_steps.select do |step_uuid|
+          step_data = step_readiness_data[step_uuid]
           step_data && !step_data.dependencies_satisfied
         end
 
@@ -616,7 +616,7 @@ module TaskerCore
         retry_analysis = analyze_error_retry_situation(error_step)
 
         {
-          error_step_id: error_step.workflow_step_id,
+          error_step_uuid: error_step.workflow_step_uuid,
           error_step_name: error_step.name,
           error_attempts: error_step.attempts,
           retry_limit: error_step.retry_limit || 3,
@@ -630,13 +630,13 @@ module TaskerCore
       end
 
       # Find all downstream steps from a given step
-      def find_downstream_steps(step_id, adjacency_list, visited = Set.new)
-        return [] if visited.include?(step_id)
+      def find_downstream_steps(step_uuid, adjacency_list, visited = Set.new)
+        return [] if visited.include?(step_uuid)
 
-        visited.add(step_id)
+        visited.add(step_uuid)
         downstream = []
 
-        adjacency_list[step_id].each do |child_id|
+        adjacency_list[step_uuid].each do |child_id|
           downstream << child_id
           downstream.concat(find_downstream_steps(child_id, adjacency_list, visited))
         end
@@ -897,7 +897,7 @@ module TaskerCore
       #
       # @api private
       def calculate_downstream_impact(step, graph, step_readiness_data)
-        downstream_steps = find_downstream_steps(step.workflow_step_id, graph[:adjacency_list])
+        downstream_steps = find_downstream_steps(step.workflow_step_uuid, graph[:adjacency_list])
         blocked_downstream = count_blocked_downstream_steps(downstream_steps, step_readiness_data)
 
         {
@@ -914,7 +914,7 @@ module TaskerCore
       # @api private
       def extract_step_metadata(step)
         {
-          step_id: step.workflow_step_id,
+          step_uuid: step.workflow_step_uuid,
           step_name: step.name,
           current_state: step.current_state,
           attempts: step.attempts,
@@ -931,8 +931,8 @@ module TaskerCore
       #
       # @api private
       def count_blocked_downstream_steps(downstream_steps, step_readiness_data)
-        downstream_steps.count do |step_id|
-          downstream_step = step_readiness_data[step_id]
+        downstream_steps.count do |step_uuid|
+          downstream_step = step_readiness_data[step_uuid]
           downstream_step && !downstream_step.dependencies_satisfied
         end
       end

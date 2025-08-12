@@ -1,17 +1,19 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// NamedTasksNamedStep represents the association between NamedTask and NamedStep with configuration
+/// Uses UUID v7 for primary key and foreign keys to ensure time-ordered UUIDs
 /// Maps to `tasker_named_tasks_named_steps` table - junction table with step configuration
 ///
 /// This table defines which steps belong to which tasks and includes configuration
 /// for how those steps should behave (skippable, retry settings, etc.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedTasksNamedStep {
-    pub id: i32, // Primary key
-    pub named_task_id: i32,
-    pub named_step_id: i32,
+    pub ntns_uuid: Uuid,
+    pub named_task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub skippable: bool,          // Whether this step can be skipped
     pub default_retryable: bool,  // Default retry behavior for this step
     pub default_retry_limit: i32, // Default retry limit for this step
@@ -22,8 +24,8 @@ pub struct NamedTasksNamedStep {
 /// New NamedTasksNamedStep for creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewNamedTasksNamedStep {
-    pub named_task_id: i32,
-    pub named_step_id: i32,
+    pub named_task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub skippable: Option<bool>,          // Defaults to false
     pub default_retryable: Option<bool>,  // Defaults to true
     pub default_retry_limit: Option<i32>, // Defaults to 3
@@ -32,9 +34,9 @@ pub struct NewNamedTasksNamedStep {
 /// NamedTasksNamedStep with related step and task details
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct NamedTasksNamedStepWithDetails {
-    pub id: i32,
-    pub named_task_id: i32,
-    pub named_step_id: i32,
+    pub ntns_uuid: Uuid,
+    pub named_task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub skippable: bool,
     pub default_retryable: bool,
     pub default_retry_limit: i32,
@@ -54,14 +56,14 @@ impl NamedTasksNamedStep {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            INSERT INTO tasker_named_tasks_named_steps 
-            (named_task_id, named_step_id, skippable, default_retryable, default_retry_limit, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-            RETURNING id, named_task_id, named_step_id, skippable, default_retryable, 
+            INSERT INTO tasker_named_tasks_named_steps
+            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, NOW(), NOW())
+            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                       default_retry_limit, created_at, updated_at
             "#,
-            new_association.named_task_id,
-            new_association.named_step_id,
+            new_association.named_task_uuid,
+            new_association.named_step_uuid,
             new_association.skippable.unwrap_or(false),
             new_association.default_retryable.unwrap_or(true),
             new_association.default_retry_limit.unwrap_or(3)
@@ -72,20 +74,21 @@ impl NamedTasksNamedStep {
         Ok(association)
     }
 
-    /// Find association by ID
+    /// Find association by UUID
+    /// Find by ID (primary key lookup)
     pub async fn find_by_id(
         pool: &PgPool,
-        id: i32,
+        ntns_uuid: Uuid,
     ) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE id = $1
+            WHERE ntns_uuid = $1
             "#,
-            id
+            ntns_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -96,19 +99,19 @@ impl NamedTasksNamedStep {
     /// Find association by task and step IDs (uses unique constraint)
     pub async fn find_by_task_and_step(
         pool: &PgPool,
-        named_task_id: i32,
-        named_step_id: i32,
+        named_task_uuid: Uuid,
+        named_step_uuid: Uuid,
     ) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND named_step_id = $2
+            WHERE named_task_uuid = $1::uuid AND named_step_uuid = $2::uuid
             "#,
-            named_task_id,
-            named_step_id
+            named_task_uuid,
+            named_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -119,18 +122,18 @@ impl NamedTasksNamedStep {
     /// Find all steps for a specific task
     pub async fn find_by_task(
         pool: &PgPool,
-        named_task_id: i32,
+        named_task_uuid: Uuid,
     ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1
-            ORDER BY id
+            WHERE named_task_uuid = $1::uuid
+            ORDER BY ntns_uuid
             "#,
-            named_task_id
+            named_task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -138,21 +141,21 @@ impl NamedTasksNamedStep {
         Ok(associations)
     }
 
-    /// Find all tasks for a specific step  
+    /// Find all tasks for a specific step
     pub async fn find_by_step(
         pool: &PgPool,
-        named_step_id: i32,
+        named_step_uuid: Uuid,
     ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_step_id = $1
-            ORDER BY id
+            WHERE named_step_uuid = $1::uuid
+            ORDER BY ntns_uuid
             "#,
-            named_step_id
+            named_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -170,10 +173,10 @@ impl NamedTasksNamedStep {
         let associations = sqlx::query_as!(
             NamedTasksNamedStepWithDetails,
             r#"
-            SELECT 
-                ntns.id,
-                ntns.named_task_id,
-                ntns.named_step_id,
+            SELECT
+                ntns.ntns_uuid,
+                ntns.named_task_uuid,
+                ntns.named_step_uuid,
                 ntns.skippable,
                 ntns.default_retryable,
                 ntns.default_retry_limit,
@@ -183,10 +186,10 @@ impl NamedTasksNamedStep {
                 ntns.created_at,
                 ntns.updated_at
             FROM tasker_named_tasks_named_steps ntns
-            INNER JOIN tasker_named_tasks nt ON nt.named_task_id = ntns.named_task_id
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ntns.named_step_id
-            INNER JOIN tasker_dependent_systems ds ON ds.dependent_system_id = ns.dependent_system_id
-            ORDER BY ntns.id
+            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = ntns.named_task_uuid
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ntns.named_step_uuid
+            INNER JOIN tasker_dependent_systems ds ON ds.dependent_system_uuid = ns.dependent_system_uuid
+            ORDER BY ntns.ntns_uuid
             LIMIT $1
             "#,
             limit_clause as i64
@@ -198,28 +201,29 @@ impl NamedTasksNamedStep {
     }
 
     /// Update association configuration
+    /// Update an existing association
     pub async fn update(
         pool: &PgPool,
-        id: i32,
+        ntns_uuid: Uuid,
         new_association: NewNamedTasksNamedStep,
     ) -> Result<Option<NamedTasksNamedStep>, sqlx::Error> {
         let association = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            UPDATE tasker_named_tasks_named_steps 
-            SET named_task_id = $2,
-                named_step_id = $3,
+            UPDATE tasker_named_tasks_named_steps
+            SET named_task_uuid = $2::uuid,
+                named_step_uuid = $3::uuid,
                 skippable = $4,
                 default_retryable = $5,
                 default_retry_limit = $6,
                 updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, named_task_id, named_step_id, skippable, default_retryable,
+            WHERE ntns_uuid = $1
+            RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                       default_retry_limit, created_at, updated_at
             "#,
-            id,
-            new_association.named_task_id,
-            new_association.named_step_id,
+            ntns_uuid,
+            new_association.named_task_uuid,
+            new_association.named_step_uuid,
             new_association.skippable.unwrap_or(false),
             new_association.default_retryable.unwrap_or(true),
             new_association.default_retry_limit.unwrap_or(3)
@@ -231,10 +235,10 @@ impl NamedTasksNamedStep {
     }
 
     /// Delete an association
-    pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, ntns_uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_named_tasks_named_steps WHERE id = $1",
-            id
+            "DELETE FROM tasker_named_tasks_named_steps WHERE ntns_uuid = $1",
+            ntns_uuid
         )
         .execute(pool)
         .await?;
@@ -250,8 +254,8 @@ impl NamedTasksNamedStep {
         // Try to find existing association first
         if let Some(existing) = Self::find_by_task_and_step(
             pool,
-            new_association.named_task_id,
-            new_association.named_step_id,
+            new_association.named_task_uuid,
+            new_association.named_step_uuid,
         )
         .await?
         {
@@ -274,10 +278,10 @@ impl NamedTasksNamedStep {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            ORDER BY id
+            ORDER BY ntns_uuid
             LIMIT $1 OFFSET $2
             "#,
             limit_val as i64,
@@ -292,18 +296,18 @@ impl NamedTasksNamedStep {
     /// Find skippable associations for a task
     pub async fn find_skippable_by_task(
         pool: &PgPool,
-        named_task_id: i32,
+        named_task_uuid: Uuid,
     ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND skippable = true
-            ORDER BY id
+            WHERE named_task_uuid = $1::uuid AND skippable = true
+            ORDER BY ntns_uuid
             "#,
-            named_task_id
+            named_task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -311,21 +315,21 @@ impl NamedTasksNamedStep {
         Ok(associations)
     }
 
-    /// Find non-retryable associations for a task  
+    /// Find non-retryable associations for a task
     pub async fn find_non_retryable_by_task(
         pool: &PgPool,
-        named_task_id: i32,
+        named_task_uuid: Uuid,
     ) -> Result<Vec<NamedTasksNamedStep>, sqlx::Error> {
         let associations = sqlx::query_as!(
             NamedTasksNamedStep,
             r#"
-            SELECT id, named_task_id, named_step_id, skippable, default_retryable,
+            SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
                    default_retry_limit, created_at, updated_at
             FROM tasker_named_tasks_named_steps
-            WHERE named_task_id = $1 AND default_retryable = false
-            ORDER BY id
+            WHERE named_task_uuid = $1::uuid AND default_retryable = false
+            ORDER BY ntns_uuid
             "#,
-            named_task_id
+            named_task_uuid
         )
         .fetch_all(pool)
         .await?;

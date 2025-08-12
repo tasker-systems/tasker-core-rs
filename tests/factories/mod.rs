@@ -35,7 +35,7 @@
 //!         .await?;
 //!
 //!     let diamond_workflow = DiamondWorkflowFactory::default()
-//!         .for_task(task.task_id)
+//!         .for_task(task.task_uuid)
 //!         .create(&pool)
 //!         .await?;
 //!

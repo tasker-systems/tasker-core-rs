@@ -12,7 +12,7 @@
 //!
 //! This module integrates with the PostgreSQL function:
 //!
-//! ### `get_slowest_steps_v01(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)`
+//! ### `get_slowest_steps(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)`
 //! - Identifies the slowest executing workflow steps
 //! - Supports filtering by namespace, task name, and version
 //! - Returns configurable number of results with duration analysis
@@ -22,8 +22,8 @@
 //! The function returns:
 //! ```sql
 //! RETURNS TABLE(
-//!   workflow_step_id bigint,
-//!   task_id bigint,
+//!   workflow_step_uuid bigint,
+//!   task_uuid bigint,
 //!   step_name character varying,
 //!   task_name character varying,
 //!   namespace_name character varying,
@@ -39,12 +39,12 @@
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::BigDecimal, FromRow, PgPool};
+use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 
 /// Represents computed slowest steps analytics.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
-/// `get_slowest_steps_v01()` SQL function.
+/// `get_slowest_steps()` SQL function.
 ///
 /// # Computed Fields
 ///
@@ -64,8 +64,8 @@ use sqlx::{types::BigDecimal, FromRow, PgPool};
 /// Only read operations are available via the SQL function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct SlowestSteps {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub step_name: String,
     pub task_name: String,
     pub namespace_name: String,
@@ -156,9 +156,9 @@ impl SlowestSteps {
         let steps = sqlx::query_as!(
             SlowestSteps,
             r#"
-            SELECT 
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
+            SELECT
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
                 step_name as "step_name!: String",
                 task_name as "task_name!: String",
                 namespace_name as "namespace_name!: String",
@@ -169,7 +169,7 @@ impl SlowestSteps {
                 completed_at as "completed_at?: NaiveDateTime",
                 retryable as "retryable!: bool",
                 step_status as "step_status!: String"
-            FROM get_slowest_steps_v01($1, $2, $3, $4, $5)
+            FROM get_slowest_steps($1, $2, $3, $4, $5)
             "#,
             filter.since_timestamp,
             filter.limit_count.unwrap_or(10),

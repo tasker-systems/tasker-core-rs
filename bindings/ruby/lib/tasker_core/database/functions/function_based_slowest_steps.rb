@@ -5,7 +5,7 @@ require_relative 'function_wrapper'
 module TaskerCore
   module Database
     module Functions
-      # Wrapper for the get_slowest_steps_v01 SQL function
+      # Wrapper for the get_slowest_steps SQL function
       #
       # This function returns the slowest workflow steps within a specified time period
       # with duration metrics and optional filtering by namespace, task name, and version.
@@ -26,8 +26,8 @@ module TaskerCore
       class FunctionBasedSlowestSteps < FunctionWrapper
         # Individual slowest step result structure
         class SlowestStep < Dry::Struct
-          attribute :workflow_step_id, Types::Integer
-          attribute :task_id, Types::Integer
+          attribute :workflow_step_uuid, Types::String
+          attribute :task_uuid, Types::String
           attribute :step_name, Types::String
           attribute :task_name, Types::String
           attribute :namespace_name, Types::String
@@ -40,7 +40,7 @@ module TaskerCore
           attribute :step_status, Types::String
         end
 
-        # Call the get_slowest_steps_v01 SQL function
+        # Call the get_slowest_steps SQL function
         #
         # @param since_timestamp [Time, nil] Start time for analysis (defaults to 24 hours ago in SQL)
         # @param limit_count [Integer] Maximum number of results to return (default: 10)
@@ -52,7 +52,7 @@ module TaskerCore
         def self.call(since_timestamp: nil, limit_count: 10, namespace_filter: nil, task_name_filter: nil,
                       version_filter: nil)
           # Build SQL with proper parameter binding
-          sql = 'SELECT * FROM get_slowest_steps_v01($1, $2, $3, $4, $5)'
+          sql = 'SELECT * FROM get_slowest_steps($1, $2, $3, $4, $5)'
           binds = [
             since_timestamp,
             limit_count,
@@ -65,8 +65,8 @@ module TaskerCore
 
           result.map do |row|
             SlowestStep.new(
-              workflow_step_id: row['workflow_step_id'].to_i,
-              task_id: row['task_id'].to_i,
+              workflow_step_uuid: row['workflow_step_uuid'].to_s,
+              task_uuid: row['task_uuid'].to_s,
               step_name: row['step_name'].to_s,
               task_name: row['task_name'].to_s,
               namespace_name: row['namespace_name'].to_s,

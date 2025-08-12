@@ -1,13 +1,15 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// NamedStep represents step definitions/templates
+/// Uses UUID v7 for primary key and foreign keys to ensure time-ordered UUIDs
 /// Maps to `tasker_named_steps` table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct NamedStep {
-    pub named_step_id: i32,
-    pub dependent_system_id: i32,    // NOT NULL in actual schema
+    pub named_step_uuid: Uuid,
+    pub dependent_system_uuid: Uuid, // NOT NULL in actual schema
     pub name: String,                // max 128 chars
     pub description: Option<String>, // max 255 chars
     pub created_at: NaiveDateTime,
@@ -17,7 +19,7 @@ pub struct NamedStep {
 /// New NamedStep for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewNamedStep {
-    pub dependent_system_id: i32, // Required field
+    pub dependent_system_uuid: Uuid, // Required field
     pub name: String,
     pub description: Option<String>,
 }
@@ -28,11 +30,11 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
-            VALUES ($1, $2, $3, NOW(), NOW())
-            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
+            INSERT INTO tasker_named_steps (dependent_system_uuid, name, description, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, NOW(), NOW())
+            RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             "#,
-            new_step.dependent_system_id,
+            new_step.dependent_system_uuid,
             new_step.name,
             new_step.description
         )
@@ -42,16 +44,16 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// Find step by ID
-    pub async fn find_by_id(pool: &PgPool, id: i32) -> Result<Option<NamedStep>, sqlx::Error> {
+    /// Find step by UUID
+    pub async fn find_by_uuid(pool: &PgPool, uuid: Uuid) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
-            WHERE named_step_id = $1
+            WHERE named_step_uuid = $1::uuid
             "#,
-            id
+            uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -59,21 +61,21 @@ impl NamedStep {
         Ok(step)
     }
 
-    /// Find steps by multiple IDs (efficient batch query)
-    pub async fn find_by_ids(pool: &PgPool, ids: &[i32]) -> Result<Vec<NamedStep>, sqlx::Error> {
-        if ids.is_empty() {
+    /// Find steps by multiple UUIDs (efficient batch query)
+    pub async fn find_by_uuids(pool: &PgPool, uuids: &[Uuid]) -> Result<Vec<NamedStep>, sqlx::Error> {
+        if uuids.is_empty() {
             return Ok(vec![]);
         }
 
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
-            WHERE named_step_id = ANY($1)
-            ORDER BY named_step_id
+            WHERE named_step_uuid = ANY($1)
+            ORDER BY named_step_uuid
             "#,
-            ids
+            uuids
         )
         .fetch_all(pool)
         .await?;
@@ -84,17 +86,17 @@ impl NamedStep {
     /// Find steps by dependent system
     pub async fn find_by_system(
         pool: &PgPool,
-        system_id: i32,
+        system_uuid: Uuid,
     ) -> Result<Vec<NamedStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
-            WHERE dependent_system_id = $1
+            WHERE dependent_system_uuid = $1::uuid
             ORDER BY name
             "#,
-            system_id
+            system_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -107,7 +109,7 @@ impl NamedStep {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
             WHERE name = $1
             ORDER BY created_at
@@ -123,17 +125,17 @@ impl NamedStep {
     /// Find step by system and name (uses unique constraint)
     pub async fn find_by_system_and_name(
         pool: &PgPool,
-        system_id: i32,
+        system_uuid: Uuid,
         name: &str,
     ) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
-            WHERE dependent_system_id = $1 AND name = $2
+            WHERE dependent_system_uuid = $1::uuid AND name = $2
             "#,
-            system_id,
+            system_uuid,
             name
         )
         .fetch_optional(pool)
@@ -145,22 +147,22 @@ impl NamedStep {
     /// Update a named step
     pub async fn update(
         pool: &PgPool,
-        id: i32,
+        uuid: Uuid,
         new_step: NewNamedStep,
     ) -> Result<Option<NamedStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
             UPDATE tasker_named_steps 
-            SET dependent_system_id = $2,
+            SET dependent_system_uuid = $2::uuid,
                 name = $3,
                 description = $4,
                 updated_at = NOW()
-            WHERE named_step_id = $1
-            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
+            WHERE named_step_uuid = $1::uuid
+            RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             "#,
-            id,
-            new_step.dependent_system_id,
+            uuid,
+            new_step.dependent_system_uuid,
             new_step.name,
             new_step.description
         )
@@ -171,10 +173,10 @@ impl NamedStep {
     }
 
     /// Delete a named step
-    pub async fn delete(pool: &PgPool, id: i32) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, uuid: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
-            "DELETE FROM tasker_named_steps WHERE named_step_id = $1",
-            id
+            "DELETE FROM tasker_named_steps WHERE named_step_uuid = $1::uuid",
+            uuid
         )
         .execute(pool)
         .await?;
@@ -189,7 +191,7 @@ impl NamedStep {
     ) -> Result<NamedStep, sqlx::Error> {
         // Try to find existing step first
         if let Some(existing) =
-            Self::find_by_system_and_name(pool, new_step.dependent_system_id, &new_step.name)
+            Self::find_by_system_and_name(pool, new_step.dependent_system_uuid, &new_step.name)
                 .await?
         {
             return Ok(existing);
@@ -211,7 +213,7 @@ impl NamedStep {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
             ORDER BY name
             LIMIT $1 OFFSET $2
@@ -226,10 +228,10 @@ impl NamedStep {
     }
 
     /// Count steps by system
-    pub async fn count_by_system(pool: &PgPool, system_id: i32) -> Result<i64, sqlx::Error> {
+    pub async fn count_by_system(pool: &PgPool, system_uuid: Uuid) -> Result<i64, sqlx::Error> {
         let count = sqlx::query!(
-            "SELECT COUNT(*) as count FROM tasker_named_steps WHERE dependent_system_id = $1",
-            system_id
+            "SELECT COUNT(*) as count FROM tasker_named_steps WHERE dependent_system_uuid = $1::uuid",
+            system_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -249,7 +251,7 @@ impl NamedStep {
         let steps = sqlx::query_as!(
             NamedStep,
             r#"
-            SELECT named_step_id, dependent_system_id, name, description, created_at, updated_at
+            SELECT named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             FROM tasker_named_steps
             WHERE name ILIKE $1
             ORDER BY name
@@ -286,14 +288,14 @@ impl NamedStep {
 
         // Try to find existing named step by system and name
         if let Some(existing) =
-            Self::find_by_system_and_name(pool, dependent_system.dependent_system_id, name).await?
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name).await?
         {
             return Ok(existing);
         }
 
         // Create new named step if not found
         let new_step = NewNamedStep {
-            dependent_system_id: dependent_system.dependent_system_id,
+            dependent_system_uuid: dependent_system.dependent_system_uuid,
             name: name.to_string(),
             description: Some(format!("Auto-created step: {name}")),
         };
@@ -324,14 +326,14 @@ impl NamedStep {
 
         // Try to find existing named step by system and name (using pool for read)
         if let Some(existing) =
-            Self::find_by_system_and_name(pool, dependent_system.dependent_system_id, name).await?
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name).await?
         {
             return Ok(existing);
         }
 
         // Create new named step if not found (using transaction for write)
         let new_step = NewNamedStep {
-            dependent_system_id: dependent_system.dependent_system_id,
+            dependent_system_uuid: dependent_system.dependent_system_uuid,
             name: name.to_string(),
             description: Some(format!("Auto-created step: {name}")),
         };
@@ -347,11 +349,11 @@ impl NamedStep {
         let step = sqlx::query_as!(
             NamedStep,
             r#"
-            INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
-            VALUES ($1, $2, $3, NOW(), NOW())
-            RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
+            INSERT INTO tasker_named_steps (dependent_system_uuid, name, description, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, NOW(), NOW())
+            RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
             "#,
-            new_step.dependent_system_id,
+            new_step.dependent_system_uuid,
             new_step.name,
             new_step.description
         )

@@ -12,6 +12,7 @@ use tasker_core::models::{
     task_namespace::{NewTaskNamespace, TaskNamespace},
     workflow_step::{NewWorkflowStep, WorkflowStep},
 };
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
@@ -31,7 +32,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task_workflow_step".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -40,7 +41,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None,
             initiator: None,
             source_system: None,
@@ -67,7 +68,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     let named_step = NamedStep::create(
         &pool,
         NewNamedStep {
-            dependent_system_id: dependent_system.dependent_system_id,
+            dependent_system_uuid: dependent_system.dependent_system_uuid,
             name: "test_step_workflow_step".to_string(),
             description: None,
         },
@@ -76,8 +77,8 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Test creation
     let new_step = NewWorkflowStep {
-        task_id: task.task_id,
-        named_step_id: named_step.named_step_id,
+        task_uuid: task.task_uuid,
+        named_step_uuid: named_step.named_step_uuid,
         retryable: Some(true),
         retry_limit: Some(5),
         inputs: Some(json!({"param1": "value1", "param2": 42})),
@@ -85,18 +86,18 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     };
 
     let created = WorkflowStep::create(&pool, new_step).await?;
-    assert_eq!(created.task_id, task.task_id);
-    assert_eq!(created.named_step_id, named_step.named_step_id);
+    assert_eq!(created.task_uuid, task.task_uuid);
+    assert_eq!(created.named_step_uuid, named_step.named_step_uuid);
     assert!(created.retryable);
     assert_eq!(created.retry_limit, Some(5));
     assert!(!created.processed);
     assert!(!created.in_process);
 
     // Test find by ID
-    let found = WorkflowStep::find_by_id(&pool, created.workflow_step_id)
+    let found = WorkflowStep::find_by_id(&pool, created.workflow_step_uuid)
         .await?
         .expect("Step not found");
-    assert_eq!(found.workflow_step_id, created.workflow_step_id);
+    assert_eq!(found.workflow_step_uuid, created.workflow_step_uuid);
 
     // Test mark in process
     let mut step_to_process = found.clone();
@@ -127,7 +128,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(step_to_process.inputs, Some(new_inputs));
 
     // Test deletion
-    let deleted = WorkflowStep::delete(&pool, created.workflow_step_id).await?;
+    let deleted = WorkflowStep::delete(&pool, created.workflow_step_uuid).await?;
     assert!(deleted);
 
     // No cleanup needed - SQLx will roll back the test transaction automatically!
@@ -136,10 +137,14 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
 
 #[test]
 fn test_retry_limit_logic() {
+    let task_uuid = Uuid::now_v7();
+    let workflow_step_uuid = Uuid::now_v7();
+    let named_step_uuid = Uuid::now_v7();
+
     let mut step = WorkflowStep {
-        workflow_step_id: 1,
-        task_id: 1,
-        named_step_id: 1,
+        workflow_step_uuid,
+        task_uuid,
+        named_step_uuid,
         retryable: true,
         retry_limit: Some(3),
         in_process: false,

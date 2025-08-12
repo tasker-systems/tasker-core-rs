@@ -257,7 +257,7 @@ impl OrchestrationCore {
             .await?;
 
         info!(
-            task_id = result.task_id,
+            task_uuid = result.task_uuid.to_string(),
             step_count = result.step_count,
             "✅ CORE: Task initialized successfully"
         );
@@ -307,10 +307,10 @@ impl OrchestrationCore {
     /// this automatically through continuous processing.
     pub async fn enqueue_ready_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<crate::orchestration::OrchestrationCycleResult> {
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             "🚀 CORE: Enqueueing ready steps for task via orchestration cycle"
         );
 
@@ -318,7 +318,7 @@ impl OrchestrationCore {
         let result = self.orchestration_loop.run_cycle().await?;
 
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             tasks_processed = result.tasks_processed,
             steps_enqueued = result.total_steps_enqueued,
             "✅ CORE: Orchestration cycle completed - steps enqueued"

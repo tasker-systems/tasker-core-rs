@@ -4,13 +4,17 @@
 //! and ensuring proper integration with the PostgreSQL database.
 
 use tasker_core::database::sql_functions::*;
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_step_readiness_blocking_reason(_pool: sqlx::PgPool) -> sqlx::Result<()> {
+    let named_step_uuid = Uuid::now_v7();
+    let task_uuid = Uuid::now_v7();
+    let workflow_step_uuid = Uuid::now_v7();
     let step = StepReadinessStatus {
-        workflow_step_id: 1,
-        task_id: 1,
-        named_step_id: 1,
+        workflow_step_uuid,
+        task_uuid,
+        named_step_uuid,
         name: "test".to_string(),
         current_state: "pending".to_string(),
         dependencies_satisfied: false,
@@ -50,9 +54,11 @@ async fn test_system_health_score_calculation(_pool: sqlx::PgPool) -> sqlx::Resu
 
 #[sqlx::test]
 async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result<()> {
+    let task_uuid = Uuid::now_v7();
+    let named_task_uuid = Uuid::now_v7();
     let context = TaskExecutionContext {
-        task_id: 1,
-        named_task_id: 100,
+        task_uuid,
+        named_task_uuid,
         status: "in_progress".to_string(),
         total_steps: 10,
         pending_steps: 2,
@@ -76,10 +82,13 @@ async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result
 
 #[sqlx::test]
 async fn test_step_backoff_calculation(_pool: sqlx::PgPool) -> sqlx::Result<()> {
+    let task_uuid = Uuid::now_v7();
+    let named_step_uuid = Uuid::now_v7();
+    let workflow_step_uuid = Uuid::now_v7();
     let step = StepReadinessStatus {
-        workflow_step_id: 1,
-        task_id: 1,
-        named_step_id: 1,
+        workflow_step_uuid,
+        task_uuid,
+        named_step_uuid,
         name: "test".to_string(),
         current_state: "error".to_string(),
         dependencies_satisfied: true,

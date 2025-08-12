@@ -8,6 +8,7 @@ use magnus::value::ReprValue;
 use magnus::{Error, IntoValue, RHash, RString, TryConvert, Value};
 use std::collections::HashMap;
 use tracing::warn;
+use uuid::Uuid;
 
 /// Ruby wrapper for the Rust StepContext
 ///
@@ -15,8 +16,8 @@ use tracing::warn;
 /// BaseStepHandler while maintaining compatibility with existing patterns.
 #[derive(Debug, Clone)]
 pub struct StepContext {
-    step_id: i64,
-    task_id: i64,
+    step_uuid: Uuid,
+    task_uuid: Uuid,
     step_name: String,
     input_data: serde_json::Value,
     previous_results: HashMap<String, serde_json::Value>,
@@ -27,14 +28,14 @@ pub struct StepContext {
 
 impl StepContext {
     pub fn new(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: String,
         input_data: serde_json::Value,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             step_name,
             input_data,
             previous_results: HashMap::new(),
@@ -45,12 +46,12 @@ impl StepContext {
     }
 
     // Ruby-friendly accessor methods
-    pub fn step_id(&self) -> i64 {
-        self.step_id
+    pub fn step_uuid(&self) -> String {
+        self.step_uuid.to_string()
     }
 
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     pub fn step_name(&self) -> String {
@@ -105,7 +106,7 @@ impl StepContext {
 /// BaseTaskHandler while maintaining compatibility with existing patterns.
 #[derive(Debug, Clone)]
 pub struct TaskContext {
-    task_id: i64,
+    task_uuid: Uuid,
     task_name: String,
     namespace: String,
     input_data: serde_json::Value,
@@ -116,14 +117,14 @@ pub struct TaskContext {
 
 impl TaskContext {
     pub fn new(
-        task_id: i64,
+        task_uuid: Uuid,
         task_name: String,
         namespace: String,
         input_data: serde_json::Value,
         status: String,
     ) -> Self {
         Self {
-            task_id,
+            task_uuid,
             task_name,
             namespace,
             input_data,
@@ -134,8 +135,8 @@ impl TaskContext {
     }
 
     // Ruby-friendly accessor methods
-    pub fn task_id(&self) -> i64 {
-        self.task_id
+    pub fn task_uuid(&self) -> String {
+        self.task_uuid.to_string()
     }
 
     pub fn task_name(&self) -> String {

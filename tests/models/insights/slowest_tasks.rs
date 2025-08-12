@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{types::BigDecimal, PgPool};
 use tasker_core::models::insights::slowest_tasks::{SlowestTasks, SlowestTasksFilter};
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_get_slowest_tasks(pool: PgPool) -> sqlx::Result<()> {
@@ -80,8 +81,9 @@ async fn test_get_slowest_since(pool: PgPool) -> sqlx::Result<()> {
 
 #[test]
 fn test_helper_methods() {
+    let task_uuid = Uuid::now_v7();
     let task = SlowestTasks {
-        task_id: 1,
+        task_uuid,
         task_name: "test_task".to_string(),
         namespace_name: "test_namespace".to_string(),
         version: "1.0.0".to_string(),

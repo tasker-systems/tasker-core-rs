@@ -18,6 +18,7 @@ use tasker_core::orchestration::{
     bootstrap::{OrchestrationBootstrap, OrchestrationSystemHandle},
     OrchestrationCore,
 };
+use uuid::Uuid;
 use tracing::{error, info};
 
 /// Global handle to the embedded orchestration system
@@ -166,7 +167,7 @@ impl RubyTaskRequest {
 #[derive(Debug, Clone, Serialize)]
 struct TaskInitializationResponse {
     /// Task ID of the created task
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Success indicator
     pub success: bool,
     /// Human-readable message
@@ -192,7 +193,7 @@ impl TaskInitializationResponse {
         result: tasker_core::orchestration::task_initializer::TaskInitializationResult,
     ) -> Self {
         Self {
-            task_id: result.task_id,
+            task_uuid: result.task_uuid,
             success: true,
             message: format!(
                 "Task initialized via orchestration system with {} steps",
@@ -394,7 +395,7 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
 
     info!(
         "✅ EMBEDDED: Task initialized via orchestration system - ID: {}, Steps: {}",
-        result.task_id, result.step_count
+        result.task_uuid, result.step_count
     );
 
     // Use serde_magnus to serialize response to Ruby hash - much cleaner!
@@ -412,7 +413,9 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
 ///
 /// This provides a simple way for Ruby tests to trigger step enqueueing
 /// without complex orchestration setup.
-fn enqueue_task_steps(task_id: i64) -> Result<String, Error> {
+fn enqueue_task_steps(task_uuid_str: String) -> Result<String, Error> {
+    let task_uuid = Uuid::parse_str(&task_uuid_str)
+        .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Invalid UUID: {}", e)))?;
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
         Error::new(
@@ -434,14 +437,14 @@ fn enqueue_task_steps(task_id: i64) -> Result<String, Error> {
 
     let result = runtime_handle
         .block_on(async {
-            system.enqueue_ready_steps(task_id).await.map_err(|e| {
-                error!("Failed to enqueue steps for task {}: {}", task_id, e);
+            system.enqueue_ready_steps(task_uuid).await.map_err(|e| {
+                error!("Failed to enqueue steps for task {}: {}", task_uuid, e);
                 format!("Step enqueueing failed: {e}")
             })
         })
         .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
-    Ok(format!("Enqueued steps for task {task_id}: {result:?}"))
+    Ok(format!("Enqueued steps for task {task_uuid}: {result:?}"))
 }
 
 /// Setup test database (comprehensive setup with migrations and cleanup)

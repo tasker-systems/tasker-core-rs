@@ -5,7 +5,7 @@ require_relative 'function_wrapper'
 module TaskerCore
   module Database
     module Functions
-      # Wrapper for the get_analytics_metrics_v01 SQL function
+      # Wrapper for the get_analytics_metrics SQL function
       #
       # This function provides comprehensive analytics metrics for performance monitoring,
       # including system overview, performance metrics, and duration calculations.
@@ -46,17 +46,17 @@ module TaskerCore
           attribute :calculated_at, Types::String
         end
 
-        # Call the get_analytics_metrics_v01 SQL function
+        # Call the get_analytics_metrics SQL function
         #
         # @param since_timestamp [Time, nil] Start time for analysis (defaults to 1 hour ago in SQL)
         # @return [AnalyticsMetrics] Comprehensive analytics metrics
         # @raise [ActiveRecord::StatementInvalid] If the SQL function fails
         def self.call(since_timestamp = nil)
           if since_timestamp
-            sql = 'SELECT * FROM get_analytics_metrics_v01($1)'
+            sql = 'SELECT * FROM get_analytics_metrics($1)'
             result = connection.select_all(sql, 'AnalyticsMetrics Load', [since_timestamp])
           else
-            sql = 'SELECT * FROM get_analytics_metrics_v01()'
+            sql = 'SELECT * FROM get_analytics_metrics()'
             result = connection.select_all(sql, 'AnalyticsMetrics Load')
           end
 

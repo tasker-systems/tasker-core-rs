@@ -41,7 +41,7 @@
 //!
 //! This module integrates with the PostgreSQL function:
 //!
-//! ### `get_analytics_metrics_v01(since_timestamp timestamp with time zone)`
+//! ### `get_analytics_metrics(since_timestamp timestamp with time zone)`
 //! - Computes comprehensive system analytics and performance metrics
 //! - Includes task throughput, completion rates, error rates, and health scores
 //! - Analyzes recent activity for trend analysis
@@ -75,7 +75,7 @@ use sqlx::{types::BigDecimal, FromRow, PgPool};
 /// Represents computed system analytics and performance metrics.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
-/// `get_analytics_metrics_v01()` SQL function.
+/// `get_analytics_metrics()` SQL function.
 ///
 /// # Computed Fields
 ///
@@ -115,7 +115,7 @@ pub struct AnalyticsMetrics {
 impl AnalyticsMetrics {
     /// Get current system analytics metrics using SQL function.
     ///
-    /// This method calls the `get_analytics_metrics_v01()` PostgreSQL function
+    /// This method calls the `get_analytics_metrics()` PostgreSQL function
     /// to compute real-time analytics and performance statistics for the entire system.
     ///
     /// # Parameters
@@ -164,7 +164,7 @@ impl AnalyticsMetrics {
         let metrics = sqlx::query_as!(
             AnalyticsMetrics,
             r#"
-            SELECT 
+            SELECT
                 active_tasks_count as "active_tasks_count!: i64",
                 total_namespaces_count as "total_namespaces_count!: i64",
                 unique_task_types_count as "unique_task_types_count!: i64",
@@ -179,7 +179,7 @@ impl AnalyticsMetrics {
                 step_throughput as "step_throughput!: i64",
                 analysis_period_start as "analysis_period_start!: DateTime<Utc>",
                 calculated_at as "calculated_at!: DateTime<Utc>"
-            FROM get_analytics_metrics_v01($1)
+            FROM get_analytics_metrics($1)
             "#,
             since_timestamp
         )

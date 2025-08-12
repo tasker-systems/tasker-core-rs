@@ -24,6 +24,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
+use uuid::Uuid;
 
 static GLOBAL_TESTING_FACTORY: OnceLock<Arc<SharedTestingFactory>> = OnceLock::new();
 
@@ -132,7 +133,7 @@ impl SharedTestingFactory {
                 .find_or_create_named_task(
                     pool,
                     &input.name,
-                    namespace.task_namespace_id.into(),
+                    namespace.task_namespace_uuid,
                     input.version.as_deref().unwrap_or("0.1.0"),
                 )
                 .await
@@ -147,7 +148,7 @@ impl SharedTestingFactory {
 
             // Create new task
             let new_task = NewTask {
-                named_task_id: named_task.named_task_id,
+                named_task_uuid: named_task.named_task_uuid,
                 requested_at: None, // Will default to NOW()
                 initiator: input.initiator.clone(),
                 source_system: Some("shared_testing_factory".to_string()),
@@ -162,7 +163,7 @@ impl SharedTestingFactory {
 
             match Task::create(pool, new_task).await {
                 Ok(task) => Ok(TestTaskOutput {
-                    task_id: task.task_id,
+                    task_uuid: task.task_uuid,
                     namespace: input.namespace,
                     name: input.name,
                     version: input.version.unwrap_or("0.1.0".to_string()),
@@ -195,19 +196,20 @@ impl SharedTestingFactory {
         &self,
         pool: &PgPool,
         name: &str,
-        namespace_id: i64,
+        namespace_uuid: Uuid,
         version: &str,
     ) -> Result<NamedTask, sqlx::Error> {
         // Use the model's find_or_create method - 1 line instead of 25!
-        NamedTask::find_or_create_by_name_version_namespace(pool, name, version, namespace_id).await
+        NamedTask::find_or_create_by_name_version_namespace(pool, name, version, namespace_uuid)
+            .await
     }
 
     async fn find_or_create_named_step(
         &self,
         pool: &PgPool,
         name: &str,
-        _namespace_id: i64, // Not used in actual schema
-        _version: &str,     // Not used in actual schema
+        _namespace_id: Uuid, // Not used in actual schema
+        _version: &str,      // Not used in actual schema
     ) -> Result<NamedStep, sqlx::Error> {
         // Use the model's find_or_create method - 1 line instead of 35!
         NamedStep::find_or_create_by_name_simple(pool, name).await
@@ -216,20 +218,20 @@ impl SharedTestingFactory {
     /// Create test workflow step using shared types
     pub fn create_test_step(&self, input: CreateTestStepInput) -> SharedFFIResult<TestStepOutput> {
         debug!(
-            "🔍 SHARED FACTORY create_test_step: task_id={}, name={}",
-            input.task_id, input.name
+            "🔍 SHARED FACTORY create_test_step: task_uuid={}, name={}",
+            input.task_uuid, input.name
         );
 
         execute_async(async {
             let pool = self.database_pool();
 
             // Verify task exists using model layer (automatically handles correct table names)
-            let task = match Task::find_by_id(pool, input.task_id).await {
+            let task = match Task::find_by_id(pool, input.task_uuid).await {
                 Ok(Some(t)) => t,
                 Ok(None) => {
                     return Err(SharedFFIError::StepCreationFailed(format!(
                         "Task {} not found",
-                        input.task_id
+                        input.task_uuid
                     )))
                 }
                 Err(e) => {
@@ -240,7 +242,7 @@ impl SharedTestingFactory {
             };
 
             // Get namespace for named step lookup using model layer
-            let named_task = match NamedTask::find_by_id(pool, task.named_task_id).await {
+            let named_task = match NamedTask::find_by_uuid(pool, task.named_task_uuid).await {
                 Ok(Some(nt)) => nt,
                 Ok(None) => {
                     return Err(SharedFFIError::StepCreationFailed(
@@ -256,7 +258,12 @@ impl SharedTestingFactory {
 
             // Find or create named step
             let named_step = match self
-                .find_or_create_named_step(pool, &input.name, named_task.task_namespace_id, "0.1.0")
+                .find_or_create_named_step(
+                    pool,
+                    &input.name,
+                    named_task.task_namespace_uuid,
+                    "0.1.0",
+                )
                 .await
             {
                 Ok(ns) => ns,
@@ -269,8 +276,8 @@ impl SharedTestingFactory {
 
             // Create new workflow step with actual available fields
             let new_step = NewWorkflowStep {
-                task_id: input.task_id,
-                named_step_id: named_step.named_step_id,
+                task_uuid: input.task_uuid,
+                named_step_uuid: named_step.named_step_uuid,
                 retryable: Some(true),
                 retry_limit: Some(3),
                 inputs: input.config.clone(), // Use config as inputs
@@ -279,8 +286,8 @@ impl SharedTestingFactory {
 
             match WorkflowStep::create(pool, new_step).await {
                 Ok(step) => Ok(TestStepOutput {
-                    workflow_step_id: step.workflow_step_id,
-                    task_id: step.task_id,
+                    workflow_step_uuid: step.workflow_step_uuid,
+                    task_uuid: step.task_uuid,
                     name: input.name,
                     handler_class: input.handler_class.unwrap_or("TestStepHandler".to_string()),
                     status: if step.processed {
@@ -328,7 +335,7 @@ impl SharedTestingFactory {
                 .find_or_create_named_task(
                     pool,
                     &input.task_name,
-                    namespace.task_namespace_id.into(),
+                    namespace.task_namespace_uuid,
                     "0.1.0",
                 )
                 .await
@@ -346,7 +353,7 @@ impl SharedTestingFactory {
                 .find_or_create_named_step(
                     pool,
                     &input.step_name,
-                    namespace.task_namespace_id.into(),
+                    namespace.task_namespace_uuid,
                     "0.1.0",
                 )
                 .await
@@ -361,7 +368,7 @@ impl SharedTestingFactory {
 
             let foundation_id = format!(
                 "foundation_{}_{}",
-                namespace.task_namespace_id,
+                namespace.task_namespace_uuid,
                 SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -372,19 +379,19 @@ impl SharedTestingFactory {
                 foundation_id,
                 namespace: json!({
                     "name": namespace.name,
-                    "namespace_id": namespace.task_namespace_id,
+                    "namespace_id": namespace.task_namespace_uuid,
                     "description": namespace.description
                 }),
                 named_task: json!({
                     "name": named_task.name,
-                    "named_task_id": named_task.named_task_id,
-                    "namespace_id": named_task.task_namespace_id,
+                    "named_task_uuid": named_task.named_task_uuid,
+                    "namespace_id": named_task.task_namespace_uuid,
                     "version": named_task.version
                 }),
                 named_step: json!({
                     "name": named_step.name,
-                    "named_step_id": named_step.named_step_id,
-                    "dependent_system_id": named_step.dependent_system_id,
+                    "named_step_uuid": named_step.named_step_uuid,
+                    "dependent_system_id": named_step.dependent_system_uuid,
                     "description": named_step.description
                 }),
                 status: "created".to_string(),

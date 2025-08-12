@@ -64,14 +64,14 @@ module TaskerCore
         # Log the transition for debugging
         effective_current_state = TaskStateMachine.effective_current_state(task)
         logger.debug do
-          "Task #{task.task_id} transitioning from #{effective_current_state} to #{transition.to_state}"
+          "Task #{task.task_uuid} transitioning from #{effective_current_state} to #{transition.to_state}"
         end
 
         # Fire before transition event
         TaskStateMachine.safe_fire_event(
           Constants::TaskEvents::BEFORE_TRANSITION,
           {
-            task_id: task.task_id,
+            task_uuid: task.task_uuid,
             from_state: transition.from_state,
             to_state: transition.to_state,
             transition_event: TaskStateMachine.determine_transition_event_name(transition.from_state,
@@ -90,7 +90,7 @@ module TaskerCore
           TaskStateMachine.safe_fire_event(
             event_name,
             {
-              task_id: task.task_id,
+              task_uuid: task.task_uuid,
               task_name: task.name,
               task_context: task.context,
               from_state: transition.from_state,

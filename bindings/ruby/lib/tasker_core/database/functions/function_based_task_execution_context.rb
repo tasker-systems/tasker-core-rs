@@ -9,8 +9,8 @@ module TaskerCore
       # Maintains the same interface as the view-based model but uses SQL functions for performance
       class FunctionBasedTaskExecutionContext < FunctionWrapper
         # Define attributes to match the SQL function output
-        attribute :task_id, :integer
-        attribute :named_task_id, :integer
+        attribute :task_uuid, :string
+        attribute :named_task_uuid, :string
         attribute :status, :string
         attribute :total_steps, :integer
         attribute :pending_steps, :integer
@@ -24,18 +24,18 @@ module TaskerCore
         attribute :health_status, :string
 
         # Class methods that use SQL functions
-        def self.find(task_id)
-          sql = 'SELECT * FROM get_task_execution_context($1::BIGINT)'
-          binds = [task_id]
+        def self.find(task_uuid)
+          sql = 'SELECT * FROM get_task_execution_context($1::UUID)'
+          binds = [task_uuid]
           single_from_sql_function(sql, binds, 'TaskExecutionContext Load')
         end
 
-        def self.for_tasks(task_ids)
-          return [] if task_ids.empty?
+        def self.for_tasks(task_uuids)
+          return [] if task_uuids.empty?
 
           # Use the batch function to avoid N+1 queries
-          sql = 'SELECT * FROM get_task_execution_contexts_batch($1::BIGINT[])'
-          binds = [task_ids]
+          sql = 'SELECT * FROM get_task_execution_contexts_batch($1::UUID[])'
+          binds = [task_uuids]
           from_sql_function(sql, binds, 'TaskExecutionContext Batch Load')
         end
 
@@ -142,7 +142,7 @@ module TaskerCore
 
         # Association (lazy-loaded)
         def task
-          @task ||= TaskerCore::Database::Models::Task.find(task_id)
+          @task ||= TaskerCore::Database::Models::Task.find(task_uuid)
         end
       end
     end

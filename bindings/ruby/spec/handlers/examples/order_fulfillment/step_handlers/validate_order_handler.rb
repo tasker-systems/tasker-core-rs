@@ -6,7 +6,7 @@ module OrderFulfillment
   module StepHandlers
     class ValidateOrderHandler < TaskerCore::StepHandler::Base
       def call(task, sequence, step)
-        logger.info "🎯 VALIDATE_ORDER: Starting order validation - task_id=#{task.task_id}, step_name=#{step.name}"
+        logger.info "🎯 VALIDATE_ORDER: Starting order validation - task_uuid=#{task.task_uuid}, step_name=#{step.name}"
 
         # Extract and validate all required inputs
         order_inputs = extract_and_validate_inputs(task, sequence, step)

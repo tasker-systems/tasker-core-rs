@@ -1,4 +1,5 @@
 use std::fmt;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskerError {
@@ -53,24 +54,24 @@ pub enum OrchestrationError {
     /// State machine transition failed
     StateTransitionFailed {
         entity_type: String,
-        entity_id: i64,
+        entity_id: Uuid,
         reason: String,
     },
     /// Task is in invalid state for operation
     InvalidTaskState {
-        task_id: i64,
+        task_uuid: Uuid,
         current_state: String,
         expected_states: Vec<String>,
     },
     /// Workflow step not found
-    WorkflowStepNotFound { step_id: i64 },
+    WorkflowStepNotFound { step_uuid: Uuid },
     /// Step state machine not found
-    StepStateMachineNotFound { step_id: i64 },
+    StepStateMachineNotFound { step_uuid: Uuid },
     /// State verification failed
-    StateVerificationFailed { step_id: i64, reason: String },
+    StateVerificationFailed { step_uuid: Uuid, reason: String },
     /// Task execution delegation failed
     DelegationFailed {
-        task_id: i64,
+        task_uuid: Uuid,
         framework: String,
         reason: String,
     },
@@ -93,32 +94,35 @@ impl fmt::Display for OrchestrationError {
                 )
             }
             OrchestrationError::InvalidTaskState {
-                task_id,
+                task_uuid,
                 current_state,
                 expected_states,
             } => {
                 write!(
                     f,
-                    "Task {task_id} is in invalid state '{current_state}', expected one of: {expected_states:?}"
+                    "Task {task_uuid} is in invalid state '{current_state}', expected one of: {expected_states:?}"
                 )
             }
-            OrchestrationError::WorkflowStepNotFound { step_id } => {
-                write!(f, "Workflow step {step_id} not found")
+            OrchestrationError::WorkflowStepNotFound { step_uuid } => {
+                write!(f, "Workflow step {step_uuid} not found")
             }
-            OrchestrationError::StepStateMachineNotFound { step_id } => {
-                write!(f, "Step state machine for step {step_id} not found")
+            OrchestrationError::StepStateMachineNotFound { step_uuid } => {
+                write!(f, "Step state machine for step {step_uuid} not found")
             }
-            OrchestrationError::StateVerificationFailed { step_id, reason } => {
-                write!(f, "State verification failed for step {step_id}: {reason}")
+            OrchestrationError::StateVerificationFailed { step_uuid, reason } => {
+                write!(
+                    f,
+                    "State verification failed for step {step_uuid}: {reason}"
+                )
             }
             OrchestrationError::DelegationFailed {
-                task_id,
+                task_uuid,
                 framework,
                 reason,
             } => {
                 write!(
                     f,
-                    "Delegation to {framework} failed for task {task_id}: {reason}"
+                    "Delegation to {framework} failed for task {task_uuid}: {reason}"
                 )
             }
         }
@@ -132,7 +136,7 @@ impl From<crate::state_machine::errors::StateMachineError> for OrchestrationErro
     fn from(error: crate::state_machine::errors::StateMachineError) -> Self {
         OrchestrationError::StateTransitionFailed {
             entity_type: "Unknown".to_string(),
-            entity_id: 0,
+            entity_id: Uuid::now_v7(),
             reason: error.to_string(),
         }
     }

@@ -12,7 +12,7 @@
 //!
 //! This module integrates with the PostgreSQL function:
 //!
-//! ### `get_slowest_tasks_v01(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)`
+//! ### `get_slowest_tasks(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)`
 //! - Identifies the slowest executing tasks
 //! - Supports filtering by namespace, task name, and version
 //! - Returns configurable number of results with comprehensive task analysis
@@ -22,7 +22,7 @@
 //! The function returns:
 //! ```sql
 //! RETURNS TABLE(
-//!   task_id bigint,
+//!   task_uuid bigint,
 //!   task_name character varying,
 //!   namespace_name character varying,
 //!   version character varying,
@@ -39,12 +39,12 @@
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::BigDecimal, FromRow, PgPool};
+use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 
 /// Represents computed slowest tasks analytics.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
-/// `get_slowest_tasks_v01()` SQL function.
+/// `get_slowest_tasks()` SQL function.
 ///
 /// # Computed Fields
 ///
@@ -64,7 +64,7 @@ use sqlx::{types::BigDecimal, FromRow, PgPool};
 /// Only read operations are available via the SQL function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct SlowestTasks {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub task_name: String,
     pub namespace_name: String,
     pub version: String,
@@ -156,8 +156,8 @@ impl SlowestTasks {
         let tasks = sqlx::query_as!(
             SlowestTasks,
             r#"
-            SELECT 
-                task_id as "task_id!: i64",
+            SELECT
+                task_uuid as "task_uuid!: Uuid",
                 task_name as "task_name!: String",
                 namespace_name as "namespace_name!: String",
                 version as "version!: String",
@@ -169,7 +169,7 @@ impl SlowestTasks {
                 completed_at as "completed_at?: NaiveDateTime",
                 initiator,
                 source_system
-            FROM get_slowest_tasks_v01($1, $2, $3, $4, $5)
+            FROM get_slowest_tasks($1, $2, $3, $4, $5)
             "#,
             filter.since_timestamp,
             filter.limit_count.unwrap_or(10),

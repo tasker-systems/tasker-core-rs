@@ -22,12 +22,15 @@ async fn test_basic_transition_creation(pool: PgPool) -> Result<(), Box<dyn std:
 
     // Create a simple transition
     let transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .to_state("complete")
         .create(&pool)
         .await?;
 
-    assert_eq!(transition.workflow_step_id, workflow_step.workflow_step_id);
+    assert_eq!(
+        transition.workflow_step_uuid,
+        workflow_step.workflow_step_uuid
+    );
     assert_eq!(transition.to_state, "complete");
     assert!(transition.most_recent);
     assert!(transition.metadata.is_some());
@@ -49,7 +52,7 @@ async fn test_transition_with_error_metadata(
         .await?;
 
     let error_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .with_error("Network timeout")
         .create(&pool)
         .await?;
@@ -75,7 +78,7 @@ async fn test_transition_with_execution_duration(
         .await?;
 
     let complete_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .to_complete_with_duration(PI)
         .create(&pool)
         .await?;
@@ -103,7 +106,7 @@ async fn test_retry_transition(pool: PgPool) -> Result<(), Box<dyn std::error::E
         .await?;
 
     let retry_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .with_retry_attempt(2)
         .create(&pool)
         .await?;
@@ -126,7 +129,7 @@ async fn test_manual_resolution_transition(pool: PgPool) -> Result<(), Box<dyn s
         .await?;
 
     let resolved_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .resolved_by("admin@company.com")
         .create(&pool)
         .await?;
@@ -151,7 +154,7 @@ async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn st
 
     // Create first transition
     let first_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .to_state("pending")
         .create(&pool)
         .await?;
@@ -160,7 +163,7 @@ async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn st
 
     // Create second transition
     let second_transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .to_in_progress()
         .create(&pool)
         .await?;
@@ -168,7 +171,7 @@ async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn st
     assert!(second_transition.most_recent);
 
     // Verify first transition is no longer most recent
-    let updated_first = WorkflowStepTransition::find_by_id(&pool, first_transition.id)
+    let updated_first = WorkflowStepTransition::find_by_uuid(&pool, first_transition.workflow_step_transition_uuid)
         .await?
         .unwrap();
     assert!(!updated_first.most_recent);
@@ -184,7 +187,7 @@ async fn test_complete_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std
         .await?;
 
     let transitions = WorkflowStepTransitionFactory::create_complete_lifecycle(
-        workflow_step.workflow_step_id,
+        workflow_step.workflow_step_uuid,
         &pool,
     )
     .await?;
@@ -198,7 +201,7 @@ async fn test_complete_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std
 
     // Refetch from database to get updated most_recent flags
     let all_transitions =
-        WorkflowStepTransition::list_by_workflow_step(&pool, workflow_step.workflow_step_id)
+        WorkflowStepTransition::list_by_workflow_step(&pool, workflow_step.workflow_step_uuid)
             .await?;
 
     // Only the last should be most recent
@@ -221,7 +224,7 @@ async fn test_failed_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::
         .await?;
 
     let transitions = WorkflowStepTransitionFactory::create_failed_lifecycle(
-        workflow_step.workflow_step_id,
+        workflow_step.workflow_step_uuid,
         "Database connection failed",
         &pool,
     )
@@ -256,7 +259,7 @@ async fn test_retry_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::e
         .await?;
 
     let transitions = WorkflowStepTransitionFactory::create_retry_lifecycle(
-        workflow_step.workflow_step_id,
+        workflow_step.workflow_step_uuid,
         3, // Third attempt
         &pool,
     )
@@ -302,7 +305,7 @@ async fn test_custom_metadata_preservation(pool: PgPool) -> Result<(), Box<dyn s
     });
 
     let transition = WorkflowStepTransitionFactory::new()
-        .for_workflow_step(workflow_step.workflow_step_id)
+        .for_workflow_step(workflow_step.workflow_step_uuid)
         .with_metadata(custom_metadata.clone())
         .to_complete()
         .create(&pool)
@@ -339,7 +342,7 @@ async fn test_custom_metadata_preservation(pool: PgPool) -> Result<(), Box<dyn s
 }
 
 #[sqlx::test]
-async fn test_invalid_workflow_step_id_error(
+async fn test_invalid_workflow_step_uuid_error(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = WorkflowStepTransitionFactory::new()
@@ -349,7 +352,7 @@ async fn test_invalid_workflow_step_id_error(
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert!(error.to_string().contains("workflow_step_id is required"));
+    assert!(error.to_string().contains("workflow_step_uuid is required"));
 
     Ok(())
 }
@@ -364,12 +367,15 @@ async fn test_database_integration_with_scopes(
         .await?;
 
     // Create some transitions
-    WorkflowStepTransitionFactory::create_complete_lifecycle(workflow_step.workflow_step_id, &pool)
-        .await?;
+    WorkflowStepTransitionFactory::create_complete_lifecycle(
+        workflow_step.workflow_step_uuid,
+        &pool,
+    )
+    .await?;
 
     // Use scopes from our implementation to verify transitions were created
     let current_transition =
-        WorkflowStepTransition::get_current(&pool, workflow_step.workflow_step_id).await?;
+        WorkflowStepTransition::get_current(&pool, workflow_step.workflow_step_uuid).await?;
 
     assert!(current_transition.is_some());
     let current = current_transition.unwrap();
@@ -378,7 +384,7 @@ async fn test_database_integration_with_scopes(
 
     // Get all transitions for the step
     let all_transitions =
-        WorkflowStepTransition::list_by_workflow_step(&pool, workflow_step.workflow_step_id)
+        WorkflowStepTransition::list_by_workflow_step(&pool, workflow_step.workflow_step_uuid)
             .await?;
 
     assert_eq!(all_transitions.len(), 3);

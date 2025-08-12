@@ -8,7 +8,7 @@ use crate::models::Task;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
-/// Query builder for Task scopes  
+/// Query builder for Task scopes
 pub struct TaskScope {
     query: QueryBuilder<'static, Postgres>,
     has_current_transitions_join: bool,
@@ -52,10 +52,10 @@ impl TaskScope {
         if !self.has_current_transitions_join {
             self.query.push(
                 " INNER JOIN ( \
-                SELECT DISTINCT ON (task_id) task_id, to_state, created_at \
+                SELECT DISTINCT ON (task_uuid) task_uuid, to_state, created_at \
                 FROM tasker_task_transitions \
-                ORDER BY task_id, sort_key DESC \
-            ) current_transitions ON current_transitions.task_id = tasker_tasks.task_id",
+                ORDER BY task_uuid, sort_key DESC \
+            ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid",
             );
             self.has_current_transitions_join = true;
         }
@@ -96,7 +96,7 @@ impl TaskScope {
     fn ensure_named_tasks_join(&mut self) {
         if !self.has_named_tasks_join {
             if !self.has_conditions {
-                self.query.push(" INNER JOIN tasker_named_tasks ON tasker_named_tasks.named_task_id = tasker_tasks.named_task_id");
+                self.query.push(" INNER JOIN tasker_named_tasks ON tasker_named_tasks.named_task_uuid = tasker_tasks.named_task_uuid");
                 self.has_named_tasks_join = true;
             } else {
                 eprintln!("Warning: Cannot add named_tasks JOIN after WHERE conditions. Call .with_task_name() before other scopes.");
@@ -111,7 +111,7 @@ impl TaskScope {
         self.ensure_named_tasks_join();
         if !self.has_namespaces_join {
             if !self.has_conditions {
-                self.query.push(" INNER JOIN tasker_task_namespaces ON tasker_task_namespaces.task_namespace_id = tasker_named_tasks.task_namespace_id");
+                self.query.push(" INNER JOIN tasker_task_namespaces ON tasker_task_namespaces.task_namespace_uuid = tasker_named_tasks.task_namespace_uuid");
                 self.has_namespaces_join = true;
             } else {
                 eprintln!("Warning: Cannot add namespaces JOIN after WHERE conditions. Call namespace scopes before other scopes.");
@@ -122,7 +122,7 @@ impl TaskScope {
     /// Ensure workflow steps join exists
     fn ensure_workflow_steps_join(&mut self) {
         if !self.has_workflow_steps_join {
-            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.task_id = tasker_tasks.task_id");
+            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.task_uuid = tasker_tasks.task_uuid");
             self.has_workflow_steps_join = true;
         }
     }
@@ -132,10 +132,10 @@ impl TaskScope {
         self.ensure_workflow_steps_join();
         if !self.has_workflow_step_transitions_join {
             self.query.push(" INNER JOIN ( \
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state, created_at, most_recent \
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state, created_at, most_recent \
                 FROM tasker_workflow_step_transitions \
-                ORDER BY workflow_step_id, sort_key DESC \
-            ) wst ON wst.workflow_step_id = tasker_workflow_steps.workflow_step_id");
+                ORDER BY workflow_step_uuid, sort_key DESC \
+            ) wst ON wst.workflow_step_uuid = tasker_workflow_steps.workflow_step_uuid");
             self.has_workflow_step_transitions_join = true;
         }
     }
@@ -165,10 +165,10 @@ impl TaskScope {
         if !self.has_current_transitions_join {
             self.query.push(
                 " INNER JOIN ( \
-                SELECT DISTINCT ON (task_id) task_id, to_state, created_at \
+                SELECT DISTINCT ON (task_uuid) task_uuid, to_state, created_at \
                 FROM tasker_task_transitions \
-                ORDER BY task_id, sort_key DESC \
-            ) current_transitions ON current_transitions.task_id = tasker_tasks.task_id",
+                ORDER BY task_uuid, sort_key DESC \
+            ) current_transitions ON current_transitions.task_uuid = tasker_tasks.task_uuid",
             );
             self.has_current_transitions_join = true;
         }

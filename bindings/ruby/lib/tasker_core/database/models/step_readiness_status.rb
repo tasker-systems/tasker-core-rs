@@ -7,45 +7,45 @@ module TaskerCore
       # This class explicitly delegates to the function-based implementation for better maintainability
       class StepReadinessStatus
         # Explicit delegation of class methods to function-based implementation
-        def self.for_task(task_id, step_ids = nil)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id, step_ids)
+        def self.for_task(task_uuid, step_uuids = nil)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_uuid, step_uuids)
         end
 
-        def self.for_steps(task_id, step_ids)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_steps(task_id, step_ids)
+        def self.for_steps(task_uuid, step_uuids)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_steps(task_uuid, step_uuids)
         end
 
-        def self.for_tasks(task_ids)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_tasks(task_ids)
+        def self.for_tasks(task_uuids)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_tasks(task_uuids)
         end
 
-        # Task-scoped methods that require task_id parameter
-        def self.ready_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.ready_for_task(task_id)
+        # Task-scoped methods that require task_uuid parameter
+        def self.ready_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.ready_for_task(task_uuid)
         end
 
-        def self.blocked_by_dependencies_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.blocked_by_dependencies_for_task(task_id)
+        def self.blocked_by_dependencies_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.blocked_by_dependencies_for_task(task_uuid)
         end
 
-        def self.blocked_by_retry_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.blocked_by_retry_for_task(task_id)
+        def self.blocked_by_retry_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.blocked_by_retry_for_task(task_uuid)
         end
 
-        def self.pending_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.pending_for_task(task_id)
+        def self.pending_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.pending_for_task(task_uuid)
         end
 
-        def self.failed_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.failed_for_task(task_id)
+        def self.failed_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.failed_for_task(task_uuid)
         end
 
-        def self.in_progress_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.in_progress_for_task(task_id)
+        def self.in_progress_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.in_progress_for_task(task_uuid)
         end
 
-        def self.complete_for_task(task_id)
-          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.complete_for_task(task_id)
+        def self.complete_for_task(task_uuid)
+          TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.complete_for_task(task_uuid)
         end
 
         # For backward compatibility, maintain the active method but point to function-based implementation
@@ -54,7 +54,7 @@ module TaskerCore
         end
 
         def self.all_steps_complete_for_task?(task)
-          complete = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.complete_for_task(task.task_id)
+          complete = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.complete_for_task(task.task_uuid)
           complete.length == task.workflow_steps.count
         end
       end

@@ -34,7 +34,7 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
             ),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -44,7 +44,7 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
     let task = Task::create(
         &pool,
         NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None,
             initiator: Some("test".to_string()),
             source_system: Some("test".to_string()),
@@ -62,13 +62,13 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
     .expect("Failed to create task");
 
     // Test getting execution context
-    let context = TaskExecutionContext::get_for_task(&pool, task.task_id)
+    let context = TaskExecutionContext::get_for_task(&pool, task.task_uuid)
         .await
         .expect("Failed to get execution context");
 
     if let Some(ctx) = context {
-        assert_eq!(ctx.task_id, task.task_id);
-        assert_eq!(ctx.named_task_id, task.named_task_id);
+        assert_eq!(ctx.task_uuid, task.task_uuid);
+        assert_eq!(ctx.named_task_uuid, task.named_task_uuid);
         // Task with no steps should have zero counts
         assert_eq!(ctx.total_steps, 0);
         assert_eq!(ctx.completed_steps, 0);
@@ -76,12 +76,12 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
     }
 
     // Test batch operation
-    let contexts = TaskExecutionContext::get_for_tasks(&pool, &[task.task_id])
+    let contexts = TaskExecutionContext::get_for_tasks(&pool, &[task.task_uuid])
         .await
         .expect("Failed to get batch execution contexts");
 
     assert_eq!(contexts.len(), 1);
-    assert_eq!(contexts[0].task_id, task.task_id);
+    assert_eq!(contexts[0].task_uuid, task.task_uuid);
 
     Ok(())
 }
@@ -89,8 +89,8 @@ async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
 #[test]
 fn test_helper_methods() {
     let context = TaskExecutionContext {
-        task_id: 1,
-        named_task_id: 1,
+        task_uuid: 1,
+        named_task_uuid: 1,
         status: "processing".to_string(),
         total_steps: 10,
         pending_steps: 2,

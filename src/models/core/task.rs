@@ -19,8 +19,8 @@
 //! ## Database Schema
 //!
 //! Maps to `tasker_tasks` table with the following key columns:
-//! - `task_id`: Primary key (BIGINT)
-//! - `named_task_id`: References task template (INTEGER)
+//! - `task_uuid`: Primary key (UUID v7)
+//! - `named_task_uuid`: References task template (UUID)
 //! - `identity_hash`: SHA-256 for deduplication (VARCHAR, indexed)
 //! - `context`: JSONB for execution context
 //! - `tags`: JSONB for metadata and filtering
@@ -41,6 +41,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// Represents a task execution instance with workflow orchestration metadata.
 ///
@@ -53,8 +54,8 @@ use sqlx::{FromRow, PgPool};
 /// Maps directly to the `tasker_tasks` table with Rails-compatible schema:
 /// ```sql
 /// CREATE TABLE tasker_tasks (
-///   task_id BIGSERIAL PRIMARY KEY,
-///   named_task_id INTEGER NOT NULL,
+///   task_uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+///   named_task_uuid UUID NOT NULL,
 ///   complete BOOLEAN DEFAULT false,
 ///   identity_hash VARCHAR(64) NOT NULL,
 ///   context JSONB,
@@ -66,7 +67,7 @@ use sqlx::{FromRow, PgPool};
 /// # Identity Deduplication
 ///
 /// The `identity_hash` field prevents duplicate task execution by creating a SHA-256
-/// hash from the named_task_id and context. This ensures idempotent task creation.
+/// hash from the named_task_uuid and context. This ensures idempotent task creation.
 ///
 /// # JSONB Context Structure
 ///
@@ -80,8 +81,8 @@ use sqlx::{FromRow, PgPool};
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Task {
-    pub task_id: i64,
-    pub named_task_id: i32,
+    pub task_uuid: Uuid,
+    pub named_task_uuid: Uuid,
     pub complete: bool,
     pub requested_at: NaiveDateTime,
     pub initiator: Option<String>,
@@ -102,7 +103,7 @@ pub struct Task {
 /// New Task for creation (without generated fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewTask {
-    pub named_task_id: i32,
+    pub named_task_uuid: Uuid,
     pub requested_at: Option<NaiveDateTime>, // Defaults to NOW() if not provided
     pub initiator: Option<String>,
     pub source_system: Option<String>,
@@ -133,16 +134,16 @@ impl Task {
             Task,
             r#"
             INSERT INTO tasker_tasks (
-                named_task_id, complete, requested_at, initiator, source_system,
-                reason, bypass_steps, tags, context, identity_hash, 
+                named_task_uuid, complete, requested_at, initiator, source_system,
+                reason, bypass_steps, tags, context, identity_hash,
                 priority, claim_timeout_seconds, created_at, updated_at
             )
-            VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-            RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
-                      reason, bypass_steps, tags, context, identity_hash, 
+            VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+            RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                      reason, bypass_steps, tags, context, identity_hash,
                       claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             "#,
-            sanitized_task.named_task_id,
+            sanitized_task.named_task_uuid,
             sanitized_task.requested_at,
             sanitized_task.initiator,
             sanitized_task.source_system,
@@ -169,16 +170,16 @@ impl Task {
             Task,
             r#"
         INSERT INTO tasker_tasks (
-            named_task_id, complete, requested_at, initiator, source_system,
-            reason, bypass_steps, tags, context, identity_hash, 
+            named_task_uuid, complete, requested_at, initiator, source_system,
+            reason, bypass_steps, tags, context, identity_hash,
             priority, claim_timeout_seconds, created_at, updated_at
         )
-        VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-        RETURNING task_id, named_task_id, complete, requested_at, initiator, source_system,
-                  reason, bypass_steps, tags, context, identity_hash, 
+        VALUES ($1::uuid, false, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+        RETURNING task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                  reason, bypass_steps, tags, context, identity_hash,
                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
         "#,
-            sanitized_task.named_task_id,
+            sanitized_task.named_task_uuid,
             sanitized_task.requested_at,
             sanitized_task.initiator,
             sanitized_task.source_system,
@@ -232,10 +233,10 @@ impl Task {
             .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
         let identity_hash =
-            Task::generate_identity_hash(new_task.named_task_id, &sanitized_context);
+            Task::generate_identity_hash(new_task.named_task_uuid, &sanitized_context);
 
         Ok(NewTask {
-            named_task_id: new_task.named_task_id,
+            named_task_uuid: new_task.named_task_uuid,
             requested_at: Some(requested_at),
             initiator: new_task.initiator,
             source_system: new_task.source_system,
@@ -250,15 +251,15 @@ impl Task {
     }
 
     /// Find a task by ID
-    pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<Task>, sqlx::Error> {
+    pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Task>, sqlx::Error> {
         let task = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, 
+            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash,
                    claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
             id
         )
@@ -276,8 +277,8 @@ impl Task {
         let task = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, 
+            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash,
                    claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE identity_hash = $1
@@ -290,22 +291,22 @@ impl Task {
         Ok(task)
     }
 
-    /// List tasks by named task ID
+    /// List tasks by named task UUID
     pub async fn list_by_named_task(
         pool: &PgPool,
-        named_task_id: i32,
+        named_task_uuid: Uuid,
     ) -> Result<Vec<Task>, sqlx::Error> {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, 
+            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash,
                    claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
-            WHERE named_task_id = $1
+            WHERE named_task_uuid = $1::uuid
             ORDER BY created_at DESC
             "#,
-            named_task_id
+            named_task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -318,8 +319,8 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator, source_system,
-                   reason, bypass_steps, tags, context, identity_hash, 
+            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,
+                   reason, bypass_steps, tags, context, identity_hash,
                    claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at
             FROM tasker_tasks
             WHERE complete = false
@@ -338,9 +339,9 @@ impl Task {
             r#"
             UPDATE tasker_tasks
             SET complete = true, updated_at = NOW()
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            self.task_id
+            self.task_uuid
         )
         .execute(pool)
         .await?;
@@ -369,9 +370,9 @@ impl Task {
             r#"
             UPDATE tasker_tasks
             SET context = $2, updated_at = NOW()
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            self.task_id,
+            self.task_uuid,
             sanitized_context
         )
         .execute(pool)
@@ -401,9 +402,9 @@ impl Task {
             r#"
             UPDATE tasker_tasks
             SET tags = $2, updated_at = NOW()
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            self.task_id,
+            self.task_uuid,
             sanitized_tags
         )
         .execute(pool)
@@ -414,11 +415,11 @@ impl Task {
     }
 
     /// Delete a task
-    pub async fn delete(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_tasks
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
             id
         )
@@ -438,7 +439,7 @@ impl Task {
     /// ```sql
     /// SELECT to_state
     /// FROM tasker_task_transitions
-    /// WHERE task_id = $1 AND most_recent = true
+    /// WHERE task_uuid = $1::uuid AND most_recent = true
     /// ORDER BY sort_key DESC
     /// LIMIT 1
     /// ```
@@ -464,11 +465,11 @@ impl Task {
             r#"
             SELECT to_state
             FROM tasker_task_transitions
-            WHERE task_id = $1 AND most_recent = true
+            WHERE task_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -482,9 +483,9 @@ impl Task {
             r#"
             SELECT COUNT(*) as count
             FROM tasker_workflow_steps
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_one(pool)
         .await?
@@ -502,11 +503,11 @@ impl Task {
             r#"
             SELECT nt.name as task_name, nt.version as task_version, tn.name as namespace_name
             FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
-            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
-            WHERE t.task_id = $1
+            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            WHERE t.task_uuid = $1::uuid
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -521,7 +522,7 @@ impl Task {
 
     /// Generate a unique identity hash for task deduplication.
     ///
-    /// Creates a deterministic SHA-256 hash from the named_task_id and context
+    /// Creates a deterministic SHA-256 hash from the named_task_uuid and context
     /// to ensure idempotent task creation. Tasks with identical hashes are
     /// considered duplicates and should not be executed twice.
     ///
@@ -543,16 +544,18 @@ impl Task {
     /// ```rust
     /// use serde_json::json;
     /// use tasker_core::models::Task;
+    /// use uuid::Uuid;
     ///
+    /// let named_task_uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
     /// let context = Some(json!({"order_id": 12345, "priority": "high"}));
-    /// let hash = Task::generate_identity_hash(1, &context);
+    /// let hash = Task::generate_identity_hash(named_task_uuid, &context);
     ///
     /// // Hash is deterministic - same inputs always produce same output
     /// assert_eq!(hash.len(), 16); // u64 hash produces 16-char hex string
     /// assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     ///
     /// // Same inputs produce same hash
-    /// let hash2 = Task::generate_identity_hash(1, &context);
+    /// let hash2 = Task::generate_identity_hash(named_task_uuid, &context);
     /// assert_eq!(hash, hash2);
     /// ```
     ///
@@ -562,14 +565,14 @@ impl Task {
     /// - **Database Lookup**: O(1) via unique index on identity_hash
     /// - **Memory Usage**: Fixed 16-character string regardless of context size
     pub fn generate_identity_hash(
-        named_task_id: i32,
+        named_task_uuid: Uuid,
         context: &Option<serde_json::Value>,
     ) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
-        named_task_id.hash(&mut hasher);
+        named_task_uuid.hash(&mut hasher);
         if let Some(ctx) = context {
             ctx.to_string().hash(&mut hasher);
         }
@@ -605,17 +608,17 @@ impl Task {
                 let tasks = sqlx::query_as!(
                     Task,
                     r#"
-                    SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+                    SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                            t.initiator, t.source_system, t.reason, t.bypass_steps,
-                           t.tags, t.context, t.identity_hash, 
-                           t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                           t.tags, t.context, t.identity_hash,
+                           t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                            t.created_at, t.updated_at
                     FROM tasker_tasks t
                     INNER JOIN tasker_task_transitions tt
-                        ON t.task_id = tt.task_id
+                        ON t.task_uuid = tt.task_uuid
                     WHERE tt.most_recent = true
                         AND tt.to_state = $1
-                    ORDER BY t.task_id
+                    ORDER BY t.task_uuid
                     "#,
                     state_filter
                 )
@@ -629,13 +632,13 @@ impl Task {
                 let tasks = sqlx::query_as!(
                     Task,
                     r#"
-                    SELECT task_id, named_task_id, complete, requested_at,
+                    SELECT task_uuid, named_task_uuid, complete, requested_at,
                            initiator, source_system, reason, bypass_steps,
-                           tags, context, identity_hash, 
-                           claimed_at, claimed_by, priority, claim_timeout_seconds, 
+                           tags, context, identity_hash,
+                           claimed_at, claimed_by, priority, claim_timeout_seconds,
                            created_at, updated_at
                     FROM tasker_tasks
-                    ORDER BY task_id
+                    ORDER BY task_uuid
                     "#
                 )
                 .fetch_all(pool)
@@ -660,9 +663,9 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT task_id, named_task_id, complete, requested_at, initiator,
+            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator,
                    source_system, reason, bypass_steps, tags, context,
-                   identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, 
+                   identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds,
                    created_at, updated_at
             FROM tasker_tasks
             WHERE created_at >= $1
@@ -687,14 +690,14 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, 
-                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.tags, t.context, t.identity_hash,
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
-                ON t.task_id = tt.task_id
+                ON t.task_uuid = tt.task_uuid
             WHERE tt.most_recent = true
                 AND tt.to_state = 'complete'
                 AND tt.created_at >= $1
@@ -719,14 +722,14 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, 
-                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.tags, t.context, t.identity_hash,
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
             INNER JOIN tasker_task_transitions tt
-                ON t.task_id = tt.task_id
+                ON t.task_uuid = tt.task_uuid
             WHERE tt.most_recent = true
                 AND tt.to_state = 'error'
                 AND tt.created_at >= $1
@@ -748,17 +751,17 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at,
                    t.initiator, t.source_system, t.reason, t.bypass_steps,
-                   t.tags, t.context, t.identity_hash, 
-                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.tags, t.context, t.identity_hash,
+                   t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
             LEFT JOIN tasker_task_transitions tt
-                ON t.task_id = tt.task_id AND tt.most_recent = true
+                ON t.task_uuid = tt.task_uuid AND tt.most_recent = true
             WHERE tt.to_state IS NULL
                 OR tt.to_state NOT IN ('complete', 'error', 'cancelled')
-            ORDER BY t.task_id
+            ORDER BY t.task_uuid
             "#
         )
         .fetch_all(pool)
@@ -775,13 +778,13 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
-            JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
+            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
+            JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
             WHERE tn.name = $1
             ORDER BY t.created_at DESC
             "#,
@@ -798,12 +801,12 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.name = $1
             ORDER BY t.created_at DESC
             "#,
@@ -820,12 +823,12 @@ impl Task {
         let tasks = sqlx::query_as!(
             Task,
             r#"
-            SELECT t.task_id, t.named_task_id, t.complete, t.requested_at, t.initiator,
+            SELECT t.task_uuid, t.named_task_uuid, t.complete, t.requested_at, t.initiator,
                    t.source_system, t.reason, t.bypass_steps, t.tags, t.context,
-                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds, 
+                   t.identity_hash, t.claimed_at, t.claimed_by, t.priority, t.claim_timeout_seconds,
                    t.created_at, t.updated_at
             FROM tasker_tasks t
-            JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             WHERE nt.version = $1
             ORDER BY t.created_at DESC
             "#,
@@ -855,7 +858,7 @@ impl Task {
     /// For full resolution, use create_with_defaults instead.
     pub fn from_task_request(task_request: super::task_request::TaskRequest) -> NewTask {
         NewTask {
-            named_task_id: 0, // Will need to be resolved separately
+            named_task_uuid: Uuid::nil(), // Will need to be resolved separately
             requested_at: Some(task_request.requested_at),
             initiator: Some(task_request.initiator),
             source_system: Some(task_request.source_system),
@@ -875,7 +878,7 @@ impl Task {
                     .collect(),
             )),
             context: Some(task_request.context.clone()),
-            identity_hash: Self::generate_identity_hash(0, &Some(task_request.context)),
+            identity_hash: Self::generate_identity_hash(Uuid::nil(), &Some(task_request.context)),
             priority: task_request.priority,
             claim_timeout_seconds: task_request.claim_timeout_seconds,
         }
@@ -887,7 +890,7 @@ impl Task {
             r#"
             SELECT COUNT(DISTINCT nt.name) as count
             FROM tasker_tasks t
-            INNER JOIN tasker_named_tasks nt ON nt.named_task_id = t.named_task_id
+            INNER JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
             "#
         )
         .fetch_one(pool)
@@ -908,12 +911,12 @@ impl Task {
     /// TODO: Implement default option generation based on named task configuration
     pub async fn get_default_task_request_options(
         pool: &PgPool,
-        named_task_id: i32,
+        named_task_uuid: Uuid,
     ) -> Result<serde_json::Value, sqlx::Error> {
         // Placeholder - would load from named_task configuration and apply defaults
         let _named_task = sqlx::query!(
-            "SELECT configuration FROM tasker_named_tasks WHERE named_task_id = $1",
-            named_task_id
+            "SELECT configuration FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            named_task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -933,7 +936,7 @@ impl Task {
     /// Get state machine for this task (Rails: state_machine) - memoized
     /// TODO: Implement TaskStateMachine integration
     pub fn state_machine(&self) -> TaskStateMachine {
-        TaskStateMachine::new(self.task_id)
+        TaskStateMachine::new(self.task_uuid)
     }
 
     /// Get current task status via state machine (Rails: status)
@@ -957,16 +960,16 @@ impl Task {
         let step = sqlx::query_as!(
             crate::models::WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
-            WHERE ws.task_id = $1 AND ns.name = $2
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            WHERE ws.task_uuid = $1::uuid AND ns.name = $2
             LIMIT 1
             "#,
-            self.task_id,
+            self.task_uuid,
             name
         )
         .fetch_optional(pool)
@@ -978,14 +981,14 @@ impl Task {
     /// Get RuntimeGraphAnalyzer for this task (Rails: runtime_analyzer) - memoized
     /// TODO: Implement RuntimeGraphAnalyzer
     pub fn runtime_analyzer(&self) -> String {
-        format!("RuntimeGraphAnalyzer(task_id: {})", self.task_id)
+        format!("RuntimeGraphAnalyzer(task_uuid: {})", self.task_uuid)
     }
 
     /// Get runtime dependency graph analysis (Rails: dependency_graph)
     /// TODO: Implement dependency graph analysis
     pub fn dependency_graph(&self) -> serde_json::Value {
         serde_json::json!({
-            "task_id": self.task_id,
+            "task_uuid": self.task_uuid,
             "nodes": [],
             "edges": [],
             "analysis": "placeholder"
@@ -1004,7 +1007,7 @@ impl Task {
     ///     COUNT(*) as total_steps,
     ///     COUNT(*) FILTER (WHERE processed = true) as completed_steps
     /// FROM tasker_workflow_steps
-    /// WHERE task_id = $1
+    /// WHERE task_uuid = $1::uuid
     /// ```
     ///
     /// The query performs two counts in a single pass:
@@ -1021,7 +1024,7 @@ impl Task {
     ///
     /// - **Single Query**: Avoids N+1 queries or multiple round trips
     /// - **Conditional Counting**: FILTER clause is more efficient than subqueries
-    /// - **Index Usage**: Leverages index on (task_id, processed)
+    /// - **Index Usage**: Leverages index on (task_uuid, processed)
     ///
     /// # Example
     ///
@@ -1032,10 +1035,10 @@ impl Task {
     /// # async fn example(pool: PgPool, mut task: Task) -> Result<(), sqlx::Error> {
     /// // Check if all workflow steps are complete before marking task as done
     /// if task.all_steps_complete(&pool).await? {
-    ///     println!("All steps complete! Marking task {} as done", task.task_id);
+    ///     println!("All steps complete! Marking task {} as done", task.task_uuid);
     ///     task.mark_complete(&pool).await?;
     /// } else {
-    ///     println!("Task {} still has pending steps", task.task_id);
+    ///     println!("Task {} still has pending steps", task.task_uuid);
     /// }
     /// # Ok(())
     /// # }
@@ -1049,9 +1052,9 @@ impl Task {
                 COUNT(*) as total_steps,
                 COUNT(*) FILTER (WHERE processed = true) as completed_steps
             FROM tasker_workflow_steps
-            WHERE task_id = $1
+            WHERE task_uuid = $1::uuid
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -1067,14 +1070,14 @@ impl Task {
         &self,
         pool: &PgPool,
     ) -> Result<Option<crate::models::TaskExecutionContext>, sqlx::Error> {
-        crate::models::TaskExecutionContext::get_for_task(pool, self.task_id).await
+        crate::models::TaskExecutionContext::get_for_task(pool, self.task_uuid).await
     }
 
     /// Reload task and clear memoized instances (Rails: reload override)
     /// TODO: Implement memoization clearing
     pub async fn reload(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
         // Reload the task from database
-        if let Some(reloaded) = Self::find_by_id(pool, self.task_id).await? {
+        if let Some(reloaded) = Self::find_by_id(pool, self.task_uuid).await? {
             *self = reloaded;
         }
         // TODO: Clear memoized instances (state_machine, diagram, etc.)
@@ -1088,8 +1091,8 @@ impl Task {
     /// Get task name (Rails: delegate :name, to: :named_task)
     pub async fn name(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         let name = sqlx::query!(
-            "SELECT name FROM tasker_named_tasks WHERE named_task_id = $1",
-            self.named_task_id
+            "SELECT name FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            self.named_task_uuid
         )
         .fetch_one(pool)
         .await?
@@ -1104,7 +1107,7 @@ impl Task {
         // Placeholder - would delegate to TaskExecutionContext
         let _context = self.task_execution_context(pool).await?;
         Ok(serde_json::json!({
-            "task_id": self.task_id,
+            "task_uuid": self.task_uuid,
             "total_steps": 0,
             "completed_steps": 0,
             "status": "placeholder"
@@ -1117,10 +1120,10 @@ impl Task {
             r#"
             SELECT tn.name
             FROM tasker_named_tasks nt
-            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_id = nt.task_namespace_id
-            WHERE nt.named_task_id = $1
+            INNER JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            WHERE nt.named_task_uuid = $1::uuid
             "#,
-            self.named_task_id
+            self.named_task_uuid
         )
         .fetch_one(pool)
         .await?
@@ -1132,8 +1135,8 @@ impl Task {
     /// Get version (Rails: delegate :version, to: :named_task)
     pub async fn version(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         let version = sqlx::query!(
-            "SELECT version FROM tasker_named_tasks WHERE named_task_id = $1",
-            self.named_task_id
+            "SELECT version FROM tasker_named_tasks WHERE named_task_uuid = $1::uuid",
+            self.named_task_uuid
         )
         .fetch_one(pool)
         .await?
@@ -1155,7 +1158,7 @@ impl Task {
     /// use serde_json::json;
     ///
     /// # async fn create_order_processing_task(pool: &PgPool, order_id: i64) -> Result<Task, sqlx::Error> {
-    /// # const ORDER_PROCESSING_NAMED_TASK_ID: i32 = 1;  // Example constant
+    /// # let ORDER_PROCESSING_NAMED_task_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
     /// // Order processing context with customer data and preferences
     /// let context = json!({
     ///     "order_id": order_id,
@@ -1167,17 +1170,17 @@ impl Task {
     /// });
     ///
     /// // Create identity hash for deduplication
-    /// let identity_hash = Task::generate_identity_hash(ORDER_PROCESSING_NAMED_TASK_ID, &Some(context.clone()));
+    /// let identity_hash = Task::generate_identity_hash(ORDER_PROCESSING_NAMED_task_uuid, &Some(context.clone()));
     ///
     /// // Check if task already exists (idempotent creation)
     /// if let Some(existing_task) = Task::find_by_identity_hash(pool, &identity_hash).await? {
-    ///     println!("Order {} already has a processing task: {}", order_id, existing_task.task_id);
+    ///     println!("Order {} already has a processing task: {}", order_id, existing_task.task_uuid);
     ///     return Ok(existing_task);
     /// }
     ///
     /// // Create new task
     /// let new_task = NewTask {
-    ///     named_task_id: ORDER_PROCESSING_NAMED_TASK_ID,
+    ///     named_task_uuid: ORDER_PROCESSING_NAMED_task_uuid,
     ///     requested_at: None, // Will default to NOW()
     ///     initiator: Some("order_service".to_string()),
     ///     source_system: Some("e_commerce_api".to_string()),
@@ -1191,7 +1194,7 @@ impl Task {
     /// };
     ///
     /// let task = Task::create(pool, new_task).await?;
-    /// println!("Created order processing task {} for order {}", task.task_id, order_id);
+    /// println!("Created order processing task {} for order {}", task.task_uuid, order_id);
     ///
     /// Ok(task)
     /// # }
@@ -1210,13 +1213,14 @@ impl Task {
     /// use tasker_core::models::task::Task;
     /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
-    /// # async fn monitor_task_progress(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
-    /// let task = Task::find_by_id(pool, task_id).await?
+    /// # async fn monitor_progress(pool: &PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
+    /// let task = Task::find_by_id(pool, task_uuid).await?
     ///     .ok_or_else(|| sqlx::Error::RowNotFound)?;
     ///
     /// // Get real-time execution context
-    /// let context = TaskExecutionContext::get_for_task(pool, task_id).await?
+    /// let context = TaskExecutionContext::get_for_task(pool, task_uuid).await?
     ///     .ok_or_else(|| sqlx::Error::RowNotFound)?;
     ///
     /// // Get current state from transition history
@@ -1224,7 +1228,7 @@ impl Task {
     ///     .unwrap_or_else(|| "unknown".to_string());
     ///
     /// // Print comprehensive status
-    /// println!("=== Task {} Progress Report ===", task_id);
+    /// println!("=== Task {} Progress Report ===", task_uuid);
     /// println!("State: {}", current_state);
     /// println!("Progress: {}/{} steps complete",
     ///          context.completed_steps, context.total_steps);
@@ -1244,7 +1248,7 @@ impl Task {
     ///     println!("✅ Task has {} steps ready for execution", context.ready_steps);
     /// }
     ///
-    /// Ok(())
+    /// # Ok(())
     /// # }
     /// ```
     ///
@@ -1269,9 +1273,9 @@ impl Task {
     /// #     ready_tasks: usize,
     /// #     total_ready_steps: i64,
     /// # }
-    /// # async fn generate_task_dashboard(pool: &PgPool, task_ids: Vec<i64>) -> Result<(), sqlx::Error> {
+    /// # async fn generate_task_dashboard(pool: &PgPool, task_uuids: Vec<uuid::Uuid>) -> Result<(), sqlx::Error> {
     /// // Get execution contexts for all tasks in a single query
-    /// let contexts = TaskExecutionContext::get_for_tasks(pool, &task_ids).await?;
+    /// let contexts = TaskExecutionContext::get_for_tasks(pool, &task_uuids).await?;
     ///
     /// let mut summary = TaskDashboardSummary {
     ///     total_tasks: contexts.len(),
@@ -1303,7 +1307,7 @@ impl Task {
     ///     } else { 0 };
     ///
     ///     println!("Task {}: {} - {}% complete - {} ready steps",
-    ///              context.task_id, context.execution_status,
+    ///              context.task_uuid, context.execution_status,
     ///              completion_pct, context.ready_steps);
     /// }
     ///
@@ -1332,9 +1336,10 @@ impl Task {
     /// use serde_json::json;
     /// use sqlx::PgPool;
     /// use chrono::Utc;
+    /// use uuid::Uuid;
     ///
-    /// async fn update_task_lifecycle(pool: &PgPool, task_id: i64) -> Result<(), sqlx::Error> {
-    ///     let mut task = Task::find_by_id(pool, task_id).await?
+    /// async fn update_task_lifecycle(pool: &PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
+    ///     let mut task = Task::find_by_id(pool, task_uuid).await?
     ///         .ok_or_else(|| sqlx::Error::RowNotFound)?;
     ///
     ///     // Update context with runtime information
@@ -1366,7 +1371,7 @@ impl Task {
     ///
     ///     task.update_tags(pool, execution_tags).await?;
     ///
-    ///     println!("Updated task {} with runtime context and execution tags", task_id);
+    ///     println!("Updated task {} with runtime context and execution tags", task_uuid);
     ///
     ///     // Later, when task completes
     ///     let final_context = json!({
@@ -1385,7 +1390,7 @@ impl Task {
     ///     task.update_context(pool, final_context).await?;
     ///     task.mark_complete(pool).await?;
     ///
-    ///     println!("Task {} completed and marked as finished", task_id);
+    ///     println!("Task {} completed and marked as finished", task_uuid);
     ///
     ///     Ok(())
     /// }
@@ -1415,16 +1420,16 @@ impl Task {
             SELECT COUNT(*) as count
             FROM tasker_workflow_steps ws
             LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
                 FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
-            WHERE ws.task_id = $1
+                ORDER BY workflow_step_uuid, sort_key DESC
+            ) current_states ON current_states.workflow_step_uuid = ws.workflow_step_uuid
+            WHERE ws.task_uuid = $1::uuid
               AND (current_states.to_state IS NULL
                    OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -1469,16 +1474,16 @@ impl Task {
             SELECT COUNT(*) as count
             FROM tasker_workflow_steps ws
             LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
                 FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) current_states ON current_states.workflow_step_id = ws.workflow_step_id
-            WHERE ws.task_id = $1
+                ORDER BY workflow_step_uuid, sort_key DESC
+            ) current_states ON current_states.workflow_step_uuid = ws.workflow_step_uuid
+            WHERE ws.task_uuid = $1::uuid
               AND (current_states.to_state IS NULL
                    OR current_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -1493,13 +1498,13 @@ impl Task {
 /// a clean interface for state operations without complex state machine classes.
 #[derive(Debug, Clone)]
 pub struct TaskStateMachine {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
 }
 
 impl TaskStateMachine {
     /// Create a new state machine instance for a task
-    pub fn new(task_id: i64) -> Self {
-        Self { task_id }
+    pub fn new(task_uuid: Uuid) -> Self {
+        Self { task_uuid }
     }
 
     /// Get the current state of the task
@@ -1508,11 +1513,11 @@ impl TaskStateMachine {
             r#"
             SELECT to_state
             FROM tasker_task_transitions
-            WHERE task_id = $1 AND most_recent = true
+            WHERE task_uuid = $1 AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -1544,13 +1549,14 @@ impl TaskStateMachine {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_id, from_state, to_state,
-                   metadata, sort_key, most_recent, created_at, updated_at
+            SELECT task_uuid, from_state, to_state,
+                   metadata, sort_key, most_recent,
+                   created_at, updated_at
             FROM tasker_task_transitions
-            WHERE task_id = $1
-            ORDER BY sort_key ASC
+            WHERE task_uuid = $1::uuid
+            ORDER BY sort_key DESC
             "#,
-            self.task_id
+            self.task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -1562,7 +1568,7 @@ impl TaskStateMachine {
 /// Task transition record for state machine operations
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskTransition {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub from_state: Option<String>,
     pub to_state: String,
     pub metadata: Option<serde_json::Value>,

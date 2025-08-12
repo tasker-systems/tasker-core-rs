@@ -4,8 +4,6 @@
 //! These factories implement the "find-or-create" pattern to prevent conflicts
 //! and ensure consistent test data across test runs.
 
-#![allow(dead_code)]
-
 use super::base::*;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -277,7 +275,7 @@ impl SqlxFactory<NamedTask> for NamedTaskFactory {
 
         let new_task = NewNamedTask {
             name: self.name.clone(),
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             version: Some(self.version.clone()),
             description: self.description.clone(),
             configuration: Some(config),
@@ -299,7 +297,7 @@ impl SqlxFactory<NamedTask> for NamedTaskFactory {
             pool,
             &self.name,
             &self.version,
-            namespace.task_namespace_id as i64,
+            namespace.task_namespace_uuid,
         )
         .await?
         {
@@ -404,14 +402,14 @@ impl SqlxFactory<NamedStep> for NamedStepFactory {
             .with_name(&self.dependent_system_name)
             .find_or_create(pool)
             .await?;
-        let dependent_system_id = system.dependent_system_id;
+        let dependent_system_uuid = system.dependent_system_uuid;
 
         let config = self.configuration.clone().unwrap_or_else(|| json!({}));
         utils::validate_jsonb(&config)?;
 
         let new_step = NewNamedStep {
             name: self.name.clone(),
-            dependent_system_id,
+            dependent_system_uuid,
             description: Some(format!("{} step", self.step_type)),
         };
 
@@ -480,8 +478,8 @@ mod tests {
 
         // Should be the same as the one from common creation
         assert_eq!(
-            default_ns.task_namespace_id,
-            namespaces[0].task_namespace_id
+            default_ns.task_namespace_uuid,
+            namespaces[0].task_namespace_uuid
         );
 
         Ok(())

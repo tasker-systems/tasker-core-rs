@@ -13,15 +13,15 @@
 //!
 //! ### Orchestration Functions
 //! - `get_task_execution_context` - Single task execution status
-//! - `get_task_execution_contexts_batch` - Batch task execution status  
+//! - `get_task_execution_contexts_batch` - Batch task execution status
 //! - `get_step_readiness_status` - Step dependency readiness
 //!
 //! ### Analytics Functions
-//! - `get_analytics_metrics_v01` - System-wide performance metrics
-//! - `get_system_health_counts_v01` - System health and capacity
-//! - `get_slowest_steps_v01` - Step performance analysis
-//! - `get_slowest_tasks_v01` - Task performance analysis
-//! - `get_max_connections_v01` - Database connection limits
+//! - `get_analytics_metrics` - System-wide performance metrics
+//! - `get_system_health_counts` - System health and capacity
+//! - `get_slowest_steps` - Step performance analysis
+//! - `get_slowest_tasks` - Task performance analysis
+//! - `get_max_connections` - Database connection limits
 //!
 //! ## Performance Characteristics
 //!
@@ -40,10 +40,10 @@ pub mod task_execution {
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_task_execution_context(input_task_id bigint)
+    /// get_task_execution_context(input_task_uuid bigint)
     /// RETURNS TABLE(
-    ///   task_id bigint,
-    ///   named_task_id integer,
+    ///   task_uuid bigint,
+    ///   named_task_uuid integer,
     ///   status text,
     ///   total_steps bigint,
     ///   pending_steps bigint,
@@ -118,10 +118,10 @@ pub mod task_execution {
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_task_execution_contexts_batch(input_task_ids bigint[])
+    /// get_task_execution_contexts_batch(input_task_uuids bigint[])
     /// RETURNS TABLE(
-    ///   task_id bigint,
-    ///   named_task_id integer,
+    ///   task_uuid bigint,
+    ///   named_task_uuid integer,
     ///   status text,
     ///   total_steps bigint,
     ///   pending_steps bigint,
@@ -168,7 +168,7 @@ pub mod task_execution {
     /// SELECT * FROM get_task_execution_contexts_batch(ARRAY[123, 456, 789]);
     ///
     /// -- Dashboard view with filtering
-    /// SELECT task_id, execution_status, completion_percentage
+    /// SELECT task_uuid, execution_status, completion_percentage
     /// FROM get_task_execution_contexts_batch(ARRAY[123, 456, 789])
     /// WHERE execution_status != 'complete';
     /// ```
@@ -184,11 +184,11 @@ pub mod step_readiness {
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_step_readiness_status(input_task_id bigint)
+    /// get_step_readiness_status(input_task_uuid bigint)
     /// RETURNS TABLE(
-    ///   workflow_step_id bigint,
-    ///   task_id bigint,
-    ///   named_step_id integer,
+    ///   workflow_step_uuid bigint,
+    ///   task_uuid bigint,
+    ///   named_step_uuid integer,
     ///   current_status text,
     ///   is_ready boolean,
     ///   blocking_dependencies text[],
@@ -220,12 +220,12 @@ pub mod step_readiness {
     ///
     /// ```sql
     /// -- Find all ready steps for a task
-    /// SELECT workflow_step_id, current_status
+    /// SELECT workflow_step_uuid, current_status
     /// FROM get_step_readiness_status(12345)
     /// WHERE is_ready = true;
     ///
     /// -- Analyze blocking dependencies
-    /// SELECT workflow_step_id, blocking_dependencies
+    /// SELECT workflow_step_uuid, blocking_dependencies
     /// FROM get_step_readiness_status(12345)
     /// WHERE is_ready = false;
     /// ```
@@ -241,7 +241,7 @@ pub mod analytics {
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_analytics_metrics_v01(since_timestamp timestamp with time zone)
+    /// get_analytics_metrics(since_timestamp timestamp with time zone)
     /// RETURNS TABLE(
     ///   active_tasks_count bigint,
     ///   total_namespaces_count bigint,
@@ -280,13 +280,13 @@ pub mod analytics {
     /// Error Rate: 2.1% (acceptable)
     /// Avg Task Duration: 8.5 minutes
     /// ```
-    pub fn get_analytics_metrics_v01() {}
+    pub fn get_analytics_metrics() {}
 
     /// Get system health counts and capacity metrics.
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_system_health_counts_v01()
+    /// get_system_health_counts()
     /// RETURNS TABLE(
     ///   total_tasks bigint,
     ///   pending_tasks bigint,
@@ -316,7 +316,7 @@ pub mod analytics {
     /// - **Capacity Planning**: "Are we approaching limits?"
     /// - **Resource Monitoring**: "Connection pool utilization"
     /// - **Workload Analysis**: "Distribution of work across states"
-    pub fn get_system_health_counts_v01() {}
+    pub fn get_system_health_counts() {}
 
     /// Get slowest performing steps for optimization analysis.
     ///
@@ -324,7 +324,7 @@ pub mod analytics {
     /// ```sql
     /// get_slowest_steps_v01(limit_count integer DEFAULT 50)
     /// RETURNS TABLE(
-    ///   named_step_id integer,
+    ///   named_step_uuid integer,
     ///   step_name text,
     ///   avg_duration_seconds numeric,
     ///   max_duration_seconds numeric,
@@ -344,15 +344,15 @@ pub mod analytics {
     /// - **Performance Optimization**: "Which steps should I optimize first?"
     /// - **Resource Allocation**: "Where should I add more computing power?"
     /// - **Architecture Review**: "Which steps need redesign?"
-    pub fn get_slowest_steps_v01() {}
+    pub fn get_slowest_steps() {}
 
     /// Get slowest performing tasks for optimization analysis.
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_slowest_tasks_v01(limit_count integer DEFAULT 50)
+    /// get_slowest_tasks(limit_count integer DEFAULT 50)
     /// RETURNS TABLE(
-    ///   named_task_id integer,
+    ///   named_task_uuid integer,
     ///   task_name text,
     ///   avg_duration_seconds numeric,
     ///   max_duration_seconds numeric,
@@ -368,13 +368,13 @@ pub mod analytics {
     /// This function identifies your "slowest workflows" - the complete workflows that
     /// take the longest time from start to finish. It's like finding the longest routes
     /// in a delivery system.
-    pub fn get_slowest_tasks_v01() {}
+    pub fn get_slowest_tasks() {}
 
     /// Get maximum database connection limit.
     ///
     /// ## Function Signature
     /// ```sql
-    /// get_max_connections_v01()
+    /// get_max_connections()
     /// RETURNS bigint
     /// ```
     ///
@@ -383,7 +383,7 @@ pub mod analytics {
     /// This function returns the PostgreSQL `max_connections` setting, which determines
     /// the maximum number of concurrent database connections allowed. Essential for
     /// capacity planning and connection pool sizing.
-    pub fn get_max_connections_v01() {}
+    pub fn get_max_connections() {}
 }
 
 /// SQL view definitions and usage.
@@ -397,11 +397,11 @@ pub mod views {
     /// ```sql
     /// CREATE VIEW tasker_step_dag_relationships AS
     /// SELECT
-    ///   workflow_step_id,
-    ///   task_id,
-    ///   named_step_id,
-    ///   parent_step_ids,        -- JSONB array of parent step IDs
-    ///   child_step_ids,         -- JSONB array of child step IDs
+    ///   workflow_step_uuid,
+    ///   task_uuid,
+    ///   named_step_uuid,
+    ///   parent_step_uuids,        -- JSONB array of parent step IDs
+    ///   child_step_uuids,         -- JSONB array of child step IDs
     ///   parent_count,           -- Count of parent dependencies
     ///   child_count,            -- Count of child dependencies
     ///   is_root_step,           -- True if no parents (entry point)
@@ -450,7 +450,7 @@ pub mod examples {
     ///   SELECT * FROM get_analytics_metrics_v01(NOW() - INTERVAL '1 hour')
     /// )
     /// SELECT
-    ///   tc.task_id,
+    ///   tc.task_uuid,
     ///   tc.execution_status,
     ///   tc.completion_percentage,
     ///   tc.ready_steps,

@@ -8,6 +8,7 @@ use super::types::*;
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::orchestration::OrchestrationCore;
 use serde_json::json;
+use sqlx::types::Uuid;
 use tracing::{debug, info};
 
 /// Shared analytics manager for cross-language performance operations
@@ -43,16 +44,20 @@ impl SharedAnalyticsManager {
     /// Get task execution context using shared types
     pub fn get_task_execution_context(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> SharedFFIResult<TaskExecutionContext> {
         debug!(
-            "🔍 SHARED ANALYTICS get_task_execution_context: task_id={}",
-            task_id
+            "🔍 SHARED ANALYTICS get_task_execution_context: task_uuid={}",
+            task_uuid
         );
 
         execute_async(async {
             // Use the SQL function executor to get real data
-            match self.sql_executor.get_task_execution_context(task_id).await {
+            match self
+                .sql_executor
+                .get_task_execution_context(task_uuid)
+                .await
+            {
                 Ok(Some(context)) => {
                     // Convert BigDecimal to f64 for cross-language compatibility
                     let completion_percentage = context
@@ -62,7 +67,7 @@ impl SharedAnalyticsManager {
                         .unwrap_or(0.0);
 
                     Ok(TaskExecutionContext {
-                        task_id: context.task_id,
+                        task_uuid: context.task_uuid,
                         total_steps: context.total_steps,
                         completed_steps: context.completed_steps,
                         pending_steps: context.pending_steps,
@@ -74,16 +79,21 @@ impl SharedAnalyticsManager {
                         recommended_action: context.recommended_action,
                         // Get ready steps to populate next_steps_to_execute
                         next_steps_to_execute: {
-                            match self.sql_executor.get_ready_steps(task_id).await {
-                                Ok(ready_steps) => {
-                                    ready_steps.iter().map(|s| s.workflow_step_id).collect()
-                                }
+                            match self.sql_executor.get_ready_steps(task_uuid).await {
+                                Ok(ready_steps) => ready_steps
+                                    .iter()
+                                    .map(|s| s.workflow_step_uuid.to_string())
+                                    .collect(),
                                 Err(_) => vec![],
                             }
                         },
                         // Critical path would require dependency level analysis
                         critical_path_steps: {
-                            match self.sql_executor.calculate_dependency_levels(task_id).await {
+                            match self
+                                .sql_executor
+                                .calculate_dependency_levels(task_uuid)
+                                .await
+                            {
                                 Ok(levels) => {
                                     // Find the maximum level
                                     let max_level = levels
@@ -95,7 +105,7 @@ impl SharedAnalyticsManager {
                                     levels
                                         .iter()
                                         .filter(|l| l.dependency_level == max_level)
-                                        .map(|l| l.workflow_step_id)
+                                        .map(|l| l.workflow_step_uuid.to_string())
                                         .collect()
                                 }
                                 Err(_) => vec![],
@@ -106,7 +116,7 @@ impl SharedAnalyticsManager {
                             // Identify bottleneck steps using dependency analysis
                             match self
                                 .sql_executor
-                                .get_step_readiness_status(task_id, None)
+                                .get_step_readiness_status(task_uuid, None)
                                 .await
                             {
                                 Ok(statuses) => {
@@ -115,7 +125,7 @@ impl SharedAnalyticsManager {
                                         .filter(|s| {
                                             !s.ready_for_execution && !s.dependencies_satisfied
                                         }) // Steps blocking by dependencies
-                                        .map(|s| s.workflow_step_id)
+                                        .map(|s| s.workflow_step_uuid.to_string())
                                         .collect()
                                 }
                                 Err(_) => vec![],
@@ -124,7 +134,7 @@ impl SharedAnalyticsManager {
                     })
                 }
                 Ok(None) => Err(SharedFFIError::DatabaseError(format!(
-                    "Task execution context not found for task_id: {task_id}"
+                    "Task execution context not found for task_uuid: {task_uuid}"
                 ))),
                 Err(e) => Err(SharedFFIError::DatabaseError(format!(
                     "Failed to get task execution context: {e}"
@@ -134,10 +144,13 @@ impl SharedAnalyticsManager {
     }
 
     /// Get analytics metrics using shared types
-    pub fn get_analytics_metrics(&self, task_id: Option<i64>) -> SharedFFIResult<AnalyticsMetrics> {
+    pub fn get_analytics_metrics(
+        &self,
+        task_uuid: Option<i64>,
+    ) -> SharedFFIResult<AnalyticsMetrics> {
         debug!(
-            "🔍 SHARED ANALYTICS get_analytics_metrics: task_id={:?}",
-            task_id
+            "🔍 SHARED ANALYTICS get_analytics_metrics: task_uuid={:?}",
+            task_uuid
         );
 
         execute_async(async {
@@ -198,28 +211,31 @@ impl SharedAnalyticsManager {
     }
 
     /// Analyze dependencies using shared types
-    pub fn analyze_dependencies(&self, task_id: i64) -> SharedFFIResult<DependencyAnalysis> {
+    pub fn analyze_dependencies(&self, task_uuid: Uuid) -> SharedFFIResult<DependencyAnalysis> {
         debug!(
-            "🔍 SHARED ANALYTICS analyze_dependencies: task_id={}",
-            task_id
+            "🔍 SHARED ANALYTICS analyze_dependencies: task_uuid={}",
+            task_uuid
         );
 
         execute_async(async {
             // Get dependency levels for critical path analysis
-            let dependency_levels =
-                match self.sql_executor.calculate_dependency_levels(task_id).await {
-                    Ok(levels) => levels,
-                    Err(e) => {
-                        return Err(SharedFFIError::DatabaseError(format!(
-                            "Failed to get dependency levels: {e}"
-                        )))
-                    }
-                };
+            let dependency_levels = match self
+                .sql_executor
+                .calculate_dependency_levels(task_uuid)
+                .await
+            {
+                Ok(levels) => levels,
+                Err(e) => {
+                    return Err(SharedFFIError::DatabaseError(format!(
+                        "Failed to get dependency levels: {e}"
+                    )))
+                }
+            };
 
             // Get step readiness status for all steps
             let step_statuses = match self
                 .sql_executor
-                .get_step_readiness_status(task_id, None)
+                .get_step_readiness_status(task_uuid, None)
                 .await
             {
                 Ok(statuses) => statuses,
@@ -250,22 +266,22 @@ impl SharedAnalyticsManager {
                 .max()
                 .unwrap_or(0);
 
-            let critical_path: Vec<i64> = dependency_levels
+            let critical_path: Vec<Uuid> = dependency_levels
                 .iter()
                 .filter(|l| l.dependency_level == max_level)
-                .map(|l| l.workflow_step_id)
+                .map(|l| l.workflow_step_uuid)
                 .collect();
 
             // Generate optimization suggestions based on analysis
             let mut suggestions = vec![];
 
             // Check for parallelization opportunities
-            let same_level_groups: std::collections::HashMap<i32, Vec<i64>> = dependency_levels
+            let same_level_groups: std::collections::HashMap<i32, Vec<Uuid>> = dependency_levels
                 .iter()
                 .fold(std::collections::HashMap::new(), |mut acc, level| {
                     acc.entry(level.dependency_level)
                         .or_default()
-                        .push(level.workflow_step_id);
+                        .push(level.workflow_step_uuid);
                     acc
                 });
 
@@ -305,7 +321,7 @@ impl SharedAnalyticsManager {
             let estimated_completion_time_seconds = remaining_steps * avg_step_duration;
 
             Ok(DependencyAnalysis {
-                task_id,
+                task_uuid,
                 total_dependencies,
                 resolved_dependencies,
                 pending_dependencies,

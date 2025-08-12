@@ -4,6 +4,7 @@
 //! transaction safety, and proper state machine integration.
 
 use sqlx::PgPool;
+
 use tasker_core::models::{core::task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use tasker_core::orchestration::{
     handler_config::{HandlerConfiguration, StepTemplate},
@@ -37,7 +38,10 @@ async fn test_create_task_with_filesystem_config(pool: PgPool) -> sqlx::Result<(
         .expect("Task initialization should succeed");
 
     // Verify basic result structure
-    assert!(result.task_id > 0, "Task ID should be positive");
+    assert!(
+        !result.task_uuid.to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
     assert!(
         result.step_count > 0,
         "Steps should be created from filesystem config"
@@ -60,13 +64,13 @@ async fn test_create_task_with_filesystem_config(pool: PgPool) -> sqlx::Result<(
     // Verify task was created in database
     let task = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
-        result.task_id
+        "SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_uuid = $1",
+        result.task_uuid
     )
     .fetch_one(&pool)
     .await?;
 
-    assert_eq!(task.task_id, result.task_id);
+    assert_eq!(task.task_uuid, result.task_uuid);
     assert!(!task.complete, "Task should not be complete initially");
     assert_eq!(task.context, Some(task_request.context));
     assert!(
@@ -76,8 +80,8 @@ async fn test_create_task_with_filesystem_config(pool: PgPool) -> sqlx::Result<(
 
     // Verify initial state transition was created
     let state_transitions = sqlx::query!(
-        "SELECT to_state, from_state FROM tasker_task_transitions WHERE task_id = $1 ORDER BY created_at",
-        result.task_id
+        "SELECT to_state, from_state FROM tasker_task_transitions WHERE task_uuid = $1 ORDER BY created_at",
+        result.task_uuid
     )
     .fetch_all(&pool)
     .await?;
@@ -126,7 +130,10 @@ async fn test_create_task_with_custom_config(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Custom config task initialization should succeed");
 
-    assert!(result.task_id > 0);
+    assert!(
+        !result.task_uuid.to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
     assert_eq!(
         result.step_count, 1,
         "Should have 1 step from custom config"
@@ -136,8 +143,8 @@ async fn test_create_task_with_custom_config(pool: PgPool) -> sqlx::Result<()> {
     // This test verifies the config loading works, the state machine behavior
     // would need a proper for_testing_with_config method to test properly
     let state_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_id = $1",
-        result.task_id
+        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_uuid = $1",
+        result.task_uuid
     )
     .fetch_one(&pool)
     .await?;
@@ -286,7 +293,10 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
         .await
         .expect("Mock workflow task initialization should succeed");
 
-    assert!(result.task_id > 0);
+    assert!(
+        !result.task_uuid.to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
     // Now that handler config loading is working, expect the configured steps
     assert_eq!(
         result.step_count, 3,
@@ -296,8 +306,8 @@ async fn test_create_task_with_steps_mock_config(pool: PgPool) -> sqlx::Result<(
     // Verify task was created with correct context
     let task = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
-        result.task_id
+        "SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_uuid = $1",
+        result.task_uuid
     )
     .fetch_one(&pool)
     .await?;
@@ -315,7 +325,7 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
         r#"
         INSERT INTO tasker_dependent_systems (name, description, created_at, updated_at)
         VALUES ($1, $2, NOW(), NOW())
-        RETURNING dependent_system_id
+        RETURNING dependent_system_uuid
         "#,
         "test_system",
         Some("Test system for step creation")
@@ -337,7 +347,7 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
         .await
         .expect("Task creation should succeed");
 
-    let task_id = result.task_id;
+    let task_uuid = result.task_uuid;
 
     // Test individual step creation components through direct database operations
     // This tests the pattern that would be used if handler config loading was working
@@ -346,11 +356,11 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
     let named_step = sqlx::query_as!(
         NamedStep,
         r#"
-        INSERT INTO tasker_named_steps (dependent_system_id, name, description, created_at, updated_at)
+        INSERT INTO tasker_named_steps (dependent_system_uuid, name, description, created_at, updated_at)
         VALUES ($1, $2, $3, NOW(), NOW())
-        RETURNING named_step_id, dependent_system_id, name, description, created_at, updated_at
+        RETURNING named_step_uuid, dependent_system_uuid, name, description, created_at, updated_at
         "#,
-        dependent_system.dependent_system_id,
+        dependent_system.dependent_system_uuid,
         "test_step",
         Some("Test step for validation")
     )
@@ -362,18 +372,18 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
         WorkflowStep,
         r#"
         INSERT INTO tasker_workflow_steps (
-            task_id, named_step_id, retryable, retry_limit, inputs, skippable,
+            task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable,
             in_process, processed, processed_at, attempts, last_attempted_at,
             backoff_request_seconds, results, created_at, updated_at
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
         RETURNING
-            workflow_step_id, task_id, named_step_id, retryable, retry_limit, inputs, skippable,
+            workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable,
             in_process, processed, processed_at, attempts, last_attempted_at,
             backoff_request_seconds, results, created_at, updated_at
         "#,
-        task_id,
-        named_step.named_step_id,
+        task_uuid,
+        named_step.named_step_uuid,
         true,                                        // retryable
         Some(3),                                     // retry_limit
         Some(serde_json::json!({"action": "test"})), // inputs
@@ -390,8 +400,8 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
     .await?;
 
     // Verify the step was created correctly
-    assert_eq!(workflow_step.task_id, task_id);
-    assert_eq!(workflow_step.named_step_id, named_step.named_step_id);
+    assert_eq!(workflow_step.task_uuid, task_uuid);
+    assert_eq!(workflow_step.named_step_uuid, named_step.named_step_uuid);
     assert!(workflow_step.retryable);
     assert_eq!(workflow_step.retry_limit, Some(3));
     assert!(!workflow_step.processed);
@@ -399,10 +409,10 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
     // Create initial step state transition
     sqlx::query!(
         r#"
-        INSERT INTO tasker_workflow_step_transitions (workflow_step_id, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
+        INSERT INTO tasker_workflow_step_transitions (workflow_step_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
         "#,
-        workflow_step.workflow_step_id,
+        workflow_step.workflow_step_uuid,
         "pending",
         None::<String>,
         Some(serde_json::json!({"created_by": "test"})),
@@ -414,8 +424,8 @@ async fn test_direct_step_creation(pool: PgPool) -> sqlx::Result<()> {
 
     // Verify step state transition
     let step_transitions = sqlx::query!(
-        "SELECT to_state, from_state FROM tasker_workflow_step_transitions WHERE workflow_step_id = $1",
-        workflow_step.workflow_step_id
+        "SELECT to_state, from_state FROM tasker_workflow_step_transitions WHERE workflow_step_uuid = $1",
+        workflow_step.workflow_step_uuid
     )
     .fetch_all(&pool)
     .await?;
@@ -491,23 +501,23 @@ async fn test_identity_hash_generation(pool: PgPool) -> sqlx::Result<()> {
 
     // Both should succeed since we create unique identity hashes with timestamps
     assert_ne!(
-        result1.task_id, result2.task_id,
+        result1.task_uuid, result2.task_uuid,
         "Different task IDs should be created"
     );
 
     // Verify both tasks exist
     let task1 = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
-        result1.task_id
+        "SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_uuid = $1",
+        result1.task_uuid
     )
     .fetch_one(&pool)
     .await?;
 
     let task2 = sqlx::query_as!(
         Task,
-        "SELECT task_id, named_task_id, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_id = $1",
-        result2.task_id
+        "SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system, reason, bypass_steps, tags, context, identity_hash, claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at FROM tasker_tasks WHERE task_uuid = $1",
+        result2.task_uuid
     )
     .fetch_one(&pool)
     .await?;
@@ -549,8 +559,8 @@ async fn test_state_machine_initialization_options(pool: PgPool) -> sqlx::Result
 
     // Verify state transition was created
     let transitions_enabled = sqlx::query!(
-        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_id = $1",
-        result_enabled.task_id
+        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_uuid = $1",
+        result_enabled.task_uuid
     )
     .fetch_one(&pool)
     .await?;
@@ -587,8 +597,8 @@ async fn test_state_machine_initialization_options(pool: PgPool) -> sqlx::Result
     // This test verifies the config loading works; proper state machine config testing
     // would require implementing for_testing_with_config method
     let transitions_disabled = sqlx::query!(
-        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_id = $1",
-        result_disabled.task_id
+        "SELECT COUNT(*) FROM tasker_task_transitions WHERE task_uuid = $1",
+        result_disabled.task_uuid
     )
     .fetch_one(&pool)
     .await?;

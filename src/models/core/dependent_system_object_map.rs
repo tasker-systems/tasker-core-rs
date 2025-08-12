@@ -1,17 +1,19 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// DependentSystemObjectMap represents bidirectional mappings between objects in different dependent systems
+/// Uses integer primary key but UUID foreign keys to dependent systems
 /// Maps to `tasker_dependent_system_object_maps` table - bidirectional system object relationships
 ///
 /// This table enables mapping objects between two different systems, allowing for complex
 /// system integrations where objects in one system correspond to objects in another.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct DependentSystemObjectMap {
-    pub dependent_system_object_map_id: i64, // Note: bigint in actual schema
-    pub dependent_system_one_id: i32,
-    pub dependent_system_two_id: i32,
+    pub dependent_system_object_map_id: i64,
+    pub dependent_system_one_uuid: Uuid,
+    pub dependent_system_two_uuid: Uuid,
     pub remote_id_one: String, // max 128 chars
     pub remote_id_two: String, // max 128 chars
     pub created_at: NaiveDateTime,
@@ -21,8 +23,8 @@ pub struct DependentSystemObjectMap {
 /// New DependentSystemObjectMap for creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewDependentSystemObjectMap {
-    pub dependent_system_one_id: i32,
-    pub dependent_system_two_id: i32,
+    pub dependent_system_one_uuid: Uuid,
+    pub dependent_system_two_uuid: Uuid,
     pub remote_id_one: String,
     pub remote_id_two: String,
 }
@@ -31,8 +33,8 @@ pub struct NewDependentSystemObjectMap {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DependentSystemObjectMapWithSystems {
     pub dependent_system_object_map_id: i64,
-    pub dependent_system_one_id: i32,
-    pub dependent_system_two_id: i32,
+    pub dependent_system_one_uuid: Uuid,
+    pub dependent_system_two_uuid: Uuid,
     pub remote_id_one: String,
     pub remote_id_two: String,
     pub system_one_name: String,
@@ -44,8 +46,8 @@ pub struct DependentSystemObjectMapWithSystems {
 /// Statistics about mappings between systems
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct MappingStats {
-    pub system_one_id: i32,
-    pub system_two_id: i32,
+    pub system_one_uuid: Uuid,
+    pub system_two_uuid: Uuid,
     pub system_one_name: String,
     pub system_two_name: String,
     pub total_mappings: i64,
@@ -60,14 +62,14 @@ impl DependentSystemObjectMap {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            INSERT INTO tasker_dependent_system_object_maps 
-            (dependent_system_one_id, dependent_system_two_id, remote_id_one, remote_id_two, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, NOW(), NOW())
-            RETURNING dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id, 
+            INSERT INTO tasker_dependent_system_object_maps
+            (dependent_system_one_uuid, dependent_system_two_uuid, remote_id_one, remote_id_two, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, NOW(), NOW())
+            RETURNING dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                       remote_id_one, remote_id_two, created_at, updated_at
             "#,
-            new_mapping.dependent_system_one_id,
-            new_mapping.dependent_system_two_id,
+            new_mapping.dependent_system_one_uuid,
+            new_mapping.dependent_system_two_uuid,
             new_mapping.remote_id_one,
             new_mapping.remote_id_two
         )
@@ -85,7 +87,7 @@ impl DependentSystemObjectMap {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            SELECT dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
             FROM tasker_dependent_system_object_maps
             WHERE dependent_system_object_map_id = $1
@@ -98,27 +100,27 @@ impl DependentSystemObjectMap {
         Ok(mapping)
     }
 
-    /// Find mapping by system IDs and remote IDs (uses unique constraint)
+    /// Find mapping by system UUIDs and remote IDs (uses unique constraint)
     pub async fn find_by_systems_and_remote_ids(
         pool: &PgPool,
-        system_one_id: i32,
-        system_two_id: i32,
+        system_one_uuid: Uuid,
+        system_two_uuid: Uuid,
         remote_id_one: &str,
         remote_id_two: &str,
     ) -> Result<Option<DependentSystemObjectMap>, sqlx::Error> {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            SELECT dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
             FROM tasker_dependent_system_object_maps
-            WHERE dependent_system_one_id = $1 
-              AND dependent_system_two_id = $2
+            WHERE dependent_system_one_uuid = $1::uuid
+              AND dependent_system_two_uuid = $2::uuid
               AND remote_id_one = $3
               AND remote_id_two = $4
             "#,
-            system_one_id,
-            system_two_id,
+            system_one_uuid,
+            system_two_uuid,
             remote_id_one,
             remote_id_two
         )
@@ -131,20 +133,20 @@ impl DependentSystemObjectMap {
     /// Find all mappings for a specific system pair
     pub async fn find_by_systems(
         pool: &PgPool,
-        system_one_id: i32,
-        system_two_id: i32,
+        system_one_uuid: Uuid,
+        system_two_uuid: Uuid,
     ) -> Result<Vec<DependentSystemObjectMap>, sqlx::Error> {
         let mappings = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            SELECT dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
             FROM tasker_dependent_system_object_maps
-            WHERE dependent_system_one_id = $1 AND dependent_system_two_id = $2
+            WHERE dependent_system_one_uuid = $1::uuid AND dependent_system_two_uuid = $2::uuid
             ORDER BY created_at DESC
             "#,
-            system_one_id,
-            system_two_id
+            system_one_uuid,
+            system_two_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -160,7 +162,7 @@ impl DependentSystemObjectMap {
         let mappings = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            SELECT dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
             FROM tasker_dependent_system_object_maps
             WHERE remote_id_one = $1 OR remote_id_two = $1
@@ -184,10 +186,10 @@ impl DependentSystemObjectMap {
         let mappings = sqlx::query_as!(
             DependentSystemObjectMapWithSystems,
             r#"
-            SELECT 
+            SELECT
                 dsom.dependent_system_object_map_id,
-                dsom.dependent_system_one_id,
-                dsom.dependent_system_two_id,
+                dsom.dependent_system_one_uuid,
+                dsom.dependent_system_two_uuid,
                 dsom.remote_id_one,
                 dsom.remote_id_two,
                 ds1.name as system_one_name,
@@ -195,8 +197,8 @@ impl DependentSystemObjectMap {
                 dsom.created_at,
                 dsom.updated_at
             FROM tasker_dependent_system_object_maps dsom
-            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_id = dsom.dependent_system_one_id
-            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_id = dsom.dependent_system_two_id
+            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
+            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
             ORDER BY dsom.created_at DESC
             LIMIT $1
             "#,
@@ -213,16 +215,16 @@ impl DependentSystemObjectMap {
         let stats = sqlx::query_as!(
             MappingStats,
             r#"
-            SELECT 
-                dsom.dependent_system_one_id as system_one_id,
-                dsom.dependent_system_two_id as system_two_id,
+            SELECT
+                dsom.dependent_system_one_uuid as system_one_uuid,
+                dsom.dependent_system_two_uuid as system_two_uuid,
                 ds1.name as system_one_name,
                 ds2.name as system_two_name,
-                COUNT(*)::bigint as "total_mappings!: i64"
+                COUNT(*)::BIGINT as "total_mappings!: i64"
             FROM tasker_dependent_system_object_maps dsom
-            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_id = dsom.dependent_system_one_id
-            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_id = dsom.dependent_system_two_id
-            GROUP BY dsom.dependent_system_one_id, dsom.dependent_system_two_id, ds1.name, ds2.name
+            INNER JOIN tasker_dependent_systems ds1 ON ds1.dependent_system_uuid = dsom.dependent_system_one_uuid
+            INNER JOIN tasker_dependent_systems ds2 ON ds2.dependent_system_uuid = dsom.dependent_system_two_uuid
+            GROUP BY dsom.dependent_system_one_uuid, dsom.dependent_system_two_uuid, ds1.name, ds2.name
             ORDER BY COUNT(*) DESC
             "#
         )
@@ -253,19 +255,19 @@ impl DependentSystemObjectMap {
         let mapping = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            UPDATE tasker_dependent_system_object_maps 
-            SET dependent_system_one_id = $2,
-                dependent_system_two_id = $3,
+            UPDATE tasker_dependent_system_object_maps
+            SET dependent_system_one_uuid = $2::uuid,
+                dependent_system_two_uuid = $3::uuid,
                 remote_id_one = $4,
                 remote_id_two = $5,
                 updated_at = NOW()
             WHERE dependent_system_object_map_id = $1
-            RETURNING dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            RETURNING dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                       remote_id_one, remote_id_two, created_at, updated_at
             "#,
             id,
-            new_mapping.dependent_system_one_id,
-            new_mapping.dependent_system_two_id,
+            new_mapping.dependent_system_one_uuid,
+            new_mapping.dependent_system_two_uuid,
             new_mapping.remote_id_one,
             new_mapping.remote_id_two
         )
@@ -283,8 +285,8 @@ impl DependentSystemObjectMap {
         // Try to find existing mapping first
         if let Some(existing) = Self::find_by_systems_and_remote_ids(
             pool,
-            new_mapping.dependent_system_one_id,
-            new_mapping.dependent_system_two_id,
+            new_mapping.dependent_system_one_uuid,
+            new_mapping.dependent_system_two_uuid,
             &new_mapping.remote_id_one,
             &new_mapping.remote_id_two,
         )
@@ -309,7 +311,7 @@ impl DependentSystemObjectMap {
         let mappings = sqlx::query_as!(
             DependentSystemObjectMap,
             r#"
-            SELECT dependent_system_object_map_id, dependent_system_one_id, dependent_system_two_id,
+            SELECT dependent_system_object_map_id, dependent_system_one_uuid, dependent_system_two_uuid,
                    remote_id_one, remote_id_two, created_at, updated_at
             FROM tasker_dependent_system_object_maps
             ORDER BY created_at DESC

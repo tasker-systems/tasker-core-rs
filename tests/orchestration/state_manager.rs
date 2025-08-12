@@ -5,6 +5,7 @@ use tasker_core::orchestration::state_manager::{
     StateEntityType, StateHealthSummary, StateManager, StateTransitionEvent, StateTransitionRequest,
 };
 use tasker_core::state_machine::events::TaskEvent;
+use uuid::Uuid;
 
 #[test]
 fn test_state_health_summary_calculations() {
@@ -42,15 +43,16 @@ async fn test_state_manager_creation(pool: sqlx::PgPool) {
 
 #[test]
 fn test_state_transition_request() {
+    let entity_uuid = Uuid::new_v4();
     let request = StateTransitionRequest {
-        entity_id: 123,
+        entity_uuid,
         entity_type: StateEntityType::Task,
         target_state: "complete".to_string(),
         event: StateTransitionEvent::TaskEvent(TaskEvent::Complete),
         metadata: None,
     };
 
-    assert_eq!(request.entity_id, 123);
+    assert_eq!(request.entity_uuid, entity_uuid);
     assert_eq!(request.entity_type, StateEntityType::Task);
     assert_eq!(request.target_state, "complete");
 }

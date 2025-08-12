@@ -12,9 +12,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepMessage {
     /// Database step ID (big integer from database)
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Database task ID (big integer from database)
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Task namespace (e.g., "fulfillment", "inventory", "notifications")
     pub namespace: String,
     /// Task name (e.g., "process_order")
@@ -34,8 +34,8 @@ pub struct StepMessage {
 /// Parameters for creating a StepMessage to avoid too many arguments
 #[derive(Debug, Clone)]
 pub struct StepMessageParams {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub namespace: String,
     pub task_name: String,
     pub task_version: String,
@@ -51,7 +51,7 @@ pub struct StepMessageParams {
 /// the UUIDs to fetch ActiveRecord models directly from the shared database.
 ///
 /// Benefits:
-/// - 80%+ message size reduction (3 UUIDs vs complex nested JSON)  
+/// - 80%+ message size reduction (3 UUIDs vs complex nested JSON)
 /// - Eliminates type conversion issues (Ruby gets real ActiveRecord models)
 /// - Prevents stale queue messages (UUIDs are globally unique)
 /// - Database as single source of truth (no data duplication)
@@ -60,7 +60,7 @@ pub struct StepMessageParams {
 pub struct SimpleStepMessage {
     /// Task UUID from tasker_tasks.task_uuid column
     pub task_uuid: Uuid,
-    /// Step UUID from tasker_workflow_steps.step_uuid column  
+    /// Step UUID from tasker_workflow_steps.step_uuid column
     pub step_uuid: Uuid,
     /// UUIDs of dependency steps that are ready/completed for this step
     /// Empty array means no dependencies or root step
@@ -76,7 +76,7 @@ pub struct StepExecutionContext {
     /// Dependency chain results: results from all steps that this step depends on
     /// Structure: [{"step_name": "validate_order", "results": {...}}, ...]
     pub sequence: Vec<StepDependencyResult>,
-    /// Full step object for handler execution  
+    /// Full step object for handler execution
     pub step: serde_json::Value,
     /// Additional context for step execution
     pub additional_context: HashMap<String, serde_json::Value>,
@@ -88,9 +88,9 @@ pub struct StepDependencyResult {
     /// Name of the dependency step
     pub step_name: String,
     /// Step ID of the dependency
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Named step ID for the dependency
-    pub named_step_id: i32,
+    pub named_step_uuid: Uuid,
     /// Results data from the dependency step execution
     pub results: Option<serde_json::Value>,
     /// When the dependency step was processed
@@ -135,8 +135,8 @@ impl Default for StepMessageMetadata {
 impl StepMessage {
     /// Create a new step message with execution context
     pub fn new(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         namespace: String,
         task_name: String,
         task_version: String,
@@ -145,8 +145,8 @@ impl StepMessage {
         execution_context: StepExecutionContext,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             namespace,
             task_name,
             task_version,
@@ -160,8 +160,8 @@ impl StepMessage {
     /// Create step message from parameters struct
     pub fn from_params(params: StepMessageParams) -> Self {
         Self {
-            step_id: params.step_id,
-            task_id: params.task_id,
+            step_uuid: params.step_uuid,
+            task_uuid: params.task_uuid,
             namespace: params.namespace,
             task_name: params.task_name,
             task_version: params.task_version,
@@ -178,8 +178,8 @@ impl StepMessage {
         metadata: StepMessageMetadata,
     ) -> Self {
         Self {
-            step_id: params.step_id,
-            task_id: params.task_id,
+            step_uuid: params.step_uuid,
+            task_uuid: params.task_uuid,
             namespace: params.namespace,
             task_name: params.task_name,
             task_version: params.task_version,
@@ -235,9 +235,9 @@ impl StepMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     /// Step that was executed
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Task containing the step
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Execution status
     pub status: StepExecutionStatus,
     /// Result data from step execution
@@ -356,15 +356,15 @@ impl StepDependencyResult {
     /// Create a new dependency result
     pub fn new(
         step_name: String,
-        step_id: i64,
-        named_step_id: i32,
+        step_uuid: Uuid,
+        named_step_uuid: Uuid,
         results: Option<serde_json::Value>,
         processed_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Self {
         Self {
             step_name,
-            step_id,
-            named_step_id,
+            step_uuid,
+            named_step_uuid,
             results,
             processed_at,
             metadata: HashMap::new(),
@@ -443,14 +443,14 @@ impl BackoffHint {
 impl StepResult {
     /// Create successful step result
     pub fn success(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         result_data: Option<serde_json::Value>,
         execution_time_ms: u64,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             status: StepExecutionStatus::Success,
             result_data,
             error: None,
@@ -462,15 +462,15 @@ impl StepResult {
 
     /// Create successful step result with orchestration metadata
     pub fn success_with_metadata(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         result_data: Option<serde_json::Value>,
         execution_time_ms: u64,
         orchestration_metadata: OrchestrationMetadata,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             status: StepExecutionStatus::Success,
             result_data,
             error: None,
@@ -482,14 +482,14 @@ impl StepResult {
 
     /// Create failed step result
     pub fn failed(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         error: StepExecutionError,
         execution_time_ms: u64,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             status: StepExecutionStatus::Failed,
             result_data: None,
             error: Some(error),
@@ -501,15 +501,15 @@ impl StepResult {
 
     /// Create failed step result with orchestration metadata
     pub fn failed_with_metadata(
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         error: StepExecutionError,
         execution_time_ms: u64,
         orchestration_metadata: OrchestrationMetadata,
     ) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             status: StepExecutionStatus::Failed,
             result_data: None,
             error: Some(error),
@@ -520,10 +520,10 @@ impl StepResult {
     }
 
     /// Create timed out step result
-    pub fn timed_out(step_id: i64, task_id: i64, execution_time_ms: u64) -> Self {
+    pub fn timed_out(step_uuid: Uuid, task_uuid: Uuid, execution_time_ms: u64) -> Self {
         Self {
-            step_id,
-            task_id,
+            step_uuid,
+            task_uuid,
             status: StepExecutionStatus::TimedOut,
             result_data: None,
             error: Some(StepExecutionError {
@@ -543,17 +543,20 @@ impl StepResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn test_step_message_creation() {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let execution_context = StepExecutionContext::new_root_step(
-            serde_json::json!({"task_id": 67890, "status": "pending"}),
-            serde_json::json!({"step_id": 12345, "name": "validate_order"}),
+            serde_json::json!({"task_uuid": task_uuid, "status": "pending"}),
+            serde_json::json!({"step_uuid": step_uuid, "name": "validate_order"}),
         );
 
         let message = StepMessage::new(
-            12345,
-            67890,
+            step_uuid,
+            task_uuid,
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -562,8 +565,8 @@ mod tests {
             execution_context,
         );
 
-        assert_eq!(message.step_id, 12345);
-        assert_eq!(message.task_id, 67890);
+        assert_eq!(message.step_uuid, step_uuid);
+        assert_eq!(message.task_uuid, task_uuid);
         assert_eq!(message.namespace, "fulfillment");
         assert_eq!(message.queue_name(), "fulfillment_queue");
         assert_eq!(message.metadata.retry_count, 0);
@@ -574,14 +577,16 @@ mod tests {
 
     #[test]
     fn test_step_message_json_serialization() {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let execution_context = StepExecutionContext::new_root_step(
-            serde_json::json!({"task_id": 67890, "status": "pending"}),
-            serde_json::json!({"step_id": 12345, "name": "validate_order"}),
+            serde_json::json!({"task_uuid": task_uuid, "status": "pending"}),
+            serde_json::json!({"step_uuid": step_uuid, "name": "validate_order"}),
         );
 
         let message = StepMessage::new(
-            12345,
-            67890,
+            step_uuid,
+            task_uuid,
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -593,8 +598,8 @@ mod tests {
         let json = message.to_json().unwrap();
         let deserialized = StepMessage::from_json(json).unwrap();
 
-        assert_eq!(message.step_id, deserialized.step_id);
-        assert_eq!(message.task_id, deserialized.task_id);
+        assert_eq!(message.step_uuid, deserialized.step_uuid);
+        assert_eq!(message.task_uuid, deserialized.task_uuid);
         assert_eq!(message.namespace, deserialized.namespace);
         assert_eq!(
             message.execution_context.sequence.len(),
@@ -604,15 +609,17 @@ mod tests {
 
     #[test]
     fn test_step_result_creation() {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let result = StepResult::success(
-            12345,
-            67890,
+            step_uuid,
+            task_uuid,
             Some(serde_json::json!({"status": "validated"})),
             1500,
         );
 
-        assert_eq!(result.step_id, 12345);
-        assert_eq!(result.task_id, 67890);
+        assert_eq!(result.step_uuid, step_uuid);
+        assert_eq!(result.task_uuid, task_uuid);
         assert_eq!(result.status, StepExecutionStatus::Success);
         assert_eq!(result.execution_time_ms, 1500);
         assert!(result.error.is_none());
@@ -620,14 +627,16 @@ mod tests {
 
     #[test]
     fn test_retry_logic() {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let execution_context = StepExecutionContext::new_root_step(
-            serde_json::json!({"task_id": 67890, "status": "pending"}),
-            serde_json::json!({"step_id": 12345, "name": "validate_order"}),
+            serde_json::json!({"task_uuid": task_uuid, "status": "pending"}),
+            serde_json::json!({"step_uuid": step_uuid, "name": "validate_order"}),
         );
 
         let mut message = StepMessage::new(
-            12345,
-            67890,
+            step_uuid,
+            task_uuid,
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -671,18 +680,20 @@ mod tests {
 
     #[test]
     fn test_step_result_with_metadata() {
+        let step_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let metadata =
             OrchestrationMetadata::new().with_header("retry-after".to_string(), "30".to_string());
 
         let result = StepResult::success_with_metadata(
-            12345,
-            67890,
+            step_uuid,
+            task_uuid,
             Some(serde_json::json!({"status": "validated"})),
             1500,
             metadata,
         );
 
-        assert_eq!(result.step_id, 12345);
+        assert_eq!(result.step_uuid, step_uuid);
         assert_eq!(result.status, StepExecutionStatus::Success);
         assert!(result.orchestration_metadata.is_some());
 
@@ -692,19 +703,25 @@ mod tests {
 
     #[test]
     fn test_step_execution_context_with_dependencies() {
+        let task_uuid = Uuid::now_v7();
+        let step_uuid = Uuid::now_v7();
+        let named_step_uuid = Uuid::now_v7();
+
+        let step_uuid_two = Uuid::now_v7();
+        let named_step_uuid_two = Uuid::now_v7();
         // Create dependency results
         let dep1 = StepDependencyResult::new(
             "validate_order".to_string(),
-            123,
-            1,
+            step_uuid,
+            named_step_uuid,
             Some(serde_json::json!({"status": "validated", "order_id": 1001})),
             Some(chrono::Utc::now()),
         );
 
         let dep2 = StepDependencyResult::new(
             "check_inventory".to_string(),
-            124,
-            2,
+            step_uuid_two,
+            named_step_uuid_two,
             Some(serde_json::json!({"status": "available", "quantity": 5})),
             Some(chrono::Utc::now()),
         );
@@ -713,24 +730,26 @@ mod tests {
 
         // Create execution context with dependencies
         let execution_context = StepExecutionContext::new(
-            serde_json::json!({"task_id": 67890, "status": "pending"}),
+            serde_json::json!({"task_uuid": task_uuid, "status": "pending"}),
             dependencies,
-            serde_json::json!({"step_id": 12345, "name": "process_payment"}),
+            serde_json::json!({"step_uuid": step_uuid, "name": "process_payment"}),
         );
 
         assert_eq!(execution_context.sequence.len(), 2);
         assert_eq!(execution_context.sequence[0].step_name, "validate_order");
         assert_eq!(execution_context.sequence[1].step_name, "check_inventory");
-        assert_eq!(execution_context.sequence[0].step_id, 123);
-        assert_eq!(execution_context.sequence[1].step_id, 124);
+        assert_eq!(execution_context.sequence[0].step_uuid, step_uuid);
+        assert_eq!(execution_context.sequence[1].step_uuid, step_uuid_two);
     }
 
     #[test]
     fn test_step_dependency_result_creation() {
+        let step_uuid = Uuid::now_v7();
+        let named_step_uuid = Uuid::now_v7();
         let dep_result = StepDependencyResult::new(
             "validate_order".to_string(),
-            123,
-            1,
+            step_uuid,
+            named_step_uuid,
             Some(serde_json::json!({"status": "validated"})),
             Some(chrono::Utc::now()),
         )
@@ -738,8 +757,8 @@ mod tests {
         .with_metadata("retryable".to_string(), serde_json::json!(true));
 
         assert_eq!(dep_result.step_name, "validate_order");
-        assert_eq!(dep_result.step_id, 123);
-        assert_eq!(dep_result.named_step_id, 1);
+        assert_eq!(dep_result.step_uuid, step_uuid);
+        assert_eq!(dep_result.named_step_uuid, named_step_uuid);
         assert!(dep_result.results.is_some());
         assert_eq!(
             dep_result.metadata.get("attempts"),

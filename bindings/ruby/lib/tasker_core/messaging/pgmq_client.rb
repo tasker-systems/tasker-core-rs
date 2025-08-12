@@ -136,7 +136,7 @@ module TaskerCore
         queue_name = "#{namespace}_queue"
         message_hash = step_message.to_h
 
-        logger.debug("📤 PGMQ: Sending step message - step_id: #{step_message.step_id}, task_id: #{step_message.task_id}, queue: #{queue_name}")
+        logger.debug("📤 PGMQ: Sending step message - step_id: #{step_message.step_uuid}, task_uuid: #{step_message.task_uuid}, queue: #{queue_name}")
 
         send_message(queue_name, message_hash, delay_seconds: delay_seconds)
       end
@@ -417,16 +417,17 @@ module TaskerCore
 
         messages = []
         result.each do |row|
-          # Parse message JSON
-          message_data = JSON.parse(row['message'])
+          # Parse message JSON with symbolized keys
+          message_data = JSON.parse(row['message'], symbolize_names: true)
 
           # Create simple queue message data with message hash directly
+          # Types now accept both String and Time objects
           queue_message_data = TaskerCore::Types::SimpleQueueMessageData.new(
             msg_id: row['msg_id'].to_i,
             read_ct: row['read_ct'].to_i,
             enqueued_at: row['enqueued_at'],
             vt: row['vt'],
-            simple_step_message: message_data
+            message: message_data
           )
 
           messages << queue_message_data

@@ -196,8 +196,8 @@ impl EnqueueRequest {
 /// Result of an enqueue operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnqueueResult {
-    /// Task ID that was enqueued
-    pub task_id: i64,
+    /// Task UUID that was enqueued
+    pub task_uuid: uuid::Uuid,
     /// Operation that was performed
     pub operation: EnqueueOperation,
     /// Queue the task was added to
@@ -319,7 +319,7 @@ impl EnqueueHandler for EventBasedEnqueueHandler {
 
         // For event-based handling, we return a result indicating the event was published
         // The actual enqueue result would come from the framework subscriber
-        let task_id = request.task.task_id;
+        let task_uuid = request.task.task_uuid;
         let operation = request.operation;
         let queue_name = request
             .queue_name
@@ -328,7 +328,7 @@ impl EnqueueHandler for EventBasedEnqueueHandler {
         let process_at = request.process_at();
 
         Ok(EnqueueResult {
-            task_id,
+            task_uuid,
             operation,
             queue_name,
             job_id: None, // Would be set by framework handler
@@ -378,7 +378,7 @@ impl EnqueueHandler for DirectEnqueueHandler {
 
         info!(
             target: "task_enqueuer",
-            task_id = request.task.task_id,
+            task_uuid = %request.task.task_uuid,
             operation = ?request.operation,
             queue = %request.queue_name.as_deref().unwrap_or("default"),
             delay_seconds = request.delay_seconds,
@@ -393,7 +393,7 @@ impl EnqueueHandler for DirectEnqueueHandler {
         // - Redis/database-backed queues
         // - In-memory priority queues
 
-        let task_id = request.task.task_id;
+        let task_uuid = request.task.task_uuid;
         let operation = request.operation;
         let queue_name = request
             .queue_name
@@ -402,10 +402,10 @@ impl EnqueueHandler for DirectEnqueueHandler {
         let process_at = request.process_at();
 
         Ok(EnqueueResult {
-            task_id,
+            task_uuid,
             operation,
             queue_name,
-            job_id: Some(format!("rust-job-{task_id}")),
+            job_id: Some(format!("rust-job-{task_uuid}")),
             process_at,
             success: true,
             metadata: HashMap::from([
@@ -514,12 +514,13 @@ impl TaskEnqueuer {
 mod tests {
     use super::*;
     use crate::models::Task;
+    use uuid::Uuid;
 
     #[test]
     fn test_enqueue_request_creation() {
         let task = Task {
-            task_id: 123,
-            named_task_id: 1,
+            task_uuid: Uuid::new_v4(),
+            named_task_uuid: Uuid::new_v4(),
             complete: false,
             requested_at: Utc::now().naive_utc(),
             initiator: Some("test".to_string()),
@@ -543,7 +544,7 @@ mod tests {
             .with_reason("Test enqueue")
             .with_queue("test_queue");
 
-        assert_eq!(request.task.task_id, 123);
+        assert!(request.task.task_uuid.to_string().len() > 0);
         assert_eq!(request.delay_seconds, 30);
         assert_eq!(request.priority, EnqueuePriority::High);
         assert_eq!(request.reason, "Test enqueue");
@@ -560,8 +561,8 @@ mod tests {
     #[test]
     fn test_reenqueue_request() {
         let task = Task {
-            task_id: 456,
-            named_task_id: 1,
+            task_uuid: Uuid::new_v4(),
+            named_task_uuid: Uuid::new_v4(),
             complete: false,
             requested_at: Utc::now().naive_utc(),
             initiator: None,

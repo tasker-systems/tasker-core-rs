@@ -117,13 +117,13 @@ impl StateAction<Task> for UpdateTaskCompletionAction {
             task_clone.mark_complete(pool).await.map_err(|e| {
                 ActionError::DatabaseUpdateFailed {
                     entity_type: "Task".to_string(),
-                    entity_id: task.task_id,
+                    entity_id: task.task_uuid.to_string(),
                     reason: format!("Failed to mark task as complete: {e}"),
                 }
             })?;
 
             tracing::info!(
-                task_id = task.task_id,
+                task_uuid = %task.task_uuid,
                 "Task marked as complete with legacy flag updated"
             );
         }
@@ -155,14 +155,14 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
             step_clone.mark_in_process(pool).await.map_err(|e| {
                 ActionError::DatabaseUpdateFailed {
                     entity_type: "WorkflowStep".to_string(),
-                    entity_id: step.workflow_step_id,
+                    entity_id: step.workflow_step_uuid.to_string(),
                     reason: format!("Failed to mark step as in process: {e}"),
                 }
             })?;
 
             tracing::info!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 "Step marked as in_process with legacy flag updated"
             );
         }
@@ -180,13 +180,13 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
                 .await
                 .map_err(|e| ActionError::DatabaseUpdateFailed {
                     entity_type: "WorkflowStep".to_string(),
-                    entity_id: step.workflow_step_id,
+                    entity_id: step.workflow_step_uuid.to_string(),
                     reason: format!("Failed to mark step as processed: {e}"),
                 })?;
 
             tracing::info!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 ?results,
                 "Step marked as complete with results and legacy flags updated"
             );
@@ -197,24 +197,24 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
             // When a step fails, it's no longer in process
             sqlx::query!(
                 r#"
-                UPDATE tasker_workflow_steps 
+                UPDATE tasker_workflow_steps
                 SET in_process = false,
                     updated_at = NOW()
-                WHERE workflow_step_id = $1
+                WHERE workflow_step_uuid = $1
                 "#,
-                step.workflow_step_id
+                step.workflow_step_uuid
             )
             .execute(pool)
             .await
             .map_err(|e| ActionError::DatabaseUpdateFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_id,
+                entity_id: step.workflow_step_uuid.to_string(),
                 reason: format!("Failed to mark step as not in process after error: {e}"),
             })?;
 
             tracing::info!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 "Step marked as not in_process after error"
             );
         }
@@ -223,26 +223,26 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
         if to_state == WorkflowStepState::Cancelled.to_string() {
             sqlx::query!(
                 r#"
-                UPDATE tasker_workflow_steps 
+                UPDATE tasker_workflow_steps
                 SET in_process = false,
                     processed = true,
                     processed_at = NOW(),
                     updated_at = NOW()
-                WHERE workflow_step_id = $1
+                WHERE workflow_step_uuid = $1
                 "#,
-                step.workflow_step_id
+                step.workflow_step_uuid
             )
             .execute(pool)
             .await
             .map_err(|e| ActionError::DatabaseUpdateFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_id,
+                entity_id: step.workflow_step_uuid.to_string(),
                 reason: format!("Failed to mark cancelled step as processed: {e}"),
             })?;
 
             tracing::info!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 "Cancelled step marked as processed and not in_process"
             );
         }
@@ -251,26 +251,26 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
         if to_state == WorkflowStepState::ResolvedManually.to_string() {
             sqlx::query!(
                 r#"
-                UPDATE tasker_workflow_steps 
+                UPDATE tasker_workflow_steps
                 SET in_process = false,
                     processed = true,
                     processed_at = NOW(),
                     updated_at = NOW()
-                WHERE workflow_step_id = $1
+                WHERE workflow_step_uuid = $1
                 "#,
-                step.workflow_step_id
+                step.workflow_step_uuid
             )
             .execute(pool)
             .await
             .map_err(|e| ActionError::DatabaseUpdateFailed {
                 entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_id,
+                entity_id: step.workflow_step_uuid.to_string(),
                 reason: format!("Failed to mark manually resolved step as processed: {e}"),
             })?;
 
             tracing::info!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 "Manually resolved step marked as processed and not in_process"
             );
         }
@@ -307,8 +307,8 @@ impl StateAction<WorkflowStep> for TriggerStepDiscoveryAction {
         if to_state == WorkflowStepState::Complete.to_string() {
             // Trigger discovery of newly viable steps
             let context = serde_json::json!({
-                "task_id": step.task_id,
-                "completed_step_id": step.workflow_step_id,
+                "task_uuid": step.task_uuid,
+                "completed_step_uuid": step.workflow_step_uuid,
                 "triggered_at": Utc::now()
             });
 
@@ -347,7 +347,7 @@ impl StateAction<Task> for ErrorStateCleanupAction {
 
             // Log the error for debugging (error details will be stored in transition metadata)
             tracing::error!(
-                task_id = task.task_id,
+                task_uuid = %task.task_uuid,
                 error_message = error_message,
                 "Task transitioned to error state"
             );
@@ -376,8 +376,8 @@ impl StateAction<WorkflowStep> for ErrorStateCleanupAction {
 
             // Log the error for debugging (error details will be stored in transition metadata)
             tracing::error!(
-                step_id = step.workflow_step_id,
-                task_id = step.task_id,
+                step_uuid = %step.workflow_step_uuid,
+                task_uuid = %step.task_uuid,
                 error_message = error_message,
                 "Workflow step transitioned to error state"
             );
@@ -424,8 +424,8 @@ fn build_task_event_context(
     event: &str,
 ) -> Value {
     serde_json::json!({
-        "task_id": task.task_id,
-        "named_task_id": task.named_task_id,
+        "task_uuid": task.task_uuid,
+        "named_task_uuid": task.named_task_uuid,
         "from_state": from_state,
         "to_state": to_state,
         "event": event,
@@ -441,9 +441,9 @@ fn build_step_event_context(
     event: &str,
 ) -> Value {
     serde_json::json!({
-        "task_id": step.task_id,
-        "step_id": step.workflow_step_id,
-        "named_step_id": step.named_step_id,
+        "task_uuid": step.task_uuid,
+        "step_uuid": step.workflow_step_uuid,
+        "named_step_uuid": step.named_step_uuid,
         "from_state": from_state,
         "to_state": to_state,
         "event": event,

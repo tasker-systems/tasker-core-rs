@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use crate::messaging::message::OrchestrationMetadata;
 
@@ -67,7 +68,7 @@ pub struct BatchMessage {
     /// Database batch ID from step_execution_batch
     pub batch_id: i64,
     /// Task ID this batch belongs to
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Namespace for worker routing
     pub namespace: String,
     /// Task name for context
@@ -84,7 +85,7 @@ pub struct BatchMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchStep {
     /// Database step ID
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Step sequence number within task
     pub sequence: i32,
     /// Name of the step to execute
@@ -140,9 +141,9 @@ impl Default for BatchRetryPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResultMessage {
     /// Step ID that was processed
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Task ID for context
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Namespace for routing
     pub namespace: String,
     /// Step execution status
@@ -155,7 +156,7 @@ pub struct StepResultMessage {
     pub execution_time_ms: u64,
     /// Orchestration metadata from worker
     pub orchestration_metadata: Option<OrchestrationMetadata>,
-    /// Result metadata  
+    /// Result metadata
     pub metadata: StepResultMetadata,
 }
 
@@ -166,7 +167,7 @@ pub struct BatchResultMessage {
     /// Batch ID that was processed
     pub batch_id: i64,
     /// Task ID for aggregation
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Namespace for routing
     pub namespace: String,
     /// Overall batch execution status
@@ -191,7 +192,7 @@ pub enum BatchExecutionStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     /// Step ID that was executed
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     /// Step execution status
     pub status: StepExecutionStatus,
     /// Step output data
@@ -308,7 +309,7 @@ impl BatchMessage {
     /// Create a new batch message
     pub fn new(
         batch_id: i64,
-        task_id: i64,
+        task_uuid: Uuid,
         namespace: String,
         task_name: String,
         task_version: String,
@@ -316,7 +317,7 @@ impl BatchMessage {
     ) -> Self {
         Self {
             batch_id,
-            task_id,
+            task_uuid,
             namespace,
             task_name,
             task_version,
@@ -347,13 +348,13 @@ impl BatchMessage {
 impl BatchStep {
     /// Create a new batch step
     pub fn new(
-        step_id: i64,
+        step_uuid: Uuid,
         sequence: i32,
         step_name: String,
         step_payload: serde_json::Value,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             sequence,
             step_name,
             step_payload,
@@ -372,7 +373,7 @@ impl BatchResultMessage {
     /// Create a new batch result message
     pub fn new(
         batch_id: i64,
-        task_id: i64,
+        task_uuid: Uuid,
         namespace: String,
         batch_status: BatchExecutionStatus,
         step_results: Vec<StepResult>,
@@ -393,7 +394,7 @@ impl BatchResultMessage {
 
         Self {
             batch_id,
-            task_id,
+            task_uuid,
             namespace,
             batch_status,
             step_results,
@@ -425,9 +426,9 @@ impl BatchResultMessage {
 
 impl StepResult {
     /// Create a successful step result
-    pub fn success(step_id: i64, output: serde_json::Value, execution_duration_ms: i64) -> Self {
+    pub fn success(step_uuid: Uuid, output: serde_json::Value, execution_duration_ms: i64) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: StepExecutionStatus::Success,
             output: Some(output),
             error: None,
@@ -439,13 +440,13 @@ impl StepResult {
 
     /// Create a failed step result
     pub fn failed(
-        step_id: i64,
+        step_uuid: Uuid,
         error: String,
         error_code: Option<String>,
         execution_duration_ms: i64,
     ) -> Self {
         Self {
-            step_id,
+            step_uuid,
             status: StepExecutionStatus::Failed,
             output: None,
             error: Some(error),
@@ -458,6 +459,7 @@ impl StepResult {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use serde_json::json;
 
@@ -481,15 +483,18 @@ mod tests {
 
     #[test]
     fn test_batch_message_creation() {
+        let step_uuid = Uuid::now_v7();
+        let step_two_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let steps = vec![
             BatchStep::new(
-                1,
+                step_uuid,
                 1,
                 "validate_order".to_string(),
                 json!({"order_id": 12345}),
             ),
             BatchStep::new(
-                2,
+                step_two_uuid,
                 2,
                 "check_inventory".to_string(),
                 json!({"product_id": 67890}),
@@ -498,7 +503,7 @@ mod tests {
 
         let batch = BatchMessage::new(
             100,
-            12345,
+            task_uuid,
             "fulfillment".to_string(),
             "process_order".to_string(),
             "1.0.0".to_string(),
@@ -507,7 +512,7 @@ mod tests {
         .with_timeout(600);
 
         assert_eq!(batch.batch_id, 100);
-        assert_eq!(batch.task_id, 12345);
+        assert_eq!(batch.task_uuid, task_uuid);
         assert_eq!(batch.namespace, "fulfillment");
         assert_eq!(batch.steps.len(), 2);
         assert_eq!(batch.metadata.timeout_seconds, 600);
@@ -515,10 +520,13 @@ mod tests {
 
     #[test]
     fn test_batch_result_message_creation() {
+        let step_uuid = Uuid::now_v7();
+        let step_two_uuid = Uuid::now_v7();
+        let task_uuid = Uuid::now_v7();
         let step_results = vec![
-            StepResult::success(1, json!({"status": "validated"}), 100),
+            StepResult::success(step_uuid, json!({"status": "validated"}), 100),
             StepResult::failed(
-                2,
+                step_two_uuid,
                 "Insufficient inventory".to_string(),
                 Some("INVENTORY_ERROR".to_string()),
                 50,
@@ -527,7 +535,7 @@ mod tests {
 
         let result = BatchResultMessage::new(
             100,
-            12345,
+            task_uuid,
             "fulfillment".to_string(),
             BatchExecutionStatus::PartialSuccess,
             step_results,
@@ -536,7 +544,7 @@ mod tests {
         );
 
         assert_eq!(result.batch_id, 100);
-        assert_eq!(result.task_id, 12345);
+        assert_eq!(result.task_uuid, task_uuid);
         assert!(matches!(
             result.batch_status,
             BatchExecutionStatus::PartialSuccess

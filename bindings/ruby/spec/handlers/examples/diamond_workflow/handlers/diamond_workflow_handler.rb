@@ -13,7 +13,7 @@ module DiamondWorkflow
         metadata: {
           workflow_type: 'diamond',
           step_name: step.step_name,
-          task_id: task.task_id
+          task_uuid: task.task_uuid
         }
       }
     end

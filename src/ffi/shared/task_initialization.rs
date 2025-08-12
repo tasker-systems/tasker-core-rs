@@ -13,11 +13,12 @@ use crate::models::task_request::TaskRequest;
 use crate::orchestration::{TaskInitializationResult, TaskInitializer};
 use sqlx::PgPool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// FFI-compatible task initialization result
 #[derive(Debug, Clone)]
 pub struct FFITaskInitializationResult {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub success: bool,
     pub message: String,
     pub metadata: HashMap<String, Value>,
@@ -26,7 +27,7 @@ pub struct FFITaskInitializationResult {
 impl From<TaskInitializationResult> for FFITaskInitializationResult {
     fn from(result: TaskInitializationResult) -> Self {
         Self {
-            task_id: result.task_id,
+            task_uuid: result.task_uuid,
             success: true,
             message: format!(
                 "Task initialized successfully with {} steps",
@@ -59,13 +60,13 @@ impl From<TaskInitializationResult> for FFITaskInitializationResult {
 
 /// Initialize a task directly through FFI, bypassing the task request queue
 ///
-/// This is intended for embedded mode testing where we need immediate task_id
+/// This is intended for embedded mode testing where we need immediate task_uuid
 /// feedback while still using the orchestrator for workflow processing.
 ///
 /// # Arguments
 /// * `database_url` - PostgreSQL connection string
 /// * `namespace` - Task namespace (e.g., "linear_workflow")
-/// * `name` - Task name (e.g., "mathematical_sequence")  
+/// * `name` - Task name (e.g., "mathematical_sequence")
 /// * `version` - Task version (e.g., "1.0.0")
 /// * `context` - Task context as JSON Value
 /// * `initiator` - Who initiated the task
@@ -140,10 +141,10 @@ pub async fn initialize_task_direct(
         .await
     {
         Ok(initialization_result) => {
-            let task_id = initialization_result.task_id;
+            let task_uuid = initialization_result.task_uuid;
             info!(
                 "✅ FFI: Task initialized successfully - ID: {}, Steps: {}",
-                task_id, initialization_result.step_count
+                task_uuid, initialization_result.step_count
             );
 
             Ok(initialization_result.into())

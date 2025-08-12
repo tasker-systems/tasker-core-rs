@@ -39,7 +39,7 @@ fn benchmark_json_processing(c: &mut Criterion) {
     c.bench_function("json_processing", |b| {
         b.iter(|| {
             let data = r#"{
-                "task_id": 12345,
+                "task_uuid": 12345,
                 "workflow_steps": [
                     {"name": "step1", "status": "complete", "result": {"value": 100}},
                     {"name": "step2", "status": "pending", "inputs": {"dependency": "step1"}},

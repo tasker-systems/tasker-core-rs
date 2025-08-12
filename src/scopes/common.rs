@@ -4,7 +4,7 @@
 
 use crate::constants::status_groups;
 use crate::state_machine::{TaskState, WorkflowStepState};
-use sqlx::PgPool;
+use sqlx::{types::Uuid, PgPool};
 
 /// Base trait for all scope builders
 pub trait ScopeBuilder<T> {
@@ -78,7 +78,7 @@ pub mod state_helpers {
         format!("wst.to_state = '{}'", WorkflowStepState::Complete)
     }
 
-    /// Generate SQL condition for failed task state  
+    /// Generate SQL condition for failed task state
     pub fn failed_task_condition() -> String {
         format!("current_transitions.to_state = '{}'", TaskState::Error)
     }
@@ -86,6 +86,6 @@ pub mod state_helpers {
 
 /// Special query types that need custom execution
 pub enum SpecialQuery {
-    SiblingsOf(i64),
-    ProvidesToChildren(i64),
+    SiblingsOf(Uuid),
+    ProvidesToChildren(Uuid),
 }

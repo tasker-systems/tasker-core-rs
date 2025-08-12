@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Unified event type that supports both generic and structured events
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,33 +41,33 @@ pub struct GenericEvent {
 pub enum OrchestrationEvent {
     /// Task orchestration started
     TaskOrchestrationStarted {
-        task_id: i64,
+        task_uuid: Uuid,
         framework: String,
         started_at: DateTime<Utc>,
     },
     /// Viable steps discovered for execution
     ViableStepsDiscovered {
-        task_id: i64,
+        task_uuid: Uuid,
         step_count: usize,
         steps: Vec<ViableStep>,
     },
     /// Task orchestration completed
     TaskOrchestrationCompleted {
-        task_id: i64,
+        task_uuid: Uuid,
         result: TaskResult,
         completed_at: DateTime<Utc>,
     },
     /// Step execution started
     StepExecutionStarted {
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         step_name: String,
         started_at: DateTime<Utc>,
     },
     /// Step execution completed
     StepExecutionCompleted {
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Uuid,
         result: StepResult,
         completed_at: DateTime<Utc>,
     },
@@ -81,10 +82,10 @@ pub enum OrchestrationEvent {
 /// Viable step information for orchestration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViableStep {
-    pub step_id: i64,
-    pub task_id: i64,
+    pub step_uuid: Uuid,
+    pub task_uuid: Uuid,
     pub name: String,
-    pub named_step_id: i64,
+    pub named_step_uuid: Uuid,
     pub current_state: String,
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
@@ -268,7 +269,7 @@ mod tests {
     #[test]
     fn test_orchestration_event_creation() {
         let orch_event = OrchestrationEvent::TaskOrchestrationStarted {
-            task_id: 123,
+            task_uuid: Uuid::now_v7(),
             framework: "rust".to_string(),
             started_at: Utc::now(),
         };

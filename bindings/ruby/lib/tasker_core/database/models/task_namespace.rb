@@ -5,24 +5,19 @@
 #
 # Table name: tasker_task_namespaces
 #
+#  task_namespace_uuid :uuid             not null, primary key, default(uuid_generate_v7())
 #  name                :string(64)       not null
-#  description         :string(255)
+#  description         :string(255)      nullable
 #  created_at          :datetime         not null
 #  updated_at          :datetime         not null
-#  task_namespace_id   :integer          not null, primary key
-#
-# Indexes
-#
-#  task_namespaces_name_index   (name)
-#  task_namespaces_name_unique  (name) UNIQUE
 #
 module TaskerCore
   module Database
     module Models
       class TaskNamespace < ApplicationRecord
-        self.primary_key = :task_namespace_id
+        self.primary_key = :task_namespace_uuid
 
-        has_many :named_tasks, dependent: :nullify
+        has_many :named_tasks, foreign_key: :task_namespace_uuid, primary_key: :task_namespace_uuid, dependent: :nullify
 
         validates :name, presence: true, uniqueness: true, length: { maximum: 64 }
         validates :description, length: { maximum: 255 }

@@ -15,5 +15,4 @@ SELECT "tasker_workflow_step_transitions".* FROM "tasker_workflow_step_transitio
 
 -- Scope: for_task
 -- NOTE: This scope requires parameters - SQL generated with dummy values
-SELECT "tasker_workflow_step_transitions".* FROM "tasker_workflow_step_transitions" INNER JOIN "tasker_workflow_steps" ON "tasker_workflow_steps"."workflow_step_id" = "tasker_workflow_step_transitions"."workflow_step_id" WHERE "workflow_steps"."task_id" = 1
-
+SELECT "tasker_workflow_step_transitions".* FROM "tasker_workflow_step_transitions" INNER JOIN "tasker_workflow_steps" ON "tasker_workflow_steps"."workflow_step_uuid" = "tasker_workflow_step_transitions"."workflow_step_uuid" WHERE "workflow_steps"."task_uuid" = 1

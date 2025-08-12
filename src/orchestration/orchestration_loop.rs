@@ -386,7 +386,7 @@ impl OrchestrationLoop {
         for task in &claimed_tasks {
             info!(
                 "📋 ORCHESTRATION_LOOP: Claimed task {} (namespace: '{}') with {} ready steps, priority: {}",
-                task.task_id, task.namespace_name, task.ready_steps_count, task.priority
+                task.task_uuid, task.namespace_name, task.ready_steps_count, task.priority
             );
         }
 
@@ -435,11 +435,12 @@ impl OrchestrationLoop {
                 }
                 Err(e) => {
                     tasks_failed += 1;
-                    let warning = format!("Failed to process task {}: {}", claimed_task.task_id, e);
+                    let warning =
+                        format!("Failed to process task {}: {}", claimed_task.task_uuid, e);
                     warnings.push(warning.clone());
 
                     warn!(
-                        task_id = claimed_task.task_id,
+                        task_uuid = claimed_task.task_uuid.to_string(),
                         error = %e,
                         "Failed to process claimed task"
                     );
@@ -451,19 +452,19 @@ impl OrchestrationLoop {
             let release_start = Instant::now();
             match self
                 .task_claimer
-                .release_task_claim(claimed_task.task_id)
+                .release_task_claim(claimed_task.task_uuid)
                 .await
             {
                 Ok(released) => {
                     if !released {
                         let warning = format!(
                             "Task claim {} was not released (may have been released already)",
-                            claimed_task.task_id
+                            claimed_task.task_uuid
                         );
                         warnings.push(warning);
                     } else {
                         debug!(
-                            task_id = claimed_task.task_id,
+                            task_uuid = claimed_task.task_uuid.to_string(),
                             "Released task claim immediately after processing"
                         );
                     }
@@ -471,7 +472,7 @@ impl OrchestrationLoop {
                 Err(e) => {
                     let warning = format!(
                         "Failed to release task claim {}: {}",
-                        claimed_task.task_id, e
+                        claimed_task.task_uuid, e
                     );
                     warnings.push(warning);
                 }
@@ -613,7 +614,7 @@ impl OrchestrationLoop {
         claimed_task: &ClaimedTask,
     ) -> Result<crate::orchestration::step_enqueuer::StepEnqueueResult> {
         debug!(
-            task_id = claimed_task.task_id,
+            task_uuid = claimed_task.task_uuid.to_string(),
             "Processing claimed task for step discovery and enqueueing"
         );
 

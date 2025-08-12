@@ -24,6 +24,7 @@ use crate::models::core::workflow_step_transition::{
 use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Trait for persisting state transitions
 #[async_trait]
@@ -42,12 +43,12 @@ pub trait TransitionPersistence<T> {
     /// Resolve the current state from persisted transitions
     async fn resolve_current_state(
         &self,
-        entity_id: i64,
+        entity_id: Uuid,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>>;
 
     /// Get the next sort key for ordering transitions
-    async fn get_next_sort_key(&self, entity_id: i64, pool: &PgPool) -> PersistenceResult<i32>;
+    async fn get_next_sort_key(&self, entity_id: Uuid, pool: &PgPool) -> PersistenceResult<i32>;
 }
 
 /// Task transition persistence implementation
@@ -73,7 +74,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         });
 
         let new_transition = NewTaskTransition {
-            task_id: task.task_id,
+            task_uuid: task.task_uuid,
             to_state,
             from_state,
             metadata: Some(transition_metadata),
@@ -90,22 +91,22 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
 
     async fn resolve_current_state(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>> {
-        let current_transition = TaskTransition::get_current(pool, task_id)
+        let current_transition = TaskTransition::get_current(pool, task_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_id })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_uuid.to_string() })?;
 
         Ok(current_transition.map(|t| t.to_state))
     }
 
-    async fn get_next_sort_key(&self, task_id: i64, pool: &PgPool) -> PersistenceResult<i32> {
+    async fn get_next_sort_key(&self, task_uuid: Uuid, pool: &PgPool) -> PersistenceResult<i32> {
         // Note: This is now handled internally by TaskTransition::create()
         // This method is kept for trait compliance but not used in persist_transition
-        let transitions = TaskTransition::list_by_task(pool, task_id)
+        let transitions = TaskTransition::list_by_task(pool, task_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_id })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_uuid.to_string() })?;
 
         Ok(transitions.len() as i32 + 1)
     }
@@ -134,7 +135,7 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         });
 
         let new_transition = NewWorkflowStepTransition {
-            workflow_step_id: step.workflow_step_id,
+            workflow_step_uuid: step.workflow_step_uuid,
             to_state,
             from_state,
             metadata: Some(transition_metadata),
@@ -151,22 +152,22 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
 
     async fn resolve_current_state(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>> {
-        let current_transition = WorkflowStepTransition::get_current(pool, step_id)
+        let current_transition = WorkflowStepTransition::get_current(pool, step_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_id })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_uuid.to_string() })?;
 
         Ok(current_transition.map(|t| t.to_state))
     }
 
-    async fn get_next_sort_key(&self, step_id: i64, pool: &PgPool) -> PersistenceResult<i32> {
+    async fn get_next_sort_key(&self, step_uuid: Uuid, pool: &PgPool) -> PersistenceResult<i32> {
         // Note: This is now handled internally by WorkflowStepTransition::create()
         // This method is kept for trait compliance but not used in persist_transition
-        let transitions = WorkflowStepTransition::list_by_workflow_step(pool, step_id)
+        let transitions = WorkflowStepTransition::list_by_workflow_step(pool, step_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_id })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_uuid.to_string() })?;
 
         Ok(transitions.len() as i32 + 1)
     }
@@ -176,7 +177,7 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
 pub async fn idempotent_transition<T>(
     persistence: &impl TransitionPersistence<T>,
     entity: &T,
-    entity_id: i64,
+    entity_id: Uuid,
     target_state: String,
     event: &str,
     metadata: Option<Value>,
@@ -203,7 +204,7 @@ where
 /// Transaction-safe state resolution with retry logic
 pub async fn resolve_state_with_retry<T>(
     persistence: &impl TransitionPersistence<T>,
-    entity_id: i64,
+    entity_id: Uuid,
     pool: &PgPool,
     max_retries: u32,
 ) -> PersistenceResult<Option<String>> {
@@ -215,7 +216,7 @@ pub async fn resolve_state_with_retry<T>(
             Err(e) if retries < max_retries => {
                 retries += 1;
                 tracing::warn!(
-                    entity_id = entity_id,
+                    entity_id = %entity_id,
                     retry = retries,
                     error = %e,
                     "Retrying state resolution"

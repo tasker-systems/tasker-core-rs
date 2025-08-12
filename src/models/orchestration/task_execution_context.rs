@@ -38,12 +38,12 @@
 //!
 //! This module integrates with two key PostgreSQL functions:
 //!
-//! ### 1. `get_task_execution_context(input_task_id bigint)`
+//! ### 1. `get_task_execution_context(input_task_uuid bigint)`
 //! - Computes execution context for a single task
 //! - Returns comprehensive statistics and status analysis
 //! - Uses CTEs and step readiness functions for efficient calculation
 //!
-//! ### 2. `get_task_execution_contexts_batch(input_task_ids bigint[])`
+//! ### 2. `get_task_execution_contexts_batch(input_task_uuids bigint[])`
 //! - Batch computation for multiple tasks simultaneously
 //! - Optimized for dashboard and bulk operations
 //! - Reduces database round trips for large-scale analysis
@@ -53,8 +53,8 @@
 //! Both functions return identical table structure:
 //! ```sql
 //! RETURNS TABLE(
-//!   task_id bigint,
-//!   named_task_id integer,
+//!   task_uuid bigint,
+//!   named_task_uuid integer,
 //!   status text,
 //!   total_steps bigint,
 //!   pending_steps bigint,
@@ -82,7 +82,7 @@
 //! The Rails model was a thin wrapper around the same SQL functions.
 
 use serde::{Deserialize, Serialize};
-use sqlx::types::BigDecimal;
+use sqlx::types::{BigDecimal, Uuid};
 use sqlx::{FromRow, PgPool};
 
 /// Represents computed task execution context and statistics.
@@ -94,7 +94,7 @@ use sqlx::{FromRow, PgPool};
 ///
 /// All fields are calculated dynamically by analyzing:
 /// - Current task state from `tasker_task_transitions`
-/// - Step states from `tasker_workflow_step_transitions`  
+/// - Step states from `tasker_workflow_step_transitions`
 /// - Step dependencies from `tasker_workflow_step_edges`
 /// - Step readiness from `get_step_readiness_status()` function
 ///
@@ -106,10 +106,10 @@ use sqlx::{FromRow, PgPool};
 /// - `delete()` - Cannot delete computed data
 ///
 /// Only read operations are available via the SQL functions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskExecutionContext {
-    pub task_id: i64,
-    pub named_task_id: i32,
+    pub task_uuid: Uuid,
+    pub named_task_uuid: Uuid,
     pub status: String,
     pub total_steps: i64,
     pub pending_steps: i64,
@@ -126,7 +126,7 @@ pub struct TaskExecutionContext {
 impl TaskExecutionContext {
     /// Get execution context for a single task using SQL function.
     ///
-    /// This method calls the `get_task_execution_context(input_task_id)` PostgreSQL function
+    /// This method calls the `get_task_execution_context(input_task_uuid)` PostgreSQL function
     /// to compute real-time execution statistics and status for the specified task.
     ///
     /// # SQL Function Details
@@ -156,10 +156,11 @@ impl TaskExecutionContext {
     /// ```rust,no_run
     /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
-    /// # async fn example(pool: PgPool, task_id: i64) -> Result<(), sqlx::Error> {
-    /// if let Some(context) = TaskExecutionContext::get_for_task(&pool, task_id).await? {
-    ///     println!("Task {} status: {}", context.task_id, context.execution_status);
+    /// # async fn example(pool: PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
+    /// if let Some(context) = TaskExecutionContext::get_for_task(&pool, task_uuid).await? {
+    ///     println!("Task {} status: {}", context.task_uuid, context.execution_status);
     ///     println!("Progress: {}/{} steps complete",
     ///              context.completed_steps, context.total_steps);
     ///
@@ -172,16 +173,17 @@ impl TaskExecutionContext {
     /// ```
     ///
     /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
+    /// Get execution context for a specific task
     pub async fn get_for_task(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
         let context = sqlx::query_as!(
             TaskExecutionContext,
             r#"
-            SELECT 
-                task_id as "task_id!: i64",
-                named_task_id as "named_task_id!: i32",
+            SELECT
+                task_uuid as "task_uuid!: Uuid",
+                named_task_uuid as "named_task_uuid!: Uuid",
                 status as "status!: String",
                 total_steps as "total_steps!: i64",
                 pending_steps as "pending_steps!: i64",
@@ -193,9 +195,9 @@ impl TaskExecutionContext {
                 recommended_action,
                 completion_percentage as "completion_percentage!: BigDecimal",
                 health_status as "health_status!: String"
-            FROM get_task_execution_context($1)
+            FROM get_task_execution_context($1::uuid)
             "#,
-            task_id
+            task_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -205,7 +207,7 @@ impl TaskExecutionContext {
 
     /// Get execution contexts for multiple tasks using batch SQL function.
     ///
-    /// This method calls the `get_task_execution_contexts_batch(input_task_ids)` PostgreSQL
+    /// This method calls the `get_task_execution_contexts_batch(input_task_uuids)` PostgreSQL
     /// function to efficiently compute execution statistics for multiple tasks simultaneously.
     ///
     /// # SQL Function Details
@@ -233,15 +235,16 @@ impl TaskExecutionContext {
     /// ```rust,no_run
     /// use tasker_core::models::orchestration::task_execution_context::TaskExecutionContext;
     /// use sqlx::PgPool;
+    /// use uuid::Uuid;
     ///
     /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
-    /// let task_ids = vec![123, 456, 789];
-    /// let contexts = TaskExecutionContext::get_for_tasks(&pool, &task_ids).await?;
+    /// let task_uuids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    /// let contexts = TaskExecutionContext::get_for_tasks(&pool, &task_uuids).await?;
     ///
     /// for context in contexts {
     ///     println!("Task {}: {} steps complete",
-    ///              context.task_id, context.completed_steps);
-    ///     
+    ///              context.task_uuid, context.completed_steps);
+    ///
     ///     if context.ready_steps > 0 {
     ///         println!("  → {} steps ready for execution", context.ready_steps);
     ///     }
@@ -253,14 +256,14 @@ impl TaskExecutionContext {
     /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
     pub async fn get_for_tasks(
         pool: &PgPool,
-        task_ids: &[i64],
+        task_uuids: &[Uuid],
     ) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
         let contexts = sqlx::query_as!(
             TaskExecutionContext,
             r#"
-            SELECT 
-                task_id as "task_id!: i64",
-                named_task_id as "named_task_id!: i32",
+            SELECT
+                task_uuid as "task_uuid!: Uuid",
+                named_task_uuid as "named_task_uuid!: Uuid",
                 status as "status!: String",
                 total_steps as "total_steps!: i64",
                 pending_steps as "pending_steps!: i64",
@@ -272,9 +275,9 @@ impl TaskExecutionContext {
                 recommended_action,
                 completion_percentage as "completion_percentage!: BigDecimal",
                 health_status as "health_status!: String"
-            FROM get_task_execution_contexts_batch($1)
+            FROM get_task_execution_contexts_batch($1::uuid[])
             "#,
-            task_ids
+            task_uuids
         )
         .fetch_all(pool)
         .await?;

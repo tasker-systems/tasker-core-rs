@@ -65,8 +65,6 @@ module TaskerCore
 
       # Step execution result from pgmq worker processing
       class StepResult < Dry::Struct
-        attribute? :step_id, Types::Integer.optional
-        attribute? :task_id, Types::Integer.optional
         attribute :task_uuid, Types::String
         attribute :step_uuid, Types::String
         attribute :status, StepExecutionStatus
@@ -77,12 +75,10 @@ module TaskerCore
         attribute? :orchestration_metadata, Types::Hash.optional
 
         # Factory methods for creating results
-        def self.success(step_id:, task_id:, task_uuid:, step_uuid:, result_data: nil, execution_time_ms: 0)
+        def self.success(step_uuid:, task_uuid:, result_data: nil, execution_time_ms: 0)
           new(
-            step_id: step_id,
-            task_id: task_id,
-            task_uuid: task_uuid,
             step_uuid: step_uuid,
+            task_uuid: task_uuid,
             status: StepExecutionStatus.new(status: 'success'),
             execution_time_ms: execution_time_ms,
             completed_at: Time.now,
@@ -90,12 +86,10 @@ module TaskerCore
           )
         end
 
-        def self.in_progress(step_id:, task_id:, task_uuid:, step_uuid:, result_data: nil, execution_time_ms: 0)
+        def self.in_progress(step_uuid:, task_uuid:, result_data: nil, execution_time_ms: 0)
           new(
-            step_id: step_id,
-            task_id: task_id,
-            task_uuid: task_uuid,
             step_uuid: step_uuid,
+            task_uuid: task_uuid,
             status: StepExecutionStatus.new(status: 'in_progress'),
             execution_time_ms: execution_time_ms,
             completed_at: Time.now,
@@ -103,12 +97,10 @@ module TaskerCore
           )
         end
 
-        def self.failure(step_id:, task_id:, task_uuid:, step_uuid:, error:, execution_time_ms: 0)
+        def self.failure(step_uuid:, task_uuid:, error:, execution_time_ms: 0)
           new(
-            step_id: step_id,
-            task_id: task_id,
-            task_uuid: task_uuid,
             step_uuid: step_uuid,
+            task_uuid: task_uuid,
             status: StepExecutionStatus.new(status: 'failed'),
             execution_time_ms: execution_time_ms,
             completed_at: Time.now,
@@ -128,8 +120,8 @@ module TaskerCore
         # Convert to hash for message serialization matching Rust StepResultMessage structure
         def to_h
           {
-            step_id: step_id,
-            task_id: task_id,
+            step_uuid: step_uuid,
+            task_uuid: task_uuid,
             status: map_status_to_rust_enum(status.status),
             results: result_data,
             error: error&.to_h,

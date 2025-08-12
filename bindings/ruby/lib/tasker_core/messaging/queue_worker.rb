@@ -3,7 +3,6 @@
 require 'concurrent'
 require 'json'
 require_relative '../types/step_types'
-require_relative '../types/execution_types'
 require_relative '../types/simple_message'
 require_relative '../execution/step_sequence'
 require_relative 'message_manager'
@@ -185,9 +184,7 @@ module TaskerCore
         )
 
         TaskerCore::Types::StepTypes::StepResult.failure(
-          step_id: step.workflow_step_id,
-          task_id: task.task_id,
-          step_uuid: step.step_uuid,
+          step_uuid: step.workflow_step_uuid,
           task_uuid: task.task_uuid,
           error: error,
           execution_time_ms: execution_time_ms
@@ -205,9 +202,7 @@ module TaskerCore
         execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
         TaskerCore::Types::StepTypes::StepResult.success(
-          step_id: step.workflow_step_id,
-          task_id: task.task_id,
-          step_uuid: step.step_uuid,
+          step_uuid: step.workflow_step_uuid,
           task_uuid: task.task_uuid,
           execution_time_ms: execution_time_ms,
           result_data: JSON.generate(result_data.to_h)
@@ -269,10 +264,8 @@ module TaskerCore
           )
 
           TaskerCore::Types::StepTypes::StepResult.failure(
-            step_id: nil,
-            task_id: nil,
-            task_uuid: msg_data.task_uuid,  # Use UUID as fallback
-            step_uuid: msg_data.step_uuid,  # Use UUID as fallback
+            task_uuid: msg_data.task_uuid,
+            step_uuid: msg_data.step_uuid,
             error: error,
             execution_time_ms: execution_time_ms
           )
@@ -290,10 +283,8 @@ module TaskerCore
           )
 
           TaskerCore::Types::StepTypes::StepResult.failure(
-            step_id: nil,
-            task_id: nil,
-            task_uuid: msg_data.task_uuid,  # Use UUID as fallback
-            step_uuid: msg_data.step_uuid,  # Use UUID as fallback
+            task_uuid: msg_data.task_uuid,
+            step_uuid: msg_data.step_uuid,
             error: error,
             execution_time_ms: execution_time_ms
           )
@@ -326,7 +317,7 @@ module TaskerCore
       # @param step_message [TaskerCore::Types::StepMessage] Step message to validate
       # @return [Boolean] true if execution context is complete
       def can_extract_execution_context?(step_message)
-        logger.debug("🔍 QUEUE_WORKER: Validating execution context - step_id: #{step_message.step_id}, step_name: #{step_message.step_name}")
+        logger.debug("🔍 QUEUE_WORKER: Validating execution context - step_id: #{step_message.step_uuid}, step_name: #{step_message.step_name}")
 
         unless step_message.namespace == namespace
           logger.debug("❌ QUEUE_WORKER: Namespace mismatch - expected: #{namespace}, got: #{step_message.namespace}")
@@ -531,7 +522,7 @@ module TaskerCore
       # Phase 5.2: Send results to orchestration result queue for processing
       # @param result [TaskerCore::Types::StepTypes::StepResult] Step execution result
       def send_result_to_orchestration(result)
-        logger.debug("📤 QUEUE_WORKER: Sending result to orchestration - step_id: #{result.step_id}, status: #{result.status.status}")
+        logger.debug("📤 QUEUE_WORKER: Sending result to orchestration - step_id: #{result.step_uuid}, status: #{result.status.status}")
 
         begin
           # Get orchestration results queue name from configuration
@@ -569,8 +560,8 @@ module TaskerCore
       # Create a skip result for steps we can't handle
       def create_skip_result(step_message)
         TaskerCore::Types::StepTypes::StepResult.new(
-          step_id: step_message.step_id,
-          task_id: step_message.task_id,
+          step_uuid: step_message.step_uuid,
+          task_uuid: step_message.task_uuid,
           status: TaskerCore::Types::StepExecutionStatus.new(status: 'cancelled'),
           execution_time_ms: 0,
           completed_at: Time.now
@@ -586,8 +577,8 @@ module TaskerCore
         )
 
         TaskerCore::Types::StepTypes::StepResult.failure(
-          step_id: step_message.step_id,
-          task_id: step_message.task_id,
+          step_uuid: step_message.step_uuid,
+          task_uuid: step_message.task_uuid,
           error: error,
           execution_time_ms: 0
         )
@@ -603,44 +594,10 @@ module TaskerCore
         )
 
         TaskerCore::Types::StepTypes::StepResult.failure(
-          step_id: step_message.step_id,
-          task_id: step_message.task_id,
+          step_uuid: step_message.step_uuid,
+          task_uuid: step_message.task_uuid,
           error: error,
           execution_time_ms: 0
-        )
-      end
-
-      # Create a task object from execution context hash
-      # This converts the raw hash to a proper TaskWrapper dry-struct
-      def create_task_object_from_context(task_hash)
-        return task_hash if task_hash.respond_to?(:context) # Already an object
-
-        # Convert hash to proper TaskerCore::Types::ExecutionTypes::TaskWrapper
-        TaskerCore::Types::ExecutionTypes::TaskWrapper.new(
-          context: task_hash[:context] || task_hash['context'] || {},
-          id: task_hash[:task_id] || task_hash['task_id'],
-          task_id: task_hash[:task_id] || task_hash['task_id']
-        )
-      end
-
-      # Create a step object from execution context hash
-      # This converts the raw hash to a proper StepContext dry-struct
-      def create_step_object_from_context(step_hash)
-        return step_hash if step_hash.respond_to?(:workflow_step_id) # Already an object
-
-        # Convert hash to proper StepContext - use minimal required fields
-        TaskerCore::Types::ExecutionTypes::StepContext.new(
-          id: step_hash[:workflow_step_id] || step_hash['workflow_step_id'] || 0,
-          step_id: step_hash[:workflow_step_id] || step_hash['workflow_step_id'] || 0,
-          task_id: step_hash[:task_id] || step_hash['task_id'] || 0,
-          name: step_hash[:step_name] || step_hash['step_name'] || 'unknown',
-          handler_class: step_hash[:handler_class] || step_hash['handler_class'] || 'unknown',
-          handler_config: step_hash[:handler_config] || step_hash['handler_config'] || {},
-          attempt: 1,
-          retry_limit: 3,
-          timeout_ms: 30_000,
-          depends_on: step_hash[:depends_on] || step_hash['depends_on'] || [],
-          previous_results: {}
         )
       end
 
@@ -690,13 +647,13 @@ module TaskerCore
         # Create minimal execution context for registry lookup
         execution_context_hash = {
           task: {
-            task_id: task.task_id,
+            task_uuid: task.task_uuid,
             context: task.context
           },
           step: {
-            workflow_step_id: step.workflow_step_id,
+            workflow_step_uuid: step.workflow_step_uuid,
             step_name: step.name,
-            task_id: task.task_id
+            task_uuid: task.task_uuid
           },
           sequence: []
         }
@@ -704,8 +661,8 @@ module TaskerCore
         # Create minimal step message with just what the registry needs
         OpenStruct.new(
           step_name: step.name,
-          step_id: step.workflow_step_id,
-          task_id: task.task_id,
+          step_uuid: step.workflow_step_uuid,
+          task_uuid: task.task_uuid,
           namespace: step.task.namespace_name,
           execution_context: OpenStruct.new(execution_context_hash)
         )

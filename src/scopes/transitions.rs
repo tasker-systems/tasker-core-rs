@@ -7,6 +7,7 @@ use super::common::ScopeBuilder;
 use crate::models::{TaskTransition, WorkflowStepTransition};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use uuid::Uuid;
 
 /// Query builder for TaskTransition scopes
 pub struct TaskTransitionScope {
@@ -42,9 +43,9 @@ impl TaskTransitionScope {
     ///
     /// Filters transitions to those belonging to a specific task.
     /// Essential for tracking task state history and audit trails.
-    pub fn for_task(mut self, task_id: i64) -> Self {
-        self.add_condition("tasker_task_transitions.task_id = ");
-        self.query.push_bind(task_id);
+    pub fn for_task(mut self, task_uuid: Uuid) -> Self {
+        self.add_condition("tasker_task_transitions.task_uuid = ");
+        self.query.push_bind(task_uuid);
         self
     }
 
@@ -135,7 +136,7 @@ impl ScopeBuilder<TaskTransition> for TaskTransitionScope {
     }
 }
 
-/// Query builder for WorkflowStepTransition scopes  
+/// Query builder for WorkflowStepTransition scopes
 pub struct WorkflowStepTransitionScope {
     query: QueryBuilder<'static, Postgres>,
     has_conditions: bool,
@@ -171,7 +172,7 @@ impl WorkflowStepTransitionScope {
     /// Ensure workflow steps join exists
     fn ensure_workflow_steps_join(&mut self) {
         if !self.has_workflow_steps_join {
-            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.workflow_step_id = tasker_workflow_step_transitions.workflow_step_id");
+            self.query.push(" INNER JOIN tasker_workflow_steps ON tasker_workflow_steps.workflow_step_uuid = tasker_workflow_step_transitions.workflow_step_uuid");
             self.has_workflow_steps_join = true;
         }
     }
@@ -209,11 +210,11 @@ impl WorkflowStepTransitionScope {
     /// Scope: for_task - Transitions for steps belonging to a specific task (Rails: scope :for_task)
     ///
     /// Filters workflow step transitions to those belonging to steps of a specific task.
-    /// Requires JOIN with workflow_steps table to access task_id.
-    pub fn for_task(mut self, task_id: i64) -> Self {
+    /// Requires JOIN with workflow_steps table to access task_uuid.
+    pub fn for_task(mut self, task_uuid: Uuid) -> Self {
         self.ensure_workflow_steps_join();
-        self.add_condition("tasker_workflow_steps.task_id = ");
-        self.query.push_bind(task_id);
+        self.add_condition("tasker_workflow_steps.task_uuid = ");
+        self.query.push_bind(task_uuid);
         self
     }
 }

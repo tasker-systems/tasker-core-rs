@@ -83,12 +83,12 @@ impl MockFramework {
     }
 
     /// Add a task context for testing
-    pub fn add_task_context(&self, task_id: i64, data: serde_json::Value) {
+    pub fn add_task_context(&self, task_uuid: Uuid, data: serde_json::Value) {
         let mut state = self.state.lock().unwrap();
         state.task_contexts.insert(
-            task_id,
+            task_uuid,
             TaskContext {
-                task_id,
+                task_uuid,
                 data,
                 metadata: HashMap::new(),
             },
@@ -97,9 +97,9 @@ impl MockFramework {
 
     /// Configure a specific step result
     #[allow(dead_code)]
-    pub fn configure_step_result(&self, step_id: i64, result: StepResult) {
+    pub fn configure_step_result(&self, step_uuid: Uuid, result: StepResult) {
         let mut state = self.state.lock().unwrap();
-        state.step_results.insert(step_id, result);
+        state.step_results.insert(step_uuid, result);
     }
 
     /// Get the current state for assertions
@@ -133,12 +133,12 @@ impl FrameworkIntegration for MockFramework {
         Box::leak(self.name.clone().into_boxed_str())
     }
 
-    async fn get_task_context(&self, task_id: i64) -> Result<TaskContext, OrchestrationError> {
+    async fn get_task_context(&self, task_uuid: Uuid) -> Result<TaskContext, OrchestrationError> {
         let state = self.state.lock().unwrap();
 
-        state.task_contexts.get(&task_id).cloned().ok_or_else(|| {
+        state.task_contexts.get(&task_uuid).cloned().ok_or_else(|| {
             OrchestrationError::TaskExecutionFailed {
-                task_id,
+                task_uuid,
                 reason: "Task context not found".to_string(),
                 error_code: Some("TASK_NOT_FOUND".to_string()),
             }
@@ -147,11 +147,11 @@ impl FrameworkIntegration for MockFramework {
 
     async fn enqueue_task(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         delay: Option<Duration>,
     ) -> Result<(), OrchestrationError> {
         let mut state = self.state.lock().unwrap();
-        state.enqueued_tasks.push((task_id, delay));
+        state.enqueued_tasks.push((task_uuid, delay));
         Ok(())
     }
 }
@@ -175,10 +175,10 @@ mod tests {
 
         // Create a viable step
         let step = ViableStep {
-            step_id: 1,
-            task_id: 123,
+            step_uuid: 1,
+            task_uuid: 123,
             name: "process_payment".to_string(),
-            named_step_id: 100,
+            named_step_uuid: 100,
             current_state: "pending".to_string(),
             dependencies_satisfied: true,
             retry_eligible: true,
@@ -199,7 +199,7 @@ mod tests {
 
         // Verify the result
         assert!(result.is_success());
-        assert_eq!(result.step_id, 1);
+        assert_eq!(result.step_uuid, 1);
 
         // Check tracked state
         let state = framework.get_state();
@@ -214,10 +214,10 @@ mod tests {
         framework.add_task_context(123, json!({}));
 
         let step = ViableStep {
-            step_id: 1,
-            task_id: 123,
+            step_uuid: 1,
+            task_uuid: 123,
             name: "failing_step".to_string(),
-            named_step_id: 100,
+            named_step_uuid: 100,
             current_state: "pending".to_string(),
             dependencies_satisfied: true,
             retry_eligible: true,

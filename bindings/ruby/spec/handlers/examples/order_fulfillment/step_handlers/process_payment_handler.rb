@@ -9,7 +9,7 @@ module OrderFulfillment
         # Extract and validate all required inputs
         payment_inputs = extract_and_validate_inputs(task, sequence, step)
 
-        logger.info "🔍 ProcessPaymentHandler: Processing payment - task_id=#{task.task_id}, amount=$#{payment_inputs[:amount_to_charge]}"
+        logger.info "🔍 ProcessPaymentHandler: Processing payment - task_uuid=#{task.task_uuid}, amount=$#{payment_inputs[:amount_to_charge]}"
 
         # Process payment through payment gateway
         payment_results = process_payment_transaction(payment_inputs)

@@ -33,45 +33,45 @@ module TaskerCore
         @pgmq_client ||= TaskerCore::Messaging::PgmqClient.new
       end
 
-      # Main task processing method - Rails engine signature: handle(task_id)
+      # Main task processing method - Rails engine signature: handle(task_uuid)
       #
       # Mode-aware processing: Uses embedded FFI orchestrator in embedded mode,
       # or pure pgmq communication in distributed mode.
       #
-      # @param task_id [Integer] ID of the task to process
+      # @param task_uuid [Integer] ID of the task to process
       # @return [Hash] Result of step enqueueing operation
-      def handle(task_id)
-        unless task_id.is_a?(Integer)
-          raise TaskerCore::Errors::ValidationError.new('task_id is required and must be an integer', :task_id)
+      def handle(task_uuid)
+        unless task_uuid.is_a?(Integer)
+          raise TaskerCore::Errors::ValidationError.new('task_uuid is required and must be an integer', :task_uuid)
         end
 
         mode = orchestration_mode
-        logger.info "🚀 Processing task #{task_id} with pgmq orchestration (#{mode} mode)"
+        logger.info "🚀 Processing task #{task_uuid} with pgmq orchestration (#{mode} mode)"
 
         case mode
         when 'embedded'
-          handle_embedded_mode(task_id)
+          handle_embedded_mode(task_uuid)
         when 'distributed'
-          handle_distributed_mode(task_id)
+          handle_distributed_mode(task_uuid)
         else
           raise TaskerCore::Errors::OrchestrationError,
                 "Unknown orchestration mode: #{mode}. Expected 'embedded' or 'distributed'"
         end
       rescue TaskerCore::Errors::OrchestrationError => e
-        logger.error "❌ Orchestration error for task #{task_id}: #{e.message}"
+        logger.error "❌ Orchestration error for task #{task_uuid}: #{e.message}"
         {
           success: false,
-          task_id: task_id,
+          task_uuid: task_uuid,
           error: e.message,
           error_type: 'OrchestrationError',
           architecture: 'pgmq',
           processed_at: Time.now.utc.iso8601
         }
       rescue StandardError => e
-        logger.error "❌ Unexpected error processing task #{task_id}: #{e.class.name}: #{e.message}"
+        logger.error "❌ Unexpected error processing task #{task_uuid}: #{e.class.name}: #{e.message}"
         {
           success: false,
-          task_id: task_id,
+          task_uuid: task_uuid,
           error: e.message,
           error_type: e.class.name,
           architecture: 'pgmq',
@@ -203,9 +203,9 @@ module TaskerCore
       end
 
       # Handle task processing in embedded mode using FFI orchestrator
-      # @param task_id [Integer] ID of the task to process
+      # @param task_uuid [Integer] ID of the task to process
       # @return [Hash] Result of step enqueueing operation
-      def handle_embedded_mode(task_id)
+      def handle_embedded_mode(task_uuid)
         # Use embedded orchestrator to enqueue ready steps for the task
         orchestrator = TaskerCore.embedded_orchestrator
 
@@ -215,13 +215,13 @@ module TaskerCore
         end
 
         # Enqueue steps for the task - this will publish step messages to appropriate queues
-        result = orchestrator.enqueue_steps(task_id)
+        result = orchestrator.enqueue_steps(task_uuid)
 
-        logger.info "✅ Task #{task_id} step enqueueing completed (embedded): #{result}"
+        logger.info "✅ Task #{task_uuid} step enqueueing completed (embedded): #{result}"
 
         {
           success: true,
-          task_id: task_id,
+          task_uuid: task_uuid,
           message: result,
           mode: 'embedded',
           architecture: 'pgmq',
@@ -230,18 +230,18 @@ module TaskerCore
       end
 
       # Handle task processing in distributed mode using pure pgmq
-      # @param task_id [Integer] ID of the task to process
+      # @param task_uuid [Integer] ID of the task to process
       # @return [Hash] Result of step enqueueing operation
-      def handle_distributed_mode(task_id)
+      def handle_distributed_mode(task_uuid)
         # In distributed mode, we don't directly enqueue steps via FFI
         # Instead, we could publish a task processing request to a queue
         # For now, return a message indicating distributed mode handling
 
-        logger.info "✅ Task #{task_id} queued for distributed processing"
+        logger.info "✅ Task #{task_uuid} queued for distributed processing"
 
         {
           success: true,
-          task_id: task_id,
+          task_uuid: task_uuid,
           message: 'Task queued for distributed orchestration processing',
           mode: 'distributed',
           architecture: 'pgmq',

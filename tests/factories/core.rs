@@ -7,7 +7,7 @@ use super::base::*;
 use super::foundation::*;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{types::Uuid, PgPool};
 use tasker_core::models::core::{
     task::NewTask, task_transition::NewTaskTransition, workflow_step::NewWorkflowStep,
     workflow_step_transition::NewWorkflowStepTransition,
@@ -146,7 +146,7 @@ impl SqlxFactory<Task> for TaskFactory {
         let identity_hash = utils::generate_test_identity_hash();
 
         let new_task = NewTask {
-            named_task_id: named_task.named_task_id,
+            named_task_uuid: named_task.named_task_uuid,
             requested_at: None, // Will default to NOW()
             initiator: self.initiator.clone(),
             source_system: self.source_system.clone(),
@@ -182,7 +182,7 @@ impl StateFactory<Task> for TaskFactory {
     async fn apply_state_transitions(&self, task: &Task, pool: &PgPool) -> FactoryResult<()> {
         if let Some(state) = &self.initial_state {
             let new_transition = NewTaskTransition {
-                task_id: task.task_id,
+                task_uuid: task.task_uuid,
                 to_state: state.clone(),
                 from_state: None,
                 metadata: Some(json!({
@@ -229,7 +229,7 @@ impl TaskFactory {
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Factory methods are used across multiple test modules
 pub struct WorkflowStepFactory {
-    task_id: Option<i64>,
+    task_uuid: Option<Uuid>,
     named_step_name: Option<String>,
     inputs: Option<Value>,
     results: Option<Value>,
@@ -245,7 +245,7 @@ pub struct WorkflowStepFactory {
 impl Default for WorkflowStepFactory {
     fn default() -> Self {
         Self {
-            task_id: None,
+            task_uuid: None,
             named_step_name: None, // Will use dummy_step by default
             inputs: Some(json!({"test_input": true})),
             results: None,
@@ -266,8 +266,8 @@ impl WorkflowStepFactory {
         Self::default()
     }
 
-    pub fn for_task(mut self, task_id: i64) -> Self {
-        self.task_id = Some(task_id);
+    pub fn for_task(mut self, task_uuid: Uuid) -> Self {
+        self.task_uuid = Some(task_uuid);
         self
     }
 
@@ -313,11 +313,11 @@ impl WorkflowStepFactory {
 impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
     async fn create(&self, pool: &PgPool) -> FactoryResult<WorkflowStep> {
         // Ensure task exists
-        let task_id = if let Some(id) = self.task_id {
+        let task_uuid = if let Some(id) = self.task_uuid {
             id
         } else {
             let task = TaskFactory::new().create(pool).await?;
-            task.task_id
+            task.task_uuid
         };
 
         // Ensure named step exists
@@ -334,8 +334,8 @@ impl SqlxFactory<WorkflowStep> for WorkflowStepFactory {
         }
 
         let new_step = NewWorkflowStep {
-            task_id,
-            named_step_id: named_step.named_step_id,
+            task_uuid,
+            named_step_uuid: named_step.named_step_uuid,
             retryable: Some(self.retryable),
             retry_limit: self.retry_limit,
             inputs,
@@ -380,7 +380,7 @@ impl StateFactory<WorkflowStep> for WorkflowStepFactory {
     ) -> FactoryResult<()> {
         if let Some(state) = &self.initial_state {
             let new_transition = NewWorkflowStepTransition {
-                workflow_step_id: step.workflow_step_id,
+                workflow_step_uuid: step.workflow_step_uuid,
                 to_state: state.clone(),
                 from_state: None,
                 metadata: Some(json!({
@@ -463,7 +463,7 @@ mod tests {
         let task = TaskFactory::new().in_progress().create(&pool).await?;
 
         // Check that task was created successfully with transitions
-        let transitions = TaskTransition::list_by_task(&pool, task.task_id).await?;
+        let transitions = TaskTransition::list_by_task(&pool, task.task_uuid).await?;
         // Should have one transition to in_progress state
         assert_eq!(transitions.len(), 1);
         assert_eq!(transitions[0].to_state, "in_progress");
@@ -476,13 +476,13 @@ mod tests {
         let task = TaskFactory::new().create(&pool).await?;
 
         let step = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .api_call_step()
             .completed()
             .create(&pool)
             .await?;
 
-        assert_eq!(step.task_id, task.task_id);
+        assert_eq!(step.task_uuid, task.task_uuid);
         assert!(step.processed);
         assert!(step.results.is_some());
 
@@ -600,13 +600,13 @@ mod tests {
         let task = TaskFactory::new().pending().create(&pool).await?;
 
         // Verify the transition was created
-        let transitions = TaskTransition::list_by_task(&pool, task.task_id).await?;
+        let transitions = TaskTransition::list_by_task(&pool, task.task_uuid).await?;
         assert_eq!(transitions.len(), 1);
         assert_eq!(transitions[0].to_state, "pending");
 
         // Test workflow step state transitions
         let step = WorkflowStepFactory::new()
-            .for_task(task.task_id)
+            .for_task(task.task_uuid)
             .in_progress()
             .create(&pool)
             .await?;
@@ -614,7 +614,7 @@ mod tests {
         // Verify step state and transitions
         assert!(step.in_process);
         let step_transitions =
-            WorkflowStepTransition::list_by_workflow_step(&pool, step.workflow_step_id).await?;
+            WorkflowStepTransition::list_by_workflow_step(&pool, step.workflow_step_uuid).await?;
         assert_eq!(step_transitions.len(), 1);
         assert_eq!(step_transitions[0].to_state, "in_progress");
 
@@ -635,7 +635,7 @@ mod tests {
             .await?;
 
         // Should create separate tasks (current implementation)
-        assert_ne!(task1.task_id, task2.task_id);
+        assert_ne!(task1.task_uuid, task2.task_uuid);
 
         // Test step factory with missing task (should create one)
         let step_auto_task = WorkflowStepFactory::new()
@@ -643,17 +643,17 @@ mod tests {
             .create(&pool)
             .await?;
 
-        assert!(step_auto_task.task_id > 0);
+        assert_ne!(step_auto_task.task_uuid, Uuid::nil());
 
         // Test step factory with explicit task
         let explicit_task = TaskFactory::new().create(&pool).await?;
         let step_explicit_task = WorkflowStepFactory::new()
-            .for_task(explicit_task.task_id)
+            .for_task(explicit_task.task_uuid)
             .database_step()
             .create(&pool)
             .await?;
 
-        assert_eq!(step_explicit_task.task_id, explicit_task.task_id);
+        assert_eq!(step_explicit_task.task_uuid, explicit_task.task_uuid);
 
         Ok(())
     }

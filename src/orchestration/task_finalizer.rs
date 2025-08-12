@@ -41,6 +41,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::publisher::EventPublisher;
@@ -53,7 +54,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizationResult {
     /// Task ID that was finalized
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     /// Final action taken
     pub action: FinalizationAction,
     /// Completion percentage if completed
@@ -84,7 +85,7 @@ pub enum FinalizationAction {
 /// Context information for task execution status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionContext {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub execution_status: String,
     pub health_status: Option<String>,
     pub completion_percentage: Option<f64>,
@@ -159,10 +160,10 @@ impl TaskFinalizer {
 
     /// Check if the task is blocked by errors
     ///
-    /// @param task_id The task ID to check
+    /// @param task_uuid The task ID to check
     /// @return True if task is blocked by errors
-    pub async fn blocked_by_errors(&self, task_id: i64) -> Result<bool, FinalizationError> {
-        let context = self.get_task_execution_context(task_id).await?;
+    pub async fn blocked_by_errors(&self, task_uuid: Uuid) -> Result<bool, FinalizationError> {
+        let context = self.get_task_execution_context(task_uuid).await?;
 
         // If no context is available, the task has no steps or doesn't exist
         // In either case, it's not blocked by errors
@@ -175,25 +176,25 @@ impl TaskFinalizer {
 
     /// Finalize a task with processed steps
     ///
-    /// @param task_id The task ID to finalize
+    /// @param task_uuid The task ID to finalize
     /// @param processed_steps All processed steps
     pub async fn finalize_task_with_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         processed_steps: Vec<WorkflowStep>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let context = self.get_task_execution_context(task_id).await?;
+        let context = self.get_task_execution_context(task_uuid).await?;
 
         // Fire finalization started event
-        self.publish_finalization_started(task_id, &processed_steps, &context)
+        self.publish_finalization_started(task_uuid, &processed_steps, &context)
             .await?;
 
         // Use context-enhanced finalization logic with synchronous flag
-        let result = self.finalize_task(task_id, true).await?;
+        let result = self.finalize_task(task_uuid, true).await?;
 
         // Fire finalization completed event
-        let final_context = self.get_task_execution_context(task_id).await?;
-        self.publish_finalization_completed(task_id, &processed_steps, &final_context)
+        let final_context = self.get_task_execution_context(task_uuid).await?;
+        self.publish_finalization_completed(task_uuid, &processed_steps, &final_context)
             .await?;
 
         Ok(result)
@@ -201,19 +202,19 @@ impl TaskFinalizer {
 
     /// Finalize a task based on its current state using TaskExecutionContext
     ///
-    /// @param task_id The task ID to finalize
+    /// @param task_uuid The task ID to finalize
     /// @param synchronous Whether this is synchronous processing (default: false)
     pub async fn finalize_task(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task = Task::find_by_id(&self.pool, task_id).await?;
+        let task = Task::find_by_id(&self.pool, task_uuid).await?;
         let Some(task) = task else {
-            return Err(FinalizationError::TaskNotFound(task_id));
+            return Err(FinalizationError::TaskNotFound(task_uuid));
         };
 
-        let context = self.get_task_execution_context(task_id).await?;
+        let context = self.get_task_execution_context(task_uuid).await?;
 
         self.make_finalization_decision(task, context, synchronous)
             .await
@@ -224,12 +225,12 @@ impl TaskFinalizer {
     /// Convenience method for event-driven workflows when no viable steps are found.
     /// This triggers task finalization to determine next action.
     ///
-    /// @param task_id The task ID to handle
+    /// @param task_uuid The task ID to handle
     pub async fn handle_no_viable_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<FinalizationResult, FinalizationError> {
-        self.finalize_task(task_id, false).await
+        self.finalize_task(task_uuid, false).await
     }
 
     /// Complete a task successfully
@@ -238,7 +239,7 @@ impl TaskFinalizer {
         mut task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
         let mut state_machine = TaskStateMachine::new(
@@ -255,7 +256,7 @@ impl TaskFinalizer {
         // If task is already complete, just return
         if current_state == TaskState::Complete {
             return Ok(FinalizationResult {
-                task_id,
+                task_uuid,
                 action: FinalizationAction::Completed,
                 completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
                 total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -276,10 +277,10 @@ impl TaskFinalizer {
         task.mark_complete(&self.pool).await?;
 
         // Publish completion event
-        self.publish_task_completed(task_id, &context).await?;
+        self.publish_task_completed(task_uuid, &context).await?;
 
         Ok(FinalizationResult {
-            task_id,
+            task_uuid,
             action: FinalizationAction::Completed,
             completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
             total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -294,7 +295,7 @@ impl TaskFinalizer {
         task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
         let mut state_machine = TaskStateMachine::new(
@@ -313,10 +314,10 @@ impl TaskFinalizer {
             })?;
 
         // Publish failure event
-        self.publish_task_failed(task_id, &context).await?;
+        self.publish_task_failed(task_uuid, &context).await?;
 
         Ok(FinalizationResult {
-            task_id,
+            task_uuid,
             action: FinalizationAction::Failed,
             completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
             total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -332,7 +333,7 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
         reason: Option<String>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
         let mut state_machine = TaskStateMachine::new(
@@ -366,11 +367,11 @@ impl TaskFinalizer {
         });
 
         // Publish pending transition event
-        self.publish_task_pending_transition(task_id, &context, &final_reason)
+        self.publish_task_pending_transition(task_uuid, &context, &final_reason)
             .await?;
 
         Ok(FinalizationResult {
-            task_id,
+            task_uuid,
             action: FinalizationAction::Pending,
             completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
             total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -394,7 +395,7 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
         reason: Option<String>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
         let delay_seconds = self.calculate_reenqueue_delay(&context);
         let final_reason = reason.unwrap_or_else(|| {
             context
@@ -419,7 +420,7 @@ impl TaskFinalizer {
             Ok(enqueue_result) => {
                 println!(
                     "TaskFinalizer: Task {} successfully reenqueued - {} (delay: {}s, job_id: {:?})",
-                    task_id,
+                    task_uuid,
                     final_reason,
                     delay_seconds,
                     enqueue_result.job_id
@@ -427,7 +428,7 @@ impl TaskFinalizer {
             }
             Err(enqueue_error) => {
                 eprintln!(
-                    "TaskFinalizer: Failed to reenqueue task {task_id} - {final_reason}: {enqueue_error}"
+                    "TaskFinalizer: Failed to reenqueue task {task_uuid} - {final_reason}: {enqueue_error}"
                 );
                 // Don't return the error - log it and continue with finalization
                 // The task state has already been updated appropriately
@@ -435,7 +436,7 @@ impl TaskFinalizer {
         }
 
         Ok(FinalizationResult {
-            task_id,
+            task_uuid,
             action: FinalizationAction::Reenqueued,
             completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
             total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -447,13 +448,16 @@ impl TaskFinalizer {
     /// Get TaskExecutionContext using function-based implementation
     async fn get_task_execution_context(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, FinalizationError> {
-        let context_result = self.sql_executor.get_task_execution_context(task_id).await;
+        let context_result = self
+            .sql_executor
+            .get_task_execution_context(task_uuid)
+            .await;
 
         match context_result {
             Ok(Some(sql_context)) => Ok(Some(TaskExecutionContext {
-                task_id,
+                task_uuid,
                 execution_status: sql_context.recommended_action.clone(), // Use recommended_action as a proxy for status
                 health_status: Some("healthy".to_string()),               // Default health status
                 completion_percentage: Some(
@@ -483,48 +487,48 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
         synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         println!(
             "TaskFinalizer: Making decision for task {} with execution_status: {:?}",
-            task_id,
+            task_uuid,
             context.as_ref().map(|c| &c.execution_status)
         );
 
         // Handle nil context case
         let Some(context) = context else {
             println!(
-                "TaskFinalizer: Task {task_id} - no context available, handling as unclear state"
+                "TaskFinalizer: Task {task_uuid} - no context available, handling as unclear state"
             );
             return self.handle_unclear_state(task, None).await;
         };
 
         match context.execution_status.as_str() {
             "all_complete" | "finalize_task" => {
-                println!("TaskFinalizer: Task {task_id} - calling complete_task");
+                println!("TaskFinalizer: Task {task_uuid} - calling complete_task");
                 self.complete_task(task, Some(context)).await
             }
             "blocked_by_failures" => {
-                println!("TaskFinalizer: Task {task_id} - calling error_task");
+                println!("TaskFinalizer: Task {task_uuid} - calling error_task");
                 self.error_task(task, Some(context)).await
             }
             "has_ready_steps" | "execute_ready_steps" => {
-                println!("TaskFinalizer: Task {task_id} - has ready steps, should execute them");
+                println!("TaskFinalizer: Task {task_uuid} - has ready steps, should execute them");
                 self.handle_ready_steps_state(task, Some(context), synchronous)
                     .await
             }
             "waiting_for_dependencies" => {
-                println!("TaskFinalizer: Task {task_id} - waiting for dependencies");
+                println!("TaskFinalizer: Task {task_uuid} - waiting for dependencies");
                 self.handle_waiting_state(task, Some(context), synchronous)
                     .await
             }
             "processing" => {
-                println!("TaskFinalizer: Task {task_id} - handling processing state");
+                println!("TaskFinalizer: Task {task_uuid} - handling processing state");
                 self.handle_processing_state(task, Some(context), synchronous)
                     .await
             }
             _ => {
-                println!("TaskFinalizer: Task {task_id} - handling unclear state");
+                println!("TaskFinalizer: Task {task_uuid} - handling unclear state");
                 self.handle_unclear_state(task, Some(context)).await
             }
         }
@@ -537,11 +541,11 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
         synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
         let ready_steps = context.as_ref().and_then(|c| c.ready_steps).unwrap_or(0);
 
         println!(
-            "TaskFinalizer: Task {task_id} has {ready_steps} ready steps - transitioning to in_progress"
+            "TaskFinalizer: Task {task_uuid} has {ready_steps} ready steps - transitioning to in_progress"
         );
 
         // Use state machine to transition to in_progress if needed
@@ -570,9 +574,9 @@ impl TaskFinalizer {
         if synchronous {
             // In synchronous mode, we can't actually execute steps here
             // The calling code should handle step execution
-            println!("TaskFinalizer: Task {task_id} ready for synchronous step execution");
+            println!("TaskFinalizer: Task {task_uuid} ready for synchronous step execution");
             Ok(FinalizationResult {
-                task_id,
+                task_uuid,
                 action: FinalizationAction::Pending,
                 completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
                 total_steps: context.as_ref().and_then(|c| c.total_steps),
@@ -636,12 +640,12 @@ impl TaskFinalizer {
         task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task_id = task.task_id;
+        let task_uuid = task.task_uuid;
 
         if let Some(ref ctx) = context {
             eprintln!(
                 "TaskFinalizer: Task {} in unclear state: execution_status={}, health_status={:?}, ready_steps={:?}, failed_steps={:?}, in_progress_steps={:?}",
-                task_id,
+                task_uuid,
                 ctx.execution_status,
                 ctx.health_status,
                 ctx.ready_steps,
@@ -653,7 +657,7 @@ impl TaskFinalizer {
             self.reenqueue_task_with_context(task, context, Some("Continuing workflow".to_string()))
                 .await
         } else {
-            eprintln!("TaskFinalizer: Task {task_id} has no execution context and unclear state");
+            eprintln!("TaskFinalizer: Task {task_uuid} has no execution context and unclear state");
 
             // Without context, attempt to transition to error state
             self.error_task(task, None).await
@@ -770,7 +774,7 @@ impl TaskFinalizer {
     // Event publishing methods - Real implementations using EventPublisher
     async fn publish_finalization_started(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         processed_steps: &[WorkflowStep],
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
@@ -781,9 +785,9 @@ impl TaskFinalizer {
             .publish(
                 "task.finalization.started",
                 json!({
-                    "task_id": task_id,
+                    "task_uuid": task_uuid,
                     "processed_steps_count": processed_steps.len(),
-                    "step_ids": processed_steps.iter().map(|s| s.workflow_step_id).collect::<Vec<_>>(),
+                    "step_uuids": processed_steps.iter().map(|s| s.workflow_step_uuid).collect::<Vec<_>>(),
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 }),
             )
@@ -795,7 +799,7 @@ impl TaskFinalizer {
 
     async fn publish_finalization_completed(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         processed_steps: &[WorkflowStep],
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
@@ -806,9 +810,9 @@ impl TaskFinalizer {
             .publish(
                 "task.finalization.completed",
                 json!({
-                    "task_id": task_id,
+                    "task_uuid": task_uuid,
                     "processed_steps_count": processed_steps.len(),
-                    "step_ids": processed_steps.iter().map(|s| s.workflow_step_id).collect::<Vec<_>>(),
+                    "step_uuids": processed_steps.iter().map(|s| s.workflow_step_uuid).collect::<Vec<_>>(),
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 }),
             )
@@ -820,7 +824,7 @@ impl TaskFinalizer {
 
     async fn publish_task_completed(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
         use crate::events::types::{Event, OrchestrationEvent, TaskResult};
@@ -828,7 +832,7 @@ impl TaskFinalizer {
 
         // Publish structured orchestration event for task completion
         let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationCompleted {
-            task_id,
+            task_uuid,
             result: TaskResult::Success,
             completed_at: chrono::Utc::now(),
         });
@@ -847,7 +851,7 @@ impl TaskFinalizer {
             .publish(
                 "task.completed",
                 json!({
-                    "task_id": task_id,
+                    "task_uuid": task_uuid,
                     "status": "success",
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 }),
@@ -864,7 +868,7 @@ impl TaskFinalizer {
 
     async fn publish_task_failed(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         _context: &Option<TaskExecutionContext>,
     ) -> Result<(), FinalizationError> {
         use crate::events::types::{Event, OrchestrationEvent, TaskResult};
@@ -872,7 +876,7 @@ impl TaskFinalizer {
 
         // Publish structured orchestration event for task failure
         let event = Event::orchestration(OrchestrationEvent::TaskOrchestrationCompleted {
-            task_id,
+            task_uuid,
             result: TaskResult::Failed {
                 error: "Task finalization determined task failed".to_string(),
             },
@@ -893,7 +897,7 @@ impl TaskFinalizer {
             .publish(
                 "task.failed",
                 json!({
-                    "task_id": task_id,
+                    "task_uuid": task_uuid,
                     "status": "failed",
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 }),
@@ -910,7 +914,7 @@ impl TaskFinalizer {
 
     async fn publish_task_pending_transition(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         _context: &Option<TaskExecutionContext>,
         reason: &str,
     ) -> Result<(), FinalizationError> {
@@ -921,7 +925,7 @@ impl TaskFinalizer {
             .publish(
                 "task.pending_transition",
                 json!({
-                    "task_id": task_id,
+                    "task_uuid": task_uuid,
                     "status": "pending",
                     "reason": reason,
                     "timestamp": chrono::Utc::now().to_rfc3339()
@@ -945,7 +949,7 @@ pub enum FinalizationError {
     Database(#[from] sqlx::Error),
 
     #[error("Task not found: {0}")]
-    TaskNotFound(i64),
+    TaskNotFound(Uuid),
 
     #[error("State machine error: {0}")]
     StateMachine(String),
@@ -973,8 +977,9 @@ mod tests {
 
     #[test]
     fn test_finalization_result_creation() {
+        let task_uuid = Uuid::now_v7();
         let result = FinalizationResult {
-            task_id: 123,
+            task_uuid,
             action: FinalizationAction::Completed,
             completion_percentage: Some(100.0),
             total_steps: Some(5),
@@ -982,15 +987,16 @@ mod tests {
             reason: None,
         };
 
-        assert_eq!(result.task_id, 123);
+        assert_eq!(result.task_uuid, task_uuid);
         assert!(matches!(result.action, FinalizationAction::Completed));
         assert_eq!(result.completion_percentage, Some(100.0));
     }
 
     #[test]
     fn test_task_execution_context_creation() {
+        let task_uuid = Uuid::now_v7();
         let context = TaskExecutionContext {
-            task_id: 456,
+            task_uuid,
             execution_status: "all_complete".to_string(),
             health_status: Some("healthy".to_string()),
             completion_percentage: Some(100.0),
@@ -1003,7 +1009,7 @@ mod tests {
             recommended_action: Some("complete".to_string()),
         };
 
-        assert_eq!(context.task_id, 456);
+        assert_eq!(context.task_uuid, task_uuid);
         assert_eq!(context.execution_status, "all_complete");
         assert_eq!(context.completed_steps, Some(3));
     }

@@ -64,9 +64,9 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       end
 
       # Verify task was created immediately (no polling needed with FFI)
-      task_execution_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task.task_id)
+      task_execution_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task.task_uuid)
 
-      expect(task_execution_context.task_id).to eq(task.task_id)
+      expect(task_execution_context.task_uuid).to eq(task.task_uuid)
       expect(task_execution_context.status).to eq('complete')
       expect(task_execution_context.total_steps).to eq(4)
       expect(task_execution_context.pending_steps).to eq(0)
@@ -167,9 +167,9 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
       expect(task_result).to be_a(Hash)
       expect(task_result[:success]).to be(true)
-      expect(task_result[:task_id]).to be_a(Integer)
+      expect(task_result[:task_uuid]).to be_a(String)
 
-      puts "✅ Orchestration system functional - created task #{task_result['task_id']}"
+      puts "✅ Orchestration system functional - created task #{task_result['task_uuid']}"
     end
 
     it 'verifies function-based database access can track linear workflow progress' do
@@ -229,21 +229,21 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
 
       # Initialize task
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      task_id = task_result[:task_id]
+      task_uuid = task_result[:task_uuid]
 
-      expect(task_id).to be_a(Integer)
-      expect(task_id).to be > 0
+      expect(task_uuid).to be_a(String)
+      expect(task_uuid).to match(/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i)
 
       # Check task execution context using function-based approach
-      task_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_id)
+      task_context = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
 
       # Get detailed step information using ActiveRecord models
-      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
+      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_uuid)
 
-      task.workflow_steps.order(:workflow_step_id).each do |step|
+      task.workflow_steps.order(:workflow_step_uuid).each do |step|
         # Check step readiness status using function-based approach
-        readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_id,
-                                                                                                        [step.workflow_step_id])
+        readiness_statuses = TaskerCore::Database::Functions::FunctionBasedStepReadinessStatus.for_task(task_uuid,
+                                                                                                        [step.workflow_step_uuid])
         readiness_status = readiness_statuses.first unless readiness_statuses.empty?
 
         expect(readiness_status.dependencies_satisfied).not_to be_nil
@@ -270,16 +270,16 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
 
       # Initialize task
       task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      task_id = task_result[:task_id]
+      task_uuid = task_result[:task_uuid]
 
-      expect(task_id).to be_a(Integer)
-      expect(task_id).to be > 0
+      expect(task_uuid).to be_a(String)
+      expect(task_uuid).to match(/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i)
 
       # First, let's check the task itself
-      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_id)
+      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_uuid)
       expect(task).not_to be_nil, 'Task should exist'
 
-      ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id)
+      ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid)
 
       expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
 
@@ -292,7 +292,7 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       expect(ready_task.has_ready_steps?).to be true
       expect(ready_task.ready_for_execution?).to be true
 
-      expect { TaskerCore::Database::Models::ReadyTask.find_by(task_id: task_id) }.not_to raise_error
+      expect { TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid) }.not_to raise_error
     end
   end
 end

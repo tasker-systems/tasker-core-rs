@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use tasker_core::models::named_task::{NamedTask, NewNamedTask};
 use tasker_core::models::task::{NewTask, Task};
 use tasker_core::models::task_namespace::{NewTaskNamespace, TaskNamespace};
+use uuid::Uuid;
 
 #[sqlx::test]
 async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
@@ -26,7 +27,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
             name: "test_task".to_string(),
             version: Some("1.0.0".to_string()),
             description: None,
-            task_namespace_id: namespace.task_namespace_id as i64,
+            task_namespace_uuid: namespace.task_namespace_uuid,
             configuration: None,
         },
     )
@@ -34,7 +35,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
 
     // Test creation
     let new_task = NewTask {
-        named_task_id: named_task.named_task_id,
+        named_task_uuid: named_task.named_task_uuid,
         requested_at: None, // Will default to now
         initiator: Some("test_user".to_string()),
         source_system: Some("test_system".to_string()),
@@ -43,7 +44,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
         tags: Some(json!({"priority": "high", "team": "engineering"})),
         context: Some(json!({"input_data": "test_value"})),
         identity_hash: Task::generate_identity_hash(
-            named_task.named_task_id,
+            named_task.named_task_uuid,
             &Some(json!({"input_data": "test_value"})),
         ),
         priority: Some(5),
@@ -51,21 +52,21 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
     };
 
     let created = Task::create(&pool, new_task).await?;
-    assert_eq!(created.named_task_id, named_task.named_task_id);
+    assert_eq!(created.named_task_uuid, named_task.named_task_uuid);
     assert!(!created.complete);
     assert_eq!(created.initiator, Some("test_user".to_string()));
 
     // Test find by ID
-    let found = Task::find_by_id(&pool, created.task_id)
+    let found = Task::find_by_id(&pool, created.task_uuid)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(found.task_id, created.task_id);
+    assert_eq!(found.task_uuid, created.task_uuid);
 
     // Test find by identity hash
     let found_by_hash = Task::find_by_identity_hash(&pool, &created.identity_hash)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)?;
-    assert_eq!(found_by_hash.task_id, created.task_id);
+    assert_eq!(found_by_hash.task_uuid, created.task_uuid);
 
     // Test mark complete
     let mut task_to_complete = found.clone();
@@ -80,7 +81,7 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(task_to_complete.context, Some(new_context));
 
     // Test deletion
-    let deleted = Task::delete(&pool, created.task_id).await?;
+    let deleted = Task::delete(&pool, created.task_uuid).await?;
     assert!(deleted);
 
     // No cleanup needed - SQLx will roll back the test transaction automatically!
@@ -90,9 +91,10 @@ async fn test_task_crud(pool: PgPool) -> sqlx::Result<()> {
 #[test]
 fn test_identity_hash_generation() {
     let context = Some(json!({"key": "value"}));
-    let hash1 = Task::generate_identity_hash(1, &context);
-    let hash2 = Task::generate_identity_hash(1, &context);
-    let hash3 = Task::generate_identity_hash(2, &context);
+    let shared_uuid = Uuid::now_v7();
+    let hash1 = Task::generate_identity_hash(shared_uuid, &context);
+    let hash2 = Task::generate_identity_hash(shared_uuid, &context);
+    let hash3 = Task::generate_identity_hash(Uuid::now_v7(), &context);
 
     // Same inputs should produce same hash
     assert_eq!(hash1, hash2);

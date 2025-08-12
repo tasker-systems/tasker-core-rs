@@ -9,9 +9,9 @@ module TaskerCore
       # Maintains the same interface as the view-based model but uses SQL functions for performance
       class FunctionBasedStepReadinessStatus < FunctionWrapper
         # Define attributes to match the SQL function output
-        attribute :workflow_step_id, :integer
-        attribute :task_id, :integer
-        attribute :named_step_id, :integer
+        attribute :workflow_step_uuid, :string
+        attribute :task_uuid, :integer
+        attribute :named_step_uuid, :string
         attribute :name, :string
         attribute :current_state, :string
         attribute :dependencies_satisfied, :boolean
@@ -27,51 +27,51 @@ module TaskerCore
         attribute :last_attempted_at, :datetime
 
         # Class methods that use SQL functions
-        def self.for_task(task_id, step_ids = nil)
-          sql = 'SELECT * FROM get_step_readiness_status($1::BIGINT, $2::BIGINT[])'
-          binds = [task_id, step_ids]
+        def self.for_task(task_uuid, step_uuids = nil)
+          sql = 'SELECT * FROM get_step_readiness_status($1::UUID, $2::UUID[])'
+          binds = [task_uuid, step_uuids]
           from_sql_function(sql, binds, 'StepReadinessStatus Load')
         end
 
-        def self.for_steps(task_id, step_ids)
-          for_task(task_id, step_ids)
+        def self.for_steps(task_uuid, step_uuids)
+          for_task(task_uuid, step_uuids)
         end
 
-        def self.for_tasks(task_ids)
-          return [] if task_ids.empty?
+        def self.for_tasks(task_uuids)
+          return [] if task_uuids.empty?
 
           # Use the batch function to get steps for multiple tasks efficiently
-          sql = 'SELECT * FROM get_step_readiness_status_batch($1::BIGINT[])'
-          binds = [task_ids]
+          sql = 'SELECT * FROM get_step_readiness_status_batch($1::UUID[])'
+          binds = [task_uuids]
           from_sql_function(sql, binds, 'StepReadinessStatus Batch Load')
         end
 
-        def self.ready_for_task(task_id)
-          for_task(task_id).select(&:ready_for_execution)
+        def self.ready_for_task(task_uuid)
+          for_task(task_uuid).select(&:ready_for_execution)
         end
 
-        def self.blocked_by_dependencies_for_task(task_id)
-          for_task(task_id).reject(&:dependencies_satisfied)
+        def self.blocked_by_dependencies_for_task(task_uuid)
+          for_task(task_uuid).reject(&:dependencies_satisfied)
         end
 
-        def self.blocked_by_retry_for_task(task_id)
-          for_task(task_id).reject(&:retry_eligible)
+        def self.blocked_by_retry_for_task(task_uuid)
+          for_task(task_uuid).reject(&:retry_eligible)
         end
 
-        def self.pending_for_task(task_id)
-          for_task(task_id).select { |s| s.current_state == 'pending' }
+        def self.pending_for_task(task_uuid)
+          for_task(task_uuid).select { |s| s.current_state == 'pending' }
         end
 
-        def self.failed_for_task(task_id)
-          for_task(task_id).select { |s| s.current_state == 'error' }
+        def self.failed_for_task(task_uuid)
+          for_task(task_uuid).select { |s| s.current_state == 'error' }
         end
 
-        def self.in_progress_for_task(task_id)
-          for_task(task_id).select { |s| s.current_state == 'in_progress' }
+        def self.in_progress_for_task(task_uuid)
+          for_task(task_uuid).select { |s| s.current_state == 'in_progress' }
         end
 
-        def self.complete_for_task(task_id)
-          for_task(task_id).select { |s| s.current_state.in?(%w[complete resolved_manually]) }
+        def self.complete_for_task(task_uuid)
+          for_task(task_uuid).select { |s| s.current_state.in?(%w[complete resolved_manually]) }
         end
 
         # Instance methods (same as original model)
@@ -138,9 +138,9 @@ module TaskerCore
 
         def to_h
           {
-            workflow_step_id: workflow_step_id,
-            task_id: task_id,
-            named_step_id: named_step_id,
+            workflow_step_uuid: workflow_step_uuid,
+            task_uuid: task_uuid,
+            named_step_uuid: named_step_uuid,
             name: name,
             current_state: current_state,
             dependencies_satisfied: dependencies_satisfied,
@@ -173,11 +173,11 @@ module TaskerCore
 
         # Associations (lazy-loaded)
         def workflow_step
-          @workflow_step ||= TaskerCore::Database::Models::WorkflowStep.find(workflow_step_id)
+          @workflow_step ||= TaskerCore::Database::Models::WorkflowStep.find(workflow_step_uuid)
         end
 
         def task
-          @task ||= TaskerCore::Database::Models::Task.find(task_id)
+          @task ||= TaskerCore::Database::Models::Task.find(task_uuid)
         end
       end
     end

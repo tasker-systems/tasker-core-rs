@@ -9,7 +9,8 @@ module TaskerCore
     include Dry.Types()
 
     # UUID validation regex pattern (defined at module level for reuse)
-    UUID_REGEX = /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
+    # Updated to accept UUID v7 (version nibble can be 7)
+    UUID_REGEX = /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
 
     # Simple message structure for UUID-based step processing
     #
@@ -93,7 +94,7 @@ module TaskerCore
       # Check if the step UUID exists in the database
       # @return [Boolean] true if step exists
       def step_exists?
-        TaskerCore::Database::Models::WorkflowStep.exists?(step_uuid: step_uuid)
+        TaskerCore::Database::Models::WorkflowStep.exists?(workflow_step_uuid: step_uuid)
       end
 
       # Check if all dependency UUIDs exist in the database
@@ -102,7 +103,7 @@ module TaskerCore
         return true if ready_dependency_step_uuids.empty?
 
         existing_count = TaskerCore::Database::Models::WorkflowStep
-                         .where(step_uuid: ready_dependency_step_uuids)
+                         .where(workflow_step_uuid: ready_dependency_step_uuids)
                          .count
 
         existing_count == ready_dependency_step_uuids.length
@@ -119,7 +120,7 @@ module TaskerCore
       # @return [TaskerCore::Database::Models::WorkflowStep] the step record
       # @raise [ActiveRecord::RecordNotFound] if step doesn't exist
       def fetch_step
-        TaskerCore::Database::Models::WorkflowStep.find_by!(step_uuid: step_uuid)
+        TaskerCore::Database::Models::WorkflowStep.find_by!(workflow_step_uuid: step_uuid)
       end
 
       # Fetch the dependency step records from the database
@@ -128,7 +129,7 @@ module TaskerCore
         return TaskerCore::Database::Models::WorkflowStep.none if ready_dependency_step_uuids.empty?
 
         TaskerCore::Database::Models::WorkflowStep
-          .where(step_uuid: ready_dependency_step_uuids)
+          .where(workflow_step_uuid: ready_dependency_step_uuids)
           .includes(:results, :named_step) # Preload commonly needed associations
       end
 

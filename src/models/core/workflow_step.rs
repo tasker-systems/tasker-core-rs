@@ -29,9 +29,9 @@
 //! Maps to `tasker_workflow_steps` table:
 //! ```sql
 //! CREATE TABLE tasker_workflow_steps (
-//!   workflow_step_id BIGSERIAL PRIMARY KEY,
-//!   task_id BIGINT NOT NULL,
-//!   named_step_id INTEGER NOT NULL,
+//!   workflow_step_uuid BIGSERIAL PRIMARY KEY,
+//!   task_uuid BIGINT NOT NULL,
+//!   named_step_uuid INTEGER NOT NULL,
 //!   in_process BOOLEAN DEFAULT false,
 //!   processed BOOLEAN DEFAULT false,
 //!   retry_limit INTEGER DEFAULT 3,
@@ -48,7 +48,7 @@
 //!
 //! ## Performance Characteristics
 //!
-//! - **State Queries**: Indexed on (task_id, in_process, processed)
+//! - **State Queries**: Indexed on (task_uuid, in_process, processed)
 //! - **Retry Queries**: Indexed on (retryable, attempts, retry_limit)
 //! - **JSONB Operations**: GIN indexes for result queries
 //! - **Atomic Updates**: Row-level locking for state transitions
@@ -56,6 +56,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
 
 /// Represents an individual step instance within a workflow task.
 ///
@@ -83,9 +84,9 @@ use sqlx::{FromRow, PgPool};
 /// - `results`: Step execution results and metadata
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStep {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
-    pub named_step_id: i32,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub retryable: bool,
     pub retry_limit: Option<i32>,
     pub in_process: bool,
@@ -104,8 +105,8 @@ pub struct WorkflowStep {
 /// New WorkflowStep for creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowStep {
-    pub task_id: i64,
-    pub named_step_id: i32,
+    pub task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub retryable: Option<bool>,  // Defaults to true
     pub retry_limit: Option<i32>, // Defaults to 3
     pub inputs: Option<serde_json::Value>,
@@ -122,15 +123,15 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             INSERT INTO tasker_workflow_steps (
-                task_id, named_step_id, retryable, retry_limit, inputs, skippable, created_at, updated_at
+                task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
+            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                       in_process, processed, processed_at, attempts, last_attempted_at,
                       backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             "#,
-            new_step.task_id,
-            new_step.named_step_id,
+            new_step.task_uuid,
+            new_step.named_step_uuid,
             new_step.retryable.unwrap_or(true),
             new_step.retry_limit.unwrap_or(3),
             new_step.inputs,
@@ -151,15 +152,15 @@ impl WorkflowStep {
             WorkflowStep,
             r#"
             INSERT INTO tasker_workflow_steps (
-                task_id, named_step_id, retryable, retry_limit, inputs, skippable, created_at, updated_at
+                task_uuid, named_step_uuid, retryable, retry_limit, inputs, skippable, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW(), NOW())
+            RETURNING workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                       in_process, processed, processed_at, attempts, last_attempted_at,
                       backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             "#,
-            new_step.task_id,
-            new_step.named_step_id,
+            new_step.task_uuid,
+            new_step.named_step_uuid,
             new_step.retryable.unwrap_or(true),
             new_step.retry_limit.unwrap_or(3),
             new_step.inputs,
@@ -172,15 +173,15 @@ impl WorkflowStep {
     }
 
     /// Find a workflow step by ID
-    pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<WorkflowStep>, sqlx::Error> {
+    pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<WorkflowStep>, sqlx::Error> {
         let step = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
             id
         )
@@ -193,19 +194,19 @@ impl WorkflowStep {
     /// List all workflow steps for a task
     pub async fn list_by_task(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
-            WHERE task_id = $1
-            ORDER BY workflow_step_id
+            WHERE task_uuid = $1::uuid
+            ORDER BY workflow_step_uuid
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -214,26 +215,29 @@ impl WorkflowStep {
     }
 
     /// Alias for list_by_task - get workflow steps for a task (Rails scope: for_task)
-    pub async fn for_task(pool: &PgPool, task_id: i64) -> Result<Vec<WorkflowStep>, sqlx::Error> {
-        Self::list_by_task(pool, task_id).await
+    pub async fn for_task(
+        pool: &PgPool,
+        task_uuid: Uuid,
+    ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
+        Self::list_by_task(pool, task_uuid).await
     }
 
     /// List workflow steps by named step ID
     pub async fn list_by_named_step(
         pool: &PgPool,
-        named_step_id: i32,
+        named_step_uuid: Uuid,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
-            WHERE named_step_id = $1
+            WHERE named_step_uuid = $1::uuid
             ORDER BY created_at DESC
             "#,
-            named_step_id
+            named_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -246,7 +250,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -265,7 +269,7 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable, retry_limit,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable, retry_limit,
                    in_process, processed, processed_at, attempts, last_attempted_at,
                    backoff_request_seconds, inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
@@ -293,7 +297,7 @@ impl WorkflowStep {
     ///     last_attempted_at = $2,
     ///     attempts = COALESCE(attempts, 0) + 1,
     ///     updated_at = NOW()
-    /// WHERE workflow_step_id = $1
+    /// WHERE workflow_step_uuid = $1
     /// ```
     ///
     /// # State Transition Logic
@@ -326,9 +330,9 @@ impl WorkflowStep {
                 last_attempted_at = $2,
                 attempts = COALESCE(attempts, 0) + 1,
                 updated_at = NOW()
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             now
         )
         .execute(pool)
@@ -357,9 +361,9 @@ impl WorkflowStep {
                 processed_at = $2,
                 results = $3,
                 updated_at = NOW()
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             now,
             results
         )
@@ -382,9 +386,9 @@ impl WorkflowStep {
             SET backoff_request_seconds = $2,
                 in_process = false,
                 updated_at = NOW()
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             seconds
         )
         .execute(pool)
@@ -407,9 +411,9 @@ impl WorkflowStep {
                 results = NULL,
                 backoff_request_seconds = NULL,
                 updated_at = NOW()
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .execute(pool)
         .await?;
@@ -433,9 +437,9 @@ impl WorkflowStep {
             r#"
             UPDATE tasker_workflow_steps
             SET inputs = $2, updated_at = NOW()
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_id,
+            self.workflow_step_uuid,
             inputs
         )
         .execute(pool)
@@ -446,11 +450,11 @@ impl WorkflowStep {
     }
 
     /// Delete a workflow step
-    pub async fn delete(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             DELETE FROM tasker_workflow_steps
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
             id
         )
@@ -499,11 +503,11 @@ impl WorkflowStep {
             r#"
             SELECT to_state
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 AND most_recent = true
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -516,15 +520,15 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
-            WHERE wse.to_step_id = $1
-            ORDER BY ws.workflow_step_id
+            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_uuid = ws.workflow_step_uuid
+            WHERE wse.to_step_uuid = $1::uuid
+            ORDER BY ws.workflow_step_uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -539,17 +543,17 @@ impl WorkflowStep {
     ) -> Result<Vec<(WorkflowStep, String)>, sqlx::Error> {
         let deps = sqlx::query!(
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at,
                    ns.name as step_name
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_id = ws.workflow_step_id
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
-            WHERE wse.to_step_id = $1
-            ORDER BY ws.workflow_step_id
+            INNER JOIN tasker_workflow_step_edges wse ON wse.from_step_uuid = ws.workflow_step_uuid
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            WHERE wse.to_step_uuid = $1::uuid
+            ORDER BY ws.workflow_step_uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -558,9 +562,9 @@ impl WorkflowStep {
             .into_iter()
             .map(|row| {
                 let step = WorkflowStep {
-                    workflow_step_id: row.workflow_step_id,
-                    task_id: row.task_id,
-                    named_step_id: row.named_step_id,
+                    workflow_step_uuid: row.workflow_step_uuid,
+                    task_uuid: row.task_uuid,
+                    named_step_uuid: row.named_step_uuid,
                     retryable: row.retryable,
                     retry_limit: row.retry_limit,
                     in_process: row.in_process,
@@ -587,15 +591,15 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_workflow_step_edges wse ON wse.to_step_id = ws.workflow_step_id
-            WHERE wse.from_step_id = $1
-            ORDER BY ws.workflow_step_id
+            INNER JOIN tasker_workflow_step_edges wse ON wse.to_step_uuid = ws.workflow_step_uuid
+            WHERE wse.from_step_uuid = $1::uuid
+            ORDER BY ws.workflow_step_uuid
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -612,16 +616,16 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
-                ON ws.workflow_step_id = wst.workflow_step_id
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid
             WHERE wst.most_recent = true
                 AND wst.to_state IN ('complete', 'resolved_manually')
-            ORDER BY ws.workflow_step_id
+            ORDER BY ws.workflow_step_uuid
             "#
         )
         .fetch_all(pool)
@@ -635,16 +639,16 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
-                ON ws.workflow_step_id = wst.workflow_step_id
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid
             WHERE wst.most_recent = true
                 AND wst.to_state = 'error'
-            ORDER BY ws.workflow_step_id
+            ORDER BY ws.workflow_step_uuid
             "#
         )
         .fetch_all(pool)
@@ -658,16 +662,16 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             LEFT JOIN tasker_workflow_step_transitions wst
-                ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid AND wst.most_recent = true
             WHERE wst.to_state IS NULL
                 OR wst.to_state IN ('pending', 'in_progress')
-            ORDER BY ws.workflow_step_id
+            ORDER BY ws.workflow_step_uuid
             "#
         )
         .fetch_all(pool)
@@ -686,16 +690,16 @@ impl WorkflowStep {
                 let steps = sqlx::query_as!(
                     WorkflowStep,
                     r#"
-                    SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+                    SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                            ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                            ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                            ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
                     FROM tasker_workflow_steps ws
                     LEFT JOIN tasker_workflow_step_transitions wst
-                        ON ws.workflow_step_id = wst.workflow_step_id AND wst.most_recent = true
+                        ON ws.workflow_step_uuid = wst.workflow_step_uuid AND wst.most_recent = true
                     WHERE (wst.to_state = $1)
                         OR (wst.to_state IS NULL AND $1 = 'pending')
-                    ORDER BY ws.workflow_step_id
+                    ORDER BY ws.workflow_step_uuid
                     "#,
                     state_filter
                 )
@@ -709,12 +713,12 @@ impl WorkflowStep {
                 let steps = sqlx::query_as!(
                     WorkflowStep,
                     r#"
-                    SELECT workflow_step_id, task_id, named_step_id, retryable,
+                    SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
                            retry_limit, in_process, processed, processed_at,
                            attempts, last_attempted_at, backoff_request_seconds,
                            inputs, results, skippable, created_at, updated_at
                     FROM tasker_workflow_steps
-                    ORDER BY workflow_step_id
+                    ORDER BY workflow_step_uuid
                     "#
                 )
                 .fetch_all(pool)
@@ -733,13 +737,13 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
-                ON ws.workflow_step_id = wst.workflow_step_id
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid
             WHERE wst.most_recent = true
                 AND wst.to_state IN ('complete', 'resolved_manually')
                 AND wst.created_at >= $1
@@ -761,13 +765,13 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
             INNER JOIN tasker_workflow_step_transitions wst
-                ON ws.workflow_step_id = wst.workflow_step_id
+                ON ws.workflow_step_uuid = wst.workflow_step_uuid
             WHERE wst.most_recent = true
                 AND wst.to_state = 'error'
                 AND wst.created_at >= $1
@@ -789,14 +793,14 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable,
                    ws.retry_limit, ws.in_process, ws.processed, ws.processed_at,
                    ws.attempts, ws.last_attempted_at, ws.backoff_request_seconds,
                    ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_tasks t ON ws.task_id = t.task_id
+            INNER JOIN tasker_tasks t ON ws.task_uuid = t.task_uuid
             WHERE t.created_at >= $1
-            ORDER BY t.created_at DESC, ws.workflow_step_id
+            ORDER BY t.created_at DESC, ws.workflow_step_uuid
             "#,
             since_time.naive_utc()
         )
@@ -816,17 +820,17 @@ impl WorkflowStep {
     /// task progress analysis. This is critical for orchestration monitoring.
     pub async fn task_completion_stats(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<TaskCompletionStats, sqlx::Error> {
         use crate::database::sql_functions::SqlFunctionExecutor;
 
         // Use the existing SQL function to get comprehensive task context
         let executor = SqlFunctionExecutor::new(pool.clone());
-        if let Some(context) = executor.get_task_execution_context(task_id).await? {
+        if let Some(context) = executor.get_task_execution_context(task_uuid).await? {
             // Get latest completion time from processed_at
             let latest_completion_time = sqlx::query!(
-                "SELECT MAX(processed_at) as latest_completion FROM tasker_workflow_steps WHERE task_id = $1 AND processed = true",
-                task_id
+                "SELECT MAX(processed_at) as latest_completion FROM tasker_workflow_steps WHERE task_uuid = $1::uuid AND processed = true",
+                task_uuid
             )
             .fetch_one(pool)
             .await?
@@ -858,22 +862,22 @@ impl WorkflowStep {
     /// Finds a workflow step by its named step name within a specific task.
     pub async fn find_step_by_name(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         name: &str,
     ) -> Result<Option<WorkflowStep>, sqlx::Error> {
         // Simplified implementation - would use StepFinder service class
         let step = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
-            WHERE ws.task_id = $1 AND ns.name = $2
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            WHERE ws.task_uuid = $1::uuid AND ns.name = $2
             LIMIT 1
             "#,
-            task_id,
+            task_uuid,
             name
         )
         .fetch_optional(pool)
@@ -886,7 +890,7 @@ impl WorkflowStep {
     /// TODO: Implement template-based step creation
     pub async fn get_steps_for_task(
         pool: &PgPool,
-        _task_id: i64,
+        _task_uuid: Uuid,
         _templates: serde_json::Value,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         // Placeholder - would create steps from templates
@@ -908,14 +912,14 @@ impl WorkflowStep {
     /// TODO: Implement template-based step building with defaults
     pub async fn build_default_step(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         template: serde_json::Value,
-        named_step_id: i32,
+        named_step_uuid: Uuid,
     ) -> Result<WorkflowStep, sqlx::Error> {
         // Simplified implementation - would extract values from template
         let new_step = NewWorkflowStep {
-            task_id,
-            named_step_id,
+            task_uuid,
+            named_step_uuid,
             retryable: Some(true), // Would extract from template.default_retryable
             retry_limit: Some(3),  // Would extract from template.default_retry_limit
             inputs: template.get("inputs").cloned(),
@@ -931,22 +935,22 @@ impl WorkflowStep {
     /// readiness checking. This is critical for orchestration to determine execution candidates.
     pub async fn get_viable_steps(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         _sequence: serde_json::Value,
     ) -> Result<Vec<WorkflowStep>, sqlx::Error> {
         use crate::database::sql_functions::SqlFunctionExecutor;
 
         // Use the existing SQL function to get ready steps
         let executor = SqlFunctionExecutor::new(pool.clone());
-        let ready_statuses = executor.get_ready_steps(task_id).await?;
+        let ready_statuses = executor.get_ready_steps(task_uuid).await?;
 
         // Extract ready step IDs
-        let ready_step_ids: Vec<i64> = ready_statuses
+        let ready_step_uuids: Vec<Uuid> = ready_statuses
             .iter()
-            .map(|status| status.workflow_step_id)
+            .map(|status| status.workflow_step_uuid)
             .collect();
 
-        if ready_step_ids.is_empty() {
+        if ready_step_uuids.is_empty() {
             return Ok(vec![]);
         }
 
@@ -954,15 +958,15 @@ impl WorkflowStep {
         let steps = sqlx::query_as!(
             WorkflowStep,
             r#"
-            SELECT workflow_step_id, task_id, named_step_id, retryable,
+            SELECT workflow_step_uuid, task_uuid, named_step_uuid, retryable,
                    retry_limit, in_process, processed, processed_at,
                    attempts, last_attempted_at, backoff_request_seconds,
                    inputs, results, skippable, created_at, updated_at
             FROM tasker_workflow_steps
-            WHERE workflow_step_id = ANY($1)
-            ORDER BY workflow_step_id
+            WHERE workflow_step_uuid = ANY($1)
+            ORDER BY workflow_step_uuid
             "#,
-            &ready_step_ids
+            &ready_step_uuids
         )
         .fetch_all(pool)
         .await?;
@@ -977,7 +981,7 @@ impl WorkflowStep {
     /// Get state machine for this step (Rails: state_machine) - memoized
     /// TODO: Implement StepStateMachine integration
     pub fn state_machine(&self) -> StepStateMachine {
-        StepStateMachine::new(self.workflow_step_id)
+        StepStateMachine::new(self.workflow_step_uuid)
     }
 
     /// Get current step status via state machine (Rails: status)
@@ -996,12 +1000,13 @@ impl WorkflowStep {
     pub async fn add_provides_edge(
         &self,
         pool: &PgPool,
-        to_step_id: i64,
+        to_step_uuid: Uuid,
     ) -> Result<(), sqlx::Error> {
         use crate::models::WorkflowStepEdge;
 
         // Check for cycle detection before creating the edge
-        if WorkflowStepEdge::would_create_cycle(pool, self.workflow_step_id, to_step_id).await? {
+        if WorkflowStepEdge::would_create_cycle(pool, self.workflow_step_uuid, to_step_uuid).await?
+        {
             return Err(sqlx::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Adding this edge would create a cycle in the workflow DAG",
@@ -1011,12 +1016,12 @@ impl WorkflowStep {
         // Create the edge safely
         sqlx::query!(
             r#"
-            INSERT INTO tasker_workflow_step_edges (from_step_id, to_step_id, name, created_at, updated_at)
-            VALUES ($1, $2, $3, NOW(), NOW())
-            ON CONFLICT (from_step_id, to_step_id) DO NOTHING
+            INSERT INTO tasker_workflow_step_edges (from_step_uuid, to_step_uuid, name, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, NOW(), NOW())
+            ON CONFLICT (from_step_uuid, to_step_uuid) DO NOTHING
             "#,
-            self.workflow_step_id,
-            to_step_id,
+            self.workflow_step_uuid,
+            to_step_uuid,
             "provides"
         )
         .execute(pool)
@@ -1033,7 +1038,7 @@ impl WorkflowStep {
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         // Placeholder - would delegate to StepReadinessStatus.for_task
         Ok(Some(serde_json::json!({
-            "workflow_step_id": self.workflow_step_id,
+            "workflow_step_uuid": self.workflow_step_uuid,
             "ready_for_execution": false,
             "dependencies_satisfied": false,
             "retry_eligible": false
@@ -1097,7 +1102,7 @@ impl WorkflowStep {
         // Use the existing SQL function for comprehensive readiness checking
         let executor = SqlFunctionExecutor::new(pool.clone());
         let readiness_statuses = executor
-            .get_step_readiness_status(self.task_id, Some(vec![self.workflow_step_id]))
+            .get_step_readiness_status(self.task_uuid, Some(vec![self.workflow_step_uuid]))
             .await?;
 
         if let Some(status) = readiness_statuses.first() {
@@ -1208,8 +1213,8 @@ impl WorkflowStep {
     /// Get step name (Rails: delegate :name, to: :named_step)
     pub async fn name(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         let name = sqlx::query!(
-            "SELECT name FROM tasker_named_steps WHERE named_step_id = $1",
-            self.named_step_id
+            "SELECT name FROM tasker_named_steps WHERE named_step_uuid = $1::uuid",
+            self.named_step_uuid
         )
         .fetch_one(pool)
         .await?
@@ -1222,7 +1227,7 @@ impl WorkflowStep {
     /// TODO: Implement memoization clearing for state_machine, step_readiness_status
     pub async fn reload(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
         // Reload the step from database
-        if let Some(reloaded) = Self::find_by_id(pool, self.workflow_step_id).await? {
+        if let Some(reloaded) = Self::find_by_id(pool, self.workflow_step_uuid).await? {
             *self = reloaded;
         }
         // TODO: Clear memoized instances (state_machine, step_readiness_status, etc.)
@@ -1239,14 +1244,14 @@ impl WorkflowStep {
             r#"
             SELECT COUNT(*) as count
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ns.named_step_id = ws.named_step_id
-            WHERE ws.task_id = $1 AND ns.name = (
-                SELECT name FROM tasker_named_steps WHERE named_step_id = $2
-            ) AND ws.workflow_step_id != $3
+            INNER JOIN tasker_named_steps ns ON ns.named_step_uuid = ws.named_step_uuid
+            WHERE ws.task_uuid = $1::uuid AND ns.name = (
+                SELECT name FROM tasker_named_steps WHERE named_step_uuid = $2::uuid
+            ) AND ws.workflow_step_uuid != $3::uuid
             "#,
-            self.task_id,
-            self.named_step_id,
-            self.workflow_step_id
+            self.task_uuid,
+            self.named_step_uuid,
+            self.workflow_step_uuid
         )
         .fetch_one(pool)
         .await?
@@ -1271,18 +1276,18 @@ impl WorkflowStep {
             r#"
             SELECT COUNT(*) as count
             FROM tasker_workflow_step_edges wse
-            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_uuid = parent_ws.workflow_step_uuid
             LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
                 FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
-            WHERE wse.to_step_id = $1
+                ORDER BY workflow_step_uuid, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_uuid = parent_ws.workflow_step_uuid
+            WHERE wse.to_step_uuid = $1::uuid
               AND (parent_states.to_state IS NULL
                    OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -1326,18 +1331,18 @@ impl WorkflowStep {
             r#"
             SELECT COUNT(*) as count
             FROM tasker_workflow_step_edges wse
-            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_id = parent_ws.workflow_step_id
+            INNER JOIN tasker_workflow_steps parent_ws ON wse.from_step_uuid = parent_ws.workflow_step_uuid
             LEFT JOIN (
-                SELECT DISTINCT ON (workflow_step_id) workflow_step_id, to_state
+                SELECT DISTINCT ON (workflow_step_uuid) workflow_step_uuid, to_state
                 FROM tasker_workflow_step_transitions
                 WHERE most_recent = true
-                ORDER BY workflow_step_id, sort_key DESC
-            ) parent_states ON parent_states.workflow_step_id = parent_ws.workflow_step_id
-            WHERE wse.to_step_id = $1
+                ORDER BY workflow_step_uuid, sort_key DESC
+            ) parent_states ON parent_states.workflow_step_uuid = parent_ws.workflow_step_uuid
+            WHERE wse.to_step_uuid = $1::uuid
               AND (parent_states.to_state IS NULL
                    OR parent_states.to_state NOT IN ('complete', 'resolved_manually'))
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_one(pool)
         .await?;
@@ -1353,13 +1358,13 @@ impl WorkflowStep {
 /// The actual state transitions are handled by the database transition tables.
 #[derive(Debug, Clone)]
 pub struct StepStateMachine {
-    pub workflow_step_id: i64,
+    pub workflow_step_uuid: Uuid,
 }
 
 impl StepStateMachine {
     /// Create a new step state machine wrapper
-    pub fn new(workflow_step_id: i64) -> Self {
-        Self { workflow_step_id }
+    pub fn new(workflow_step_uuid: Uuid) -> Self {
+        Self { workflow_step_uuid }
     }
 
     /// Get the current state of this step
@@ -1371,11 +1376,11 @@ impl StepStateMachine {
             r#"
             SELECT to_state
             FROM tasker_workflow_step_transitions
-            WHERE workflow_step_id = $1 AND most_recent = true
+            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
             ORDER BY sort_key DESC
             LIMIT 1
             "#,
-            self.workflow_step_id
+            self.workflow_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -1440,9 +1445,9 @@ pub struct TaskCompletionStats {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStepWithName {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
-    pub named_step_id: i32,
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
     pub name: String,
     pub retryable: bool,
     pub retry_limit: Option<i32>,
@@ -1464,17 +1469,17 @@ impl WorkflowStepWithName {
 
     pub async fn find_by_ids(
         pool: &PgPool,
-        ids: &[i64],
+        ids: &[Uuid],
     ) -> Result<Vec<WorkflowStepWithName>, sqlx::Error> {
         let steps = sqlx::query_as!(
             WorkflowStepWithName,
             r#"
-            SELECT ws.workflow_step_id, ws.task_id, ws.named_step_id, ns.name as name, ws.retryable, ws.retry_limit,
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.retry_limit,
                    ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
                    ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
             FROM tasker_workflow_steps ws
-            INNER JOIN tasker_named_steps ns ON ws.named_step_id = ns.named_step_id
-            WHERE workflow_step_id = ANY($1)
+            INNER JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
+            WHERE workflow_step_uuid = ANY($1)
             "#,
             ids
         )

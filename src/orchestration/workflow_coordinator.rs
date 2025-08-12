@@ -34,6 +34,7 @@
 //! use tasker_core::events::publisher::EventPublisher;
 //! use tasker_core::messaging::PgmqClient;
 //! use std::sync::Arc;
+//! use uuid::Uuid;
 //!
 //! # async fn example(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! # let database_url = "postgresql://localhost/test";
@@ -46,8 +47,8 @@
 //! let coordinator = WorkflowCoordinator::new(pool, config, config_manager, event_publisher, pgmq_client);
 //!
 //! // Execute a task workflow
-//! let task_id = 123;
-//! let result = coordinator.execute_task_workflow(task_id).await?;
+//! let task_uuid = Uuid::now_v7();
+//! let result = coordinator.execute_task_workflow(task_uuid).await?;
 //!
 //! match result {
 //!     tasker_core::orchestration::TaskOrchestrationResult::Complete { .. } => {
@@ -80,6 +81,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Configuration for workflow coordination
 #[derive(Debug, Clone)]
@@ -158,7 +160,7 @@ impl WorkflowCoordinatorConfig {
 /// Workflow execution metrics
 #[derive(Debug, Clone)]
 pub struct WorkflowExecutionMetrics {
-    pub task_id: i64,
+    pub task_uuid: Uuid,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub total_duration: Option<Duration>,
@@ -283,36 +285,39 @@ impl WorkflowCoordinator {
     /// 1. Publishes viable steps to ZeroMQ as fire-and-forget batches
     /// 2. Returns when no more steps are immediately ready for execution
     /// 3. Does NOT finalize the workflow - that happens via the result listener
-    #[instrument(skip(self), fields(task_id = task_id))]
+    #[instrument(skip(self), fields(task_uuid = task_uuid.to_string()))]
     pub async fn execute_task_workflow(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<TaskOrchestrationResult> {
-        info!(task_id = task_id, "Starting task workflow execution");
+        info!(
+            task_uuid = task_uuid.to_string(),
+            "Starting task workflow execution"
+        );
 
-        let mut metrics = self.initialize_workflow_metrics(task_id).await?;
+        let mut metrics = self.initialize_workflow_metrics(task_uuid).await?;
 
         // Publish workflow started event
-        self.publish_workflow_started_event(task_id, &metrics)
+        self.publish_workflow_started_event(task_uuid, &metrics)
             .await?;
 
         // Transition task to in_progress if needed
-        self.ensure_task_in_progress(task_id).await?;
+        self.ensure_task_in_progress(task_uuid).await?;
 
         // Execute main orchestration loop - publishes batches and returns
-        self.execute_step_batch_publication(task_id, &mut metrics)
+        self.execute_step_batch_publication(task_uuid, &mut metrics)
             .await?;
 
         // Return Published result - finalization happens via result listener
         info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             steps_discovered = metrics.steps_discovered,
             steps_published = metrics.steps_executed,
             "Workflow orchestration complete - batches published to ZeroMQ"
         );
 
         Ok(TaskOrchestrationResult::Published {
-            task_id,
+            task_uuid,
             viable_steps_discovered: metrics.steps_discovered,
             steps_published: metrics.steps_executed,
             batch_id: None, // TODO: Get actual batch ID from ZmqPubSubExecutor
@@ -324,10 +329,10 @@ impl WorkflowCoordinator {
     /// Initialize workflow execution metrics
     async fn initialize_workflow_metrics(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> OrchestrationResult<WorkflowExecutionMetrics> {
         Ok(WorkflowExecutionMetrics {
-            task_id,
+            task_uuid,
             started_at: Utc::now(),
             completed_at: None,
             total_duration: None,
@@ -345,17 +350,20 @@ impl WorkflowCoordinator {
     /// Publish workflow started event
     async fn publish_workflow_started_event(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         metrics: &WorkflowExecutionMetrics,
     ) -> OrchestrationResult<()> {
         // Publish structured system event
         let task_start_payload = serde_json::json!({
-            "task_id": task_id.to_string(),
-            "task_name": format!("workflow_task_{}", task_id), // Enhancement: Load task name from database or pass as parameter
+            "task_uuid": task_uuid.to_string(),
+            "task_name": format!("workflow_task_{}", task_uuid), // Enhancement: Load task name from database or pass as parameter
             "timestamp": metrics.started_at.to_rfc3339()
         });
 
-        info!(task_id = task_id, "Publishing task.start_requested event");
+        info!(
+            task_uuid = task_uuid.to_string(),
+            "Publishing task.start_requested event"
+        );
 
         // Validate event payload against schema
         if let Err(e) = self.events_manager.config().validate_event_payload(
@@ -363,14 +371,14 @@ impl WorkflowCoordinator {
             "start_requested",
             &task_start_payload,
         ) {
-            warn!(task_id = task_id, error = %e, "Task start event validation failed");
+            warn!(task_uuid = task_uuid.to_string(), error = %e, "Task start event validation failed");
         }
 
         // Also publish the original orchestration event for backward compatibility
         self.event_publisher
             .publish_event(Event::orchestration(
                 EventsOrchestrationEvent::TaskOrchestrationStarted {
-                    task_id,
+                    task_uuid,
                     framework: "fire_and_forget_tcp".to_string(),
                     started_at: metrics.started_at,
                 },
@@ -382,16 +390,16 @@ impl WorkflowCoordinator {
     /// Execute the main orchestration loop
     async fn execute_step_batch_publication(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         metrics: &mut WorkflowExecutionMetrics,
     ) -> OrchestrationResult<()> {
         let mut consecutive_empty_discoveries = 0;
         // Discover and process viable steps
-        self.discover_and_process_steps(task_id, metrics, &mut consecutive_empty_discoveries)
+        self.discover_and_process_steps(task_uuid, metrics, &mut consecutive_empty_discoveries)
             .await?;
         // Continue loop for next discovery iteration
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             "Continuing workflow loop - no break condition met"
         );
 
@@ -401,7 +409,7 @@ impl WorkflowCoordinator {
     /// Discover viable steps and process them
     async fn discover_and_process_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         metrics: &mut WorkflowExecutionMetrics,
         consecutive_empty_discoveries: &mut u32,
     ) -> OrchestrationResult<()> {
@@ -409,11 +417,11 @@ impl WorkflowCoordinator {
         let discovery_start = Instant::now();
         metrics.discovery_attempts += 1;
 
-        let viable_steps = match self.discover_viable_steps(task_id).await {
+        let viable_steps = match self.discover_viable_steps(task_uuid).await {
             Ok(steps) => steps,
             Err(e) => {
                 error!(
-                    task_id = task_id,
+                    task_uuid = task_uuid.to_string(),
                     error = %e,
                     "Failed to discover viable steps"
                 );
@@ -426,7 +434,7 @@ impl WorkflowCoordinator {
 
         // Handle empty discovery
         if viable_steps.is_empty() {
-            self.handle_empty_discovery(task_id, consecutive_empty_discoveries)
+            self.handle_empty_discovery(task_uuid, consecutive_empty_discoveries)
                 .await?;
 
             return Ok(());
@@ -436,10 +444,10 @@ impl WorkflowCoordinator {
         *consecutive_empty_discoveries = 0;
 
         // Publish viable steps discovery event
-        let step_ids: Vec<i64> = viable_steps.iter().map(|step| step.step_id).collect();
+        let step_uuids: Vec<Uuid> = viable_steps.iter().map(|step| step.step_uuid).collect();
         let viable_steps_payload = self.events_manager.create_viable_steps_discovered_payload(
-            task_id,
-            &step_ids,
+            task_uuid,
+            &step_uuids,
             &self
                 .config_manager
                 .system_config()
@@ -448,7 +456,7 @@ impl WorkflowCoordinator {
         );
 
         debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             steps_count = viable_steps.len(),
             "Publishing workflow.viable_steps_discovered event"
         );
@@ -458,12 +466,12 @@ impl WorkflowCoordinator {
             "viable_steps_discovered",
             &viable_steps_payload,
         ) {
-            warn!(task_id = task_id, error = %e, "Viable steps discovery event validation failed");
+            warn!(task_uuid = task_uuid.to_string(), error = %e, "Viable steps discovery event validation failed");
         }
 
         // Execute the discovered steps
         let _batch_results = self
-            .execute_discovered_steps(task_id, viable_steps, metrics)
+            .execute_discovered_steps(task_uuid, viable_steps, metrics)
             .await?;
 
         Ok(())
@@ -472,23 +480,23 @@ impl WorkflowCoordinator {
     /// Handle the case when no viable steps are discovered
     async fn handle_empty_discovery(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         consecutive_empty_discoveries: &mut u32,
     ) -> OrchestrationResult<()> {
         *consecutive_empty_discoveries += 1;
 
         if *consecutive_empty_discoveries >= self.config.max_discovery_attempts {
             info!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 attempts = consecutive_empty_discoveries,
                 "No viable steps found after multiple attempts - calling task finalizer"
             );
 
             // Call TaskFinalizer to determine next action
-            match self.task_finalizer.handle_no_viable_steps(task_id).await {
+            match self.task_finalizer.handle_no_viable_steps(task_uuid).await {
                 Ok(finalization_result) => {
                     info!(
-                        task_id = task_id,
+                        task_uuid = task_uuid.to_string(),
                         action = ?finalization_result.action,
                         reason = ?finalization_result.reason,
                         "Task finalization completed"
@@ -497,22 +505,28 @@ impl WorkflowCoordinator {
                     match finalization_result.action {
                         crate::orchestration::task_finalizer::FinalizationAction::Reenqueued => {
                             info!(
-                                task_id = task_id,
+                                task_uuid = task_uuid.to_string(),
                                 "Task re-enqueued - breaking workflow loop"
                             );
                             return Ok(());
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Completed => {
-                            info!(task_id = task_id, "Task completed - breaking workflow loop");
+                            info!(
+                                task_uuid = task_uuid.to_string(),
+                                "Task completed - breaking workflow loop"
+                            );
                             return Ok(());
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Failed => {
-                            info!(task_id = task_id, "Task failed - breaking workflow loop");
+                            info!(
+                                task_uuid = task_uuid.to_string(),
+                                "Task failed - breaking workflow loop"
+                            );
                             return Ok(());
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::Pending => {
                             info!(
-                                task_id = task_id,
+                                task_uuid = task_uuid.to_string(),
                                 "Task marked as pending - continuing loop"
                             );
                             *consecutive_empty_discoveries = 0; // Reset counter to continue trying
@@ -520,7 +534,7 @@ impl WorkflowCoordinator {
                         }
                         crate::orchestration::task_finalizer::FinalizationAction::NoAction => {
                             warn!(
-                                task_id = task_id,
+                                task_uuid = task_uuid.to_string(),
                                 "Task finalizer took no action - breaking loop"
                             );
                             return Ok(());
@@ -529,7 +543,7 @@ impl WorkflowCoordinator {
                 }
                 Err(e) => {
                     error!(
-                        task_id = task_id,
+                        task_uuid = task_uuid.to_string(),
                         error = %e,
                         "Failed to finalize task - breaking workflow loop"
                     );
@@ -546,14 +560,14 @@ impl WorkflowCoordinator {
     /// Execute discovered viable steps in batches
     async fn execute_discovered_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         viable_steps: Vec<ViableStep>,
         metrics: &mut WorkflowExecutionMetrics,
     ) -> OrchestrationResult<Vec<StepResult>> {
         let execution_start = Instant::now();
         let steps_count = viable_steps.len();
 
-        let batch_results = self.execute_step_batch(task_id, viable_steps).await?;
+        let batch_results = self.execute_step_batch(task_uuid, viable_steps).await?;
 
         // Update metrics with the actual number of steps published
         // Only count non-empty results (steps actually sent to workers)
@@ -561,7 +575,7 @@ impl WorkflowCoordinator {
         metrics.steps_executed += published_steps;
 
         tracing::debug!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             viable_steps = steps_count,
             published_steps = published_steps,
             "Updated metrics.steps_executed after batch publication"
@@ -577,12 +591,12 @@ impl WorkflowCoordinator {
     }
 
     /// Ensure task is in progress state
-    async fn ensure_task_in_progress(&self, task_id: i64) -> OrchestrationResult<()> {
-        let evaluation = self.state_manager.evaluate_task_state(task_id).await?;
+    async fn ensure_task_in_progress(&self, task_uuid: Uuid) -> OrchestrationResult<()> {
+        let evaluation = self.state_manager.evaluate_task_state(task_uuid).await?;
 
         if evaluation.transition_required {
             debug!(
-                task_id = task_id,
+                task_uuid = task_uuid.to_string(),
                 from_state = %evaluation.current_state,
                 to_state = ?evaluation.recommended_state,
                 "Transitioning task state"
@@ -593,10 +607,10 @@ impl WorkflowCoordinator {
     }
 
     /// Discover viable steps for execution
-    async fn discover_viable_steps(&self, task_id: i64) -> OrchestrationResult<Vec<ViableStep>> {
+    async fn discover_viable_steps(&self, task_uuid: Uuid) -> OrchestrationResult<Vec<ViableStep>> {
         let steps = self
             .viable_step_discovery
-            .find_viable_steps(task_id)
+            .find_viable_steps(task_uuid)
             .await?;
 
         if !steps.is_empty() {
@@ -605,10 +619,10 @@ impl WorkflowCoordinator {
             let events_viable_steps: Vec<crate::events::ViableStep> = steps
                 .iter()
                 .map(|step| crate::events::ViableStep {
-                    step_id: step.step_id,
-                    task_id: step.task_id,
+                    step_uuid: step.step_uuid,
+                    task_uuid: step.task_uuid,
                     name: step.name.clone(),
-                    named_step_id: step.named_step_id as i64,
+                    named_step_uuid: step.named_step_uuid,
                     current_state: step.current_state.clone(),
                     dependencies_satisfied: step.dependencies_satisfied,
                     retry_eligible: step.retry_eligible,
@@ -622,7 +636,7 @@ impl WorkflowCoordinator {
             self.event_publisher
                 .publish_event(Event::orchestration(
                     EventsOrchestrationEvent::ViableStepsDiscovered {
-                        task_id,
+                        task_uuid,
                         step_count: steps.len(),
                         steps: events_viable_steps,
                     },
@@ -636,17 +650,17 @@ impl WorkflowCoordinator {
     /// Execute a batch of steps using individual step enqueueing (Phase 5.2)
     async fn execute_step_batch(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         steps: Vec<ViableStep>,
     ) -> OrchestrationResult<Vec<StepResult>> {
-        self.enqueue_individual_steps(task_id, steps).await
+        self.enqueue_individual_steps(task_uuid, steps).await
     }
 
     /// Phase 5.2: Enqueue individual steps to namespace-specific queues with execution context
     /// This replaces the batch enqueueing system with individual StepMessage enqueueing.
     async fn enqueue_individual_steps(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         steps: Vec<ViableStep>,
     ) -> OrchestrationResult<Vec<StepResult>> {
         if steps.is_empty() {
@@ -654,20 +668,20 @@ impl WorkflowCoordinator {
         }
 
         tracing::info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             step_count = steps.len(),
             "WorkflowCoordinator: Starting individual step enqueueing to pgmq"
         );
 
         // Get task information for execution context
-        let task = crate::models::core::task::Task::find_by_id(&self.database_pool, task_id)
+        let task = crate::models::core::task::Task::find_by_id(&self.database_pool, task_uuid)
             .await
             .map_err(|e| OrchestrationError::DatabaseError {
                 operation: "load_task_for_step_enqueueing".to_string(),
                 reason: format!("Failed to load task: {e}"),
             })?
             .ok_or_else(|| OrchestrationError::TaskExecutionFailed {
-                task_id,
+                task_uuid,
                 reason: "Task not found".to_string(),
                 error_code: Some("TASK_NOT_FOUND".to_string()),
             })?;
@@ -686,7 +700,7 @@ impl WorkflowCoordinator {
         // Process each step individually
         for (sequence, step) in steps.into_iter().enumerate() {
             match self
-                .enqueue_individual_step(task_id, &task, &task_info, &step, sequence)
+                .enqueue_individual_step(task_uuid, &task, &task_info, &step, sequence)
                 .await
             {
                 Ok(step_result) => {
@@ -695,7 +709,7 @@ impl WorkflowCoordinator {
                 Err(e) => {
                     // Create failure result for step that couldn't be enqueued
                     let failure_result = StepResult {
-                        step_id: step.step_id,
+                        step_uuid: step.step_uuid,
                         status: crate::orchestration::types::StepStatus::Failed,
                         output: serde_json::json!({
                             "status": "individual_enqueue_failed",
@@ -714,7 +728,7 @@ impl WorkflowCoordinator {
         }
 
         tracing::info!(
-            task_id = task_id,
+            task_uuid = task_uuid.to_string(),
             total_steps = all_results.len(),
             "WorkflowCoordinator: Completed individual step enqueueing"
         );
@@ -725,7 +739,7 @@ impl WorkflowCoordinator {
     /// Enqueue a single step with full execution context
     async fn enqueue_individual_step(
         &self,
-        task_id: i64,
+        task_uuid: Uuid,
         task: &crate::models::core::task::Task,
         task_info: &crate::models::core::task::TaskForOrchestration,
         step: &ViableStep,
@@ -735,14 +749,14 @@ impl WorkflowCoordinator {
         let namespace = self.determine_step_namespace(step).await?;
 
         // Fetch dependency results for this step
-        let dependency_results = self.fetch_step_dependency_results(step.step_id).await?;
+        let dependency_results = self.fetch_step_dependency_results(step.step_uuid).await?;
 
         // Create execution context with (task, sequence, step) pattern
         let execution_context = crate::messaging::message::StepExecutionContext::new(
             // Task data as JSON for handler access
             serde_json::json!({
-                "task_id": task.task_id,
-                "named_task_id": task.named_task_id,
+                "task_uuid": task.task_uuid,
+                "named_task_uuid": task.named_task_uuid,
                 "complete": task.complete,
                 "requested_at": task.requested_at,
                 "initiator": task.initiator,
@@ -763,10 +777,10 @@ impl WorkflowCoordinator {
             dependency_results,
             // Step data as JSON for handler access
             serde_json::json!({
-                "step_id": step.step_id,
-                "workflow_step_id": step.step_id, // Ruby expects workflow_step_id field
-                "task_id": step.task_id,
-                "named_step_id": step.named_step_id,
+                "step_uuid": step.step_uuid,
+                "workflow_step_uuid": step.step_uuid, // Ruby expects workflow_step_uuid field
+                "task_uuid": step.task_uuid,
+                "named_step_uuid": step.named_step_uuid,
                 "name": step.name,
                 "current_state": step.current_state,
                 "dependencies_satisfied": step.dependencies_satisfied,
@@ -780,16 +794,16 @@ impl WorkflowCoordinator {
 
         // Create step message with execution context
         let step_message = crate::messaging::message::StepMessage::new(
-            step.step_id,
-            task_id,
+            step.step_uuid,
+            task_uuid,
             namespace.clone(),
             task_info.task_name.clone(),
             "1.0.0".to_string(), // TODO: Get actual task version from database
             step.name.clone(),
             serde_json::json!({
-                "step_id": step.step_id,
-                "task_id": step.task_id,
-                "named_step_id": step.named_step_id,
+                "step_uuid": step.step_uuid,
+                "task_uuid": step.task_uuid,
+                "named_step_uuid": step.named_step_uuid,
                 "current_state": step.current_state,
                 "dependencies_satisfied": step.dependencies_satisfied,
                 "retry_eligible": step.retry_eligible,
@@ -814,8 +828,8 @@ impl WorkflowCoordinator {
         {
             Ok(message_id) => {
                 tracing::debug!(
-                    task_id = task_id,
-                    step_id = step.step_id,
+                    task_uuid = %task_uuid,
+                    step_uuid = %step.step_uuid,
                     namespace = %namespace,
                     queue_name = %queue_name,
                     message_id = message_id,
@@ -825,7 +839,7 @@ impl WorkflowCoordinator {
 
                 // Create successful enqueueing result
                 Ok(StepResult {
-                    step_id: step.step_id,
+                    step_uuid: step.step_uuid,
                     status: crate::orchestration::types::StepStatus::InProgress,
                     output: serde_json::json!({
                         "status": "enqueued_individually",
@@ -846,8 +860,8 @@ impl WorkflowCoordinator {
             }
             Err(e) => {
                 tracing::error!(
-                    task_id = task_id,
-                    step_id = step.step_id,
+                    task_uuid = %task_uuid,
+                    step_uuid = %step.step_uuid,
                     namespace = %namespace,
                     queue_name = %queue_name,
                     error = %e,
@@ -855,8 +869,8 @@ impl WorkflowCoordinator {
                 );
 
                 Err(OrchestrationError::StepExecutionFailed {
-                    step_id: step.step_id,
-                    task_id,
+                    step_uuid: step.step_uuid,
+                    task_uuid: Some(task_uuid),
                     reason: format!("Failed to enqueue step to {queue_name}: {e}"),
                     error_code: Some("STEP_ENQUEUE_FAILED".to_string()),
                     retry_after: Some(std::time::Duration::from_secs(30)),
@@ -868,12 +882,12 @@ impl WorkflowCoordinator {
     /// Fetch dependency results for a step
     async fn fetch_step_dependency_results(
         &self,
-        step_id: i64,
+        step_uuid: Uuid,
     ) -> OrchestrationResult<Vec<crate::messaging::message::StepDependencyResult>> {
-        // Get the WorkflowStep from step_id
+        // Get the WorkflowStep from step_uuid
         let workflow_step = crate::models::core::workflow_step::WorkflowStep::find_by_id(
             &self.database_pool,
-            step_id,
+            step_uuid,
         )
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
@@ -881,8 +895,8 @@ impl WorkflowCoordinator {
             reason: format!("Failed to load workflow step: {e}"),
         })?
         .ok_or_else(|| OrchestrationError::StepExecutionFailed {
-            step_id,
-            task_id: 0, // Will be filled in by caller
+            step_uuid,
+            task_uuid: None,
             reason: "Workflow step not found".to_string(),
             error_code: Some("WORKFLOW_STEP_NOT_FOUND".to_string()),
             retry_after: None,
@@ -904,8 +918,8 @@ impl WorkflowCoordinator {
                 .map(|(dep_step, step_name)| {
                     crate::messaging::message::StepDependencyResult::new(
                         step_name,
-                        dep_step.workflow_step_id,
-                        dep_step.named_step_id,
+                        dep_step.workflow_step_uuid,
+                        dep_step.named_step_uuid,
                         dep_step.results,
                         dep_step.processed_at.map(|dt| dt.and_utc()),
                     )
@@ -922,7 +936,7 @@ impl WorkflowCoordinator {
                 .collect();
 
         tracing::debug!(
-            step_id = step_id,
+            step_uuid = %step_uuid,
             dependency_count = dependency_results.len(),
             "Fetched dependency results for step"
         );
@@ -938,7 +952,7 @@ impl WorkflowCoordinator {
         let step_namespace = step.name.split('.').next().unwrap_or("default").to_string();
 
         tracing::debug!(
-            step_id = step.step_id,
+            step_uuid = %step.step_uuid,
             step_name = %step.name,
             extracted_namespace = %step_namespace,
             "Determined step namespace from step name"

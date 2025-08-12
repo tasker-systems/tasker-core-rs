@@ -126,7 +126,7 @@ module TaskerCore
       # Extract step information for logging
       def extract_step_info(step)
         {
-          step_id: extract_attribute(step, :id) || extract_attribute(step, :workflow_step_id),
+          step_id: extract_attribute(step, :id) || extract_attribute(step, :workflow_step_uuid),
           step_name: extract_attribute(step, :name),
           step_class: step.class.name
         }
@@ -135,7 +135,7 @@ module TaskerCore
       # Extract task information for logging
       def extract_task_info(task)
         {
-          task_id: extract_attribute(task, :task_id) || extract_attribute(task, :id),
+          task_uuid: extract_attribute(task, :task_uuid) || extract_attribute(task, :id),
           task_class: task.class.name
         }
       end

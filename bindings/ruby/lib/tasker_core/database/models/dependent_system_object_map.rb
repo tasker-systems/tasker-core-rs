@@ -32,8 +32,14 @@ module TaskerCore
     module Models
       class DependentSystemObjectMap < ApplicationRecord
         self.primary_key = :dependent_system_object_map_id
-        belongs_to :dependent_system_one, class_name: 'TaskerCore::Database::Models::DependentSystem'
-        belongs_to :dependent_system_two, class_name: 'TaskerCore::Database::Models::DependentSystem'
+        belongs_to  :dependent_system_one,
+                    class_name: 'TaskerCore::Database::Models::DependentSystem',
+                    foreign_key: :dependent_system_one_uuid,
+                    primary_key: :dependent_system_uuid
+        belongs_to  :dependent_system_two,
+                    class_name: 'TaskerCore::Database::Models::DependentSystem',
+                    foreign_key: :dependent_system_two_uuid,
+                    primary_key: :dependent_system_uuid
         validates :remote_id_one, presence: true
         validates :remote_id_two, presence: true
 
@@ -44,14 +50,14 @@ module TaskerCore
           inst = where(
             remote_id_one: system_one_id,
             remote_id_two: system_two_id,
-            dependent_system_one_id: system_one.dependent_system_id,
-            dependent_system_two_id: system_two.dependent_system_id
+            dependent_system_one_uuid: system_one.dependent_system_uuid,
+            dependent_system_two_uuid: system_two.dependent_system_uuid
           ).or(
             where(
               remote_id_one: system_two_id,
               remote_id_two: system_one_id,
-              dependent_system_one_id: system_two.dependent_system_id,
-              dependent_system_two_id: system_one.dependent_system_id
+              dependent_system_one_uuid: system_two.dependent_system_uuid,
+              dependent_system_two_uuid: system_one.dependent_system_uuid
             )
           ).first
           inst ||= create(

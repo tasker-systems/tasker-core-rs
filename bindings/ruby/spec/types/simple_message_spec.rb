@@ -3,14 +3,14 @@
 require 'spec_helper'
 
 RSpec.describe 'Simple Message Architecture', type: :integration do
-  let(:uuid_regex) { /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i }
+  let(:uuid_regex) { /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i }
 
   describe 'Task UUID generation' do
     it 'generates UUIDs for new tasks' do
       task = TaskerCore::Database::Models::Task.new(
         context: { test: true },
         requested_at: Time.current,
-        named_task_id: 1
+        named_task_uuid: SecureRandom.uuid_v7
       )
 
       # Trigger UUID generation
@@ -24,24 +24,24 @@ RSpec.describe 'Simple Message Architecture', type: :integration do
   describe 'WorkflowStep UUID generation' do
     it 'generates UUIDs for new workflow steps' do
       step = TaskerCore::Database::Models::WorkflowStep.new(
-        task_id: 1,
-        named_step_id: 1
+        task_uuid: SecureRandom.uuid_v7,
+        named_step_uuid: SecureRandom.uuid_v7
       )
 
       # Trigger UUID generation
       step.send(:ensure_step_uuid)
 
-      expect(step.step_uuid).to be_present
-      expect(step.step_uuid).to match(uuid_regex)
+      expect(step.workflow_step_uuid).to be_present
+      expect(step.workflow_step_uuid).to match(uuid_regex)
     end
   end
 
   describe 'SimpleStepMessage' do
     it 'creates and validates simple messages' do
       message = TaskerCore::Types::SimpleStepMessage.new(
-        task_uuid: SecureRandom.uuid,
-        step_uuid: SecureRandom.uuid,
-        ready_dependency_step_uuids: [SecureRandom.uuid, SecureRandom.uuid]
+        task_uuid: SecureRandom.uuid_v7,
+        step_uuid: SecureRandom.uuid_v7,
+        ready_dependency_step_uuids: [SecureRandom.uuid_v7, SecureRandom.uuid_v7]
       )
 
       expect(message.task_uuid).to be_present
@@ -56,9 +56,9 @@ RSpec.describe 'Simple Message Architecture', type: :integration do
 
     it 'serializes and deserializes correctly' do
       original_message = TaskerCore::Types::SimpleStepMessage.new(
-        task_uuid: SecureRandom.uuid,
-        step_uuid: SecureRandom.uuid,
-        ready_dependency_step_uuids: [SecureRandom.uuid]
+        task_uuid: SecureRandom.uuid_v7,
+        step_uuid: SecureRandom.uuid_v7,
+        ready_dependency_step_uuids: [SecureRandom.uuid_v7]
       )
 
       # Test serialization

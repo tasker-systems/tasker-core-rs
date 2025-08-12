@@ -5,6 +5,7 @@
 
 use sqlx::PgPool;
 use tasker_core::models::orchestration::StepReadinessStatus;
+use uuid::Uuid;
 
 // Import our comprehensive factory system
 use crate::factories::{
@@ -29,14 +30,14 @@ mod tests {
     async fn create_task_with_initial_state(
         pool: &PgPool,
         factory: ComplexWorkflowFactory,
-    ) -> Result<(i64, Vec<i64>), sqlx::Error> {
-        let (task_id, step_ids) = factory.create(pool).await.map_err(map_factory_error)?;
+    ) -> Result<(Uuid, Vec<Uuid>), sqlx::Error> {
+        let (task_uuid, step_uuids) = factory.create(pool).await.map_err(map_factory_error)?;
 
         // Create initial "pending" state for the task
         TaskTransition::create(
             pool,
             NewTaskTransition {
-                task_id,
+                task_uuid,
                 to_state: "pending".to_string(),
                 from_state: None,
                 metadata: None,
@@ -47,31 +48,31 @@ mod tests {
 
         // Create initial "pending" state for ALL workflow steps
         // This is critical for SQL functions to identify "ready" steps
-        for &step_id in &step_ids {
+        for &step_uuid in &step_uuids {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
-        Ok((task_id, step_ids))
+        Ok((task_uuid, step_uuids))
     }
 
     /// Create a diamond workflow for readiness testing
     async fn create_diamond_workflow_for_readiness(
         pool: &PgPool,
-    ) -> Result<(i64, Vec<i64>), sqlx::Error> {
+    ) -> Result<(Uuid, Vec<Uuid>), sqlx::Error> {
         // Helper already initializes both task and step states
         create_task_with_initial_state(pool, ComplexWorkflowFactory::new().diamond()).await
     }
 
     #[sqlx::test]
     async fn test_initial_readiness_state(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Diamond pattern: A -> (B, C) -> D
         // Only A should be ready initially
@@ -84,7 +85,7 @@ mod tests {
 
         // The ready step should be the first one (root)
         let root_step = ready_steps.first().unwrap();
-        assert_eq!(root_step.workflow_step_id, step_ids[0]);
+        assert_eq!(root_step.workflow_step_uuid, step_uuids[0]);
         assert!(root_step.dependencies_satisfied);
         assert_eq!(root_step.current_state, "pending");
         assert_eq!(root_step.attempts, 0);
@@ -102,7 +103,7 @@ mod tests {
         );
 
         for step in blocked_steps {
-            if step.workflow_step_id != step_ids[0] {
+            if step.workflow_step_uuid != step_uuids[0] {
                 // Non-root steps should have unsatisfied dependencies
                 assert!(!step.dependencies_satisfied || step.current_state != "pending");
             }
@@ -113,14 +114,14 @@ mod tests {
 
     #[sqlx::test]
     async fn test_readiness_after_root_completion(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Complete the root step (A)
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Now B and C should be ready (indices 1 and 2)
         let ready_steps: Vec<_> = readiness.iter().filter(|s| s.ready_for_execution).collect();
@@ -131,14 +132,14 @@ mod tests {
         );
 
         // Check that the ready steps are B and C
-        let ready_ids: Vec<i64> = ready_steps.iter().map(|s| s.workflow_step_id).collect();
-        assert!(ready_ids.contains(&step_ids[1]));
-        assert!(ready_ids.contains(&step_ids[2]));
+        let ready_ids: Vec<Uuid> = ready_steps.iter().map(|s| s.workflow_step_uuid).collect();
+        assert!(ready_ids.contains(&step_uuids[1]));
+        assert!(ready_ids.contains(&step_uuids[2]));
 
         // Root should be complete
         let root_status = readiness
             .iter()
-            .find(|s| s.workflow_step_id == step_ids[0])
+            .find(|s| s.workflow_step_uuid == step_uuids[0])
             .unwrap();
         assert_eq!(root_status.current_state, "complete");
         assert!(!root_status.ready_for_execution);
@@ -146,7 +147,7 @@ mod tests {
         // Final merge step should still be blocked
         let merge_status = readiness
             .iter()
-            .find(|s| s.workflow_step_id == step_ids[3])
+            .find(|s| s.workflow_step_uuid == step_uuids[3])
             .unwrap();
         assert!(!merge_status.ready_for_execution);
         assert!(!merge_status.dependencies_satisfied);
@@ -156,17 +157,17 @@ mod tests {
 
     #[sqlx::test]
     async fn test_readiness_with_partial_branch_completion(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Complete root and one branch
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[1], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[1], &pool)
             .await
             .map_err(map_factory_error)?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Only the other branch (C) should be ready
         let ready_steps: Vec<_> = readiness.iter().filter(|s| s.ready_for_execution).collect();
@@ -175,12 +176,12 @@ mod tests {
             1,
             "Only remaining branch should be ready"
         );
-        assert_eq!(ready_steps[0].workflow_step_id, step_ids[2]);
+        assert_eq!(ready_steps[0].workflow_step_uuid, step_uuids[2]);
 
         // Check merge step dependencies
         let merge_status = readiness
             .iter()
-            .find(|s| s.workflow_step_id == step_ids[3])
+            .find(|s| s.workflow_step_uuid == step_uuids[3])
             .unwrap();
         assert_eq!(merge_status.total_parents, 2);
         assert_eq!(merge_status.completed_parents, 1); // Only B is complete
@@ -191,16 +192,16 @@ mod tests {
 
     #[sqlx::test]
     async fn test_readiness_with_error_and_retry(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Complete root
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
         // Set one branch to error with retry eligibility
         WorkflowStepTransitionFactory::create_failed_lifecycle(
-            step_ids[1],
+            step_uuids[1],
             "Network timeout",
             &pool,
         )
@@ -209,31 +210,31 @@ mod tests {
 
         // Update retry information
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET attempts = 1, retry_limit = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
-             WHERE workflow_step_id = $1",
-            step_ids[1]
+             WHERE workflow_step_uuid = $1",
+            step_uuids[1]
         )
         .execute(&pool)
         .await?;
 
         // Back-date the error transition to be past the exponential backoff period
         sqlx::query!(
-            "UPDATE tasker_workflow_step_transitions 
+            "UPDATE tasker_workflow_step_transitions
              SET created_at = NOW() - INTERVAL '5 seconds'
-             WHERE workflow_step_id = $1 AND to_state = 'error' AND most_recent = true",
-            step_ids[1]
+             WHERE workflow_step_uuid = $1 AND to_state = 'error' AND most_recent = true",
+            step_uuids[1]
         )
         .execute(&pool)
         .await?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Find the error step
         let error_step = readiness
             .iter()
-            .find(|s| s.workflow_step_id == step_ids[1])
+            .find(|s| s.workflow_step_uuid == step_uuids[1])
             .unwrap();
 
         assert_eq!(error_step.current_state, "error");
@@ -247,16 +248,16 @@ mod tests {
 
     #[sqlx::test]
     async fn test_readiness_with_exhausted_retries(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Complete root
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
         // Set one branch to error with exhausted retries
         WorkflowStepTransitionFactory::create_failed_lifecycle(
-            step_ids[1],
+            step_uuids[1],
             "Persistent failure",
             &pool,
         )
@@ -265,20 +266,20 @@ mod tests {
 
         // Update to exhaust retries
         sqlx::query!(
-            "UPDATE tasker_workflow_steps 
+            "UPDATE tasker_workflow_steps
              SET attempts = 3, retry_limit = 3, retryable = true
-             WHERE workflow_step_id = $1",
-            step_ids[1]
+             WHERE workflow_step_uuid = $1",
+            step_uuids[1]
         )
         .execute(&pool)
         .await?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Find the error step
         let error_step = readiness
             .iter()
-            .find(|s| s.workflow_step_id == step_ids[1])
+            .find(|s| s.workflow_step_uuid == step_uuids[1])
             .unwrap();
 
         assert_eq!(error_step.current_state, "error");
@@ -292,9 +293,9 @@ mod tests {
 
     #[sqlx::test]
     async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, _step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
-        let summary = StepReadinessStatus::get_readiness_summary(&pool, task_id).await?;
+        let summary = StepReadinessStatus::get_readiness_summary(&pool, task_uuid).await?;
 
         assert_eq!(summary.total_steps, 4); // Diamond has 4 steps
         assert_eq!(summary.ready_steps, 1); // Only root is ready initially
@@ -307,14 +308,14 @@ mod tests {
 
     #[sqlx::test]
     async fn test_get_ready_for_task(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Complete root to make branches ready
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
-        let ready_steps = StepReadinessStatus::get_ready_for_task(&pool, task_id).await?;
+        let ready_steps = StepReadinessStatus::get_ready_for_task(&pool, task_uuid).await?;
 
         assert_eq!(ready_steps.len(), 2); // Both branches should be ready
         assert!(ready_steps.iter().all(|s| s.ready_for_execution));
@@ -325,10 +326,10 @@ mod tests {
 
     #[sqlx::test]
     async fn test_get_blocked_by_dependencies(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, _step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, _step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         let blocked_steps =
-            StepReadinessStatus::get_blocked_by_dependencies(&pool, task_id).await?;
+            StepReadinessStatus::get_blocked_by_dependencies(&pool, task_uuid).await?;
 
         // Initially, B, C, and D are blocked (only A is ready)
         assert_eq!(blocked_steps.len(), 3);
@@ -339,20 +340,20 @@ mod tests {
 
     #[sqlx::test]
     async fn test_all_steps_complete(pool: PgPool) -> sqlx::Result<()> {
-        let (task_id, step_ids) = create_diamond_workflow_for_readiness(&pool).await?;
+        let (task_uuid, step_uuids) = create_diamond_workflow_for_readiness(&pool).await?;
 
         // Initially not all complete
-        assert!(!StepReadinessStatus::all_steps_complete(&pool, task_id).await?);
+        assert!(!StepReadinessStatus::all_steps_complete(&pool, task_uuid).await?);
 
         // Complete all steps
-        for &step_id in &step_ids {
-            WorkflowStepTransitionFactory::create_complete_lifecycle(step_id, &pool)
+        for &step_uuid in &step_uuids {
+            WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuid, &pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
         // Now all should be complete
-        assert!(StepReadinessStatus::all_steps_complete(&pool, task_id).await?);
+        assert!(StepReadinessStatus::all_steps_complete(&pool, task_uuid).await?);
 
         Ok(())
     }
@@ -360,20 +361,20 @@ mod tests {
     #[sqlx::test]
     async fn test_complex_workflow_readiness(pool: PgPool) -> sqlx::Result<()> {
         // Use Tree pattern for more complex dependency testing
-        let (task_id, step_ids) =
+        let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().tree()).await?;
 
         // Initialize all with pending state
-        for &step_id in &step_ids {
+        for &step_uuid in &step_uuids {
             WorkflowStepTransitionFactory::new()
-                .for_workflow_step(step_id)
+                .for_workflow_step(step_uuid)
                 .to_state("pending")
                 .create(&pool)
                 .await
                 .map_err(map_factory_error)?;
         }
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Tree pattern: A -> (B -> (D, E), C -> (F, G))
         // Only root should be ready
@@ -383,11 +384,11 @@ mod tests {
         );
 
         // Complete root
-        WorkflowStepTransitionFactory::create_complete_lifecycle(step_ids[0], &pool)
+        WorkflowStepTransitionFactory::create_complete_lifecycle(step_uuids[0], &pool)
             .await
             .map_err(map_factory_error)?;
 
-        let readiness = StepReadinessStatus::get_for_task(&pool, task_id).await?;
+        let readiness = StepReadinessStatus::get_for_task(&pool, task_uuid).await?;
 
         // Now B and C should be ready (branches)
         assert_eq!(

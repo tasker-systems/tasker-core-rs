@@ -146,7 +146,7 @@ impl StringCache {
             return Arc::clone(cached);
         }
         drop(cache);
-        
+
         let mut cache = self.cache.write().unwrap();
         let interned: Arc<str> = Arc::from(s);
         cache.insert(s.to_string(), Arc::clone(&interned));
@@ -156,10 +156,10 @@ impl StringCache {
 
 // Usage in message structures
 pub struct OptimizedStepMessage {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub task_id: i64,
     pub namespace: Arc<str>,     // Interned string
-    pub task_name: Arc<str>,     // Interned string  
+    pub task_name: Arc<str>,     // Interned string
     pub task_version: Arc<str>,  // Interned string
     pub step_name: String,       // Unique per step
     // ...
@@ -297,7 +297,7 @@ for (key, value) in &self.previous_results {
 ```rust
 // Lifetime-parameterized message structures
 pub struct StepMessage<'a> {
-    pub step_id: i64,
+    pub step_uuid: Uuid,
     pub task_id: i64,
     pub namespace: Cow<'a, str>,     // Can borrow or own
     pub task_name: Cow<'a, str>,
@@ -352,14 +352,14 @@ pub struct ObjectPool<T> {
 }
 
 impl<T> ObjectPool<T> {
-    pub fn new<F, R>(factory: F, reset: R) -> Self 
+    pub fn new<F, R>(factory: F, reset: R) -> Self
     where
         F: Fn() -> T + Send + Sync + 'static,
         R: Fn(&mut T) + Send + Sync + 'static,
     {
         // Implementation
     }
-    
+
     pub fn acquire(&self) -> PooledObject<T> {
         // Get object from pool or create new
     }
@@ -425,16 +425,16 @@ impl MemoryProfiler {
 fn bench_message_processing_memory(b: &mut Bencher) {
     b.iter_custom(|iters| {
         let profiler = MemoryProfiler::start_profiling();
-        
+
         let start = Instant::now();
         for _ in 0..iters {
             // Test code
         }
         let duration = start.elapsed();
-        
+
         let report = profiler.finish();
         println!("Memory usage: {}", report);
-        
+
         duration
     });
 }

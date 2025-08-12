@@ -49,11 +49,11 @@
 //! The VIEW returns:
 //! ```sql
 //! SELECT
-//!   workflow_step_id bigint,
-//!   task_id bigint,
-//!   named_step_id integer,
-//!   parent_step_ids jsonb,     -- Array of parent workflow_step_ids
-//!   child_step_ids jsonb,      -- Array of child workflow_step_ids
+//!   workflow_step_uuid bigint,
+//!   task_uuid bigint,
+//!   named_step_uuid integer,
+//!   parent_step_uuids jsonb,     -- Array of parent workflow_step_uuids
+//!   child_step_uuids jsonb,      -- Array of child workflow_step_uuids
 //!   parent_count bigint,       -- Count of parent steps
 //!   child_count bigint,        -- Count of child steps
 //!   is_root_step boolean,      -- True if no parents (entry point)
@@ -70,7 +70,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use sqlx::{FromRow, PgPool};
+use sqlx::{types::Uuid, FromRow, PgPool};
 
 /// Represents computed DAG relationship analysis for workflow steps.
 ///
@@ -93,13 +93,13 @@ use sqlx::{FromRow, PgPool};
 /// - `delete()` - Cannot delete computed data
 ///
 /// Only read operations are available by querying the VIEW.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct StepDagRelationship {
-    pub workflow_step_id: i64,
-    pub task_id: i64,
-    pub named_step_id: i32,
-    pub parent_step_ids: JsonValue, // JSONB array of parent workflow_step_ids
-    pub child_step_ids: JsonValue,  // JSONB array of child workflow_step_ids
+    pub workflow_step_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub named_step_uuid: Uuid,
+    pub parent_step_uuids: JsonValue, // JSONB array of parent workflow_step_uuids
+    pub child_step_uuids: JsonValue,  // JSONB array of child workflow_step_uuids
     pub parent_count: i64,
     pub child_count: i64,
     pub is_root_step: bool,               // No parents - workflow entry point
@@ -110,8 +110,8 @@ pub struct StepDagRelationship {
 /// Query parameters for DAG relationship analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepDagRelationshipQuery {
-    pub task_id: Option<i64>,
-    pub workflow_step_id: Option<i64>,
+    pub task_uuid: Option<Uuid>,
+    pub workflow_step_uuid: Option<Uuid>,
     pub min_depth: Option<i32>,
     pub max_depth: Option<i32>,
     pub is_root_step: Option<bool>,
@@ -125,18 +125,18 @@ impl StepDagRelationship {
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            ORDER BY task_id, min_depth_from_root NULLS LAST, workflow_step_id
+            ORDER BY task_uuid, min_depth_from_root NULLS LAST, workflow_step_uuid
             "#
         )
         .fetch_all(pool)
@@ -146,29 +146,29 @@ impl StepDagRelationship {
     }
 
     /// Get DAG relationships for a specific task.
-    pub async fn get_by_task(
+    pub async fn get_for_task(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<StepDagRelationship>, sqlx::Error> {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            WHERE task_id = $1
-            ORDER BY min_depth_from_root NULLS LAST, workflow_step_id
+            WHERE task_uuid = $1::uuid
+            ORDER BY min_depth_from_root NULLS LAST, workflow_step_uuid
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -177,28 +177,28 @@ impl StepDagRelationship {
     }
 
     /// Get DAG relationship for a specific workflow step.
-    pub async fn get_by_step(
+    pub async fn get_for_step(
         pool: &PgPool,
-        workflow_step_id: i64,
+        workflow_step_uuid: Uuid,
     ) -> Result<Option<StepDagRelationship>, sqlx::Error> {
         let relationship = sqlx::query_as!(
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            WHERE workflow_step_id = $1
+            WHERE workflow_step_uuid = $1::uuid
             "#,
-            workflow_step_id
+            workflow_step_uuid
         )
         .fetch_optional(pool)
         .await?;
@@ -209,27 +209,27 @@ impl StepDagRelationship {
     /// Get all root steps (entry points) for a task.
     pub async fn get_root_steps(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<StepDagRelationship>, sqlx::Error> {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            WHERE task_id = $1 AND is_root_step = true
-            ORDER BY workflow_step_id
+            WHERE task_uuid = $1::uuid AND is_root_step = true
+            ORDER BY workflow_step_uuid
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -240,27 +240,27 @@ impl StepDagRelationship {
     /// Get all leaf steps (exit points) for a task.
     pub async fn get_leaf_steps(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
     ) -> Result<Vec<StepDagRelationship>, sqlx::Error> {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            WHERE task_id = $1 AND is_leaf_step = true
-            ORDER BY workflow_step_id
+            WHERE task_uuid = $1::uuid AND is_leaf_step = true
+            ORDER BY workflow_step_uuid
             "#,
-            task_id
+            task_uuid
         )
         .fetch_all(pool)
         .await?;
@@ -269,30 +269,30 @@ impl StepDagRelationship {
     }
 
     /// Get steps at a specific depth level.
-    pub async fn get_by_depth(
+    pub async fn get_steps_at_depth(
         pool: &PgPool,
-        task_id: i64,
+        task_uuid: Uuid,
         depth: i32,
     ) -> Result<Vec<StepDagRelationship>, sqlx::Error> {
         let relationships = sqlx::query_as!(
             StepDagRelationship,
             r#"
             SELECT
-                workflow_step_id as "workflow_step_id!: i64",
-                task_id as "task_id!: i64",
-                named_step_id as "named_step_id!: i32",
-                parent_step_ids as "parent_step_ids!: JsonValue",
-                child_step_ids as "child_step_ids!: JsonValue",
+                workflow_step_uuid as "workflow_step_uuid!: Uuid",
+                task_uuid as "task_uuid!: Uuid",
+                named_step_uuid as "named_step_uuid!: Uuid",
+                parent_step_uuids as "parent_step_uuids!: JsonValue",
+                child_step_uuids as "child_step_uuids!: JsonValue",
                 parent_count as "parent_count!: i64",
                 child_count as "child_count!: i64",
                 is_root_step as "is_root_step!: bool",
                 is_leaf_step as "is_leaf_step!: bool",
                 min_depth_from_root
             FROM tasker_step_dag_relationships
-            WHERE task_id = $1 AND min_depth_from_root = $2
-            ORDER BY workflow_step_id
+            WHERE task_uuid = $1::uuid AND min_depth_from_root = $2
+            ORDER BY workflow_step_uuid
             "#,
-            task_id,
+            task_uuid,
             depth
         )
         .fetch_all(pool)
@@ -310,13 +310,18 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let parent_uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let parent_uuid2 = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let parent_step_uuids = vec![parent_uuid1.to_string(), parent_uuid2.to_string()];
     ///
     /// let deploy_step = StepDagRelationship {
-    ///     workflow_step_id: 3,
-    ///     task_id: 100,
-    ///     named_step_id: 1003,
-    ///     parent_step_ids: json!([1, 2]), // Build and Test step IDs
-    ///     child_step_ids: json!([]),
+    ///     workflow_step_uuid: Uuid::new_v4(),
+    ///     task_uuid: Uuid::new_v4(),
+    ///     named_step_uuid: Uuid::new_v4(),
+    ///     parent_step_uuids: json!(parent_step_uuids), // Build and Test step IDs
+    ///     child_step_uuids: json!([]),
     ///     parent_count: 2,
     ///     child_count: 0,
     ///     is_root_step: false,
@@ -325,13 +330,18 @@ impl StepDagRelationship {
     /// };
     ///
     /// let parents = deploy_step.parent_ids();
-    /// assert_eq!(parents, vec![1, 2]);
-    /// println!("Deploy step waits for steps: {:?}", parents); // [1, 2]
+    /// assert_eq!(parents, vec![parent_uuid1, parent_uuid2]);
+    /// println!("Deploy step waits for steps: {:?}", parents);
     /// ```
-    pub fn parent_ids(&self) -> Vec<i64> {
-        self.parent_step_ids
+    pub fn parent_ids(&self) -> Vec<Uuid> {
+        self.parent_step_uuids
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .filter_map(|s| Uuid::parse_str(s).ok())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -344,13 +354,18 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let child_uuid1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440003").unwrap();
+    /// let child_uuid2 = Uuid::parse_str("880e8400-e29b-41d4-a716-446655440004").unwrap();
+    /// let child_step_uuids = vec![child_uuid1.to_string(), child_uuid2.to_string()];
     ///
     /// let build_step = StepDagRelationship {
-    ///     workflow_step_id: 1,
-    ///     task_id: 100,
-    ///     named_step_id: 1001,
-    ///     parent_step_ids: json!([]), // No dependencies - can start immediately
-    ///     child_step_ids: json!([2, 3]), // Test and Package step IDs
+    ///     workflow_step_uuid: Uuid::new_v4(),
+    ///     task_uuid: Uuid::new_v4(),
+    ///     named_step_uuid: Uuid::new_v4(),
+    ///     parent_step_uuids: json!([]), // No dependencies - can start immediately
+    ///     child_step_uuids: json!(child_step_uuids), // Test and Package step IDs
     ///     parent_count: 0,
     ///     child_count: 2,
     ///     is_root_step: true,
@@ -359,13 +374,18 @@ impl StepDagRelationship {
     /// };
     ///
     /// let children = build_step.child_ids();
-    /// assert_eq!(children, vec![2, 3]);
-    /// println!("Build completion will unblock: {:?}", children); // [2, 3]
+    /// assert_eq!(children, vec![child_uuid1, child_uuid2]);
+    /// println!("Build completion will unblock: {:?}", children);
     /// ```
-    pub fn child_ids(&self) -> Vec<i64> {
-        self.child_step_ids
+    pub fn child_ids(&self) -> Vec<Uuid> {
+        self.child_step_uuids
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .filter_map(|s| Uuid::parse_str(s).ok())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -377,13 +397,21 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let workflow_uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let workflow_uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let workflow_uuid3 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440003").unwrap();
+    /// let task_uuid = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440004").unwrap();
+    /// let named_uuid1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440005").unwrap();
+    /// let named_uuid2 = Uuid::parse_str("880e8400-e29b-41d4-a716-446655440006").unwrap();
     ///
     /// let root_step = StepDagRelationship {
-    ///     workflow_step_id: 1,
-    ///     task_id: 100,
-    ///     named_step_id: 1001,
-    ///     parent_step_ids: json!([]), // No dependencies
-    ///     child_step_ids: json!([2, 3]),
+    ///     workflow_step_uuid: workflow_uuid1,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid1,
+    ///     parent_step_uuids: json!([]), // No dependencies
+    ///     child_step_uuids: json!([workflow_uuid2.to_string(), workflow_uuid3.to_string()]),
     ///     parent_count: 0,
     ///     child_count: 2,
     ///     is_root_step: true,
@@ -392,11 +420,11 @@ impl StepDagRelationship {
     /// };
     ///
     /// let dependent_step = StepDagRelationship {
-    ///     workflow_step_id: 2,
-    ///     task_id: 100,
-    ///     named_step_id: 1002,
-    ///     parent_step_ids: json!([1]), // Depends on step 1
-    ///     child_step_ids: json!([]),
+    ///     workflow_step_uuid: workflow_uuid2,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid2,
+    ///     parent_step_uuids: json!([workflow_uuid1.to_string()]), // Depends on step 1
+    ///     child_step_uuids: json!([]),
     ///     parent_count: 1,
     ///     child_count: 0,
     ///     is_root_step: false,
@@ -424,13 +452,21 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let workflow_uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let workflow_uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let workflow_uuid3 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440003").unwrap();
+    /// let task_uuid = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440004").unwrap();
+    /// let named_uuid2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440005").unwrap();
+    /// let named_uuid3 = Uuid::parse_str("880e8400-e29b-41d4-a716-446655440006").unwrap();
     ///
     /// let final_step = StepDagRelationship {
-    ///     workflow_step_id: 3,
-    ///     task_id: 100,
-    ///     named_step_id: 1003,
-    ///     parent_step_ids: json!([1, 2]),
-    ///     child_step_ids: json!([]), // No children - this is a leaf step
+    ///     workflow_step_uuid: workflow_uuid3,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid3,
+    ///     parent_step_uuids: json!([workflow_uuid1.to_string(), workflow_uuid2.to_string()]),
+    ///     child_step_uuids: json!([]), // No children - this is a leaf step
     ///     parent_count: 2,
     ///     child_count: 0,
     ///     is_root_step: false,
@@ -439,11 +475,11 @@ impl StepDagRelationship {
     /// };
     ///
     /// let middle_step = StepDagRelationship {
-    ///     workflow_step_id: 2,
-    ///     task_id: 100,
-    ///     named_step_id: 1002,
-    ///     parent_step_ids: json!([1]),
-    ///     child_step_ids: json!([3]), // Has children - not a leaf
+    ///     workflow_step_uuid: workflow_uuid2,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid2,
+    ///     parent_step_uuids: json!([workflow_uuid1.to_string()]),
+    ///     child_step_uuids: json!([workflow_uuid3.to_string()]), // Has children - not a leaf
     ///     parent_count: 1,
     ///     child_count: 1,
     ///     is_root_step: false,
@@ -469,39 +505,50 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let workflow_uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let workflow_uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let workflow_uuid3 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440003").unwrap();
+    /// let workflow_uuid4 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440004").unwrap();
+    /// let workflow_uuid99 = Uuid::parse_str("990e8400-e29b-41d4-a716-446655440099").unwrap();
+    /// let task_uuid = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440005").unwrap();
+    /// let named_uuid1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440006").unwrap();
+    /// let named_uuid2 = Uuid::parse_str("880e8400-e29b-41d4-a716-446655440007").unwrap();
+    /// let named_uuid99 = Uuid::parse_str("aa0e8400-e29b-41d4-a716-446655440099").unwrap();
     ///
     /// let root_step = StepDagRelationship {
-    ///     workflow_step_id: 1,
-    ///     task_id: 100,
-    ///     named_step_id: 1001,
-    ///     parent_step_ids: json!([]),
-    ///     child_step_ids: json!([2, 3]),
+    ///     workflow_step_uuid: workflow_uuid1,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid1,
+    ///     parent_step_uuids: json!([]),
+    ///     child_step_uuids: json!([workflow_uuid2.to_string(), workflow_uuid3.to_string()]),
     ///     parent_count: 0,
     ///     child_count: 2,
-    ///     min_depth_from_root: Some(0), // Root step has depth 0
     ///     is_root_step: true,
     ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(0),
     /// };
     ///
     /// let second_level_step = StepDagRelationship {
-    ///     workflow_step_id: 2,
-    ///     task_id: 100,
-    ///     named_step_id: 1002,
-    ///     parent_step_ids: json!([1]),
-    ///     child_step_ids: json!([4]),
+    ///     workflow_step_uuid: workflow_uuid2,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid2,
+    ///     parent_step_uuids: json!([workflow_uuid1.to_string()]),
+    ///     child_step_uuids: json!([workflow_uuid4.to_string()]),
     ///     parent_count: 1,
     ///     child_count: 1,
-    ///     min_depth_from_root: Some(1), // One step from root
     ///     is_root_step: false,
     ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(1),
     /// };
     ///
     /// let orphaned_step = StepDagRelationship {
-    ///     workflow_step_id: 99,
-    ///     task_id: 100,
-    ///     named_step_id: 1099,
-    ///     parent_step_ids: json!([]),
-    ///     child_step_ids: json!([]),
+    ///     workflow_step_uuid: workflow_uuid99,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid99,
+    ///     parent_step_uuids: json!([]),
+    ///     child_step_uuids: json!([]),
     ///     parent_count: 0,
     ///     child_count: 0,
     ///     min_depth_from_root: None, // No depth calculated
@@ -532,26 +579,34 @@ impl StepDagRelationship {
     /// ```rust
     /// use tasker_core::models::orchestration::step_dag_relationship::StepDagRelationship;
     /// use serde_json::json;
+    /// use uuid::Uuid;
+    ///
+    /// let workflow_uuid1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+    /// let workflow_uuid2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+    /// let workflow_uuid99 = Uuid::parse_str("990e8400-e29b-41d4-a716-446655440099").unwrap();
+    /// let task_uuid = Uuid::parse_str("660e8400-e29b-41d4-a716-446655440003").unwrap();
+    /// let named_uuid1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440004").unwrap();
+    /// let named_uuid99 = Uuid::parse_str("aa0e8400-e29b-41d4-a716-446655440099").unwrap();
     ///
     /// let normal_step = StepDagRelationship {
-    ///     workflow_step_id: 1,
-    ///     task_id: 100,
-    ///     named_step_id: 1001,
-    ///     parent_step_ids: json!([]),
-    ///     child_step_ids: json!([2]),
+    ///     workflow_step_uuid: workflow_uuid1,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid1,
+    ///     parent_step_uuids: json!([]),
+    ///     child_step_uuids: json!([workflow_uuid2.to_string()]),
     ///     parent_count: 0,
     ///     child_count: 1,
-    ///     min_depth_from_root: Some(0), // Has calculated depth
     ///     is_root_step: true,
     ///     is_leaf_step: false,
+    ///     min_depth_from_root: Some(0),
     /// };
     ///
     /// let orphaned_step = StepDagRelationship {
-    ///     workflow_step_id: 99,
-    ///     task_id: 100,
-    ///     named_step_id: 1099,
-    ///     parent_step_ids: json!([]),
-    ///     child_step_ids: json!([]),
+    ///     workflow_step_uuid: workflow_uuid99,
+    ///     task_uuid,
+    ///     named_step_uuid: named_uuid99,
+    ///     parent_step_uuids: json!([]),
+    ///     child_step_uuids: json!([]),
     ///     parent_count: 0,
     ///     child_count: 0,
     ///     min_depth_from_root: None, // No depth - possibly orphaned
@@ -563,7 +618,7 @@ impl StepDagRelationship {
     /// assert!(orphaned_step.is_orphaned());
     ///
     /// if orphaned_step.is_orphaned() {
-    ///     eprintln!("WARNING: Step {} may be in a dependency cycle!", orphaned_step.workflow_step_id);
+    ///     eprintln!("WARNING: Step {} may be in a dependency cycle!", orphaned_step.workflow_step_uuid);
     ///     // Log for investigation or skip execution
     /// }
     /// ```

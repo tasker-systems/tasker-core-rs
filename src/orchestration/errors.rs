@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Result type for orchestration operations
 pub type OrchestrationResult<T> = Result<T, OrchestrationError>;
@@ -23,15 +24,15 @@ pub type OrchestrationResult<T> = Result<T, OrchestrationError>;
 pub enum OrchestrationError {
     /// Task execution failed
     TaskExecutionFailed {
-        task_id: i64,
+        task_uuid: Uuid,
         reason: String,
         error_code: Option<String>,
     },
 
     /// Step execution failed
     StepExecutionFailed {
-        step_id: i64,
-        task_id: i64,
+        step_uuid: Uuid,
+        task_uuid: Option<Uuid>,
         reason: String,
         error_code: Option<String>,
         retry_after: Option<Duration>,
@@ -46,20 +47,20 @@ pub enum OrchestrationError {
     /// State transition failed
     StateTransitionFailed {
         entity_type: String,
-        entity_id: i64,
+        entity_uuid: Uuid,
         reason: String,
     },
 
     /// Task is in invalid state for operation
     InvalidTaskState {
-        task_id: i64,
+        task_uuid: Uuid,
         current_state: String,
         expected_states: Vec<String>,
     },
 
     /// Step is in invalid state for operation
     InvalidStepState {
-        step_id: i64,
+        step_uuid: Uuid,
         current_state: String,
         expected_states: Vec<String>,
     },
@@ -78,7 +79,7 @@ pub enum OrchestrationError {
     },
 
     StepHandlerNotFound {
-        step_id: i64,
+        step_uuid: Uuid,
         reason: String,
     },
 
@@ -108,12 +109,12 @@ pub enum OrchestrationError {
 
     /// Step state machine not found
     StepStateMachineNotFound {
-        step_id: i64,
+        step_uuid: Uuid,
     },
 
     /// Dependency resolution error
     DependencyResolutionError {
-        task_id: i64,
+        task_uuid: Uuid,
         reason: String,
     },
 
@@ -257,10 +258,13 @@ pub enum DiscoveryError {
     },
 
     /// Dependency cycle detected
-    DependencyCycle { task_id: i64, cycle_steps: Vec<i64> },
+    DependencyCycle {
+        task_uuid: Uuid,
+        cycle_steps: Vec<i64>,
+    },
 
     /// Task not found
-    TaskNotFound { task_id: i64 },
+    TaskNotFound { task_uuid: Uuid },
 
     /// Configuration error - task template or step template not found
     ConfigurationError {
@@ -275,35 +279,35 @@ pub enum DiscoveryError {
 pub enum ExecutionError {
     /// Step execution failed
     StepExecutionFailed {
-        step_id: i64,
+        step_uuid: Uuid,
         reason: String,
         error_code: Option<String>,
     },
 
     /// Invalid step state for execution
     InvalidStepState {
-        step_id: i64,
+        step_uuid: Uuid,
         current_state: String,
         expected_state: String,
     },
 
     /// State transition error during execution
-    StateTransitionError { step_id: i64, reason: String },
+    StateTransitionError { step_uuid: Uuid, reason: String },
 
     /// Concurrency control error
-    ConcurrencyError { step_id: i64, reason: String },
+    ConcurrencyError { step_uuid: Uuid, reason: String },
 
     /// No result returned from execution
-    NoResultReturned { step_id: i64 },
+    NoResultReturned { step_uuid: Uuid },
 
     /// Execution timeout
     ExecutionTimeout {
-        step_id: i64,
+        step_uuid: Uuid,
         timeout_duration: Duration,
     },
 
     /// Retry limit exceeded
-    RetryLimitExceeded { step_id: i64, max_attempts: u32 },
+    RetryLimitExceeded { step_uuid: Uuid, max_attempts: u32 },
 
     /// Batch creation failed during ZeroMQ publishing
     BatchCreationFailed {
@@ -318,25 +322,25 @@ impl fmt::Display for OrchestrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OrchestrationError::TaskExecutionFailed {
-                task_id,
+                task_uuid,
                 reason,
                 error_code,
             } => {
                 write!(
                     f,
-                    "Task {task_id} execution failed: {reason} (code: {error_code:?})"
+                    "Task {task_uuid} execution failed: {reason} (code: {error_code:?})"
                 )
             }
             OrchestrationError::StepExecutionFailed {
-                step_id,
-                task_id,
+                step_uuid,
+                task_uuid,
                 reason,
                 error_code,
                 retry_after,
             } => {
                 write!(
                     f,
-                    "Step {step_id} in task {task_id} execution failed: {reason} (code: {error_code:?}, retry_after: {retry_after:?})"
+                    "Step {step_uuid} in task {task_uuid:?} execution failed: {reason} (code: {error_code:?}, retry_after: {retry_after:?})"
                 )
             }
             OrchestrationError::DatabaseError { operation, reason } => {
@@ -344,32 +348,32 @@ impl fmt::Display for OrchestrationError {
             }
             OrchestrationError::StateTransitionFailed {
                 entity_type,
-                entity_id,
+                entity_uuid,
                 reason,
             } => {
                 write!(
                     f,
-                    "State transition failed for {entity_type} {entity_id}: {reason}"
+                    "State transition failed for {entity_type} {entity_uuid}: {reason}"
                 )
             }
             OrchestrationError::InvalidTaskState {
-                task_id,
+                task_uuid,
                 current_state,
                 expected_states,
             } => {
                 write!(
                     f,
-                    "Task {task_id} is in invalid state '{current_state}', expected one of: {expected_states:?}"
+                    "Task {task_uuid} is in invalid state '{current_state}', expected one of: {expected_states:?}"
                 )
             }
             OrchestrationError::InvalidStepState {
-                step_id,
+                step_uuid,
                 current_state,
                 expected_states,
             } => {
                 write!(
                     f,
-                    "Step {step_id} is in invalid state '{current_state}', expected one of: {expected_states:?}"
+                    "Step {step_uuid} is in invalid state '{current_state}', expected one of: {expected_states:?}"
                 )
             }
             OrchestrationError::RegistryError { operation, reason } => {
@@ -397,13 +401,13 @@ impl fmt::Display for OrchestrationError {
             } => {
                 write!(f, "SQL function '{function_name}' error: {reason}")
             }
-            OrchestrationError::StepStateMachineNotFound { step_id } => {
-                write!(f, "Step state machine not found for step {step_id}")
+            OrchestrationError::StepStateMachineNotFound { step_uuid } => {
+                write!(f, "Step state machine not found for step {step_uuid}")
             }
-            OrchestrationError::DependencyResolutionError { task_id, reason } => {
+            OrchestrationError::DependencyResolutionError { task_uuid, reason } => {
                 write!(
                     f,
-                    "Dependency resolution error for task {task_id}: {reason}"
+                    "Dependency resolution error for task {task_uuid}: {reason}"
                 )
             }
             OrchestrationError::TimeoutError {
@@ -430,8 +434,8 @@ impl fmt::Display for OrchestrationError {
             OrchestrationError::ExecutionError(err) => {
                 write!(f, "Step execution error: {err}")
             }
-            OrchestrationError::StepHandlerNotFound { step_id, reason } => {
-                write!(f, "Step handler not found for step {step_id}: {reason}")
+            OrchestrationError::StepHandlerNotFound { step_uuid, reason } => {
+                write!(f, "Step handler not found for step {step_uuid}: {reason}")
             }
         }
     }
@@ -594,16 +598,16 @@ impl fmt::Display for DiscoveryError {
                 write!(f, "SQL function '{function_name}' error: {reason}")
             }
             DiscoveryError::DependencyCycle {
-                task_id,
+                task_uuid,
                 cycle_steps,
             } => {
                 write!(
                     f,
-                    "Dependency cycle detected in task {task_id}: steps {cycle_steps:?}"
+                    "Dependency cycle detected in task {task_uuid}: steps {cycle_steps:?}"
                 )
             }
-            DiscoveryError::TaskNotFound { task_id } => {
-                write!(f, "Task not found: {task_id}")
+            DiscoveryError::TaskNotFound { task_uuid } => {
+                write!(f, "Task not found: {task_uuid}")
             }
             DiscoveryError::ConfigurationError {
                 entity_type,
@@ -623,50 +627,50 @@ impl fmt::Display for ExecutionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionError::StepExecutionFailed {
-                step_id,
+                step_uuid,
                 reason,
                 error_code,
             } => {
                 write!(
                     f,
-                    "Step {step_id} execution failed: {reason} (code: {error_code:?})"
+                    "Step {step_uuid} execution failed: {reason} (code: {error_code:?})"
                 )
             }
             ExecutionError::InvalidStepState {
-                step_id,
+                step_uuid,
                 current_state,
                 expected_state,
             } => {
                 write!(
                     f,
-                    "Step {step_id} in invalid state '{current_state}', expected '{expected_state}'"
+                    "Step {step_uuid} in invalid state '{current_state}', expected '{expected_state}'"
                 )
             }
-            ExecutionError::StateTransitionError { step_id, reason } => {
-                write!(f, "State transition failed for step {step_id}: {reason}")
+            ExecutionError::StateTransitionError { step_uuid, reason } => {
+                write!(f, "State transition failed for step {step_uuid}: {reason}")
             }
-            ExecutionError::ConcurrencyError { step_id, reason } => {
-                write!(f, "Concurrency error for step {step_id}: {reason}")
+            ExecutionError::ConcurrencyError { step_uuid, reason } => {
+                write!(f, "Concurrency error for step {step_uuid}: {reason}")
             }
-            ExecutionError::NoResultReturned { step_id } => {
-                write!(f, "No result returned from execution of step {step_id}")
+            ExecutionError::NoResultReturned { step_uuid } => {
+                write!(f, "No result returned from execution of step {step_uuid}")
             }
             ExecutionError::ExecutionTimeout {
-                step_id,
+                step_uuid,
                 timeout_duration,
             } => {
                 write!(
                     f,
-                    "Step {step_id} execution timed out after {timeout_duration:?}"
+                    "Step {step_uuid} execution timed out after {timeout_duration:?}"
                 )
             }
             ExecutionError::RetryLimitExceeded {
-                step_id,
+                step_uuid,
                 max_attempts,
             } => {
                 write!(
                     f,
-                    "Step {step_id} exceeded retry limit of {max_attempts} attempts"
+                    "Step {step_uuid} exceeded retry limit of {max_attempts} attempts"
                 )
             }
             ExecutionError::BatchCreationFailed {
@@ -743,7 +747,7 @@ impl From<StateError> for OrchestrationError {
     fn from(err: StateError) -> Self {
         OrchestrationError::StateTransitionFailed {
             entity_type: "unknown".to_string(),
-            entity_id: 0,
+            entity_uuid: Uuid::now_v7(),
             reason: err.to_string(),
         }
     }
@@ -752,7 +756,7 @@ impl From<StateError> for OrchestrationError {
 impl From<DiscoveryError> for OrchestrationError {
     fn from(err: DiscoveryError) -> Self {
         OrchestrationError::DependencyResolutionError {
-            task_id: 0,
+            task_uuid: Uuid::now_v7(),
             reason: err.to_string(),
         }
     }
@@ -762,7 +766,7 @@ impl From<crate::state_machine::errors::StateMachineError> for OrchestrationErro
     fn from(err: crate::state_machine::errors::StateMachineError) -> Self {
         OrchestrationError::StateTransitionFailed {
             entity_type: "state_machine".to_string(),
-            entity_id: 0,
+            entity_uuid: Uuid::now_v7(),
             reason: err.to_string(),
         }
     }
