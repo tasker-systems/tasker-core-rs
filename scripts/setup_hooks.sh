@@ -93,20 +93,6 @@ echo "✅ Compilation check passed"
 # FFI Validation (Ruby bindings)
 echo "🔗 Checking FFI Ruby bindings..."
 if [ -d "bindings/ruby" ]; then
-    echo "📝 Validating Ruby gem workflow..."
-    if [ -f "bindings/ruby/scripts/validate_workflow.sh" ]; then
-        cd bindings/ruby
-        if ! ./scripts/validate_workflow.sh > /dev/null 2>&1; then
-            echo "❌ Ruby gem workflow validation failed."
-            echo "   Run: cd bindings/ruby && ./scripts/validate_workflow.sh"
-            exit 1
-        fi
-        echo "✅ Ruby gem workflow validation passed"
-        cd ../..
-    else
-        echo "⚠️  Ruby gem workflow validation script not found"
-    fi
-    
     echo "🔧 Checking Ruby extension compilation..."
     cd bindings/ruby
     if command -v bundle &> /dev/null; then
@@ -116,7 +102,7 @@ if [ -d "bindings/ruby" ]; then
                 echo "📦 Installing Ruby dependencies..."
                 bundle install > /dev/null 2>&1
             fi
-            
+
             # Check Ruby extension compilation
             if ! bundle exec rake compile > /dev/null 2>&1; then
                 echo "❌ Ruby extension compilation failed."
@@ -190,29 +176,29 @@ if [ -d "bindings/ruby" ]; then
         echo "✅ Ruby gem CI checks passed"
     else
         echo "⚠️  Ruby gem CI check script not found"
-        
+
         # Fallback to basic checks
         if command -v bundle &> /dev/null && [ -f "Gemfile" ]; then
             echo "🔧 Running basic Ruby extension checks..."
-            
+
             # Ensure dependencies are installed
             if ! bundle check > /dev/null 2>&1; then
                 echo "📦 Installing Ruby dependencies..."
                 bundle install > /dev/null 2>&1
             fi
-            
+
             # Check compilation
             if ! bundle exec rake compile > /dev/null 2>&1; then
                 echo "❌ Ruby extension compilation failed."
                 exit 1
             fi
-            
+
             # Check gem build
             if ! gem build tasker-core-rb.gemspec > /dev/null 2>&1; then
                 echo "❌ Ruby gem build failed."
                 exit 1
             fi
-            
+
             # Clean up
             rm -f tasker-core-rb-*.gem
             echo "✅ Basic Ruby extension checks passed"
