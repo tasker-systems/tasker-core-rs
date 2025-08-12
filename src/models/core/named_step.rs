@@ -62,7 +62,10 @@ impl NamedStep {
     }
 
     /// Find steps by multiple UUIDs (efficient batch query)
-    pub async fn find_by_uuids(pool: &PgPool, uuids: &[Uuid]) -> Result<Vec<NamedStep>, sqlx::Error> {
+    pub async fn find_by_uuids(
+        pool: &PgPool,
+        uuids: &[Uuid],
+    ) -> Result<Vec<NamedStep>, sqlx::Error> {
         if uuids.is_empty() {
             return Ok(vec![]);
         }
@@ -288,7 +291,8 @@ impl NamedStep {
 
         // Try to find existing named step by system and name
         if let Some(existing) =
-            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name).await?
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name)
+                .await?
         {
             return Ok(existing);
         }
@@ -326,7 +330,8 @@ impl NamedStep {
 
         // Try to find existing named step by system and name (using pool for read)
         if let Some(existing) =
-            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name).await?
+            Self::find_by_system_and_name(pool, dependent_system.dependent_system_uuid, name)
+                .await?
         {
             return Ok(existing);
         }

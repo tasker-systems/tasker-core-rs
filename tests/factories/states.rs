@@ -50,7 +50,6 @@ use tasker_core::state_machine::WorkflowStepState;
 /// ```
 #[derive(Debug, Clone)]
 pub struct WorkflowStepTransitionFactory {
-    base: BaseFactory,
     workflow_step_uuid: Option<Uuid>,
     to_state: Option<String>,
     from_state: Option<String>,
@@ -65,7 +64,6 @@ pub struct WorkflowStepTransitionFactory {
 impl Default for WorkflowStepTransitionFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             workflow_step_uuid: None,
             to_state: Some("pending".to_string()), // Default to pending state
             from_state: None,
@@ -79,6 +77,13 @@ impl Default for WorkflowStepTransitionFactory {
     }
 }
 
+// NOTE: All methods in this impl block are used across multiple test files, but clippy's
+// dead code detection doesn't always catch cross-file test usage patterns. These are
+// legitimate test utilities, not dead code. Verified usage in:
+// - tests/workflow_step_transition_factory_test.rs (with_metadata, to_complete)
+// - tests/integration_tests.rs (create_retry_lifecycle, create_manual_resolution_lifecycle)
+// - tests/sql_functions/production_workflow_validation.rs (lifecycle methods)
+#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     pub fn new() -> Self {
         Self::default()
@@ -114,7 +119,7 @@ impl WorkflowStepTransitionFactory {
         self
     }
 
-    /// Create a transition to 'complete' state with optional execution duration
+    /// Create a transition to 'complete' state
     pub fn to_complete(mut self) -> Self {
         self.to_state = Some(WorkflowStepState::Complete.to_string());
         self
@@ -127,35 +132,10 @@ impl WorkflowStepTransitionFactory {
         self
     }
 
-    /// Create a transition to 'error' state with error message
-    pub fn to_error(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::Error.to_string());
-        self
-    }
-
     /// Create a transition to 'error' state with specific error message
     pub fn with_error(mut self, error_message: &str) -> Self {
         self.to_state = Some(WorkflowStepState::Error.to_string());
         self.error_message = Some(error_message.to_string());
-        self
-    }
-
-    /// Create a transition to 'cancelled' state
-    pub fn to_cancelled(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::Cancelled.to_string());
-        self
-    }
-
-    /// Create a transition to 'cancelled' state with trigger reason
-    pub fn to_cancelled_by(mut self, triggered_by: &str) -> Self {
-        self.to_state = Some(WorkflowStepState::Cancelled.to_string());
-        self.triggered_by = Some(triggered_by.to_string());
-        self
-    }
-
-    /// Create a transition to 'resolved_manually' state
-    pub fn to_resolved_manually(mut self) -> Self {
-        self.to_state = Some(WorkflowStepState::ResolvedManually.to_string());
         self
     }
 
@@ -260,6 +240,12 @@ impl SqlxFactory<WorkflowStepTransition> for WorkflowStepTransitionFactory {
 ///
 /// This follows the Rails pattern of creating sensible defaults that put the system
 /// into states directly rather than trying to move through the FSM layer.
+///
+/// NOTE: Lifecycle methods in this impl block are used in integration tests and
+/// production validation tests. Clippy shows them as unused due to cross-file test
+/// usage detection limitations. Verified usage in integration_tests.rs and
+/// sql_functions/production_workflow_validation.rs
+#[allow(dead_code)]
 impl WorkflowStepTransitionFactory {
     /// Create a complete workflow step lifecycle (pending -> in_progress -> complete)
     pub async fn create_complete_lifecycle(
@@ -346,6 +332,8 @@ impl WorkflowStepTransitionFactory {
         let retry = Self::new()
             .for_workflow_step(workflow_step_uuid)
             .with_retry_attempt(attempt_number)
+            .from_state("error")
+            .to_state("pending")
             .create(pool)
             .await?;
         transitions.push(retry);

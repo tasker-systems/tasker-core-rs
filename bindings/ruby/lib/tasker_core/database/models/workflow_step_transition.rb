@@ -13,7 +13,8 @@ module TaskerCore
         # because we're using PostgreSQL JSONB column for metadata
 
         # Associations
-        belongs_to :workflow_step, foreign_key: :workflow_step_uuid, primary_key: :workflow_step_uuid, inverse_of: :workflow_step_transitions
+        belongs_to :workflow_step, foreign_key: :workflow_step_uuid, primary_key: :workflow_step_uuid,
+                                   inverse_of: :workflow_step_transitions
 
         # Validations
         validates :to_state, inclusion: {

@@ -18,8 +18,8 @@ use tasker_core::orchestration::{
     bootstrap::{OrchestrationBootstrap, OrchestrationSystemHandle},
     OrchestrationCore,
 };
-use uuid::Uuid;
 use tracing::{error, info};
+use uuid::Uuid;
 
 /// Global handle to the embedded orchestration system
 static EMBEDDED_SYSTEM: Mutex<Option<EmbeddedOrchestrationHandle>> = Mutex::new(None);
@@ -415,7 +415,7 @@ fn initialize_task_embedded(task_request_hash: RHash) -> Result<Value, Error> {
 /// without complex orchestration setup.
 fn enqueue_task_steps(task_uuid_str: String) -> Result<String, Error> {
     let task_uuid = Uuid::parse_str(&task_uuid_str)
-        .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Invalid UUID: {}", e)))?;
+        .map_err(|e| Error::new(magnus::exception::arg_error(), format!("Invalid UUID: {e}")))?;
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
         Error::new(

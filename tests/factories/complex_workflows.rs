@@ -627,11 +627,6 @@ impl ComplexWorkflowBatchFactory {
         self
     }
 
-    pub fn with_distribution(mut self, distribution: HashMap<WorkflowPattern, f64>) -> Self {
-        self.pattern_distribution = distribution;
-        self
-    }
-
     pub async fn create(&self, pool: &PgPool) -> FactoryResult<Vec<(Uuid, Vec<Uuid>)>> {
         let mut results = Vec::new();
 

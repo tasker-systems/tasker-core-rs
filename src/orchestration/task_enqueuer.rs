@@ -544,7 +544,7 @@ mod tests {
             .with_reason("Test enqueue")
             .with_queue("test_queue");
 
-        assert!(request.task.task_uuid.to_string().len() > 0);
+        assert!(!request.task.task_uuid.to_string().is_empty());
         assert_eq!(request.delay_seconds, 30);
         assert_eq!(request.priority, EnqueuePriority::High);
         assert_eq!(request.reason, "Test enqueue");

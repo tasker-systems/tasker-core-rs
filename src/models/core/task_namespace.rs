@@ -45,7 +45,10 @@ impl TaskNamespace {
     }
 
     /// Find a task namespace by UUID
-    pub async fn find_by_uuid(pool: &PgPool, uuid: Uuid) -> Result<Option<TaskNamespace>, sqlx::Error> {
+    pub async fn find_by_uuid(
+        pool: &PgPool,
+        uuid: Uuid,
+    ) -> Result<Option<TaskNamespace>, sqlx::Error> {
         let namespace = sqlx::query_as!(
             TaskNamespace,
             r#"

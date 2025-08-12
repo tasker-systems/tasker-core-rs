@@ -171,9 +171,10 @@ async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn st
     assert!(second_transition.most_recent);
 
     // Verify first transition is no longer most recent
-    let updated_first = WorkflowStepTransition::find_by_uuid(&pool, first_transition.workflow_step_transition_uuid)
-        .await?
-        .unwrap();
+    let updated_first =
+        WorkflowStepTransition::find_by_uuid(&pool, first_transition.workflow_step_transition_uuid)
+            .await?
+            .unwrap();
     assert!(!updated_first.most_recent);
 
     Ok(())

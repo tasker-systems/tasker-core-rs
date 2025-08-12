@@ -5,7 +5,8 @@ module TaskerCore
     module Models
       class WorkflowStepEdge < ApplicationRecord
         self.primary_key = :workflow_step_edge_uuid
-        belongs_to :from_step, class_name: 'WorkflowStep', foreign_key: :from_step_uuid, primary_key: :workflow_step_uuid
+        belongs_to :from_step, class_name: 'WorkflowStep', foreign_key: :from_step_uuid,
+                               primary_key: :workflow_step_uuid
         belongs_to :to_step, class_name: 'WorkflowStep', foreign_key: :to_step_uuid, primary_key: :workflow_step_uuid
 
         validates :name, presence: true

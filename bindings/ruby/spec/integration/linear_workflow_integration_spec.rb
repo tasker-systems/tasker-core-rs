@@ -278,8 +278,17 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       # First, let's check the task itself
       task = TaskerCore::Database::Models::Task.with_all_associated.find(task_uuid)
       expect(task).not_to be_nil, 'Task should exist'
+      # let the initializer finish, should be in ms but just to be safe in large runs
+      ready_task = nil
+      Timeout.timeout(5) do
+        loop do
+          ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid)
 
-      ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid)
+          break if ready_task
+
+          sleep(1)
+        end
+      end
 
       expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
 

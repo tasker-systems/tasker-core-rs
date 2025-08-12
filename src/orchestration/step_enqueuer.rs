@@ -624,7 +624,7 @@ mod tests {
         );
 
         let result = StepEnqueueResult {
-            task_uuid: task_uuid,
+            task_uuid,
             steps_discovered: 3,
             steps_enqueued: 3,
             steps_failed: 0,

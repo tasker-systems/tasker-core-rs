@@ -17,7 +17,6 @@ use tasker_core::models::{DependentSystem, NamedStep, NamedTask, TaskNamespace};
 /// Factory for creating task namespaces
 #[derive(Debug, Clone)]
 pub struct TaskNamespaceFactory {
-    base: BaseFactory,
     name: String,
     description: Option<String>,
 }
@@ -25,7 +24,6 @@ pub struct TaskNamespaceFactory {
 impl Default for TaskNamespaceFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             name: "default".to_string(),
             description: Some("Default namespace for testing".to_string()),
         }
@@ -97,7 +95,6 @@ impl SqlxFactory<TaskNamespace> for TaskNamespaceFactory {
 /// Factory for creating dependent systems
 #[derive(Debug, Clone)]
 pub struct DependentSystemFactory {
-    base: BaseFactory,
     name: String,
     description: Option<String>,
 }
@@ -105,7 +102,6 @@ pub struct DependentSystemFactory {
 impl Default for DependentSystemFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             name: "api".to_string(),
             description: Some("HTTP API system for testing".to_string()),
         }
@@ -176,20 +172,16 @@ impl SqlxFactory<DependentSystem> for DependentSystemFactory {
 /// Factory for creating named tasks (task templates)
 #[derive(Debug, Clone)]
 pub struct NamedTaskFactory {
-    base: BaseFactory,
     name: String,
     namespace_name: String,
     version: String,
     description: Option<String>,
     configuration: Option<Value>,
-    timeout_seconds: Option<i32>,
-    retryable: bool,
 }
 
 impl Default for NamedTaskFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             name: "dummy_task".to_string(),
             namespace_name: "default".to_string(),
             version: "0.1.0".to_string(),
@@ -198,8 +190,6 @@ impl Default for NamedTaskFactory {
                 "test_mode": true,
                 "auto_generated": true
             })),
-            timeout_seconds: Some(300),
-            retryable: true,
         }
     }
 }
@@ -221,42 +211,6 @@ impl NamedTaskFactory {
 
     pub fn with_version(mut self, version: &str) -> Self {
         self.version = version.to_string();
-        self
-    }
-
-    pub fn api_integration(mut self) -> Self {
-        self.name = "api_integration_task".to_string();
-        self.description = Some("API integration workflow task".to_string());
-        self.configuration = Some(json!({
-            "api_endpoint": "/api/v1/integrate",
-            "method": "POST",
-            "timeout": 60,
-            "retry_on_failure": true
-        }));
-        self
-    }
-
-    pub fn data_processing(mut self) -> Self {
-        self.name = "data_processing_task".to_string();
-        self.namespace_name = "data_processing".to_string();
-        self.description = Some("Batch data processing task".to_string());
-        self.configuration = Some(json!({
-            "batch_size": 1000,
-            "parallel_workers": 4,
-            "output_format": "json"
-        }));
-        self
-    }
-
-    pub fn notification_workflow(mut self) -> Self {
-        self.name = "notification_workflow".to_string();
-        self.namespace_name = "notifications".to_string();
-        self.description = Some("User notification workflow".to_string());
-        self.configuration = Some(json!({
-            "channels": ["email", "sms"],
-            "priority": "normal",
-            "delivery_window": "24h"
-        }));
         self
     }
 }
@@ -312,19 +266,15 @@ impl SqlxFactory<NamedTask> for NamedTaskFactory {
 /// Factory for creating named steps (step templates)
 #[derive(Debug, Clone)]
 pub struct NamedStepFactory {
-    base: BaseFactory,
     name: String,
     step_type: String,
     dependent_system_name: String,
     configuration: Option<Value>,
-    retryable: bool,
-    timeout_seconds: Option<i32>,
 }
 
 impl Default for NamedStepFactory {
     fn default() -> Self {
         Self {
-            base: BaseFactory::new(),
             name: "dummy_step".to_string(),
             step_type: "generic".to_string(),
             dependent_system_name: "dummy-system".to_string(),
@@ -332,8 +282,6 @@ impl Default for NamedStepFactory {
                 "test_mode": true,
                 "always_succeed": true
             })),
-            retryable: true,
-            timeout_seconds: Some(60),
         }
     }
 }
@@ -348,48 +296,11 @@ impl NamedStepFactory {
         self
     }
 
-    pub fn with_type(mut self, step_type: &str) -> Self {
-        self.step_type = step_type.to_string();
-        self
-    }
-
+    // NOTE: Clippy false positive - this method is used across multiple test files
+    // but clippy's dead code detection doesn't always catch cross-file test usage
+    #[allow(dead_code)]
     pub fn with_system(mut self, system_name: &str) -> Self {
         self.dependent_system_name = system_name.to_string();
-        self
-    }
-
-    pub fn api_call(mut self) -> Self {
-        self.name = "api_call_step".to_string();
-        self.step_type = "http_request".to_string();
-        self.dependent_system_name = "api".to_string();
-        self.configuration = Some(json!({
-            "method": "POST",
-            "endpoint": "/api/process",
-            "headers": {"Content-Type": "application/json"}
-        }));
-        self
-    }
-
-    pub fn database_operation(mut self) -> Self {
-        self.name = "db_operation_step".to_string();
-        self.step_type = "database_query".to_string();
-        self.dependent_system_name = "database".to_string();
-        self.configuration = Some(json!({
-            "query_type": "update",
-            "table": "test_table",
-            "transaction": true
-        }));
-        self
-    }
-
-    pub fn notification_send(mut self) -> Self {
-        self.name = "send_notification_step".to_string();
-        self.step_type = "notification".to_string();
-        self.dependent_system_name = "notification".to_string();
-        self.configuration = Some(json!({
-            "template": "welcome_email",
-            "priority": "normal"
-        }));
         self
     }
 }

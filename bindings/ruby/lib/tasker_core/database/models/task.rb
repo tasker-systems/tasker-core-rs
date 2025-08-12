@@ -53,7 +53,8 @@ module TaskerCore
         has_many :workflow_steps, foreign_key: :task_uuid, primary_key: :task_uuid, dependent: :destroy
         has_many :task_annotations, foreign_key: :task_uuid, primary_key: :task_uuid, dependent: :destroy
         has_many :annotation_types, through: :task_annotations
-        has_many :task_transitions, foreign_key: :task_uuid, primary_key: :task_uuid, inverse_of: :task, dependent: :destroy
+        has_many :task_transitions, foreign_key: :task_uuid, primary_key: :task_uuid, inverse_of: :task,
+                                    dependent: :destroy
 
         validates :context, presence: true
         validates :requested_at, presence: true
@@ -428,7 +429,6 @@ module TaskerCore
         def set_identity_hash
           self.identity_hash = identity_strategy.generate_identity_hash(self, identity_options)
         end
-
       end
     end
   end

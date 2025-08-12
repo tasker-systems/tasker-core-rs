@@ -60,9 +60,18 @@ async fn test_state_machine_creation(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_state_machine(pool);
 
     // Basic validation that the state machine is created with expected values
-    assert!(!sm.task_uuid().to_string().is_empty(), "Task UUID should not be empty");
-    assert!(!sm.task().task_uuid.to_string().is_empty(), "Task UUID should not be empty");
-    assert!(!sm.task().named_task_uuid.to_string().is_empty(), "Named task UUID should not be empty");
+    assert!(
+        !sm.task_uuid().to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
+    assert!(
+        !sm.task().task_uuid.to_string().is_empty(),
+        "Task UUID should not be empty"
+    );
+    assert!(
+        !sm.task().named_task_uuid.to_string().is_empty(),
+        "Named task UUID should not be empty"
+    );
     assert!(!sm.task().complete);
 
     Ok(())

@@ -50,21 +50,6 @@ impl WorkflowStepEdgeFactory {
     pub fn provides(self) -> Self {
         self.with_name("provides")
     }
-
-    /// Create a "depends_on" edge
-    pub fn depends_on(self) -> Self {
-        self.with_name("depends_on")
-    }
-
-    /// Create a "blocks" edge
-    pub fn blocks(self) -> Self {
-        self.with_name("blocks")
-    }
-
-    /// Create a "triggers" edge
-    pub fn triggers(self) -> Self {
-        self.with_name("triggers")
-    }
 }
 
 #[async_trait]

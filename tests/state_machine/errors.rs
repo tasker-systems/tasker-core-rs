@@ -17,8 +17,13 @@ fn test_error_chain() {
 #[test]
 fn test_error_messages() {
     let test_uuid = Uuid::now_v7();
-    let err = PersistenceError::StateResolutionFailed { entity_id: test_uuid.to_string() };
-    assert_eq!(err.to_string(), format!("Failed to resolve current state: {}", test_uuid));
+    let err = PersistenceError::StateResolutionFailed {
+        entity_id: test_uuid.to_string(),
+    };
+    assert_eq!(
+        err.to_string(),
+        format!("Failed to resolve current state: {test_uuid}")
+    );
 
     let err = ActionError::EventPublishFailed {
         event_name: "task.completed".to_string(),

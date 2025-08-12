@@ -94,9 +94,12 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         task_uuid: Uuid,
         pool: &PgPool,
     ) -> PersistenceResult<Option<String>> {
-        let current_transition = TaskTransition::get_current(pool, task_uuid)
-            .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_uuid.to_string() })?;
+        let current_transition =
+            TaskTransition::get_current(pool, task_uuid)
+                .await
+                .map_err(|_e| PersistenceError::StateResolutionFailed {
+                    entity_id: task_uuid.to_string(),
+                })?;
 
         Ok(current_transition.map(|t| t.to_state))
     }
@@ -106,7 +109,9 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
         // This method is kept for trait compliance but not used in persist_transition
         let transitions = TaskTransition::list_by_task(pool, task_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: task_uuid.to_string() })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed {
+                entity_id: task_uuid.to_string(),
+            })?;
 
         Ok(transitions.len() as i32 + 1)
     }
@@ -157,7 +162,9 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
     ) -> PersistenceResult<Option<String>> {
         let current_transition = WorkflowStepTransition::get_current(pool, step_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_uuid.to_string() })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed {
+                entity_id: step_uuid.to_string(),
+            })?;
 
         Ok(current_transition.map(|t| t.to_state))
     }
@@ -167,7 +174,9 @@ impl TransitionPersistence<crate::models::WorkflowStep> for StepTransitionPersis
         // This method is kept for trait compliance but not used in persist_transition
         let transitions = WorkflowStepTransition::list_by_workflow_step(pool, step_uuid)
             .await
-            .map_err(|_e| PersistenceError::StateResolutionFailed { entity_id: step_uuid.to_string() })?;
+            .map_err(|_e| PersistenceError::StateResolutionFailed {
+                entity_id: step_uuid.to_string(),
+            })?;
 
         Ok(transitions.len() as i32 + 1)
     }

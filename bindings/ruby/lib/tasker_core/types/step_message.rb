@@ -25,7 +25,7 @@ module TaskerCore
 
       def initialize(attrs = {})
         @step_name = attrs[:step_name]
-        @namespace = attrs[:namespace] 
+        @namespace = attrs[:namespace]
         @task_name = attrs[:task_name]
         @task_version = attrs[:task_version]
         @step_id = attrs[:step_id]
@@ -36,12 +36,12 @@ module TaskerCore
       # Minimal interface for registry compatibility
       def execution_context
         OpenStruct.new(
-          step: { 
+          step: {
             step_name: @step_name,
             workflow_step_id: @step_id,
-            step_uuid: @step_uuid 
+            step_uuid: @step_uuid
           },
-          task: { 
+          task: {
             task_uuid: @task_uuid,
             namespace: @namespace,
             task_name: @task_name,
@@ -85,16 +85,16 @@ module TaskerCore
           message: message
         )
       end
-      
+
       # Delegate UUID accessors to the message hash for convenience
       def task_uuid
         message[:task_uuid]
       end
-      
+
       def step_uuid
         message[:step_uuid]
       end
-      
+
       def ready_dependency_step_uuids
         message[:ready_dependency_step_uuids]
       end

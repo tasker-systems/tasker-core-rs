@@ -1047,7 +1047,7 @@ mod tests {
         step_mapping.insert("step2".to_string(), Uuid::new_v4());
 
         let result = TaskInitializationResult {
-            task_uuid: task_uuid,
+            task_uuid,
             step_count: 2,
             step_mapping: step_mapping.clone(),
             handler_config_name: Some("test_handler".to_string()),

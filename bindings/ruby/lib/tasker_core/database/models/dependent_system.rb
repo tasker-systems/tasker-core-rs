@@ -16,8 +16,10 @@ module TaskerCore
     module Models
       class DependentSystem < ApplicationRecord
         self.primary_key = :dependent_system_uuid
-        has_many :dependent_system_object_maps, foreign_key: :dependent_system_uuid, primary_key: :dependent_system_uuid, dependent: :destroy
-        has_many :named_steps, foreign_key: :dependent_system_uuid, primary_key: :dependent_system_uuid, dependent: :destroy
+        has_many :dependent_system_object_maps, foreign_key: :dependent_system_uuid,
+                                                primary_key: :dependent_system_uuid, dependent: :destroy
+        has_many :named_steps, foreign_key: :dependent_system_uuid, primary_key: :dependent_system_uuid,
+                               dependent: :destroy
         validates :name, presence: true, uniqueness: true
       end
     end

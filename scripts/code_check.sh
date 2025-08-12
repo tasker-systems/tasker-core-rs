@@ -2,8 +2,47 @@
 
 # code_check.sh - Comprehensive code quality check for tasker-core-rs
 # This script runs formatting, linting, and documentation checks with detailed feedback
+#
+# Usage:
+#   ./scripts/code_check.sh          # Check only (default)
+#   ./scripts/code_check.sh --fix    # Auto-fix formatting issues
+#   ./scripts/code_check.sh --help   # Show help
 
 set -e  # Exit on any error
+
+# Parse command line arguments
+AUTO_FIX=false
+SHOW_HELP=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --fix)
+            AUTO_FIX=true
+            shift
+            ;;
+        --help|-h)
+            SHOW_HELP=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$SHOW_HELP" = true ]; then
+    echo "Code Quality Check for tasker-core-rs"
+    echo ""
+    echo "Usage:"
+    echo "  $0              Check code quality (format, lint, docs)"
+    echo "  $0 --fix        Check and auto-fix formatting issues"
+    echo "  $0 --help       Show this help message"
+    echo ""
+    echo "This script checks both the main Rust project and the Ruby extension."
+    exit 0
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -78,19 +117,31 @@ echo -e "This script will check code formatting, run linter, check benchmark com
 echo -e "Checking ${#RUST_PROJECTS[@]} Rust project(s): ${RUST_PROJECTS[*]}\n"
 
 # Step 1: Code Formatting Check
-print_step "Checking code formatting with rustfmt..."
-FORMAT_PASSED=1
-for project in "${RUST_PROJECTS[@]}"; do
-    if ! run_cargo_in_project "$project" "cargo fmt --all -- --check" "formatting"; then
-        print_error "Code formatting issues found in $project"
-        print_warning "Run 'cd $project && cargo fmt --all' to fix formatting issues"
-        FORMAT_PASSED=0
-        OVERALL_SUCCESS=0
-    fi
-done
+if [ "$AUTO_FIX" = true ]; then
+    print_step "Auto-fixing code formatting with rustfmt..."
+    for project in "${RUST_PROJECTS[@]}"; do
+        echo -e "  ${YELLOW}→${NC} Auto-fixing formatting in ${BLUE}${project}${NC}..."
+        run_cargo_in_project "$project" "cargo fmt --all" "formatting fix"
+        print_success "Formatting fixed in $project"
+    done
+    print_success "All projects formatted successfully"
+    FORMAT_PASSED=1
+else
+    print_step "Checking code formatting with rustfmt..."
+    FORMAT_PASSED=1
+    for project in "${RUST_PROJECTS[@]}"; do
+        if ! run_cargo_in_project "$project" "cargo fmt --all -- --check" "formatting"; then
+            print_error "Code formatting issues found in $project"
+            print_warning "Run 'cd $project && cargo fmt --all' to fix formatting issues"
+            print_warning "Or run this script with --fix to auto-fix: ./scripts/code_check.sh --fix"
+            FORMAT_PASSED=0
+            OVERALL_SUCCESS=0
+        fi
+    done
 
-if [ $FORMAT_PASSED -eq 1 ]; then
-    print_success "Code formatting is correct in all projects"
+    if [ $FORMAT_PASSED -eq 1 ]; then
+        print_success "Code formatting is correct in all projects"
+    fi
 fi
 
 # Step 2: Clippy Linting
@@ -169,10 +220,12 @@ else
     print_error "Some checks failed. Please fix the issues above before committing."
     echo -e "\n${RED}💡 Quick fixes:${NC}"
     if [ $FORMAT_PASSED -eq 0 ]; then
-        echo -e "   • Run: ${BLUE}cargo fmt --all${NC} in each failed project directory"
+        echo -e "   • Run: ${BLUE}./scripts/code_check.sh --fix${NC} to auto-fix formatting"
+        echo -e "   • Or manually: ${BLUE}cargo fmt --all${NC} in each failed project directory"
     fi
     if [ $CLIPPY_PASSED -eq 0 ]; then
         echo -e "   • Review and fix clippy warnings in each failed project"
+        echo -e "   • Some clippy issues can be auto-fixed with: ${BLUE}cargo clippy --fix${NC}"
     fi
     if [ $BENCH_PASSED -eq 0 ]; then
         echo -e "   • Run: ${BLUE}cargo bench --features benchmarks${NC} to debug benchmark issues"

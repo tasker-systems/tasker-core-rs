@@ -237,7 +237,10 @@ mod tests {
         let context = FactoryContext::new()
             .set("name", "test_entity")
             .set("count", 42)
-            .with_relationship("dependencies", vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()])
+            .with_relationship(
+                "dependencies",
+                vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()],
+            )
             .with_states(vec!["pending".to_string(), "active".to_string()])
             .with_metadata("test_flag", true);
 
