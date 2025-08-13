@@ -11,7 +11,9 @@ module TaskerCore
     module WorkflowStepStatuses
       # Step is waiting to be processed
       PENDING = 'pending'
-      # Step is currently being processed
+      # Step has been enqueued for processing but not yet claimed by a worker
+      ENQUEUED = 'enqueued'
+      # Step is currently being processed by a worker
       IN_PROGRESS = 'in_progress'
       # Step encountered an error during processing
       ERROR = 'error'
@@ -85,6 +87,7 @@ module TaskerCore
     # All valid status values for workflow steps
     VALID_WORKFLOW_STEP_STATUSES = [
       WorkflowStepStatuses::PENDING,
+      WorkflowStepStatuses::ENQUEUED,
       WorkflowStepStatuses::IN_PROGRESS,
       WorkflowStepStatuses::ERROR,
       WorkflowStepStatuses::COMPLETE,
@@ -117,6 +120,7 @@ module TaskerCore
     # Step lifecycle event constants
     module StepEvents
       INITIALIZE_REQUESTED = 'step.initialize_requested'
+      ENQUEUE_REQUESTED = 'step.enqueue_requested'
       EXECUTION_REQUESTED = 'step.execution_requested'
       BEFORE_HANDLE = 'step.before_handle'
       HANDLE = 'step.handle'
@@ -279,6 +283,7 @@ module TaskerCore
     STEP_TRANSITION_EVENT_MAP = {
       # Initial state transitions (from nil/initial)
       [nil, WorkflowStepStatuses::PENDING] => StepEvents::INITIALIZE_REQUESTED,
+      [nil, WorkflowStepStatuses::ENQUEUED] => StepEvents::ENQUEUE_REQUESTED,
       [nil, WorkflowStepStatuses::IN_PROGRESS] => StepEvents::EXECUTION_REQUESTED,
       [nil, WorkflowStepStatuses::COMPLETE] => StepEvents::COMPLETED,
       [nil, WorkflowStepStatuses::ERROR] => StepEvents::FAILED,
@@ -286,9 +291,15 @@ module TaskerCore
       [nil, WorkflowStepStatuses::RESOLVED_MANUALLY] => StepEvents::RESOLVED_MANUALLY,
 
       # Transitions from pending
+      [WorkflowStepStatuses::PENDING, WorkflowStepStatuses::ENQUEUED] => StepEvents::ENQUEUE_REQUESTED,
       [WorkflowStepStatuses::PENDING, WorkflowStepStatuses::IN_PROGRESS] => StepEvents::EXECUTION_REQUESTED,
       [WorkflowStepStatuses::PENDING, WorkflowStepStatuses::CANCELLED] => StepEvents::CANCELLED,
       [WorkflowStepStatuses::PENDING, WorkflowStepStatuses::ERROR] => StepEvents::FAILED,
+
+      # Transitions from enqueued
+      [WorkflowStepStatuses::ENQUEUED, WorkflowStepStatuses::IN_PROGRESS] => StepEvents::EXECUTION_REQUESTED,
+      [WorkflowStepStatuses::ENQUEUED, WorkflowStepStatuses::CANCELLED] => StepEvents::CANCELLED,
+      [WorkflowStepStatuses::ENQUEUED, WorkflowStepStatuses::ERROR] => StepEvents::FAILED,
 
       # Transitions from in progress
       [WorkflowStepStatuses::IN_PROGRESS, WorkflowStepStatuses::PENDING] => StepEvents::INITIALIZE_REQUESTED,

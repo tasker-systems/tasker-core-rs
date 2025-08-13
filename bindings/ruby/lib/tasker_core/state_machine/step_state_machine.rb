@@ -25,6 +25,7 @@ module TaskerCore
 
       # Define all step states using existing constants
       state Constants::WorkflowStepStatuses::PENDING, initial: true
+      state Constants::WorkflowStepStatuses::ENQUEUED
       state Constants::WorkflowStepStatuses::IN_PROGRESS
       state Constants::WorkflowStepStatuses::COMPLETE
       state Constants::WorkflowStepStatuses::ERROR
@@ -33,10 +34,16 @@ module TaskerCore
 
       # Define state transitions based on existing StateTransition definitions
       transition from: Constants::WorkflowStepStatuses::PENDING,
-                 to: [Constants::WorkflowStepStatuses::IN_PROGRESS,
+                 to: [Constants::WorkflowStepStatuses::ENQUEUED,
+                      Constants::WorkflowStepStatuses::IN_PROGRESS, # Allow direct transition for backwards compatibility
                       Constants::WorkflowStepStatuses::ERROR,
                       Constants::WorkflowStepStatuses::CANCELLED,
                       Constants::WorkflowStepStatuses::RESOLVED_MANUALLY] # Allow manual resolution
+
+      transition from: Constants::WorkflowStepStatuses::ENQUEUED,
+                 to: [Constants::WorkflowStepStatuses::IN_PROGRESS,
+                      Constants::WorkflowStepStatuses::ERROR,
+                      Constants::WorkflowStepStatuses::CANCELLED]
 
       transition from: Constants::WorkflowStepStatuses::IN_PROGRESS,
                  to: [Constants::WorkflowStepStatuses::COMPLETE,
@@ -86,6 +93,11 @@ module TaskerCore
       # Guard clauses for business logic only
       # Let Statesman handle state transition validation and idempotent calls
 
+      guard_transition(to: Constants::WorkflowStepStatuses::ENQUEUED) do |step, _transition|
+        # Only business rule: check dependencies are met before enqueueing
+        StepStateMachine.step_dependencies_met?(step)
+      end
+
       guard_transition(to: Constants::WorkflowStepStatuses::IN_PROGRESS) do |step, _transition|
         # Only business rule: check dependencies are met
         StepStateMachine.step_dependencies_met?(step)
@@ -101,13 +113,16 @@ module TaskerCore
       TRANSITION_EVENT_MAP = {
         # Initial state transitions (from nil/initial)
         [nil, Constants::WorkflowStepStatuses::PENDING] => Constants::StepEvents::INITIALIZE_REQUESTED,
+        [nil, Constants::WorkflowStepStatuses::ENQUEUED] => Constants::StepEvents::ENQUEUE_REQUESTED,
         [nil, Constants::WorkflowStepStatuses::IN_PROGRESS] => Constants::StepEvents::EXECUTION_REQUESTED,
         [nil, Constants::WorkflowStepStatuses::COMPLETE] => Constants::StepEvents::COMPLETED,
         [nil, Constants::WorkflowStepStatuses::ERROR] => Constants::StepEvents::FAILED,
         [nil, Constants::WorkflowStepStatuses::CANCELLED] => Constants::StepEvents::CANCELLED,
         [nil, Constants::WorkflowStepStatuses::RESOLVED_MANUALLY] => Constants::StepEvents::RESOLVED_MANUALLY,
 
-        # Normal state transitions
+        # Transitions from pending
+        [Constants::WorkflowStepStatuses::PENDING,
+         Constants::WorkflowStepStatuses::ENQUEUED] => Constants::StepEvents::ENQUEUE_REQUESTED,
         [Constants::WorkflowStepStatuses::PENDING,
          Constants::WorkflowStepStatuses::IN_PROGRESS] => Constants::StepEvents::EXECUTION_REQUESTED,
         [Constants::WorkflowStepStatuses::PENDING,
@@ -117,6 +132,15 @@ module TaskerCore
         [Constants::WorkflowStepStatuses::PENDING,
          Constants::WorkflowStepStatuses::RESOLVED_MANUALLY] => Constants::StepEvents::RESOLVED_MANUALLY,
 
+        # Transitions from enqueued
+        [Constants::WorkflowStepStatuses::ENQUEUED,
+         Constants::WorkflowStepStatuses::IN_PROGRESS] => Constants::StepEvents::EXECUTION_REQUESTED,
+        [Constants::WorkflowStepStatuses::ENQUEUED,
+         Constants::WorkflowStepStatuses::ERROR] => Constants::StepEvents::FAILED,
+        [Constants::WorkflowStepStatuses::ENQUEUED,
+         Constants::WorkflowStepStatuses::CANCELLED] => Constants::StepEvents::CANCELLED,
+
+        # Transitions from in progress
         [Constants::WorkflowStepStatuses::IN_PROGRESS,
          Constants::WorkflowStepStatuses::COMPLETE] => Constants::StepEvents::COMPLETED,
         [Constants::WorkflowStepStatuses::IN_PROGRESS,
@@ -124,6 +148,7 @@ module TaskerCore
         [Constants::WorkflowStepStatuses::IN_PROGRESS,
          Constants::WorkflowStepStatuses::CANCELLED] => Constants::StepEvents::CANCELLED,
 
+        # Transitions from error state
         [Constants::WorkflowStepStatuses::ERROR,
          Constants::WorkflowStepStatuses::PENDING] => Constants::StepEvents::RETRY_REQUESTED,
         [Constants::WorkflowStepStatuses::ERROR,

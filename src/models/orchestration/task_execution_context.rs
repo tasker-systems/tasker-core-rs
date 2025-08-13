@@ -65,7 +65,8 @@
 //!   execution_status text,
 //!   recommended_action text,
 //!   completion_percentage numeric,
-//!   health_status text
+//!   health_status text,
+//!   enqueued_steps bigint
 //! )
 //! ```
 //!
@@ -121,6 +122,7 @@ pub struct TaskExecutionContext {
     pub recommended_action: Option<String>,
     pub completion_percentage: BigDecimal,
     pub health_status: String,
+    pub enqueued_steps: i64,
 }
 
 impl TaskExecutionContext {
@@ -194,7 +196,8 @@ impl TaskExecutionContext {
                 execution_status as "execution_status!: String",
                 recommended_action,
                 completion_percentage as "completion_percentage!: BigDecimal",
-                health_status as "health_status!: String"
+                health_status as "health_status!: String",
+                enqueued_steps as "enqueued_steps!: i64"
             FROM get_task_execution_context($1::uuid)
             "#,
             task_uuid
@@ -274,7 +277,8 @@ impl TaskExecutionContext {
                 execution_status as "execution_status!: String",
                 recommended_action,
                 completion_percentage as "completion_percentage!: BigDecimal",
-                health_status as "health_status!: String"
+                health_status as "health_status!: String",
+                enqueued_steps as "enqueued_steps!: i64"
             FROM get_task_execution_contexts_batch($1::uuid[])
             "#,
             task_uuids
@@ -292,7 +296,12 @@ impl TaskExecutionContext {
 
     /// Check if the task is actively being processed.
     pub fn is_processing(&self) -> bool {
-        self.in_progress_steps > 0
+        self.in_progress_steps > 0 || self.enqueued_steps > 0
+    }
+
+    /// Check if the task has steps enqueued for processing.
+    pub fn has_enqueued_steps(&self) -> bool {
+        self.enqueued_steps > 0
     }
 
     /// Check if the task is complete (all steps finished).
