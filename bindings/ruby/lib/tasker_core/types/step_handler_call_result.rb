@@ -37,6 +37,11 @@ module TaskerCore
 
         # Optional metadata for observability
         attribute(:metadata, Types::Hash.default { {} })
+
+        # Predicate method for checking if result is successful
+        def success?
+          success
+        end
       end
 
       class Error < Dry::Struct
@@ -45,7 +50,7 @@ module TaskerCore
 
         # Error type (matches our error class names)
         attribute :error_type,
-                  Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError')
+                  Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError', 'StepCompletionError')
 
         # Human-readable error message
         attribute :message, Types::String
@@ -58,6 +63,11 @@ module TaskerCore
 
         # Additional error context and metadata
         attribute(:metadata, Types::Hash.default { {} })
+
+        # Predicate method for checking if result is successful
+        def success?
+          success
+        end
       end
 
       # Factory methods for creating results

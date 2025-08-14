@@ -9,8 +9,24 @@ module TaskerCore
       # a complete history of step lifecycle events with metadata and timestamps.
       class WorkflowStepTransition < ApplicationRecord
         self.primary_key = :workflow_step_transition_uuid
-        # NOTE: We don't include Statesman::Adapters::ActiveRecordTransition
-        # because we're using PostgreSQL JSONB column for metadata
+        # NOTE: We don't include Statesman::Adapters::ActiveRecordTransition because:
+        # 1. It tries to serialize metadata, but our JSONB column handles this natively
+        # 2. We implement the minimal interface Statesman needs without the serialization conflict
+
+        # Statesman compatibility: Provide the interface Statesman expects without the serialization
+        # conflicts from ActiveRecordTransition module
+        
+        # Statesman expects these attributes to exist on transition records:
+        # - to_state (string) - the target state
+        # - metadata (hash) - additional data for the transition  
+        # - sort_key (integer) - ordering for transitions
+        # - most_recent (boolean) - flag for the current transition
+        # Our JSONB metadata column handles serialization natively, no need for ActiveRecord serialize
+
+        # Provide Statesman compatibility without serialization conflicts
+        def self.updated_timestamp_column
+          :updated_at
+        end
 
         # Associations
         belongs_to :workflow_step, foreign_key: :workflow_step_uuid, primary_key: :workflow_step_uuid,
@@ -18,13 +34,13 @@ module TaskerCore
 
         # Validations
         validates :to_state, inclusion: {
-          in: %w[pending in_progress complete error cancelled resolved_manually],
+          in: %w[pending enqueued in_progress complete error cancelled resolved_manually],
           message: 'is not a valid workflow step state'
         }
 
         # Validate from_state - allow nil (for initial transitions) but not empty strings
         validates :from_state, inclusion: {
-          in: %w[pending in_progress complete error cancelled resolved_manually],
+          in: %w[pending enqueued in_progress complete error cancelled resolved_manually],
           message: 'is not a valid workflow step state'
         }, allow_nil: true
 

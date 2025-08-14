@@ -191,7 +191,45 @@ module TaskerCore
         )
       end
 
-      # Process a successful step message using ActiveRecord lookups (simplified)
+      # Build success result from structured StepHandlerCallResult
+      #
+      # @param task [TaskerCore::Database::Models::Task] Task model
+      # @param step [TaskerCore::Database::Models::WorkflowStep] Step model
+      # @param structured_result [TaskerCore::Types::StepHandlerCallResult::Success] Structured result
+      # @param execution_time_ms [Integer] Execution time in milliseconds
+      # @return [TaskerCore::Types::StepTypes::StepResult] Execution result for orchestration
+      def build_success_result_from_structured(task:, step:, structured_result:, execution_time_ms:)
+        TaskerCore::Types::StepTypes::StepResult.success(
+          step_uuid: step.workflow_step_uuid,
+          task_uuid: task.task_uuid,
+          execution_time_ms: execution_time_ms,
+          result_data: JSON.generate(structured_result.result)
+        )
+      end
+
+      # Build error result from structured StepHandlerCallResult
+      #
+      # @param task [TaskerCore::Database::Models::Task] Task model
+      # @param step [TaskerCore::Database::Models::WorkflowStep] Step model
+      # @param structured_result [TaskerCore::Types::StepHandlerCallResult::Error] Structured error result
+      # @param execution_time_ms [Integer] Execution time in milliseconds
+      # @return [TaskerCore::Types::StepTypes::StepResult] Error result for orchestration
+      def build_error_result_from_structured(task:, step:, structured_result:, execution_time_ms:)
+        error = TaskerCore::Types::StepTypes::StepExecutionError.new(
+          error_type: structured_result.error_type,
+          message: structured_result.message,
+          retryable: structured_result.retryable
+        )
+
+        TaskerCore::Types::StepTypes::StepResult.failure(
+          step_uuid: step.workflow_step_uuid,
+          task_uuid: task.task_uuid,
+          error: error,
+          execution_time_ms: execution_time_ms
+        )
+      end
+
+      # Legacy method: Process a successful step message using ActiveRecord lookups (simplified)
       #
       # @param step [TaskerCore::Types::WorkflowStep] Workflow step
       # @param task [TaskerCore::Types::Task] Task
@@ -219,8 +257,23 @@ module TaskerCore
         logger.info("🔄 QUEUE_WORKER: Processing simple step - step_uuid: #{msg_data.step_uuid}, task_uuid: #{msg_data.task_uuid}")
 
         begin
-          # Fetch ActiveRecord models directly using UUIDs
-          task, sequence, step = MessageManager.get_records_from_message(msg_data)
+          # TAS-32: Attempt to claim the step and get ActiveRecord models
+          # This atomic operation prevents race conditions between workers
+          claim_result = MessageManager.claim_step_and_get_records(msg_data, namespace)
+
+          unless claim_result.success?
+            # TAS-32: Claim failure is normal distributed behavior, not an error
+            # Another worker claimed the step first - this is expected in concurrent processing
+            # TODO: Add telemetry/observability event here instead of error result
+            logger.info("🤝 QUEUE_WORKER: #{claim_result.message} - no action needed")
+
+            # Return nil to indicate "no result to send" rather than an error
+            # The orchestration system doesn't need to know about failed claims
+            return nil
+          end
+
+          task, sequence, step = claim_result.records
+          logger.info("✅ QUEUE_WORKER: Successfully claimed step #{msg_data.step_uuid} for processing")
 
           resolved_handler = step_handler_resolver.resolve_step_handler(task, step)
 
@@ -244,14 +297,29 @@ module TaskerCore
           end
 
           handler_result = handler.call(task, sequence, step)
+          execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
-          logger.info("✅ QUEUE_WORKER: Simple step completed successfully - step_uuid: #{msg_data.step_uuid}")
-          build_success_result(
-            task: task,
-            step: step,
-            start_time: start_time,
-            result_data: handler_result
-          )
+          logger.info("✅ QUEUE_WORKER: Simple step handler completed - step_uuid: #{msg_data.step_uuid}")
+
+          # TAS-32: Use MessageManager to complete step execution with proper state transitions
+          structured_result = MessageManager.complete_step_execution(step, handler_result, execution_time_ms)
+
+          # Convert to StepResult for orchestration queue
+          if structured_result.success?
+            build_success_result_from_structured(
+              task: task,
+              step: step,
+              structured_result: structured_result,
+              execution_time_ms: execution_time_ms
+            )
+          else
+            build_error_result_from_structured(
+              task: task,
+              step: step,
+              structured_result: structured_result,
+              execution_time_ms: execution_time_ms
+            )
+          end
         rescue ActiveRecord::RecordNotFound => e
           execution_time_ms = ((Time.now - start_time) * 1000).to_i
 
@@ -275,19 +343,33 @@ module TaskerCore
           logger.error("💥 QUEUE_WORKER: Unexpected error processing simple step #{msg_data.step_uuid}: #{e.message}")
           logger.error("💥 QUEUE_WORKER: #{e.backtrace.first(5).join("\n")}")
 
-          error = TaskerCore::Types::StepTypes::StepExecutionError.new(
-            error_type: 'UnexpectedError',
-            message: e.message,
-            retryable: true,
-            stack_trace: e.backtrace.join("\n")
-          )
+          # TAS-32: Use MessageManager to handle exception completion
+          # Only do this if we have valid models (we claimed the step successfully)
+          if defined?(step) && step
+            structured_result = MessageManager.complete_step_execution_with_exception(step, e, execution_time_ms)
 
-          TaskerCore::Types::StepTypes::StepResult.failure(
-            task_uuid: msg_data.task_uuid,
-            step_uuid: msg_data.step_uuid,
-            error: error,
-            execution_time_ms: execution_time_ms
-          )
+            build_error_result_from_structured(
+              task: task,
+              step: step,
+              structured_result: structured_result,
+              execution_time_ms: execution_time_ms
+            )
+          else
+            # Fallback for cases where we don't have step models
+            error = TaskerCore::Types::StepTypes::StepExecutionError.new(
+              error_type: 'UnexpectedError',
+              message: e.message,
+              retryable: true,
+              stack_trace: e.backtrace.join("\n")
+            )
+
+            TaskerCore::Types::StepTypes::StepResult.failure(
+              task_uuid: msg_data.task_uuid,
+              step_uuid: msg_data.step_uuid,
+              error: error,
+              execution_time_ms: execution_time_ms
+            )
+          end
         end
       end
 
@@ -482,8 +564,10 @@ module TaskerCore
         execution_results = futures.map(&:value!)
 
         # 5. MAIN THREAD: Send ONLY committed message results to orchestration
-        # These are the only messages orchestration should know about (they won't reappear on queue)
-        execution_results.each do |result|
+        # Filter out nil results (failed claims that don't need orchestration attention)
+        valid_results = execution_results.compact
+
+        valid_results.each do |result|
           send_result_to_orchestration(result)
         rescue StandardError => e
           logger.error("❌ QUEUE_WORKER: Failed to send result to orchestration: #{e.message}")
@@ -491,11 +575,12 @@ module TaskerCore
         end
 
         # Log summary
-        successful_executions = execution_results.count(&:success?)
-        failed_executions = execution_results.count { |r| !r.success? }
+        successful_executions = valid_results.count(&:success?)
+        failed_executions = valid_results.count { |r| !r.success? }
+        claim_skipped = execution_results.count(&:nil?)
         committed_count = committed_messages.length
 
-        logger.info("✅ QUEUE_WORKER: Batch processing completed - #{committed_count} committed, #{successful_executions} succeeded, #{failed_executions} failed, #{skipped_count} skipped/deferred")
+        logger.info("✅ QUEUE_WORKER: Batch processing completed - #{committed_count} committed, #{successful_executions} succeeded, #{failed_executions} failed, #{claim_skipped} claim-skipped, #{skipped_count} message-skipped")
       end
 
       # Legacy method for backward compatibility
@@ -636,6 +721,7 @@ module TaskerCore
         logger.error("❌ QUEUE_WORKER: Message content: #{message.inspect}")
         raise TaskerCore::Errors::ValidationError, "Invalid simple message format: #{e.message}"
       end
+
 
       # Create a temporary step message for registry lookup (transitional approach)
       # This allows us to use the existing registry while we have ActiveRecord models

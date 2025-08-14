@@ -65,7 +65,8 @@
 //!   exhausted_retry_steps bigint,
 //!   in_backoff_steps bigint,
 //!   active_connections bigint,
-//!   max_connections bigint
+//!   max_connections bigint,
+//!   enqueued_steps bigint
 //! )
 //! ```
 
@@ -116,6 +117,7 @@ pub struct SystemHealthCounts {
     // System capacity metrics
     pub active_connections: i64,
     pub max_connections: i64,
+    pub enqueued_steps: i64,
 }
 
 /// System health summary with computed health indicators
@@ -178,7 +180,8 @@ impl SystemHealthCounts {
                 exhausted_retry_steps as "exhausted_retry_steps!: i64",
                 in_backoff_steps as "in_backoff_steps!: i64",
                 active_connections as "active_connections!: i64",
-                max_connections as "max_connections!: i64"
+                max_connections as "max_connections!: i64",
+                enqueued_steps as "enqueued_steps!: i64"
             FROM get_system_health_counts()
             "#
         )
@@ -285,6 +288,7 @@ impl SystemHealthCounts {
     ///     in_backoff_steps: 0,
     ///     active_connections: 5,
     ///     max_connections: 20,
+    ///     enqueued_steps: 0,
     /// };
     ///
     /// let score = healthy_system.overall_health_score();
@@ -348,5 +352,10 @@ impl SystemHealthCounts {
     /// Get count of blocked work (pending + backoff).
     pub fn blocked_work_count(&self) -> i64 {
         self.pending_tasks + self.pending_steps + self.in_backoff_steps
+    }
+
+    /// Check if there are steps enqueued for processing.
+    pub fn has_enqueued_steps(&self) -> bool {
+        self.enqueued_steps > 0
     }
 }

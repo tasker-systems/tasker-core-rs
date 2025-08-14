@@ -28,16 +28,19 @@ module TaskerCore
           # Step 1: Environment and configuration
           load_environment_config!
 
-          # Step 2: Database connection
+          # Step 2: Run all initializers
+          run_all_initializers!
+
+          # Step 3: Database connection
           establish_database_connection!
 
-          # Step 3: Load TaskTemplates to database (before orchestrator starts)
+          # Step 4: Load TaskTemplates to database (before orchestrator starts)
           load_task_templates_to_database!
 
-          # Step 4: Initialize registries (database-backed only)
+          # Step 5: Initialize registries (database-backed only)
           initialize_registries!
 
-          # Step 5: Start embedded orchestrator if in embedded mode
+          # Step 6: Start embedded orchestrator if in embedded mode
           start_embedded_orchestrator_if_configured!
 
           @booted = true
@@ -176,6 +179,13 @@ module TaskerCore
         @orchestrator_started = result.is_a?(Hash) ? result['success'] : true
         logger.info '✅ Embedded orchestrator started'
         true
+      end
+
+      # load from config/initializers/*.rb
+      def run_all_initializers!
+        Dir[File.join(TaskerCore.gem_lib_root, 'config', 'initializers', '*.rb')].each do |file|
+          require file
+        end
       end
 
       # Check if we're in embedded mode

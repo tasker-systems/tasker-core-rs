@@ -74,7 +74,9 @@ impl std::str::FromStr for TaskState {
 pub enum WorkflowStepState {
     /// Initial state when step is created
     Pending,
-    /// Step is currently being executed
+    /// Step has been enqueued for processing but not yet claimed by a worker
+    Enqueued,
+    /// Step is currently being executed by a worker
     InProgress,
     /// Step completed successfully
     Complete,
@@ -100,9 +102,19 @@ impl WorkflowStepState {
         matches!(self, Self::Error)
     }
 
-    /// Check if this is an active state (step is being processed)
+    /// Check if this is an active state (step is being processed by a worker)
     pub fn is_active(&self) -> bool {
         matches!(self, Self::InProgress)
+    }
+
+    /// Check if this step is in the processing pipeline (enqueued or actively processing)
+    pub fn is_in_processing_pipeline(&self) -> bool {
+        matches!(self, Self::Enqueued | Self::InProgress)
+    }
+
+    /// Check if this step is ready to be claimed by a worker
+    pub fn is_ready_for_claiming(&self) -> bool {
+        matches!(self, Self::Enqueued)
     }
 
     /// Check if this step satisfies dependencies for other steps
@@ -115,6 +127,7 @@ impl fmt::Display for WorkflowStepState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Pending => write!(f, "pending"),
+            Self::Enqueued => write!(f, "enqueued"),
             Self::InProgress => write!(f, "in_progress"),
             Self::Complete => write!(f, "complete"),
             Self::Error => write!(f, "error"),
@@ -130,6 +143,7 @@ impl std::str::FromStr for WorkflowStepState {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "pending" => Ok(Self::Pending),
+            "enqueued" => Ok(Self::Enqueued),
             "in_progress" => Ok(Self::InProgress),
             "complete" => Ok(Self::Complete),
             "error" => Ok(Self::Error),

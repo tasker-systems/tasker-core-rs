@@ -66,10 +66,20 @@ TAS-32 complements the ongoing simple message implementation because:
 3. **ActiveRecord Integration**: Workers get real AR models for state transitions and result persistence
 4. **UUID-Based Processing**: Supports the planned 3-field message structure `{task_uuid, step_uuid, ready_dependency_step_uuids}`
 
+## Implementation Sequence
+
+### Critical Context
+Since we're early in the project lifecycle, we can make breaking changes without migration paths or backward compatibility. This significantly simplifies our approach:
+- No need for feature flags or gradual rollout
+- Can update all components atomically
+- No migration scripts for existing data needed
+- Can optimize for the target architecture immediately
+
 ## Plan of Action
 
-### Phase 1: State Machine Enhancement
-**Objective**: Add new `Enqueued` state and update transition logic
+### Phase 1: State Machine Foundation (CRITICAL - Must be Atomic)
+**Objective**: Add new `Enqueued` state and ensure consistency across Ruby and Rust
+**Priority**: HIGHEST - All other work depends on this foundation
 
 #### 1.1 Update Rust State Definitions
 **File**: `src/state_machine/states.rs`
@@ -111,7 +121,7 @@ TAS-32 complements the ongoing simple message implementation because:
 - Update `STEP_TRANSITION_EVENT_MAP` with new transition mappings
 - Update validation arrays to include `enqueued` state
 
-### Phase 2: Orchestration Core Changes  
+### Phase 2: Orchestration Core Changes
 **Objective**: Update orchestration to transition steps to `enqueued` instead of `in_progress`
 
 #### 2.1 Update Step Enqueuer Logic
@@ -152,7 +162,7 @@ TAS-32 complements the ongoing simple message implementation because:
 **File**: `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`
 - Update `send_result_to_orchestration()` to send only completion signal
 - Remove result serialization from queue messages
-- Send simple message: `{step_uuid, task_uuid, completion_status}` 
+- Send simple message: `{step_uuid, task_uuid, completion_status}`
 
 #### 3.4 Add Step Handler Error Classification
 **File**: `bindings/ruby/lib/tasker_core/types/step_handler_call_result.rb`
@@ -171,7 +181,7 @@ TAS-32 complements the ongoing simple message implementation because:
 - Add retry/backoff evaluation for error states
 
 #### 4.2 Add Retry Logic
-**File**: `src/orchestration/result_processor.rs`  
+**File**: `src/orchestration/result_processor.rs`
 - Add `evaluate_retryable_error()` method
 - Add `calculate_backoff_time()` integration
 - Add `transition_step_to_pending_with_backoff()` method
@@ -215,7 +225,7 @@ TAS-32 complements the ongoing simple message implementation because:
 
 #### 6.2 Add Migration Scripts
 - Add database migration for new state constraints
-- Add data migration for existing `in_progress` steps  
+- Add data migration for existing `in_progress` steps
 - Add rollback procedures
 
 ## Success Metrics
@@ -226,7 +236,7 @@ TAS-32 complements the ongoing simple message implementation because:
 - ✅ **Message Size Reduction**: Results no longer serialized in queue messages (~80% reduction)
 - ✅ **State Consistency**: Database is single source of truth for step processing state
 
-### Long-term Benefits  
+### Long-term Benefits
 - ✅ **Simplified Architecture**: Queue used for messaging, database used for state management
 - ✅ **Better Error Handling**: Retryable vs permanent error classification at worker level
 - ✅ **Improved Observability**: Clear state transitions with worker metadata and timestamps
@@ -242,50 +252,71 @@ TAS-32 complements the ongoing simple message implementation because:
 
 ### Risks & Mitigation
 - **Migration Complexity**: Existing `in_progress` steps need careful migration → Add migration scripts with rollback
-- **Performance Impact**: Additional database writes for state transitions → Benchmark and optimize critical paths  
+- **Performance Impact**: Additional database writes for state transitions → Benchmark and optimize critical paths
 - **Worker Coordination**: Multiple workers may attempt to claim same step → Use database-level locking/constraints
 - **SQL Function Consistency**: 8+ SQL functions need coordinated updates → Update all in single migration to maintain consistency
 
-## Implementation Timeline
+## Simplified Implementation Timeline (No Backward Compatibility)
 
-### Week 1-2: Core State Machine (Phase 1)
-- Rust state definitions and transitions
-- Database schema updates with SQL function modifications
-- Ruby constant updates
+Since we can make breaking changes without migration paths, we can significantly accelerate the timeline:
 
-**SQL Migration Requirements:**
-- Update `get_step_readiness_status()` L354-374: Change state logic from `IN ('pending', 'error')` to `IN ('pending', 'error')` and exclude `enqueued`
-- Update `get_step_readiness_status_batch()` L466-486: Apply same exclusion logic for batch processing
-- Update `get_task_execution_context()` L658-666: Add `COUNT(CASE WHEN sd.current_state = 'enqueued' THEN 1 END) as enqueued_steps`
-- Update `get_task_execution_contexts_batch()` L753-762: Add enqueued step counting to batch version
-- Update `get_system_health_counts_v01()` L570-590: Add `COUNT(*) FILTER (WHERE step_state.to_state = 'enqueued') as enqueued_steps`
-- Update `get_analytics_metrics_v01()` L82-83: Change active task detection from `NOT IN ('complete', 'error', 'skipped', 'resolved_manually')` to include `enqueued`
-- Update `tasker_ready_tasks` view readiness calculation: Only `pending` steps should be considered ready, not `enqueued`
+### Phase 1: Complete State Machine Overhaul (Days 1-3)
+**All components updated atomically - no gradual rollout needed**
 
-### Week 3-4: Orchestration Changes (Phase 2)  
-- Step enqueuer updates
-- State manager enhancements
-- Viable step discovery updates
+#### Day 1: State Machine Foundation
+- Add `Enqueued` state to both Rust and Ruby simultaneously
+- Update all state transition maps and event definitions
+- Synchronize constants between systems
 
-### Week 5-6: Worker Updates (Phase 3)
-- Worker state claiming logic
-- Result persistence implementation
-- Simplified queue messaging
+#### Day 2: Database Changes
+- Single migration adding `enqueued` state to all constraints
+- Update ALL SQL functions in one atomic migration:
+  - `get_step_readiness_status()` - Exclude `enqueued` from ready steps
+  - `get_step_readiness_status_batch()` - Same exclusion for batch
+  - `get_task_execution_context()` - Add `enqueued_steps` count
+  - `get_task_execution_contexts_batch()` - Add batch enqueued counting
+  - `get_system_health_counts()` - Include `enqueued_steps` metric
+  - `get_analytics_metrics()` - Update active task detection
+  - `tasker_ready_tasks` view - Only `pending` steps are ready
 
-### Week 7-8: Result Processing (Phase 4)
-- Orchestration result processor updates
-- Retry and backoff logic
-- Task finalizer updates
+#### Day 3: Core Logic Updates
+- Update orchestration step enqueuer to use new state
+- Update worker claiming logic
+- Update result processor for new flow
 
-### Week 9-10: Testing & Validation (Phase 5)
-- Integration test updates
-- Performance testing
-- Factory updates
+### Phase 2: Integration Testing (Days 4-5)
+- Update all integration tests for new states
+- Verify idempotency guarantees
+- Performance benchmarking
 
-### Week 11-12: Documentation & Finalization (Phase 6)
-- Documentation updates
-- Migration scripts
-- Final integration validation
+### Phase 3: Documentation & Deployment (Day 6)
+- Update architecture documentation
+- Deploy to test environment
+- No migration scripts needed - fresh deployment only
+
+## Success Criteria for Simplified Implementation
+
+### Phase 1 Success (Days 1-3)
+- ✅ **State Machine Consistency**: Both Rust and Ruby state machines support identical `Enqueued` state
+- ✅ **Database Atomicity**: All SQL functions updated in single migration with no inconsistent state
+- ✅ **Core Logic Updated**: Orchestration enqueues to `enqueued`, workers claim to `in_progress`
+- ✅ **No Feature Flags**: Direct implementation with breaking changes acceptable
+
+### Phase 2 Success (Days 4-5)
+- ✅ **Integration Tests Pass**: All workflow integration tests work with new state flow
+- ✅ **Idempotency Verified**: Steps can only be claimed once due to database state management
+- ✅ **Performance Maintained**: No significant regression in orchestration performance
+
+### Phase 3 Success (Day 6)
+- ✅ **Documentation Complete**: Architecture reflects new state management approach
+- ✅ **Fresh Deployment**: New environment uses improved architecture from start
+- ✅ **Ready for Simple Messages**: Foundation prepared for UUID-based message architecture
+
+### Overall Success Metrics
+- **Architectural Gap Closed**: Queue used for messaging, database used for state (not queue presence)
+- **Idempotency Guarantee**: Multiple workers cannot process same step simultaneously
+- **Message Efficiency**: Results not serialized in queue messages, only completion signals
+- **Integration Quality**: No breaking changes to existing handler interfaces
 
 This plan addresses the architectural gap identified in TAS-32 while leveraging the foundation established by the recent workflow pattern standardization and aligning with the ongoing simple message architecture implementation.
 
@@ -303,7 +334,7 @@ After reviewing both implementations, there are **critical discrepancies** betwe
 - Missing: No `enqueued` state defined
 
 **Rust Implementation (`states.rs`)**:
-- States: `Pending`, `InProgress`, `Complete`, `Error`, `Cancelled`, `ResolvedManually`  
+- States: `Pending`, `InProgress`, `Complete`, `Error`, `Cancelled`, `ResolvedManually`
 - Transitions: Defined in `constants.rs` with event mapping
 - Missing: No `Enqueued` state defined
 
@@ -319,13 +350,13 @@ After reviewing both implementations, there are **critical discrepancies** betwe
 #### 1. Ruby State Machine Updates (`step_state_machine.rb`)
 
 **Add `Enqueued` State**:
-- Line 28: Add `state Constants::WorkflowStepStatuses::ENQUEUED` 
+- Line 28: Add `state Constants::WorkflowStepStatuses::ENQUEUED`
 - Line 35: Update transitions: `pending → [enqueued, error, cancelled, resolved_manually]`
 - Line 37: Add transition: `enqueued → [in_progress, error, cancelled]`
 
 **Update Transition Event Map**:
 - Line 111: Add `[nil, ENQUEUED] => StepEvents::ENQUEUE_REQUESTED`
-- Line 115: Add `[PENDING, ENQUEUED] => StepEvents::ENQUEUE_REQUESTED`  
+- Line 115: Add `[PENDING, ENQUEUED] => StepEvents::ENQUEUE_REQUESTED`
 - Line 120: Add `[ENQUEUED, IN_PROGRESS] => StepEvents::EXECUTION_REQUESTED`
 - Line 122: Add `[ENQUEUED, ERROR] => StepEvents::FAILED`
 - Line 124: Add `[ENQUEUED, CANCELLED] => StepEvents::CANCELLED`
@@ -334,7 +365,7 @@ After reviewing both implementations, there are **critical discrepancies** betwe
 
 **Add `Enqueued` State** (`states.rs`):
 - Add `Enqueued` variant to `WorkflowStepState` enum
-- Update `is_active()` to include `Enqueued` state  
+- Update `is_active()` to include `Enqueued` state
 - Update `satisfies_dependencies()` to exclude `Enqueued` state
 
 **Update Transition Maps** (`constants.rs`):
@@ -358,7 +389,7 @@ After reviewing both implementations, there are **critical discrepancies** betwe
 For distributed reliability, both Ruby and Rust implementations must:
 
 1. **Identical State Names**: Use exact string matching (`"enqueued"` in both systems)
-2. **Consistent Transition Rules**: Same allowed transitions in both state machines  
+2. **Consistent Transition Rules**: Same allowed transitions in both state machines
 3. **Synchronized Event Mapping**: Event names must match between Ruby and Rust
 4. **Guard Logic Alignment**: Dependency checking logic must produce identical results
 
@@ -370,7 +401,7 @@ For distributed reliability, both Ruby and Rust implementations must:
 - Update constants in both systems
 - Add comprehensive state machine tests
 
-**Phase 2 (Weeks 3-4)**: Implement orchestration changes  
+**Phase 2 (Weeks 3-4)**: Implement orchestration changes
 - Update Rust orchestration to use `pending → enqueued` transition
 - Update Ruby workers to use `enqueued → in_progress` transition
 
@@ -380,7 +411,7 @@ For distributed reliability, both Ruby and Rust implementations must:
 
 **State Machine Consistency Tests**:
 - Cross-system state transition validation
-- Event mapping consistency verification  
+- Event mapping consistency verification
 - Guard logic equivalence testing
 - Serialization/deserialization compatibility
 

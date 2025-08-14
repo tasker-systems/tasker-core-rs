@@ -879,8 +879,7 @@ RETURNS TABLE(
     execution_status text,
     recommended_action text,
     completion_percentage numeric,
-    health_status text,
-    enqueued_steps bigint
+    health_status text
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
@@ -903,7 +902,6 @@ BEGIN
     SELECT
       COUNT(*) as total_steps,
       COUNT(CASE WHEN sd.current_state = 'pending' THEN 1 END) as pending_steps,
-      COUNT(CASE WHEN sd.current_state = 'enqueued' THEN 1 END) as enqueued_steps,
       COUNT(CASE WHEN sd.current_state = 'in_progress' THEN 1 END) as in_progress_steps,
       COUNT(CASE WHEN sd.current_state IN ('complete', 'resolved_manually') THEN 1 END) as completed_steps,
       COUNT(CASE WHEN sd.current_state = 'error' THEN 1 END) as failed_steps,
@@ -929,7 +927,7 @@ BEGIN
     -- FIXED: Execution State Logic
     CASE
       WHEN COALESCE(ast.ready_steps, 0) > 0 THEN 'has_ready_steps'
-      WHEN COALESCE(ast.in_progress_steps, 0) > 0 OR COALESCE(ast.enqueued_steps, 0) > 0 THEN 'processing'  -- UPDATED
+      WHEN COALESCE(ast.in_progress_steps, 0) > 0 THEN 'processing'
       -- OLD BUG: WHEN COALESCE(ast.failed_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
       -- NEW FIX: Only blocked if failed steps are NOT retry-eligible
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
@@ -963,10 +961,7 @@ BEGIN
       -- NEW: Waiting state for retry-eligible failures with backoff
       WHEN COALESCE(ast.failed_steps, 0) > 0 AND COALESCE(ast.permanently_blocked_steps, 0) = 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'recovering'
       ELSE 'unknown'
-    END as health_status,
-
-    -- Enqueued steps (must be last to match RETURNS TABLE declaration)
-    COALESCE(ast.enqueued_steps, 0) as enqueued_steps
+    END as health_status
 
   FROM task_info ti
   CROSS JOIN aggregated_stats ast;
@@ -994,7 +989,6 @@ SELECT
     tec.pending_steps,
     tec.failed_steps,
     tec.in_progress_steps,
-    tec.enqueued_steps as enqueued_steps_count,
     -- Calculate task age in hours for monitoring and debugging
     ROUND(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0, 2)::float8 as age_hours,
     -- Computed priority with time-weighted escalation to prevent starvation
@@ -1033,8 +1027,7 @@ WHERE
     t.complete = false
     -- Only include tasks with ready steps (from existing SQL function logic)
     AND tec.ready_steps > 0
-    -- Only include tasks that have ready steps to execute (not already processing)
-    AND tec.execution_status = 'has_ready_steps'
+    AND tec.execution_status IN ('processing', 'pending', 'has_ready_steps')
     -- Include unclaimed tasks OR stale claims (configurable timeout per task)
     AND (t.claimed_at IS NULL OR t.claimed_at < (NOW() - (t.claim_timeout_seconds || ' seconds')::interval))
 ORDER BY
@@ -1051,6 +1044,42 @@ ORDER BY
     END)::float8 DESC,
     -- Break ties with creation order (oldest first)
     t.created_at ASC;
+
+-- =============================================================================
+-- DATA VALIDATION AND VERIFICATION
+-- =============================================================================
+
+-- Test UUID v7 generation and time ordering
+DO $$
+DECLARE
+    uuid1 uuid;
+    uuid2 uuid;
+    uuid3 uuid;
+BEGIN
+    -- Generate test UUIDs with small delays to ensure different timestamps
+    SELECT uuid_generate_v7() INTO uuid1;
+    PERFORM pg_sleep(0.001);  -- 1ms delay
+    SELECT uuid_generate_v7() INTO uuid2;
+    PERFORM pg_sleep(0.001);  -- 1ms delay
+    SELECT uuid_generate_v7() INTO uuid3;
+
+    -- Verify time ordering (UUID v7 should be naturally sortable by time)
+    -- Note: Due to high precision timing, we verify they are at least different
+    IF uuid1 = uuid2 OR uuid2 = uuid3 OR uuid1 = uuid3 THEN
+        RAISE EXCEPTION 'UUID v7 uniqueness verification failed! UUIDs: %, %, %', uuid1, uuid2, uuid3;
+    END IF;
+
+    -- Check that they generally follow time order (allows for same-millisecond generation)
+    IF NOT (uuid1 <= uuid2 AND uuid2 <= uuid3) THEN
+        RAISE NOTICE 'UUID v7 time ordering note: UUIDs generated in same millisecond: %, %, %', uuid1, uuid2, uuid3;
+    END IF;
+
+    RAISE NOTICE 'UUID v7 Migration Verification Complete!';
+    RAISE NOTICE 'Sample UUIDs generated: %, %, %', uuid1, uuid2, uuid3;
+    RAISE NOTICE 'UUID v7 extension working correctly!';
+END;
+$$;
+
 
 -- =============================================================================
 -- SECTION 2: ADD MISSING BATCH FUNCTIONS
@@ -1141,15 +1170,8 @@ BEGIN
       AND (COALESCE(ws.retryable, true) = true)
       AND (ws.in_process = false OR ws.in_process IS NULL)
       AND (
-        -- Check explicit backoff timing (most restrictive)
-        -- If backoff is set, the backoff period must have expired
-        CASE
-          WHEN ws.backoff_request_seconds IS NOT NULL AND ws.last_attempted_at IS NOT NULL THEN
-            ws.last_attempted_at + (ws.backoff_request_seconds * interval '1 second') <= NOW()
-          ELSE true  -- No explicit backoff set
-        END
-        AND
-        -- Then check failure-based backoff
+        ws.last_attempted_at IS NULL OR
+        ws.last_attempted_at + (COALESCE(ws.backoff_request_seconds, 0) * interval '1 second') <= NOW() OR
         (lf.failure_time IS NULL OR
          lf.failure_time + (LEAST(power(2, COALESCE(ws.attempts, 1)) * interval '1 second', interval '30 seconds')) <= NOW())
       )
@@ -1202,8 +1224,7 @@ RETURNS TABLE(
     execution_status text,
     recommended_action text,
     completion_percentage numeric,
-    health_status text,
-    enqueued_steps bigint
+    health_status text
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
@@ -1227,7 +1248,6 @@ BEGIN
       sd.task_uuid,
       COUNT(*) as total_steps,
       COUNT(CASE WHEN sd.current_state = 'pending' THEN 1 END) as pending_steps,
-      COUNT(CASE WHEN sd.current_state = 'enqueued' THEN 1 END) as enqueued_steps,
       COUNT(CASE WHEN sd.current_state = 'in_progress' THEN 1 END) as in_progress_steps,
       COUNT(CASE WHEN sd.current_state IN ('complete', 'resolved_manually') THEN 1 END) as completed_steps,
       COUNT(CASE WHEN sd.current_state = 'error' THEN 1 END) as failed_steps,
@@ -1250,7 +1270,7 @@ BEGIN
     -- Execution status
     CASE
       WHEN COALESCE(ast.ready_steps, 0) > 0 THEN 'has_ready_steps'
-      WHEN COALESCE(ast.in_progress_steps, 0) > 0 OR COALESCE(ast.enqueued_steps, 0) > 0 THEN 'processing'
+      WHEN COALESCE(ast.in_progress_steps, 0) > 0 THEN 'processing'
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
       WHEN COALESCE(ast.completed_steps, 0) = COALESCE(ast.total_steps, 0) AND COALESCE(ast.total_steps, 0) > 0 THEN 'all_complete'
       ELSE 'waiting_for_dependencies'
@@ -1261,7 +1281,7 @@ BEGIN
       WHEN COALESCE(ast.ready_steps, 0) > 0 THEN 'process_ready_steps'
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 THEN 'review_failures'
       WHEN COALESCE(ast.completed_steps, 0) = COALESCE(ast.total_steps, 0) AND COALESCE(ast.total_steps, 0) > 0 THEN 'mark_complete'
-      WHEN COALESCE(ast.in_progress_steps, 0) > 0 OR COALESCE(ast.enqueued_steps, 0) > 0 THEN 'wait_for_completion'
+      WHEN COALESCE(ast.in_progress_steps, 0) > 0 THEN 'wait_for_completion'
       ELSE 'wait_for_dependencies'
     END as recommended_action,
 
@@ -1278,10 +1298,7 @@ BEGIN
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked'
       WHEN COALESCE(ast.failed_steps, 0) > 0 AND COALESCE(ast.permanently_blocked_steps, 0) = 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'recovering'
       ELSE 'unknown'
-    END as health_status,
-
-    -- Enqueued steps (must be last to match RETURNS TABLE declaration)
-    COALESCE(ast.enqueued_steps, 0) as enqueued_steps
+    END as health_status
 
   FROM task_info ti
   LEFT JOIN aggregated_stats ast ON ast.task_uuid = ti.task_uuid;
@@ -1475,8 +1492,7 @@ RETURNS TABLE(
     exhausted_retry_steps bigint,
     in_backoff_steps bigint,
     active_connections bigint,
-    max_connections bigint,
-    enqueued_steps bigint
+    max_connections bigint
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
@@ -1497,7 +1513,6 @@ BEGIN
         SELECT
             COUNT(*) as total_steps,
             COUNT(*) FILTER (WHERE step_state.to_state = 'pending') as pending_steps,
-            COUNT(*) FILTER (WHERE step_state.to_state = 'enqueued') as enqueued_steps,
             COUNT(*) FILTER (WHERE step_state.to_state = 'in_progress') as in_progress_steps,
             COUNT(*) FILTER (WHERE step_state.to_state = 'complete') as complete_steps,
             COUNT(*) FILTER (WHERE step_state.to_state = 'error') as error_steps,
@@ -1512,9 +1527,9 @@ BEGIN
             ) as exhausted_retry_steps,
             COUNT(*) FILTER (
                 WHERE step_state.to_state = 'error'
-                AND ws.backoff_request_seconds IS NOT NULL
+                AND ws.attempts < ws.retry_limit
+                AND COALESCE(ws.retryable, true) = true
                 AND ws.last_attempted_at IS NOT NULL
-                AND ws.last_attempted_at + (ws.backoff_request_seconds * interval '1 second') > NOW()
             ) as in_backoff_steps
         FROM tasker_workflow_steps ws
         LEFT JOIN tasker_workflow_step_transitions step_state ON step_state.workflow_step_uuid = ws.workflow_step_uuid
@@ -1541,8 +1556,7 @@ BEGIN
         sc.exhausted_retry_steps,
         sc.in_backoff_steps,
         ci.active_connections,
-        ci.max_connections,
-        sc.enqueued_steps
+        ci.max_connections
     FROM task_counts tc
     CROSS JOIN step_counts sc
     CROSS JOIN connection_info ci;

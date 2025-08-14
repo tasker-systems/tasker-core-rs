@@ -1,12 +1,21 @@
-//! Shared result processing logic extracted from ZmqPubSubExecutor
+//! TAS-32: Orchestration Coordination Logic (No State Management)
 //!
-//! This module contains the orchestration logic for handling step results and batch completion,
-//! enabling reuse across different transport layers (ZeroMQ, TCP commands, etc.).
+//! **ARCHITECTURE CHANGE**: This module has been updated for TAS-32 queue state management
+//! improvements where Ruby workers handle all step execution, result saving, and state transitions.
 //!
-//! Enhanced in Phase 5.2 to handle orchestration metadata from workers and integrate with
-//! backoff calculations for intelligent retry coordination.
+//! Rust orchestration now focuses solely on:
+//! - Task-level coordination and finalization
+//! - Processing orchestration metadata from workers
+//! - Intelligent backoff calculations for retry coordination
+//! - Triggering task completion when all steps are done
+//!
+//! **What Rust orchestration NO LONGER does**:
+//! - Step state transitions (handled by Ruby workers with Statesman)
+//! - Saving step results to database (handled by Ruby MessageManager)
+//! - Creating workflow step transitions (handled by Ruby state machines)
+//!
+//! This enables autonomous Ruby workers with database-driven coordination.
 
-use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -15,19 +24,25 @@ use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::{
     backoff_calculator::{BackoffCalculator, BackoffContext},
     task_finalizer::TaskFinalizer,
-    StateManager,
 };
 
-/// Shared orchestration result processor that handles step results and batch completion
+/// TAS-32: Orchestration coordination processor (coordination only, no state management)
 ///
-/// This component extracts the orchestration logic from ZmqPubSubExecutor to enable
-/// reuse across different transport layers (ZeroMQ, TCP commands, etc.).
+/// **ARCHITECTURE CHANGE**: This component now handles only task-level coordination
+/// and orchestration metadata processing. Ruby workers manage all step-level operations.
 ///
-/// Enhanced in Phase 5.2 with orchestration metadata processing and intelligent backoff
-/// calculations based on worker feedback (HTTP headers, error context, backoff hints).
+/// **Coordination Responsibilities**:
+/// - Task finalization when steps complete
+/// - Processing backoff metadata from workers
+/// - Orchestration-level retry timing decisions
+/// - Cross-cutting orchestration concerns
+///
+/// **No Longer Handles**:
+/// - Step state transitions (Ruby workers + Statesman)
+/// - Step result persistence (Ruby MessageManager)
+/// - Workflow step transition creation (Ruby state machines)
 #[derive(Clone)]
 pub struct OrchestrationResultProcessor {
-    state_manager: StateManager,
     task_finalizer: TaskFinalizer,
     backoff_calculator: BackoffCalculator,
     pool: PgPool,
@@ -35,10 +50,9 @@ pub struct OrchestrationResultProcessor {
 
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
-    pub fn new(state_manager: StateManager, task_finalizer: TaskFinalizer, pool: PgPool) -> Self {
+    pub fn new(task_finalizer: TaskFinalizer, pool: PgPool) -> Self {
         let backoff_calculator = BackoffCalculator::with_defaults(pool.clone());
         Self {
-            state_manager,
             task_finalizer,
             backoff_calculator,
             pool,
@@ -47,41 +61,43 @@ impl OrchestrationResultProcessor {
 
     /// Create a new orchestration result processor with custom backoff calculator
     pub fn with_backoff_calculator(
-        state_manager: StateManager,
         task_finalizer: TaskFinalizer,
         backoff_calculator: BackoffCalculator,
         pool: PgPool,
     ) -> Self {
         Self {
-            state_manager,
             task_finalizer,
             backoff_calculator,
             pool,
         }
     }
 
-    /// NEW Phase 5.2: Handle enhanced step result with orchestration metadata
+    /// TAS-32: Handle step result notification with orchestration metadata (coordination only)
     ///
-    /// This method processes step results from pgmq workers including orchestration metadata
-    /// for intelligent backoff calculations and retry coordination.
+    /// TAS-32 ARCHITECTURE CHANGE: This method now only processes orchestration metadata
+    /// for backoff calculations and task-level coordination. Ruby workers handle all
+    /// step state transitions and result saving.
+    ///
+    /// The Rust orchestration focuses on:
+    /// - Processing backoff metadata from workers
+    /// - Task-level finalization coordination
+    /// - Orchestration-level retry decisions
     pub async fn handle_step_result_with_metadata(
         &self,
         step_uuid: Uuid,
         status: String,
-        output: Option<Value>,
-        error: Option<StepError>,
         execution_time_ms: u64,
         orchestration_metadata: Option<OrchestrationMetadata>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
-            "Processing step result with metadata - step_uuid: {}, status: {}, exec_time: {}ms, has_metadata: {}",
+            "Processing step result notification for coordination - step_uuid: {}, status: {}, exec_time: {}ms, has_metadata: {}",
             step_uuid,
             status,
             execution_time_ms,
             orchestration_metadata.is_some()
         );
 
-        // Process orchestration metadata for backoff decisions
+        // Process orchestration metadata for backoff decisions (coordinating retry timing)
         if let Some(metadata) = &orchestration_metadata {
             if let Err(e) = self
                 .process_orchestration_metadata(step_uuid, metadata)
@@ -95,114 +111,79 @@ impl OrchestrationResultProcessor {
             }
         }
 
-        // Delegate to existing state management logic
-        self.handle_partial_result(
+        // Delegate to coordination-only result handling (no state updates)
+        self.handle_step_result(
             step_uuid,
             status,
-            output,
-            error,
             execution_time_ms,
             "pgmq_worker".to_string(),
         )
         .await
     }
 
-    /// Handle a partial result message (immediate step state update)
+    /// Handle a partial result message (TAS-32: coordination only, no state updates)
     ///
-    /// This delegates to StateManager for step state updates and maintains audit trails.
-    /// Extracted from ZmqPubSubExecutor::handle_partial_result() lines 402-418.
-    pub async fn handle_partial_result(
+    /// TAS-32 ARCHITECTURE CHANGE: Ruby workers now handle all step execution, result saving,
+    /// and state transitions. Rust orchestration focuses only on task-level coordination.
+    ///
+    /// This method now only handles task finalization checks when steps complete,
+    /// since Ruby workers manage step state transitions directly.
+    pub async fn handle_step_result(
         &self,
         step_uuid: Uuid,
         status: String,
-        output: Option<Value>,
-        error: Option<StepError>,
         execution_time_ms: u64,
         worker_id: String,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
-            "Processing partial result for step {} status={} worker={} exec_time={}ms",
+            "Processing step result notification for task coordination - step {} status={} worker={} exec_time={}ms",
             step_uuid,
             status,
             worker_id,
             execution_time_ms
         );
 
-        // Delegate to StateManager for step state updates (preserving existing orchestration logic)
-        let state_update_result = match status.as_str() {
-            "success" => {
-                self.state_manager
-                    .complete_step_with_results(step_uuid, output.clone())
-                    .await
-            }
-            "failed" => {
-                let error_message = error
-                    .as_ref()
-                    .map(|e| e.message.clone())
-                    .unwrap_or_else(|| "Step execution failed".to_string());
-                self.state_manager
-                    .handle_step_failure_with_retry(step_uuid, error_message)
-                    .await
-            }
-            "in_progress" => self.state_manager.mark_step_in_progress(step_uuid).await,
-            _ => {
-                tracing::warn!("Unknown step status: {}", status);
-                return Err(format!("Unknown step status: {status}").into());
-            }
-        };
+        // TAS-32: NO STATE UPDATES - Ruby workers handle step state transitions and result saving
+        // Rust orchestration only coordinates task-level finalization
 
-        // Handle state update result and trigger finalization check if needed
-        match state_update_result {
-            Ok(_) => {
-                tracing::debug!(
-                    "Successfully updated step {} to status '{}'",
-                    step_uuid,
-                    status
-                );
-
-                // If step completed or failed, check if task should be finalized
-                if matches!(status.as_str(), "success" | "failed") {
-                    if let Ok(Some(workflow_step)) =
-                        WorkflowStep::find_by_id(&self.pool, step_uuid).await
-                    {
-                        match self
-                            .task_finalizer
-                            .handle_no_viable_steps(workflow_step.task_uuid)
-                            .await
-                        {
-                            Ok(finalization_result) => {
-                                tracing::info!(
-                                    "Task {} finalization result: action={:?}, reason={:?}",
-                                    workflow_step.task_uuid,
-                                    finalization_result.action,
-                                    finalization_result.reason
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Task finalization check failed for task {}: {}",
-                                    workflow_step.task_uuid,
-                                    e
-                                );
-                            }
-                        }
-                    } else {
+        // Only handle task finalization for completed or failed steps
+        if matches!(status.as_str(), "success" | "failed") {
+            if let Ok(Some(workflow_step)) = WorkflowStep::find_by_id(&self.pool, step_uuid).await {
+                match self
+                    .task_finalizer
+                    .finalize_task(workflow_step.task_uuid, false)
+                    .await
+                {
+                    Ok(finalization_result) => {
+                        tracing::info!(
+                            "Task {} finalization result: action={:?}, reason={:?}",
+                            workflow_step.task_uuid,
+                            finalization_result.action,
+                            finalization_result.reason
+                        );
+                    }
+                    Err(e) => {
                         tracing::error!(
-                            "Failed to lookup WorkflowStep for step {} during finalization check",
-                            step_uuid
+                            "Task finalization check failed for task {}: {}",
+                            workflow_step.task_uuid,
+                            e
                         );
                     }
                 }
-            }
-            Err(e) => {
+            } else {
                 tracing::error!(
-                    "Failed to update step {} state to '{}': {}",
-                    step_uuid,
-                    status,
-                    e
+                    "Failed to lookup WorkflowStep for step {} during finalization check",
+                    step_uuid
                 );
-                return Err(e.into());
             }
+        } else {
+            // For in_progress status, just log - no coordination needed
+            tracing::debug!(
+                "Step {} marked as {} by worker {} - no coordination action needed",
+                step_uuid,
+                status,
+                worker_id
+            );
         }
 
         Ok(())

@@ -493,7 +493,7 @@ impl WorkflowCoordinator {
             );
 
             // Call TaskFinalizer to determine next action
-            match self.task_finalizer.handle_no_viable_steps(task_uuid).await {
+            match self.task_finalizer.finalize_task(task_uuid, false).await {
                 Ok(finalization_result) => {
                     info!(
                         task_uuid = task_uuid.to_string(),

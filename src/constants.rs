@@ -26,6 +26,7 @@ pub mod events {
 
     // Step lifecycle events
     pub const STEP_INITIALIZE_REQUESTED: &str = "step.initialize_requested";
+    pub const STEP_ENQUEUE_REQUESTED: &str = "step.enqueue_requested";
     pub const STEP_EXECUTION_REQUESTED: &str = "step.execution_requested";
     pub const STEP_BEFORE_HANDLE: &str = "step.before_handle";
     pub const STEP_HANDLE: &str = "step.handle";
@@ -149,11 +150,15 @@ pub mod status_groups {
     ];
 
     /// Workflow step statuses that indicate active work
-    pub const VALID_STEP_STILL_WORKING_STATES: &[WorkflowStepState] =
-        &[WorkflowStepState::Pending, WorkflowStepState::InProgress];
+    pub const VALID_STEP_STILL_WORKING_STATES: &[WorkflowStepState] = &[
+        WorkflowStepState::Pending,
+        WorkflowStepState::Enqueued,
+        WorkflowStepState::InProgress,
+    ];
 
     /// Workflow step statuses that make steps unavailable for execution
     pub const UNREADY_WORKFLOW_STEP_STATUSES: &[WorkflowStepState] = &[
+        WorkflowStepState::Enqueued,
         WorkflowStepState::InProgress,
         WorkflowStepState::Complete,
         WorkflowStepState::Cancelled,
@@ -255,6 +260,10 @@ pub fn build_step_transition_map() -> StepTransitionMap {
         events::STEP_INITIALIZE_REQUESTED,
     );
     map.insert(
+        (None, WorkflowStepState::Enqueued),
+        events::STEP_ENQUEUE_REQUESTED,
+    );
+    map.insert(
         (None, WorkflowStepState::InProgress),
         events::STEP_EXECUTION_REQUESTED,
     );
@@ -270,6 +279,20 @@ pub fn build_step_transition_map() -> StepTransitionMap {
     map.insert(
         (
             Some(WorkflowStepState::Pending),
+            WorkflowStepState::Enqueued,
+        ),
+        events::STEP_ENQUEUE_REQUESTED,
+    );
+    map.insert(
+        (
+            Some(WorkflowStepState::Pending),
+            WorkflowStepState::InProgress,
+        ),
+        events::STEP_EXECUTION_REQUESTED,
+    );
+    map.insert(
+        (
+            Some(WorkflowStepState::Enqueued),
             WorkflowStepState::InProgress,
         ),
         events::STEP_EXECUTION_REQUESTED,
@@ -317,10 +340,21 @@ pub fn build_step_transition_map() -> StepTransitionMap {
     );
     map.insert(
         (
+            Some(WorkflowStepState::Enqueued),
+            WorkflowStepState::Cancelled,
+        ),
+        events::STEP_CANCELLED,
+    );
+    map.insert(
+        (
             Some(WorkflowStepState::InProgress),
             WorkflowStepState::Cancelled,
         ),
         events::STEP_CANCELLED,
+    );
+    map.insert(
+        (Some(WorkflowStepState::Enqueued), WorkflowStepState::Error),
+        events::STEP_FAILED,
     );
     map.insert(
         (

@@ -60,20 +60,19 @@ RSpec.describe 'Diamond Workflow Integration', type: :integration do
       expect(task.workflow_steps.count).to eq(4) # start, branch_b, branch_c, end
 
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
 
         # Validate specific step results
         case step.name
         when 'diamond_start'
-          expect(results['result']).to eq(16) # 4² = 16
+          expect(results[:result]).to eq(16) # 4² = 16
         when 'diamond_branch_b'
-          expect(results['result']).to eq(256)
+          expect(results[:result]).to eq(256)
         when 'diamond_branch_c' # rubocop:disable Lint/DuplicateBranch
-          expect(results['result']).to eq(256)
+          expect(results[:result]).to eq(256)
         when 'diamond_end'
-          expect(results['result']).to eq(4_294_967_296)
+          expect(results[:result]).to eq(4_294_967_296)
         end
       end
     end
@@ -100,8 +99,8 @@ RSpec.describe 'Diamond Workflow Integration', type: :integration do
       diamond_end = task.workflow_steps.find { |s| s.name == 'diamond_end' }
       expect(diamond_end).not_to be_nil
 
-      results = JSON.parse(diamond_end.results)
-      expect(results['result']).to eq(281_474_976_710_656)
+      results = diamond_end.results.deep_symbolize_keys
+      expect(results[:result]).to eq(281_474_976_710_656)
 
       puts '✅ Convergence test completed - diamond_end executed after both branches'
     end
@@ -126,8 +125,8 @@ RSpec.describe 'Diamond Workflow Integration', type: :integration do
       expect(task).not_to be_nil
 
       diamond_end = task.workflow_steps.find { |s| s.name == 'diamond_end' }
-      results = JSON.parse(diamond_end.results)
-      expect(results['result']).to eq(10_000_000_000_000_000)
+      results = diamond_end.results.deep_symbolize_keys
+      expect(results[:result]).to eq(10_000_000_000_000_000)
 
       puts '✅ Performance test completed with high priority and multiple workers'
     end

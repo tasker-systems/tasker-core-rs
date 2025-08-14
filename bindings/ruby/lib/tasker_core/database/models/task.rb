@@ -279,25 +279,21 @@ module TaskerCore
           }
         end
 
-        # # State machine integration
-        # def state_machine
-        #   @state_machine ||= TaskerCore::StateMachine::TaskStateMachine.new(
-        #     self,
-        #     transition_class: TaskerCore::Database::Models::TaskTransition,
-        #     association_name: :task_transitions
-        #   )
-        # end
+        # NOTE: Task state transitions are managed by the orchestration core (Rust side)
+        # Workers should not directly manage task state transitions
 
-        # # Status is now entirely managed by the state machine
-        # def status
-        #   if new_record?
-        #     # For new records, return the initial state
-        #     TaskerCore::Constants::TaskStatuses::PENDING
-        #   else
-        #     # For persisted records, use state machine
-        #     state_machine.current_state
-        #   end
-        # end
+        # Status is managed by the orchestration core (Rust side)
+        # This method reads the current status from the most recent transition
+        def status
+          if new_record?
+            # For new records, return the initial state
+            TaskerCore::Constants::TaskStatuses::PENDING
+          else
+            # For persisted records, get the most recent transition state
+            most_recent_transition = task_transitions.where(most_recent: true).first
+            most_recent_transition&.state || TaskerCore::Constants::TaskStatuses::PENDING
+          end
+        end
 
         # Finds a workflow step by its name
         #

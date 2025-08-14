@@ -1,19 +1,26 @@
-//! # Step Result Processor
+//! # TAS-32: Step Result Coordination Processor (No State Management)
 //!
-//! ## Architecture: Individual Step Result Processing for pgmq Orchestration
+//! ## Architecture: Task-Level Coordination Only
 //!
-//! The StepResultProcessor handles individual step results from the orchestration_step_results
-//! queue, replacing the batch-based approach with individual step processing. This creates
-//! the complete feedback loop: Task Request → Task Claiming → Step Enqueueing → Step Execution →
-//! Step Results → Task Finalization.
+//! **ARCHITECTURE CHANGE**: The StepResultProcessor has been updated for TAS-32 where Ruby workers
+//! handle all step execution, result saving, and state transitions. This processor now handles
+//! only orchestration-level coordination.
 //!
-//! ## Key Features
+//! The coordination flow is: Task Request → Step Enqueueing → Ruby Worker Execution →
+//! Step Result Coordination → Task Finalization.
 //!
-//! - **Individual Step Processing**: Processes one step result at a time, not batches
-//! - **State Management Integration**: Updates step states and triggers task state transitions
-//! - **Task Finalization**: Determines when tasks are complete and triggers finalization
-//! - **Orchestration Metadata**: Processes worker metadata for intelligent backoff decisions
-//! - **Error Handling**: Robust step error processing with retry coordination
+//! ## Key Features (TAS-32 Updated)
+//!
+//! - **Task Finalization Coordination**: Determines when tasks are complete
+//! - **Orchestration Metadata Processing**: Processes worker metadata for backoff decisions
+//! - **Retry Coordination**: Intelligent backoff calculations based on worker feedback
+//! - **Cross-cutting Concerns**: Handles orchestration-level coordination
+//!
+//! ## What This NO LONGER Does
+//!
+//! - **Step State Management**: Ruby workers handle with Statesman state machines
+//! - **Result Persistence**: Ruby MessageManager saves results to database
+//! - **Step Transitions**: Ruby workers create workflow step transitions
 //!
 //! ## Integration
 //!
@@ -44,14 +51,12 @@
 //! # }
 //! ```
 
-use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::error::{Result, TaskerError};
-use crate::events::EventPublisher;
 use crate::messaging::{
     PgmqClientTrait, StepExecutionStatus, StepResultMessage, UnifiedPgmqClient,
 };
 use crate::orchestration::{
-    result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer, StateManager,
+    result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -143,12 +148,9 @@ impl StepResultProcessor {
         config: StepResultProcessorConfig,
     ) -> Result<Self> {
         // Create orchestration result processor with required dependencies
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = EventPublisher::new();
-        let state_manager = StateManager::new(sql_executor, event_publisher, pool.clone());
         let task_finalizer = TaskFinalizer::new(pool.clone());
         let orchestration_result_processor =
-            OrchestrationResultProcessor::new(state_manager, task_finalizer, pool.clone());
+            OrchestrationResultProcessor::new(task_finalizer, pool.clone());
 
         Ok(Self {
             pgmq_client,
@@ -308,22 +310,11 @@ impl StepResultProcessor {
             StepExecutionStatus::Cancelled => "cancelled".to_string(),
         };
 
-        // Convert step error to result processor format
-        let error = step_result
-            .error
-            .map(|e| crate::orchestration::result_processor::StepError {
-                message: e.message,
-                error_type: e.error_type,
-                retryable: e.retryable,
-            });
-
         // Process the step result using the orchestration result processor
         self.orchestration_result_processor
             .handle_step_result_with_metadata(
                 step_result.step_uuid,
                 status_string,
-                step_result.results,
-                error,
                 step_result.execution_time_ms,
                 step_result.orchestration_metadata,
             )

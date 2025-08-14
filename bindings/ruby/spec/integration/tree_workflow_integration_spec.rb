@@ -64,10 +64,10 @@ RSpec.describe 'Tree Workflow Integration', type: :integration do
       expect(task.workflow_steps.count).to eq(8) # root + 2 branches + 4 leaves + convergence
 
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        expect(results.keys).to include(:result)
+        expect(results[:result]).to be_a(Integer)
 
         # For input 2, results are powers of 2: 4, 16, 256, etc.
         # Final result: 2^32 = 4294967296
@@ -76,8 +76,8 @@ RSpec.describe 'Tree Workflow Integration', type: :integration do
       # Verify the final convergence step has the expected result
       final_step = task.workflow_steps.find { |s| s.name == 'tree_final_convergence' }
       expect(final_step).not_to be_nil
-      final_results = JSON.parse(final_step.results)
-      expect(final_results['result']).to eq(18_446_744_073_709_551_616)
+      final_results = final_step.results.deep_symbolize_keys
+      expect(final_results[:result]).to eq(18_446_744_073_709_551_616)
     end
 
     it 'validates hierarchical dependency convergence with multiple levels' do
@@ -101,8 +101,8 @@ RSpec.describe 'Tree Workflow Integration', type: :integration do
       # Verify the final step executed after all leaves
       final_step = task.workflow_steps.find { |s| s.name == 'tree_final_convergence' }
       expect(final_step).not_to be_nil
-      expect(final_step.results).to be_a(String)
-      expect(JSON.parse(final_step.results)['result']).to eq(18_446_744_073_709_551_616)
+      results = final_step.results.deep_symbolize_keys
+      expect(results[:result]).to eq(18_446_744_073_709_551_616)
 
       puts '✅ Hierarchical convergence test completed - final step executed after all leaves'
     end
@@ -128,12 +128,12 @@ RSpec.describe 'Tree Workflow Integration', type: :integration do
 
       # Verify exponential growth handling
       final_step = task.workflow_steps.find { |s| s.name == 'tree_final_convergence' }
-      final_results = JSON.parse(final_step.results)
+      final_results = final_step.results.deep_symbolize_keys
 
       puts '✅ Exponential growth test completed'
       puts '📊 Tree pattern creates exponential growth: n -> n² -> n⁴ -> n⁸ -> n³²'
-      puts "   Input 2: 2³² = #{final_results['result']}"
-      expect(final_results['result']).to eq(18_446_744_073_709_551_616)
+      puts "   Input 2: 2³² = #{final_results[:result]}"
+      expect(final_results[:result]).to eq(18_446_744_073_709_551_616)
     end
   end
 end

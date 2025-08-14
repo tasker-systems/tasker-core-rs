@@ -42,7 +42,9 @@ module TaskerCore
                     'ProcessingError',
                     'MaxRetriesExceeded',
                     'RecordNotFound',
-                    'UnexpectedError'
+                    'UnexpectedError',
+                    'PermanentError',
+                    'RetryableError'
                   )
         attribute :message, Types::String
         attribute :retryable, Types::Bool.default(true)

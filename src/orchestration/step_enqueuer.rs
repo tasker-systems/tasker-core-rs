@@ -418,20 +418,21 @@ impl StepEnqueuer {
             viable_step.step_uuid, queue_name, msg_id
         );
 
-        // Transition the step to "in_progress" state since it's now enqueued for processing
+        // TAS-32: Transition the step to "enqueued" state since it's now enqueued for processing
+        // This replaces the old behavior of marking steps as in_progress when enqueued
         if let Err(e) = self
             .state_manager
-            .mark_step_in_progress(viable_step.step_uuid)
+            .mark_step_enqueued(viable_step.step_uuid)
             .await
         {
             error!(
-                "❌ STEP_ENQUEUER: Failed to transition step {} to in_progress state after enqueueing: {}",
+                "❌ STEP_ENQUEUER: Failed to transition step {} to enqueued state after enqueueing: {}",
                 viable_step.step_uuid, e
             );
             // Continue execution - enqueueing succeeded, state transition failure shouldn't block workflow
         } else {
             info!(
-                "✅ STEP_ENQUEUER: Successfully marked step {} as in_progress",
+                "✅ STEP_ENQUEUER: Successfully marked step {} as enqueued (TAS-32)",
                 viable_step.step_uuid
             );
         }

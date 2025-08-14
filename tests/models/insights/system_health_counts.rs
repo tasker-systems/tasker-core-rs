@@ -62,6 +62,7 @@ fn test_health_calculations() {
         in_backoff_steps: 10,
         active_connections: 8,
         max_connections: 10,
+        enqueued_steps: 2,
     };
 
     assert_eq!(health.task_completion_rate(), 0.6);

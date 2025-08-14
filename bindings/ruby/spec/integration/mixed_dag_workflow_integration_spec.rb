@@ -58,10 +58,10 @@ RSpec.describe 'Mixed DAG Workflow Integration', type: :integration do
       task = shared_loop.run(task_request: task_request, num_workers: 1, namespace: namespace)
       expect(task).not_to be_nil
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        expect(results.keys).to include(:result)
+        expect(results[:result]).to be_a(Integer)
       end
     end
 
@@ -83,10 +83,10 @@ RSpec.describe 'Mixed DAG Workflow Integration', type: :integration do
       task = shared_loop.run(task_request: task_request, num_workers: 2, namespace: namespace)
       expect(task).not_to be_nil
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        expect(results.keys).to include(:result)
+        expect(results[:result]).to be_a(Integer)
       end
     end
 
@@ -107,10 +107,10 @@ RSpec.describe 'Mixed DAG Workflow Integration', type: :integration do
       task = shared_loop.run(task_request: task_request, num_workers: 3, namespace: namespace)
       expect(task).not_to be_nil
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        expect(results.keys).to include(:result)
+        expect(results[:result]).to be_a(Integer)
       end
     end
   end
