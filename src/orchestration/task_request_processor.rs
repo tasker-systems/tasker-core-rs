@@ -104,7 +104,7 @@ impl TaskRequestProcessor {
 
     /// Process a batch of task request messages
     #[instrument(skip(self))]
-    async fn process_batch(&self) -> Result<usize> {
+    pub async fn process_batch(&self) -> Result<usize> {
         // Read messages from the request queue
         let messages = self
             .pgmq_client

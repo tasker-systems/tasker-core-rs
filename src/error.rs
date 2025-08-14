@@ -12,6 +12,13 @@ pub enum TaskerError {
     ConfigurationError(String),
     FFIError(String),
     MessagingError(String),
+    // Additional variants needed for executor system
+    Internal(String),
+    Configuration(String),
+    InvalidState(String),
+    InvalidParameter(String),
+    Timeout(String),
+    CircuitBreakerOpen(String),
 }
 
 impl fmt::Display for TaskerError {
@@ -26,6 +33,12 @@ impl fmt::Display for TaskerError {
             TaskerError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
             TaskerError::FFIError(msg) => write!(f, "FFI error: {msg}"),
             TaskerError::MessagingError(msg) => write!(f, "Messaging error: {msg}"),
+            TaskerError::Internal(msg) => write!(f, "Internal error: {msg}"),
+            TaskerError::Configuration(msg) => write!(f, "Configuration error: {msg}"),
+            TaskerError::InvalidState(msg) => write!(f, "Invalid state: {msg}"),
+            TaskerError::InvalidParameter(msg) => write!(f, "Invalid parameter: {msg}"),
+            TaskerError::Timeout(msg) => write!(f, "Timeout: {msg}"),
+            TaskerError::CircuitBreakerOpen(msg) => write!(f, "Circuit breaker open: {msg}"),
         }
     }
 }

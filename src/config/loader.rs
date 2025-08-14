@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{debug, warn};
 
 /// Global configuration manager singleton
+#[derive(Debug)]
 pub struct ConfigManager {
     config: TaskerConfig,
     environment: String,

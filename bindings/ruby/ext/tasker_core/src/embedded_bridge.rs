@@ -211,8 +211,12 @@ impl TaskInitializationResponse {
 
 /// Start the embedded orchestration system for testing
 ///
-/// This starts the orchestration system using the unified bootstrap architecture with
-/// configuration-driven initialization, ensuring consistency across all deployment modes.
+/// UNIFIED ARCHITECTURE: This starts the orchestration system using OrchestrationLoopCoordinator
+/// with configuration-driven initialization. The system now provides:
+/// - Dynamic executor pool management with auto-scaling
+/// - Health monitoring and resource management
+/// - Circuit breaker integration for resilience
+/// - Configuration-driven scaling policies
 ///
 /// # Arguments
 /// * `namespaces` - Array of namespace strings to initialize queues for
@@ -232,7 +236,7 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
         return Ok("Embedded orchestration system already running".to_string());
     }
 
-    info!("🚀 EMBEDDED: Starting orchestration system using unified bootstrap architecture");
+    info!("🚀 EMBEDDED: Starting orchestration system using unified OrchestrationLoopCoordinator architecture");
 
     // Create tokio runtime for orchestration system
     let rt = tokio::runtime::Runtime::new().map_err(|e| {
@@ -249,23 +253,29 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
             OrchestrationBootstrap::bootstrap_embedded(namespaces)
                 .await
                 .map_err(|e| {
-                    error!("Failed to bootstrap orchestration system: {}", e);
-                    format!("Orchestration bootstrap failed: {e}")
+                    error!(
+                        "Failed to bootstrap orchestration system with coordinator: {}",
+                        e
+                    );
+                    format!("Orchestration coordinator bootstrap failed: {e}")
                 })
         })
         .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
 
     info!(
-        "✅ EMBEDDED: Orchestration system bootstrapped successfully using unified configuration"
+        "✅ EMBEDDED: Orchestration system bootstrapped successfully using OrchestrationLoopCoordinator"
     );
 
-    // The unified bootstrap system handles all processor startup automatically,
-    // so we don't need to spawn background tasks - they're already running
+    // The OrchestrationLoopCoordinator handles all executor lifecycle management automatically,
+    // providing dynamic scaling, health monitoring, and resource management
 
     // Store the handle with the runtime instance to prevent shutdown
     *handle_guard = Some(EmbeddedOrchestrationHandle::new(system_handle, rt));
 
-    Ok("Embedded orchestration system started successfully using unified bootstrap".to_string())
+    Ok(
+        "Embedded orchestration system started successfully with OrchestrationLoopCoordinator"
+            .to_string(),
+    )
 }
 
 /// Stop the embedded orchestration system

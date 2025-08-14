@@ -235,6 +235,69 @@ circuit_breakers:
       timeout_seconds: 15 # Queue recovery should be quick (usually infrastructure issues)
       success_threshold: 2 # Need fewer successful queue operations to restore confidence
 
+# Orchestration Executor Configuration (TAS-34)
+# Configures the advanced executor pool system that replaces naive tokio polling loops
+executor_pools:
+  # Coordinator configuration
+  coordinator:
+    auto_scaling_enabled: true
+    target_utilization: 0.75 # Scale up when pools exceed 75% utilization
+    scaling_interval_seconds: 30 # Check scaling every 30 seconds
+    health_check_interval_seconds: 10 # Check executor health every 10 seconds
+    scaling_cooldown_seconds: 60 # Wait 60 seconds between scaling operations
+    max_db_pool_usage: 0.85 # Apply backpressure when DB pool exceeds 85%
+
+  # Per-executor type configuration
+  task_request_processor:
+    min_executors: 1
+    max_executors: 5
+    polling_interval_ms: 100
+    batch_size: 10
+    processing_timeout_ms: 30000
+    max_retries: 3
+    circuit_breaker_enabled: true
+    circuit_breaker_threshold: 5
+
+  task_claimer:
+    min_executors: 2
+    max_executors: 10
+    polling_interval_ms: 50
+    batch_size: 20
+    processing_timeout_ms: 30000
+    max_retries: 3
+    circuit_breaker_enabled: true
+    circuit_breaker_threshold: 3
+
+  step_enqueuer:
+    min_executors: 2
+    max_executors: 8
+    polling_interval_ms: 50
+    batch_size: 50
+    processing_timeout_ms: 30000
+    max_retries: 3
+    circuit_breaker_enabled: true
+    circuit_breaker_threshold: 5
+
+  step_result_processor:
+    min_executors: 2
+    max_executors: 10
+    polling_interval_ms: 100
+    batch_size: 20
+    processing_timeout_ms: 30000
+    max_retries: 3
+    circuit_breaker_enabled: true
+    circuit_breaker_threshold: 3
+
+  task_finalizer:
+    min_executors: 1
+    max_executors: 4
+    polling_interval_ms: 200
+    batch_size: 10
+    processing_timeout_ms: 30000
+    max_retries: 3
+    circuit_breaker_enabled: true
+    circuit_breaker_threshold: 5
+
 # Environment-specific overrides
 development:
   execution:
@@ -260,6 +323,67 @@ test:
     default_timeout_seconds: 30 # Much shorter timeout for tests (vs 3600 default)
     step_execution_timeout_seconds: 10 # Very short step timeout for tests (vs 300 default)
     connection_timeout_seconds: 3 # Fast connection timeout for tests (vs 10 default)
+
+  # Test environment executor pools - optimized for fast test execution
+  executor_pools:
+    coordinator:
+      auto_scaling_enabled: false # Disable scaling for predictable test behavior
+      target_utilization: 0.8 # Higher utilization threshold for tests
+      scaling_interval_seconds: 5 # Fast scaling checks for tests
+      health_check_interval_seconds: 2 # Frequent health checks for fast feedback
+      scaling_cooldown_seconds: 10 # Short cooldown for tests
+      max_db_pool_usage: 0.9 # Higher threshold for tests
+
+    # Smaller executor pools for tests - single executor per type for simplicity
+    task_request_processor:
+      min_executors: 1
+      max_executors: 2
+      polling_interval_ms: 50 # Faster polling for test responsiveness
+      batch_size: 5 # Smaller batches for tests
+      processing_timeout_ms: 5000 # 5 second timeout for tests
+      max_retries: 2
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 3
+
+    task_claimer:
+      min_executors: 1
+      max_executors: 2
+      polling_interval_ms: 25 # Very fast polling for tests
+      batch_size: 10
+      processing_timeout_ms: 5000
+      max_retries: 2
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 2
+
+    step_enqueuer:
+      min_executors: 1
+      max_executors: 2
+      polling_interval_ms: 25
+      batch_size: 20
+      processing_timeout_ms: 5000
+      max_retries: 2
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 3
+
+    step_result_processor:
+      min_executors: 1
+      max_executors: 2
+      polling_interval_ms: 50
+      batch_size: 10
+      processing_timeout_ms: 5000
+      max_retries: 2
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 2
+
+    task_finalizer:
+      min_executors: 1
+      max_executors: 2
+      polling_interval_ms: 100
+      batch_size: 5
+      processing_timeout_ms: 5000
+      max_retries: 2
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 3
 
   database:
     database: "tasker_rust_test"
@@ -387,6 +511,67 @@ production:
     # Production environment overrides - higher limits for complex workflows
     max_workflow_steps: 5000 # Higher for complex production workflows
     max_retries: 5 # More retries for production reliability
+
+  # Production environment executor pools - optimized for high throughput and reliability
+  executor_pools:
+    coordinator:
+      auto_scaling_enabled: true # Full auto-scaling in production
+      target_utilization: 0.70 # Lower utilization threshold for headroom
+      scaling_interval_seconds: 60 # Slower scaling for stability
+      health_check_interval_seconds: 15 # Moderate health check frequency
+      scaling_cooldown_seconds: 120 # Longer cooldown for production stability
+      max_db_pool_usage: 0.80 # Conservative DB pool usage
+
+    # Larger executor pools for production - higher concurrency
+    task_request_processor:
+      min_executors: 2
+      max_executors: 10
+      polling_interval_ms: 100
+      batch_size: 15
+      processing_timeout_ms: 60000 # 60 second timeout for production
+      max_retries: 5
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 10
+
+    task_claimer:
+      min_executors: 3
+      max_executors: 20
+      polling_interval_ms: 50
+      batch_size: 30
+      processing_timeout_ms: 60000
+      max_retries: 5
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 8
+
+    step_enqueuer:
+      min_executors: 3
+      max_executors: 15
+      polling_interval_ms: 50
+      batch_size: 75
+      processing_timeout_ms: 60000
+      max_retries: 5
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 10
+
+    step_result_processor:
+      min_executors: 3
+      max_executors: 20
+      polling_interval_ms: 100
+      batch_size: 30
+      processing_timeout_ms: 60000
+      max_retries: 5
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 8
+
+    task_finalizer:
+      min_executors: 2
+      max_executors: 8
+      polling_interval_ms: 200
+      batch_size: 15
+      processing_timeout_ms: 60000
+      max_retries: 5
+      circuit_breaker_enabled: true
+      circuit_breaker_threshold: 10
 
   database:
     database: "${POSTGRES_DB:-tasker_production}"

@@ -195,7 +195,7 @@ impl StepResultProcessor {
 
     /// Process a batch of step result messages
     #[instrument(skip(self))]
-    async fn process_step_result_batch(&self) -> Result<usize> {
+    pub async fn process_step_result_batch(&self) -> Result<usize> {
         // Read messages from the step results queue
         let messages = self
             .pgmq_client

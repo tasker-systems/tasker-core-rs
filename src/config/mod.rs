@@ -137,6 +137,10 @@ pub struct TaskerConfig {
 
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
+
+    /// Orchestration executor pools configuration (TAS-34)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor_pools: Option<ExecutorPoolsConfig>,
 }
 
 /// Authentication and authorization configuration
@@ -752,6 +756,199 @@ impl Default for TaskerConfig {
                     configs
                 },
             },
+            executor_pools: None, // Optional, only populated when YAML contains executor_pools
+        }
+    }
+}
+
+/// Orchestration executor pools configuration (TAS-34)
+/// Configures the advanced executor pool system that replaces naive tokio polling loops
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorPoolsConfig {
+    /// Coordinator configuration for auto-scaling and health monitoring
+    pub coordinator: ExecutorCoordinatorConfig,
+
+    /// Task request processor configuration
+    pub task_request_processor: ExecutorInstanceConfig,
+
+    /// Task claimer configuration
+    pub task_claimer: ExecutorInstanceConfig,
+
+    /// Step enqueuer configuration
+    pub step_enqueuer: ExecutorInstanceConfig,
+
+    /// Step result processor configuration
+    pub step_result_processor: ExecutorInstanceConfig,
+
+    /// Task finalizer configuration
+    pub task_finalizer: ExecutorInstanceConfig,
+}
+
+/// Coordinator configuration for managing executor pools
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorCoordinatorConfig {
+    /// Whether auto-scaling is enabled
+    pub auto_scaling_enabled: bool,
+
+    /// Target utilization for scaling decisions (0.0-1.0)
+    pub target_utilization: f64,
+
+    /// How often to check scaling conditions (seconds)
+    pub scaling_interval_seconds: u64,
+
+    /// How often to check executor health (seconds)
+    pub health_check_interval_seconds: u64,
+
+    /// Cooldown period between scaling operations (seconds)
+    pub scaling_cooldown_seconds: u64,
+
+    /// Maximum database pool usage before applying backpressure (0.0-1.0)
+    pub max_db_pool_usage: f64,
+}
+
+/// Configuration for a specific executor instance type
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorInstanceConfig {
+    /// Minimum number of executors to maintain
+    pub min_executors: usize,
+
+    /// Maximum number of executors allowed
+    pub max_executors: usize,
+
+    /// Polling interval in milliseconds
+    pub polling_interval_ms: u64,
+
+    /// Maximum batch size for processing
+    pub batch_size: usize,
+
+    /// Processing timeout in milliseconds
+    pub processing_timeout_ms: u64,
+
+    /// Maximum number of retries for failed operations
+    pub max_retries: u32,
+
+    /// Whether circuit breaker is enabled
+    pub circuit_breaker_enabled: bool,
+
+    /// Circuit breaker failure threshold
+    pub circuit_breaker_threshold: u32,
+}
+
+impl ExecutorInstanceConfig {
+    /// Convert to ExecutorConfig from the executor traits module
+    pub fn to_executor_config(&self) -> crate::orchestration::executor::traits::ExecutorConfig {
+        crate::orchestration::executor::traits::ExecutorConfig {
+            polling_interval_ms: self.polling_interval_ms,
+            batch_size: self.batch_size,
+            processing_timeout_ms: self.processing_timeout_ms,
+            max_retries: self.max_retries,
+            backpressure_factor: 1.0, // Default, will be adjusted by coordinator
+            circuit_breaker_enabled: self.circuit_breaker_enabled,
+            circuit_breaker_threshold: self.circuit_breaker_threshold,
+        }
+    }
+}
+
+impl Default for ExecutorPoolsConfig {
+    fn default() -> Self {
+        Self {
+            coordinator: ExecutorCoordinatorConfig::default(),
+            task_request_processor: ExecutorInstanceConfig::default_for_type(
+                "task_request_processor",
+            ),
+            task_claimer: ExecutorInstanceConfig::default_for_type("task_claimer"),
+            step_enqueuer: ExecutorInstanceConfig::default_for_type("step_enqueuer"),
+            step_result_processor: ExecutorInstanceConfig::default_for_type(
+                "step_result_processor",
+            ),
+            task_finalizer: ExecutorInstanceConfig::default_for_type("task_finalizer"),
+        }
+    }
+}
+
+impl Default for ExecutorCoordinatorConfig {
+    fn default() -> Self {
+        Self {
+            auto_scaling_enabled: true,
+            target_utilization: 0.75,
+            scaling_interval_seconds: 30,
+            health_check_interval_seconds: 10,
+            scaling_cooldown_seconds: 60,
+            max_db_pool_usage: 0.85,
+        }
+    }
+}
+
+impl ExecutorInstanceConfig {
+    /// Create default configuration for a specific executor type
+    pub fn default_for_type(executor_type: &str) -> Self {
+        match executor_type {
+            "task_request_processor" => Self {
+                min_executors: 1,
+                max_executors: 5,
+                polling_interval_ms: 100,
+                batch_size: 10,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            "task_claimer" => Self {
+                min_executors: 2,
+                max_executors: 10,
+                polling_interval_ms: 50,
+                batch_size: 20,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 3,
+            },
+            "step_enqueuer" => Self {
+                min_executors: 2,
+                max_executors: 8,
+                polling_interval_ms: 50,
+                batch_size: 50,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            "step_result_processor" => Self {
+                min_executors: 2,
+                max_executors: 10,
+                polling_interval_ms: 100,
+                batch_size: 20,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 3,
+            },
+            "task_finalizer" => Self {
+                min_executors: 1,
+                max_executors: 4,
+                polling_interval_ms: 200,
+                batch_size: 10,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            _ => Self::default(), // Fallback to default
+        }
+    }
+}
+
+impl Default for ExecutorInstanceConfig {
+    fn default() -> Self {
+        Self {
+            min_executors: 1,
+            max_executors: 5,
+            polling_interval_ms: 100,
+            batch_size: 10,
+            processing_timeout_ms: 30000,
+            max_retries: 3,
+            circuit_breaker_enabled: true,
+            circuit_breaker_threshold: 5,
         }
     }
 }
@@ -1025,5 +1222,60 @@ impl TaskerConfig {
         }
 
         warnings
+    }
+
+    /// Get executor pools configuration with fallback to defaults if not configured
+    pub fn executor_pools(&self) -> ExecutorPoolsConfig {
+        match &self.executor_pools {
+            Some(pools) => pools.clone(),
+            None => ExecutorPoolsConfig::default(),
+        }
+    }
+
+    /// Check if executor pools are explicitly configured in YAML
+    pub fn has_executor_pools_config(&self) -> bool {
+        self.executor_pools.is_some()
+    }
+
+    /// Get executor configuration for a specific executor type
+    pub fn get_executor_config(
+        &self,
+        executor_type: crate::orchestration::executor::traits::ExecutorType,
+    ) -> crate::orchestration::executor::traits::ExecutorConfig {
+        let executor_pools = self.executor_pools();
+
+        let instance_config = match executor_type {
+            crate::orchestration::executor::traits::ExecutorType::TaskRequestProcessor => {
+                &executor_pools.task_request_processor
+            }
+            crate::orchestration::executor::traits::ExecutorType::OrchestrationLoop => {
+                &executor_pools.step_enqueuer
+            } // OrchestrationLoop handles step enqueueing
+            crate::orchestration::executor::traits::ExecutorType::StepResultProcessor => {
+                &executor_pools.step_result_processor
+            }
+        };
+
+        instance_config.to_executor_config()
+    }
+
+    /// Get executor instance configuration for a specific executor type
+    pub fn get_executor_instance_config(
+        &self,
+        executor_type: crate::orchestration::executor::traits::ExecutorType,
+    ) -> ExecutorInstanceConfig {
+        let executor_pools = self.executor_pools();
+
+        match executor_type {
+            crate::orchestration::executor::traits::ExecutorType::TaskRequestProcessor => {
+                executor_pools.task_request_processor.clone()
+            }
+            crate::orchestration::executor::traits::ExecutorType::OrchestrationLoop => {
+                executor_pools.step_enqueuer.clone()
+            } // OrchestrationLoop handles step enqueueing
+            crate::orchestration::executor::traits::ExecutorType::StepResultProcessor => {
+                executor_pools.step_result_processor.clone()
+            }
+        }
     }
 }
