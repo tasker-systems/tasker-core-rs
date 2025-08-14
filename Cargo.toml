@@ -107,13 +107,14 @@ serial_test = "3.1"
 cargo-llvm-cov = "0.6"
 
 [features]
-default = ["postgres"]
+default = ["postgres", "test-utils"]
 postgres = ["sqlx/postgres"]
 ruby-ffi = ["magnus"]
 python-ffi = ["pyo3"]
 wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 benchmarks = ["criterion"]
 test-helpers = []
+test-utils = []
 
 [[bench]]
 name = "core_benchmarks"

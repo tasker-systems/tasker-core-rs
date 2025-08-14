@@ -704,11 +704,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_executor_pool_creation() {
-        // Set DATABASE_URL for the test
-        std::env::set_var(
-            "DATABASE_URL",
-            "postgresql://tasker:tasker@localhost/tasker_rust_test",
-        );
+        // Setup test environment (respects existing DATABASE_URL in CI)
+        crate::test_utils::setup_test_environment();
 
         let config = ConfigManager::load_from_directory_with_env(None, "test")
             .expect("Failed to load test configuration");
@@ -728,11 +725,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_manager_creation() {
-        // Set DATABASE_URL for the test
-        std::env::set_var(
-            "DATABASE_URL",
-            "postgresql://tasker:tasker@localhost/tasker_rust_test",
-        );
+        // Setup test environment (respects existing DATABASE_URL in CI)
+        crate::test_utils::setup_test_environment();
 
         let config = ConfigManager::load_from_directory_with_env(None, "test")
             .expect("Failed to load test configuration");

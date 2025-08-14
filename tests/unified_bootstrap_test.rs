@@ -1,6 +1,5 @@
 //! Integration test for unified bootstrap architecture with circuit breakers
 
-use std::env;
 use tasker_core::messaging::PgmqClientTrait;
 use tracing::{info, Level};
 
@@ -13,11 +12,8 @@ async fn test_unified_bootstrap_architecture() -> Result<(), Box<dyn std::error:
 
     info!("🧪 Testing unified bootstrap architecture with circuit breakers");
 
-    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-    env::set_var("DATABASE_URL", database_url);
-    env::set_var("TASKER_ENV", "test");
+    // Setup test environment (respects existing DATABASE_URL in CI)
+    tasker_core::test_utils::setup_test_environment();
 
     // Test: Initialize OrchestrationCore with configuration
     info!("🔧 Test: Initialize with configuration");
@@ -61,11 +57,8 @@ async fn test_circuit_breaker_manager_access() -> Result<(), Box<dyn std::error:
 
     info!("🔧 Testing circuit breaker manager access");
 
-    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-    env::set_var("DATABASE_URL", database_url);
-    env::set_var("TASKER_ENV", "test");
+    // Setup test environment (respects existing DATABASE_URL in CI)
+    tasker_core::test_utils::setup_test_environment();
 
     let core = tasker_core::orchestration::OrchestrationCore::new().await?;
 

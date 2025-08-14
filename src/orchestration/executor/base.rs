@@ -842,9 +842,7 @@ mod tests {
     use sqlx::PgPool;
 
     async fn create_test_database_pool() -> Result<PgPool> {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
-        });
+        let database_url = crate::test_utils::get_test_database_url();
 
         PgPool::connect(&database_url)
             .await
