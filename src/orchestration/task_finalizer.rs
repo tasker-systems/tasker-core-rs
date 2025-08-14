@@ -220,19 +220,6 @@ impl TaskFinalizer {
             .await
     }
 
-    /// Handle no viable steps event
-    ///
-    /// Convenience method for event-driven workflows when no viable steps are found.
-    /// This triggers task finalization to determine next action.
-    ///
-    /// @param task_uuid The task ID to handle
-    pub async fn handle_no_viable_steps(
-        &self,
-        task_uuid: Uuid,
-    ) -> Result<FinalizationResult, FinalizationError> {
-        self.finalize_task(task_uuid, false).await
-    }
-
     /// Complete a task successfully
     async fn complete_task(
         &self,

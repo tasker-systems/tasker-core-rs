@@ -69,7 +69,7 @@ class SharedTestLoop
     Timeout.timeout(timeout) do
       loop do
         tec = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
-        if tec.completion_percentage.to_i == 100
+        if tec.completion_percentage.to_i == 100 && tec.status == 'complete'
           # Task completed - immediately stop workers
           @logger.info '✅ Task completed, stopping workers immediately...'
           cleanup_workers
@@ -83,7 +83,7 @@ class SharedTestLoop
     end
 
     final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
-
+    @logger.error("FAKE_ERROR: final_execution is #{final_execution.to_h}")
     unless final_execution.completion_percentage.to_i == 100
       raise TaskerCore::Errors::OrchestrationError,
             'Task did not complete'

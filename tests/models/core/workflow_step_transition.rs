@@ -98,16 +98,16 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
 
     let workflow_step_uuid = workflow_step.workflow_step_uuid;
 
-    // Test creation
+    // Test creation using valid workflow step states
     let new_transition = NewWorkflowStepTransition {
         workflow_step_uuid,
-        to_state: "ready".to_string(),
+        to_state: "enqueued".to_string(),
         from_state: Some("pending".to_string()),
         metadata: Some(json!({"reason": "dependencies_met"})),
     };
 
     let created = WorkflowStepTransition::create(&pool, new_transition).await?;
-    assert_eq!(created.to_state, "ready");
+    assert_eq!(created.to_state, "enqueued");
     assert!(created.most_recent);
     assert_eq!(created.sort_key, 1);
 
@@ -130,11 +130,11 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     );
     assert!(current.most_recent);
 
-    // Test creating another transition
+    // Test creating another transition using valid states
     let new_transition2 = NewWorkflowStepTransition {
         workflow_step_uuid,
-        to_state: "running".to_string(),
-        from_state: Some("ready".to_string()),
+        to_state: "in_progress".to_string(),
+        from_state: Some("enqueued".to_string()),
         metadata: Some(json!({"started_at": "2024-01-01T00:00:00Z"})),
     };
 
@@ -162,10 +162,14 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
         created.workflow_step_transition_uuid
     );
 
-    // Test can transition
-    let can_transition =
-        WorkflowStepTransition::can_transition(&pool, workflow_step_uuid, "running", "completed")
-            .await?;
+    // Test can transition using valid states
+    let can_transition = WorkflowStepTransition::can_transition(
+        &pool,
+        workflow_step_uuid,
+        "in_progress",
+        "complete",
+    )
+    .await?;
     assert!(can_transition);
 
     // Cleanup - delete in reverse dependency order (transitions first)

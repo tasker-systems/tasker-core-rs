@@ -10,6 +10,7 @@ require 'dry-validation'
 require 'concurrent-ruby'
 require 'timeout'
 require 'dotenv'
+require 'statesman'
 
 # Pre-define TaskerCore module for Magnus
 module TaskerCore
@@ -84,6 +85,18 @@ module TaskerCore
     # @return [String] Absolute path to project root
     def project_root
       Utils::PathResolver.project_root
+    end
+
+    # Get the gem root directory
+    # @return [String] Absolute path to gem root
+    def gem_root
+      Utils::PathResolver.gem_root
+    end
+
+    # Get the gem library root directory
+    # @return [String] Absolute path to gem library root
+    def gem_lib_root
+      Utils::PathResolver.gem_lib_root
     end
 
     # Validate configuration and raise if invalid
@@ -246,36 +259,36 @@ module TaskerCore
   autoload :OrchestrationManager, 'tasker_core/internal/orchestration_manager'
 end
 
-class Hash
-  def deep_merge(other_hash)
-    dup.deep_merge!(other_hash)
-  end
+# class Hash
+#   def deep_merge(other_hash)
+#     dup.deep_merge!(other_hash)
+#   end
 
-  def deep_merge!(other_hash)
-    other_hash.each_pair do |k, v|
-      tv = self[k]
-      self[k] = if tv.is_a?(Hash) && v.is_a?(Hash)
-                  tv.deep_merge(v)
-                else
-                  v
-                end
-    end
-    self
-  end
+#   def deep_merge!(other_hash)
+#     other_hash.each_pair do |k, v|
+#       tv = self[k]
+#       self[k] = if tv.is_a?(Hash) && v.is_a?(Hash)
+#                   tv.deep_merge(v)
+#                 else
+#                   v
+#                 end
+#     end
+#     self
+#   end
 
-  def deep_symbolize_keys
-    transform_keys(&:to_sym).transform_values do |value|
-      case value
-      when Hash
-        value.deep_symbolize_keys
-      when Array
-        value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
-      else
-        value
-      end
-    end
-  end
-end
+#   def deep_symbolize_keys
+#     transform_keys(&:to_sym).transform_values do |value|
+#       case value
+#       when Hash
+#         value.deep_symbolize_keys
+#       when Array
+#         value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
+#       else
+#         value
+#       end
+#     end
+#   end
+# end
 
 # Automatically boot the system when TaskerCore is loaded
 # This ensures proper initialization order for all components

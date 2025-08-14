@@ -50,7 +50,9 @@ impl TaskEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum StepEvent {
-    /// Start processing the step
+    /// Enqueue the step for processing (TAS-32: pending → enqueued)
+    Enqueue,
+    /// Start processing the step (TAS-32: enqueued → in_progress)
     Start,
     /// Mark step as complete with optional results
     Complete(Option<Value>),
@@ -68,6 +70,7 @@ impl StepEvent {
     /// Get a string representation of the event type for logging
     pub fn event_type(&self) -> &'static str {
         match self {
+            Self::Enqueue => "enqueue",
             Self::Start => "start",
             Self::Complete(_) => "complete",
             Self::Fail(_) => "fail",

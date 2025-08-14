@@ -631,7 +631,11 @@ impl StateManager {
         Ok(())
     }
 
-    /// Complete step with results - stores results in database
+    /// TAS-32 DEPRECATED: Complete step with results - stores results in database
+    ///
+    /// **DEPRECATED in TAS-32**: Ruby workers now handle step completion with MessageManager.
+    /// This method is no longer called by Rust orchestration but kept for backward compatibility.
+    #[deprecated(note = "Ruby workers handle step completion. Use Ruby MessageManager instead.")]
     pub async fn complete_step_with_results(
         &self,
         step_uuid: Uuid,
@@ -673,9 +677,11 @@ impl StateManager {
         Ok(())
     }
 
-    /// Handle step failure with retry logic
-    /// If the step has retries remaining, transition to pending for retry
-    /// Otherwise, transition to error state
+    /// TAS-32 DEPRECATED: Handle step failure with retry logic
+    ///
+    /// **DEPRECATED in TAS-32**: Ruby workers now handle step failures with MessageManager.
+    /// This method is no longer called by Rust orchestration but kept for backward compatibility.
+    #[deprecated(note = "Ruby workers handle step failures. Use Ruby MessageManager instead.")]
     pub async fn handle_step_failure_with_retry(
         &self,
         step_uuid: Uuid,
@@ -753,7 +759,35 @@ impl StateManager {
             .await
     }
 
-    /// Mark step as in progress - transitions state machine and sets in_process column
+    /// Mark step as enqueued - TAS-32: transitions pending → enqueued when step is queued
+    pub async fn mark_step_enqueued(&self, step_uuid: Uuid) -> OrchestrationResult<()> {
+        // 1. Transition state machine to Enqueued (pending → enqueued)
+        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
+
+        let event = StepEvent::Enqueue;
+
+        step_state_machine.transition(event).await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_uuid: step_uuid,
+                reason: e.to_string(),
+            }
+        })?;
+
+        debug!(
+            step_uuid = step_uuid.to_string(),
+            "Marked step as enqueued (TAS-32)"
+        );
+        Ok(())
+    }
+
+    /// TAS-32 DEPRECATED: Mark step as in progress - transitions state machine and sets in_process column
+    ///
+    /// **DEPRECATED in TAS-32**: Ruby workers now handle step state transitions with MessageManager.
+    /// This method is no longer called by Rust orchestration but kept for backward compatibility.
+    #[deprecated(
+        note = "Ruby workers handle step state transitions. Use Ruby MessageManager instead."
+    )]
     pub async fn mark_step_in_progress(&self, step_uuid: Uuid) -> OrchestrationResult<()> {
         // 1. Transition state machine to InProgress
         let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;

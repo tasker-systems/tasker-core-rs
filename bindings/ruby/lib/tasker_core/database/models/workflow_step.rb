@@ -180,24 +180,24 @@ module TaskerCore
         end
 
         # State machine integration
-        # def state_machine
-        #   @state_machine ||= TaskerCore::StateMachine::StepStateMachine.new(
-        #     self,
-        #     transition_class: TaskerCore::WorkflowStepTransition,
-        #     association_name: :workflow_step_transitions
-        #   )
-        # end
+        def state_machine
+          @state_machine ||= TaskerCore::StateMachine::StepStateMachine.new(
+            self,
+            transition_class: TaskerCore::Database::Models::WorkflowStepTransition,
+            association_name: :workflow_step_transitions
+          )
+        end
 
-        # # Status is now entirely managed by the state machine
-        # def status
-        #   if new_record?
-        #     # For new records, return the initial state
-        #     TaskerCore::Constants::WorkflowStepStatuses::PENDING
-        #   else
-        #     # For persisted records, use state machine
-        #     state_machine.current_state
-        #   end
-        # end
+        # Status is now entirely managed by the state machine
+        def status
+          if new_record?
+            # For new records, return the initial state
+            TaskerCore::Constants::WorkflowStepStatuses::PENDING
+          else
+            # For persisted records, use state machine
+            state_machine.current_state
+          end
+        end
 
         def step_uuid
           workflow_step_uuid

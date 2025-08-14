@@ -18,7 +18,7 @@ module TaskerCore
         end
       end
 
-      attr_reader :logger
+      attr_reader :logger, :object
 
       include Statesman::Machine
       # extend Tasker::Concerns::EventPublisher
@@ -54,40 +54,26 @@ module TaskerCore
                  to: [Constants::WorkflowStepStatuses::PENDING,
                       Constants::WorkflowStepStatuses::RESOLVED_MANUALLY]
 
-      # Callbacks for state transitions
-      before_transition do |step, transition|
-        # Handle idempotent transitions using existing helper method
-        if StepStateMachine.idempotent_transition?(step, transition.to_state)
-          # Abort the transition by raising GuardFailedError
-          raise Statesman::GuardFailedError, "Already in target state #{transition.to_state}"
-        end
-
-        # Log the transition for debugging
-        effective_current_state = StepStateMachine.effective_current_state(step)
-                                                  .logger.debug do
-          "Step #{step.workflow_step_uuid} transitioning from #{effective_current_state} to #{transition.to_state}"
-        end
-      end
-
       after_transition do |step, transition|
-        # Determine the appropriate event name based on the transition
-        event_name = determine_transition_event_name(transition.from_state, transition.to_state)
+        # TODO: we will build our event publication logic here
+        # # Determine the appropriate event name based on the transition
+        # event_name = determine_transition_event_name(transition.from_state, transition.to_state)
 
-        # Only fire the event if we have a valid event name
-        if event_name
-          # Fire the lifecycle event with step context
-          StepStateMachine.safe_fire_event(
-            event_name,
-            {
-              task_uuid: step.task_uuid,
-              step_id: step.workflow_step_uuid,
-              step_name: step.name,
-              from_state: transition.from_state,
-              to_state: transition.to_state,
-              transitioned_at: Time.zone.now
-            }
-          )
-        end
+        # # Only fire the event if we have a valid event name
+        # if event_name
+        #   # Fire the lifecycle event with step context
+        #   StepStateMachine.safe_fire_event(
+        #     event_name,
+        #     {
+        #       task_uuid: step.task_uuid,
+        #       step_id: step.workflow_step_uuid,
+        #       step_name: step.name,
+        #       from_state: transition.from_state,
+        #       to_state: transition.to_state,
+        #       transitioned_at: Time.zone.now
+        #     }
+        #   )
+        # end
       end
 
       # Guard clauses for business logic only
@@ -155,8 +141,10 @@ module TaskerCore
          Constants::WorkflowStepStatuses::RESOLVED_MANUALLY] => Constants::StepEvents::RESOLVED_MANUALLY
       }.freeze
 
-      def initialize
+      def initialize(object, options = {})
+        @object = object
         @logger = TaskerCore::Logging::Logger.instance
+        super(object, options)
       end
 
       # Override current_state to work with custom transition model
@@ -175,48 +163,8 @@ module TaskerCore
         end
       end
 
-      # Override Statesman's transition building to ensure proper from_state handling
-      # This is called by Statesman when creating new transitions
-      def create_transition(from_state, to_state, metadata = {})
-        # Ensure from_state is properly set - never allow empty strings
-        effective_from_state = case from_state
-                               when nil, ''
-                                 # For initial transitions or empty strings, use nil
-                                 nil
-                               else
-                                 # For existing states, ensure it's a valid state
-                                 from_state.presence
-                               end
-
-        # Log transition creation for debugging
-        logger.debug do
-          "StepStateMachine: Creating transition for step #{object.workflow_step_uuid}: " \
-            "'#{effective_from_state}' → '#{to_state}'"
-        end
-
-        # Get the next sort key
-        next_sort_key = next_sort_key_value
-
-        # Create the transition with proper from_state handling
-        transition = TaskerCore::Database::Models::WorkflowStepTransition.create!(
-          workflow_step_uuid: object.workflow_step_uuid,
-          to_state: to_state,
-          from_state: effective_from_state, # Use nil instead of empty string
-          most_recent: true,
-          sort_key: next_sort_key,
-          metadata: metadata || {},
-          created_at: Time.current,
-          updated_at: Time.current
-        )
-
-        # Update previous transitions to not be most recent
-        object.workflow_step_transitions
-              .where(most_recent: true)
-              .where.not(id: transition.id)
-              .update_all(most_recent: false)
-
-        transition
-      end
+      # Let Statesman handle transition creation using its ActiveRecord adapter
+      # We override current_state and next_sort_key_value but let Statesman handle the rest
 
       # Get the next sort key for transitions
       def next_sort_key_value
@@ -281,25 +229,6 @@ module TaskerCore
         # Class-level wrapper methods for guard clause context
         # These delegate to instance methods to provide clean access from guard clauses
 
-        # Check if a transition is idempotent (current state == target state)
-        #
-        # @param step [WorkflowStep] The step to check
-        # @param target_state [String] The target state
-        # @return [Boolean] True if this is an idempotent transition
-        def idempotent_transition?(step, target_state)
-          current_state = step.state_machine.current_state
-          effective_current_state = current_state.presence || Constants::WorkflowStepStatuses::PENDING
-          is_idempotent = effective_current_state == target_state
-
-          if is_idempotent
-            logger.debug do
-              "StepStateMachine: Allowing idempotent transition to #{target_state} for step #{step.workflow_step_uuid}"
-            end
-          end
-
-          is_idempotent
-        end
-
         # Get the effective current state, handling blank/empty states
         #
         # @param step [WorkflowStep] The step to check
@@ -327,10 +256,8 @@ module TaskerCore
         # @param step [WorkflowStep] The step
         # @param target_state [String] The target state
         def log_dependencies_not_met(step, target_state)
-          logger.debug do
-            "StepStateMachine: Cannot transition step #{step.workflow_step_uuid} to #{target_state} - " \
-              'dependencies not satisfied. Check parent step completion status.'
-          end
+          logger.debug "StepStateMachine: Cannot transition step #{step.workflow_step_uuid} to #{target_state} - " \
+                       'dependencies not satisfied. Check parent step completion status.'
         end
 
         # Log the result of a transition check
@@ -341,13 +268,9 @@ module TaskerCore
         # @param reason [String] The reason for the result
         def log_transition_result(step, target_state, result, reason)
           if result
-            logger.debug do
-              "StepStateMachine: Allowing transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason})"
-            end
+            logger.debug "StepStateMachine: Allowing transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason})"
           else
-            logger.debug do
-              "StepStateMachine: Blocking transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason} failed)"
-            end
+            logger.debug "StepStateMachine: Blocking transition to #{target_state} for step #{step.workflow_step_uuid} (#{reason} failed)"
           end
         end
 

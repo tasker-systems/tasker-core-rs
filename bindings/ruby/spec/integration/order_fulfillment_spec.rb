@@ -82,20 +82,19 @@ RSpec.describe 'Order Fulfillment PGMQ Integration', type: :integration do
       expect(task.workflow_steps.count).to eq(4) # validate, reserve, payment, ship
 
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
 
         # Validate specific step results
         case step.name
         when 'validate_order'
-          expect(results['result']).to include('customer_validated' => true)
+          expect(results[:result]).to include(customer_validated: true)
         when 'reserve_inventory'
-          expect(results['result']).to include('items_reserved' => 2)
+          expect(results[:result]).to include(items_reserved: 2)
         when 'process_payment'
-          expect(results['result']).to include('payment_processed' => true)
+          expect(results[:result]).to include(payment_processed: true)
         when 'ship_order'
-          expect(results['result']).to include('shipping_status' => 'label_created')
+          expect(results[:result]).to include(shipping_status: 'label_created')
         end
       end
     end

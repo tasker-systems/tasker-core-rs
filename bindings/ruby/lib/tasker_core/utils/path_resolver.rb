@@ -30,6 +30,18 @@ module TaskerCore
           @project_root ||= find_project_root
         end
 
+        # Get the gem root directory
+        # @return [String] Absolute path to gem root
+        def gem_root
+          @gem_root ||= File.expand_path(File.join(project_root, 'bindings/ruby'))
+        end
+
+        # Get the gem library root directory
+        # @return [String] Absolute path to gem library root
+        def gem_lib_root
+          @gem_lib_root ||= File.expand_path(File.join(gem_root, 'lib/tasker_core'))
+        end
+
         # Reset cached project root (useful for testing)
         def reset!
           @project_root = nil

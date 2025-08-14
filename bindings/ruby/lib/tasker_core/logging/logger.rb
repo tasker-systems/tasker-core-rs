@@ -12,79 +12,79 @@ module TaskerCore
       attr_reader :logger
 
       # Traditional string-based logging methods (backward compatibility)
-      def info(message)
-        @logger.info(message)
+      def info(message, &)
+        @logger.info(message, &)
       end
 
-      def warn(message)
-        @logger.warn(message)
+      def warn(message, &)
+        @logger.warn(message, &)
       end
 
-      def error(message)
-        @logger.error(message)
+      def error(message, &)
+        @logger.error(message, &)
       end
 
-      def fatal(message)
-        @logger.fatal(message)
+      def fatal(message, &)
+        @logger.fatal(message, &)
       end
 
-      def debug(message)
-        @logger.debug(message)
+      def debug(message, &)
+        @logger.debug(message, &)
       end
 
       # Enhanced structured logging methods that match Rust patterns
       # These provide structured data while maintaining emoji + component format consistency
 
-      def log_task(level, operation, **data)
+      def log_task(level, operation, **data, &)
         message = build_unified_message('📋 TASK_OPERATION', operation, **data)
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_queue_worker(level, operation, namespace: nil, **data)
+      def log_queue_worker(level, operation, namespace: nil, **data, &)
         message = if namespace
                     build_unified_message('🔄 QUEUE_WORKER', "#{operation} (namespace: #{namespace})", **data)
                   else
                     build_unified_message('🔄 QUEUE_WORKER', operation, **data)
                   end
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_orchestrator(level, operation, **data)
+      def log_orchestrator(level, operation, **data, &)
         message = build_unified_message('🚀 ORCHESTRATOR', operation, **data)
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_step(level, operation, **data)
+      def log_step(level, operation, **data, &)
         message = build_unified_message('🔧 STEP_OPERATION', operation, **data)
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_database(level, operation, **data)
+      def log_database(level, operation, **data, &)
         message = build_unified_message('💾 DATABASE', operation, **data)
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_ffi(level, operation, component: nil, **data)
+      def log_ffi(level, operation, component: nil, **data, &)
         message = if component
                     build_unified_message('🌉 FFI', "#{operation} (#{component})", **data)
                   else
                     build_unified_message('🌉 FFI', operation, **data)
                   end
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_config(level, operation, **data)
+      def log_config(level, operation, **data, &)
         message = build_unified_message('⚙️ CONFIG', operation, **data)
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
-      def log_registry(level, operation, namespace: nil, name: nil, **data)
+      def log_registry(level, operation, namespace: nil, name: nil, **data, &)
         message = if namespace && name
                     build_unified_message('📚 REGISTRY', "#{operation} (#{namespace}/#{name})", **data)
                   else
                     build_unified_message('📚 REGISTRY', operation, **data)
                   end
-        @logger.send(level, message)
+        @logger.send(level, message, &)
       end
 
       def initialize

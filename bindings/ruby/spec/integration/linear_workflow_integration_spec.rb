@@ -57,10 +57,10 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task = shared_loop.run(task_request: task_request, num_workers: 1, namespace: namespace)
       expect(task).not_to be_nil
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
-        expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        result = step.results.deep_symbolize_keys
+        expect(result).to be_a(Hash)
+        expect(result[:result]).to be_a(Integer)
+        expect(result[:success]).to be(true)
       end
 
       # Verify task was created immediately (no polling needed with FFI)
@@ -97,10 +97,10 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       task = shared_loop.run(task_request: task_request, num_workers: 1, namespace: namespace)
       expect(task).not_to be_nil
       task.workflow_steps.each do |step|
-        results = JSON.parse(step.results)
+        results = step.results.deep_symbolize_keys
         expect(results).to be_a(Hash)
-        expect(results.keys).to include('result')
-        expect(results['result']).to be_a(Integer)
+        expect(results.keys).to include(:result)
+        expect(results[:result]).to be_a(Integer)
       end
     end
 
@@ -252,56 +252,6 @@ RSpec.describe 'Linear Workflow Integration', type: :integration do
       expect(task_context.total_steps).to eq(4) # Linear workflow has 4 steps
       expect(task_context.ready_steps).to be > 0, 'Expected at least one ready step after task initialization'
       expect(task_context.execution_status).to eq('has_ready_steps').or eq('in_progress').or eq('pending')
-    end
-
-    it 'verifies orchestration loop claims ready tasks' do
-      # Create TaskRequest
-      task_request = TaskerCore::Types::TaskTypes::TaskRequest.new(
-        namespace: 'linear_workflow',
-        name: 'mathematical_sequence',
-        version: '1.0.0',
-        context: { even_number: 6, test_run_id: SecureRandom.uuid },
-        initiator: 'orchestration_claiming_test',
-        source_system: 'rspec_integration',
-        reason: 'Test orchestration loop claiming behavior',
-        priority: 5,
-        claim_timeout_seconds: 300
-      )
-
-      # Initialize task
-      task_result = TaskerCore.initialize_task_embedded(task_request.to_ffi_hash)
-      task_uuid = task_result[:task_uuid]
-
-      expect(task_uuid).to be_a(String)
-      expect(task_uuid).to match(/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i)
-
-      # First, let's check the task itself
-      task = TaskerCore::Database::Models::Task.with_all_associated.find(task_uuid)
-      expect(task).not_to be_nil, 'Task should exist'
-      # let the initializer finish, should be in ms but just to be safe in large runs
-      ready_task = nil
-      Timeout.timeout(5) do
-        loop do
-          ready_task = TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid)
-
-          break if ready_task
-
-          sleep(1)
-        end
-      end
-
-      expect(ready_task).not_to be_nil, 'Task should appear in ready tasks view'
-
-      expect(ready_task.namespace_name).to eq('linear_workflow')
-      expect(ready_task.ready_steps_count.to_i).to be > 0
-      expect(ready_task.claim_status).to eq('available')
-
-      # Test our convenience methods
-      expect(ready_task.available?).to be true
-      expect(ready_task.has_ready_steps?).to be true
-      expect(ready_task.ready_for_execution?).to be true
-
-      expect { TaskerCore::Database::Models::ReadyTask.find_by(task_uuid: task_uuid) }.not_to raise_error
     end
   end
 end

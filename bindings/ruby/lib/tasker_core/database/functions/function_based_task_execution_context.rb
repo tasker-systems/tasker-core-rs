@@ -18,6 +18,7 @@ module TaskerCore
         attribute :completed_steps, :integer
         attribute :failed_steps, :integer
         attribute :ready_steps, :integer
+        attribute :enqueued_steps, :integer
         attribute :execution_status, :string
         attribute :recommended_action, :string
         attribute :completion_percentage, :decimal
@@ -138,6 +139,27 @@ module TaskerCore
               can_proceed: false
             }
           end
+        end
+
+        def to_h
+          {
+            task_uuid: task_uuid,
+            named_task_uuid: named_task_uuid,
+            status: status,
+            total_steps: total_steps,
+            pending_steps: pending_steps,
+            in_progress_steps: in_progress_steps,
+            completed_steps: completed_steps,
+            failed_steps: failed_steps,
+            ready_steps: ready_steps,
+            enqueued_steps: enqueued_steps,
+            execution_status: execution_status,
+            recommended_action: recommended_action,
+            completion_percentage: completion_percentage,
+            health_status: health_status,
+            progress_details: progress_details,
+            next_action_details: next_action_details
+          }.deep_symbolize_keys
         end
 
         # Association (lazy-loaded)
