@@ -56,6 +56,9 @@ chrono = { version = "0.4.38", features = ["serde"] }
 thiserror = "2.0"
 anyhow = "1.0"
 
+# System information
+sysinfo = "0.31"
+
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

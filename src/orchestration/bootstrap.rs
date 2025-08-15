@@ -16,7 +16,9 @@
 
 use crate::config::ConfigManager;
 use crate::error::{Result, TaskerError};
-use crate::orchestration::coordinator::OrchestrationLoopCoordinator;
+use crate::orchestration::coordinator::{
+    resource_limits::ResourceValidator, OrchestrationLoopCoordinator,
+};
 use crate::orchestration::OrchestrationCore;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -222,6 +224,20 @@ impl OrchestrationBootstrap {
 
         // Start coordinator if auto-start is enabled (NEW UNIFIED ARCHITECTURE)
         if config.auto_start_processors {
+            // PHASE 1: Resource Constraint Validation (TAS-34) - Fail fast on bootstrap
+            info!("🔍 BOOTSTRAP: Validating resource constraints before starting coordinator");
+            let resource_validator =
+                ResourceValidator::new(orchestration_core.database_pool(), config_manager.clone())
+                    .await?;
+
+            let validation_result = resource_validator.validate_and_fail_fast().await?;
+
+            info!(
+                "✅ BOOTSTRAP: Resource validation passed - Max executors: {}, Available DB connections: {}",
+                validation_result.executor_requirements.total_max_executors,
+                validation_result.resource_limits.available_database_connections
+            );
+
             // Create OrchestrationLoopCoordinator for unified architecture
             let coordinator = Arc::new(
                 OrchestrationLoopCoordinator::new(

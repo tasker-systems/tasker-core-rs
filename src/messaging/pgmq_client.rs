@@ -231,13 +231,28 @@ impl PgmqClient {
     ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
         debug!("📊 Getting metrics for queue: {}", queue_name);
 
-        // pgmq-rs may have metrics methods - this is a placeholder
-        // We'll implement basic metrics using SQL queries if needed
-        Ok(QueueMetrics {
-            queue_name: queue_name.to_string(),
-            message_count: 0, // Placeholder
-            oldest_message_age_seconds: None,
-        })
+        // Query actual pgmq metrics from the database using pgmq.metrics() function
+        let row = sqlx::query!(
+            "SELECT queue_length, oldest_msg_age_sec FROM pgmq.metrics($1)",
+            queue_name
+        )
+        .fetch_optional(&self.pgmq.connection)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(QueueMetrics {
+                queue_name: queue_name.to_string(),
+                message_count: row.queue_length.unwrap_or(0),
+                oldest_message_age_seconds: row.oldest_msg_age_sec.map(|age| age as i64),
+            })
+        } else {
+            // Queue doesn't exist or has no metrics
+            Ok(QueueMetrics {
+                queue_name: queue_name.to_string(),
+                message_count: 0,
+                oldest_message_age_seconds: None,
+            })
+        }
     }
 
     /// Send message within a transaction (for atomic operations)

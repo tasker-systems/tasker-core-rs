@@ -10,6 +10,7 @@ pub enum TaskerError {
     ValidationError(String),
     InvalidInput(String),
     ConfigurationError(String),
+    InvalidConfiguration(String),
     FFIError(String),
     MessagingError(String),
     // Additional variants needed for executor system
@@ -31,6 +32,7 @@ impl fmt::Display for TaskerError {
             TaskerError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             TaskerError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             TaskerError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
+            TaskerError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {msg}"),
             TaskerError::FFIError(msg) => write!(f, "FFI error: {msg}"),
             TaskerError::MessagingError(msg) => write!(f, "Messaging error: {msg}"),
             TaskerError::Internal(msg) => write!(f, "Internal error: {msg}"),
