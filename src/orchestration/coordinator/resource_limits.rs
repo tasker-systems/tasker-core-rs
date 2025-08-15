@@ -29,7 +29,13 @@ pub struct SystemResourceLimits {
     pub max_memory_mb: Option<u64>,
     /// Available memory for new executors (in MB)
     pub available_memory_mb: Option<u64>,
-    /// CPU cores available
+    /// CPU cores available (informational only - not used for executor limiting)
+    ///
+    /// Note: With Tokio's M:N threading model, CPU cores don't directly limit
+    /// the number of async executors we can run. Tokio creates a small number
+    /// of system threads (typically 1 per core) and schedules thousands of
+    /// async tasks on them. Our executors are async tasks that yield at .await
+    /// points, so the real constraint is database connections, not CPU cores.
     pub cpu_cores: Option<u32>,
     /// Detection timestamp
     pub detected_at: chrono::DateTime<chrono::Utc>,
@@ -140,7 +146,11 @@ impl SystemResourceLimits {
         (Some(total_memory_mb), Some(effective_available_mb))
     }
 
-    /// Detect CPU cores (best effort)
+    /// Detect CPU cores (informational only)
+    ///
+    /// This information is used for monitoring and system characterization,
+    /// but NOT for limiting the number of executors. In Tokio's async model,
+    /// many async tasks (executors) can run efficiently on a few system threads.
     fn detect_cpu_cores() -> Option<u32> {
         std::thread::available_parallelism()
             .ok()
@@ -150,8 +160,29 @@ impl SystemResourceLimits {
     /// Validate executor configuration against resource limits
     ///
     /// This implements the core validation logic from TAS-34 Phase 1.
-    /// It checks whether the proposed executor configuration would exceed
-    /// available database connections, preventing pool exhaustion.
+    ///
+    /// ## Resource Validation Philosophy
+    ///
+    /// This validation focuses on **real bottlenecks** that can cause system failures:
+    ///
+    /// ### Database Connections (Primary Constraint)
+    /// - Each executor needs a database connection to operate
+    /// - Database pool exhaustion causes immediate failures
+    /// - We validate min/max executors against available connections
+    ///
+    /// ### Memory (Secondary Constraint)
+    /// - Estimate memory usage based on executor count
+    /// - Warn if memory pressure may occur under full load
+    ///
+    /// ### CPU Cores (Informational Only)
+    /// - **NOT used for executor limiting** - this is critical!
+    /// - Tokio uses M:N threading: many async tasks run on few system threads
+    /// - Our executors are async tasks that yield at `.await` points
+    /// - Tokio's scheduler handles the mapping of tasks to system threads
+    /// - CPU core count is tracked only for monitoring/characterization
+    ///
+    /// This approach respects Tokio's design rather than trying to manage
+    /// threading concerns that Tokio already handles efficiently.
     pub fn validate_executor_configuration(
         &self,
         config_manager: &ConfigManager,
