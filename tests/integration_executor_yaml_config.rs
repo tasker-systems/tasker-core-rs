@@ -53,8 +53,8 @@ async fn test_environment_specific_executor_configuration() {
     // This test verifies that test environment has different executor pool settings
     // than production, demonstrating environment-aware configuration
 
-    let config_manager = ConfigManager::load_from_directory_with_env(None, "test")
-        .expect("Failed to load test configuration");
+    let config_manager =
+        ConfigManager::load_from_env("test").expect("Failed to load test configuration");
 
     let test_pools = config_manager.config().executor_pools();
 
@@ -73,7 +73,7 @@ async fn test_environment_specific_executor_configuration() {
     }
 
     // Load production configuration for comparison
-    let prod_config_manager = ConfigManager::load_from_directory_with_env(None, "production")
+    let prod_config_manager = ConfigManager::load_from_env("production")
         .expect("Failed to load production configuration");
 
     let prod_pools = prod_config_manager.config().executor_pools();
@@ -92,8 +92,8 @@ async fn test_executor_creation_from_yaml_config() {
     // This test verifies that executors can be created using YAML configuration
     // and that the configuration values are properly applied
 
-    let config_manager = ConfigManager::load_from_directory_with_env(None, "test")
-        .expect("Failed to load test configuration");
+    let config_manager =
+        ConfigManager::load_from_env("test").expect("Failed to load test configuration");
 
     let pool = create_test_database_pool()
         .await
@@ -136,8 +136,8 @@ async fn test_executor_config_type_conversion() {
     // This test verifies that ExecutorInstanceConfig correctly converts to ExecutorConfig
     // and that all configuration values are preserved
 
-    let config_manager = ConfigManager::load_from_directory_with_env(None, "test")
-        .expect("Failed to load test configuration");
+    let config_manager =
+        ConfigManager::load_from_env("test").expect("Failed to load test configuration");
 
     // Test conversion for each executor type
     for executor_type in ExecutorType::all() {

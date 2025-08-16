@@ -143,8 +143,8 @@ impl OrchestrationSystem {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     // Load configuration from YAML
-    ///     let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml").await?;
+    ///     // Load configuration using component-based config
+    ///     let config_manager = ConfigurationManager::new();
     ///
     ///     // Bootstrap orchestration system with unified architecture
     ///     let orchestration_system = OrchestrationSystem::from_config(
@@ -189,13 +189,14 @@ impl OrchestrationSystem {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use tasker_core::orchestration::OrchestrationSystem;
+    /// use tasker_core::orchestration::{OrchestrationSystem, config::ConfigurationManager};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     // Bootstrap directly from config file with unified architecture
-    ///     let orchestration_system = OrchestrationSystem::from_config_file(
-    ///         "config/tasker-config.yaml",
+    ///     // Bootstrap from component-based configuration
+    ///     let config_manager = ConfigurationManager::new();
+    ///     let orchestration_system = OrchestrationSystem::from_config(
+    ///         config_manager,
     ///     ).await?;
     ///
     ///     // Start orchestration

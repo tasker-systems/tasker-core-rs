@@ -170,7 +170,7 @@ module TaskerCore
             break
           end
 
-          params = { limit_key => config.dig(:pagination, :page_size) || 100 }
+          params = { limit_key => (@config.dig(:pagination, :page_size) || 100) }
           params[pagination_key] = pagination_value if pagination_value
 
           response = http_request(method, path, params: params)

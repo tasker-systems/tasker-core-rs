@@ -30,16 +30,18 @@ module TaskerCore
           @project_root ||= find_project_root
         end
 
-        # Get the gem root directory
+        # Get the gem root directory (same as project root for Gemfile-based apps)
         # @return [String] Absolute path to gem root
         def gem_root
-          @gem_root ||= File.expand_path(File.join(project_root, 'bindings/ruby'))
+          @gem_root ||= project_root
         end
 
         # Get the gem library root directory
         # @return [String] Absolute path to gem library root
         def gem_lib_root
-          @gem_lib_root ||= File.expand_path(File.join(gem_root, 'lib/tasker_core'))
+          # In a Gemfile-based app, the gem is installed via bundler
+          # So we need to find where this gem is actually installed
+          @gem_lib_root ||= File.expand_path(File.dirname(__dir__))
         end
 
         # Reset cached project root (useful for testing)
@@ -122,10 +124,11 @@ module TaskerCore
           {
             project_root: root,
             exists: File.directory?(root),
-            cargo_toml: File.exist?(File.join(root, 'Cargo.toml')),
+            gemfile: File.exist?(File.join(root, 'Gemfile')),
+            gemfile_lock: File.exist?(File.join(root, 'Gemfile.lock')),
             config_dir: File.directory?(File.join(root, 'config')),
-            bindings_dir: File.directory?(File.join(root, 'bindings')),
-            ruby_bindings: File.directory?(File.join(root, 'bindings', 'ruby')),
+            tasker_config_dir: File.directory?(File.join(root, 'config', 'tasker')),
+            component_config: File.directory?(File.join(root, 'config', 'tasker', 'environments')),
             working_directory: Dir.pwd,
             relative_working_dir: relative_path_from_root(Dir.pwd)
           }
@@ -149,23 +152,23 @@ module TaskerCore
         end
 
         # Find the project root by walking up the directory tree
-        # @return [String] Absolute path to project root
+        # For Ruby bindings, we ONLY look for Gemfile (application root)
+        # @return [String] Absolute path to project root (Gemfile-root only)
         def find_project_root
           # Start from current file location
           current_dir = __dir__
-          original_dir = current_dir
 
           logger&.debug "🔍 PROJECT_ROOT: Starting search from: #{current_dir}"
 
-          # Walk up directory tree looking for project markers
+          # Walk up directory tree looking for Gemfile (Ruby application root)
           max_levels = 10 # Prevent infinite loops
           max_levels.times do |level|
             logger&.debug "🔍 PROJECT_ROOT: Checking level #{level}: #{current_dir}"
 
-            # Check for Cargo.toml (Rust project root)
-            cargo_toml_path = File.join(current_dir, 'Cargo.toml')
-            if File.exist?(cargo_toml_path)
-              logger&.debug "✅ PROJECT_ROOT: Found Cargo.toml at: #{current_dir}"
+            # Check for Gemfile (Ruby application root)
+            gemfile_path = File.join(current_dir, 'Gemfile')
+            if File.exist?(gemfile_path)
+              logger&.debug "✅ PROJECT_ROOT: Found Gemfile at: #{current_dir}"
               return current_dir
             end
 
@@ -179,25 +182,11 @@ module TaskerCore
             current_dir = parent
           end
 
-          # Fallback 1: Look for Gemfile (Ruby project)
-          current_dir = original_dir
-          max_levels.times do |_level|
-            gemfile_path = File.join(current_dir, 'Gemfile')
-            if File.exist?(gemfile_path)
-              logger&.warn "⚠️  PROJECT_ROOT: Using Gemfile location as fallback: #{current_dir}"
-              return current_dir
-            end
-
-            parent = File.dirname(current_dir)
-            break if parent == current_dir
-
-            current_dir = parent
-          end
-
-          # Fallback 2: Use working directory
+          # Final fallback: Use working directory (but warn strongly)
           fallback = Dir.pwd
-          logger&.warn "⚠️  PROJECT_ROOT: No project markers found, using working directory: #{fallback}"
-          logger&.warn '⚠️  PROJECT_ROOT: This may cause path resolution issues'
+          logger&.error "❌ PROJECT_ROOT: No Gemfile found! Using working directory as last resort: #{fallback}"
+          logger&.error '❌ PROJECT_ROOT: Configuration may not load correctly without a Gemfile'
+          logger&.error '❌ PROJECT_ROOT: Please ensure you are running from a Ruby application directory'
           fallback
         end
 

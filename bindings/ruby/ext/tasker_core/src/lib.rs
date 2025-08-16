@@ -29,6 +29,7 @@
 
 use magnus::{Error, Module, Ruby};
 
+mod config_bridge;
 mod context;
 mod embedded_bridge;
 mod error_translation;
@@ -82,6 +83,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 
     // 🔌 EMBEDDED BRIDGE: Register embedded orchestration functions for testing
     embedded_bridge::init_embedded_bridge(&module)?;
+
+    // 🔧 CONFIG BRIDGE: Register unified TOML configuration manager
+    config_bridge::register_config_bridge(ruby, &module)?;
 
     Ok(())
 }

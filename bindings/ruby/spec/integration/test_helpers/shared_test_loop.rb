@@ -83,7 +83,6 @@ class SharedTestLoop
     end
 
     final_execution = TaskerCore::Database::Functions::FunctionBasedTaskExecutionContext.find(task_uuid)
-    @logger.error("FAKE_ERROR: final_execution is #{final_execution.to_h}")
     unless final_execution.completion_percentage.to_i == 100
       raise TaskerCore::Errors::OrchestrationError,
             'Task did not complete'

@@ -1,0 +1,43 @@
+[telemetry]
+enabled = true
+service_name = "tasker-core-rs-test"
+sample_rate = 1.0
+
+[health]
+enabled = true
+check_interval_seconds = 5
+
+[events]
+batch_size = 1
+enabled = true
+batch_timeout_ms = 100
+
+[cache]
+enabled = false
+ttl_seconds = 10
+max_size = 100
+
+[query_cache]
+enabled = false
+cleanup_interval_seconds = 10
+memory_pressure_threshold = 0.5
+
+[health.alert_thresholds]
+error_rate = 0.01
+queue_depth = 10.0
+
+[query_cache.active_workers]
+ttl_seconds = 1
+max_entries = 10
+
+[query_cache.worker_health]
+ttl_seconds = 1
+max_entries = 10
+
+[query_cache.task_metadata]
+ttl_seconds = 5
+max_entries = 50
+
+[query_cache.handler_metadata]
+ttl_seconds = 10
+max_entries = 20

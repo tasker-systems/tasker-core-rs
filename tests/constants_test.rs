@@ -166,7 +166,7 @@ fn test_configurable_constants_via_config_manager() {
     use tasker_core::config::ConfigManager;
 
     // Test that configurable constants are now accessed through config manager
-    let config_manager = ConfigManager::global();
+    let config_manager = ConfigManager::global().expect("Failed to load global config manager");
     let config = config_manager.config();
 
     // Test that configuration provides the values that were previously constants
@@ -202,7 +202,7 @@ fn test_cross_language_validation_success() {
     use tasker_core::config::ConfigManager;
 
     // Test that default configuration passes cross-language validation
-    let config_manager = ConfigManager::global();
+    let config_manager = ConfigManager::global().expect("Failed to load global config manager");
     let config = config_manager.config();
 
     // Print actual values to debug
@@ -246,7 +246,7 @@ fn test_cross_language_validation_methods_exist() {
     use tasker_core::config::ConfigManager;
 
     // Just test that the validation methods exist and can be called
-    let config_manager = ConfigManager::global();
+    let config_manager = ConfigManager::global().expect("Failed to load global config manager");
     let config = config_manager.config();
 
     // Test that these methods exist and return the expected types

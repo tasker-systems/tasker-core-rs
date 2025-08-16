@@ -17,6 +17,26 @@ pub enum ConfigurationError {
     #[error("Invalid YAML in configuration file '{file_path}': {error}")]
     InvalidYaml { file_path: String, error: String },
 
+    /// Invalid TOML syntax in configuration file
+    #[error("Invalid TOML syntax in '{file_path}': {error}")]
+    InvalidToml { file_path: String, error: String },
+
+    /// Resource constraint violation
+    #[error("Resource constraint violation: requested {requested} executors but only {available} database connections available")]
+    ResourceConstraintViolation { requested: usize, available: usize },
+
+    /// Unknown configuration field
+    #[error("Unknown configuration field: {field} in component {component}")]
+    UnknownField { field: String, component: String },
+
+    /// Type mismatch for configuration field
+    #[error("Type mismatch for field {field}: expected {expected}, got {actual}")]
+    TypeMismatch { field: String, expected: String, actual: String },
+
+    /// Missing environment override file
+    #[error("Environment override file missing: {path}")]
+    MissingOverride { path: PathBuf },
+
     /// Missing required configuration field
     #[error("Missing required configuration field '{field}' in {context}")]
     MissingRequiredField { field: String, context: String },
@@ -176,6 +196,45 @@ impl ConfigurationError {
         Self::DatabaseConfigError {
             error: error.to_string(),
         }
+    }
+
+    /// Create an invalid TOML error
+    pub fn invalid_toml<P: Into<String>, E: std::fmt::Display>(file_path: P, error: E) -> Self {
+        Self::InvalidToml {
+            file_path: file_path.into(),
+            error: error.to_string(),
+        }
+    }
+
+    /// Create a resource constraint violation error
+    pub fn resource_constraint_violation(requested: usize, available: usize) -> Self {
+        Self::ResourceConstraintViolation { requested, available }
+    }
+
+    /// Create an unknown field error
+    pub fn unknown_field<F: Into<String>, C: Into<String>>(field: F, component: C) -> Self {
+        Self::UnknownField {
+            field: field.into(),
+            component: component.into(),
+        }
+    }
+
+    /// Create a type mismatch error
+    pub fn type_mismatch<F: Into<String>, E: Into<String>, A: Into<String>>(
+        field: F,
+        expected: E,
+        actual: A,
+    ) -> Self {
+        Self::TypeMismatch {
+            field: field.into(),
+            expected: expected.into(),
+            actual: actual.into(),
+        }
+    }
+
+    /// Create a missing override error
+    pub fn missing_override(path: PathBuf) -> Self {
+        Self::MissingOverride { path }
     }
 }
 

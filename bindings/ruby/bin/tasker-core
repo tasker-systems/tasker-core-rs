@@ -10,7 +10,6 @@
 #   bundle exec tasker-core diagnose          # Run full diagnostics
 #   bundle exec tasker-core diagnose config   # Check configuration only
 #   bundle exec tasker-core diagnose docs     # Generate documentation
-#   bundle exec tasker-core validate          # Validate configuration
 #   bundle exec tasker-core version           # Show version information
 
 require 'bundler/setup'
@@ -48,7 +47,6 @@ def show_help
         diagnose           Run comprehensive diagnostics
         diagnose config    Check configuration only
         diagnose docs      Generate configuration documentation
-        validate           Validate configuration and exit
         version            Show version information
         help               Show this help message
 
@@ -64,9 +62,6 @@ def show_help
 
         # Check only configuration
         bundle exec tasker-core diagnose config
-
-        # Validate configuration for production
-        bundle exec tasker-core validate --env production
 
         # Generate documentation
         bundle exec tasker-core diagnose docs
@@ -95,7 +90,6 @@ end
 def load_tasker_core
   require 'tasker_core'
   require 'tasker_core/cli/diagnostics'
-  require 'tasker_core/config/validator'
   true
 rescue LoadError => e
   puts '❌ Failed to load TaskerCore:'
@@ -139,44 +133,6 @@ rescue StandardError => e
     puts
   end
   false
-end
-
-def run_validate_command(options)
-  return false unless load_tasker_core
-
-  begin
-    puts '🔍 Validating TaskerCore configuration...'
-    puts
-
-    config = TaskerCore::Config.instance
-    validator = TaskerCore::ConfigValidation::Validator.new(config)
-    validator.validate!
-
-    puts '✅ Configuration validation passed!'
-    puts "   Environment: #{config.environment}"
-    puts "   Config file: #{config.find_config_file}"
-
-    summary = validator.validation_summary
-    puts "   Warnings: #{summary[:warnings]}" if summary[:warnings].positive?
-
-    true
-  rescue TaskerCore::ConfigValidation::Validator::ValidationError => e
-    puts '❌ Configuration validation failed:'
-    puts
-    puts e.message
-    puts
-    false
-  rescue StandardError => e
-    puts '❌ Validation error:'
-    puts "   #{e.class}: #{e.message}"
-    puts
-    if options[:verbose]
-      puts 'Backtrace:'
-      e.backtrace.first(10).each { |line| puts "   #{line}" }
-      puts
-    end
-    false
-  end
 end
 
 # Parse command line arguments
@@ -227,8 +183,6 @@ success = case command
             true
           when 'diagnose'
             run_diagnose_command(subcommand, options)
-          when 'validate'
-            run_validate_command(options)
           else
             puts "❌ Unknown command: #{command}"
             puts

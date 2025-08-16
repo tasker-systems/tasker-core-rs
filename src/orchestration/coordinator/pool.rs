@@ -707,8 +707,8 @@ mod tests {
         // Setup test environment (respects existing DATABASE_URL in CI)
         crate::test_utils::setup_test_environment();
 
-        let config = ConfigManager::load_from_directory_with_env(None, "test")
-            .expect("Failed to load test configuration");
+        let config =
+            ConfigManager::load_from_env("test").expect("Failed to load test configuration");
         let orchestration_core = Arc::new(OrchestrationCore::new().await.unwrap());
 
         let executor_pool = ExecutorPool::new(
@@ -728,8 +728,8 @@ mod tests {
         // Setup test environment (respects existing DATABASE_URL in CI)
         crate::test_utils::setup_test_environment();
 
-        let config = ConfigManager::load_from_directory_with_env(None, "test")
-            .expect("Failed to load test configuration");
+        let config =
+            ConfigManager::load_from_env("test").expect("Failed to load test configuration");
         let orchestration_core = Arc::new(OrchestrationCore::new().await.unwrap());
 
         let pool_manager = PoolManager::new(config, orchestration_core).await;

@@ -1,0 +1,20 @@
+[orchestration]
+tasks_per_cycle = 3
+cycle_interval_ms = 200
+task_request_polling_interval_ms = 200
+task_request_visibility_timeout_seconds = 60
+task_request_batch_size = 5
+max_concurrent_orchestrators = 2
+enable_performance_logging = true
+default_claim_timeout_seconds = 60
+active_namespaces = [ "dev_fulfillment", "dev_inventory", "dev_notifications", "linear_workflow", "tree_workflow",]
+heartbeat_interval_ms = 3000
+
+[orchestration.embedded_orchestrator]
+auto_start = true
+shutdown_timeout_seconds = 10
+
+[orchestration.queues.settings]
+visibility_timeout_seconds = 60
+message_retention_seconds = 86400
+max_receive_count = 2

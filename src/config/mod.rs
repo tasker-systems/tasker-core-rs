@@ -1,29 +1,29 @@
-//! # TaskerCore Configuration System
+//! # TaskerCore Configuration System (TAS-34 Unified TOML)
 //!
-//! This module provides comprehensive configuration management that mirrors the Ruby side's
-//! YAML-based configuration approach. It eliminates hardcoded fallbacks and environment
-//! variable dependencies in favor of explicit, validated configuration loading.
+//! This module provides unified TOML-based configuration management with strict validation
+//! and fail-fast behavior. All configuration loading is handled by UnifiedConfigLoader.
 //!
 //! ## Architecture
 //!
-//! - **Single Source of Truth**: All configuration comes from YAML files
-//! - **Environment Awareness**: Supports development/test/production overrides
-//! - **Explicit Validation**: No silent fallbacks or data corruption
-//! - **Ruby Parity**: Mirrors Ruby side configuration structure exactly
+//! - **Single Source of Truth**: UnifiedConfigLoader handles all configuration loading
+//! - **TOML Only**: Component-based TOML configuration with environment overrides
+//! - **Fail-Fast Validation**: No silent fallbacks or defaults
+//! - **Strict Type Safety**: ValidatedConfig provides type-safe access to all components
 //!
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_core::config::ConfigManager;
+//! use tasker_core::config::UnifiedConfigLoader;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Load configuration (environment auto-detected)
-//! let config = ConfigManager::load()?;
+//! // Load configuration with environment detection
+//! let mut loader = UnifiedConfigLoader::new_from_env()?;
+//! let config = loader.load_tasker_config()?;
 //!
 //! // Access configuration values
-//! let database_url = config.config().database_url();
-//! let pool_size = config.config().database.pool;
-//! let timeout = config.config().execution.step_execution_timeout_seconds;
+//! let database_url = config.database_url();
+//! let pool_size = config.database.pool;
+//! let timeout = config.execution.step_execution_timeout_seconds;
 //! # Ok(())
 //! # }
 //! ```
@@ -31,14 +31,21 @@
 pub mod error;
 pub mod loader;
 pub mod query_cache_config;
+pub mod unified_loader;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use error::ConfigurationError;
-pub use loader::ConfigManager;
+// Primary exports - TAS-34 Unified Configuration System
+pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
+
+// Re-export types and errors
+pub use error::{ConfigResult, ConfigurationError};
 pub use query_cache_config::{CacheTypeConfig, QueryCacheConfig, QueryCacheConfigLoader};
+
+// Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
+pub use loader::ConfigManager;
 
 /// Custom deserializer for pool configuration that can handle both simple integer
 /// and structured hash formats for maximum compatibility
@@ -84,7 +91,7 @@ where
     }
 }
 
-/// Root configuration structure mirroring tasker-config.yaml
+/// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TaskerConfig {
     /// Authentication and authorization settings
@@ -219,11 +226,14 @@ impl DatabaseConfig {
     pub fn database_url(&self, environment: &str) -> String {
         // If URL is explicitly provided (with ${DATABASE_URL} expansion), use it
         if let Some(url) = &self.url {
-            if url.starts_with("${DATABASE_URL}") {
+            if url == "${DATABASE_URL}" || url.starts_with("${DATABASE_URL}") {
+                // Try to expand ${DATABASE_URL} environment variable
                 if let Ok(env_url) = std::env::var("DATABASE_URL") {
                     return env_url;
                 }
-            } else if !url.is_empty() && url != "${DATABASE_URL}" {
+                // If DATABASE_URL is not set, fall through to build from components
+            } else if !url.is_empty() {
+                // Use the URL as-is (not a variable reference)
                 return url.clone();
             }
         }
@@ -445,6 +455,107 @@ impl OrchestrationConfig {
     /// Get default claim timeout as Duration
     pub fn default_claim_timeout(&self) -> Duration {
         Duration::from_secs(self.default_claim_timeout_seconds)
+    }
+
+    /// Convert to OrchestrationSystemConfig for bootstrapping the orchestration system
+    pub fn to_orchestration_system_config(
+        &self,
+    ) -> crate::orchestration::OrchestrationSystemConfig {
+        use crate::orchestration::{
+            orchestration_loop::OrchestrationLoopConfig, step_enqueuer::StepEnqueuerConfig,
+            step_result_processor::StepResultProcessorConfig, task_claimer::TaskClaimerConfig,
+            OrchestrationSystemConfig,
+        };
+        use std::time::SystemTime;
+
+        // Generate orchestrator ID if not provided
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let orchestrator_id = format!("orchestrator-{timestamp}");
+
+        // Create orchestration loop configuration
+        let orchestration_loop_config = OrchestrationLoopConfig {
+            tasks_per_cycle: self.tasks_per_cycle as i32,
+            namespace_filter: None,
+            cycle_interval: Duration::from_millis(self.cycle_interval_ms),
+            max_cycles: None,
+            enable_performance_logging: self.enable_performance_logging,
+            enable_heartbeat: self.enable_heartbeat,
+            task_claimer_config: TaskClaimerConfig {
+                max_batch_size: self.tasks_per_cycle as i32,
+                default_claim_timeout: self.default_claim_timeout_seconds as i32,
+                heartbeat_interval: Duration::from_millis(self.heartbeat_interval_ms),
+                enable_heartbeat: self.enable_heartbeat,
+            },
+            step_enqueuer_config: StepEnqueuerConfig::default(),
+            step_result_processor_config: StepResultProcessorConfig::default(),
+        };
+
+        OrchestrationSystemConfig {
+            task_requests_queue_name: self.task_requests_queue_name.clone(),
+            orchestrator_id,
+            orchestration_loop_config,
+            task_request_polling_interval_ms: self.task_request_polling_interval_ms,
+            task_request_visibility_timeout_seconds: self.task_request_visibility_timeout_seconds
+                as i32,
+            task_request_batch_size: self.task_request_batch_size as i32,
+            active_namespaces: self.active_namespaces.clone(),
+            max_concurrent_orchestrators: self.max_concurrent_orchestrators as usize,
+            enable_performance_logging: self.enable_performance_logging,
+        }
+    }
+}
+
+impl Default for OrchestrationConfig {
+    fn default() -> Self {
+        use std::collections::HashMap;
+
+        Self {
+            mode: "embedded".to_string(),
+            task_requests_queue_name: "task_requests_queue".to_string(),
+            tasks_per_cycle: 5,
+            cycle_interval_ms: 250,
+            task_request_polling_interval_ms: 250,
+            task_request_visibility_timeout_seconds: 300,
+            task_request_batch_size: 10,
+            active_namespaces: vec![
+                "fulfillment".to_string(),
+                "inventory".to_string(),
+                "notifications".to_string(),
+                "payments".to_string(),
+                "analytics".to_string(),
+            ],
+            max_concurrent_orchestrators: 3,
+            enable_performance_logging: false,
+            default_claim_timeout_seconds: 300,
+            queues: QueueConfig {
+                task_requests: "task_requests_queue".to_string(),
+                task_processing: "task_processing_queue".to_string(),
+                batch_results: "batch_results_queue".to_string(),
+                step_results: "orchestration_step_results".to_string(),
+                worker_queues: {
+                    let mut queues = HashMap::new();
+                    queues.insert("default".to_string(), "default_queue".to_string());
+                    queues.insert("fulfillment".to_string(), "fulfillment_queue".to_string());
+                    queues
+                },
+                settings: QueueSettings {
+                    visibility_timeout_seconds: 30,
+                    message_retention_seconds: 604800,
+                    dead_letter_queue_enabled: true,
+                    max_receive_count: 3,
+                },
+            },
+            embedded_orchestrator: EmbeddedOrchestratorConfig {
+                auto_start: false,
+                namespaces: vec!["default".to_string(), "fulfillment".to_string()],
+                shutdown_timeout_seconds: 30,
+            },
+            enable_heartbeat: true,
+            heartbeat_interval_ms: 5000,
+        }
     }
 }
 

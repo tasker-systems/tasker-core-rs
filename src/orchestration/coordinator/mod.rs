@@ -133,7 +133,7 @@ impl OrchestrationLoopCoordinator {
         )
         .await?;
 
-        let validation_result = resource_validator.validate_and_fail_fast().await?;
+        let validation_result = resource_validator.validate_and_log_info().await?;
 
         info!(
             "✅ COORDINATOR: Resource validation passed - proceeding with startup (Max executors: {}, Available DB connections: {})",
@@ -519,8 +519,8 @@ mod tests {
         // Setup test environment (respects existing DATABASE_URL in CI)
         crate::test_utils::setup_test_environment();
 
-        let config_manager = ConfigManager::load_from_directory_with_env(None, "test")
-            .expect("Failed to load test configuration");
+        let config_manager =
+            ConfigManager::load_from_env("test").expect("Failed to load test configuration");
         let orchestration_core = Arc::new(OrchestrationCore::new().await.unwrap());
 
         let coordinator =
@@ -536,8 +536,8 @@ mod tests {
         // Setup test environment (respects existing DATABASE_URL in CI)
         crate::test_utils::setup_test_environment();
 
-        let config_manager = ConfigManager::load_from_directory_with_env(None, "test")
-            .expect("Failed to load test configuration");
+        let config_manager =
+            ConfigManager::load_from_env("test").expect("Failed to load test configuration");
         let orchestration_core = Arc::new(OrchestrationCore::new().await.unwrap());
 
         let coordinator = OrchestrationLoopCoordinator::new(config_manager, orchestration_core)

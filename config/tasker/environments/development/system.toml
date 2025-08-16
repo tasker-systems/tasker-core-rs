@@ -1,0 +1,33 @@
+[system]
+default_dependent_system = "dev_default"
+default_queue_name = "dev_default"
+
+[execution]
+environment = "development"
+max_concurrent_tasks = 25
+max_concurrent_steps = 200
+default_timeout_seconds = 300
+step_execution_timeout_seconds = 60
+max_discovery_attempts = 2
+step_batch_size = 5
+max_retries = 2
+connection_timeout_seconds = 5
+
+[backoff]
+default_backoff_seconds = [ 1, 2, 5,]
+max_backoff_seconds = 30
+backoff_multiplier = 2.0
+jitter_enabled = true
+jitter_max_percentage = 0.1
+default_reenqueue_delay = 15
+buffer_seconds = 2
+
+[reenqueue]
+has_ready_steps = 0
+waiting_for_dependencies = 3
+processing = 1
+
+[backoff.reenqueue_delays]
+has_ready_steps = 0
+waiting_for_dependencies = 10
+processing = 5

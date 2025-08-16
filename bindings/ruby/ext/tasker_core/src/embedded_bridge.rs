@@ -9,6 +9,7 @@
 //! - Same pgmq-based architecture, just running in-process
 //! - Ruby tests can start embedded orchestrator, run tests, stop orchestrator
 
+use dotenvy;
 use magnus::{function, prelude::*, Error, RHash, RModule, Value};
 use serde::{Deserialize, Serialize};
 use serde_magnus::{deserialize, serialize};
@@ -224,6 +225,10 @@ impl TaskInitializationResponse {
 /// # Returns
 /// * Success message or error string
 fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error> {
+    // Load environment variables from .env files FIRST - this ensures DATABASE_URL and other
+    // environment variables are available before any configuration loading begins
+    dotenvy::dotenv().ok();
+    
     let mut handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
         Error::new(
@@ -247,7 +252,9 @@ fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error
         )
     })?;
 
-    // Use unified bootstrap system with configuration-driven initialization
+    // Use standalone bootstrap with orchestration domain config directory
+    // When running embedded from Ruby bindings, we point directly to the orchestration
+    // domain which contains all the required component configurations
     let system_handle = rt
         .block_on(async {
             OrchestrationBootstrap::bootstrap_embedded(namespaces)

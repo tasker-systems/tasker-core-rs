@@ -1,0 +1,506 @@
+//! Worker Configuration Manager for FFI
+//!
+//! Provides configuration loading capabilities for Ruby, Python, and other language workers
+//! using the unified TOML configuration system. This enables all workers to use the same
+//! configuration source with consistent validation and error handling.
+//!
+//! Uses serde_magnus for direct Rust-to-Ruby conversion, avoiding inefficient JSON proxy patterns.
+
+use crate::config::error::{ConfigResult, ConfigurationError};
+use crate::config::unified_loader::UnifiedConfigLoader;
+use crate::config::TaskerConfig;
+use serde_json::Value as JsonValue;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
+
+/// Worker Configuration Manager for FFI boundaries
+///
+/// This provides a simplified interface for language bindings to load and access
+/// the unified TOML configuration system. Uses direct TaskerConfig for serde_magnus
+/// conversion, avoiding inefficient JSON proxy patterns.
+#[derive(Debug)]
+pub struct WorkerConfigManager {
+    /// Loaded and validated configuration as TaskerConfig
+    config: TaskerConfig,
+    /// Environment name
+    environment: String,
+    /// Configuration root path
+    config_root: PathBuf,
+}
+
+impl WorkerConfigManager {
+    /// Create a new WorkerConfigManager with automatic environment detection
+    ///
+    /// This uses the same environment detection as the Rust system:
+    /// TASKER_ENV || RAILS_ENV || RACK_ENV || APP_ENV || 'development'
+    ///
+    /// # Returns
+    /// * `ConfigResult<Self>` - Manager instance or configuration error
+    ///
+    /// # Example (FFI Usage)
+    /// ```rust
+    /// // This would be called from Ruby/Python via FFI
+    /// let config_manager = WorkerConfigManager::new()?;
+    /// let json_config = config_manager.get_config_as_json()?;
+    /// ```
+    pub fn new() -> ConfigResult<Self> {
+        let environment = UnifiedConfigLoader::detect_environment();
+        Self::new_with_environment(&environment)
+    }
+
+    /// Create a new WorkerConfigManager with explicit environment
+    ///
+    /// # Arguments
+    /// * `environment` - Environment name (development, test, production, etc.)
+    ///
+    /// # Returns
+    /// * `ConfigResult<Self>` - Manager instance or configuration error
+    pub fn new_with_environment(environment: &str) -> ConfigResult<Self> {
+        info!(
+            "🔧 WORKER_CONFIG: Initializing for environment '{}'",
+            environment
+        );
+
+        let mut loader = UnifiedConfigLoader::new(environment)?;
+        let config = loader.load_tasker_config()?;
+        let config_root = loader.root().to_path_buf();
+
+        info!(
+            "✅ WORKER_CONFIG: Configuration loaded successfully for '{}'",
+            environment
+        );
+
+        Ok(Self {
+            config,
+            environment: environment.to_string(),
+            config_root,
+        })
+    }
+
+    /// Create a new WorkerConfigManager with explicit config root path
+    ///
+    /// This is useful for embedded applications where the config path is known.
+    ///
+    /// # Arguments
+    /// * `config_root` - Path to config/tasker directory
+    /// * `environment` - Environment name
+    ///
+    /// # Returns
+    /// * `ConfigResult<Self>` - Manager instance or configuration error
+    pub fn new_with_config_root<P: AsRef<Path>>(
+        config_root: P,
+        environment: &str,
+    ) -> ConfigResult<Self> {
+        let config_root = config_root.as_ref().to_path_buf();
+
+        info!(
+            "🔧 WORKER_CONFIG: Initializing with explicit root '{}' for environment '{}'",
+            config_root.display(),
+            environment
+        );
+
+        let mut loader = UnifiedConfigLoader::with_root(config_root.clone(), environment)?;
+        let config = loader.load_tasker_config()?;
+
+        info!("✅ WORKER_CONFIG: Configuration loaded successfully");
+
+        Ok(Self {
+            config,
+            environment: environment.to_string(),
+            config_root,
+        })
+    }
+
+    /// Get the complete configuration as TaskerConfig for serde_magnus conversion
+    ///
+    /// This provides direct access to the TaskerConfig struct, which can be
+    /// efficiently converted to Ruby using serde_magnus, avoiding JSON proxy patterns.
+    ///
+    /// # Returns
+    /// * `&TaskerConfig` - Direct reference to TaskerConfig
+    pub fn get_config(&self) -> &TaskerConfig {
+        debug!("Providing direct access to TaskerConfig for serde_magnus conversion");
+        &self.config
+    }
+
+    /// Get the complete configuration as JSON for legacy FFI consumption
+    ///
+    /// This method is kept for backward compatibility but should be avoided
+    /// in favor of direct serde_magnus conversion using get_config().
+    ///
+    /// # Returns
+    /// * `ConfigResult<JsonValue>` - Complete configuration as JSON
+    pub fn get_config_as_json(&self) -> ConfigResult<JsonValue> {
+        debug!("Converting configuration to JSON for legacy FFI consumption");
+
+        // Convert TaskerConfig to JSON using serde_json
+        serde_json::to_value(&self.config).map_err(|e| {
+            ConfigurationError::json_serialization_error("TaskerConfig to JSON conversion", e)
+        })
+    }
+
+    /// Get a specific component configuration as JSON
+    ///
+    /// # Arguments
+    /// * `component_name` - Name of the component (database, orchestration, etc.)
+    ///
+    /// # Returns
+    /// * `ConfigResult<Option<JsonValue>>` - Component configuration or None if not found
+    pub fn get_component_as_json(&self, component_name: &str) -> ConfigResult<Option<JsonValue>> {
+        debug!(
+            "Extracting component '{}' from TaskerConfig",
+            component_name
+        );
+
+        // Extract component from TaskerConfig based on component name
+        let component_result = match component_name {
+            "database" => serde_json::to_value(&self.config.database).map_err(|e| {
+                ConfigurationError::json_serialization_error("database component serialization", e)
+            }),
+            "orchestration" => serde_json::to_value(&self.config.orchestration).map_err(|e| {
+                ConfigurationError::json_serialization_error(
+                    "orchestration component serialization",
+                    e,
+                )
+            }),
+            "executor_pools" => serde_json::to_value(&self.config.executor_pools).map_err(|e| {
+                ConfigurationError::json_serialization_error(
+                    "executor_pools component serialization",
+                    e,
+                )
+            }),
+            "pgmq" => serde_json::to_value(&self.config.pgmq).map_err(|e| {
+                ConfigurationError::json_serialization_error("pgmq component serialization", e)
+            }),
+            "auth" => serde_json::to_value(&self.config.auth).map_err(|e| {
+                ConfigurationError::json_serialization_error("auth component serialization", e)
+            }),
+            "telemetry" => serde_json::to_value(&self.config.telemetry).map_err(|e| {
+                ConfigurationError::json_serialization_error("telemetry component serialization", e)
+            }),
+            "engine" => serde_json::to_value(&self.config.engine).map_err(|e| {
+                ConfigurationError::json_serialization_error("engine component serialization", e)
+            }),
+            "system" => serde_json::to_value(&self.config.system).map_err(|e| {
+                ConfigurationError::json_serialization_error("system component serialization", e)
+            }),
+            "circuit_breakers" => {
+                serde_json::to_value(&self.config.circuit_breakers).map_err(|e| {
+                    ConfigurationError::json_serialization_error(
+                        "circuit_breakers component serialization",
+                        e,
+                    )
+                })
+            }
+            "query_cache" => serde_json::to_value(&self.config.query_cache).map_err(|e| {
+                ConfigurationError::json_serialization_error(
+                    "query_cache component serialization",
+                    e,
+                )
+            }),
+            _ => {
+                warn!("Component '{}' not found in TaskerConfig", component_name);
+                return Ok(None);
+            }
+        };
+
+        component_result.map(Some)
+    }
+
+    /// Get available component names
+    ///
+    /// # Returns
+    /// * `Vec<String>` - List of available component names
+    pub fn get_component_names(&self) -> Vec<String> {
+        vec![
+            "database".to_string(),
+            "orchestration".to_string(),
+            "executor_pools".to_string(),
+            "pgmq".to_string(),
+            "auth".to_string(),
+            "telemetry".to_string(),
+            "engine".to_string(),
+            "system".to_string(),
+            "circuit_breakers".to_string(),
+            "query_cache".to_string(),
+        ]
+    }
+
+    /// Get the current environment name
+    ///
+    /// # Returns
+    /// * `&str` - Environment name
+    pub fn environment(&self) -> &str {
+        &self.environment
+    }
+
+    /// Get the configuration root path
+    ///
+    /// # Returns
+    /// * `&Path` - Configuration root path
+    pub fn config_root(&self) -> &Path {
+        &self.config_root
+    }
+
+    /// Check if unified TOML configuration is available
+    ///
+    /// This can be used by workers to determine if they should use the new
+    /// unified configuration or fall back to legacy YAML configuration.
+    ///
+    /// # Arguments
+    /// * `config_dir` - Base configuration directory to check
+    ///
+    /// # Returns
+    /// * `bool` - True if unified TOML structure is available
+    pub fn is_unified_config_available<P: AsRef<Path>>(config_dir: P) -> bool {
+        let tasker_root = config_dir.as_ref().join("tasker");
+        let base_dir = tasker_root.join("base");
+        let environments_dir = tasker_root.join("environments");
+
+        let has_structure = base_dir.exists()
+            && base_dir.join("database.toml").exists()
+            && environments_dir.exists();
+
+        debug!(
+            "Unified config availability check: {} (path: {})",
+            has_structure,
+            tasker_root.display()
+        );
+
+        has_structure
+    }
+
+    /// Get configuration summary for debugging
+    ///
+    /// Returns a summary of the loaded configuration that's safe for logging
+    /// (no sensitive information exposed).
+    ///
+    /// # Returns
+    /// * `ConfigResult<JsonValue>` - Configuration summary
+    pub fn get_config_summary(&self) -> ConfigResult<JsonValue> {
+        let component_names = self.get_component_names();
+        let component_count = component_names.len();
+
+        let summary = serde_json::json!({
+            "environment": self.environment,
+            "config_root": self.config_root.display().to_string(),
+            "component_count": component_count,
+            "components": component_names
+        });
+
+        Ok(summary)
+    }
+}
+
+/// FFI Helper Functions for simplified C-style interfaces
+///
+/// These functions provide simple C-style interfaces that can be easily
+/// bound to Ruby, Python, or other language FFI systems.
+impl WorkerConfigManager {
+    /// Create configuration manager and return as raw pointer (FFI)
+    ///
+    /// # Safety
+    /// The caller is responsible for calling `worker_config_manager_free` to avoid memory leaks.
+    ///
+    /// # Returns
+    /// * `*mut WorkerConfigManager` - Raw pointer to manager, or null on error
+    pub extern "C" fn create_ffi() -> *mut WorkerConfigManager {
+        match Self::new() {
+            Ok(manager) => Box::into_raw(Box::new(manager)),
+            Err(e) => {
+                warn!("Failed to create WorkerConfigManager: {}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+
+    /// Create configuration manager with environment (FFI)
+    ///
+    /// # Arguments
+    /// * `environment` - Environment name as C string
+    ///
+    /// # Safety
+    /// The caller is responsible for calling `worker_config_manager_free` to avoid memory leaks.
+    /// The environment string must be valid UTF-8.
+    ///
+    /// # Returns
+    /// * `*mut WorkerConfigManager` - Raw pointer to manager, or null on error
+    pub extern "C" fn create_with_environment_ffi(
+        environment: *const std::os::raw::c_char,
+    ) -> *mut WorkerConfigManager {
+        if environment.is_null() {
+            warn!("Null environment provided to create_with_environment_ffi");
+            return std::ptr::null_mut();
+        }
+
+        let environment_str = unsafe {
+            match std::ffi::CStr::from_ptr(environment).to_str() {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("Invalid UTF-8 in environment string: {}", e);
+                    return std::ptr::null_mut();
+                }
+            }
+        };
+
+        match Self::new_with_environment(environment_str) {
+            Ok(manager) => Box::into_raw(Box::new(manager)),
+            Err(e) => {
+                warn!("Failed to create WorkerConfigManager: {}", e);
+                std::ptr::null_mut()
+            }
+        }
+    }
+
+    /// Free WorkerConfigManager (FFI)
+    ///
+    /// # Arguments
+    /// * `manager` - Raw pointer to manager to free
+    ///
+    /// # Safety
+    /// The manager pointer must be valid and not used after this call.
+    pub extern "C" fn free_ffi(manager: *mut WorkerConfigManager) {
+        if !manager.is_null() {
+            unsafe {
+                let _ = Box::from_raw(manager);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Create test TOML configuration structure
+    fn setup_test_toml_config() -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().unwrap();
+        let config_root = temp_dir.path().to_path_buf();
+        let base_dir = config_root.join("base");
+        let env_test_dir = config_root.join("environments").join("test");
+
+        // Create directories
+        fs::create_dir_all(&base_dir).unwrap();
+        fs::create_dir_all(&env_test_dir).unwrap();
+
+        // Create minimal database.toml
+        let database_toml = r#"
+[database]
+url = "${DATABASE_URL}"
+adapter = "postgresql"
+host = "localhost"
+username = "test_user"
+password = "test_password"
+
+[database.pool]
+max_connections = 10
+min_connections = 2
+"#;
+        fs::write(base_dir.join("database.toml"), database_toml).unwrap();
+
+        // Create minimal orchestration.toml
+        let orchestration_toml = r#"
+[orchestration]
+mode = "distributed"
+max_concurrent_tasks = 50
+
+[orchestration.queues]
+task_requests = "task_requests_queue"
+"#;
+        fs::write(base_dir.join("orchestration.toml"), orchestration_toml).unwrap();
+
+        // Create test environment override
+        let test_database_override = r#"
+[database]
+database = "tasker_rust_test"
+
+[database.pool]
+max_connections = 5
+"#;
+        fs::write(env_test_dir.join("database.toml"), test_database_override).unwrap();
+
+        (temp_dir, config_root)
+    }
+
+    #[test]
+    fn test_worker_config_manager_creation() {
+        let (_temp_dir, config_root) = setup_test_toml_config();
+
+        let manager = WorkerConfigManager::new_with_config_root(config_root, "test").unwrap();
+        assert_eq!(manager.environment(), "test");
+        assert_eq!(manager.get_component_names().len(), 2); // database + orchestration
+    }
+
+    #[test]
+    fn test_config_as_json() {
+        let (_temp_dir, config_root) = setup_test_toml_config();
+
+        let manager = WorkerConfigManager::new_with_config_root(config_root, "test").unwrap();
+        let json_config = manager.get_config_as_json().unwrap();
+
+        // Should be a JSON object
+        assert!(json_config.is_object());
+
+        // Should contain database configuration
+        assert!(json_config.get("database").is_some());
+    }
+
+    #[test]
+    fn test_component_as_json() {
+        let (_temp_dir, config_root) = setup_test_toml_config();
+
+        let manager = WorkerConfigManager::new_with_config_root(config_root, "test").unwrap();
+
+        // Test existing component
+        let db_config = manager.get_component_as_json("database").unwrap();
+        assert!(db_config.is_some());
+
+        // Test non-existing component
+        let missing_config = manager.get_component_as_json("nonexistent").unwrap();
+        assert!(missing_config.is_none());
+    }
+
+    #[test]
+    fn test_unified_config_availability() {
+        let (_temp_dir, config_root) = setup_test_toml_config();
+
+        // Should detect unified config
+        assert!(WorkerConfigManager::is_unified_config_available(
+            &config_root
+        ));
+
+        // Should not detect unified config in empty directory
+        let empty_temp = TempDir::new().unwrap();
+        assert!(!WorkerConfigManager::is_unified_config_available(
+            empty_temp.path()
+        ));
+    }
+
+    #[test]
+    fn test_config_summary() {
+        let (_temp_dir, config_root) = setup_test_toml_config();
+
+        let manager = WorkerConfigManager::new_with_config_root(config_root, "test").unwrap();
+        let summary = manager.get_config_summary().unwrap();
+
+        assert_eq!(summary["environment"], "test");
+        assert_eq!(summary["component_count"], 2);
+    }
+
+    #[test]
+    fn test_ffi_creation() {
+        let (_temp_dir, _config_root) = setup_test_toml_config();
+
+        // Note: This test would normally require setting up the config in the workspace
+        // For now, just test that the FFI function doesn't crash
+        let manager_ptr = WorkerConfigManager::create_ffi();
+
+        // If config is available, should return non-null
+        // If not available, should return null (which is expected in test environment)
+        if !manager_ptr.is_null() {
+            WorkerConfigManager::free_ffi(manager_ptr);
+        }
+    }
+}

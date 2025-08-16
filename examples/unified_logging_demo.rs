@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         info,
         "Configuration reloaded",
         environment: "development",
-        config_file: "tasker-config.yaml",
+        config_type: "component_based",
         validation_passed: true
     );
 

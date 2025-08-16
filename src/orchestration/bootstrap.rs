@@ -1,7 +1,7 @@
 //! # Unified Orchestration Bootstrap System
 //!
 //! Provides a unified way to bootstrap the orchestration system across all deployment modes:
-//! - Embedded mode (Ruby FFI)  
+//! - Embedded mode (Ruby FFI)
 //! - Standalone deployment
 //! - Docker containers
 //! - Testing environments
@@ -14,7 +14,7 @@
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
 
-use crate::config::ConfigManager;
+use crate::config::{ConfigManager, UnifiedConfigLoader};
 use crate::error::{Result, TaskerError};
 use crate::orchestration::coordinator::{
     resource_limits::ResourceValidator, OrchestrationLoopCoordinator,
@@ -23,6 +23,7 @@ use crate::orchestration::OrchestrationCore;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
+use workspace_tools::workspace;
 
 /// Unified orchestration system handle for lifecycle management
 pub struct OrchestrationSystemHandle {
@@ -109,8 +110,6 @@ pub struct BootstrapConfig {
     pub namespaces: Vec<String>,
     /// Whether to start processors immediately (vs manual control)
     pub auto_start_processors: bool,
-    /// Custom configuration directory (None = auto-detect)
-    pub config_directory: Option<std::path::PathBuf>,
     /// Environment override (None = auto-detect)
     pub environment_override: Option<String>,
 }
@@ -120,7 +119,6 @@ impl Default for BootstrapConfig {
         Self {
             namespaces: vec![],
             auto_start_processors: true,
-            config_directory: None,
             environment_override: None,
         }
     }
@@ -135,7 +133,6 @@ impl BootstrapConfig {
         Self {
             namespaces,
             auto_start_processors: true, // Default for most use cases
-            config_directory: Some(config_manager.config_directory().to_path_buf()),
             environment_override: Some(config_manager.environment().to_string()),
         }
     }
@@ -145,7 +142,6 @@ impl BootstrapConfig {
         Self {
             namespaces,
             auto_start_processors: false, // Manual control for testing executors
-            config_directory: None,
             environment_override: Some("test".to_string()),
         }
     }
@@ -168,26 +164,36 @@ impl OrchestrationBootstrap {
     pub async fn bootstrap(config: BootstrapConfig) -> Result<OrchestrationSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap");
 
-        // Load configuration manager with environment detection
-        let config_manager = if let Some(env) = &config.environment_override {
-            if let Some(config_dir) = &config.config_directory {
-                ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), env).map_err(
-                    |e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")),
-                )?
-            } else {
-                ConfigManager::load_from_directory_with_env(None, env).map_err(|e| {
-                    TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-                })?
-            }
-        } else if let Some(config_dir) = &config.config_directory {
-            ConfigManager::load_from_directory(Some(config_dir.clone())).map_err(|e| {
-                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-            })?
-        } else {
-            ConfigManager::load().map_err(|e| {
-                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-            })?
-        };
+        // Load configuration using UnifiedConfigLoader directly (TAS-34 Phase 2)
+        let detected_env = UnifiedConfigLoader::detect_environment();
+        let environment = config
+            .environment_override
+            .as_deref()
+            .unwrap_or(&detected_env);
+
+        let ws = workspace().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to create workspace: {e}"))
+        })?;
+        let config_root = ws.config_dir().join("tasker");
+        // Use UnifiedConfigLoader as primary implementation
+        let mut loader =
+            UnifiedConfigLoader::with_root(config_root.clone(), environment).map_err(|e| {
+                TaskerError::ConfigurationError(format!(
+                    "Failed to create UnifiedConfigLoader: {e}"
+                ))
+            })?;
+
+        let tasker_config = loader.load_tasker_config().map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load config with UnifiedConfigLoader: {e}"
+            ))
+        })?;
+
+        // Create ConfigManager wrapper for backward compatibility only
+        let config_manager = Arc::new(crate::config::loader::ConfigManager::from_tasker_config(
+            tasker_config,
+            environment.to_string(),
+        ));
 
         info!(
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
@@ -230,7 +236,7 @@ impl OrchestrationBootstrap {
                 ResourceValidator::new(orchestration_core.database_pool(), config_manager.clone())
                     .await?;
 
-            let validation_result = resource_validator.validate_and_fail_fast().await?;
+            let validation_result = resource_validator.validate_and_log_info().await?;
 
             info!(
                 "✅ BOOTSTRAP: Resource validation passed - Max executors: {}, Available DB connections: {}",
@@ -279,7 +285,6 @@ impl OrchestrationBootstrap {
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory: None,
             environment_override: None, // Let it detect environment
         };
 
@@ -291,14 +296,12 @@ impl OrchestrationBootstrap {
     ///
     /// Full-featured bootstrap method for standalone deployments with custom configuration.
     pub async fn bootstrap_standalone(
-        config_directory: Option<std::path::PathBuf>,
         environment: Option<String>,
         namespaces: Vec<String>,
     ) -> Result<OrchestrationSystemHandle> {
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory,
             environment_override: environment,
         };
 
@@ -312,7 +315,6 @@ impl OrchestrationBootstrap {
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory: None,
             environment_override: Some("test".to_string()),
         };
 
@@ -359,7 +361,6 @@ mod tests {
         let config = BootstrapConfig::default();
         assert!(config.namespaces.is_empty());
         assert!(config.auto_start_processors);
-        assert!(config.config_directory.is_none());
         assert!(config.environment_override.is_none());
     }
 
@@ -388,7 +389,6 @@ mod tests {
         let config = BootstrapConfig {
             namespaces: vec!["test_namespace".to_string()],
             auto_start_processors: false, // Don't auto-start for testing
-            config_directory: None,
             environment_override: Some("test".to_string()),
         };
 

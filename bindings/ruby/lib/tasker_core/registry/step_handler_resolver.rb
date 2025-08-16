@@ -124,7 +124,8 @@ module TaskerCore
         # Check if constructor accepts parameters (positive arity or negative arity with optional params)
         arity = handler_class.instance_method(:initialize).arity
         if arity.positive? || arity.negative?
-          handler_class.new(handler_config)
+          # Pass as keyword argument to match StepHandler::Base signature
+          handler_class.new(config: handler_config)
         else
           handler_class.new
         end

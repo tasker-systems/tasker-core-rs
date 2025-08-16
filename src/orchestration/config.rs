@@ -17,7 +17,7 @@
 //! ## Configuration Structure:
 //!
 //! ```yaml
-//! # tasker-config.yaml
+//! # config/tasker/database.yaml
 //! auth:
 //!   authentication_enabled: false
 //!   strategy: "none"
@@ -38,8 +38,8 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Load system configuration
-//! let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml").await?;
+//! // Load system configuration using component-based config
+//! let config_manager = ConfigurationManager::new();
 //! let system_config = config_manager.system_config();
 //!
 //! // Load task template (example file path - would need to exist)

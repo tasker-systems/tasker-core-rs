@@ -1,0 +1,7 @@
+[pgmq]
+poll_interval_ms = 500
+visibility_timeout_seconds = 300
+batch_size = 20
+max_retries = 5
+shutdown_timeout_seconds = 60
+default_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics", "reporting", "audit", "integration",]

@@ -1,0 +1,9 @@
+[pgmq]
+poll_interval_ms = 250
+visibility_timeout_seconds = 30
+batch_size = 5
+max_retries = 3
+max_batch_size = 100
+shutdown_timeout_seconds = 5
+default_namespaces = [ "default", "fulfillment", "inventory", "notifications",]
+queue_naming_pattern = "{namespace}_queue"

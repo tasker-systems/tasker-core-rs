@@ -8,22 +8,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Architecture**: PostgreSQL message queue (pgmq) based system where Rust handles orchestration and step enqueueing, while Ruby workers autonomously process steps through queue polling - eliminating FFI coupling and coordination complexity.
 
-## Current Status (August 7, 2025)
+## Current Status (August 15, 2025)
 
-### 🎉 WORKFLOW PATTERN STANDARDIZATION COMPLETE (August 7, 2025)
-- **Major Achievement**: Successfully standardized all workflow examples to use consistent `sequence.get_results()` pattern
-- **Problem Solved**: Eliminated inconsistent step result retrieval patterns across all workflow examples
-- **Solution**: Unified all step handlers to use proven linear workflow patterns
-- **Result**: ✅ **All Workflow Examples Working** - Linear, Mixed DAG, Tree, Diamond, and Order Fulfillment
+### 🎉 TAS-34 PHASE 2 COMPONENT-BASED CONFIGURATION COMPLETE (August 15, 2025)
+- **Major Achievement**: Successfully migrated from monolithic configuration to component-based system
+- **Problem Solved**: Eliminated 630-line monolithic config file breaking changes and test failures  
+- **Solution**: Component-based configuration with environment overrides and comprehensive validation
+- **Result**: ✅ **All Tests Passing** - Configuration, Integration, Doctests, and Clippy validation
 
-### ✅ COMPLETED PHASE: Workflow Pattern Unification (August 7, 2025)
-**Objective**: Update all workflow examples to follow the proven patterns from linear workflow
+### ✅ COMPLETED PHASE: TAS-34 Phase 2 Implementation (August 15, 2025)
+**Objective**: Replace monolithic configuration with manageable component-based system
 
-**Pattern Standardization**:
-- **Before**: Mixed patterns - `sequence.get().dig()`, `sequence.steps.find()`, inconsistent return structures
-- **After**: Unified `sequence.get_results('step_name')` pattern across all workflows
-- **Ruby Processing**: All handlers now use consistent result retrieval and return `TaskerCore::Types::StepHandlerCallResult.success`
-- **Benefits**: Consistent developer experience, reliable examples, easier maintenance
+**Configuration Architecture Migration**:
+- **Before**: Single 630-line `tasker-config.yaml` with mixed concerns and environment coupling
+- **After**: Component-based structure with base files + environment overrides
+- **Component Structure**: `config/tasker/{auth,database,telemetry,engine,system,circuit_breakers,executor_pools,orchestration,pgmq,query_cache}.yaml`
+- **Environment Overrides**: `config/tasker/environments/{env}/{component}.yaml`
+- **Benefits**: Manageable file sizes, clear separation of concerns, environment-specific customization
+
+### ✅ PREVIOUS PHASE: Workflow Pattern Standardization (August 7, 2025)
+**Achievement**: Successfully standardized all workflow examples to use consistent `sequence.get_results()` pattern
+- **Linear Workflow** ✅, **Mixed DAG Workflow** ✅, **Tree Workflow** ✅, **Diamond Workflow** ✅, **Order Fulfillment** ✅
+- **Pattern Unified**: All handlers use `sequence.get_results('step_name')` and return `TaskerCore::Types::StepHandlerCallResult.success`
 
 ### 🔄 NEXT PHASE: Simple Message Implementation 
 **Objective**: Replace complex nested message structures with simple UUID-based messages
@@ -115,7 +121,7 @@ handler.call(task, sequence, step)
 
 ### Configuration
 - **Database**: `.env` with `DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test`  
-- **Config**: `config/tasker-config-test.yaml`
+- **Config**: Component-based configuration in `config/tasker/` with environment overrides
 - **Architecture Plan**: `docs/simple-messages.md` - Complete implementation roadmap
 
 ## Development Commands
@@ -146,9 +152,32 @@ cd /Users/petetaylor/projects/tasker-systems/tasker-core-rs
 DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test cargo sqlx migrate run
 ```
 
-## Implementation Progress (August 7, 2025)
+## Implementation Progress (August 15, 2025)
 
-### ✅ COMPLETED: Workflow Pattern Standardization (August 7, 2025)
+### ✅ COMPLETED: TAS-34 Phase 2 Component-Based Configuration (August 15, 2025)
+**Major Achievement**: Successfully migrated from monolithic to component-based configuration
+
+#### Configuration System Transformation:
+1. **Component Structure** ✅ - Implemented 10 component files with hierarchical merging
+2. **Environment Overrides** ✅ - Environment-specific configuration overrides working
+3. **Test Migration** ✅ - All configuration tests updated to use component loading
+4. **Doctest Updates** ✅ - Updated 3 doctests to use new configuration methods
+5. **Clippy Compliance** ✅ - Fixed 8 clippy warnings for CI compliance
+
+#### Technical Implementation:
+- **ComponentConfigLoader** ✅: Complete TAS-34 Phase 2 implementation in `src/config/component_loader.rs`
+- **Test Structure** ✅: Comprehensive test setup with realistic component configurations
+- **Environment Detection** ✅: Proper environment detection and override application
+- **Validation** ✅: Component configuration validation with proper error handling
+
+#### Files Updated:
+- **`src/config/loader.rs`** ✅ - Updated all 5 test functions to use component-based structure
+- **`src/config/component_loader.rs`** ✅ - Fixed clippy warnings and improved merge logic
+- **`src/orchestration/config.rs`** ✅ - Updated doctest for new configuration methods
+- **`src/orchestration/orchestration_system.rs`** ✅ - Updated 2 doctests for TAS-34 compliance
+- **Integration tests** ✅ - Fixed unused imports and unnecessary borrows
+
+### ✅ COMPLETED: Workflow Pattern Standardization (August 7, 2025)  
 **Major Achievement**: Successfully unified all workflow examples to use consistent patterns
 
 #### Workflow Examples Updated:
@@ -162,13 +191,6 @@ DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test cargo sqlx mi
 - **Before**: `sequence.get('step_name')&.dig('result')` → **After**: `sequence.get_results('step_name')`
 - **Before**: `sequence.steps.find { |s| s.name == 'step_name' }.results` → **After**: `sequence.get_results('step_name')`
 - **Return Format**: All handlers now return `TaskerCore::Types::StepHandlerCallResult.success(result:, metadata:)`
-
-#### Integration Test Results:
-- **Linear Workflow**: ✅ Working perfectly
-- **Mixed DAG Workflow**: ✅ Complex dependency resolution working
-- **Tree Workflow**: ✅ Hierarchical processing working  
-- **Diamond Workflow**: ✅ Parallel processing working
-- **Order Fulfillment**: ✅ Complete workflow chain working
 
 ### ✅ COMPLETED: Database Schema Foundation  
 - **UUID Migration Applied** ✅: Both `tasker_tasks` and `tasker_workflow_steps` have UUID columns
@@ -239,12 +261,21 @@ DATABASE_URL=postgresql://tasker:tasker@localhost/tasker_rust_test TASKER_ENV=te
 
 ### ✅ ACHIEVED SUCCESS METRICS
 
+**TAS-34 Phase 2 Component-Based Configuration (Completed August 15, 2025)**:
+- ✅ **Configuration Migration**: Successfully replaced 630-line monolithic config with 10 component files
+- ✅ **Test Compliance**: All configuration tests, doctests, and clippy warnings resolved
+- ✅ **Environment Overrides**: Working environment-specific configuration with proper merging
+- ✅ **Code Quality**: Comprehensive validation, error handling, and proper file size limits
+- ✅ **CI Readiness**: All clippy warnings fixed for CI compliance
+
 **Workflow Pattern Standardization (Completed August 7, 2025)**:
 - ✅ **Pattern Consistency**: All 20 step handlers across 5 workflows use `sequence.get_results()` pattern
 - ✅ **Integration Tests**: All workflow integration tests passing with core functionality verified
 - ✅ **Developer Experience**: Consistent examples for all workflow patterns (Linear, DAG, Tree, Diamond, Chain)
 - ✅ **Code Quality**: All handlers return proper `StepHandlerCallResult.success` with metadata
 - ✅ **Maintenance**: Eliminated 4 different result retrieval patterns, unified to single approach
+
+**Current Foundation**: TAS-34 Phase 2 component-based configuration system is production-ready and provides the foundation for future configuration management and resource constraint validation.
 
 **Next Success Indicator**: `linear_workflow_integration_spec.rb:55` test passes with simple message processing and handlers receive proper ActiveRecord models.
 

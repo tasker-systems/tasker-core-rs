@@ -1,0 +1,37 @@
+[orchestration]
+mode = "distributed"
+task_requests_queue_name = "task_requests_queue"
+tasks_per_cycle = 5
+cycle_interval_ms = 250
+task_request_polling_interval_ms = 250
+task_request_visibility_timeout_seconds = 300
+task_request_batch_size = 10
+active_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics",]
+max_concurrent_orchestrators = 3
+enable_performance_logging = false
+default_claim_timeout_seconds = 300
+enable_heartbeat = true
+heartbeat_interval_ms = 5000
+
+[orchestration.queues]
+task_requests = "task_requests_queue"
+task_processing = "task_processing_queue"
+batch_results = "batch_results_queue"
+step_results = "orchestration_step_results"
+
+[orchestration.embedded_orchestrator]
+auto_start = false
+namespaces = [ "default", "fulfillment", "inventory", "notifications",]
+shutdown_timeout_seconds = 30
+
+[orchestration.queues.worker_queues]
+default = "default_queue"
+fulfillment = "fulfillment_queue"
+inventory = "inventory_queue"
+notifications = "notifications_queue"
+
+[orchestration.queues.settings]
+visibility_timeout_seconds = 30
+message_retention_seconds = 604800
+dead_letter_queue_enabled = true
+max_receive_count = 3

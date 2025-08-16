@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tasker_core::test_utils::setup_test_environment();
 
     // Load configuration
-    let config_manager = ConfigManager::load_from_directory_with_env(None, "test")?;
+    let config_manager = ConfigManager::load_from_env("test")?;
 
     println!("📋 Current Configuration:");
     println!("  Environment: {}", config_manager.environment());

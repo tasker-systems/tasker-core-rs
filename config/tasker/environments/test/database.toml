@@ -1,0 +1,12 @@
+[database]
+checkout_timeout = 5
+reaping_frequency = 5
+prepared_statements = false
+statement_cache_size = 0
+
+[database.pool]
+max_connections = 30
+min_connections = 8
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 30
+max_lifetime_seconds = 1800

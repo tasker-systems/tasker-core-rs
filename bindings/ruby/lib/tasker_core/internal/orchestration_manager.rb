@@ -167,12 +167,12 @@ module TaskerCore
       def orchestration_mode
         return @orchestration_mode if @orchestration_mode
 
-        config = TaskerCore::Config.instance.effective_config
-        @orchestration_mode = config.dig('orchestration', 'mode')
+        config = TaskerCore::Config.instance
+        @orchestration_mode = config.orchestration_config.mode
 
         # Default to embedded mode if not specified or in test environment
         if @orchestration_mode.nil?
-          @orchestration_mode = if config.dig('execution', 'environment') == 'test'
+          @orchestration_mode = if config.test_environment?
                                   'embedded'
                                 else
                                   'distributed'
@@ -246,8 +246,8 @@ module TaskerCore
       def bootstrap_core_queues
         logger.debug '🗂️ Bootstrapping core orchestration queues'
 
-        config = TaskerCore::Config.instance.effective_config
-        queue_config = config.dig('orchestration', 'queues')
+        config = TaskerCore::Config.instance
+        queue_config = config.orchestration_config.queues
 
         unless queue_config
           raise TaskerCore::Errors::ConfigurationError,
@@ -255,12 +255,12 @@ module TaskerCore
         end
 
         core_queues = [
-          queue_config['task_requests'],
-          queue_config['task_processing'],
-          queue_config['batch_results']
+          queue_config.task_requests,
+          queue_config.task_processing,
+          queue_config.batch_results
         ].compact
 
-        worker_queues = queue_config['worker_queues']&.values || []
+        worker_queues = queue_config.worker_queues&.values || []
         all_queues = core_queues + worker_queues
 
         logger.debug "📋 Core queues to bootstrap: #{all_queues.join(', ')}"

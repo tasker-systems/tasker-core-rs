@@ -276,6 +276,92 @@ pub fn permanent_error(
     Error::new(exception::standard_error(), full_message)
 }
 
+/// **NEW**: Translate configuration errors to Ruby exceptions
+/// This provides Ruby-specific error translation for the WorkerConfigManager
+pub fn translate_config_error(error: tasker_core::config::error::ConfigurationError) -> Error {
+    debug!(
+        "🔧 Ruby FFI: Converting ConfigurationError to Ruby exception: {:?}",
+        error
+    );
+
+    use tasker_core::config::error::ConfigurationError;
+
+    match error {
+        ConfigurationError::ConfigFileNotFound { searched_paths } => Error::new(
+            exception::arg_error(),
+            format!("Configuration file not found. Searched paths: {searched_paths:?}"),
+        ),
+        ConfigurationError::InvalidYaml { file_path, error } => Error::new(
+            exception::standard_error(),
+            format!("Invalid YAML in {}: {}", file_path, error),
+        ),
+        ConfigurationError::InvalidToml { file_path, error } => Error::new(
+            exception::standard_error(),
+            format!("Invalid TOML in {}: {}", file_path, error),
+        ),
+        ConfigurationError::ResourceConstraintViolation { requested, available } => Error::new(
+            exception::arg_error(),
+            format!("Resource constraint violation: requested {} executors but only {} database connections available", requested, available),
+        ),
+        ConfigurationError::UnknownField { field, component } => Error::new(
+            exception::arg_error(),
+            format!("Unknown configuration field: {} in component {}", field, component),
+        ),
+        ConfigurationError::TypeMismatch { field, expected, actual } => Error::new(
+            exception::type_error(),
+            format!("Type mismatch for field {}: expected {}, got {}", field, expected, actual),
+        ),
+        ConfigurationError::MissingOverride { path } => Error::new(
+            exception::arg_error(),
+            format!("Environment override file missing: {}", path.display()),
+        ),
+        ConfigurationError::MissingRequiredField { field, context } => Error::new(
+            exception::arg_error(),
+            format!("Missing required configuration field '{}' in {}", field, context),
+        ),
+        ConfigurationError::InvalidValue { field, value, context } => Error::new(
+            exception::arg_error(),
+            format!("Invalid value '{}' for field '{}': {}", value, field, context),
+        ),
+        ConfigurationError::EnvironmentConfigError { environment, error } => Error::new(
+            exception::standard_error(),
+            format!("Environment configuration error for '{}': {}", environment, error),
+        ),
+        ConfigurationError::ConfigMergeError { error } => Error::new(
+            exception::standard_error(),
+            format!("Failed to merge environment-specific configuration: {}", error),
+        ),
+        ConfigurationError::FileReadError { file_path, error } => Error::new(
+            exception::standard_error(),
+            format!("Failed to read configuration file '{}': {}", file_path, error),
+        ),
+        ConfigurationError::EnvironmentVariableError { variable, context } => Error::new(
+            exception::standard_error(),
+            format!("Failed to expand environment variable '{}' in configuration: {}", variable, context),
+        ),
+        ConfigurationError::ValidationError { error } => Error::new(
+            exception::arg_error(),
+            format!("Configuration validation failed: {}", error),
+        ),
+        ConfigurationError::InvalidStepConfig { step_name, error } => Error::new(
+            exception::arg_error(),
+            format!("Invalid step configuration for '{}': {}", step_name, error),
+        ),
+        ConfigurationError::InvalidHandlerConfig { step_name, error } => Error::new(
+            exception::arg_error(),
+            format!("Invalid handler configuration for '{}': {}", step_name, error),
+        ),
+        ConfigurationError::JsonSerializationError { context, error } => Error::new(
+            exception::standard_error(),
+            format!("JSON serialization error in {}: {}", context, error),
+        ),
+        ConfigurationError::DatabaseConfigError { error } => Error::new(
+            exception::standard_error(),
+            format!("Database configuration error: {}", error),
+        ),
+    }
+}
+
 /// Classify HTTP status codes into permanent vs retryable errors
 /// This mirrors the Rails engine's ResponseProcessor classification
 pub fn classify_http_error(

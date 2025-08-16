@@ -380,6 +380,9 @@ name = "camino"
 version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d07aa9a93b00c76f71bc35d598bed923f6d4f3a9ca5c24b7737ae1a292841c0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "cargo-config2"
@@ -389,7 +392,7 @@ checksum = "2f307d010782c2a4066cc5125ba8c6b68db926b3a1bb82bd6d0b38950c6d4815"
 dependencies = [
  "serde",
  "serde_derive",
- "toml",
+ "toml 0.9.5",
  "windows-sys 0.60.2",
 ]
 
@@ -418,6 +421,29 @@ dependencies = [
  "tar",
  "termcolor",
  "walkdir",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e35af189006b9c0f00a064685c727031e3ed2d8020f7ba284d78cc2671bd36ea"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d886547e41f740c616ae73108f6eb70afe6d940c7bc697cb30f13daec073037"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -558,7 +584,7 @@ dependencies = [
  "serde",
  "serde-untagged",
  "serde_json",
- "toml",
+ "toml 0.9.5",
  "winnow",
  "yaml-rust2",
 ]
@@ -2891,6 +2917,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
+name = "semver"
+version = "1.0.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56e6fa9c48d24d85fb3de5ad847117517440f6beceb7798af16b4a87d616b8d0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "seq-macro"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2945,6 +2980,15 @@ dependencies = [
  "itoa",
  "memchr",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
  "serde",
 ]
 
@@ -3618,6 +3662,7 @@ dependencies = [
  "thiserror 2.0.14",
  "tokio",
  "tokio-test",
+ "toml 0.8.23",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -3626,6 +3671,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "workspace_tools",
 ]
 
 [[package]]
@@ -3850,12 +3896,25 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+dependencies = [
+ "indexmap 2.10.0",
+ "serde",
+ "serde_spanned 0.6.9",
+ "toml_datetime 0.6.11",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75129e1dc5000bfbaa9fee9d1b21f974f9fbad9daec557a521ee6e080825f6e8"
 dependencies = [
  "serde",
- "serde_spanned",
+ "serde_spanned 1.0.0",
  "toml_datetime 0.7.0",
  "toml_parser",
  "winnow",
@@ -3866,6 +3925,9 @@ name = "toml_datetime"
 version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "toml_datetime"
@@ -3883,7 +3945,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
  "indexmap 2.10.0",
+ "serde",
+ "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
+ "toml_write",
  "winnow",
 ]
 
@@ -3895,6 +3960,12 @@ checksum = "b551886f449aa90d4fe2bdaa9f4a2577ad2dde302c61ecf262d80b116db95c10"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
@@ -4762,6 +4833,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "workspace_tools"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e19a0bf92a79b7a1bda94d42cd1ec2ab9beca39d2174d5c3be0c328cf2aad00"
+dependencies = [
+ "cargo_metadata",
+ "glob",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]

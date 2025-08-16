@@ -481,7 +481,7 @@ for i in 0..num_cores {
     });
 }
 
-// TOKIO ASYNC (M:N model) 
+// TOKIO ASYNC (M:N model)
 // Many executors = few system threads = efficient core usage
 for i in 0..1000 { // Can spawn thousands!
     tokio::spawn(async {
@@ -510,25 +510,25 @@ impl SystemResourceLimits {
         let database_max_connections = db_pool.size() as usize;
         let available_memory_mb = Self::get_available_memory();
         let cpu_cores = num_cpus::get(); // For monitoring only
-        
+
         Self {
             database_max_connections,
             available_memory_mb,
             cpu_cores, // Not used for executor limiting!
         }
     }
-    
+
     /// Calculate maximum safe executors based on real constraints
     pub fn max_safe_executors(&self) -> usize {
         // Primary constraint: database connections (85% utilization for safety)
         let db_based_limit = (self.database_max_connections as f64 * 0.85) as usize;
-        
+
         // Secondary constraint: memory (rough estimate: 50MB per executor)
         let memory_based_limit = self.available_memory_mb / 50;
-        
+
         // Return the most restrictive limit
         db_based_limit.min(memory_based_limit)
-        
+
         // NOTE: CPU cores are NOT used for limiting! Tokio's M:N threading
         // model allows many async executors to run efficiently on few system threads.
     }
@@ -548,19 +548,19 @@ impl ResourceBudget {
     pub fn calculate(limits: &SystemResourceLimits, config: &ExecutorPoolsConfig) -> Result<Self> {
         let reserved_connections = 5; // System overhead
         let available_for_executors = limits.database_max_connections.saturating_sub(reserved_connections);
-        
+
         // Calculate total requested executors
         let total_requested: usize = config.iter()
             .map(|(_, pool_config)| pool_config.max_executors)
             .sum();
-        
+
         if total_requested > available_for_executors {
             return Err(TaskerError::ConfigurationError(
-                format!("Executor pool configuration requests {} executors but only {} database connections available", 
+                format!("Executor pool configuration requests {} executors but only {} database connections available",
                         total_requested, available_for_executors)
             ));
         }
-        
+
         Ok(Self {
             total_executor_limit: available_for_executors,
             allocated_executors: HashMap::new(),
@@ -577,404 +577,22 @@ impl OrchestrationLoopCoordinator {
     pub async fn new_with_resource_validation(config: CoordinatorConfig, db_pool: PgPool) -> Result<Self> {
         // Detect system resources
         let system_limits = SystemResourceLimits::detect(&db_pool);
-        
+
         // Validate configuration against resources
         let resource_budget = ResourceBudget::calculate(&system_limits, &config.executor_pools)?;
-        
+
         info!(
             cpu_cores = system_limits.cpu_cores,
             max_db_connections = system_limits.database_max_connections,
             max_total_executors = resource_budget.total_executor_limit,
             "System resources detected and validated"
         );
-        
+
         Ok(Self::with_resource_budget(config, db_pool, resource_budget).await?)
     }
 }
 ```
 
-### Configuration Decomposition Architecture
+### Configuration Changes
 
-#### Problem: Monolithic Configuration File
-
-Current `config/tasker-config.yaml` has grown to **630 lines** with mixed concerns, making it difficult to:
-- Understand component relationships
-- Manage environment-specific overrides  
-- Separate Ruby worker configuration from Rust orchestration
-- Validate cross-component resource constraints
-
-#### Proposed Component-Based Structure
-
-```
-config/
-├── tasker/
-│   ├── database.yaml           # Database connection and pooling
-│   ├── orchestration.yaml      # Core orchestration settings
-│   ├── executor_pools.yaml     # Executor pool configurations
-│   ├── circuit_breakers.yaml   # Resilience settings
-│   ├── pgmq.yaml              # Message queue settings
-│   └── telemetry.yaml         # Monitoring and logging
-├── tasker/environments/
-│   ├── test/
-│   │   ├── database.yaml       # Test-specific overrides
-│   │   ├── executor_pools.yaml # Smaller pools for tests
-│   │   └── circuit_breakers.yaml
-│   ├── development/
-│   │   └── database.yaml
-│   └── production/
-│       ├── database.yaml       # Production scale settings
-│       ├── executor_pools.yaml # High-throughput pools
-│       └── telemetry.yaml      # Production monitoring
-└── shared/
-    └── queue_names.yaml        # Shared between Rust/Ruby
-```
-
-#### Component File Examples
-
-**config/tasker/database.yaml:**
-```yaml
-# Database configuration component
-database:
-  adapter: postgresql
-  encoding: unicode
-  pool:
-    max_connections: 25
-    min_connections: 5
-    acquire_timeout_seconds: 30
-    idle_timeout_seconds: 300
-    max_lifetime_seconds: 3600
-  variables:
-    statement_timeout: 5000
-  checkout_timeout: 10
-  reaping_frequency: 10
-```
-
-**config/tasker/executor_pools.yaml:**
-```yaml
-# Executor pool configuration component
-executor_pools:
-  coordinator:
-    auto_scaling_enabled: true
-    target_utilization: 0.75
-    resource_validation_enabled: true
-    max_db_pool_usage: 0.85
-  
-  # Pool definitions with resource awareness
-  task_request_processor:
-    min_executors: 1
-    max_executors: 5
-    resource_weight: 1.0  # Lower priority for scaling
-  
-  step_result_processor:
-    min_executors: 2
-    max_executors: 10
-    resource_weight: 2.0  # Higher priority for scaling
-```
-
-**config/tasker/environments/production/executor_pools.yaml:**
-```yaml
-# Production overrides with resource validation
-executor_pools:
-  coordinator:
-    target_utilization: 0.70  # More conservative in production
-    scaling_cooldown_seconds: 120
-  
-  task_request_processor:
-    max_executors: 8  # Higher for production
-  
-  step_result_processor:
-    max_executors: 15  # Higher for production
-    
-# CONSTRAINT VALIDATION:
-# Total max executors: 8 + 15 + ... = must not exceed system limits
-```
-
-#### Configuration Loader Updates
-
-```rust
-pub struct ComponentConfigLoader {
-    base_path: PathBuf,
-    environment: String,
-}
-
-impl ComponentConfigLoader {
-    /// Load configuration from component files with environment overrides
-    pub async fn load_config(&self) -> Result<TaskerConfig> {
-        // 1. Load base component configurations
-        let mut config = self.load_base_components().await?;
-        
-        // 2. Apply environment overrides
-        self.apply_environment_overrides(&mut config).await?;
-        
-        // 3. Validate cross-component constraints
-        self.validate_resource_constraints(&config)?;
-        
-        // 4. Detect and support legacy monolithic config for backward compatibility
-        if !self.has_component_structure().await {
-            warn!("Using legacy monolithic config - consider migrating to component structure");
-            return self.load_legacy_config().await;
-        }
-        
-        Ok(config)
-    }
-    
-    fn validate_resource_constraints(&self, config: &TaskerConfig) -> Result<()> {
-        let total_max_executors: usize = config.executor_pools.values()
-            .map(|pool| pool.max_executors)
-            .sum();
-            
-        let db_connections = config.database.pool.max_connections;
-        let available_for_executors = (db_connections as f64 * 0.85) as usize;
-        
-        if total_max_executors > available_for_executors {
-            return Err(TaskerError::ConfigurationError(format!(
-                "Resource constraint violation: {} max executors requested but only {} database connections available",
-                total_max_executors, available_for_executors
-            )));
-        }
-        
-        Ok(())
-    }
-}
-```
-
-### Ruby/Rust Configuration Separation
-
-#### Problem: Deployment Coupling
-
-Currently Ruby workers and Rust orchestration share the same configuration directory, creating deployment coupling. Ruby gems deployed in Rails applications can't depend on the full Rust repository configuration structure.
-
-#### Proposed Solution: Independent Configuration with Shared Elements
-
-**Rust Configuration (unchanged):**
-```
-config/tasker/           # Full Rust configuration
-├── database.yaml
-├── executor_pools.yaml  # Rust-only
-├── orchestration.yaml   # Rust-only
-└── shared/
-    └── queue_names.yaml # Shared template
-```
-
-**Ruby Configuration (new location):**
-```
-bindings/ruby/config/tasker/
-├── database.yaml        # Copied/templated from Rust
-├── pgmq.yaml           # Ruby worker queue settings
-├── circuit_breakers.yaml # Ruby worker resilience
-└── queue_names.yaml    # Copied from shared template
-```
-
-#### Configuration Synchronization Tool
-
-```bash
-# Tool to sync shared configuration between Rust and Ruby
-./scripts/sync-shared-config.sh
-```
-
-```bash
-#!/bin/bash
-# Sync shared configuration elements from Rust to Ruby
-RUST_CONFIG_DIR="config/tasker"
-RUBY_CONFIG_DIR="bindings/ruby/config/tasker"
-
-# Create Ruby config directory
-mkdir -p "$RUBY_CONFIG_DIR"
-
-# Copy shared elements
-cp "$RUST_CONFIG_DIR/shared/queue_names.yaml" "$RUBY_CONFIG_DIR/"
-
-# Template database configuration (remove Rust-specific elements)
-sed 's/executor_pools:.*//' "$RUST_CONFIG_DIR/database.yaml" > "$RUBY_CONFIG_DIR/database.yaml"
-
-echo "Shared configuration synchronized"
-```
-
-### Implementation Plan
-
-#### ✅ Phase 0: Unified Orchestration Architecture (Foundation) - COMPLETED
-**Timeline**: ~~2-3 days~~ **COMPLETED August 15, 2025**
-**Goal**: Replace multiple bootstrapping strategies with single OrchestrationLoopCoordinator path ✅
-
-**IMPLEMENTATION COMPLETED:**
-
-All orchestration paths now use the unified `OrchestrationLoopCoordinator` architecture:
-
-1. ✅ **`bootstrap.rs`** - All bootstrap methods delegate to `OrchestrationLoopCoordinator::start()`
-   - `bootstrap_embedded()` uses unified `bootstrap()` method
-   - `bootstrap_standalone()` and `bootstrap_testing()` use coordinator
-   - Single entry point achieved
-
-2. ✅ **`orchestration_system.rs`** - `start()` method creates and delegates to coordinator
-   ```rust
-   // Line 257: Unified coordinator delegation
-   coordinator.start().await?;
-   ```
-
-3. ✅ **`embedded_bridge.rs`** - Uses coordinator-based bootstrap
-   ```rust
-   // Line 253: Uses unified bootstrap
-   OrchestrationBootstrap::bootstrap_embedded(namespaces).await
-   // Line 266: "bootstrapped successfully using OrchestrationLoopCoordinator"
-   ```
-
-**UNIFIED ARCHITECTURE ACHIEVED:**
-```rust
-// ALL PATHS NOW USE: Single unified approach
-ALL PATHS -> OrchestrationLoopCoordinator::start()
-  ├── bootstrap.rs -> OrchestrationLoopCoordinator
-  ├── orchestration_system.rs -> OrchestrationLoopCoordinator  
-  └── embedded_bridge.rs -> OrchestrationLoopCoordinator
-```
-
-**PRODUCTION READY FEATURES:**
-- 🎯 **Single Entry Point**: All deployment modes use `OrchestrationLoopCoordinator`
-- 🎯 **Unified Lifecycle**: Consistent start/stop/status across all modes
-- 🎯 **Resource Management**: Integrated resource validation (Phase 1 completion)
-- 🎯 **Health Monitoring**: Built-in health checks and metrics
-- 🎯 **Dynamic Scaling**: Auto-scaling executor pools based on load
-
-#### ✅ Phase 1: Resource Constraint Validation (COMPLETED)
-**Timeline**: ~~1-2 days~~ **COMPLETED August 15, 2025**
-**Goal**: Prevent database pool exhaustion in current system ✅
-
-**COMPLETED TASKS:**
-1. ✅ **SystemResourceLimits::detect()** - Implemented in `src/orchestration/coordinator/resource_limits.rs`
-2. ✅ **Startup validation** - Integrated in `OrchestrationLoopCoordinator::start()`
-3. ✅ **Fail fast validation** - Configuration validation with immediate error
-4. ✅ **Memory & CPU detection** - Real system resource detection using sysinfo crate
-5. ✅ **Pool statistics** - Real database pool monitoring instead of placeholders
-6. ✅ **Queue metrics** - Real pgmq metrics instead of placeholder implementations
-
-**IMPLEMENTATION COMPLETED:**
-```rust
-// WORKING IMPLEMENTATION in src/orchestration/coordinator/resource_limits.rs
-impl SystemResourceLimits {
-    pub async fn detect(database_pool: &PgPool) -> Result<Self> {
-        // Real implementation with:
-        // - Actual database connection detection
-        // - Memory detection via sysinfo crate  
-        // - CPU core detection
-        // - Resource utilization calculations
-        // - Comprehensive validation warnings
-    }
-}
-
-impl OrchestrationLoopCoordinator {
-    pub async fn start(&self) -> Result<()> {
-        // PHASE 1: Resource Constraint Validation (TAS-34)
-        let resource_validator = ResourceValidator::new(
-            self.orchestration_core.database_pool(),
-            self.config_manager.clone(),
-        ).await?;
-
-        let validation_result = resource_validator.validate_and_fail_fast().await?;
-        
-        // Fail fast if configuration exceeds resource limits
-        // Proceeds only if validation passes
-    }
-}
-```
-
-**PRODUCTION READY FEATURES:**
-- 🎯 **Database Pool Protection**: Prevents 38 executors from overwhelming 25-connection pool
-- 🎯 **Memory Detection**: Real memory usage tracking (16,384 MB total, ~700 MB available detected)
-- 🎯 **CPU Detection**: Real CPU core count detection (12 cores detected)
-- 🎯 **Resource Warnings**: Comprehensive warnings for memory pressure, pool utilization
-- 🎯 **Fail-Fast Protection**: System refuses to start with unsafe configurations
-- 🎯 **Production Metrics**: Real queue metrics and pool statistics implementations
-
-#### Phase 2: Component Configuration Decomposition 
-**Timeline**: 3-5 days
-**Goal**: Break monolithic config into manageable components
-
-1. Create component YAML files from existing monolithic config
-2. Implement `ComponentConfigLoader` with backward compatibility  
-3. Add environment override support
-4. Migrate existing configuration while maintaining legacy support
-5. Update documentation and examples
-
-#### Phase 3: Ruby/Rust Configuration Separation
-**Timeline**: 2-3 days  
-**Goal**: Enable independent deployment of Ruby and Rust components
-
-1. Create Ruby-specific configuration directory structure
-2. Implement configuration sync tooling
-3. Update Ruby gem to read from local config directory
-4. Add deployment documentation for configuration management
-5. Test configuration independence
-
-#### Phase 4: Dynamic Resource-Aware Scaling Integration
-**Timeline**: 3-4 days
-**Goal**: Integrate resource awareness into auto-scaling decisions
-
-1. Add resource budget tracking to `OrchestrationLoopCoordinator`
-2. Update scaling algorithms to respect resource constraints  
-3. Add resource utilization monitoring
-4. Implement resource-based backpressure
-5. Add comprehensive resource monitoring and alerting
-
-### Resource Monitoring and Alerting
-
-#### New Metrics
-
-**Resource Utilization:**
-- `orchestration_db_connections_used_ratio`
-- `orchestration_cpu_utilization_per_core`
-- `orchestration_executor_efficiency_ratio`
-- `orchestration_resource_constraint_violations_total`
-
-**Configuration Health:**
-- `orchestration_config_validation_status`
-- `orchestration_component_config_load_time_seconds`
-- `orchestration_shared_config_sync_age_seconds`
-
-#### Health Check Enhancements
-
-```rust
-GET /health/orchestration/resources
-{
-  "status": "healthy",
-  "system_limits": {
-    "cpu_cores": 8,
-    "database_max_connections": 50,
-    "max_total_executors": 42
-  },
-  "current_utilization": {
-    "active_executors": 28,
-    "database_connections_used": 35,
-    "cpu_utilization": 0.65
-  },
-  "resource_budget": {
-    "allocated_executors": 28,
-    "remaining_capacity": 14,
-    "constraint_violations": 0
-  }
-}
-```
-
-### Backward Compatibility Strategy
-
-1. **Configuration Format**: Support both monolithic and component-based configs
-2. **Migration Path**: Provide tooling to convert existing configs
-3. **Deprecation Timeline**: Warn about monolithic usage, remove after 2 versions
-4. **Testing**: Comprehensive tests for both configuration formats
-
-### Success Metrics
-
-1. **Resource Safety**: Zero database pool exhaustion incidents
-2. **Configuration Manageability**: <100 lines per component config file  
-3. **Deployment Independence**: Ruby gem deployment without Rust repository
-4. **Scaling Efficiency**: Resource utilization stays within defined thresholds
-5. **Backward Compatibility**: Existing configurations continue working
-
-## Related Work
-
-- **TAS-32**: Step Result Coordination Processor (completed)
-
-## References
-
-- Current orchestration system: `src/orchestration/orchestration_system.rs`
-- Circuit breaker: `src/resilience/circuit_breaker.rs`
-- Current configuration: `src/orchestration/config.rs`
-- pgmq integration: `src/messaging/pgmq_client.rs`
+Continued in [Supplemental](./TAS-34-supplemental.md)
