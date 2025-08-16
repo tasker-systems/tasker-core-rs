@@ -477,10 +477,9 @@ module TaskerCore
       # Classify client error category by status code (mirrors Rails engine logic)
       def classify_client_error(status_code)
         case status_code
-        when 400 then 'validation'
+        when 400, 422 then 'validation'
         when 401, 403 then 'authorization'
         when 404 then 'not_found'
-        when 422 then 'validation'
         else 'client_error'
         end
       end

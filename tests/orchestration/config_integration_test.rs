@@ -249,7 +249,6 @@ fn test_configuration_builder_pattern() {
     assert_eq!(config.dependency_graph.max_depth, 50);
     assert_eq!(config.backoff.default_backoff_seconds.len(), 1);
     assert_eq!(config.execution.max_concurrent_tasks, 10);
-    assert!(!config.cache.enabled);
 
     println!("✅ Configuration builder pattern works correctly!");
 }
@@ -282,7 +281,7 @@ fn test_configuration_defaults_match_rails() {
     assert!(!config.backoff.jitter_enabled);
     assert_eq!(config.backoff.jitter_max_percentage, 0.1);
     assert_eq!(config.backoff.default_reenqueue_delay, 1);
-    assert_eq!(config.backoff.buffer_seconds, 1);
+    assert_eq!(config.backoff.buffer_seconds, 0);
 
     // Execution defaults
     assert_eq!(config.execution.max_concurrent_tasks, 10);

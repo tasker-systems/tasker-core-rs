@@ -5,3 +5,10 @@ connection_timeout_seconds = 5
 idle_timeout_seconds = 300
 prepared_statements = true
 statement_cache_size = 100
+
+[database.pool]
+max_connections = 50
+min_connections = 10
+acquire_timeout_seconds = 30
+idle_timeout_seconds = 300
+max_lifetime_seconds = 3600

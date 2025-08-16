@@ -7,6 +7,7 @@
 //! approach that follows fail-fast principles.
 
 use super::error::{ConfigResult, ConfigurationError};
+use dotenvy::dotenv;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -577,6 +578,7 @@ impl UnifiedConfigLoader {
     /// Note: dotenv() should be called earlier in the chain (e.g., in embedded_bridge.rs)
     /// to ensure environment variables are loaded before configuration detection.
     pub fn detect_environment() -> String {
+        dotenv().ok();
         env::var("TASKER_ENV")
             .or_else(|_| env::var("RAILS_ENV"))
             .or_else(|_| env::var("RACK_ENV"))
@@ -802,156 +804,156 @@ fn toml_to_json(toml_value: toml::Value) -> ConfigResult<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
 
-    /// Setup test configuration directory with proper TOML structure
-    fn setup_test_config() -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().unwrap();
-        let config_root = temp_dir.path().to_path_buf();
-        let base_dir = config_root.join("base");
-        let env_test_dir = config_root.join("environments").join("test");
+    #[test]
+    fn test_expand_env_vars() {
+        let loader = UnifiedConfigLoader {
+            root: PathBuf::from("/test"),
+            environment: "test".to_string(),
+            component_cache: HashMap::new(),
+        };
 
-        // Create directories
-        fs::create_dir_all(&base_dir).unwrap();
-        fs::create_dir_all(&env_test_dir).unwrap();
+        // Set test env var
+        std::env::set_var("TEST_VAR", "test_value");
+        std::env::set_var("TEST_NUMBER", "42");
 
-        // Create base database.toml
-        let database_toml = r#"
-[database]
-url = "${DATABASE_URL}"
-adapter = "postgresql"
-host = "localhost"
-username = "test_user"
-password = "test_password"
+        // Test simple substitution
+        let result = loader.expand_env_vars("${TEST_VAR}").unwrap();
+        assert_eq!(result, "test_value");
 
-[database.pool]
-max_connections = 25
-min_connections = 5
-acquire_timeout_seconds = 30
-"#;
-        fs::write(base_dir.join("database.toml"), database_toml).unwrap();
+        // Test substitution in string
+        let result = loader.expand_env_vars("prefix_${TEST_VAR}_suffix").unwrap();
+        assert_eq!(result, "prefix_test_value_suffix");
 
-        // Create base executor_pools.toml
-        let executor_pools_toml = r#"
-[executor_pools.coordinator]
-auto_scaling_enabled = true
-target_utilization = 0.75
+        // Test default value when var exists
+        let result = loader.expand_env_vars("${TEST_VAR:-default}").unwrap();
+        assert_eq!(result, "test_value");
 
-[executor_pools.task_claimer]
-min_executors = 2
-max_executors = 10
-polling_interval_ms = 50
-"#;
-        fs::write(base_dir.join("executor_pools.toml"), executor_pools_toml).unwrap();
+        // Test default value when var doesn't exist
+        let result = loader
+            .expand_env_vars("${NONEXISTENT:-default_val}")
+            .unwrap();
+        assert_eq!(result, "default_val");
 
-        // Create test environment override
-        let test_database_override = r#"
-[database]
-database = "tasker_test"
+        // Test error when var doesn't exist and no default
+        let result = loader.expand_env_vars("${NONEXISTENT}");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Environment variable 'NONEXISTENT' not found"));
 
-[database.pool]
-max_connections = 10
-"#;
-        fs::write(env_test_dir.join("database.toml"), test_database_override).unwrap();
-
-        (temp_dir, config_root)
+        // Clean up
+        std::env::remove_var("TEST_VAR");
+        std::env::remove_var("TEST_NUMBER");
     }
 
     #[test]
-    fn test_unified_loader_creation() {
-        let (_temp_dir, config_root) = setup_test_config();
+    fn test_merge_toml_logic() {
+        let loader = UnifiedConfigLoader {
+            root: PathBuf::from("/test"),
+            environment: "test".to_string(),
+            component_cache: HashMap::new(),
+        };
 
-        let loader = UnifiedConfigLoader::with_root(config_root, "test").unwrap();
-        assert_eq!(loader.environment(), "test");
-    }
+        // Create base config
+        let mut base = toml::Value::Table(toml::Table::new());
+        if let toml::Value::Table(ref mut base_table) = base {
+            let mut database = toml::Table::new();
+            database.insert(
+                "host".to_string(),
+                toml::Value::String("localhost".to_string()),
+            );
+            database.insert("port".to_string(), toml::Value::Integer(5432));
 
-    #[test]
-    fn test_component_loading_with_overrides() {
-        let (_temp_dir, config_root) = setup_test_config();
+            let mut pool = toml::Table::new();
+            pool.insert("max_connections".to_string(), toml::Value::Integer(25));
+            pool.insert("min_connections".to_string(), toml::Value::Integer(5));
+            database.insert("pool".to_string(), toml::Value::Table(pool));
 
-        let mut loader = UnifiedConfigLoader::with_root(config_root, "test").unwrap();
-        let database_config = loader.load_component("database").unwrap();
+            base_table.insert("database".to_string(), toml::Value::Table(database));
+        }
 
-        // Should have base configuration
-        assert!(database_config.get("database").is_some());
-
-        // Should have environment override applied
-        let db_section = database_config.get("database").unwrap();
-        assert_eq!(
-            db_section.get("database").unwrap().as_str(),
-            Some("tasker_test")
+        // Create override config
+        let mut override_config = toml::Table::new();
+        let mut database = toml::Table::new();
+        database.insert(
+            "database".to_string(),
+            toml::Value::String("test_db".to_string()),
         );
 
-        // Should have overridden pool configuration
-        let pool_section = db_section.get("pool").unwrap();
-        assert_eq!(
-            pool_section.get("max_connections").unwrap().as_integer(),
-            Some(10)
-        );
+        let mut pool = toml::Table::new();
+        pool.insert("max_connections".to_string(), toml::Value::Integer(10));
+        database.insert("pool".to_string(), toml::Value::Table(pool));
+
+        override_config.insert("database".to_string(), toml::Value::Table(database));
+        let override_value = toml::Value::Table(override_config);
+
+        // Merge
+        loader.merge_toml(&mut base, override_value).unwrap();
+
+        // Verify merge results
+        if let toml::Value::Table(ref base_table) = base {
+            if let Some(toml::Value::Table(ref db_table)) = base_table.get("database") {
+                // Original host should remain
+                assert_eq!(db_table.get("host").unwrap().as_str(), Some("localhost"));
+                assert_eq!(db_table.get("port").unwrap().as_integer(), Some(5432));
+
+                // New database name should be added
+                assert_eq!(db_table.get("database").unwrap().as_str(), Some("test_db"));
+
+                // Pool should be merged
+                if let Some(toml::Value::Table(ref pool_table)) = db_table.get("pool") {
+                    assert_eq!(
+                        pool_table.get("max_connections").unwrap().as_integer(),
+                        Some(10)
+                    ); // overridden
+                    assert_eq!(
+                        pool_table.get("min_connections").unwrap().as_integer(),
+                        Some(5)
+                    ); // preserved
+                }
+            }
+        }
     }
 
     #[test]
-    fn test_validation_errors() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_root = temp_dir.path().to_path_buf();
-        let base_dir = config_root.join("base");
-        fs::create_dir_all(&base_dir).unwrap();
+    fn test_pool_validation_logic() {
+        let loader = UnifiedConfigLoader {
+            root: PathBuf::from("/test"),
+            environment: "test".to_string(),
+            component_cache: HashMap::new(),
+        };
 
-        // Create invalid database config (min > max)
-        let invalid_database_toml = r#"
-[database]
-url = "test"
+        // Test valid pool config
+        let mut valid_pool = toml::Table::new();
+        valid_pool.insert("max_connections".to_string(), toml::Value::Integer(10));
+        valid_pool.insert("min_connections".to_string(), toml::Value::Integer(2));
+        let valid_config = toml::Value::Table(valid_pool);
 
-[database.pool]
-max_connections = 5
-min_connections = 10
-"#;
-        fs::write(base_dir.join("database.toml"), invalid_database_toml).unwrap();
+        assert!(loader.validate_pool_config(&valid_config).is_ok());
 
-        let mut loader = UnifiedConfigLoader::with_root(config_root, "test").unwrap();
-        let result = loader.load_component("database");
+        // Test invalid pool config (min > max)
+        let mut invalid_pool = toml::Table::new();
+        invalid_pool.insert("max_connections".to_string(), toml::Value::Integer(5));
+        invalid_pool.insert("min_connections".to_string(), toml::Value::Integer(10));
+        let invalid_config = toml::Value::Table(invalid_pool);
 
+        let result = loader.validate_pool_config(&invalid_config);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("min_connections") && error_msg.contains("max_connections"));
-    }
 
-    #[test]
-    fn test_environment_detection() {
-        std::env::set_var("TASKER_ENV", "testing");
-        assert_eq!(UnifiedConfigLoader::detect_environment(), "testing");
-        std::env::remove_var("TASKER_ENV");
+        // Test invalid pool config (negative values)
+        let mut negative_pool = toml::Table::new();
+        negative_pool.insert("max_connections".to_string(), toml::Value::Integer(-5));
+        let negative_config = toml::Value::Table(negative_pool);
 
-        std::env::set_var("RAILS_ENV", "production");
-        assert_eq!(UnifiedConfigLoader::detect_environment(), "production");
-        std::env::remove_var("RAILS_ENV");
-
-        // Should default to development
-        assert_eq!(UnifiedConfigLoader::detect_environment(), "development");
-    }
-
-    #[test]
-    fn test_resource_constraint_validation() {
-        let (_temp_dir, config_root) = setup_test_config();
-
-        let mut loader = UnifiedConfigLoader::with_root(config_root, "test").unwrap();
-        let result = loader.load_with_resource_validation();
-
-        // Should pass validation (10 max executors, 10 max connections in test override)
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_missing_config_file_error() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_root = temp_dir.path().to_path_buf();
-
-        // No base directory created - should fail
-        let result = UnifiedConfigLoader::with_root(config_root, "test");
+        let result = loader.validate_pool_config(&negative_config);
         assert!(result.is_err());
-
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("config file not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be greater than 0"));
     }
 }

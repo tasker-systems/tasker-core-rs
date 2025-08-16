@@ -88,8 +88,8 @@ async fn test_environment_specific_executor_configuration() {
 }
 
 #[tokio::test]
-async fn test_executor_creation_from_yaml_config() {
-    // This test verifies that executors can be created using YAML configuration
+async fn test_executor_creation_from_toml_config() {
+    // This test verifies that executors can be created using TOML configuration
     // and that the configuration values are properly applied
 
     let config_manager =
@@ -125,7 +125,7 @@ async fn test_executor_creation_from_yaml_config() {
         }
 
         println!(
-            "✅ {} executor created successfully with YAML configuration",
+            "✅ {} executor created successfully with TOML configuration",
             executor_type.name()
         );
     }
