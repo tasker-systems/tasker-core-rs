@@ -721,7 +721,6 @@ module TaskerCore
         raise TaskerCore::Errors::ValidationError, "Invalid simple message format: #{e.message}"
       end
 
-
       # Create a temporary step message for registry lookup (transitional approach)
       # This allows us to use the existing registry while we have ActiveRecord models
       #

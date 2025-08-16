@@ -55,7 +55,8 @@ module TaskerCore
           claim_success = attempt_step_claim(step, worker_namespace)
 
           if claim_success
-            StepClaimResult.success([task, sequence, step], "Step #{msg_data.step_uuid} successfully claimed by worker '#{worker_namespace}'")
+            StepClaimResult.success([task, sequence, step],
+                                    "Step #{msg_data.step_uuid} successfully claimed by worker '#{worker_namespace}'")
           else
             StepClaimResult.failure(
               "Step #{msg_data.step_uuid} already claimed by another worker",
@@ -63,7 +64,6 @@ module TaskerCore
               retryable: false
             )
           end
-
         rescue ActiveRecord::RecordNotFound => e
           logger.error("❌ MESSAGE_MANAGER: Record not found for step #{msg_data.step_uuid}: #{e.message}")
           StepClaimResult.failure(
@@ -124,7 +124,7 @@ module TaskerCore
 
         eligible_states = [
           TaskerCore::Constants::WorkflowStepStatuses::ENQUEUED,
-          TaskerCore::Constants::WorkflowStepStatuses::PENDING  # Backward compatibility
+          TaskerCore::Constants::WorkflowStepStatuses::PENDING # Backward compatibility
         ]
 
         unless eligible_states.include?(current_state)
@@ -135,7 +135,6 @@ module TaskerCore
         logger.debug("✅ MESSAGE_MANAGER: Step #{step.workflow_step_uuid} is eligible for claiming (state: '#{current_state}')")
         true
       end
-
 
       # Perform atomic state transition using Statesman to claim the step
       #
@@ -158,30 +157,26 @@ module TaskerCore
 
           logger.debug("✅ MESSAGE_MANAGER: Successfully claimed step #{step.workflow_step_uuid} using Statesman")
           true
-
         rescue Statesman::GuardFailedError => e
           # EXPECTED: This happens when the transition is not allowed (e.g., already claimed)
           # This is normal distributed behavior - another worker claimed the step first
           logger.debug("🤝 MESSAGE_MANAGER: Step #{step.workflow_step_uuid} claim blocked by guard (expected distributed behavior): #{e.message}")
           false
-
         rescue Statesman::TransitionFailedError => e
           # EXPECTED: This happens when the transition validation fails
           # This is normal distributed behavior - state validation prevented the transition
           logger.debug("🤝 MESSAGE_MANAGER: Step #{step.workflow_step_uuid} transition failed (expected distributed behavior): #{e.message}")
           false
-
         rescue StandardError => e
           # SERVER ERROR: Unexpected errors that indicate system issues
           logger.error("🚨 MESSAGE_MANAGER: SERVER ERROR during Statesman transition for step #{step.workflow_step_uuid}: #{e.message}")
-          logger.error("🚨 MESSAGE_MANAGER: This indicates a system configuration or code issue, not normal distributed claiming")
+          logger.error('🚨 MESSAGE_MANAGER: This indicates a system configuration or code issue, not normal distributed claiming')
           logger.error("🚨 MESSAGE_MANAGER: #{e.backtrace.first(5).join("\n🚨 MESSAGE_MANAGER: ")}")
           false
         end
       end
 
       private_class_method :perform_statesman_claim_transition
-
 
       # Build metadata for the claiming transition
       #
@@ -236,7 +231,6 @@ module TaskerCore
             complete_step_failure(step, result_with_metadata)
           end
         end
-
       rescue StandardError => e
         logger.error("❌ MESSAGE_MANAGER: Failed to complete step execution for #{step.workflow_step_uuid}: #{e.message}")
         logger.error("❌ MESSAGE_MANAGER: #{e.backtrace.first(3).join("\n")}")
@@ -262,7 +256,7 @@ module TaskerCore
         # We already have a StepHandlerCallResult::Success instance with enhanced metadata
         # Just save it directly
         step.update!(
-          results: result.to_h,  # Save the entire StepHandlerCallResult as JSON
+          results: result.to_h, # Save the entire StepHandlerCallResult as JSON
           processed: true,
           processed_at: Time.current
         )
@@ -270,7 +264,7 @@ module TaskerCore
         # Transition to complete state using Statesman
         step.state_machine.transition_to!(
           TaskerCore::Constants::WorkflowStepStatuses::COMPLETE,
-          metadata: result.metadata  # Use metadata from the enhanced result
+          metadata: result.metadata # Use metadata from the enhanced result
         )
 
         logger.debug("✅ MESSAGE_MANAGER: Step #{step.workflow_step_uuid} completed successfully")
@@ -299,7 +293,7 @@ module TaskerCore
         step.update!(
           processed: true,
           processed_at: Time.current,
-          results: result.to_h  # Save the entire enhanced StepHandlerCallResult::Error as JSON
+          results: result.to_h # Save the entire enhanced StepHandlerCallResult::Error as JSON
         )
 
         # Transition to error state using Statesman
@@ -350,15 +344,14 @@ module TaskerCore
 
             complete_step_failure(step, result_with_metadata)
           end
-
-        rescue StandardError => completion_error
-          logger.error("❌ MESSAGE_MANAGER: Failed to complete step execution with exception for #{step.workflow_step_uuid}: #{completion_error.message}")
+        rescue StandardError => e
+          logger.error("❌ MESSAGE_MANAGER: Failed to complete step execution with exception for #{step.workflow_step_uuid}: #{e.message}")
           logger.error("❌ MESSAGE_MANAGER: Original exception: #{exception.message}")
 
           # Create fallback error result
           TaskerCore::Types::StepHandlerCallResult.error(
             error_type: 'StepCompletionError',
-            message: "Failed to complete step after exception: #{completion_error.message}",
+            message: "Failed to complete step after exception: #{e.message}",
             retryable: true,
             metadata: {
               original_exception: exception.class.name,
@@ -368,7 +361,6 @@ module TaskerCore
           )
         end
       end
-
     end
   end
 end

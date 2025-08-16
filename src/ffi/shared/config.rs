@@ -292,82 +292,6 @@ impl WorkerConfigManager {
     }
 }
 
-/// FFI Helper Functions for simplified C-style interfaces
-///
-/// These functions provide simple C-style interfaces that can be easily
-/// bound to Ruby, Python, or other language FFI systems.
-impl WorkerConfigManager {
-    /// Create configuration manager and return as raw pointer (FFI)
-    ///
-    /// # Safety
-    /// The caller is responsible for calling `worker_config_manager_free` to avoid memory leaks.
-    ///
-    /// # Returns
-    /// * `*mut WorkerConfigManager` - Raw pointer to manager, or null on error
-    pub extern "C" fn create_ffi() -> *mut WorkerConfigManager {
-        match Self::new() {
-            Ok(manager) => Box::into_raw(Box::new(manager)),
-            Err(e) => {
-                warn!("Failed to create WorkerConfigManager: {}", e);
-                std::ptr::null_mut()
-            }
-        }
-    }
-
-    /// Create configuration manager with environment (FFI)
-    ///
-    /// # Arguments
-    /// * `environment` - Environment name as C string
-    ///
-    /// # Safety
-    /// The caller is responsible for calling `worker_config_manager_free` to avoid memory leaks.
-    /// The environment string must be valid UTF-8.
-    ///
-    /// # Returns
-    /// * `*mut WorkerConfigManager` - Raw pointer to manager, or null on error
-    pub extern "C" fn create_with_environment_ffi(
-        environment: *const std::os::raw::c_char,
-    ) -> *mut WorkerConfigManager {
-        if environment.is_null() {
-            warn!("Null environment provided to create_with_environment_ffi");
-            return std::ptr::null_mut();
-        }
-
-        let environment_str = unsafe {
-            match std::ffi::CStr::from_ptr(environment).to_str() {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("Invalid UTF-8 in environment string: {}", e);
-                    return std::ptr::null_mut();
-                }
-            }
-        };
-
-        match Self::new_with_environment(environment_str) {
-            Ok(manager) => Box::into_raw(Box::new(manager)),
-            Err(e) => {
-                warn!("Failed to create WorkerConfigManager: {}", e);
-                std::ptr::null_mut()
-            }
-        }
-    }
-
-    /// Free WorkerConfigManager (FFI)
-    ///
-    /// # Arguments
-    /// * `manager` - Raw pointer to manager to free
-    ///
-    /// # Safety
-    /// The manager pointer must be valid and not used after this call.
-    pub extern "C" fn free_ffi(manager: *mut WorkerConfigManager) {
-        if !manager.is_null() {
-            unsafe {
-                let _ = Box::from_raw(manager);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,20 +411,5 @@ max_connections = 5
 
         assert_eq!(summary["environment"], "test");
         assert_eq!(summary["component_count"], 2);
-    }
-
-    #[test]
-    fn test_ffi_creation() {
-        let (_temp_dir, _config_root) = setup_test_toml_config();
-
-        // Note: This test would normally require setting up the config in the workspace
-        // For now, just test that the FFI function doesn't crash
-        let manager_ptr = WorkerConfigManager::create_ffi();
-
-        // If config is available, should return non-null
-        // If not available, should return null (which is expected in test environment)
-        if !manager_ptr.is_null() {
-            WorkerConfigManager::free_ffi(manager_ptr);
-        }
     }
 }

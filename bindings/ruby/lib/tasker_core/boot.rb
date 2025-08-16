@@ -229,7 +229,7 @@ module TaskerCore
 
         # Fall back to pgmq default_namespaces
         pgmq_config = config.pgmq_config
-        if pgmq_config && pgmq_config.default_namespaces
+        if pgmq_config&.default_namespaces
           logger.info "📋 Using pgmq default_namespaces from config: #{pgmq_config.default_namespaces}"
           return pgmq_config.default_namespaces
         end

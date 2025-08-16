@@ -9,7 +9,6 @@
 //! - Same pgmq-based architecture, just running in-process
 //! - Ruby tests can start embedded orchestrator, run tests, stop orchestrator
 
-use dotenvy;
 use magnus::{function, prelude::*, Error, RHash, RModule, Value};
 use serde::{Deserialize, Serialize};
 use serde_magnus::{deserialize, serialize};
@@ -227,8 +226,8 @@ impl TaskInitializationResponse {
 fn start_embedded_orchestration(namespaces: Vec<String>) -> Result<String, Error> {
     // Load environment variables from .env files FIRST - this ensures DATABASE_URL and other
     // environment variables are available before any configuration loading begins
-    dotenvy::dotenv().ok();
-    
+    // Note: dotenvy is loaded in the parent process, so .env should already be available
+
     let mut handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire embedded system lock: {}", e);
         Error::new(

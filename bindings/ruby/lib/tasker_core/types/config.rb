@@ -50,11 +50,11 @@ module TaskerCore
         attribute :host, Str
         attribute :username, Str
         attribute :password, Str
-        attribute :pool, Int  # Simple pool size for ActiveRecord compatibility
+        attribute :pool, Int # Simple pool size for ActiveRecord compatibility
         attribute :variables, DatabaseVariables
         attribute :checkout_timeout, Int
         attribute :reaping_frequency, Int
-        attribute :database, Str.optional  # Environment-specific database name override
+        attribute :database, Str.optional # Environment-specific database name override
         attribute :skip_migration_check, Bool.default(false)
 
         # Get database name for the current environment
@@ -80,7 +80,7 @@ module TaskerCore
           # If URL is explicitly provided (with ${DATABASE_URL} expansion), use it
           if url && (url == '${DATABASE_URL}' || url.start_with?('${DATABASE_URL}'))
             # Try to expand ${DATABASE_URL} environment variable
-            env_url = ENV['DATABASE_URL']
+            env_url = ENV.fetch('DATABASE_URL', nil)
             return env_url if env_url && !env_url.empty?
             # If DATABASE_URL is not set, fall through to build from components
           elsif url && !url.empty?
@@ -494,7 +494,7 @@ module TaskerCore
               max_executors: 5,
               polling_interval_ms: 100,
               batch_size: 10,
-              processing_timeout_ms: 30000,
+              processing_timeout_ms: 30_000,
               max_retries: 3,
               circuit_breaker_enabled: true,
               circuit_breaker_threshold: 5
@@ -504,7 +504,7 @@ module TaskerCore
               max_executors: 10,
               polling_interval_ms: 50,
               batch_size: 20,
-              processing_timeout_ms: 30000,
+              processing_timeout_ms: 30_000,
               max_retries: 3,
               circuit_breaker_enabled: true,
               circuit_breaker_threshold: 3
@@ -514,7 +514,7 @@ module TaskerCore
               max_executors: 8,
               polling_interval_ms: 50,
               batch_size: 50,
-              processing_timeout_ms: 30000,
+              processing_timeout_ms: 30_000,
               max_retries: 3,
               circuit_breaker_enabled: true,
               circuit_breaker_threshold: 5
@@ -524,7 +524,7 @@ module TaskerCore
               max_executors: 10,
               polling_interval_ms: 100,
               batch_size: 20,
-              processing_timeout_ms: 30000,
+              processing_timeout_ms: 30_000,
               max_retries: 3,
               circuit_breaker_enabled: true,
               circuit_breaker_threshold: 3
@@ -534,7 +534,7 @@ module TaskerCore
               max_executors: 4,
               polling_interval_ms: 200,
               batch_size: 10,
-              processing_timeout_ms: 30000,
+              processing_timeout_ms: 30_000,
               max_retries: 3,
               circuit_breaker_enabled: true,
               circuit_breaker_threshold: 5

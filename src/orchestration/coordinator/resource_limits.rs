@@ -56,23 +56,22 @@ impl SystemResourceLimits {
         // Use configured database pool size (trust the configuration)
         let configured_pool_size = config_manager.config().database.pool;
         let max_database_connections = configured_pool_size;
-        
+
         // No longer attempt to detect "active" connections - SQLx manages this
         let active_database_connections = 0; // Not reliably detectable, set to 0
-        
+
         // Reserve connections for system operations (migrations, health checks, etc.)
         // Reserve 20% but ensure at least 2 connections and at most 10
         let reserved_database_connections =
             ((max_database_connections as f32 * 0.2).round() as u32).clamp(2, 10);
 
         // Available connections = total - reserved (trust SQLx to manage actual usage)
-        let available_database_connections = max_database_connections.saturating_sub(reserved_database_connections);
+        let available_database_connections =
+            max_database_connections.saturating_sub(reserved_database_connections);
 
         info!(
             "Database configuration - Max pool: {}, Reserved: {}, Available for executors: {}",
-            max_database_connections,
-            reserved_database_connections,
-            available_database_connections
+            max_database_connections, reserved_database_connections, available_database_connections
         );
 
         // Warn if configured database pool is small
@@ -205,7 +204,9 @@ impl SystemResourceLimits {
         &self,
         config_manager: &ConfigManager,
     ) -> Result<ValidationResult> {
-        info!("🔍 RESOURCE_LIMITS: Analyzing executor configuration against detected resource limits");
+        info!(
+            "🔍 RESOURCE_LIMITS: Analyzing executor configuration against detected resource limits"
+        );
         info!("ℹ️  RESOURCE_LIMITS: Detection is best-effort - use for deployment guidance, not startup blocking");
 
         let mut validation_errors = Vec::new();
@@ -450,11 +451,11 @@ impl ValidationResult {
     }
 
     /// Check if configuration should fail startup (has critical errors)
-    /// 
+    ///
     /// NOTE: Always returns false - resource validation is now informational only.
     /// Resource constraints should be tuned at deployment time, not enforced at startup.
     pub fn should_fail_startup(&self) -> bool {
-        false  // Always allow startup - validation is informational only
+        false // Always allow startup - validation is informational only
     }
 
     /// Get recommended database pool size for this configuration
@@ -485,7 +486,7 @@ impl ResourceValidator {
     }
 
     /// Perform validation and log informational summary (does not block startup)
-    /// 
+    ///
     /// Resource validation is now informational only. This provides visibility into
     /// resource configuration vs. system capacity without blocking startup.
     /// Resource tuning should be handled at deployment time based on these recommendations.
@@ -525,7 +526,8 @@ impl ResourceValidator {
     /// Refresh resource limits (re-detect)
     pub async fn refresh(&mut self, database_pool: &PgPool) -> Result<()> {
         info!("🔄 RESOURCE_VALIDATOR: Refreshing resource limits detection");
-        self.resource_limits = SystemResourceLimits::detect(database_pool, &self.config_manager).await?;
+        self.resource_limits =
+            SystemResourceLimits::detect(database_pool, &self.config_manager).await?;
         Ok(())
     }
 }
@@ -571,7 +573,9 @@ mod tests {
             .await
             .expect("Failed to connect to test database");
 
-        let resource_limits = SystemResourceLimits::detect(&pool, &config_manager).await.unwrap();
+        let resource_limits = SystemResourceLimits::detect(&pool, &config_manager)
+            .await
+            .unwrap();
         let validation_result = resource_limits
             .validate_executor_configuration(&config_manager)
             .unwrap();

@@ -122,6 +122,7 @@ impl ConfigManager {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn setup_test_config(dir: &TempDir) -> PathBuf {
@@ -155,10 +156,10 @@ scaling_interval_seconds = 30
     #[test]
     fn test_load_configuration() {
         let temp_dir = TempDir::new().unwrap();
-        let config_dir = setup_test_config(&temp_dir);
+        let _config_dir = setup_test_config(&temp_dir);
 
         std::env::set_var("TASKER_ENV", "test");
-        let manager = ConfigManager::load_from_directory(config_dir).unwrap();
+        let manager = ConfigManager::load_from_env("test").unwrap();
 
         assert_eq!(manager.environment(), "test");
     }
@@ -166,9 +167,9 @@ scaling_interval_seconds = 30
     #[test]
     fn test_fail_fast_on_missing_config() {
         let temp_dir = TempDir::new().unwrap();
-        let config_dir = temp_dir.path().join("nonexistent");
+        let _config_dir = temp_dir.path().join("nonexistent");
 
-        let result = ConfigManager::load_from_directory(config_dir);
+        let result = ConfigManager::load_from_env("test");
         assert!(result.is_err());
         // Should fail immediately, not create defaults
     }
@@ -178,7 +179,7 @@ scaling_interval_seconds = 30
         ConfigManager::reset_global_for_testing();
 
         let temp_dir = TempDir::new().unwrap();
-        let config_dir = setup_test_config(&temp_dir);
+        let _config_dir = setup_test_config(&temp_dir);
         std::env::set_var("WORKSPACE_PATH", temp_dir.path().to_str().unwrap());
         std::env::set_var("TASKER_ENV", "test");
 
@@ -197,9 +198,9 @@ scaling_interval_seconds = 30
     #[test]
     fn test_path_resolution() {
         let temp_dir = TempDir::new().unwrap();
-        let config_dir = setup_test_config(&temp_dir);
+        let _config_dir = setup_test_config(&temp_dir);
 
         std::env::set_var("TASKER_ENV", "test");
-        let manager = ConfigManager::load_from_directory(config_dir.clone()).unwrap();
+        let _manager = ConfigManager::load_from_env("test").unwrap();
     }
 }

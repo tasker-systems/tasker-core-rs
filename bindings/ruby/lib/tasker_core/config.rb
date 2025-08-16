@@ -114,7 +114,7 @@ module TaskerCore
     end
 
     # Backward compatibility alias
-    alias_method :task_template_config, :task_templates_config
+    alias task_template_config task_templates_config
 
     # Get task template search paths for backward compatibility
     def task_template_search_paths

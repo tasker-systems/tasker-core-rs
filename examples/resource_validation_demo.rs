@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform validation
     println!("\n🧪 Validating Executor Configuration...");
-    let validation_result = resource_validator.validate_and_fail_fast().await;
+    let validation_result = resource_validator.validate_and_log_info().await;
 
     match validation_result {
         Ok(result) => {

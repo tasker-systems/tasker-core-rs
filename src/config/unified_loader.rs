@@ -47,8 +47,7 @@ impl UnifiedConfigLoader {
         // Use workspace_tools to find root - fail explicitly if it doesn't work
         let ws = workspace().map_err(|e| {
             ConfigurationError::validation_error(format!(
-                "Failed to find workspace root using workspace_tools: {}",
-                e
+                "Failed to find workspace root using workspace_tools: {e}"
             ))
         })?;
 
@@ -124,7 +123,7 @@ impl UnifiedConfigLoader {
         }
 
         // 1. Load base component - this is REQUIRED, never optional
-        let base_path = self.root.join("base").join(format!("{}.toml", component));
+        let base_path = self.root.join("base").join(format!("{component}.toml"));
         let mut config = self.load_toml_with_env_substitution(&base_path)?;
 
         debug!(
@@ -138,7 +137,7 @@ impl UnifiedConfigLoader {
             .root
             .join("environments")
             .join(&self.environment)
-            .join(format!("{}.toml", component));
+            .join(format!("{component}.toml"));
 
         if env_path.exists() {
             debug!(
@@ -220,24 +219,6 @@ impl UnifiedConfigLoader {
         Ok(components)
     }
 
-    /// Load TOML file with strict error handling
-    ///
-    /// NO FALLBACKS - fails immediately if file doesn't exist or has invalid syntax.
-    // fn load_toml_strict(&self, path: &Path) -> ConfigResult<toml::Value> {
-    //     // NO FALLBACKS - fail immediately if file doesn't exist
-    //     if !path.exists() {
-    //         return Err(ConfigurationError::config_file_not_found(vec![
-    //             path.to_path_buf()
-    //         ]));
-    //     }
-
-    //     let content = std::fs::read_to_string(path)
-    //         .map_err(|e| ConfigurationError::file_read_error(path.display().to_string(), e))?;
-
-    //     toml::from_str(&content)
-    //         .map_err(|e| ConfigurationError::invalid_toml(path.display().to_string(), e))
-    // }
-
     /// Load TOML file with environment variable substitution
     ///
     /// Supports ${VAR} and ${VAR:-default} syntax for environment variables
@@ -318,8 +299,7 @@ impl UnifiedConfigLoader {
                     } else {
                         // Fail fast if no default provided and variable not found
                         return Err(ConfigurationError::validation_error(format!(
-                            "Environment variable '{}' not found and no default provided",
-                            var_name
+                            "Environment variable '{var_name}' not found and no default provided"
                         )));
                     }
                 }
@@ -335,6 +315,7 @@ impl UnifiedConfigLoader {
     }
 
     /// Merge TOML configurations with environment overrides taking precedence
+    #[allow(clippy::only_used_in_recursion)]
     fn merge_toml(&self, base: &mut toml::Value, override_config: toml::Value) -> ConfigResult<()> {
         if let (toml::Value::Table(base_table), toml::Value::Table(override_table)) =
             (base, override_config)
@@ -372,8 +353,7 @@ impl UnifiedConfigLoader {
                 // For components without specific validation, just ensure it's a valid table
                 if !config.is_table() {
                     return Err(ConfigurationError::validation_error(format!(
-                        "Component '{}' configuration must be a TOML table",
-                        name
+                        "Component '{name}' configuration must be a TOML table"
                     )));
                 }
                 Ok(())
@@ -447,8 +427,7 @@ impl UnifiedConfigLoader {
 
             if min_val > max_val {
                 return Err(ConfigurationError::validation_error(format!(
-                    "min_connections ({}) cannot exceed max_connections ({})",
-                    min_val, max_val
+                    "min_connections ({min_val}) cannot exceed max_connections ({max_val})"
                 )));
             }
         }
@@ -491,8 +470,7 @@ impl UnifiedConfigLoader {
     fn validate_single_executor_pool(&self, name: &str, config: &toml::Value) -> ConfigResult<()> {
         let pool_table = config.as_table().ok_or_else(|| {
             ConfigurationError::validation_error(format!(
-                "Executor pool '{}' configuration must be a TOML table",
-                name
+                "Executor pool '{name}' configuration must be a TOML table"
             ))
         })?;
 
@@ -519,15 +497,13 @@ impl UnifiedConfigLoader {
 
             if min_val < 0 || max_val < 0 {
                 return Err(ConfigurationError::validation_error(format!(
-                    "Executor pool '{}' min/max executors must be non-negative",
-                    name
+                    "Executor pool '{name}' min/max executors must be non-negative"
                 )));
             }
 
             if min_val > max_val {
                 return Err(ConfigurationError::validation_error(format!(
-                    "Executor pool '{}' min_executors ({}) cannot exceed max_executors ({})",
-                    name, min_val, max_val
+                    "Executor pool '{name}' min_executors ({min_val}) cannot exceed max_executors ({max_val})"
                 )));
             }
 
@@ -690,9 +666,8 @@ impl UnifiedConfigLoader {
 
         if total_max_executors > max_connections {
             return Err(ConfigurationError::validation_error(format!(
-                "Resource constraint violation: requested {} executors but only {} database connections available. \
-                 Increase database pool size or reduce executor limits.",
-                total_max_executors, max_connections
+                "Resource constraint violation: requested {total_max_executors} executors but only {max_connections} database connections available. \
+                 Increase database pool size or reduce executor limits."
             )));
         }
 
@@ -753,7 +728,7 @@ impl ValidatedConfig {
                 }
             } else {
                 return Err(ConfigurationError::invalid_toml(
-                    format!("component {}", component_name),
+                    format!("component {component_name}"),
                     "Component configuration must be a TOML table",
                 ));
             }
@@ -785,14 +760,14 @@ impl ValidatedConfig {
             // Convert TOML to JSON
             let json_str = toml::to_string(toml_config).map_err(|e| {
                 ConfigurationError::json_serialization_error(
-                    format!("component {}", component_name),
+                    format!("component {component_name}"),
                     e,
                 )
             })?;
 
             let component_json: toml::Value = toml::from_str(&json_str).map_err(|e| {
                 ConfigurationError::json_serialization_error(
-                    format!("component {}", component_name),
+                    format!("component {component_name}"),
                     e,
                 )
             })?;

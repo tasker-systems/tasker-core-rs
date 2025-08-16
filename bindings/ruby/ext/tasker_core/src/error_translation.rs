@@ -293,23 +293,23 @@ pub fn translate_config_error(error: tasker_core::config::error::ConfigurationEr
         ),
         ConfigurationError::InvalidYaml { file_path, error } => Error::new(
             exception::standard_error(),
-            format!("Invalid YAML in {}: {}", file_path, error),
+            format!("Invalid YAML in {file_path}: {error}"),
         ),
         ConfigurationError::InvalidToml { file_path, error } => Error::new(
             exception::standard_error(),
-            format!("Invalid TOML in {}: {}", file_path, error),
+            format!("Invalid TOML in {file_path}: {error}"),
         ),
         ConfigurationError::ResourceConstraintViolation { requested, available } => Error::new(
             exception::arg_error(),
-            format!("Resource constraint violation: requested {} executors but only {} database connections available", requested, available),
+            format!("Resource constraint violation: requested {requested} executors but only {available} database connections available"),
         ),
         ConfigurationError::UnknownField { field, component } => Error::new(
             exception::arg_error(),
-            format!("Unknown configuration field: {} in component {}", field, component),
+            format!("Unknown configuration field: {field} in component {component}"),
         ),
         ConfigurationError::TypeMismatch { field, expected, actual } => Error::new(
             exception::type_error(),
-            format!("Type mismatch for field {}: expected {}, got {}", field, expected, actual),
+            format!("Type mismatch for field {field}: expected {expected}, got {actual}"),
         ),
         ConfigurationError::MissingOverride { path } => Error::new(
             exception::arg_error(),
@@ -317,47 +317,47 @@ pub fn translate_config_error(error: tasker_core::config::error::ConfigurationEr
         ),
         ConfigurationError::MissingRequiredField { field, context } => Error::new(
             exception::arg_error(),
-            format!("Missing required configuration field '{}' in {}", field, context),
+            format!("Missing required configuration field '{field}' in {context}"),
         ),
         ConfigurationError::InvalidValue { field, value, context } => Error::new(
             exception::arg_error(),
-            format!("Invalid value '{}' for field '{}': {}", value, field, context),
+            format!("Invalid value '{value}' for field '{field}': {context}"),
         ),
         ConfigurationError::EnvironmentConfigError { environment, error } => Error::new(
             exception::standard_error(),
-            format!("Environment configuration error for '{}': {}", environment, error),
+            format!("Environment configuration error for '{environment}': {error}"),
         ),
         ConfigurationError::ConfigMergeError { error } => Error::new(
             exception::standard_error(),
-            format!("Failed to merge environment-specific configuration: {}", error),
+            format!("Failed to merge environment-specific configuration: {error}"),
         ),
         ConfigurationError::FileReadError { file_path, error } => Error::new(
             exception::standard_error(),
-            format!("Failed to read configuration file '{}': {}", file_path, error),
+            format!("Failed to read configuration file '{file_path}': {error}"),
         ),
         ConfigurationError::EnvironmentVariableError { variable, context } => Error::new(
             exception::standard_error(),
-            format!("Failed to expand environment variable '{}' in configuration: {}", variable, context),
+            format!("Failed to expand environment variable '{variable}' in configuration: {context}"),
         ),
         ConfigurationError::ValidationError { error } => Error::new(
             exception::arg_error(),
-            format!("Configuration validation failed: {}", error),
+            format!("Configuration validation failed: {error}"),
         ),
         ConfigurationError::InvalidStepConfig { step_name, error } => Error::new(
             exception::arg_error(),
-            format!("Invalid step configuration for '{}': {}", step_name, error),
+            format!("Invalid step configuration for '{step_name}': {error}"),
         ),
         ConfigurationError::InvalidHandlerConfig { step_name, error } => Error::new(
             exception::arg_error(),
-            format!("Invalid handler configuration for '{}': {}", step_name, error),
+            format!("Invalid handler configuration for '{step_name}': {error}"),
         ),
         ConfigurationError::JsonSerializationError { context, error } => Error::new(
             exception::standard_error(),
-            format!("JSON serialization error in {}: {}", context, error),
+            format!("JSON serialization error in {context}: {error}"),
         ),
         ConfigurationError::DatabaseConfigError { error } => Error::new(
             exception::standard_error(),
-            format!("Database configuration error: {}", error),
+            format!("Database configuration error: {error}"),
         ),
     }
 }

@@ -42,7 +42,7 @@ impl RubyConfigManager {
     fn new_with_environment(environment: String) -> Result<Self, Error> {
         // Load environment variables FIRST - this is critical for TOML configuration
         dotenv().ok();
-        
+
         let manager = WorkerConfigManager::new_with_environment(&environment)
             .map_err(translate_config_error)?;
 
@@ -77,7 +77,7 @@ impl RubyConfigManager {
         serialize(tasker_config).map_err(|e| {
             magnus::Error::new(
                 magnus::exception::runtime_error(),
-                format!("Failed to serialize TaskerConfig to Ruby: {}", e),
+                format!("Failed to serialize TaskerConfig to Ruby: {e}"),
             )
         })
     }
@@ -249,12 +249,6 @@ pub fn register_config_bridge(ruby: &Ruby, module: &RModule) -> Result<(), Error
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_json_to_ruby_conversion() {
-        // This test would require Magnus runtime setup
-        // For now, just test that the module compiles
-        assert!(true);
-    }
+    // Tests would require Magnus runtime setup
+    // The module compiles correctly
 }

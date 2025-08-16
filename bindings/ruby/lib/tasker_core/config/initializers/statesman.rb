@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'statesman/adapters/active_record'
 
 # Configure Statesman to use ActiveRecord adapter for persistence

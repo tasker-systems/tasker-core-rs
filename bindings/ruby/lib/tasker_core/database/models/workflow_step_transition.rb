@@ -15,10 +15,10 @@ module TaskerCore
 
         # Statesman compatibility: Provide the interface Statesman expects without the serialization
         # conflicts from ActiveRecordTransition module
-        
+
         # Statesman expects these attributes to exist on transition records:
         # - to_state (string) - the target state
-        # - metadata (hash) - additional data for the transition  
+        # - metadata (hash) - additional data for the transition
         # - sort_key (integer) - ordering for transitions
         # - most_recent (boolean) - flag for the current transition
         # Our JSONB metadata column handles serialization natively, no need for ActiveRecord serialize

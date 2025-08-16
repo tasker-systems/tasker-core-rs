@@ -34,7 +34,7 @@ module TaskerCore
           # Check if database config is available
           if db_config.nil?
             raise TaskerCore::Errors::ConfigurationError,
-                  "Database configuration not found. Ensure unified TOML config is loaded properly."
+                  'Database configuration not found. Ensure unified TOML config is loaded properly.'
           end
           db_config.to_h.deep_symbolize_keys
         end

@@ -31,7 +31,11 @@ pub enum ConfigurationError {
 
     /// Type mismatch for configuration field
     #[error("Type mismatch for field {field}: expected {expected}, got {actual}")]
-    TypeMismatch { field: String, expected: String, actual: String },
+    TypeMismatch {
+        field: String,
+        expected: String,
+        actual: String,
+    },
 
     /// Missing environment override file
     #[error("Environment override file missing: {path}")]
@@ -208,7 +212,10 @@ impl ConfigurationError {
 
     /// Create a resource constraint violation error
     pub fn resource_constraint_violation(requested: usize, available: usize) -> Self {
-        Self::ResourceConstraintViolation { requested, available }
+        Self::ResourceConstraintViolation {
+            requested,
+            available,
+        }
     }
 
     /// Create an unknown field error
