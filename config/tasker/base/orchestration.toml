@@ -35,3 +35,13 @@ visibility_timeout_seconds = 30
 message_retention_seconds = 604800
 dead_letter_queue_enabled = true
 max_receive_count = 3
+
+[orchestration.operational_state]
+enable_shutdown_aware_monitoring = true
+suppress_alerts_during_shutdown = true
+startup_health_threshold_multiplier = 0.5
+shutdown_health_threshold_multiplier = 0.0
+graceful_shutdown_timeout_seconds = 30
+emergency_shutdown_timeout_seconds = 5
+enable_transition_logging = true
+transition_log_level = "INFO"

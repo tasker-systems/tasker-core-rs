@@ -38,6 +38,7 @@ pub mod core;
 pub mod error_classifier;
 pub mod errors;
 pub mod executor;
+pub mod finalization_claimer;
 pub mod handler_config;
 pub mod orchestration_loop;
 pub mod orchestration_system;
@@ -69,6 +70,9 @@ pub use core::OrchestrationCore;
 pub use executor::{
     BaseExecutor, ExecutorConfig, ExecutorHealth, ExecutorMetrics, ExecutorType, HealthMonitor,
     MetricsCollector, OrchestrationExecutor, ProcessBatchResult,
+};
+pub use finalization_claimer::{
+    ClaimGuard, FinalizationClaimResult, FinalizationClaimer, FinalizationClaimerConfig,
 };
 pub use orchestration_loop::{
     AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,

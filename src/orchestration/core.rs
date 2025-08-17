@@ -23,6 +23,7 @@ use crate::config::{CircuitBreakerConfig, ConfigManager};
 use crate::error::{Result, TaskerError};
 use crate::messaging::{PgmqClient, PgmqClientTrait, ProtectedPgmqClient, UnifiedPgmqClient};
 use crate::orchestration::{
+    coordinator::operational_state::{OperationalStateManager, SystemOperationalState},
     orchestration_loop::{OrchestrationLoop, OrchestrationLoopConfig},
     step_result_processor::StepResultProcessor,
     task_initializer::TaskInitializer,
@@ -60,6 +61,9 @@ pub struct OrchestrationCore {
 
     /// Circuit breaker manager (optional, only when circuit breakers enabled)
     pub circuit_breaker_manager: Option<Arc<CircuitBreakerManager>>,
+
+    /// Operational state manager for shutdown-aware health monitoring (TAS-37 Supplemental)
+    pub operational_state_manager: OperationalStateManager,
 }
 
 impl std::fmt::Debug for OrchestrationCore {
@@ -83,6 +87,7 @@ impl std::fmt::Debug for OrchestrationCore {
                     .map(|_| "Some(Arc<CircuitBreakerManager>)")
                     .unwrap_or("None"),
             )
+            .field("operational_state_manager", &"OperationalStateManager")
             .finish()
     }
 }
@@ -250,6 +255,21 @@ impl OrchestrationCore {
         let step_result_processor =
             Arc::new(StepResultProcessor::new(database_pool.clone(), pgmq_client.clone()).await?);
 
+        // Create operational state manager for shutdown-aware health monitoring (TAS-37 Supplemental)
+        let operational_state_manager = OperationalStateManager::new();
+
+        // Transition to Normal operation immediately after successful component initialization
+        if let Err(e) = operational_state_manager
+            .transition_to(SystemOperationalState::Normal)
+            .await
+        {
+            return Err(TaskerError::OrchestrationError(format!(
+                "Failed to transition to normal operation state: {e}"
+            )));
+        }
+
+        info!("✅ CORE: Operational state transitioned to Normal operation");
+
         info!("✅ OrchestrationCore components created successfully");
 
         Ok(Self {
@@ -261,6 +281,7 @@ impl OrchestrationCore {
             step_result_processor,
             task_handler_registry,
             circuit_breaker_manager,
+            operational_state_manager,
         })
     }
 
@@ -350,5 +371,39 @@ impl OrchestrationCore {
         );
 
         Ok(result)
+    }
+
+    /// Transition the orchestration system to graceful shutdown state (TAS-37 Supplemental)
+    ///
+    /// This method signals that the system is intentionally shutting down, enabling
+    /// context-aware health monitoring to suppress false alerts during planned operations.
+    pub async fn transition_to_graceful_shutdown(&self) -> Result<()> {
+        info!(
+            "🛑 CORE: Transitioning to graceful shutdown state for context-aware health monitoring"
+        );
+
+        self.operational_state_manager
+            .transition_to(SystemOperationalState::GracefulShutdown)
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to transition to graceful shutdown: {e}"
+                ))
+            })?;
+
+        info!("✅ CORE: Operational state transitioned to graceful shutdown");
+        Ok(())
+    }
+
+    /// Get current operational state (TAS-37 Supplemental)
+    pub async fn operational_state(&self) -> SystemOperationalState {
+        self.operational_state_manager.current_state().await
+    }
+
+    /// Check if system should suppress health alerts (TAS-37 Supplemental)
+    pub async fn should_suppress_health_alerts(&self) -> bool {
+        self.operational_state_manager
+            .should_suppress_alerts()
+            .await
     }
 }
