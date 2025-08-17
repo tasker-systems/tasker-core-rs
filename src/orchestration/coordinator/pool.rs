@@ -10,6 +10,7 @@ use tracing::{error, info, instrument, warn};
 
 use crate::config::ConfigManager;
 use crate::error::Result;
+use crate::orchestration::executor::base::BaseExecutor;
 use crate::orchestration::executor::traits::{ExecutorType, OrchestrationExecutor};
 use crate::orchestration::OrchestrationCore;
 
@@ -18,7 +19,7 @@ pub struct ExecutorPool {
     /// Type of executors in this pool
     executor_type: ExecutorType,
     /// Active executors in the pool
-    executors: Vec<Arc<dyn OrchestrationExecutor>>,
+    executors: Vec<Arc<BaseExecutor>>,
     /// Configuration for this pool
     config: Arc<ConfigManager>,
     /// Orchestration core for creating executors with access to orchestration components
@@ -78,7 +79,7 @@ impl ExecutorPool {
         );
 
         for (index, executor) in self.executors.iter().enumerate() {
-            match executor.start().await {
+            match executor.clone().start().await {
                 Ok(()) => {
                     info!(
                         "✅ POOL: Started {} executor #{}",
@@ -197,7 +198,7 @@ impl ExecutorPool {
                     executor_config,
                 )?;
 
-            let executor: Arc<dyn OrchestrationExecutor> = Arc::new(executor);
+            let executor: Arc<BaseExecutor> = Arc::new(executor);
 
             // Start the executor if we're in an active pool
             // (Check if any existing executors are running to determine pool state)
@@ -208,7 +209,7 @@ impl ExecutorPool {
             };
 
             if should_start {
-                executor.start().await?;
+                executor.clone().start().await?;
                 info!(
                     "✅ POOL: Started new {} executor #{}",
                     self.executor_type.name(),
@@ -229,10 +230,10 @@ impl ExecutorPool {
         Ok(())
     }
 
-    /// Remove executors from the pool
+    /// Remove executors from the pool using two-phase removal process
     async fn remove_executors(&mut self, count: usize) -> Result<()> {
         info!(
-            "🔽 POOL: Removing {} executors from {} pool",
+            "🔽 POOL: Removing {} executors from {} pool using two-phase removal",
             count,
             self.executor_type.name()
         );
@@ -240,43 +241,112 @@ impl ExecutorPool {
         let remove_count = count.min(self.executors.len());
         let timeout = Duration::from_secs(30);
 
-        // Collect executors to remove first (safer approach)
-        let mut executors_to_stop = Vec::new();
+        // Phase 1: Remove executors from active pool first
+        let mut pending_removal = Vec::new();
         for _ in 0..remove_count {
             if let Some(executor) = self.executors.pop() {
-                executors_to_stop.push(executor);
+                pending_removal.push(executor);
             }
         }
 
-        // Now safely stop each executor before they're dropped
-        let mut failed_stops = 0;
-        for executor in executors_to_stop {
-            if let Err(e) = executor.stop(timeout).await {
-                warn!(
-                    "⚠️ POOL: Failed to gracefully stop executor during removal: {}. Executor will be forcibly terminated.",
-                    e
-                );
-                failed_stops += 1;
-                // Executor will be dropped here, which should trigger cleanup
-                // This is now safe because we've removed it from the active pool first
-            } else {
-                info!("✅ POOL: Successfully stopped executor during pool scaling");
+        // Phase 2: Attempt graceful shutdown with timeout tracking
+        let mut failed_stops = Vec::new();
+        let mut successfully_stopped = 0;
+
+        for executor in pending_removal {
+            // Use tokio::timeout to enforce per-executor timeout
+            match tokio::time::timeout(timeout, executor.stop(timeout)).await {
+                Ok(Ok(())) => {
+                    // Successfully stopped
+                    successfully_stopped += 1;
+                    info!("✅ POOL: Successfully stopped executor during pool scaling");
+                    // Executor is safely dropped here
+                }
+                Ok(Err(e)) => {
+                    warn!("⚠️ POOL: Executor stop failed: {}", e);
+                    failed_stops.push(executor);
+                }
+                Err(_) => {
+                    warn!("⚠️ POOL: Executor stop timed out after {:?}", timeout);
+                    failed_stops.push(executor);
+                }
             }
         }
 
-        if failed_stops > 0 {
+        // Phase 3: Handle failed stops with recovery strategy
+        let failed_count = failed_stops.len();
+        if !failed_stops.is_empty() {
             warn!(
                 "⚠️ POOL: {} out of {} executors failed to stop gracefully during removal",
-                failed_stops, remove_count
+                failed_count, remove_count
             );
+
+            // Recovery strategy: Try to return failed executors to pool for retry
+            // This prevents dropping executors with running background tasks
+            if self.handle_failed_stops(failed_stops).await.is_err() {
+                warn!("⚠️ POOL: Failed stop recovery strategy unsuccessful - some executors may have leaked resources");
+            }
         }
 
         info!(
-            "🔽 POOL: Removed {} executors from {} pool (total: {})",
-            remove_count,
+            "🔽 POOL: Removed {} executors from {} pool (successfully stopped: {}, total remaining: {})",
+            remove_count - failed_count,
             self.executor_type.name(),
+            successfully_stopped,
             self.executors.len()
         );
+
+        Ok(())
+    }
+
+    /// Handle executors that failed to stop gracefully
+    ///
+    /// Implements recovery strategies for executors that couldn't be stopped cleanly.
+    /// This prevents resource leaks from dropping executors with active background tasks.
+    async fn handle_failed_stops(
+        &mut self,
+        failed_executors: Vec<Arc<BaseExecutor>>,
+    ) -> Result<()> {
+        warn!(
+            "🔧 POOL: Attempting recovery for {} executors that failed to stop",
+            failed_executors.len()
+        );
+
+        for executor in failed_executors {
+            // Strategy 1: Check if executor is actually still running
+            if !executor.should_continue() {
+                // Executor claims it's not running, safe to drop
+                info!("✅ POOL: Executor reports as stopped, safe to drop");
+                continue;
+            }
+
+            // Strategy 2: Try one more quick stop attempt
+            match tokio::time::timeout(
+                Duration::from_secs(5),
+                executor.stop(Duration::from_secs(5)),
+            )
+            .await
+            {
+                Ok(Ok(())) => {
+                    info!("✅ POOL: Executor stopped on retry attempt");
+                    continue;
+                }
+                _ => {
+                    warn!("⚠️ POOL: Executor still failed to stop on retry");
+                }
+            }
+
+            // Strategy 3: Return to pool with warning for manual intervention
+            // This prevents dropping an executor with potentially running background tasks
+            warn!(
+                "🚨 POOL: Returning problematic executor to pool - requires manual intervention. \
+                Executor ID: {}, Type: {}. Monitor for resource leaks.",
+                executor.id(),
+                self.executor_type.name()
+            );
+
+            self.executors.push(executor);
+        }
 
         Ok(())
     }
@@ -636,12 +706,12 @@ impl PoolManager {
             executor_config,
         )?;
 
-        let executor: Arc<dyn OrchestrationExecutor> = Arc::new(executor);
+        let executor: Arc<BaseExecutor> = Arc::new(executor);
 
         // Start the executor if the pool is currently running
         if let Some(first_executor) = pool.executors.first() {
             if first_executor.should_continue() {
-                executor.start().await?;
+                executor.clone().start().await?;
             }
         }
 

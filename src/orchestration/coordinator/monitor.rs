@@ -3,8 +3,9 @@
 //! Provides health monitoring and metrics aggregation for the orchestration system.
 //! Tracks executor health, system performance, and provides alerting capabilities.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -82,7 +83,7 @@ impl HealthMonitor {
         // Update system status based on health
         let new_status = self.calculate_system_status(&report).await?;
         {
-            let mut status = self.system_status.lock().unwrap();
+            let mut status = self.system_status.lock().await;
             *status = new_status.clone();
         }
 
@@ -98,7 +99,7 @@ impl HealthMonitor {
         };
 
         {
-            let mut history = self.health_history.lock().unwrap();
+            let mut history = self.health_history.lock().await;
             history.push(timestamped_report);
 
             // Keep only recent history (last 100 reports)
@@ -122,7 +123,7 @@ impl HealthMonitor {
         if health_percentage < 50.0 {
             // Track when unhealthy state began
             let unhealthy_since = {
-                let mut unhealthy_guard = self.unhealthy_since.lock().unwrap();
+                let mut unhealthy_guard = self.unhealthy_since.lock().await;
                 if unhealthy_guard.is_none() {
                     *unhealthy_guard = Some(Instant::now());
                     warn!(
@@ -134,7 +135,7 @@ impl HealthMonitor {
             };
 
             // Clear degraded time since we're now unhealthy
-            *self.degraded_since.lock().unwrap() = None;
+            *self.degraded_since.lock().await = None;
 
             return Ok(SystemStatus::Unhealthy {
                 reason: format!("Only {health_percentage:.1}% of executors are healthy"),
@@ -146,7 +147,7 @@ impl HealthMonitor {
         if health_percentage < 90.0 {
             // Track when degraded state began
             let degraded_since = {
-                let mut degraded_guard = self.degraded_since.lock().unwrap();
+                let mut degraded_guard = self.degraded_since.lock().await;
                 if degraded_guard.is_none() {
                     *degraded_guard = Some(Instant::now());
                     warn!(
@@ -158,7 +159,7 @@ impl HealthMonitor {
             };
 
             // Clear unhealthy time since we're recovering
-            *self.unhealthy_since.lock().unwrap() = None;
+            *self.unhealthy_since.lock().await = None;
 
             return Ok(SystemStatus::Degraded {
                 reason: format!("{health_percentage:.1}% of executors are healthy"),
@@ -177,15 +178,15 @@ impl HealthMonitor {
         }
 
         // System is healthy - clear any degraded/unhealthy timestamps
-        *self.degraded_since.lock().unwrap() = None;
-        *self.unhealthy_since.lock().unwrap() = None;
+        *self.degraded_since.lock().await = None;
+        *self.unhealthy_since.lock().await = None;
 
         Ok(SystemStatus::Healthy)
     }
 
     /// Check for alert conditions
     async fn check_alerts(&self, report: &HealthReport, health_percentage: f64) -> Result<()> {
-        let alert_thresholds = self.alert_thresholds.lock().unwrap();
+        let alert_thresholds = self.alert_thresholds.lock().await;
 
         // Low health percentage alert
         if health_percentage < alert_thresholds.min_health_percentage {
@@ -226,18 +227,18 @@ impl HealthMonitor {
     }
 
     /// Get current system status
-    pub fn get_system_status(&self) -> SystemStatus {
-        self.system_status.lock().unwrap().clone()
+    pub async fn get_system_status(&self) -> SystemStatus {
+        self.system_status.lock().await.clone()
     }
 
     /// Get health history
-    pub fn get_health_history(&self) -> Vec<TimestampedHealthReport> {
-        self.health_history.lock().unwrap().clone()
+    pub async fn get_health_history(&self) -> Vec<TimestampedHealthReport> {
+        self.health_history.lock().await.clone()
     }
 
     /// Get health summary for the last N reports
-    pub fn get_health_summary(&self, last_n_reports: usize) -> HealthSummary {
-        let history = self.health_history.lock().unwrap();
+    pub async fn get_health_summary(&self, last_n_reports: usize) -> HealthSummary {
+        let history = self.health_history.lock().await;
         let recent_reports: Vec<_> = history.iter().rev().take(last_n_reports).collect();
 
         if recent_reports.is_empty() {
@@ -300,7 +301,7 @@ impl HealthMonitor {
     }
 
     /// Update alert thresholds
-    pub fn update_alert_thresholds(&self, thresholds: AlertThresholds) -> Result<()> {
+    pub async fn update_alert_thresholds(&self, thresholds: AlertThresholds) -> Result<()> {
         // Validate thresholds
         if thresholds.min_health_percentage < 0.0 || thresholds.min_health_percentage > 100.0 {
             return Err(TaskerError::InvalidParameter(
@@ -314,14 +315,14 @@ impl HealthMonitor {
             ));
         }
 
-        *self.alert_thresholds.lock().unwrap() = thresholds;
+        *self.alert_thresholds.lock().await = thresholds;
         info!("HEALTH: Updated alert thresholds");
         Ok(())
     }
 
     /// Get current alert thresholds
-    pub fn get_alert_thresholds(&self) -> AlertThresholds {
-        self.alert_thresholds.lock().unwrap().clone()
+    pub async fn get_alert_thresholds(&self) -> AlertThresholds {
+        self.alert_thresholds.lock().await.clone()
     }
 
     /// Get the monitor ID for external logging and tracking
@@ -474,7 +475,7 @@ mod tests {
     async fn test_health_monitor_creation() {
         let monitor = HealthMonitor::new(Uuid::new_v4(), 30, 0.8);
         assert!(matches!(
-            monitor.get_system_status(),
+            monitor.get_system_status().await,
             SystemStatus::Starting
         ));
     }
@@ -485,7 +486,10 @@ mod tests {
         let report = create_test_health_report(9, 10); // 90% healthy
 
         monitor.record_health_report(report).await.unwrap();
-        assert!(matches!(monitor.get_system_status(), SystemStatus::Healthy));
+        assert!(matches!(
+            monitor.get_system_status().await,
+            SystemStatus::Healthy
+        ));
     }
 
     #[tokio::test]
@@ -495,7 +499,7 @@ mod tests {
 
         monitor.record_health_report(report).await.unwrap();
         assert!(matches!(
-            monitor.get_system_status(),
+            monitor.get_system_status().await,
             SystemStatus::Degraded { .. }
         ));
     }
@@ -507,7 +511,7 @@ mod tests {
 
         monitor.record_health_report(report).await.unwrap();
         assert!(matches!(
-            monitor.get_system_status(),
+            monitor.get_system_status().await,
             SystemStatus::Unhealthy { .. }
         ));
     }
@@ -522,7 +526,7 @@ mod tests {
             monitor.record_health_report(report).await.unwrap();
         }
 
-        assert_eq!(monitor.get_health_history().len(), 5);
+        assert_eq!(monitor.get_health_history().await.len(), 5);
     }
 
     #[tokio::test]
@@ -540,7 +544,7 @@ mod tests {
             monitor.record_health_report(report).await.unwrap();
         }
 
-        let summary = monitor.get_health_summary(3);
+        let summary = monitor.get_health_summary(3).await;
         assert_eq!(summary.report_count, 3);
         assert_eq!(summary.average_health_percentage, 80.0); // (100 + 80 + 60) / 3
         assert_eq!(summary.min_health_percentage, 60.0);

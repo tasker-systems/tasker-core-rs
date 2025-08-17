@@ -12,7 +12,42 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use sysinfo::System;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
+
+/// Configuration for resource validation enforcement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceValidatorConfig {
+    /// Whether to enforce minimum resource requirements
+    pub enforce_minimum_resources: bool,
+    /// Whether to enforce maximum resource requirements  
+    pub enforce_maximum_resources: bool,
+    /// Whether to warn on suboptimal configurations
+    pub warn_on_suboptimal: bool,
+    /// Failure mode when validation fails
+    pub failure_mode: FailureMode,
+}
+
+impl Default for ResourceValidatorConfig {
+    fn default() -> Self {
+        Self {
+            enforce_minimum_resources: false,
+            enforce_maximum_resources: false,
+            warn_on_suboptimal: true,
+            failure_mode: FailureMode::BestEffort,
+        }
+    }
+}
+
+/// Failure mode for resource validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FailureMode {
+    /// Stop immediately when validation fails
+    FailFast,
+    /// Run with reduced capacity when validation fails
+    Degraded,
+    /// Try to run anyway despite validation failures
+    BestEffort,
+}
 
 /// System resource limits and availability
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +84,7 @@ impl SystemResourceLimits {
     /// Simplified approach that trusts the configured database pool size rather than
     /// attempting unreliable runtime detection of connection availability.
     pub async fn detect(_database_pool: &PgPool, config_manager: &ConfigManager) -> Result<Self> {
-        info!("🔍 RESOURCE_LIMITS: Analyzing configured database pool and system resources");
+        info!("INFO: RESOURCE_LIMITS: Analyzing configured database pool and system resources");
 
         let mut warnings = Vec::new();
 
@@ -61,9 +96,9 @@ impl SystemResourceLimits {
         let active_database_connections = 0; // Not reliably detectable, set to 0
 
         // Reserve connections for system operations (migrations, health checks, etc.)
-        // Reserve 20% but ensure at least 2 connections and at most 10
+        // Use dynamic reservation calculation based on pool size
         let reserved_database_connections =
-            ((max_database_connections as f32 * 0.2).round() as u32).clamp(2, 10);
+            Self::calculate_reserved_connections(max_database_connections);
 
         // Available connections = total - reserved (trust SQLx to manage actual usage)
         let available_database_connections =
@@ -100,7 +135,7 @@ impl SystemResourceLimits {
         };
 
         info!(
-            "✅ RESOURCE_LIMITS: Detected limits - DB connections: {}/{}, Memory: {}/{}MB, CPUs: {}",
+            "SUCCESS: RESOURCE_LIMITS: Detected limits - DB connections: {}/{}, Memory: {}/{}MB, CPUs: {}",
             resource_limits.available_database_connections,
             resource_limits.max_database_connections,
             resource_limits.available_memory_mb.unwrap_or(0),
@@ -174,6 +209,22 @@ impl SystemResourceLimits {
             .map(|p| p.get() as u32)
     }
 
+    /// Calculate reserved connections based on pool size
+    ///
+    /// Implements dynamic reservation logic that scales appropriately for large pools.
+    /// This fixes the issue where small pools (capped at 10) were insufficient for
+    /// large database deployments.
+    fn calculate_reserved_connections(max_connections: u32) -> u32 {
+        let base_reserve = (max_connections as f32 * 0.2).round() as u32;
+
+        match max_connections {
+            0..=20 => base_reserve.max(2),                    // Small pools: min 2
+            21..=50 => base_reserve.clamp(3, 10),             // Medium pools: 3-10
+            51..=100 => base_reserve.clamp(5, 20),            // Large pools: 5-20
+            _ => base_reserve.clamp(10, max_connections / 4), // XL pools: up to 25%
+        }
+    }
+
     /// Validate executor configuration against resource limits
     ///
     /// This implements the core validation logic from TAS-34 Phase 1.
@@ -205,9 +256,9 @@ impl SystemResourceLimits {
         config_manager: &ConfigManager,
     ) -> Result<ValidationResult> {
         info!(
-            "🔍 RESOURCE_LIMITS: Analyzing executor configuration against detected resource limits"
+            "INFO: RESOURCE_LIMITS: Analyzing executor configuration against detected resource limits"
         );
-        info!("ℹ️  RESOURCE_LIMITS: Detection is best-effort - use for deployment guidance, not startup blocking");
+        info!("INFO: RESOURCE_LIMITS: Detection is best-effort - use for deployment guidance, not startup blocking");
 
         let mut validation_errors = Vec::new();
         let mut validation_warnings = Vec::new();
@@ -323,10 +374,10 @@ impl SystemResourceLimits {
         };
 
         if is_valid {
-            info!("✅ RESOURCE_LIMITS: Configuration analysis complete - no issues detected");
+            info!("SUCCESS: RESOURCE_LIMITS: Configuration analysis complete - no issues detected");
         } else {
             info!(
-                "ℹ️  RESOURCE_LIMITS: Configuration analysis complete - {} configuration issues detected",
+                "INFO: RESOURCE_LIMITS: Configuration analysis complete - {} configuration issues detected",
                 validation_result.validation_errors.len()
             );
             for error in &validation_result.validation_errors {
@@ -336,7 +387,7 @@ impl SystemResourceLimits {
 
         if !validation_result.validation_warnings.is_empty() {
             info!(
-                "ℹ️  RESOURCE_LIMITS: {} recommendations for optimization",
+                "INFO: RESOURCE_LIMITS: {} recommendations for optimization",
                 validation_result.validation_warnings.len()
             );
             for warning in &validation_result.validation_warnings {
@@ -450,12 +501,38 @@ impl ValidationResult {
         summary.join("\n")
     }
 
-    /// Check if configuration should fail startup (has critical errors)
+    /// Check if configuration should fail startup based on validation config
     ///
-    /// NOTE: Always returns false - resource validation is now informational only.
-    /// Resource constraints should be tuned at deployment time, not enforced at startup.
-    pub fn should_fail_startup(&self) -> bool {
+    /// This method now supports configurable enforcement based on the provided
+    /// resource validation configuration. Enforcement can be disabled, enabled
+    /// for critical errors only, or enabled with different failure modes.
+    pub fn should_fail_startup(&self, config: &ResourceValidatorConfig) -> bool {
+        match config.failure_mode {
+            FailureMode::FailFast => !self.validation_errors.is_empty(),
+            FailureMode::Degraded => self.has_critical_errors(),
+            FailureMode::BestEffort => false,
+        }
+    }
+
+    /// Check if configuration should fail startup (legacy method for backwards compatibility)
+    ///
+    /// NOTE: Always returns false - resource validation is informational only by default.
+    /// Use should_fail_startup(&config) for configurable enforcement.
+    pub fn should_fail_startup_legacy(&self) -> bool {
         false // Always allow startup - validation is informational only
+    }
+
+    /// Check if the validation result contains critical errors
+    ///
+    /// Critical errors are those that would likely cause immediate system failure,
+    /// such as minimum executor requirements exceeding available resources.
+    pub fn has_critical_errors(&self) -> bool {
+        self.validation_errors.iter().any(|error| {
+            // Consider errors critical if they relate to minimum requirements
+            error.contains("minimum executor count")
+                || error.contains("exceeds detected database pool size")
+                || error.contains("min_executors") && error.contains("exceeds max_executors")
+        })
     }
 
     /// Get recommended database pool size for this configuration
@@ -472,16 +549,33 @@ impl ValidationResult {
 pub struct ResourceValidator {
     resource_limits: SystemResourceLimits,
     config_manager: Arc<ConfigManager>,
+    validation_config: ResourceValidatorConfig,
 }
 
 impl ResourceValidator {
-    /// Create a new resource validator
+    /// Create a new resource validator with default configuration
     pub async fn new(database_pool: &PgPool, config_manager: Arc<ConfigManager>) -> Result<Self> {
         let resource_limits = SystemResourceLimits::detect(database_pool, &config_manager).await?;
 
         Ok(Self {
             resource_limits,
             config_manager,
+            validation_config: ResourceValidatorConfig::default(),
+        })
+    }
+
+    /// Create a new resource validator with custom configuration
+    pub async fn new_with_config(
+        database_pool: &PgPool,
+        config_manager: Arc<ConfigManager>,
+        validation_config: ResourceValidatorConfig,
+    ) -> Result<Self> {
+        let resource_limits = SystemResourceLimits::detect(database_pool, &config_manager).await?;
+
+        Ok(Self {
+            resource_limits,
+            config_manager,
+            validation_config,
         })
     }
 
@@ -496,26 +590,88 @@ impl ResourceValidator {
             .validate_executor_configuration(&self.config_manager)?;
 
         info!(
-            "🔍 RESOURCE_VALIDATOR: Configuration analysis completed - Config Issues: {}, Recommendations: {}",
+            "INFO: RESOURCE_VALIDATOR: Configuration analysis completed - Config Issues: {}, Recommendations: {}",
             validation_result.validation_errors.len(),
             validation_result.validation_warnings.len()
         );
 
         // Add reliability warning about detection accuracy
-        info!("ℹ️  RESOURCE_VALIDATOR: Resource detection is best-effort and may be inaccurate on some systems");
-        info!("ℹ️  RESOURCE_VALIDATOR: Use this information for deployment tuning, not startup validation");
+        info!("INFO: RESOURCE_VALIDATOR: Resource detection is best-effort and may be inaccurate on some systems");
+        info!("INFO: RESOURCE_VALIDATOR: Use this information for deployment tuning, not startup validation");
 
         // Log validation summary as informational
         for line in validation_result.summary().lines() {
             if validation_result.validation_errors.is_empty() {
-                info!("📊 RESOURCE_INFO: {}", line);
+                info!("DATA: RESOURCE_INFO: {}", line);
             } else {
-                warn!("📊 RESOURCE_INFO: {}", line);
+                warn!("DATA: RESOURCE_INFO: {}", line);
             }
         }
 
         // Always succeed - validation is informational only
         Ok(validation_result)
+    }
+
+    /// Perform validation with configurable enforcement
+    ///
+    /// This method respects the validator's configuration for enforcement.
+    /// Unlike validate_and_log_info(), this method can fail startup when
+    /// configured to do so based on the validation results.
+    pub async fn validate_with_enforcement(&self) -> Result<ValidationResult> {
+        let validation_result = self
+            .resource_limits
+            .validate_executor_configuration(&self.config_manager)?;
+
+        // Log validation results based on configuration
+        let log_level = if validation_result.validation_errors.is_empty() {
+            "INFO"
+        } else {
+            match self.validation_config.failure_mode {
+                FailureMode::FailFast => "ERROR",
+                FailureMode::Degraded => "WARN",
+                FailureMode::BestEffort => "INFO",
+            }
+        };
+
+        info!(
+            "{}: RESOURCE_VALIDATOR: Configuration validation completed - Config Issues: {}, Recommendations: {}, Enforcement: {:?}",
+            log_level,
+            validation_result.validation_errors.len(),
+            validation_result.validation_warnings.len(),
+            self.validation_config.failure_mode
+        );
+
+        // Log validation summary with appropriate level
+        for line in validation_result.summary().lines() {
+            match log_level {
+                "ERROR" => error!("RESOURCE_VALIDATION: {}", line),
+                "WARN" => warn!("RESOURCE_VALIDATION: {}", line),
+                _ => info!("RESOURCE_VALIDATION: {}", line),
+            }
+        }
+
+        // Check if we should fail startup based on configuration
+        if validation_result.should_fail_startup(&self.validation_config) {
+            let error_msg = format!(
+                "Resource validation failed with enforcement mode {:?}: {} configuration errors detected",
+                self.validation_config.failure_mode,
+                validation_result.validation_errors.len()
+            );
+            error!("STARTUP_FAILURE: {}", error_msg);
+            return Err(crate::error::TaskerError::Configuration(error_msg));
+        }
+
+        Ok(validation_result)
+    }
+
+    /// Get the current validation configuration
+    pub fn validation_config(&self) -> &ResourceValidatorConfig {
+        &self.validation_config
+    }
+
+    /// Update the validation configuration
+    pub fn set_validation_config(&mut self, config: ResourceValidatorConfig) {
+        self.validation_config = config;
     }
 
     /// Get detected resource limits
@@ -525,7 +681,7 @@ impl ResourceValidator {
 
     /// Refresh resource limits (re-detect)
     pub async fn refresh(&mut self, database_pool: &PgPool) -> Result<()> {
-        info!("🔄 RESOURCE_VALIDATOR: Refreshing resource limits detection");
+        info!("REFRESH: RESOURCE_VALIDATOR: Refreshing resource limits detection");
         self.resource_limits =
             SystemResourceLimits::detect(database_pool, &self.config_manager).await?;
         Ok(())
@@ -613,5 +769,132 @@ mod tests {
 
         // Should be: 38 executors + 20% buffer (8) + 5 reserved = 51
         assert_eq!(recommended_size, 51);
+    }
+
+    #[test]
+    fn test_dynamic_reserved_connections_calculation() {
+        // Test small pools (0-20 connections)
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(5), 2); // min 2
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(10), 2); // 20% = 2
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(15), 3); // 20% = 3
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(20), 4); // 20% = 4
+
+        // Test medium pools (21-50 connections)
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(25), 5); // 20% = 5
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(40), 8); // 20% = 8
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(50), 10); // 20% = 10, clamped to max 10
+
+        // Test large pools (51-100 connections)
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(60), 12); // 20% = 12
+        assert_eq!(SystemResourceLimits::calculate_reserved_connections(80), 16); // 20% = 16
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(100),
+            20
+        ); // 20% = 20, clamped to max 20
+
+        // Test extra large pools (>100 connections)
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(120),
+            24
+        ); // 20% = 24
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(200),
+            40
+        ); // 20% = 40
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(400),
+            80
+        ); // 20% = 80, within 25% cap of 100
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(800),
+            160
+        ); // 20% = 160, within 25% cap of 200
+
+        // For very large pools, we cap at 25% of total connections
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(1000),
+            200
+        ); // 20% = 200, within 25% cap of 250
+        assert_eq!(
+            SystemResourceLimits::calculate_reserved_connections(2000),
+            400
+        ); // 20% = 400, within 25% cap of 500
+    }
+
+    #[test]
+    fn test_configurable_enforcement() {
+        // Create validation result with errors
+        let resource_limits = SystemResourceLimits {
+            max_database_connections: 10,
+            active_database_connections: 0,
+            available_database_connections: 8,
+            reserved_database_connections: 2,
+            max_memory_mb: None,
+            available_memory_mb: None,
+            cpu_cores: None,
+            detected_at: chrono::Utc::now(),
+            warnings: vec![],
+        };
+
+        let executor_requirements = ExecutorRequirements {
+            total_min_executors: 15, // Exceeds available connections (8)
+            total_max_executors: 20,
+            per_type_requirements: HashMap::new(),
+        };
+
+        let validation_result = ValidationResult {
+            is_valid: false,
+            validation_errors: vec![
+                "minimum executor count (15) exceeds detected available database connections (8)"
+                    .to_string(),
+                "Maximum executor count (20) exceeds detected database pool size (10)".to_string(),
+            ],
+            validation_warnings: vec![],
+            executor_requirements: executor_requirements.clone(),
+            resource_limits: resource_limits.clone(),
+        };
+
+        // Test BestEffort mode - should never fail
+        let best_effort_config = ResourceValidatorConfig {
+            enforce_minimum_resources: false,
+            enforce_maximum_resources: false,
+            warn_on_suboptimal: true,
+            failure_mode: FailureMode::BestEffort,
+        };
+        assert!(!validation_result.should_fail_startup(&best_effort_config));
+
+        // Test FailFast mode - should fail when there are any errors
+        let fail_fast_config = ResourceValidatorConfig {
+            enforce_minimum_resources: true,
+            enforce_maximum_resources: true,
+            warn_on_suboptimal: true,
+            failure_mode: FailureMode::FailFast,
+        };
+        assert!(validation_result.should_fail_startup(&fail_fast_config));
+
+        // Test Degraded mode - should fail only on critical errors
+        let degraded_config = ResourceValidatorConfig {
+            enforce_minimum_resources: true,
+            enforce_maximum_resources: false,
+            warn_on_suboptimal: true,
+            failure_mode: FailureMode::Degraded,
+        };
+        assert!(validation_result.should_fail_startup(&degraded_config)); // Should fail due to minimum executor count error
+
+        // Test has_critical_errors
+        assert!(validation_result.has_critical_errors()); // minimum executor count exceeds available connections
+
+        // Test validation result without critical errors
+        let non_critical_validation = ValidationResult {
+            is_valid: false,
+            validation_errors: vec!["Some non-critical configuration issue".to_string()],
+            validation_warnings: vec![],
+            executor_requirements: executor_requirements.clone(),
+            resource_limits: resource_limits.clone(),
+        };
+
+        assert!(!non_critical_validation.has_critical_errors());
+        assert!(!non_critical_validation.should_fail_startup(&degraded_config));
+        // Should not fail on non-critical errors
     }
 }

@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -161,7 +162,9 @@ pub trait OrchestrationExecutor: Send + Sync {
     /// This method should start the executor's main processing loop and return
     /// once the executor is ready to process items. The actual processing should
     /// continue in the background.
-    async fn start(&self) -> Result<()>;
+    ///
+    /// Takes `Arc<Self>` to prevent memory leaks from circular references.
+    async fn start(self: Arc<Self>) -> Result<()>;
 
     /// Stop the executor gracefully
     ///

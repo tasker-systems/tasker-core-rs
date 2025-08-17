@@ -166,8 +166,8 @@ mod tests {
         assert!(detected == "development" || std::env::var("TASKER_ENV").is_ok());
     }
 
-    #[test]
-    fn test_global_singleton_reset() {
+    #[tokio::test]
+    async fn test_global_singleton_reset() {
         // Test the reset functionality for global singleton
         ConfigManager::reset_global_for_testing();
 

@@ -6,11 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::error::{Result, TaskerError};
+use crate::error::Result;
 
 /// Comprehensive metrics for an orchestration executor
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,7 +189,7 @@ impl MetricsCollector {
     }
 
     /// Record a processing batch result
-    pub fn record_batch(
+    pub async fn record_batch(
         &self,
         items_processed: u64,
         items_failed: u64,
@@ -196,9 +197,11 @@ impl MetricsCollector {
         batch_size: usize,
     ) -> Result<()> {
         // Update cumulative counters
-        self.increment_counter(&self.total_items_processed, items_processed)?;
-        self.increment_counter(&self.total_items_failed, items_failed)?;
-        self.increment_counter(&self.batches_completed, 1)?;
+        self.increment_counter(&self.total_items_processed, items_processed)
+            .await?;
+        self.increment_counter(&self.total_items_failed, items_failed)
+            .await?;
+        self.increment_counter(&self.batches_completed, 1).await?;
 
         // Calculate utilization (items processed / theoretical maximum)
         let theoretical_max = batch_size as f64;
@@ -218,157 +221,125 @@ impl MetricsCollector {
             utilization,
         };
 
-        self.add_to_history(data_point)?;
+        self.add_to_history(data_point).await?;
 
         Ok(())
     }
 
     /// Record an empty polling cycle
-    pub fn record_empty_poll(&self) -> Result<()> {
-        self.increment_counter(&self.empty_polls, 1)
+    pub async fn record_empty_poll(&self) -> Result<()> {
+        self.increment_counter(&self.empty_polls, 1).await
     }
 
     /// Record an error by type
-    pub fn record_error(&self, error_type: &str) -> Result<()> {
-        if let Ok(mut errors) = self.error_counts.write() {
-            let count = errors.entry(error_type.to_string()).or_insert(0);
-            *count += 1;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire error counts lock".to_string(),
-            ))
-        }
+    pub async fn record_error(&self, error_type: &str) -> Result<()> {
+        let mut errors = self.error_counts.write().await;
+        let count = errors.entry(error_type.to_string()).or_insert(0);
+        *count += 1;
+        Ok(())
     }
 
     /// Record a retry attempt
-    pub fn record_retry(&self) -> Result<()> {
-        self.increment_counter(&self.total_retries, 1)
+    pub async fn record_retry(&self) -> Result<()> {
+        self.increment_counter(&self.total_retries, 1).await
     }
 
     /// Record skipped items
-    pub fn record_skipped_items(&self, count: u64) -> Result<()> {
+    pub async fn record_skipped_items(&self, count: u64) -> Result<()> {
         self.increment_counter(&self.total_items_skipped, count)
+            .await
     }
 
     /// Update backpressure factor
-    pub fn set_backpressure_factor(&self, factor: f64) -> Result<()> {
-        if let Ok(mut current) = self.current_backpressure_factor.write() {
-            *current = factor;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire backpressure factor lock".to_string(),
-            ))
-        }
+    pub async fn set_backpressure_factor(&self, factor: f64) -> Result<()> {
+        let mut current = self.current_backpressure_factor.write().await;
+        *current = factor;
+        Ok(())
     }
 
     /// Update polling interval
-    pub fn set_polling_interval_ms(&self, interval_ms: u64) -> Result<()> {
-        if let Ok(mut current) = self.current_polling_interval_ms.write() {
-            *current = interval_ms;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire polling interval lock".to_string(),
-            ))
-        }
+    pub async fn set_polling_interval_ms(&self, interval_ms: u64) -> Result<()> {
+        let mut current = self.current_polling_interval_ms.write().await;
+        *current = interval_ms;
+        Ok(())
     }
 
     /// Update circuit breaker state
-    pub fn set_circuit_breaker_state(
+    pub async fn set_circuit_breaker_state(
         &self,
         state: &str,
         retry_time: Option<Instant>,
     ) -> Result<()> {
         // Update state
-        if let Ok(mut current_state) = self.circuit_breaker_state.write() {
+        {
+            let mut current_state = self.circuit_breaker_state.write().await;
             *current_state = state.to_string();
-        } else {
-            return Err(TaskerError::Internal(
-                "Failed to acquire circuit breaker state lock".to_string(),
-            ));
         }
 
         // Update retry time
-        if let Ok(mut current_retry) = self.circuit_breaker_retry_time.write() {
+        {
+            let mut current_retry = self.circuit_breaker_retry_time.write().await;
             *current_retry = retry_time;
-        } else {
-            return Err(TaskerError::Internal(
-                "Failed to acquire circuit breaker retry time lock".to_string(),
-            ));
         }
 
         // Increment trip counter if opening
         if state == "open" {
-            self.increment_counter(&self.circuit_breaker_trips, 1)?;
+            self.increment_counter(&self.circuit_breaker_trips, 1)
+                .await?;
         }
 
         Ok(())
     }
 
     /// Set active connections count
-    pub fn set_active_connections(&self, count: u32) -> Result<()> {
-        if let Ok(mut connections) = self.active_connections.write() {
-            *connections = count;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire active connections lock".to_string(),
-            ))
-        }
+    pub async fn set_active_connections(&self, count: u32) -> Result<()> {
+        let mut connections = self.active_connections.write().await;
+        *connections = count;
+        Ok(())
     }
 
     /// Set queue depth
-    pub fn set_queue_depth(&self, depth: u32) -> Result<()> {
-        if let Ok(mut queue_depth) = self.queue_depth.write() {
-            *queue_depth = depth;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire queue depth lock".to_string(),
-            ))
-        }
+    pub async fn set_queue_depth(&self, depth: u32) -> Result<()> {
+        let mut queue_depth = self.queue_depth.write().await;
+        *queue_depth = depth;
+        Ok(())
     }
 
     /// Generate current metrics snapshot
-    pub fn current_metrics(&self) -> Result<ExecutorMetrics> {
+    pub async fn current_metrics(&self) -> Result<ExecutorMetrics> {
         let now = Instant::now();
         let uptime = now.duration_since(self.started_at);
 
         // Get cumulative counters
-        let total_processed = self.read_counter(&self.total_items_processed)?;
-        let total_failed = self.read_counter(&self.total_items_failed)?;
-        let total_skipped = self.read_counter(&self.total_items_skipped)?;
-        let total_retries = self.read_counter(&self.total_retries)?;
-        let batches_completed = self.read_counter(&self.batches_completed)?;
-        let empty_polls = self.read_counter(&self.empty_polls)?;
-        let circuit_breaker_trips = self.read_counter(&self.circuit_breaker_trips)?;
+        let total_processed = self.read_counter(&self.total_items_processed).await?;
+        let total_failed = self.read_counter(&self.total_items_failed).await?;
+        let total_skipped = self.read_counter(&self.total_items_skipped).await?;
+        let total_retries = self.read_counter(&self.total_retries).await?;
+        let batches_completed = self.read_counter(&self.batches_completed).await?;
+        let empty_polls = self.read_counter(&self.empty_polls).await?;
+        let circuit_breaker_trips = self.read_counter(&self.circuit_breaker_trips).await?;
 
         // Get current state
-        let backpressure_factor = self.read_value(&self.current_backpressure_factor)?;
-        let polling_interval_ms = self.read_value(&self.current_polling_interval_ms)?;
-        let circuit_breaker_state = self.read_string(&self.circuit_breaker_state)?;
+        let backpressure_factor = self.read_value(&self.current_backpressure_factor).await?;
+        let polling_interval_ms = self.read_value(&self.current_polling_interval_ms).await?;
+        let circuit_breaker_state = self.read_string(&self.circuit_breaker_state).await?;
 
         // Calculate circuit breaker retry seconds
-        let circuit_breaker_retry_seconds =
-            if let Ok(retry_time) = self.circuit_breaker_retry_time.read() {
-                retry_time.map(|time| {
-                    if time > now {
-                        time.duration_since(now).as_secs()
-                    } else {
-                        0
-                    }
-                })
-            } else {
-                None
-            };
+        let circuit_breaker_retry_seconds = {
+            let retry_time = self.circuit_breaker_retry_time.read().await;
+            retry_time.map(|time| {
+                if time > now {
+                    time.duration_since(now).as_secs()
+                } else {
+                    0
+                }
+            })
+        };
 
         // Get error counts
-        let error_counts = if let Ok(errors) = self.error_counts.read() {
+        let error_counts = {
+            let errors = self.error_counts.read().await;
             errors.clone()
-        } else {
-            HashMap::new()
         };
 
         // Calculate error rate
@@ -380,8 +351,8 @@ impl MetricsCollector {
         };
 
         // Calculate performance metrics from recent history
-        let recent_metrics = self.calculate_recent_metrics()?;
-        let processing_stats = self.calculate_processing_statistics()?;
+        let recent_metrics = self.calculate_recent_metrics().await?;
+        let processing_stats = self.calculate_processing_statistics().await?;
 
         // Calculate items per second from uptime
         let items_per_second = if uptime.as_secs() > 0 {
@@ -394,7 +365,7 @@ impl MetricsCollector {
         let utilization = recent_metrics.utilization;
 
         // Calculate average batch size from actual batch size data points
-        let avg_batch_size = self.calculate_average_batch_size()?;
+        let avg_batch_size = self.calculate_average_batch_size().await?;
 
         Ok(ExecutorMetrics {
             executor_id: self.executor_id,
@@ -414,8 +385,8 @@ impl MetricsCollector {
             utilization,
             avg_batch_size,
             backpressure_factor,
-            active_connections: *self.active_connections.read().unwrap(),
-            queue_depth: *self.queue_depth.read().unwrap() as u64,
+            active_connections: self.read_value(&self.active_connections).await?,
+            queue_depth: self.read_value(&self.queue_depth).await? as u64,
             batches_completed,
             empty_polls,
             polling_interval_ms,
@@ -427,20 +398,22 @@ impl MetricsCollector {
     }
 
     /// Reset all metrics (for testing or maintenance)
-    pub fn reset(&self) -> Result<()> {
-        self.set_counter(&self.total_items_processed, 0)?;
-        self.set_counter(&self.total_items_failed, 0)?;
-        self.set_counter(&self.total_items_skipped, 0)?;
-        self.set_counter(&self.total_retries, 0)?;
-        self.set_counter(&self.batches_completed, 0)?;
-        self.set_counter(&self.empty_polls, 0)?;
-        self.set_counter(&self.circuit_breaker_trips, 0)?;
+    pub async fn reset(&self) -> Result<()> {
+        self.set_counter(&self.total_items_processed, 0).await?;
+        self.set_counter(&self.total_items_failed, 0).await?;
+        self.set_counter(&self.total_items_skipped, 0).await?;
+        self.set_counter(&self.total_retries, 0).await?;
+        self.set_counter(&self.batches_completed, 0).await?;
+        self.set_counter(&self.empty_polls, 0).await?;
+        self.set_counter(&self.circuit_breaker_trips, 0).await?;
 
-        if let Ok(mut errors) = self.error_counts.write() {
+        {
+            let mut errors = self.error_counts.write().await;
             errors.clear();
         }
 
-        if let Ok(mut history) = self.metric_history.write() {
+        {
+            let mut history = self.metric_history.write().await;
             history.clear();
         }
 
@@ -449,148 +422,109 @@ impl MetricsCollector {
 
     // Helper methods
 
-    fn increment_counter(&self, counter: &Arc<RwLock<u64>>, value: u64) -> Result<()> {
-        if let Ok(mut count) = counter.write() {
-            *count += value;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire counter lock".to_string(),
-            ))
-        }
+    async fn increment_counter(&self, counter: &Arc<RwLock<u64>>, value: u64) -> Result<()> {
+        let mut count = counter.write().await;
+        *count += value;
+        Ok(())
     }
 
-    fn set_counter(&self, counter: &Arc<RwLock<u64>>, value: u64) -> Result<()> {
-        if let Ok(mut count) = counter.write() {
-            *count = value;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire counter lock".to_string(),
-            ))
-        }
+    async fn set_counter(&self, counter: &Arc<RwLock<u64>>, value: u64) -> Result<()> {
+        let mut count = counter.write().await;
+        *count = value;
+        Ok(())
     }
 
-    fn read_counter(&self, counter: &Arc<RwLock<u64>>) -> Result<u64> {
-        if let Ok(count) = counter.read() {
-            Ok(*count)
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire counter lock".to_string(),
-            ))
-        }
+    async fn read_counter(&self, counter: &Arc<RwLock<u64>>) -> Result<u64> {
+        let count = counter.read().await;
+        Ok(*count)
     }
 
-    fn read_value<T: Copy>(&self, value: &Arc<RwLock<T>>) -> Result<T> {
-        if let Ok(val) = value.read() {
-            Ok(*val)
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire value lock".to_string(),
-            ))
-        }
+    async fn read_value<T: Copy>(&self, value: &Arc<RwLock<T>>) -> Result<T> {
+        let val = value.read().await;
+        Ok(*val)
     }
 
-    fn read_string(&self, value: &Arc<RwLock<String>>) -> Result<String> {
-        if let Ok(val) = value.read() {
-            Ok(val.clone())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire string lock".to_string(),
-            ))
-        }
+    async fn read_string(&self, value: &Arc<RwLock<String>>) -> Result<String> {
+        let val = value.read().await;
+        Ok(val.clone())
     }
 
-    fn add_to_history(&self, data_point: MetricDataPoint) -> Result<()> {
-        if let Ok(mut history) = self.metric_history.write() {
-            history.push_back(data_point);
+    async fn add_to_history(&self, data_point: MetricDataPoint) -> Result<()> {
+        let mut history = self.metric_history.write().await;
+        history.push_back(data_point);
 
-            // Keep history size bounded
-            while history.len() > self.max_history_size {
-                history.pop_front();
-            }
-
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire history lock".to_string(),
-            ))
+        // Keep history size bounded
+        while history.len() > self.max_history_size {
+            history.pop_front();
         }
+
+        Ok(())
     }
 
-    fn calculate_recent_metrics(&self) -> Result<RecentMetrics> {
+    async fn calculate_recent_metrics(&self) -> Result<RecentMetrics> {
         let now = Instant::now();
         let window_duration = Duration::from_secs(self.metrics_window_seconds);
         let cutoff_time = now - window_duration;
 
-        if let Ok(history) = self.metric_history.read() {
-            let recent_points: Vec<&MetricDataPoint> = history
-                .iter()
-                .filter(|point| point.timestamp >= cutoff_time)
-                .collect();
+        let history = self.metric_history.read().await;
+        let recent_points: Vec<&MetricDataPoint> = history
+            .iter()
+            .filter(|point| point.timestamp >= cutoff_time)
+            .collect();
 
-            if recent_points.is_empty() {
-                return Ok(RecentMetrics::default());
-            }
-
-            let items_processed = recent_points.iter().map(|p| p.items_processed).sum();
-            let items_failed = recent_points.iter().map(|p| p.items_failed).sum();
-            let batches_completed = recent_points.len() as u64;
-
-            let avg_processing_time_ms = recent_points
-                .iter()
-                .map(|p| p.processing_time_ms as f64)
-                .sum::<f64>()
-                / recent_points.len() as f64;
-
-            let max_processing_time_ms = recent_points
-                .iter()
-                .map(|p| p.processing_time_ms as f64)
-                .fold(0.0, f64::max);
-
-            let avg_utilization = recent_points.iter().map(|p| p.utilization).sum::<f64>()
-                / recent_points.len() as f64;
-
-            Ok(RecentMetrics {
-                window_seconds: self.metrics_window_seconds,
-                items_processed,
-                items_failed,
-                avg_processing_time_ms,
-                max_processing_time_ms,
-                batches_completed,
-                utilization: avg_utilization,
-            })
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire history lock".to_string(),
-            ))
+        if recent_points.is_empty() {
+            return Ok(RecentMetrics::default());
         }
+
+        let items_processed = recent_points.iter().map(|p| p.items_processed).sum();
+        let items_failed = recent_points.iter().map(|p| p.items_failed).sum();
+        let batches_completed = recent_points.len() as u64;
+
+        let avg_processing_time_ms = recent_points
+            .iter()
+            .map(|p| p.processing_time_ms as f64)
+            .sum::<f64>()
+            / recent_points.len() as f64;
+
+        let max_processing_time_ms = recent_points
+            .iter()
+            .map(|p| p.processing_time_ms as f64)
+            .fold(0.0, f64::max);
+
+        let avg_utilization =
+            recent_points.iter().map(|p| p.utilization).sum::<f64>() / recent_points.len() as f64;
+
+        Ok(RecentMetrics {
+            window_seconds: self.metrics_window_seconds,
+            items_processed,
+            items_failed,
+            avg_processing_time_ms,
+            max_processing_time_ms,
+            batches_completed,
+            utilization: avg_utilization,
+        })
     }
 
-    fn calculate_average_batch_size(&self) -> Result<f64> {
-        if let Ok(history) = self.metric_history.read() {
-            if history.is_empty() {
-                return Ok(0.0);
-            }
-
-            // Calculate average batch size from actual batch_size values stored in data points
-            let total_batch_sizes: usize = history.iter().map(|p| p.batch_size).sum();
-            let avg_batch_size = if !history.is_empty() {
-                total_batch_sizes as f64 / history.len() as f64
-            } else {
-                0.0
-            };
-
-            Ok(avg_batch_size)
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire history lock".to_string(),
-            ))
+    async fn calculate_average_batch_size(&self) -> Result<f64> {
+        let history = self.metric_history.read().await;
+        if history.is_empty() {
+            return Ok(0.0);
         }
+
+        // Calculate average batch size from actual batch_size values stored in data points
+        let total_batch_sizes: usize = history.iter().map(|p| p.batch_size).sum();
+        let avg_batch_size = if !history.is_empty() {
+            total_batch_sizes as f64 / history.len() as f64
+        } else {
+            0.0
+        };
+
+        Ok(avg_batch_size)
     }
 
-    fn calculate_processing_statistics(&self) -> Result<ProcessingStatistics> {
-        if let Ok(history) = self.metric_history.read() {
+    async fn calculate_processing_statistics(&self) -> Result<ProcessingStatistics> {
+        {
+            let history = self.metric_history.read().await;
             if history.is_empty() {
                 return Ok(ProcessingStatistics {
                     avg_time: 0.0,
@@ -625,10 +559,6 @@ impl MetricsCollector {
                 p95_time,
                 p99_time,
             })
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire history lock".to_string(),
-            ))
         }
     }
 }
@@ -655,93 +585,94 @@ mod tests {
 
     use std::time::Duration;
 
-    #[test]
-    fn test_metrics_collector_creation() {
+    #[tokio::test]
+    async fn test_metrics_collector_creation() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
-        let metrics = collector.current_metrics().unwrap();
+        let metrics = collector.current_metrics().await.unwrap();
         assert_eq!(metrics.executor_id, executor_id);
         assert_eq!(metrics.executor_type, "TestExecutor");
         assert_eq!(metrics.total_items_processed, 0);
     }
 
-    #[test]
-    fn test_batch_recording() {
+    #[tokio::test]
+    async fn test_batch_recording() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
         // Record some batches
-        collector.record_batch(10, 1, 1000, 20).unwrap();
-        collector.record_batch(15, 0, 800, 20).unwrap();
+        collector.record_batch(10, 1, 1000, 20).await.unwrap();
+        collector.record_batch(15, 0, 800, 20).await.unwrap();
 
-        let metrics = collector.current_metrics().unwrap();
+        let metrics = collector.current_metrics().await.unwrap();
         assert_eq!(metrics.total_items_processed, 25);
         assert_eq!(metrics.total_items_failed, 1);
         assert_eq!(metrics.batches_completed, 2);
         assert!(metrics.avg_processing_time_ms > 0.0);
     }
 
-    #[test]
-    fn test_error_recording() {
+    #[tokio::test]
+    async fn test_error_recording() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
-        collector.record_error("DatabaseError").unwrap();
-        collector.record_error("TimeoutError").unwrap();
-        collector.record_error("DatabaseError").unwrap();
+        collector.record_error("DatabaseError").await.unwrap();
+        collector.record_error("TimeoutError").await.unwrap();
+        collector.record_error("DatabaseError").await.unwrap();
 
-        let metrics = collector.current_metrics().unwrap();
+        let metrics = collector.current_metrics().await.unwrap();
         assert_eq!(metrics.error_counts.get("DatabaseError"), Some(&2));
         assert_eq!(metrics.error_counts.get("TimeoutError"), Some(&1));
     }
 
-    #[test]
-    fn test_backpressure_updates() {
+    #[tokio::test]
+    async fn test_backpressure_updates() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
-        collector.set_backpressure_factor(0.5).unwrap();
-        collector.set_polling_interval_ms(200).unwrap();
+        collector.set_backpressure_factor(0.5).await.unwrap();
+        collector.set_polling_interval_ms(200).await.unwrap();
 
-        let metrics = collector.current_metrics().unwrap();
+        let metrics = collector.current_metrics().await.unwrap();
         assert_eq!(metrics.backpressure_factor, 0.5);
         assert_eq!(metrics.polling_interval_ms, 200);
     }
 
-    #[test]
-    fn test_circuit_breaker_state() {
+    #[tokio::test]
+    async fn test_circuit_breaker_state() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
         let retry_time = Instant::now() + Duration::from_secs(30);
         collector
             .set_circuit_breaker_state("open", Some(retry_time))
+            .await
             .unwrap();
 
-        let metrics = collector.current_metrics().unwrap();
+        let metrics = collector.current_metrics().await.unwrap();
         assert_eq!(metrics.circuit_breaker_state, "open");
         assert_eq!(metrics.circuit_breaker_trips, 1);
         assert!(metrics.circuit_breaker_retry_seconds.is_some());
     }
 
-    #[test]
-    fn test_metrics_reset() {
+    #[tokio::test]
+    async fn test_metrics_reset() {
         let executor_id = Uuid::new_v4();
         let collector = MetricsCollector::new(executor_id, "TestExecutor".to_string());
 
         // Record some data
-        collector.record_batch(10, 1, 1000, 20).unwrap();
-        collector.record_error("TestError").unwrap();
+        collector.record_batch(10, 1, 1000, 20).await.unwrap();
+        collector.record_error("TestError").await.unwrap();
 
         // Verify data is there
-        let metrics_before = collector.current_metrics().unwrap();
+        let metrics_before = collector.current_metrics().await.unwrap();
         assert!(metrics_before.total_items_processed > 0);
         assert!(!metrics_before.error_counts.is_empty());
 
         // Reset and verify
-        collector.reset().unwrap();
-        let metrics_after = collector.current_metrics().unwrap();
+        collector.reset().await.unwrap();
+        let metrics_after = collector.current_metrics().await.unwrap();
         assert_eq!(metrics_after.total_items_processed, 0);
         assert!(metrics_after.error_counts.is_empty());
     }

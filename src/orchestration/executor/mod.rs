@@ -22,6 +22,7 @@
 //! ```rust,no_run
 //! use tasker_core::orchestration::executor::{OrchestrationExecutor, BaseExecutor, ExecutorType};
 //! use sqlx::PgPool;
+//! use std::sync::Arc;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,10 +30,10 @@
 //!     let pool = PgPool::connect("postgresql://localhost/test").await?;
 //!     
 //!     // Create a new executor
-//!     let executor = BaseExecutor::new(ExecutorType::TaskRequestProcessor, pool);
+//!     let executor = Arc::new(BaseExecutor::new(ExecutorType::TaskRequestProcessor, pool));
 //!
 //!     // Start the executor
-//!     executor.start().await?;
+//!     executor.clone().start().await?;
 //!
 //!     // Monitor health
 //!     let health = executor.health().await;
@@ -44,10 +45,15 @@
 
 pub mod base;
 pub mod health;
+pub mod health_state_machine;
 pub mod metrics;
 pub mod traits;
 
 pub use base::BaseExecutor;
 pub use health::{ExecutorHealth, HealthMonitor};
+pub use health_state_machine::{
+    ExecutorHealthStateMachine, HealthActions, HealthContext, HealthEvent, HealthGuards,
+    HealthState,
+};
 pub use metrics::{ExecutorMetrics, MetricsCollector};
 pub use traits::{ExecutorConfig, ExecutorType, OrchestrationExecutor, ProcessBatchResult};

@@ -49,7 +49,7 @@ use crate::events::types::{Event, OrchestrationEvent, StepResult, TaskResult, Vi
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::{timeout, Duration};
 use tracing::{error, info, instrument, warn};
@@ -491,7 +491,7 @@ impl FfiBridge {
         }
 
         // Forward event to external callbacks if registered
-        if let Err(e) = call_external_event_callbacks(event_name, &payload) {
+        if let Err(e) = call_external_event_callbacks(event_name, &payload).await {
             warn!(
                 event_name = event_name,
                 error = %e,
@@ -521,26 +521,26 @@ pub type ExternalEventCallback =
     Box<dyn Fn(&str, &serde_json::Value) -> Result<(), String> + Send + Sync>;
 
 /// Global registry of external event callbacks
-static EXTERNAL_CALLBACKS: OnceLock<Mutex<Vec<ExternalEventCallback>>> = OnceLock::new();
+static EXTERNAL_CALLBACKS: OnceLock<tokio::sync::Mutex<Vec<ExternalEventCallback>>> =
+    OnceLock::new();
 
 /// Register an external event callback
 ///
 /// This allows external systems to receive events published by the Rust orchestration.
 /// Callbacks are called for every event published through the EventPublisher.
-pub fn register_external_event_callback<F>(callback: F)
+pub async fn register_external_event_callback<F>(callback: F)
 where
     F: Fn(&str, &serde_json::Value) -> Result<(), String> + Send + Sync + 'static,
 {
-    let callbacks = EXTERNAL_CALLBACKS.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut callbacks) = callbacks.lock() {
-        callbacks.push(Box::new(callback));
-    }
+    let callbacks = EXTERNAL_CALLBACKS.get_or_init(|| tokio::sync::Mutex::new(Vec::new()));
+    let mut callbacks = callbacks.lock().await;
+    callbacks.push(Box::new(callback));
 }
 
 /// Call all registered external event callbacks
 ///
 /// This is used internally by the EventPublisher to forward events to external systems.
-fn call_external_event_callbacks(
+async fn call_external_event_callbacks(
     event_name: &str,
     payload: &serde_json::Value,
 ) -> Result<(), String> {
@@ -550,9 +550,7 @@ fn call_external_event_callbacks(
     }
 
     let callbacks = callbacks.unwrap();
-    let callbacks = callbacks
-        .lock()
-        .map_err(|_| "Failed to lock callbacks registry".to_string())?;
+    let callbacks = callbacks.lock().await;
 
     for callback in callbacks.iter() {
         if let Err(e) = callback(event_name, payload) {
@@ -565,11 +563,10 @@ fn call_external_event_callbacks(
 }
 
 /// Clear all external event callbacks (useful for testing)
-pub fn clear_external_event_callbacks() {
-    let callbacks = EXTERNAL_CALLBACKS.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut callbacks) = callbacks.lock() {
-        callbacks.clear();
-    }
+pub async fn clear_external_event_callbacks() {
+    let callbacks = EXTERNAL_CALLBACKS.get_or_init(|| tokio::sync::Mutex::new(Vec::new()));
+    let mut callbacks = callbacks.lock().await;
+    callbacks.clear();
 }
 
 #[cfg(test)]

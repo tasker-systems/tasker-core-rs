@@ -6,11 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::error::{Result, TaskerError};
+use crate::error::Result;
 
 /// Health state of an orchestration executor
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -218,26 +219,23 @@ impl HealthMonitor {
     }
 
     /// Record a heartbeat
-    pub fn heartbeat(&self) -> Result<()> {
+    pub async fn heartbeat(&self) -> Result<()> {
         let now = Instant::now();
 
         // Update last heartbeat
-        if let Ok(mut last_heartbeat) = self.last_heartbeat.write() {
+        {
+            let mut last_heartbeat = self.last_heartbeat.write().await;
             *last_heartbeat = now;
-        } else {
-            return Err(TaskerError::Internal(
-                "Failed to acquire heartbeat lock".to_string(),
-            ));
         }
 
         // Update health state if necessary
-        self.evaluate_health()?;
+        self.evaluate_health().await?;
 
         Ok(())
     }
 
     /// Record performance metrics
-    pub fn record_performance(
+    pub async fn record_performance(
         &self,
         processing_time_ms: u64,
         success: bool,
@@ -251,90 +249,64 @@ impl HealthMonitor {
         };
 
         // Add to performance history
-        if let Ok(mut history) = self.performance_history.write() {
+        {
+            let mut history = self.performance_history.write().await;
             history.push_back(metric);
 
             // Keep history size bounded
             while history.len() > self.max_history_size {
                 history.pop_front();
             }
-        } else {
-            return Err(TaskerError::Internal(
-                "Failed to acquire performance history lock".to_string(),
-            ));
         }
 
         // Re-evaluate health after recording performance
-        self.evaluate_health()?;
+        self.evaluate_health().await?;
 
         Ok(())
     }
 
     /// Get current health state
-    pub fn current_health(&self) -> Result<ExecutorHealth> {
-        if let Ok(health) = self.current_health.read() {
-            Ok(health.clone())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire health lock".to_string(),
-            ))
-        }
+    pub async fn current_health(&self) -> Result<ExecutorHealth> {
+        let health = self.current_health.read().await;
+        Ok(health.clone())
     }
 
     /// Mark executor as starting with specific phase
-    pub fn mark_starting(&self, phase: &str) -> Result<()> {
-        if let Ok(mut health) = self.current_health.write() {
-            *health = ExecutorHealth::Starting {
-                started_at: current_timestamp(),
-                phase: phase.to_string(),
-            };
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire health lock".to_string(),
-            ))
-        }
+    pub async fn mark_starting(&self, phase: &str) -> Result<()> {
+        let mut health = self.current_health.write().await;
+        *health = ExecutorHealth::Starting {
+            started_at: current_timestamp(),
+            phase: phase.to_string(),
+        };
+        Ok(())
     }
 
     /// Mark executor as stopping
-    pub fn mark_stopping(&self, graceful: bool, phase: &str) -> Result<()> {
-        if let Ok(mut health) = self.current_health.write() {
-            *health = ExecutorHealth::Stopping {
-                initiated_at: current_timestamp(),
-                graceful,
-                phase: phase.to_string(),
-            };
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire health lock".to_string(),
-            ))
-        }
+    pub async fn mark_stopping(&self, graceful: bool, phase: &str) -> Result<()> {
+        let mut health = self.current_health.write().await;
+        *health = ExecutorHealth::Stopping {
+            initiated_at: current_timestamp(),
+            graceful,
+            phase: phase.to_string(),
+        };
+        Ok(())
     }
 
     /// Force set health state (for testing or emergency situations)
-    pub fn force_set_health(&self, health: ExecutorHealth) -> Result<()> {
-        if let Ok(mut current_health) = self.current_health.write() {
-            *current_health = health;
-            Ok(())
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire health lock".to_string(),
-            ))
-        }
+    pub async fn force_set_health(&self, health: ExecutorHealth) -> Result<()> {
+        let mut current_health = self.current_health.write().await;
+        *current_health = health;
+        Ok(())
     }
 
     /// Evaluate current health based on metrics and heartbeat
-    fn evaluate_health(&self) -> Result<()> {
+    async fn evaluate_health(&self) -> Result<()> {
         let now = Instant::now();
 
         // Check heartbeat timeout
-        let last_heartbeat = if let Ok(heartbeat) = self.last_heartbeat.read() {
+        let last_heartbeat = {
+            let heartbeat = self.last_heartbeat.read().await;
             *heartbeat
-        } else {
-            return Err(TaskerError::Internal(
-                "Failed to acquire heartbeat lock".to_string(),
-            ));
         };
 
         let time_since_heartbeat = now.duration_since(last_heartbeat);
@@ -349,26 +321,24 @@ impl HealthMonitor {
                 unhealthy_for_seconds: time_since_heartbeat.as_secs(),
             };
 
-            if let Ok(mut health) = self.current_health.write() {
-                *health = new_health;
-            }
+            let mut health = self.current_health.write().await;
+            *health = new_health;
             return Ok(());
         }
 
         // Get recent performance metrics
-        let recent_metrics = self.get_recent_metrics()?;
+        let recent_metrics = self.get_recent_metrics().await?;
 
         // If we don't have enough metrics, keep current state or mark as starting
         if recent_metrics.len() < self.health_check_config.min_metrics_for_evaluation {
-            let current = self.current_health()?;
+            let current = self.current_health().await?;
             if let ExecutorHealth::Unhealthy { .. } = current {
                 // If we were unhealthy but now have heartbeat, move to starting
-                if let Ok(mut health) = self.current_health.write() {
-                    *health = ExecutorHealth::Starting {
-                        started_at: current_timestamp(),
-                        phase: "recovering".to_string(),
-                    };
-                }
+                let mut health = self.current_health.write().await;
+                *health = ExecutorHealth::Starting {
+                    started_at: current_timestamp(),
+                    phase: "recovering".to_string(),
+                };
             }
             return Ok(());
         }
@@ -399,7 +369,7 @@ impl HealthMonitor {
         let new_health = if error_rate > self.health_check_config.max_error_rate {
             // Track when degraded state began
             let degraded_for_seconds = {
-                let mut degraded_since = self.degraded_since.write().unwrap();
+                let mut degraded_since = self.degraded_since.write().await;
                 if degraded_since.is_none() {
                     *degraded_since = Some(now);
                     0
@@ -409,7 +379,7 @@ impl HealthMonitor {
             };
 
             // Clear unhealthy since we're degraded (better state)
-            *self.unhealthy_since.write().unwrap() = None;
+            *self.unhealthy_since.write().await = None;
 
             ExecutorHealth::Degraded {
                 last_heartbeat: current_timestamp(),
@@ -420,7 +390,7 @@ impl HealthMonitor {
         } else if avg_processing_time > self.health_check_config.max_avg_processing_time_ms {
             // Track when degraded state began
             let degraded_for_seconds = {
-                let mut degraded_since = self.degraded_since.write().unwrap();
+                let mut degraded_since = self.degraded_since.write().await;
                 if degraded_since.is_none() {
                     *degraded_since = Some(now);
                     0
@@ -430,7 +400,7 @@ impl HealthMonitor {
             };
 
             // Clear unhealthy since we're degraded (better state)
-            *self.unhealthy_since.write().unwrap() = None;
+            *self.unhealthy_since.write().await = None;
 
             ExecutorHealth::Degraded {
                 last_heartbeat: current_timestamp(),
@@ -440,8 +410,8 @@ impl HealthMonitor {
             }
         } else {
             // System is healthy - clear any degraded/unhealthy timestamps
-            *self.degraded_since.write().unwrap() = None;
-            *self.unhealthy_since.write().unwrap() = None;
+            *self.degraded_since.write().await = None;
+            *self.unhealthy_since.write().await = None;
 
             ExecutorHealth::Healthy {
                 last_heartbeat: current_timestamp(),
@@ -452,32 +422,26 @@ impl HealthMonitor {
         };
 
         // Update health state
-        if let Ok(mut health) = self.current_health.write() {
-            *health = new_health;
-        }
+        let mut health = self.current_health.write().await;
+        *health = new_health;
 
         Ok(())
     }
 
     /// Get recent performance metrics within the evaluation window
-    fn get_recent_metrics(&self) -> Result<Vec<PerformanceMetric>> {
+    async fn get_recent_metrics(&self) -> Result<Vec<PerformanceMetric>> {
         let now = Instant::now();
         let window_duration =
             Duration::from_secs(self.health_check_config.evaluation_window_seconds);
         let cutoff_time = now - window_duration;
 
-        if let Ok(history) = self.performance_history.read() {
-            let recent_metrics: Vec<PerformanceMetric> = history
-                .iter()
-                .filter(|metric| metric.timestamp >= cutoff_time)
-                .cloned()
-                .collect();
-            Ok(recent_metrics)
-        } else {
-            Err(TaskerError::Internal(
-                "Failed to acquire performance history lock".to_string(),
-            ))
-        }
+        let history = self.performance_history.read().await;
+        let recent_metrics: Vec<PerformanceMetric> = history
+            .iter()
+            .filter(|metric| metric.timestamp >= cutoff_time)
+            .cloned()
+            .collect();
+        Ok(recent_metrics)
     }
 
     /// Get executor ID
@@ -535,42 +499,42 @@ mod tests {
         assert!(degraded.severity_level() > 0);
     }
 
-    #[test]
-    fn test_health_monitor_creation() {
+    #[tokio::test]
+    async fn test_health_monitor_creation() {
         let executor_id = Uuid::new_v4();
         let monitor = HealthMonitor::new(executor_id);
 
         assert_eq!(monitor.executor_id(), executor_id);
 
-        let health = monitor.current_health().unwrap();
+        let health = monitor.current_health().await.unwrap();
         match health {
             ExecutorHealth::Starting { .. } => (),
             _ => panic!("Expected Starting health state"),
         }
     }
 
-    #[test]
-    fn test_heartbeat_recording() {
+    #[tokio::test]
+    async fn test_heartbeat_recording() {
         let executor_id = Uuid::new_v4();
         let monitor = HealthMonitor::new(executor_id);
 
         // Record a heartbeat
-        assert!(monitor.heartbeat().is_ok());
+        assert!(monitor.heartbeat().await.is_ok());
 
         // Record some performance metrics
-        assert!(monitor.record_performance(100, true, 5).is_ok());
-        assert!(monitor.record_performance(150, true, 3).is_ok());
-        assert!(monitor.record_performance(200, false, 2).is_ok());
+        assert!(monitor.record_performance(100, true, 5).await.is_ok());
+        assert!(monitor.record_performance(150, true, 3).await.is_ok());
+        assert!(monitor.record_performance(200, false, 2).await.is_ok());
     }
 
-    #[test]
-    fn test_phase_transitions() {
+    #[tokio::test]
+    async fn test_phase_transitions() {
         let executor_id = Uuid::new_v4();
         let monitor = HealthMonitor::new(executor_id);
 
         // Mark as starting
-        assert!(monitor.mark_starting("connecting").is_ok());
-        let health = monitor.current_health().unwrap();
+        assert!(monitor.mark_starting("connecting").await.is_ok());
+        let health = monitor.current_health().await.unwrap();
         match health {
             ExecutorHealth::Starting { phase, .. } => {
                 assert_eq!(phase, "connecting");
@@ -579,8 +543,8 @@ mod tests {
         }
 
         // Mark as stopping
-        assert!(monitor.mark_stopping(true, "shutdown").is_ok());
-        let health = monitor.current_health().unwrap();
+        assert!(monitor.mark_stopping(true, "shutdown").await.is_ok());
+        let health = monitor.current_health().await.unwrap();
         match health {
             ExecutorHealth::Stopping {
                 graceful, phase, ..

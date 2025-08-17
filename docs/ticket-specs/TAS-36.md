@@ -974,3 +974,1097 @@ retry:
 ```
 
 ####
+
+## Schema Validation & IDE Support
+
+### JSON Schema for TaskTemplate YAML
+
+#### Schema Header for TaskTemplate YAML Files
+Every TaskTemplate YAML file should begin with the following metadata header for IDE support and validation:
+
+```yaml
+# yaml-language-server: $schema=https://tasker.systems/schemas/v1/task-template.json
+# tasker-schema-version: 1.0.0
+# tasker-template-version: 1.0.0
+---
+name: credit_card_payment
+namespace_name: payments
+# ... rest of template
+```
+
+#### TaskTemplate JSON Schema Definition
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tasker.systems/schemas/v1/task-template.json",
+  "title": "TaskTemplate",
+  "description": "Schema for Tasker workflow task templates",
+  "type": "object",
+  "required": ["name", "namespace_name", "version", "steps"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Unique task template name within namespace"
+    },
+    "namespace_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Namespace for logical grouping"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the template"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the task"
+    },
+    "metadata": {
+      "$ref": "#/definitions/TemplateMetadata"
+    },
+    "task_handler": {
+      "$ref": "#/definitions/HandlerDefinition"
+    },
+    "system_dependencies": {
+      "$ref": "#/definitions/SystemDependencies"
+    },
+    "domain_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DomainEventDefinition"
+      }
+    },
+    "input_schema": {
+      "$ref": "#/definitions/JSONSchema"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/StepDefinition"
+      }
+    },
+    "environments": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/EnvironmentOverride"
+      }
+    }
+  },
+  "definitions": {
+    "TemplateMetadata": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "documentation_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "HandlerDefinition": {
+      "type": "object",
+      "required": ["callable"],
+      "properties": {
+        "callable": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*(::[A-Z][A-Za-z0-9]*)*$",
+          "description": "Fully qualified class or module path"
+        },
+        "initialization": {
+          "type": "object",
+          "description": "Handler-specific initialization parameters"
+        }
+      }
+    },
+    "SystemDependencies": {
+      "type": "object",
+      "properties": {
+        "primary": {
+          "type": "string",
+          "enum": ["default", "payments", "inventory", "notifications", "analytics"],
+          "default": "default"
+        },
+        "secondary": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["default", "payments", "inventory", "notifications", "analytics"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "DomainEventDefinition": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/definitions/JSONSchema"
+        }
+      }
+    },
+    "StepDefinition": {
+      "type": "object",
+      "required": ["name", "handler"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "handler": {
+          "$ref": "#/definitions/HandlerDefinition"
+        },
+        "system_dependency": {
+          "type": "string",
+          "enum": ["default", "payments", "inventory", "notifications", "analytics"]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryConfiguration"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "publishes_events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RetryConfiguration": {
+      "type": "object",
+      "properties": {
+        "retryable": {
+          "type": "boolean",
+          "default": true
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "backoff": {
+          "type": "string",
+          "enum": ["none", "linear", "exponential", "fibonacci"],
+          "default": "exponential"
+        },
+        "backoff_base_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 1000
+        },
+        "max_backoff_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000
+        }
+      }
+    },
+    "EnvironmentOverride": {
+      "type": "object",
+      "properties": {
+        "task_handler": {
+          "$ref": "#/definitions/HandlerOverride"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/StepOverride"
+          }
+        }
+      }
+    },
+    "HandlerOverride": {
+      "type": "object",
+      "properties": {
+        "initialization": {
+          "type": "object"
+        }
+      }
+    },
+    "StepOverride": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^([a-z][a-z0-9_]*|ALL)$"
+        },
+        "handler": {
+          "$ref": "#/definitions/HandlerOverride"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryConfiguration"
+        }
+      }
+    },
+    "JSONSchema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["object", "array", "string", "number", "integer", "boolean", "null"]
+        },
+        "properties": {
+          "type": "object"
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "items": {
+          "type": "object"
+        },
+        "enum": {
+          "type": "array"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "integer"
+        },
+        "maxLength": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
+```
+
+### OpenAPI 3.0 Specification
+
+#### OpenAPI Descriptor for TaskTemplate Management API
+```yaml
+openapi: 3.0.3
+info:
+  title: Tasker TaskTemplate API
+  description: API for managing and executing Tasker workflow templates
+  version: 1.0.0
+  contact:
+    name: Tasker Team
+    email: support@tasker.systems
+servers:
+  - url: https://api.tasker.systems/v1
+    description: Production API
+  - url: https://staging-api.tasker.systems/v1
+    description: Staging API
+tags:
+  - name: templates
+    description: TaskTemplate management operations
+  - name: execution
+    description: Task execution operations
+  - name: validation
+    description: Template validation operations
+
+paths:
+  /templates:
+    get:
+      tags:
+        - templates
+      summary: List all task templates
+      operationId: listTemplates
+      parameters:
+        - name: namespace
+          in: query
+          schema:
+            type: string
+          description: Filter by namespace
+        - name: tag
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          description: Filter by tags
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskTemplateSummary'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - templates
+      summary: Create a new task template
+      operationId: createTemplate
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+      responses:
+        '201':
+          description: Template created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskTemplateResponse'
+        '400':
+          description: Invalid template format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /templates/{namespace}/{name}:
+    get:
+      tags:
+        - templates
+      summary: Get a specific task template
+      operationId: getTemplate
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          schema:
+            type: string
+          description: Specific version (defaults to latest)
+        - name: environment
+          in: query
+          schema:
+            type: string
+            enum: [development, test, staging, production]
+          description: Resolve template for specific environment
+      responses:
+        '200':
+          description: Template found
+          content:
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/TaskTemplate'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskTemplate'
+        '404':
+          description: Template not found
+
+    put:
+      tags:
+        - templates
+      summary: Update an existing task template
+      operationId: updateTemplate
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+      responses:
+        '200':
+          description: Template updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskTemplateResponse'
+
+    delete:
+      tags:
+        - templates
+      summary: Delete a task template
+      operationId: deleteTemplate
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          schema:
+            type: string
+          description: Specific version to delete
+      responses:
+        '204':
+          description: Template deleted successfully
+        '404':
+          description: Template not found
+
+  /templates/validate:
+    post:
+      tags:
+        - validation
+      summary: Validate a task template
+      operationId: validateTemplate
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskTemplate'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidationError'
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+
+  /templates/{namespace}/{name}/execute:
+    post:
+      tags:
+        - execution
+      summary: Execute a task from template
+      operationId: executeTask
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: environment
+          in: query
+          schema:
+            type: string
+            enum: [development, test, staging, production]
+            default: production
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  description: Input data matching the template's input_schema
+                metadata:
+                  type: object
+                  description: Additional execution metadata
+      responses:
+        '202':
+          description: Task execution started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [pending, running]
+                  created_at:
+                    type: string
+                    format: date-time
+
+components:
+  schemas:
+    TaskTemplate:
+      type: object
+      required: [name, namespace_name, version, steps]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9_]*$'
+        namespace_name:
+          type: string
+          pattern: '^[a-z][a-z0-9_]*$'
+        version:
+          type: string
+          pattern: '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$'
+        description:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/TemplateMetadata'
+        task_handler:
+          $ref: '#/components/schemas/HandlerDefinition'
+        system_dependencies:
+          $ref: '#/components/schemas/SystemDependencies'
+        domain_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/DomainEventDefinition'
+        input_schema:
+          type: object
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StepDefinition'
+        environments:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/EnvironmentOverride'
+
+    TaskTemplateSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace_name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TaskTemplateResponse:
+      type: object
+      properties:
+        template:
+          $ref: '#/components/schemas/TaskTemplate'
+        validation:
+          type: object
+          properties:
+            valid:
+              type: boolean
+            warnings:
+              type: array
+              items:
+                type: string
+
+    TemplateMetadata:
+      type: object
+      properties:
+        author:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        documentation_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HandlerDefinition:
+      type: object
+      required: [callable]
+      properties:
+        callable:
+          type: string
+        initialization:
+          type: object
+
+    SystemDependencies:
+      type: object
+      properties:
+        primary:
+          type: string
+          enum: [default, payments, inventory, notifications, analytics]
+        secondary:
+          type: array
+          items:
+            type: string
+
+    DomainEventDefinition:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+
+    StepDefinition:
+      type: object
+      required: [name, handler]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        handler:
+          $ref: '#/components/schemas/HandlerDefinition'
+        system_dependency:
+          type: string
+        dependencies:
+          type: array
+          items:
+            type: string
+        retry:
+          $ref: '#/components/schemas/RetryConfiguration'
+        timeout_seconds:
+          type: integer
+        publishes_events:
+          type: array
+          items:
+            type: string
+
+    RetryConfiguration:
+      type: object
+      properties:
+        retryable:
+          type: boolean
+        limit:
+          type: integer
+        backoff:
+          type: string
+          enum: [none, linear, exponential, fibonacci]
+        backoff_base_ms:
+          type: integer
+        max_backoff_ms:
+          type: integer
+
+    EnvironmentOverride:
+      type: object
+      properties:
+        task_handler:
+          type: object
+          properties:
+            initialization:
+              type: object
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              handler:
+                type: object
+              timeout_seconds:
+                type: integer
+              retry:
+                $ref: '#/components/schemas/RetryConfiguration'
+
+    ValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+          enum: [required, invalid_format, circular_dependency, unknown_reference]
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+```
+
+### Implementation Tooling
+
+#### Schema Validation Tools
+
+##### Rust Implementation
+```rust
+// src/template/validator.rs
+use jsonschema::{Draft, JSONSchema};
+use serde_json::Value;
+use std::path::Path;
+
+pub struct TemplateValidator {
+    schema: JSONSchema,
+}
+
+impl TemplateValidator {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let schema_str = include_str!("../../schemas/task-template.json");
+        let schema: Value = serde_json::from_str(schema_str)?;
+        let compiled = JSONSchema::options()
+            .with_draft(Draft::Draft7)
+            .compile(&schema)?;
+        
+        Ok(Self { schema: compiled })
+    }
+    
+    pub fn validate_yaml(&self, yaml_content: &str) -> Result<(), Vec<String>> {
+        let value: Value = serde_yaml::from_str(yaml_content)
+            .map_err(|e| vec![format!("YAML parse error: {}", e)])?;
+        
+        self.validate_json(&value)
+    }
+    
+    pub fn validate_json(&self, value: &Value) -> Result<(), Vec<String>> {
+        let result = self.schema.validate(value);
+        
+        if let Err(errors) = result {
+            let error_messages: Vec<String> = errors
+                .map(|e| format!("{}: {}", e.instance_path, e))
+                .collect();
+            return Err(error_messages);
+        }
+        
+        Ok(())
+    }
+}
+```
+
+##### Ruby Implementation
+```ruby
+# lib/tasker_core/template/validator.rb
+require 'json_schemer'
+require 'yaml'
+
+module TaskerCore
+  module Template
+    class Validator
+      SCHEMA_PATH = File.join(__dir__, '../../../schemas/task-template.json')
+      
+      def initialize
+        schema_content = File.read(SCHEMA_PATH)
+        @schema = JSONSchemer.schema(JSON.parse(schema_content))
+      end
+      
+      def validate_yaml(yaml_content)
+        data = YAML.safe_load(yaml_content, permitted_classes: [Symbol, Date, Time])
+        validate_data(data)
+      rescue Psych::SyntaxError => e
+        { valid: false, errors: ["YAML syntax error: #{e.message}"] }
+      end
+      
+      def validate_file(path)
+        yaml_content = File.read(path)
+        validate_yaml(yaml_content)
+      end
+      
+      def validate_data(data)
+        errors = @schema.validate(data).map do |error|
+          "#{error['data_pointer']}: #{error['error']}"
+        end
+        
+        {
+          valid: errors.empty?,
+          errors: errors,
+          warnings: check_warnings(data)
+        }
+      end
+      
+      private
+      
+      def check_warnings(data)
+        warnings = []
+        
+        # Check for deprecated patterns
+        if data['task_handler_class']
+          warnings << "Field 'task_handler_class' is deprecated, use 'task_handler.callable'"
+        end
+        
+        # Check for missing recommended fields
+        unless data.dig('metadata', 'documentation_url')
+          warnings << "Consider adding 'metadata.documentation_url' for better documentation"
+        end
+        
+        warnings
+      end
+    end
+  end
+end
+```
+
+### CLI Tools for Validation
+
+#### Rust CLI Tool
+```rust
+// src/bin/validate-template.rs
+use clap::Parser;
+use std::path::PathBuf;
+use tasker_core::template::TemplateValidator;
+
+#[derive(Parser)]
+#[clap(name = "validate-template")]
+#[clap(about = "Validates TaskTemplate YAML files against the schema")]
+struct Args {
+    /// Path to the YAML file to validate
+    #[clap(value_name = "FILE")]
+    file: PathBuf,
+    
+    /// Output format
+    #[clap(short, long, default_value = "text")]
+    format: String,
+}
+
+fn main() {
+    let args = Args::parse();
+    let validator = TemplateValidator::new().expect("Failed to initialize validator");
+    
+    let content = std::fs::read_to_string(&args.file)
+        .expect("Failed to read file");
+    
+    match validator.validate_yaml(&content) {
+        Ok(()) => {
+            println!("✅ Template is valid");
+            std::process::exit(0);
+        }
+        Err(errors) => {
+            println!("❌ Template validation failed:");
+            for error in errors {
+                println!("  - {}", error);
+            }
+            std::process::exit(1);
+        }
+    }
+}
+```
+
+#### Ruby CLI Tool
+```ruby
+#!/usr/bin/env ruby
+# bin/validate-template
+
+require 'optparse'
+require 'tasker_core/template/validator'
+
+options = {}
+OptionParser.new do |opts|
+  opts.banner = "Usage: validate-template [options] FILE"
+  
+  opts.on("-f", "--format FORMAT", "Output format (text, json)") do |f|
+    options[:format] = f
+  end
+end.parse!
+
+file_path = ARGV[0]
+unless file_path
+  puts "Error: Please provide a file path"
+  exit 1
+end
+
+validator = TaskerCore::Template::Validator.new
+result = validator.validate_file(file_path)
+
+if options[:format] == 'json'
+  require 'json'
+  puts JSON.pretty_generate(result)
+else
+  if result[:valid]
+    puts "✅ Template is valid"
+    
+    unless result[:warnings].empty?
+      puts "\n⚠️  Warnings:"
+      result[:warnings].each { |w| puts "  - #{w}" }
+    end
+  else
+    puts "❌ Template validation failed:"
+    result[:errors].each { |e| puts "  - #{e}" }
+    exit 1
+  end
+end
+```
+
+### VS Code Extension Configuration
+
+#### .vscode/settings.json
+```json
+{
+  "yaml.schemas": {
+    "https://tasker.systems/schemas/v1/task-template.json": [
+      "templates/**/*.yaml",
+      "templates/**/*.yml",
+      "config/tasker/templates/**/*.yaml",
+      "config/tasker/templates/**/*.yml"
+    ]
+  },
+  "yaml.customTags": [
+    "!ruby/object:TaskerCore::Types::TaskTemplate"
+  ],
+  "files.associations": {
+    "**/templates/*.yaml": "tasker-template",
+    "**/templates/*.yml": "tasker-template"
+  }
+}
+```
+
+### GitHub Actions Validation
+
+#### .github/workflows/validate-templates.yml
+```yaml
+name: Validate TaskTemplates
+
+on:
+  pull_request:
+    paths:
+      - 'templates/**/*.yaml'
+      - 'templates/**/*.yml'
+      - 'schemas/task-template.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+      
+      - name: Validate templates
+        run: |
+          for file in templates/**/*.{yaml,yml}; do
+            echo "Validating $file..."
+            bundle exec bin/validate-template "$file"
+          done
+      
+      - name: Check schema compliance
+        uses: ajv-validator/github-action@v1
+        with:
+          files: templates/**/*.yaml
+          schema: schemas/task-template.json
+```
+
+## Benefits of Schema-Driven Approach
+
+### Development Benefits
+1. **IDE Support**: Auto-completion, validation, and inline documentation in VS Code, JetBrains, and other IDEs
+2. **Early Error Detection**: Catch configuration errors before runtime
+3. **Self-Documenting**: Schema serves as living documentation for template structure
+4. **Type Safety**: Generated TypeScript/Rust types from schema ensure compile-time safety
+
+### Operational Benefits
+1. **API Consistency**: OpenAPI spec ensures consistent REST API implementation
+2. **Client Generation**: Auto-generate API clients in multiple languages
+3. **Validation Pipeline**: CI/CD validation prevents invalid templates from deployment
+4. **Version Management**: Schema versioning enables backward compatibility
+
+### Integration Benefits
+1. **Tool Ecosystem**: Integrate with existing JSON Schema and OpenAPI tooling
+2. **Documentation Generation**: Auto-generate API docs from OpenAPI spec
+3. **Testing**: Schema-based property testing and fuzzing
+4. **Migration**: Schema evolution tools for template migrations

@@ -132,7 +132,9 @@ impl ScalingEngine {
         if metrics.max_queue_depth > 100 {
             // Configurable threshold
             if current_count < max_count {
-                let scale_up_count = (metrics.max_queue_depth / 50).min(max_count - current_count);
+                let scale_up_count = (metrics.max_queue_depth / 50)
+                    .max(1)
+                    .min(max_count - current_count);
                 info!(
                     "SCALING: High queue depth ({}) detected for {}, scaling up by {}",
                     metrics.max_queue_depth,

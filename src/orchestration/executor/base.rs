@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, instrument, warn};
@@ -23,53 +23,78 @@ use super::traits::{ExecutorConfig, ExecutorType, OrchestrationExecutor, Process
 
 /// Processing loop encapsulation for BaseExecutor
 ///
-/// This struct separates the processing loop concerns from the BaseExecutor,
-/// providing cleaner architecture and better testability.
-#[derive(Debug, Clone)]
-pub struct ProcessingLoop {
-    /// Reference to the executor that owns the processing components
-    executor: Arc<BaseExecutor>,
+/// Shared state for the processing loop to avoid circular references
+#[derive(Debug)]
+pub struct ProcessingState {
     /// Control flag for the processing loop
     running: Arc<AtomicBool>,
     /// Shutdown notification mechanism
     shutdown_notify: Arc<Notify>,
+    /// Executor ID for logging
+    executor_id: Uuid,
+    /// Executor type for logging
+    executor_type: ExecutorType,
+}
+
+/// This struct separates the processing loop concerns from the BaseExecutor,
+/// providing cleaner architecture and better testability.
+#[derive(Debug, Clone)]
+pub struct ProcessingLoop {
+    /// Weak reference to the executor to avoid circular references
+    weak_executor: Weak<BaseExecutor>,
+    /// Shared state for the processing loop
+    state: Arc<ProcessingState>,
 }
 
 impl ProcessingLoop {
-    /// Create a new processing loop for the given executor
-    pub fn new(executor: Arc<BaseExecutor>) -> Self {
+    /// Create a new processing loop for the given executor using weak reference
+    pub fn new_with_weak(executor: Weak<BaseExecutor>, state: Arc<ProcessingState>) -> Self {
         Self {
-            executor,
+            weak_executor: executor,
+            state,
+        }
+    }
+
+    /// Create a new processing loop for the given executor (legacy method for compatibility)
+    pub fn new(executor: Arc<BaseExecutor>) -> Self {
+        let state = Arc::new(ProcessingState {
             running: Arc::new(AtomicBool::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
+            executor_id: executor.id,
+            executor_type: executor.executor_type,
+        });
+
+        Self {
+            weak_executor: Arc::downgrade(&executor),
+            state,
         }
     }
 
     /// Start the processing loop
     pub async fn start(&self) -> Result<()> {
-        if self.running.load(Ordering::Acquire) {
+        if self.state.running.load(Ordering::Acquire) {
             return Err(TaskerError::InvalidState(
                 "Processing loop is already running".to_string(),
             ));
         }
 
-        self.running.store(true, Ordering::Release);
+        self.state.running.store(true, Ordering::Release);
         info!("ProcessingLoop started and running flag set to true");
         self.run().await
     }
 
     /// Stop the processing loop gracefully
     pub async fn stop(&self, timeout: Duration) -> Result<()> {
-        if !self.running.load(Ordering::Acquire) {
+        if !self.state.running.load(Ordering::Acquire) {
             return Ok(());
         }
 
-        self.running.store(false, Ordering::Release);
-        self.shutdown_notify.notify_waiters();
+        self.state.running.store(false, Ordering::Release);
+        self.state.shutdown_notify.notify_waiters();
 
         // Wait for the loop to actually stop (would need to be handled by the spawn)
         tokio::time::timeout(timeout, async {
-            while self.running.load(Ordering::Acquire) {
+            while self.state.running.load(Ordering::Acquire) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
@@ -81,153 +106,151 @@ impl ProcessingLoop {
 
     /// Check if the processing loop should continue running
     pub fn should_continue(&self) -> bool {
-        self.running.load(Ordering::Acquire)
+        self.state.running.load(Ordering::Acquire)
     }
 
-    /// Main processing loop implementation
-    pub async fn run(&self) -> Result<()> {
-        info!(
-            "Starting processing loop for {} executor",
-            self.executor.executor_type.name()
-        );
+    /// Helper method to process a batch with a strong executor reference
+    async fn process_batch_with_executor(&self, executor: &Arc<BaseExecutor>) -> Result<()> {
+        let loop_start = Instant::now();
 
-        // Mark as starting
-        self.executor
-            .health_monitor
-            .mark_starting("processing_loop")?;
+        // Check circuit breaker state
+        let cb_state = executor.circuit_breaker.state();
 
-        while self.should_continue() {
-            let loop_start = Instant::now();
+        // Calculate retry time for circuit breaker (estimated based on typical pattern)
+        let retry_time_instant = match cb_state {
+            crate::resilience::CircuitState::Open => Some(Instant::now() + Duration::from_secs(30)), // Typical open circuit timeout
+            crate::resilience::CircuitState::HalfOpen => {
+                Some(Instant::now() + Duration::from_secs(5))
+            } // Shorter retry for half-open
+            crate::resilience::CircuitState::Closed => None, // Normal operation
+        };
 
-            // Check circuit breaker state
-            let cb_state = self.executor.circuit_breaker.state();
+        let state_str = match cb_state {
+            crate::resilience::CircuitState::Closed => "closed",
+            crate::resilience::CircuitState::Open => "open",
+            crate::resilience::CircuitState::HalfOpen => "half_open",
+        };
 
-            // Calculate retry time for circuit breaker (estimated based on typical pattern)
-            let retry_time_instant = match cb_state {
-                crate::resilience::CircuitState::Open => {
-                    Some(Instant::now() + Duration::from_secs(30))
-                } // Typical open circuit timeout
-                crate::resilience::CircuitState::HalfOpen => {
-                    Some(Instant::now() + Duration::from_secs(5))
-                } // Shorter retry for half-open
-                crate::resilience::CircuitState::Closed => None, // Normal operation
-            };
+        executor
+            .metrics_collector
+            .set_circuit_breaker_state(state_str, retry_time_instant)
+            .await?;
 
-            self.executor
-                .metrics_collector
-                .set_circuit_breaker_state(&format!("{cb_state:?}"), retry_time_instant)?;
+        if matches!(cb_state, crate::resilience::CircuitState::Open) {
+            debug!("Circuit breaker is open, skipping batch processing");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            return Ok(());
+        }
 
-            // If circuit breaker is open, wait before retrying
-            if matches!(cb_state, crate::resilience::CircuitState::Open) {
-                debug!("Circuit breaker is open, waiting before retry");
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
-                    _ = self.shutdown_notify.notified() => {
-                        debug!("Shutdown notification received during circuit breaker wait");
-                        break;
-                    }
-                }
-                continue;
-            }
+        // Process the batch through the executor
+        let batch_result = executor.process_batch().await?;
 
-            // Process a batch with circuit breaker protection
-            let batch_result = match self.process_batch_with_circuit_breaker().await {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Batch processing failed: {}", e);
-                    self.executor
-                        .metrics_collector
-                        .record_error("batch_processing_error")?;
-
-                    // Wait a bit before retrying on error, but respect shutdown
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_millis(1000)) => {},
-                        _ = self.shutdown_notify.notified() => {
-                            debug!("Shutdown notification received during error recovery wait");
-                            break;
-                        }
-                    }
-                    continue;
-                }
-            };
-
-            // Record metrics
-            let processing_time_ms = loop_start.elapsed().as_millis() as u64;
-            self.executor.metrics_collector.record_batch(
+        // Record batch metrics
+        let processing_time_ms = loop_start.elapsed().as_millis() as u64;
+        executor
+            .metrics_collector
+            .record_batch(
                 batch_result.processed_count as u64,
                 batch_result.failed_count as u64,
                 processing_time_ms,
                 batch_result.processed_count
                     + batch_result.failed_count
                     + batch_result.skipped_count,
-            )?;
+            )
+            .await?;
 
-            // Record empty poll if no items were processed
-            if batch_result.total_items() == 0 {
-                self.executor.metrics_collector.record_empty_poll()?;
-            }
-
-            // Record health metrics
-            self.executor.health_monitor.record_performance(
+        // Update health based on result
+        executor
+            .health_monitor
+            .record_performance(
                 processing_time_ms,
                 batch_result.failed_count == 0,
-                batch_result.total_items(),
-            )?;
+                batch_result.processed_count
+                    + batch_result.failed_count
+                    + batch_result.skipped_count,
+            )
+            .await?;
 
-            // Send heartbeat
-            self.executor.health_monitor.heartbeat()?;
+        Ok(())
+    }
 
-            // Wait for next iteration based on current configuration and backpressure
-            let current_config = self.executor.config.read().await;
-            let wait_time = if batch_result.has_more_items {
-                // If more items are available, poll more frequently
-                Duration::from_millis(current_config.effective_polling_interval_ms() / 2)
-            } else {
-                // Normal polling interval
-                Duration::from_millis(current_config.effective_polling_interval_ms())
-            };
-            drop(current_config);
+    /// Main processing loop implementation
+    pub async fn run(&self) -> Result<()> {
+        info!(
+            executor_id = %self.state.executor_id,
+            executor_type = %self.state.executor_type.name(),
+            "Starting processing loop"
+        );
 
-            // Wait with ability to be interrupted by shutdown
-            tokio::select! {
-                _ = tokio::time::sleep(wait_time) => {},
-                _ = self.shutdown_notify.notified() => {
-                    debug!("Shutdown notification received");
-                    break;
+        // Try to upgrade weak reference for initial setup
+        if let Some(executor) = self.weak_executor.upgrade() {
+            // Mark as starting
+            executor
+                .health_monitor
+                .mark_starting("processing_loop")
+                .await?;
+        } else {
+            warn!(
+                executor_id = %self.state.executor_id,
+                "Executor dropped before processing loop could start"
+            );
+            return Ok(());
+        }
+
+        while self.should_continue() {
+            // Upgrade weak reference for each iteration
+            if let Some(executor) = self.weak_executor.upgrade() {
+                if let Err(e) = self.process_batch_with_executor(&executor).await {
+                    error!(
+                        executor_id = %self.state.executor_id,
+                        error = %e,
+                        "Batch processing failed"
+                    );
+
+                    // Wait a bit before retrying on error, but respect shutdown
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(1000)) => {},
+                        _ = self.state.shutdown_notify.notified() => {
+                            debug!("Shutdown notification received during error recovery wait");
+                            break;
+                        }
+                    }
+                    continue;
                 }
+
+                // Get wait time from config
+                let current_config = executor.config.read().await;
+                let wait_time =
+                    Duration::from_millis(current_config.effective_polling_interval_ms());
+                drop(current_config);
+
+                // Wait with ability to be interrupted by shutdown
+                tokio::select! {
+                    _ = tokio::time::sleep(wait_time) => {},
+                    _ = self.state.shutdown_notify.notified() => {
+                        debug!("Shutdown notification received");
+                        break;
+                    }
+                }
+            } else {
+                // Executor has been dropped, exit loop
+                warn!(
+                    executor_id = %self.state.executor_id,
+                    "Executor dropped during processing loop"
+                );
+                break;
             }
         }
 
         // Mark as stopped
-        self.running.store(false, Ordering::Release);
+        self.state.running.store(false, Ordering::Release);
 
         info!(
-            "Processing loop ended for {} executor",
-            self.executor.executor_type.name()
+            executor_id = %self.state.executor_id,
+            executor_type = %self.state.executor_type.name(),
+            "Processing loop ended"
         );
         Ok(())
-    }
-
-    /// Process a batch with circuit breaker protection
-    async fn process_batch_with_circuit_breaker(&self) -> Result<ProcessBatchResult> {
-        let current_config = self.executor.config.read().await.clone();
-
-        // Execute through circuit breaker
-        self.executor
-            .circuit_breaker
-            .call(|| async {
-                BaseExecutor::process_batch_for_type(
-                    self.executor.executor_type,
-                    &self.executor.pool,
-                    &current_config,
-                    &self.executor.orchestration_core,
-                )
-                .await
-            })
-            .await
-            .map_err(|e| {
-                TaskerError::CircuitBreakerOpen(format!("Executor processing failed: {e}"))
-            })
     }
 }
 
@@ -414,7 +437,7 @@ impl BaseExecutor {
                         skipped_count: 0,
                         processing_time_ms,
                         avg_processing_time_ms: if processed_count > 0 {
-                            processing_time_ms as f64 / processed_count as f64
+                            processing_time_ms as f64 / (processed_count as f64).max(1.0)
                         } else {
                             0.0
                         },
@@ -468,7 +491,8 @@ impl BaseExecutor {
                         skipped_count: 0,
                         processing_time_ms,
                         avg_processing_time_ms: if cycle_result.tasks_processed > 0 {
-                            processing_time_ms as f64 / cycle_result.tasks_processed as f64
+                            processing_time_ms as f64
+                                / (cycle_result.tasks_processed as f64).max(1.0)
                         } else {
                             0.0
                         },
@@ -521,7 +545,7 @@ impl BaseExecutor {
                         skipped_count: 0,
                         processing_time_ms,
                         avg_processing_time_ms: if processed_count > 0 {
-                            processing_time_ms as f64 / processed_count as f64
+                            processing_time_ms as f64 / (processed_count as f64).max(1.0)
                         } else {
                             0.0
                         },
@@ -581,7 +605,7 @@ impl OrchestrationExecutor for BaseExecutor {
     }
 
     #[instrument(skip(self), fields(executor_id = %self.id, executor_type = %self.executor_type.name()))]
-    async fn start(&self) -> Result<()> {
+    async fn start(self: Arc<Self>) -> Result<()> {
         // Check if already running by looking for existing processing loop
         {
             let processing_loop_guard = self.processing_loop.read().await;
@@ -597,31 +621,26 @@ impl OrchestrationExecutor for BaseExecutor {
         info!("Starting {} executor", self.executor_type.name());
 
         // Mark as starting
-        self.health_monitor.mark_starting("initializing")?;
+        self.health_monitor.mark_starting("initializing").await?;
 
-        // Create a simplified executor reference for the processing loop
-        // This avoids circular references by creating a new BaseExecutor instance
-        let executor_for_loop = Arc::new(BaseExecutor {
-            id: self.id,
+        // Create shared state for the processing loop
+        let processing_state = Arc::new(ProcessingState {
+            running: Arc::new(AtomicBool::new(false)),
+            shutdown_notify: Arc::new(Notify::new()),
+            executor_id: self.id,
             executor_type: self.executor_type,
-            pool: self.pool.clone(),
-            config: self.config.clone(),
-            health_monitor: self.health_monitor.clone(),
-            metrics_collector: self.metrics_collector.clone(),
-            circuit_breaker: self.circuit_breaker.clone(),
-            processing_loop: Arc::new(RwLock::new(None)), // Simplified - no circular ref
-            processing_handle: Arc::new(RwLock::new(None)),
-            orchestration_core: self.orchestration_core.clone(),
         });
 
-        let processing_loop = ProcessingLoop::new(executor_for_loop);
+        // Create processing loop with weak reference to avoid circular dependency
+        let weak_self = Arc::downgrade(&self);
+        let processing_loop = ProcessingLoop::new_with_weak(weak_self, processing_state.clone());
 
         // Start the processing loop (this sets the running flag)
         // Then spawn a task to run it
-        let processing_loop_clone = processing_loop.clone();
-        processing_loop_clone.running.store(true, Ordering::Release);
+        processing_state.running.store(true, Ordering::Release);
+        let processing_loop_for_spawn = processing_loop.clone();
         let processing_handle = tokio::spawn(async move {
-            if let Err(e) = processing_loop_clone.run().await {
+            if let Err(e) = processing_loop_for_spawn.run().await {
                 error!("Processing loop failed: {}", e);
             }
         });
@@ -658,7 +677,8 @@ impl OrchestrationExecutor for BaseExecutor {
 
         // Mark as stopping
         self.health_monitor
-            .mark_stopping(true, "graceful_shutdown")?;
+            .mark_stopping(true, "graceful_shutdown")
+            .await?;
 
         // Stop the processing loop
         let processing_loop = {
@@ -705,6 +725,7 @@ impl OrchestrationExecutor for BaseExecutor {
     async fn health(&self) -> ExecutorHealth {
         self.health_monitor
             .current_health()
+            .await
             .unwrap_or_else(|_| ExecutorHealth::Unhealthy {
                 last_seen: 0,
                 reason: "Unable to read health state".to_string(),
@@ -715,6 +736,7 @@ impl OrchestrationExecutor for BaseExecutor {
     async fn metrics(&self) -> ExecutorMetrics {
         self.metrics_collector
             .current_metrics()
+            .await
             .unwrap_or_else(|_| {
                 // Return basic metrics if we can't read from collector
                 ExecutorMetrics {
@@ -760,7 +782,7 @@ impl OrchestrationExecutor for BaseExecutor {
     }
 
     async fn heartbeat(&self) -> Result<()> {
-        self.health_monitor.heartbeat()
+        self.health_monitor.heartbeat().await
     }
 
     fn should_continue(&self) -> bool {
@@ -790,12 +812,15 @@ impl OrchestrationExecutor for BaseExecutor {
         }
 
         // Update metrics
-        self.metrics_collector.set_backpressure_factor(factor)?;
+        self.metrics_collector
+            .set_backpressure_factor(factor)
+            .await?;
 
         // Update polling interval in metrics
         let config = self.config.read().await;
         self.metrics_collector
-            .set_polling_interval_ms(config.effective_polling_interval_ms())?;
+            .set_polling_interval_ms(config.effective_polling_interval_ms())
+            .await?;
 
         debug!(
             "Applied backpressure factor {} to {} executor",
@@ -821,9 +846,11 @@ impl OrchestrationExecutor for BaseExecutor {
         // Update metrics with new configuration
         let config = self.config.read().await;
         self.metrics_collector
-            .set_polling_interval_ms(config.effective_polling_interval_ms())?;
+            .set_polling_interval_ms(config.effective_polling_interval_ms())
+            .await?;
         self.metrics_collector
-            .set_backpressure_factor(config.backpressure_factor)?;
+            .set_backpressure_factor(config.backpressure_factor)
+            .await?;
 
         info!(
             "Updated configuration for {} executor",
@@ -861,10 +888,10 @@ mod tests {
     #[tokio::test]
     async fn test_executor_lifecycle() {
         let pool = create_test_database_pool().await.unwrap();
-        let executor = BaseExecutor::new(ExecutorType::OrchestrationLoop, pool);
+        let executor = Arc::new(BaseExecutor::new(ExecutorType::OrchestrationLoop, pool));
 
         // Start executor
-        assert!(executor.start().await.is_ok());
+        assert!(executor.clone().start().await.is_ok());
         assert!(executor.should_continue());
 
         // Check health
@@ -926,13 +953,13 @@ mod tests {
     #[tokio::test]
     async fn test_double_start_error() {
         let pool = create_test_database_pool().await.unwrap();
-        let executor = BaseExecutor::new(ExecutorType::TaskRequestProcessor, pool);
+        let executor = Arc::new(BaseExecutor::new(ExecutorType::TaskRequestProcessor, pool));
 
         // First start should succeed
-        assert!(executor.start().await.is_ok());
+        assert!(executor.clone().start().await.is_ok());
 
         // Second start should fail
-        assert!(executor.start().await.is_err());
+        assert!(executor.clone().start().await.is_err());
 
         // Cleanup - don't require immediate shutdown, processing loop will eventually stop
         let _ = executor.stop(Duration::from_secs(1)).await;
