@@ -1,0 +1,57 @@
+[executor_pools.coordinator]
+auto_scaling_enabled = true
+target_utilization = 0.75
+scaling_interval_seconds = 30
+health_check_interval_seconds = 10
+scaling_cooldown_seconds = 60
+max_db_pool_usage = 0.85
+
+[executor_pools.task_request_processor]
+min_executors = 1
+max_executors = 3
+polling_interval_ms = 100
+batch_size = 10
+processing_timeout_ms = 30000
+max_retries = 3
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 5
+
+[executor_pools.task_claimer]
+min_executors = 1
+max_executors = 3
+polling_interval_ms = 50
+batch_size = 20
+processing_timeout_ms = 30000
+max_retries = 3
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 3
+
+[executor_pools.step_enqueuer]
+min_executors = 1
+max_executors = 3
+polling_interval_ms = 50
+batch_size = 50
+processing_timeout_ms = 30000
+max_retries = 3
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 5
+
+[executor_pools.step_result_processor]
+min_executors = 1
+max_executors = 3
+polling_interval_ms = 100
+batch_size = 20
+processing_timeout_ms = 30000
+max_retries = 3
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 3
+
+[executor_pools.task_finalizer]
+min_executors = 1
+max_executors = 2
+polling_interval_ms = 200
+batch_size = 10
+processing_timeout_ms = 30000
+max_retries = 3
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 5

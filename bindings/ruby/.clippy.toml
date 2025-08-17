@@ -3,3 +3,6 @@
 
 # Allow up to 8 arguments in a function before triggering the too_many_arguments lint
 too-many-arguments-threshold = 8
+
+# Allow mixed uninlined format arguments
+allow-mixed-uninlined-format-args = true

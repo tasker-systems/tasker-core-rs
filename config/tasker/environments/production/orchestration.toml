@@ -1,0 +1,20 @@
+[orchestration]
+tasks_per_cycle = 20
+cycle_interval_ms = 500
+task_request_polling_interval_ms = 500
+task_request_visibility_timeout_seconds = 600
+task_request_batch_size = 25
+max_concurrent_orchestrators = 5
+enable_performance_logging = false
+default_claim_timeout_seconds = 600
+active_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics", "reporting", "audit", "integration",]
+heartbeat_interval_ms = 10000
+
+[orchestration.embedded_orchestrator]
+auto_start = false
+shutdown_timeout_seconds = 120
+
+[orchestration.queues.settings]
+visibility_timeout_seconds = 300
+message_retention_seconds = 2592000
+max_receive_count = 5

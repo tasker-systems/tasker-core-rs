@@ -10,8 +10,16 @@ pub enum TaskerError {
     ValidationError(String),
     InvalidInput(String),
     ConfigurationError(String),
+    InvalidConfiguration(String),
     FFIError(String),
     MessagingError(String),
+    // Additional variants needed for executor system
+    Internal(String),
+    Configuration(String),
+    InvalidState(String),
+    InvalidParameter(String),
+    Timeout(String),
+    CircuitBreakerOpen(String),
 }
 
 impl fmt::Display for TaskerError {
@@ -24,8 +32,15 @@ impl fmt::Display for TaskerError {
             TaskerError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
             TaskerError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             TaskerError::ConfigurationError(msg) => write!(f, "Configuration error: {msg}"),
+            TaskerError::InvalidConfiguration(msg) => write!(f, "Invalid configuration: {msg}"),
             TaskerError::FFIError(msg) => write!(f, "FFI error: {msg}"),
             TaskerError::MessagingError(msg) => write!(f, "Messaging error: {msg}"),
+            TaskerError::Internal(msg) => write!(f, "Internal error: {msg}"),
+            TaskerError::Configuration(msg) => write!(f, "Configuration error: {msg}"),
+            TaskerError::InvalidState(msg) => write!(f, "Invalid state: {msg}"),
+            TaskerError::InvalidParameter(msg) => write!(f, "Invalid parameter: {msg}"),
+            TaskerError::Timeout(msg) => write!(f, "Timeout: {msg}"),
+            TaskerError::CircuitBreakerOpen(msg) => write!(f, "Circuit breaker open: {msg}"),
         }
     }
 }

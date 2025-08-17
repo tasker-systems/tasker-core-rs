@@ -320,7 +320,7 @@ impl WorkflowCoordinator {
             task_uuid,
             viable_steps_discovered: metrics.steps_discovered,
             steps_published: metrics.steps_executed,
-            batch_id: None, // TODO: Get actual batch ID from ZmqPubSubExecutor
+            batch_id: None,
             publication_time_ms: metrics.execution_duration.as_millis() as u64,
             next_poll_delay_ms: 1000, // 1 second delay before next check
         })
@@ -798,7 +798,7 @@ impl WorkflowCoordinator {
             task_uuid,
             namespace.clone(),
             task_info.task_name.clone(),
-            "1.0.0".to_string(), // TODO: Get actual task version from database
+            task_info.task_version.clone(), // Get actual task version from database
             step.name.clone(),
             serde_json::json!({
                 "step_uuid": step.step_uuid,

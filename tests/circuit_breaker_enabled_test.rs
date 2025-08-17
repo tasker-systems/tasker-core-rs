@@ -1,7 +1,5 @@
 //! Integration test for circuit breakers enabled via configuration
 
-use std::env;
-use std::path::PathBuf;
 use tracing::{info, Level};
 
 #[tokio::test]
@@ -12,23 +10,11 @@ async fn test_circuit_breakers_enabled_from_config() -> Result<(), Box<dyn std::
 
     info!("🧪 Testing circuit breakers enabled via configuration");
 
-    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-    env::set_var("DATABASE_URL", database_url);
-    env::set_var("TASKER_ENV", "test");
-
-    // Load configuration from our test config file
-    let test_config_path = PathBuf::from("tasker-config.yaml");
-    if !test_config_path.exists() {
-        panic!("Test configuration file not found: {test_config_path:?}");
-    }
+    // Setup test environment (respects existing DATABASE_URL in CI)
+    tasker_core::test_utils::setup_test_environment();
 
     // Load configuration manager from the test config
-    let config_manager = tasker_core::config::ConfigManager::load_from_directory_with_env(
-        Some(PathBuf::from(".")), // Current directory where test config is
-        "test",
-    )?;
+    let config_manager = tasker_core::config::ConfigManager::load_from_env("test")?;
 
     info!("🔧 Creating OrchestrationCore with config (circuit breakers enabled)");
     let core = tasker_core::orchestration::OrchestrationCore::from_config(config_manager).await?;
@@ -74,11 +60,8 @@ async fn test_auto_vs_explicit_config_comparison() -> Result<(), Box<dyn std::er
 
     info!("🧪 Testing auto-config vs explicit config manager comparison");
 
-    // Use environment DATABASE_URL if available, otherwise fallback to local test setup
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string());
-    env::set_var("DATABASE_URL", database_url);
-    env::set_var("TASKER_ENV", "test");
+    // Setup test environment (respects existing DATABASE_URL in CI)
+    tasker_core::test_utils::setup_test_environment();
 
     // Test 1: Auto-configuration mode
     info!("🔧 Test 1: Auto-configuration mode initialization");
@@ -92,10 +75,7 @@ async fn test_auto_vs_explicit_config_comparison() -> Result<(), Box<dyn std::er
 
     // Test 2: Explicit config manager mode (should be identical)
     info!("🔧 Test 2: Explicit config manager mode initialization");
-    let config_manager = tasker_core::config::ConfigManager::load_from_directory_with_env(
-        Some(PathBuf::from(".")),
-        "test",
-    )?;
+    let config_manager = tasker_core::config::ConfigManager::load_from_env("test")?;
 
     let explicit_core =
         tasker_core::orchestration::OrchestrationCore::from_config(config_manager).await?;

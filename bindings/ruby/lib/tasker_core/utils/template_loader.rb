@@ -20,7 +20,9 @@ module TaskerCore
         search_patterns = config.task_template_search_paths
         logger.debug "📁 TaskTemplate search patterns from config: #{search_patterns}"
 
-        task_templates = Dir.glob(search_patterns.join(' '))
+        task_templates = Dir.glob(search_patterns)
+
+        logger.warn "No TaskTemplates found in search paths: #{search_patterns}" if task_templates.empty?
 
         task_templates.map do |pattern|
           registry.register_task_template_from_yaml(pattern)

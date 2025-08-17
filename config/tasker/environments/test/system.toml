@@ -1,0 +1,32 @@
+[system]
+default_dependent_system = "test_default"
+default_queue_name = "test_default"
+
+[execution]
+environment = "test"
+max_concurrent_tasks = 10
+max_concurrent_steps = 50
+default_timeout_seconds = 30
+step_execution_timeout_seconds = 10
+max_discovery_attempts = 1
+step_batch_size = 1
+max_retries = 1
+connection_timeout_seconds = 2
+
+[backoff]
+default_backoff_seconds = [ 1,]
+max_backoff_seconds = 1
+backoff_multiplier = 1.5
+jitter_enabled = false
+default_reenqueue_delay = 1
+buffer_seconds = 0
+
+[reenqueue]
+has_ready_steps = 0
+waiting_for_dependencies = 1
+processing = 0
+
+[backoff.reenqueue_delays]
+has_ready_steps = 0
+waiting_for_dependencies = 1
+processing = 0

@@ -1,0 +1,2 @@
+[env]
+WORKSPACE_PATH = { value = ".", relative = true }

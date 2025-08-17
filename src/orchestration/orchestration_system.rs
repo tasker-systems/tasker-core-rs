@@ -5,20 +5,15 @@
 
 use crate::error::{Result, TaskerError};
 use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
-use crate::orchestration::{
-    orchestration_loop::{
-        ContinuousOrchestrationSummary, OrchestrationCycleResult, OrchestrationLoop,
-        OrchestrationLoopConfig,
-    },
-    task_request_processor::TaskRequestProcessor,
+use crate::orchestration::orchestration_loop::{
+    ContinuousOrchestrationSummary, OrchestrationCycleResult, OrchestrationLoop,
+    OrchestrationLoopConfig,
 };
-use crate::registry::TaskHandlerRegistry;
+use chrono;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 /// Configuration for the orchestration system
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,14 +103,8 @@ impl OrchestrationSystemConfig {
 pub struct OrchestrationSystem {
     /// PostgreSQL message queue client (unified for circuit breaker support)
     pgmq_client: Arc<UnifiedPgmqClient>,
-    /// Task request processor
-    task_request_processor: Arc<TaskRequestProcessor>,
     /// Main orchestration loop
     orchestration_loop: Arc<OrchestrationLoop>,
-    /// Task handler registry
-    task_handler_registry: Arc<TaskHandlerRegistry>,
-    /// Database connection pool
-    pool: PgPool,
     /// Configuration
     config: OrchestrationSystemConfig,
 }
@@ -124,8 +113,6 @@ impl OrchestrationSystem {
     /// Create a new orchestration system
     pub async fn new(
         pgmq_client: Arc<UnifiedPgmqClient>,
-        task_request_processor: Arc<TaskRequestProcessor>,
-        task_handler_registry: Arc<TaskHandlerRegistry>,
         pool: PgPool,
         config: OrchestrationSystemConfig,
     ) -> Result<Self> {
@@ -142,10 +129,7 @@ impl OrchestrationSystem {
 
         Ok(Self {
             pgmq_client,
-            task_request_processor,
             orchestration_loop,
-            task_handler_registry,
-            pool,
             config,
         })
     }
@@ -159,8 +143,8 @@ impl OrchestrationSystem {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     // Load configuration from YAML
-    ///     let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml").await?;
+    ///     // Load configuration using component-based config
+    ///     let config_manager = ConfigurationManager::new();
     ///
     ///     // Bootstrap orchestration system with unified architecture
     ///     let orchestration_system = OrchestrationSystem::from_config(
@@ -194,8 +178,6 @@ impl OrchestrationSystem {
 
         Self::new(
             pgmq_client,
-            orchestration_core.task_request_processor.clone(),
-            orchestration_core.task_handler_registry.clone(),
             orchestration_core.database_pool().clone(),
             orchestration_system_config,
         )
@@ -207,13 +189,14 @@ impl OrchestrationSystem {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use tasker_core::orchestration::OrchestrationSystem;
+    /// use tasker_core::orchestration::{OrchestrationSystem, config::ConfigurationManager};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     // Bootstrap directly from config file with unified architecture
-    ///     let orchestration_system = OrchestrationSystem::from_config_file(
-    ///         "config/tasker-config.yaml",
+    ///     // Bootstrap from component-based configuration
+    ///     let config_manager = ConfigurationManager::new();
+    ///     let orchestration_system = OrchestrationSystem::from_config(
+    ///         config_manager,
     ///     ).await?;
     ///
     ///     // Start orchestration
@@ -234,105 +217,70 @@ impl OrchestrationSystem {
         Self::from_config(config_manager).await
     }
 
-    /// Start the complete orchestration system with OrchestrationLoop
+    /// Start the complete orchestration system with OrchestrationLoopCoordinator
+    ///
+    /// UNIFIED ARCHITECTURE: This method now delegates to OrchestrationLoopCoordinator
+    /// instead of directly spawning processors. This provides dynamic scaling, health
+    /// monitoring, and resource management.
     #[instrument(skip(self))]
     pub async fn start(&self) -> Result<ContinuousOrchestrationSummary> {
         info!(
             orchestrator_id = %self.config.orchestrator_id,
-            "🚀 Starting pgmq-based orchestration system with OrchestrationLoop"
+            "🚀 Starting orchestration system with unified OrchestrationLoopCoordinator architecture"
         );
 
         // Initialize all required queues
         self.initialize_queues().await?;
 
-        // Start task request processing, orchestration, and step results processing loops concurrently
-        let task_request_processor = self.clone_for_task_request_processing();
-        let orchestration_loop = self.orchestration_loop.clone();
-        let step_result_processor = self.orchestration_loop.step_result_processor().clone();
+        // Create configuration manager for coordinator
+        let config_manager = crate::config::ConfigManager::load().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to load config for coordinator: {e}"))
+        })?;
 
-        let task_request_handle = tokio::spawn(async move {
-            task_request_processor
-                .start_task_request_processing_loop()
-                .await
-        });
+        // Create OrchestrationCore from this system's components
+        let orchestration_core = Arc::new(crate::orchestration::OrchestrationCore::new().await?);
 
-        let orchestration_handle =
-            tokio::spawn(async move { orchestration_loop.run_continuous().await });
-
-        let step_results_handle =
-            tokio::spawn(async move { step_result_processor.start_processing_loop().await });
-
-        // Wait for all three loops - in practice, orchestration should run indefinitely
-        let (task_request_result, orchestration_result, step_results_result) = tokio::join!(
-            task_request_handle,
-            orchestration_handle,
-            step_results_handle
+        // Create OrchestrationLoopCoordinator for unified architecture
+        // Note: config_manager is already Arc<ConfigManager> from load()
+        let coordinator = Arc::new(
+            crate::orchestration::coordinator::OrchestrationLoopCoordinator::new(
+                config_manager,
+                orchestration_core,
+            )
+            .await?,
         );
 
-        // Log any errors that caused the loops to exit
-        if let Err(e) = task_request_result {
-            error!(error = %e, "Task request processing loop panicked");
-        }
-
-        if let Err(e) = step_results_result {
-            error!(error = %e, "Step results processing loop panicked");
-        }
-
-        match orchestration_result {
-            Ok(Ok(summary)) => {
-                info!(
-                    total_cycles = summary.total_cycles,
-                    total_tasks_processed = summary.total_tasks_processed,
-                    total_steps_enqueued = summary.total_steps_enqueued,
-                    success_rate = summary.success_rate_percentage(),
-                    "Orchestration system completed"
-                );
-                Ok(summary)
-            }
-            Ok(Err(e)) => {
-                error!(error = %e, "Orchestration loop failed");
-                Err(e)
-            }
-            Err(e) => {
-                error!(error = %e, "Orchestration loop panicked");
-                Err(TaskerError::OrchestrationError(format!(
-                    "Orchestration loop panicked: {e}"
-                )))
-            }
-        }
-    }
-
-    /// Start the task request processing loop
-    #[instrument(skip(self))]
-    async fn start_task_request_processing_loop(&self) -> Result<()> {
         info!(
-            queue = %self.config.task_requests_queue_name,
-            polling_interval_ms = %self.config.task_request_polling_interval_ms,
-            "Starting task request processing loop"
+            "✅ ORCHESTRATION_SYSTEM: Using OrchestrationLoopCoordinator for unified architecture"
         );
 
-        loop {
-            match self.process_task_request_batch().await {
-                Ok(processed_count) => {
-                    if processed_count == 0 {
-                        // No task requests processed, wait before polling again
-                        sleep(Duration::from_millis(
-                            self.config.task_request_polling_interval_ms,
-                        ))
-                        .await;
-                    }
-                    // If we processed requests, continue immediately for better throughput
-                }
-                Err(e) => {
-                    error!(error = %e, "Error in task request processing batch");
-                    // Wait before retrying on error
-                    sleep(Duration::from_millis(
-                        self.config.task_request_polling_interval_ms,
-                    ))
-                    .await;
-                }
-            }
-        }
+        // Start coordinator and wait for completion
+        coordinator.start().await?;
+
+        // For compatibility with the existing interface, we need to return a summary
+        // Since OrchestrationLoopCoordinator doesn't return a summary directly,
+        // we'll create a synthetic one based on the operation
+        info!("✅ ORCHESTRATION_SYSTEM: Coordinator startup completed successfully");
+
+        // Return a summary indicating successful coordinator startup
+        Ok(ContinuousOrchestrationSummary {
+            orchestrator_id: self.config.orchestrator_id.clone(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,  // Still running
+            total_cycles: 0, // Coordinator doesn't track cycles the same way
+            failed_cycles: 0,
+            total_tasks_processed: 0, // This would need coordinator metrics integration
+            total_tasks_failed: 0,
+            total_steps_enqueued: 0, // This would need coordinator metrics integration
+            total_steps_failed: 0,
+            aggregate_priority_distribution:
+                crate::orchestration::orchestration_loop::PriorityDistribution::default(),
+            aggregate_performance_metrics:
+                crate::orchestration::orchestration_loop::AggregatePerformanceMetrics::default(),
+            top_namespaces: vec![], // Would need coordinator metrics integration
+            total_warnings: 0,
+            recent_warnings: vec![],
+        })
     }
 
     /// Run a single orchestration cycle (for testing or controlled execution)
@@ -344,127 +292,6 @@ impl OrchestrationSystem {
         );
 
         self.orchestration_loop.run_cycle().await
-    }
-
-    /// Process a batch of task request messages
-    #[instrument(skip(self))]
-    async fn process_task_request_batch(&self) -> Result<usize> {
-        // Read messages from the task requests queue
-        let messages = self
-            .pgmq_client
-            .read_messages(
-                &self.config.task_requests_queue_name,
-                Some(self.config.task_request_visibility_timeout_seconds),
-                Some(self.config.task_request_batch_size),
-            )
-            .await
-            .map_err(|e| {
-                TaskerError::MessagingError(format!("Failed to read task request messages: {e}"))
-            })?;
-
-        if messages.is_empty() {
-            return Ok(0);
-        }
-
-        let message_count = messages.len();
-        debug!(
-            message_count = message_count,
-            queue = %self.config.task_requests_queue_name,
-            "Processing batch of task request messages"
-        );
-
-        let mut processed_count = 0;
-
-        for message in messages {
-            match self
-                .process_single_task_request(&message.message, message.msg_id)
-                .await
-            {
-                Ok(()) => {
-                    // Delete the successfully processed message
-                    if let Err(e) = self
-                        .pgmq_client
-                        .delete_message(&self.config.task_requests_queue_name, message.msg_id)
-                        .await
-                    {
-                        warn!(
-                            msg_id = message.msg_id,
-                            error = %e,
-                            "Failed to delete processed task request message"
-                        );
-                    } else {
-                        processed_count += 1;
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        msg_id = message.msg_id,
-                        error = %e,
-                        "Failed to process task request message"
-                    );
-
-                    // Archive failed messages
-                    if let Err(archive_err) = self
-                        .pgmq_client
-                        .archive_message(&self.config.task_requests_queue_name, message.msg_id)
-                        .await
-                    {
-                        warn!(
-                            msg_id = message.msg_id,
-                            error = %archive_err,
-                            "Failed to archive failed task request message"
-                        );
-                    }
-                }
-            }
-        }
-
-        if processed_count > 0 {
-            info!(
-                processed_count = processed_count,
-                total_messages = message_count,
-                "Completed task request processing batch"
-            );
-        }
-
-        Ok(processed_count)
-    }
-
-    /// Process a single task request message (simplified for OrchestrationLoop approach)
-    #[instrument(skip(self, payload))]
-    async fn process_single_task_request(
-        &self,
-        payload: &serde_json::Value,
-        msg_id: i64,
-    ) -> Result<()> {
-        info!(msg_id = msg_id, "Processing task request message");
-
-        // Use task request processor to handle the request
-        // This will create a task in the database, making it available for the OrchestrationLoop to claim
-        match self
-            .task_request_processor
-            .process_task_request(payload)
-            .await
-        {
-            Ok(task_uuid) => {
-                info!(
-                    task_uuid = task_uuid.to_string(),
-                    msg_id = msg_id,
-                    "Task request processed successfully - task created and available for claiming"
-                );
-                Ok(())
-            }
-            Err(e) => {
-                error!(
-                    msg_id = msg_id,
-                    error = %e,
-                    "Failed to process task request"
-                );
-                Err(TaskerError::OrchestrationError(format!(
-                    "Task request processing failed: {e}"
-                )))
-            }
-        }
     }
 
     /// Initialize all required queues for OrchestrationLoop approach
@@ -565,18 +392,6 @@ impl OrchestrationSystem {
             orchestration_loop_config: self.config.orchestration_loop_config.clone(),
         })
     }
-
-    /// Clone for task request processing (to avoid Arc<Arc<>> issues)
-    fn clone_for_task_request_processing(&self) -> OrchestrationSystem {
-        OrchestrationSystem {
-            pgmq_client: self.pgmq_client.clone(),
-            task_request_processor: self.task_request_processor.clone(),
-            orchestration_loop: self.orchestration_loop.clone(),
-            task_handler_registry: self.task_handler_registry.clone(),
-            pool: self.pool.clone(),
-            config: self.config.clone(),
-        }
-    }
 }
 
 /// Statistics for the orchestration system using OrchestrationLoop
@@ -597,6 +412,7 @@ pub struct OrchestrationStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_config_defaults() {

@@ -97,6 +97,11 @@ impl SqlFunctionExecutor {
         Self { pool }
     }
 
+    /// Get access to the underlying database pool for monitoring
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Execute a SQL function returning a single result with compile-time validation.
     ///
     /// This method provides type-safe execution of SQL functions that return at most

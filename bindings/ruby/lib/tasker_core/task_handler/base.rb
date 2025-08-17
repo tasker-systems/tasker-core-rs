@@ -184,12 +184,12 @@ module TaskerCore
       # Determine orchestration mode from configuration
       # @return [String] 'embedded' or 'distributed'
       def orchestration_mode
-        config = TaskerCore::Config.instance.effective_config
-        mode = config.dig('orchestration', 'mode')
+        config = TaskerCore::Config.instance
+        mode = config.orchestration_config.mode
 
         # Default to embedded mode if not specified or in test environment
         if mode.nil?
-          if config.dig('execution', 'environment') == 'test'
+          if config.test_environment?
             'embedded'
           else
             'distributed'

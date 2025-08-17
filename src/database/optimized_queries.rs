@@ -269,15 +269,14 @@ impl OptimizedWorkerQueries {
     }
 
     /// Get database connection pool statistics for monitoring
-    ///
-    /// Note: This accesses pool statistics through a helper method since
-    /// SqlFunctionExecutor doesn't expose the pool directly
     pub async fn get_pool_statistics(&self) -> Result<PoolStatistics, sqlx::Error> {
-        // For now, return basic statistics - could be enhanced with a pool accessor method
+        // Access pool statistics through sql_executor's pool accessor
+        let pool = self.sql_executor.pool();
+
         Ok(PoolStatistics {
-            size: 0,     // Would need pool accessor to get actual values
-            num_idle: 0, // Would need pool accessor to get actual values
-            is_closed: false,
+            size: pool.size(),
+            num_idle: pool.num_idle() as u32,
+            is_closed: pool.is_closed(),
         })
     }
 }

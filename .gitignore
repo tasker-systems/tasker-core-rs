@@ -48,6 +48,7 @@ tmp/
 bindings/ruby/ext/*/Makefile
 bindings/ruby/ext/*/mkmf.log
 bindings/ruby/pkg/*/*.gem
+bindings/ruby/pkg/*
 bindings/ruby/*/*.gem
 bindings/ruby/*.gem
 bindings/ruby/spec/examples.txt
@@ -57,4 +58,3 @@ rspec_results.json
 
 # no log files
 *.log
-

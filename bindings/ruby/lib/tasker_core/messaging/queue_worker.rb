@@ -43,12 +43,12 @@ module TaskerCore
         @logger = TaskerCore::Logging::Logger.instance
 
         # Configuration - read from YAML with environment-specific optimization
-        config_defaults = TaskerCore::Config.instance.queue_worker_defaults
-        @poll_interval = poll_interval || config_defaults[:poll_interval]
-        @visibility_timeout = visibility_timeout || config_defaults[:visibility_timeout]
-        @batch_size = batch_size || config_defaults[:batch_size]
-        @max_retries = max_retries || config_defaults[:max_retries]
-        @shutdown_timeout = shutdown_timeout || config_defaults[:shutdown_timeout]
+        pgmq_config = TaskerCore::Config.instance.pgmq_config
+        @poll_interval = poll_interval || pgmq_config.poll_interval
+        @visibility_timeout = visibility_timeout || pgmq_config.visibility_timeout
+        @batch_size = batch_size || pgmq_config.batch_size
+        @max_retries = max_retries || pgmq_config.max_retries
+        @shutdown_timeout = shutdown_timeout || pgmq_config.shutdown_timeout_seconds
 
         # Fail fast if configuration is invalid
         if @poll_interval <= 0
@@ -440,11 +440,10 @@ module TaskerCore
 
       # Get orchestration results queue name from configuration
       def get_orchestration_results_queue_name
-        config_instance = TaskerCore::Config.instance
-        effective_config = config_instance.effective_config
+        config = TaskerCore::Config.instance
 
         # Try to get from orchestration.queues.step_results first
-        queue_name = effective_config.dig('orchestration', 'queues', 'step_results')
+        queue_name = config.orchestration_config.queues.step_results
 
         # Fallback to default if not configured
         queue_name || 'orchestration_step_results'
@@ -721,7 +720,6 @@ module TaskerCore
         logger.error("❌ QUEUE_WORKER: Message content: #{message.inspect}")
         raise TaskerCore::Errors::ValidationError, "Invalid simple message format: #{e.message}"
       end
-
 
       # Create a temporary step message for registry lookup (transitional approach)
       # This allows us to use the existing registry while we have ActiveRecord models

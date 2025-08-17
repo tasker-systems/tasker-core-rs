@@ -109,7 +109,7 @@ module TaskerCore
 
         config = TaskerCore::Config.instance
         logger.info "📋 Environment: #{config.environment}"
-        logger.info "📋 Database URL: #{config.database_url[0..50]}..." if config.database_url
+        # Database URL is now managed internally by the Rust configuration
 
         true
       end
@@ -181,8 +181,10 @@ module TaskerCore
         true
       end
 
-      # load from config/initializers/*.rb
+      # load from config/initializers/*.rb within the gem installation
       def run_all_initializers!
+        # Load initializers from the gem's lib directory (installed location)
+        # Not from the application's config directory
         Dir[File.join(TaskerCore.gem_lib_root, 'config', 'initializers', '*.rb')].each do |file|
           require file
         end
@@ -216,20 +218,20 @@ module TaskerCore
 
       # Get fallback namespaces from configuration
       def get_fallback_namespaces_from_config
-        config = TaskerCore::Config.instance.effective_config
+        config = TaskerCore::Config.instance
 
         # Try embedded_orchestrator namespaces first
-        embedded_config = config.dig('orchestration', 'embedded_orchestrator')
-        if embedded_config && embedded_config['namespaces']
-          logger.info "📋 Using embedded_orchestrator namespaces from config: #{embedded_config['namespaces']}"
-          return embedded_config['namespaces']
+        embedded_config = config.orchestration_config.embedded_orchestrator
+        if embedded_config && embedded_config[:namespaces]
+          logger.info "📋 Using embedded_orchestrator namespaces from config: #{embedded_config[:namespaces]}"
+          return embedded_config[:namespaces]
         end
 
         # Fall back to pgmq default_namespaces
-        pgmq_config = config['pgmq']
-        if pgmq_config && pgmq_config['default_namespaces']
-          logger.info "📋 Using pgmq default_namespaces from config: #{pgmq_config['default_namespaces']}"
-          return pgmq_config['default_namespaces']
+        pgmq_config = config.pgmq_config
+        if pgmq_config&.default_namespaces
+          logger.info "📋 Using pgmq default_namespaces from config: #{pgmq_config.default_namespaces}"
+          return pgmq_config.default_namespaces
         end
 
         # Ultimate fallback

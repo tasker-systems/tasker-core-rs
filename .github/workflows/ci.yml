@@ -512,8 +512,10 @@ jobs:
       DATABASE_URL: postgresql://tasker:tasker@localhost:5432/tasker_rust_test
       TASKER_ENV: test
       RAILS_ENV: test
-      LOG_LEVEL: info
-      RUST_LOG: info
+      LOG_LEVEL: warn
+      RUST_LOG: warn
+      TASKER_PROJECT_ROOT: ${{ github.workspace }}
+      WORKSPACE_PATH: ${{ github.workspace }}
 
     steps:
       - name: Checkout code

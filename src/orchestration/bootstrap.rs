@@ -1,7 +1,7 @@
 //! # Unified Orchestration Bootstrap System
 //!
 //! Provides a unified way to bootstrap the orchestration system across all deployment modes:
-//! - Embedded mode (Ruby FFI)  
+//! - Embedded mode (Ruby FFI)
 //! - Standalone deployment
 //! - Docker containers
 //! - Testing environments
@@ -14,12 +14,16 @@
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
 
-use crate::config::ConfigManager;
+use crate::config::{ConfigManager, UnifiedConfigLoader};
 use crate::error::{Result, TaskerError};
+use crate::orchestration::coordinator::{
+    resource_limits::ResourceValidator, OrchestrationLoopCoordinator,
+};
 use crate::orchestration::OrchestrationCore;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
+use workspace_tools::workspace;
 
 /// Unified orchestration system handle for lifecycle management
 pub struct OrchestrationSystemHandle {
@@ -106,8 +110,6 @@ pub struct BootstrapConfig {
     pub namespaces: Vec<String>,
     /// Whether to start processors immediately (vs manual control)
     pub auto_start_processors: bool,
-    /// Custom configuration directory (None = auto-detect)
-    pub config_directory: Option<std::path::PathBuf>,
     /// Environment override (None = auto-detect)
     pub environment_override: Option<String>,
 }
@@ -117,7 +119,6 @@ impl Default for BootstrapConfig {
         Self {
             namespaces: vec![],
             auto_start_processors: true,
-            config_directory: None,
             environment_override: None,
         }
     }
@@ -132,8 +133,16 @@ impl BootstrapConfig {
         Self {
             namespaces,
             auto_start_processors: true, // Default for most use cases
-            config_directory: Some(config_manager.config_directory().to_path_buf()),
             environment_override: Some(config_manager.environment().to_string()),
+        }
+    }
+
+    /// Create BootstrapConfig for executor testing with YAML-driven configuration
+    pub fn for_executor_testing(namespaces: Vec<String>) -> Self {
+        Self {
+            namespaces,
+            auto_start_processors: false, // Manual control for testing executors
+            environment_override: Some("test".to_string()),
         }
     }
 }
@@ -155,26 +164,36 @@ impl OrchestrationBootstrap {
     pub async fn bootstrap(config: BootstrapConfig) -> Result<OrchestrationSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap");
 
-        // Load configuration manager with environment detection
-        let config_manager = if let Some(env) = &config.environment_override {
-            if let Some(config_dir) = &config.config_directory {
-                ConfigManager::load_from_directory_with_env(Some(config_dir.clone()), env).map_err(
-                    |e| TaskerError::ConfigurationError(format!("Failed to load config: {e}")),
-                )?
-            } else {
-                ConfigManager::load_from_directory_with_env(None, env).map_err(|e| {
-                    TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-                })?
-            }
-        } else if let Some(config_dir) = &config.config_directory {
-            ConfigManager::load_from_directory(Some(config_dir.clone())).map_err(|e| {
-                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-            })?
-        } else {
-            ConfigManager::load().map_err(|e| {
-                TaskerError::ConfigurationError(format!("Failed to load config: {e}"))
-            })?
-        };
+        // Load configuration using UnifiedConfigLoader directly (TAS-34 Phase 2)
+        let detected_env = UnifiedConfigLoader::detect_environment();
+        let environment = config
+            .environment_override
+            .as_deref()
+            .unwrap_or(&detected_env);
+
+        let ws = workspace().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to create workspace: {e}"))
+        })?;
+        let config_root = ws.config_dir().join("tasker");
+        // Use UnifiedConfigLoader as primary implementation
+        let mut loader =
+            UnifiedConfigLoader::with_root(config_root.clone(), environment).map_err(|e| {
+                TaskerError::ConfigurationError(format!(
+                    "Failed to create UnifiedConfigLoader: {e}"
+                ))
+            })?;
+
+        let tasker_config = loader.load_tasker_config().map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to load config with UnifiedConfigLoader: {e}"
+            ))
+        })?;
+
+        // Create ConfigManager wrapper for backward compatibility only
+        let config_manager = Arc::new(crate::config::loader::ConfigManager::from_tasker_config(
+            tasker_config,
+            environment.to_string(),
+        ));
 
         info!(
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
@@ -209,16 +228,36 @@ impl OrchestrationBootstrap {
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
-        // Start processors if auto-start is enabled
+        // Start coordinator if auto-start is enabled (NEW UNIFIED ARCHITECTURE)
         if config.auto_start_processors {
-            Self::start_processors(
-                orchestration_core.clone(),
-                shutdown_receiver,
-                runtime_handle.clone(),
-            )
-            .await?;
+            // PHASE 1: Resource Constraint Validation (TAS-34) - Fail fast on bootstrap
+            info!("🔍 BOOTSTRAP: Validating resource constraints before starting coordinator");
+            let resource_validator =
+                ResourceValidator::new(orchestration_core.database_pool(), config_manager.clone())
+                    .await?;
+
+            let validation_result = resource_validator.validate_and_log_info().await?;
+
+            info!(
+                "✅ BOOTSTRAP: Resource validation passed - Max executors: {}, Available DB connections: {}",
+                validation_result.executor_requirements.total_max_executors,
+                validation_result.resource_limits.available_database_connections
+            );
+
+            // Create OrchestrationLoopCoordinator for unified architecture
+            let coordinator = Arc::new(
+                OrchestrationLoopCoordinator::new(
+                    config_manager.clone(),
+                    orchestration_core.clone(),
+                )
+                .await?,
+            );
+
+            info!("✅ BOOTSTRAP: Using OrchestrationLoopCoordinator for unified architecture");
+
+            Self::start_coordinator(coordinator, shutdown_receiver).await?;
         } else {
-            info!("📋 BOOTSTRAP: Processors not auto-started - manual control mode");
+            info!("📋 BOOTSTRAP: Coordinator not auto-started - manual control mode");
             // If not auto-starting, we need to consume the receiver somehow
             drop(shutdown_receiver);
         }
@@ -234,127 +273,22 @@ impl OrchestrationBootstrap {
         Ok(handle)
     }
 
-    /// Start orchestration processors with sequential startup to avoid database connection race conditions
-    ///
-    /// This implements sequential startup with connection pool warming to prevent the
-    /// "task was cancelled" errors that occur when all processors try to acquire
-    /// database connections simultaneously during system initialization.
-    async fn start_processors(
-        orchestration_core: Arc<OrchestrationCore>,
-        shutdown_receiver: oneshot::Receiver<()>,
-        _runtime_handle: tokio::runtime::Handle,
-    ) -> Result<()> {
-        info!("🚀 BOOTSTRAP: Starting orchestration processors with sequential startup");
-
-        // STEP 1: Warm up the database connection pool to prevent race conditions
-        info!("🔥 BOOTSTRAP: Warming up database connection pool");
-        match orchestration_core.database_pool().acquire().await {
-            Ok(conn) => {
-                info!("✅ BOOTSTRAP: Database connection pool warmed up successfully");
-                drop(conn); // Release the connection back to the pool
-            }
-            Err(e) => {
-                error!("❌ BOOTSTRAP: Failed to warm up connection pool: {}", e);
-                return Err(TaskerError::DatabaseError(format!(
-                    "Connection pool warmup failed: {e}"
-                )));
-            }
-        }
-
-        // STEP 2: Clone processor references for sequential startup
-        let orchestration_loop = Arc::clone(&orchestration_core.orchestration_loop);
-        let task_request_processor = Arc::clone(&orchestration_core.task_request_processor);
-        let step_result_processor = Arc::clone(&orchestration_core.step_result_processor);
-
-        // STEP 3: Start processors sequentially with small delays to prevent connection race conditions
-
-        // Start orchestration loop first
-        let orchestration_task = tokio::spawn(async move {
-            info!("🔄 BOOTSTRAP: Orchestration loop started - beginning continuous operation");
-            if let Err(e) = orchestration_loop.run_continuous().await {
-                error!("❌ BOOTSTRAP: Orchestration loop failed: {}", e);
-            } else {
-                info!("✅ BOOTSTRAP: Orchestration loop completed successfully");
-            }
-        });
-        let orchestration_abort_handle = orchestration_task.abort_handle();
-
-        // Small delay to let orchestration loop initialize its connections
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-        // Start task request processor second
-        let task_request_task = tokio::spawn(async move {
-            info!("🔄 BOOTSTRAP: Task request processor started");
-            if let Err(e) = task_request_processor.start_processing_loop().await {
-                error!("❌ BOOTSTRAP: Task request processor failed: {}", e);
-            }
-        });
-        let task_request_abort_handle = task_request_task.abort_handle();
-
-        // Small delay to let task request processor initialize its connections
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-        // Start step result processor third
-        let step_result_task = tokio::spawn(async move {
-            info!("🔄 BOOTSTRAP: Step result processor started");
-            if let Err(e) = step_result_processor.start_processing_loop().await {
-                error!("❌ BOOTSTRAP: Step result processor failed: {}", e);
-            }
-        });
-        let step_result_abort_handle = step_result_task.abort_handle();
-
-        // Final small delay to ensure all processors have started before returning
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-        info!("✅ BOOTSTRAP: All orchestration processors spawned successfully");
-
-        // Spawn background task to manage processor lifecycle
-        tokio::spawn(async move {
-            // Wait for shutdown signal or any processor to complete
-            tokio::select! {
-                _ = shutdown_receiver => {
-                    info!("🛑 BOOTSTRAP: Shutdown signal received, stopping processors");
-                    orchestration_abort_handle.abort();
-                    task_request_abort_handle.abort();
-                    step_result_abort_handle.abort();
-                }
-                result = orchestration_task => {
-                    match result {
-                        Ok(_) => info!("✅ BOOTSTRAP: Orchestration loop completed normally"),
-                        Err(e) => error!("❌ BOOTSTRAP: Orchestration loop task failed: {}", e),
-                    }
-                }
-                result = task_request_task => {
-                    match result {
-                        Ok(_) => info!("✅ BOOTSTRAP: Task request processor completed normally"),
-                        Err(e) => error!("❌ BOOTSTRAP: Task request processor task failed: {}", e),
-                    }
-                }
-                result = step_result_task => {
-                    match result {
-                        Ok(_) => info!("✅ BOOTSTRAP: Step result processor completed normally"),
-                        Err(e) => error!("❌ BOOTSTRAP: Step result processor task failed: {}", e),
-                    }
-                }
-            }
-
-            info!("🛑 BOOTSTRAP: Orchestration system shutting down");
-        });
-
-        Ok(())
-    }
-
     /// Quick bootstrap for embedded/testing scenarios
     ///
     /// Simplified bootstrap method optimized for embedded mode and testing.
+    /// Uses OrchestrationLoopCoordinator for unified architecture.
     pub async fn bootstrap_embedded(namespaces: Vec<String>) -> Result<OrchestrationSystemHandle> {
+        info!(
+            "🚀 BOOTSTRAP: Starting embedded orchestration with unified coordinator architecture"
+        );
+
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory: None,
             environment_override: None, // Let it detect environment
         };
 
+        // Use unified bootstrap which now defaults to coordinator
         Self::bootstrap(config).await
     }
 
@@ -362,14 +296,12 @@ impl OrchestrationBootstrap {
     ///
     /// Full-featured bootstrap method for standalone deployments with custom configuration.
     pub async fn bootstrap_standalone(
-        config_directory: Option<std::path::PathBuf>,
         environment: Option<String>,
         namespaces: Vec<String>,
     ) -> Result<OrchestrationSystemHandle> {
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory,
             environment_override: environment,
         };
 
@@ -383,11 +315,40 @@ impl OrchestrationBootstrap {
         let config = BootstrapConfig {
             namespaces,
             auto_start_processors: true,
-            config_directory: None,
             environment_override: Some("test".to_string()),
         };
 
         Self::bootstrap(config).await
+    }
+
+    /// Start OrchestrationLoopCoordinator with lifecycle management
+    async fn start_coordinator(
+        coordinator: Arc<OrchestrationLoopCoordinator>,
+        shutdown_receiver: oneshot::Receiver<()>,
+    ) -> Result<()> {
+        info!("🚀 BOOTSTRAP: Starting OrchestrationLoopCoordinator");
+
+        // Start the coordinator
+        coordinator.start().await?;
+        info!("✅ BOOTSTRAP: OrchestrationLoopCoordinator started successfully");
+
+        // Spawn background task to manage coordinator lifecycle
+        tokio::spawn(async move {
+            // Wait for shutdown signal
+            if let Ok(()) = shutdown_receiver.await {
+                info!("🛑 BOOTSTRAP: Shutdown signal received, stopping coordinator");
+
+                // Stop coordinator with timeout
+                let timeout = std::time::Duration::from_secs(30);
+                if let Err(e) = coordinator.stop(timeout).await {
+                    error!("❌ BOOTSTRAP: Failed to stop coordinator gracefully: {}", e);
+                } else {
+                    info!("✅ BOOTSTRAP: OrchestrationLoopCoordinator stopped successfully");
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -400,7 +361,6 @@ mod tests {
         let config = BootstrapConfig::default();
         assert!(config.namespaces.is_empty());
         assert!(config.auto_start_processors);
-        assert!(config.config_directory.is_none());
         assert!(config.environment_override.is_none());
     }
 
@@ -421,5 +381,19 @@ mod tests {
         assert!(!status.circuit_breakers_enabled);
         assert_eq!(status.database_pool_size, 5);
         assert_eq!(status.database_pool_idle, 3);
+    }
+
+    #[tokio::test]
+    async fn test_coordinator_bootstrap_config() {
+        // Test that coordinator bootstrap config is properly structured
+        let config = BootstrapConfig {
+            namespaces: vec!["test_namespace".to_string()],
+            auto_start_processors: false, // Don't auto-start for testing
+            environment_override: Some("test".to_string()),
+        };
+
+        assert_eq!(config.namespaces.len(), 1);
+        assert!(!config.auto_start_processors);
+        assert_eq!(config.environment_override, Some("test".to_string()));
     }
 }

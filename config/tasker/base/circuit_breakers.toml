@@ -1,0 +1,18 @@
+[circuit_breakers]
+enabled = true
+
+[circuit_breakers.global_settings]
+max_circuit_breakers = 50
+metrics_collection_interval_seconds = 30
+auto_create_enabled = true
+min_state_transition_interval_seconds = 1
+
+[circuit_breakers.default_config]
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2
+
+[circuit_breakers.component_configs.pgmq]
+failure_threshold = 3
+timeout_seconds = 15
+success_threshold = 2

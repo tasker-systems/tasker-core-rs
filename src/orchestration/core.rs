@@ -62,6 +62,31 @@ pub struct OrchestrationCore {
     pub circuit_breaker_manager: Option<Arc<CircuitBreakerManager>>,
 }
 
+impl std::fmt::Debug for OrchestrationCore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationCore")
+            .field("pgmq_client", &"Arc<UnifiedPgmqClient>")
+            .field(
+                "database_pool",
+                &format!("PgPool(size={})", self.database_pool.size()),
+            )
+            .field("task_initializer", &"Arc<TaskInitializer>")
+            .field("task_request_processor", &"Arc<TaskRequestProcessor>")
+            .field("orchestration_loop", &"Arc<OrchestrationLoop>")
+            .field("step_result_processor", &"Arc<StepResultProcessor>")
+            .field("task_handler_registry", &"Arc<TaskHandlerRegistry>")
+            .field(
+                "circuit_breaker_manager",
+                &self
+                    .circuit_breaker_manager
+                    .as_ref()
+                    .map(|_| "Some(Arc<CircuitBreakerManager>)")
+                    .unwrap_or("None"),
+            )
+            .finish()
+    }
+}
+
 impl OrchestrationCore {
     /// Create OrchestrationCore with environment-aware configuration loading
     ///

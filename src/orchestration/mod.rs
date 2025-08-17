@@ -33,9 +33,11 @@
 pub mod backoff_calculator;
 pub mod bootstrap;
 pub mod config;
+pub mod coordinator;
 pub mod core;
 pub mod error_classifier;
 pub mod errors;
+pub mod executor;
 pub mod handler_config;
 pub mod orchestration_loop;
 pub mod orchestration_system;
@@ -62,7 +64,12 @@ pub use backoff_calculator::{
 pub use bootstrap::{
     BootstrapConfig, OrchestrationBootstrap, OrchestrationSystemHandle, SystemStatus,
 };
+pub use coordinator::{CoordinatorStatus, OrchestrationLoopCoordinator};
 pub use core::OrchestrationCore;
+pub use executor::{
+    BaseExecutor, ExecutorConfig, ExecutorHealth, ExecutorMetrics, ExecutorType, HealthMonitor,
+    MetricsCollector, OrchestrationExecutor, ProcessBatchResult,
+};
 pub use orchestration_loop::{
     AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,
     OrchestrationCycleResult, OrchestrationLoop, OrchestrationLoopConfig, PerformanceMetrics,

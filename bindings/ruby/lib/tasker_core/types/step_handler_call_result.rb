@@ -50,7 +50,8 @@ module TaskerCore
 
         # Error type (matches our error class names)
         attribute :error_type,
-                  Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError', 'StepCompletionError')
+                  Types::String.enum('PermanentError', 'RetryableError', 'ValidationError', 'UnexpectedError',
+                                     'StepCompletionError')
 
         # Human-readable error message
         attribute :message, Types::String

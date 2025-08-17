@@ -144,7 +144,7 @@ module TaskerCore
       def initialize(object, options = {})
         @object = object
         @logger = TaskerCore::Logging::Logger.instance
-        super(object, options)
+        super
       end
 
       # Override current_state to work with custom transition model

@@ -45,7 +45,6 @@ require_relative 'tasker_core/config'                    # Configuration managem
 # 🎯 NEW: Utility infrastructure
 require_relative 'tasker_core/utils/path_resolver' # Centralized path resolution
 require_relative 'tasker_core/utils/template_loader' # Centralized template loading
-require_relative 'tasker_core/config/validator' # Configuration validation
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/internal/orchestration_manager' # Singleton orchestration manager
@@ -81,19 +80,19 @@ module TaskerCore
       Internal::OrchestrationManager.instance.orchestration_handle
     end
 
-    # Get the project root directory
-    # @return [String] Absolute path to project root
+    # Get the project root directory (Gemfile location)
+    # @return [String] Absolute path to project root (where Gemfile is located)
     def project_root
       Utils::PathResolver.project_root
     end
 
-    # Get the gem root directory
+    # Get the gem root directory (same as project root for Gemfile-based apps)
     # @return [String] Absolute path to gem root
     def gem_root
       Utils::PathResolver.gem_root
     end
 
-    # Get the gem library root directory
+    # Get the gem library root directory (where this gem is installed)
     # @return [String] Absolute path to gem library root
     def gem_lib_root
       Utils::PathResolver.gem_lib_root
@@ -158,6 +157,15 @@ module TaskerCore
         environment: Environment.handle_info,
         checked_at: Time.now.utc.iso8601
       }
+    end
+
+    # Generate Gemfile-root based configuration for Ruby applications
+    # @param app_type [String] Application type ('rails', 'sinatra', 'standalone')
+    # @param force [Boolean] Overwrite existing configuration files
+    # @return [Hash] Generation results summary
+    def generate_config!(app_type: 'rails', force: false)
+      generator = Generators::ConfigGenerator.new(app_type: app_type)
+      generator.generate!(force: force)
     end
 
     # Shutdown all systems gracefully
@@ -275,20 +283,23 @@ end
 #     end
 #     self
 #   end
-
-#   def deep_symbolize_keys
-#     transform_keys(&:to_sym).transform_values do |value|
-#       case value
-#       when Hash
-#         value.deep_symbolize_keys
-#       when Array
-#         value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
-#       else
-#         value
-#       end
-#     end
-#   end
 # end
+
+# Add Hash extension for deep_symbolize_keys used by configuration
+class Hash
+  def deep_symbolize_keys
+    transform_keys(&:to_sym).transform_values do |value|
+      case value
+      when Hash
+        value.deep_symbolize_keys
+      when Array
+        value.map { |v| v.is_a?(Hash) ? v.deep_symbolize_keys : v }
+      else
+        value
+      end
+    end
+  end
+end
 
 # Automatically boot the system when TaskerCore is loaded
 # This ensures proper initialization order for all components

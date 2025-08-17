@@ -27,7 +27,17 @@ module TaskerCore
 
       # Get the current database configuration
       def database_config
-        @database_config ||= TaskerCore::Config.instance.activerecord_database_config
+        @database_config ||= begin
+          config = TaskerCore::Config.instance
+          db_config = config.database_config
+
+          # Check if database config is available
+          if db_config.nil?
+            raise TaskerCore::Errors::ConfigurationError,
+                  'Database configuration not found. Ensure unified TOML config is loaded properly.'
+          end
+          db_config.to_h.deep_symbolize_keys
+        end
       end
 
       # Get the current database name
@@ -54,10 +64,7 @@ module TaskerCore
       private
 
       def establish_connection
-        config = TaskerCore::Config.instance
-        db_config = config.activerecord_database_config
-
-        ActiveRecord::Base.establish_connection(db_config)
+        ActiveRecord::Base.establish_connection(database_config)
       rescue ActiveRecord::ConnectionNotEstablished => e
         raise TaskerCore::Errors::DatabaseError, "Failed to establish database connection: #{e.message}"
       rescue ActiveRecord::DatabaseConnectionError => e

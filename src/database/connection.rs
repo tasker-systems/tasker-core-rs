@@ -1,7 +1,8 @@
 use super::DatabaseMigrations;
 use crate::config::ConfigManager;
-use sqlx::{PgPool, Row};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::env;
+use std::time::Duration;
 
 pub struct DatabaseConnection {
     pool: PgPool,
@@ -9,15 +10,33 @@ pub struct DatabaseConnection {
 
 impl DatabaseConnection {
     pub async fn new() -> Result<Self, sqlx::Error> {
-        // Use ConfigManager for database configuration
-        let config_manager = ConfigManager::global();
-        let database_url = config_manager.config().database_url();
+        // Use global ConfigManager for backward compatibility
+        let config_manager = ConfigManager::global().map_err(|e| {
+            sqlx::Error::Configuration(format!("Failed to load configuration: {e}").into())
+        })?;
+        Self::new_with_config_manager(&config_manager).await
+    }
 
-        let pool = PgPool::connect(&database_url).await?;
+    pub async fn new_with_config_manager(
+        config_manager: &ConfigManager,
+    ) -> Result<Self, sqlx::Error> {
+        // Use provided ConfigManager for database configuration
+        let database_url = config_manager.config().database_url();
+        let database_config = &config_manager.config().database;
+
+        // Create pool with component configuration values instead of defaults
+        // Note: The `pool` field contains max_connections extracted from structured config
+        let pool = PgPoolOptions::new()
+            .max_connections(database_config.pool)
+            .acquire_timeout(Duration::from_secs(database_config.checkout_timeout))
+            .idle_timeout(Duration::from_secs(database_config.reaping_frequency))
+            .test_before_acquire(true) // Ensure connections are valid
+            .connect(&database_url)
+            .await?;
 
         // Check migration status (never auto-run migrations in production)
         // Migrations should be run separately via `cargo sqlx migrate run` or similar
-        if !Self::should_skip_migration_check(&config_manager) {
+        if !Self::should_skip_migration_check(config_manager) {
             match DatabaseMigrations::check_status(&pool).await {
                 Ok(status) if status.needs_migration => {
                     return Err(sqlx::Error::Configuration(format!(

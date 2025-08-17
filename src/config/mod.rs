@@ -1,29 +1,29 @@
-//! # TaskerCore Configuration System
+//! # TaskerCore Configuration System (TAS-34 Unified TOML)
 //!
-//! This module provides comprehensive configuration management that mirrors the Ruby side's
-//! YAML-based configuration approach. It eliminates hardcoded fallbacks and environment
-//! variable dependencies in favor of explicit, validated configuration loading.
+//! This module provides unified TOML-based configuration management with strict validation
+//! and fail-fast behavior. All configuration loading is handled by UnifiedConfigLoader.
 //!
 //! ## Architecture
 //!
-//! - **Single Source of Truth**: All configuration comes from YAML files
-//! - **Environment Awareness**: Supports development/test/production overrides
-//! - **Explicit Validation**: No silent fallbacks or data corruption
-//! - **Ruby Parity**: Mirrors Ruby side configuration structure exactly
+//! - **Single Source of Truth**: UnifiedConfigLoader handles all configuration loading
+//! - **TOML Only**: Component-based TOML configuration with environment overrides
+//! - **Fail-Fast Validation**: No silent fallbacks or defaults
+//! - **Strict Type Safety**: ValidatedConfig provides type-safe access to all components
 //!
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_core::config::ConfigManager;
+//! use tasker_core::config::UnifiedConfigLoader;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Load configuration (environment auto-detected)
-//! let config = ConfigManager::load()?;
+//! // Load configuration with environment detection
+//! let mut loader = UnifiedConfigLoader::new_from_env()?;
+//! let config = loader.load_tasker_config()?;
 //!
 //! // Access configuration values
-//! let database_url = config.config().database_url();
-//! let pool_size = config.config().database.pool;
-//! let timeout = config.config().execution.step_execution_timeout_seconds;
+//! let database_url = config.database_url();
+//! let pool_size = config.database.pool;
+//! let timeout = config.execution.step_execution_timeout_seconds;
 //! # Ok(())
 //! # }
 //! ```
@@ -31,14 +31,21 @@
 pub mod error;
 pub mod loader;
 pub mod query_cache_config;
+pub mod unified_loader;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use error::ConfigurationError;
-pub use loader::ConfigManager;
+// Primary exports - TAS-34 Unified Configuration System
+pub use unified_loader::{UnifiedConfigLoader, ValidatedConfig};
+
+// Re-export types and errors
+pub use error::{ConfigResult, ConfigurationError};
 pub use query_cache_config::{CacheTypeConfig, QueryCacheConfig, QueryCacheConfigLoader};
+
+// Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
+pub use loader::ConfigManager;
 
 /// Custom deserializer for pool configuration that can handle both simple integer
 /// and structured hash formats for maximum compatibility
@@ -84,7 +91,7 @@ where
     }
 }
 
-/// Root configuration structure mirroring tasker-config.yaml
+/// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TaskerConfig {
     /// Authentication and authorization settings
@@ -137,6 +144,10 @@ pub struct TaskerConfig {
 
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
+
+    /// Orchestration executor pools configuration (TAS-34)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor_pools: Option<ExecutorPoolsConfig>,
 }
 
 /// Authentication and authorization configuration
@@ -215,11 +226,14 @@ impl DatabaseConfig {
     pub fn database_url(&self, environment: &str) -> String {
         // If URL is explicitly provided (with ${DATABASE_URL} expansion), use it
         if let Some(url) = &self.url {
-            if url.starts_with("${DATABASE_URL}") {
+            if url == "${DATABASE_URL}" || url.starts_with("${DATABASE_URL}") {
+                // Try to expand ${DATABASE_URL} environment variable
                 if let Ok(env_url) = std::env::var("DATABASE_URL") {
                     return env_url;
                 }
-            } else if !url.is_empty() && url != "${DATABASE_URL}" {
+                // If DATABASE_URL is not set, fall through to build from components
+            } else if !url.is_empty() {
+                // Use the URL as-is (not a variable reference)
                 return url.clone();
             }
         }
@@ -441,6 +455,107 @@ impl OrchestrationConfig {
     /// Get default claim timeout as Duration
     pub fn default_claim_timeout(&self) -> Duration {
         Duration::from_secs(self.default_claim_timeout_seconds)
+    }
+
+    /// Convert to OrchestrationSystemConfig for bootstrapping the orchestration system
+    pub fn to_orchestration_system_config(
+        &self,
+    ) -> crate::orchestration::OrchestrationSystemConfig {
+        use crate::orchestration::{
+            orchestration_loop::OrchestrationLoopConfig, step_enqueuer::StepEnqueuerConfig,
+            step_result_processor::StepResultProcessorConfig, task_claimer::TaskClaimerConfig,
+            OrchestrationSystemConfig,
+        };
+        use std::time::SystemTime;
+
+        // Generate orchestrator ID if not provided
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let orchestrator_id = format!("orchestrator-{timestamp}");
+
+        // Create orchestration loop configuration
+        let orchestration_loop_config = OrchestrationLoopConfig {
+            tasks_per_cycle: self.tasks_per_cycle as i32,
+            namespace_filter: None,
+            cycle_interval: Duration::from_millis(self.cycle_interval_ms),
+            max_cycles: None,
+            enable_performance_logging: self.enable_performance_logging,
+            enable_heartbeat: self.enable_heartbeat,
+            task_claimer_config: TaskClaimerConfig {
+                max_batch_size: self.tasks_per_cycle as i32,
+                default_claim_timeout: self.default_claim_timeout_seconds as i32,
+                heartbeat_interval: Duration::from_millis(self.heartbeat_interval_ms),
+                enable_heartbeat: self.enable_heartbeat,
+            },
+            step_enqueuer_config: StepEnqueuerConfig::default(),
+            step_result_processor_config: StepResultProcessorConfig::default(),
+        };
+
+        OrchestrationSystemConfig {
+            task_requests_queue_name: self.task_requests_queue_name.clone(),
+            orchestrator_id,
+            orchestration_loop_config,
+            task_request_polling_interval_ms: self.task_request_polling_interval_ms,
+            task_request_visibility_timeout_seconds: self.task_request_visibility_timeout_seconds
+                as i32,
+            task_request_batch_size: self.task_request_batch_size as i32,
+            active_namespaces: self.active_namespaces.clone(),
+            max_concurrent_orchestrators: self.max_concurrent_orchestrators as usize,
+            enable_performance_logging: self.enable_performance_logging,
+        }
+    }
+}
+
+impl Default for OrchestrationConfig {
+    fn default() -> Self {
+        use std::collections::HashMap;
+
+        Self {
+            mode: "embedded".to_string(),
+            task_requests_queue_name: "task_requests_queue".to_string(),
+            tasks_per_cycle: 5,
+            cycle_interval_ms: 250,
+            task_request_polling_interval_ms: 250,
+            task_request_visibility_timeout_seconds: 300,
+            task_request_batch_size: 10,
+            active_namespaces: vec![
+                "fulfillment".to_string(),
+                "inventory".to_string(),
+                "notifications".to_string(),
+                "payments".to_string(),
+                "analytics".to_string(),
+            ],
+            max_concurrent_orchestrators: 3,
+            enable_performance_logging: false,
+            default_claim_timeout_seconds: 300,
+            queues: QueueConfig {
+                task_requests: "task_requests_queue".to_string(),
+                task_processing: "task_processing_queue".to_string(),
+                batch_results: "batch_results_queue".to_string(),
+                step_results: "orchestration_step_results".to_string(),
+                worker_queues: {
+                    let mut queues = HashMap::new();
+                    queues.insert("default".to_string(), "default_queue".to_string());
+                    queues.insert("fulfillment".to_string(), "fulfillment_queue".to_string());
+                    queues
+                },
+                settings: QueueSettings {
+                    visibility_timeout_seconds: 30,
+                    message_retention_seconds: 604800,
+                    dead_letter_queue_enabled: true,
+                    max_receive_count: 3,
+                },
+            },
+            embedded_orchestrator: EmbeddedOrchestratorConfig {
+                auto_start: false,
+                namespaces: vec!["default".to_string(), "fulfillment".to_string()],
+                shutdown_timeout_seconds: 30,
+            },
+            enable_heartbeat: true,
+            heartbeat_interval_ms: 5000,
+        }
     }
 }
 
@@ -752,6 +867,199 @@ impl Default for TaskerConfig {
                     configs
                 },
             },
+            executor_pools: None, // Optional, only populated when YAML contains executor_pools
+        }
+    }
+}
+
+/// Orchestration executor pools configuration (TAS-34)
+/// Configures the advanced executor pool system that replaces naive tokio polling loops
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorPoolsConfig {
+    /// Coordinator configuration for auto-scaling and health monitoring
+    pub coordinator: ExecutorCoordinatorConfig,
+
+    /// Task request processor configuration
+    pub task_request_processor: ExecutorInstanceConfig,
+
+    /// Task claimer configuration
+    pub task_claimer: ExecutorInstanceConfig,
+
+    /// Step enqueuer configuration
+    pub step_enqueuer: ExecutorInstanceConfig,
+
+    /// Step result processor configuration
+    pub step_result_processor: ExecutorInstanceConfig,
+
+    /// Task finalizer configuration
+    pub task_finalizer: ExecutorInstanceConfig,
+}
+
+/// Coordinator configuration for managing executor pools
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorCoordinatorConfig {
+    /// Whether auto-scaling is enabled
+    pub auto_scaling_enabled: bool,
+
+    /// Target utilization for scaling decisions (0.0-1.0)
+    pub target_utilization: f64,
+
+    /// How often to check scaling conditions (seconds)
+    pub scaling_interval_seconds: u64,
+
+    /// How often to check executor health (seconds)
+    pub health_check_interval_seconds: u64,
+
+    /// Cooldown period between scaling operations (seconds)
+    pub scaling_cooldown_seconds: u64,
+
+    /// Maximum database pool usage before applying backpressure (0.0-1.0)
+    pub max_db_pool_usage: f64,
+}
+
+/// Configuration for a specific executor instance type
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutorInstanceConfig {
+    /// Minimum number of executors to maintain
+    pub min_executors: usize,
+
+    /// Maximum number of executors allowed
+    pub max_executors: usize,
+
+    /// Polling interval in milliseconds
+    pub polling_interval_ms: u64,
+
+    /// Maximum batch size for processing
+    pub batch_size: usize,
+
+    /// Processing timeout in milliseconds
+    pub processing_timeout_ms: u64,
+
+    /// Maximum number of retries for failed operations
+    pub max_retries: u32,
+
+    /// Whether circuit breaker is enabled
+    pub circuit_breaker_enabled: bool,
+
+    /// Circuit breaker failure threshold
+    pub circuit_breaker_threshold: u32,
+}
+
+impl ExecutorInstanceConfig {
+    /// Convert to ExecutorConfig from the executor traits module
+    pub fn to_executor_config(&self) -> crate::orchestration::executor::traits::ExecutorConfig {
+        crate::orchestration::executor::traits::ExecutorConfig {
+            polling_interval_ms: self.polling_interval_ms,
+            batch_size: self.batch_size,
+            processing_timeout_ms: self.processing_timeout_ms,
+            max_retries: self.max_retries,
+            backpressure_factor: 1.0, // Default, will be adjusted by coordinator
+            circuit_breaker_enabled: self.circuit_breaker_enabled,
+            circuit_breaker_threshold: self.circuit_breaker_threshold,
+        }
+    }
+}
+
+impl Default for ExecutorPoolsConfig {
+    fn default() -> Self {
+        Self {
+            coordinator: ExecutorCoordinatorConfig::default(),
+            task_request_processor: ExecutorInstanceConfig::default_for_type(
+                "task_request_processor",
+            ),
+            task_claimer: ExecutorInstanceConfig::default_for_type("task_claimer"),
+            step_enqueuer: ExecutorInstanceConfig::default_for_type("step_enqueuer"),
+            step_result_processor: ExecutorInstanceConfig::default_for_type(
+                "step_result_processor",
+            ),
+            task_finalizer: ExecutorInstanceConfig::default_for_type("task_finalizer"),
+        }
+    }
+}
+
+impl Default for ExecutorCoordinatorConfig {
+    fn default() -> Self {
+        Self {
+            auto_scaling_enabled: true,
+            target_utilization: 0.75,
+            scaling_interval_seconds: 30,
+            health_check_interval_seconds: 10,
+            scaling_cooldown_seconds: 60,
+            max_db_pool_usage: 0.85,
+        }
+    }
+}
+
+impl ExecutorInstanceConfig {
+    /// Create default configuration for a specific executor type
+    pub fn default_for_type(executor_type: &str) -> Self {
+        match executor_type {
+            "task_request_processor" => Self {
+                min_executors: 1,
+                max_executors: 5,
+                polling_interval_ms: 100,
+                batch_size: 10,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            "task_claimer" => Self {
+                min_executors: 2,
+                max_executors: 10,
+                polling_interval_ms: 50,
+                batch_size: 20,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 3,
+            },
+            "step_enqueuer" => Self {
+                min_executors: 2,
+                max_executors: 8,
+                polling_interval_ms: 50,
+                batch_size: 50,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            "step_result_processor" => Self {
+                min_executors: 2,
+                max_executors: 10,
+                polling_interval_ms: 100,
+                batch_size: 20,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 3,
+            },
+            "task_finalizer" => Self {
+                min_executors: 1,
+                max_executors: 4,
+                polling_interval_ms: 200,
+                batch_size: 10,
+                processing_timeout_ms: 30000,
+                max_retries: 3,
+                circuit_breaker_enabled: true,
+                circuit_breaker_threshold: 5,
+            },
+            _ => Self::default(), // Fallback to default
+        }
+    }
+}
+
+impl Default for ExecutorInstanceConfig {
+    fn default() -> Self {
+        Self {
+            min_executors: 1,
+            max_executors: 5,
+            polling_interval_ms: 100,
+            batch_size: 10,
+            processing_timeout_ms: 30000,
+            max_retries: 3,
+            circuit_breaker_enabled: true,
+            circuit_breaker_threshold: 5,
         }
     }
 }
@@ -1025,5 +1333,60 @@ impl TaskerConfig {
         }
 
         warnings
+    }
+
+    /// Get executor pools configuration with fallback to defaults if not configured
+    pub fn executor_pools(&self) -> ExecutorPoolsConfig {
+        match &self.executor_pools {
+            Some(pools) => pools.clone(),
+            None => ExecutorPoolsConfig::default(),
+        }
+    }
+
+    /// Check if executor pools are explicitly configured in YAML
+    pub fn has_executor_pools_config(&self) -> bool {
+        self.executor_pools.is_some()
+    }
+
+    /// Get executor configuration for a specific executor type
+    pub fn get_executor_config(
+        &self,
+        executor_type: crate::orchestration::executor::traits::ExecutorType,
+    ) -> crate::orchestration::executor::traits::ExecutorConfig {
+        let executor_pools = self.executor_pools();
+
+        let instance_config = match executor_type {
+            crate::orchestration::executor::traits::ExecutorType::TaskRequestProcessor => {
+                &executor_pools.task_request_processor
+            }
+            crate::orchestration::executor::traits::ExecutorType::OrchestrationLoop => {
+                &executor_pools.step_enqueuer
+            } // OrchestrationLoop handles step enqueueing
+            crate::orchestration::executor::traits::ExecutorType::StepResultProcessor => {
+                &executor_pools.step_result_processor
+            }
+        };
+
+        instance_config.to_executor_config()
+    }
+
+    /// Get executor instance configuration for a specific executor type
+    pub fn get_executor_instance_config(
+        &self,
+        executor_type: crate::orchestration::executor::traits::ExecutorType,
+    ) -> ExecutorInstanceConfig {
+        let executor_pools = self.executor_pools();
+
+        match executor_type {
+            crate::orchestration::executor::traits::ExecutorType::TaskRequestProcessor => {
+                executor_pools.task_request_processor.clone()
+            }
+            crate::orchestration::executor::traits::ExecutorType::OrchestrationLoop => {
+                executor_pools.step_enqueuer.clone()
+            } // OrchestrationLoop handles step enqueueing
+            crate::orchestration::executor::traits::ExecutorType::StepResultProcessor => {
+                executor_pools.step_result_processor.clone()
+            }
+        }
     }
 }

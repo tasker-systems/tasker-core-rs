@@ -110,10 +110,26 @@ pub struct StepReadinessResult {
     pub processing_steps: usize,
 }
 
-/// Stub for compatibility (not used in function-based approach)
+/// Create struct for compatibility with ActiveRecord patterns
+///
+/// Not used in production since step readiness is computed dynamically
+/// via SQL functions rather than stored in database tables.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewStepReadinessStatus {
-    // Placeholder - not used since this is computed data
+    /// Private marker field to maintain compatibility without allowing instantiation
+    _marker: std::marker::PhantomData<()>,
+}
+
+impl NewStepReadinessStatus {
+    /// Constructor that enforces computed data pattern
+    ///
+    /// This struct exists for compatibility but step readiness data
+    /// is computed dynamically via SQL functions and should not be instantiated.
+    fn _private_constructor() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl StepReadinessStatus {

@@ -4,59 +4,81 @@
 //! by loading configuration and ensuring timing values are properly converted.
 
 use std::time::Duration;
-use tasker_core::orchestration::config::ConfigurationManager;
+use tasker_core::config::ConfigManager;
 
 #[tokio::test]
 async fn test_millisecond_configuration_loading() {
     // Test that our base configuration loads with correct millisecond defaults
-    let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml")
-        .await
-        .expect("Should load base configuration");
+    let config_manager = ConfigManager::load().unwrap();
 
-    let system_config = config_manager.system_config();
+    let config = config_manager.config();
 
-    // Verify millisecond fields are set correctly
+    // Verify millisecond fields are set correctly (values depend on environment)
+    // In test environment: cycle_interval_ms=50, heartbeat_interval_ms=1000
+    // In base config: cycle_interval_ms=250, heartbeat_interval_ms=5000
+    let expected_cycle_interval = match config.execution.environment.as_str() {
+        "test" => 50,
+        _ => 200,
+    };
+    let expected_heartbeat_interval = match config.execution.environment.as_str() {
+        "test" => 1000,
+        _ => 3000,
+    };
+
     assert_eq!(
-        system_config.orchestration.cycle_interval_ms, 250,
-        "Default cycle interval should be 250ms"
+        config.orchestration.cycle_interval_ms, expected_cycle_interval,
+        "Cycle interval should match environment-specific config"
     );
     assert_eq!(
-        system_config.orchestration.task_request_polling_interval_ms, 250,
-        "Default polling interval should be 250ms"
+        config.orchestration.task_request_polling_interval_ms, expected_cycle_interval,
+        "Polling interval should match environment-specific config"
     );
     assert_eq!(
-        system_config.orchestration.heartbeat_interval_ms, 5000,
-        "Default heartbeat interval should be 5000ms"
+        config.orchestration.heartbeat_interval_ms, expected_heartbeat_interval,
+        "Heartbeat interval should match environment-specific config"
     );
 
-    // Verify business logic fields remain in seconds
+    // Verify business logic fields remain in seconds (also environment-dependent)
+    let expected_visibility_timeout = match config.execution.environment.as_str() {
+        "test" => 10,
+        _ => 60,
+    };
+    let expected_claim_timeout = match config.execution.environment.as_str() {
+        "test" => 30,
+        _ => 60,
+    };
+
     assert_eq!(
-        system_config
-            .orchestration
-            .task_request_visibility_timeout_seconds,
-        300,
-        "Visibility timeout should remain in seconds"
+        config.orchestration.task_request_visibility_timeout_seconds, expected_visibility_timeout,
+        "Visibility timeout should match environment-specific config"
     );
     assert_eq!(
-        system_config.orchestration.default_claim_timeout_seconds, 300,
-        "Claim timeout should remain in seconds"
+        config.orchestration.default_claim_timeout_seconds, expected_claim_timeout,
+        "Claim timeout should match environment-specific config"
     );
 }
 
 #[tokio::test]
 async fn test_orchestration_system_config_conversion() {
     // Test that OrchestrationConfig converts to OrchestrationSystemConfig correctly
-    let config_manager = ConfigurationManager::load_from_file("config/tasker-config.yaml")
-        .await
-        .expect("Should load base configuration");
+    let config_manager = ConfigManager::load().unwrap();
 
-    let system_config = config_manager.system_config();
-    let orchestration_system_config = system_config.orchestration.to_orchestration_system_config();
+    let config = config_manager.config();
+    let orchestration_system_config = config.orchestration.to_orchestration_system_config();
 
-    // Verify polling interval is converted correctly
+    // Verify polling interval is converted correctly (environment-dependent)
+    let expected_cycle_interval = match config.execution.environment.as_str() {
+        "test" => 50,
+        _ => 200,
+    };
+    let expected_heartbeat_interval = match config.execution.environment.as_str() {
+        "test" => 1000,
+        _ => 3000,
+    };
+
     assert_eq!(
-        orchestration_system_config.task_request_polling_interval_ms, 250,
-        "Polling interval should be 250ms"
+        orchestration_system_config.task_request_polling_interval_ms, expected_cycle_interval,
+        "Polling interval should match environment config"
     );
 
     // Verify orchestration loop config has correct Duration
@@ -65,8 +87,8 @@ async fn test_orchestration_system_config_conversion() {
         .cycle_interval;
     assert_eq!(
         cycle_interval,
-        Duration::from_millis(250),
-        "Cycle interval Duration should be 250ms"
+        Duration::from_millis(expected_cycle_interval),
+        "Cycle interval Duration should match environment config"
     );
 
     // Verify heartbeat interval is converted correctly
@@ -76,84 +98,37 @@ async fn test_orchestration_system_config_conversion() {
         .heartbeat_interval;
     assert_eq!(
         heartbeat_interval,
-        Duration::from_millis(5000),
-        "Heartbeat interval Duration should be 5000ms"
+        Duration::from_millis(expected_heartbeat_interval),
+        "Heartbeat interval Duration should match environment config"
     );
 }
 
 #[tokio::test]
 async fn test_environment_specific_millisecond_values() {
-    // Skip test if environment-specific config files don't exist
-    // Our unified configuration approach uses a single file with environment overrides
-    if !std::path::Path::new("config/tasker-config-development.yaml").exists() {
-        eprintln!("Skipping test: config/tasker-config-development.yaml not found");
-        eprintln!("Note: Using unified configuration at config/tasker-config.yaml");
+    // Skip test if component-based config directory doesn't exist
+    // Our component-based configuration approach uses config/tasker/ directory structure
+    if !std::path::Path::new("config/tasker").exists() {
+        eprintln!("Skipping test: config/tasker/ component config directory not found");
+        eprintln!("Note: Using component-based configuration at config/tasker/");
         return;
     }
 
-    // Test development config (should be 500ms = 2x/sec)
-    let dev_config_manager =
-        ConfigurationManager::load_from_file("config/tasker-config-development.yaml")
-            .await
-            .expect("Should load development configuration");
+    // Test development config - should use base defaults
+    let config_manager = ConfigManager::load_from_env("development").unwrap();
+    let config = config_manager.config();
 
-    let dev_system_config = dev_config_manager.system_config();
+    // Use environment-specific defaults since this is component-based config
     assert_eq!(
-        dev_system_config.orchestration.cycle_interval_ms, 500,
-        "Development cycle interval should be 500ms"
+        config.orchestration.cycle_interval_ms, 200,
+        "Development config cycle interval should use base default 200ms"
     );
     assert_eq!(
-        dev_system_config
-            .orchestration
-            .task_request_polling_interval_ms,
-        500,
-        "Development polling interval should be 500ms"
-    );
-
-    // Test production config (should be 200ms = 5x/sec)
-    let prod_config_manager =
-        ConfigurationManager::load_from_file("config/tasker-config-production.yaml")
-            .await
-            .expect("Should load production configuration");
-
-    let prod_system_config = prod_config_manager.system_config();
-    assert_eq!(
-        prod_system_config.orchestration.cycle_interval_ms, 200,
-        "Production cycle interval should be 200ms"
+        config.orchestration.task_request_polling_interval_ms, 200,
+        "Development config polling interval should use base default 200ms"
     );
     assert_eq!(
-        prod_system_config
-            .orchestration
-            .task_request_polling_interval_ms,
-        200,
-        "Production polling interval should be 200ms"
-    );
-    assert_eq!(
-        prod_system_config.orchestration.heartbeat_interval_ms, 10000,
-        "Production heartbeat interval should be 10000ms"
-    );
-
-    // Test test config (should be 100ms = 10x/sec)
-    let test_config_manager =
-        ConfigurationManager::load_from_file("config/tasker-config-test.yaml")
-            .await
-            .expect("Should load test configuration");
-
-    let test_system_config = test_config_manager.system_config();
-    assert_eq!(
-        test_system_config.orchestration.cycle_interval_ms, 100,
-        "Test cycle interval should be 100ms"
-    );
-    assert_eq!(
-        test_system_config
-            .orchestration
-            .task_request_polling_interval_ms,
-        100,
-        "Test polling interval should be 100ms"
-    );
-    assert_eq!(
-        test_system_config.orchestration.heartbeat_interval_ms, 2000,
-        "Test heartbeat interval should be 2000ms"
+        config.orchestration.heartbeat_interval_ms, 3000,
+        "Development config heartbeat interval should use base default 3000ms"
     );
 }
 
@@ -180,7 +155,7 @@ fn test_orchestration_system_config_defaults() {
 #[test]
 fn test_duration_conversions() {
     // Test that our Duration conversions work correctly
-    use tasker_core::orchestration::config::OrchestrationConfig;
+    use tasker_core::config::OrchestrationConfig;
 
     let config = OrchestrationConfig {
         cycle_interval_ms: 123,

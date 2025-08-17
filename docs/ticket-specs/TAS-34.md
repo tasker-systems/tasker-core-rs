@@ -17,15 +17,15 @@ pub async fn start(&self) -> Result<ContinuousOrchestrationSummary> {
     let task_request_handle = tokio::spawn(async move {
         task_request_processor.start_task_request_processing_loop().await
     });
-    
-    let orchestration_handle = tokio::spawn(async move { 
-        orchestration_loop.run_continuous().await 
+
+    let orchestration_handle = tokio::spawn(async move {
+        orchestration_loop.run_continuous().await
     });
-    
-    let step_results_handle = tokio::spawn(async move { 
-        step_result_processor.start_processing_loop().await 
+
+    let step_results_handle = tokio::spawn(async move {
+        step_result_processor.start_processing_loop().await
     });
-    
+
     // Wait for all three loops
     tokio::join!(task_request_handle, orchestration_handle, step_results_handle)
 }
@@ -189,11 +189,11 @@ async fn determine_scaling_action(
     let current_count = pool.executors.len();
     let min_count = self.config.min_executors[&executor_type];
     let max_count = self.config.max_executors[&executor_type];
-    
+
     // Calculate utilization
     let utilization = pool.metrics.avg_utilization;
     let target = self.config.target_utilization;
-    
+
     // Scale up conditions
     if utilization > target * 1.2 && current_count < max_count {
         let scale_factor = (utilization / target).min(2.0);
@@ -201,13 +201,13 @@ async fn determine_scaling_action(
         let add_count = (new_count - current_count).min(max_count - current_count);
         return ScalingAction::ScaleUp { count: add_count };
     }
-    
+
     // Scale down conditions
     if utilization < target * 0.5 && current_count > min_count {
         let remove_count = ((current_count - min_count) / 2).max(1);
         return ScalingAction::ScaleDown { count: remove_count };
     }
-    
+
     ScalingAction::NoChange
 }
 ```
@@ -218,14 +218,14 @@ async fn determine_scaling_action(
 async fn apply_backpressure(&self, saturation: f64) -> Result<(), TaskerError> {
     // Calculate backpressure factor (0.0 = full stop, 1.0 = normal)
     let factor = (1.0 - saturation).max(0.1); // Never go below 10%
-    
+
     // Apply to all executors
     for pool in self.executor_pools.iter() {
         for executor in &pool.executors {
             executor.apply_backpressure(factor).await?;
         }
     }
-    
+
     // Executor adjusts its behavior:
     // - Increases polling interval
     // - Reduces batch size
@@ -306,7 +306,7 @@ orchestration:
     health_check_interval_seconds: 10
     scaling_cooldown_seconds: 60
     max_db_pool_usage: 0.85
-    
+
   executor_pools:
     task_request_processor:
       min_executors: 1
@@ -315,7 +315,7 @@ orchestration:
       batch_size: 10
       circuit_breaker_enabled: true
       circuit_breaker_threshold: 5
-      
+
     task_claimer:
       min_executors: 2
       max_executors: 10
@@ -323,7 +323,7 @@ orchestration:
       batch_size: 20
       circuit_breaker_enabled: true
       circuit_breaker_threshold: 3
-      
+
     step_enqueuer:
       min_executors: 2
       max_executors: 8
@@ -331,7 +331,7 @@ orchestration:
       batch_size: 50
       circuit_breaker_enabled: true
       circuit_breaker_threshold: 5
-      
+
     step_result_processor:
       min_executors: 2
       max_executors: 10
@@ -455,18 +455,144 @@ GET /health/orchestration
 ### Risk 4: Memory Growth
 **Mitigation**: Executor lifecycle management and periodic restarts
 
-## Related Work
+## Resource Management and Configuration Architecture
 
-- **TAS-32**: Step Result Coordination Processor (completed)
-- **TAS-14**: Ruby Integration Testing (in progress)
-- **TAS-35**: Coordinator Framework (follow-up)
-- **TAS-36**: Concrete Executors (follow-up)
-- **TAS-37**: Scaling and Monitoring (follow-up)
-- **TAS-38**: Configuration and Testing (follow-up)
+### Critical Resource Constraint Issues
 
-## References
+**PROBLEM IDENTIFIED**: Current configuration allows executor pools to exceed system resource limits:
 
-- Current orchestration system: `src/orchestration/orchestration_system.rs`
-- Circuit breaker: `src/resilience/circuit_breaker.rs`
-- Current configuration: `src/orchestration/config.rs`
-- pgmq integration: `src/messaging/pgmq_client.rs`
+- **Production Environment**: Executor pools can spawn 73 executors (10+20+15+20+8) but database pool only has 50 connections
+- **Test Environment**: Could spawn 10 executors but only 25 database connections
+- **Database Constraint**: Primary bottleneck is database connection pool exhaustion
+
+**IMPACT**: Database pool exhaustion, connection timeouts, system instability under load.
+
+### Understanding Tokio's Threading Model
+
+**Why CPU cores don't limit async executors:**
+
+```rust
+// TRADITIONAL THREADING (1:1 model)
+// 1 executor = 1 system thread = 1 core needed
+for i in 0..num_cores {
+    std::thread::spawn(|| {
+        // This blocks a system thread
+        process_tasks();
+    });
+}
+
+// TOKIO ASYNC (M:N model)
+// Many executors = few system threads = efficient core usage
+for i in 0..1000 { // Can spawn thousands!
+    tokio::spawn(async {
+        // This is an async task that yields at .await
+        process_tasks().await;
+    });
+}
+// Tokio scheduler maps all 1000 async tasks to ~8 system threads
+```
+
+**Key Insight**: Our executors are async tasks that spend most of their time waiting (polling queues, waiting for database responses). When they hit an `.await`, they yield control and Tokio can run other tasks on the same system thread. This is why we can run many more executors than CPU cores.
+
+### Proposed Resource Management Architecture
+
+#### 1. System Resource Detection
+
+```rust
+pub struct SystemResourceLimits {
+    pub database_max_connections: usize,
+    pub available_memory_mb: usize,
+    pub cpu_cores: usize, // Informational only - not used for limiting executors
+}
+
+impl SystemResourceLimits {
+    pub fn detect(db_pool: &PgPool) -> Self {
+        let database_max_connections = db_pool.size() as usize;
+        let available_memory_mb = Self::get_available_memory();
+        let cpu_cores = num_cpus::get(); // For monitoring only
+
+        Self {
+            database_max_connections,
+            available_memory_mb,
+            cpu_cores, // Not used for executor limiting!
+        }
+    }
+
+    /// Calculate maximum safe executors based on real constraints
+    pub fn max_safe_executors(&self) -> usize {
+        // Primary constraint: database connections (85% utilization for safety)
+        let db_based_limit = (self.database_max_connections as f64 * 0.85) as usize;
+
+        // Secondary constraint: memory (rough estimate: 50MB per executor)
+        let memory_based_limit = self.available_memory_mb / 50;
+
+        // Return the most restrictive limit
+        db_based_limit.min(memory_based_limit)
+
+        // NOTE: CPU cores are NOT used for limiting! Tokio's M:N threading
+        // model allows many async executors to run efficiently on few system threads.
+    }
+}
+```
+
+#### 2. Resource Budget Allocation
+
+```rust
+pub struct ResourceBudget {
+    pub total_executor_limit: usize,
+    pub allocated_executors: HashMap<ExecutorType, usize>,
+    pub reserved_connections: usize, // For system overhead
+}
+
+impl ResourceBudget {
+    pub fn calculate(limits: &SystemResourceLimits, config: &ExecutorPoolsConfig) -> Result<Self> {
+        let reserved_connections = 5; // System overhead
+        let available_for_executors = limits.database_max_connections.saturating_sub(reserved_connections);
+
+        // Calculate total requested executors
+        let total_requested: usize = config.iter()
+            .map(|(_, pool_config)| pool_config.max_executors)
+            .sum();
+
+        if total_requested > available_for_executors {
+            return Err(TaskerError::ConfigurationError(
+                format!("Executor pool configuration requests {} executors but only {} database connections available",
+                        total_requested, available_for_executors)
+            ));
+        }
+
+        Ok(Self {
+            total_executor_limit: available_for_executors,
+            allocated_executors: HashMap::new(),
+            reserved_connections,
+        })
+    }
+}
+```
+
+#### 3. Configuration Validation
+
+```rust
+impl OrchestrationLoopCoordinator {
+    pub async fn new_with_resource_validation(config: CoordinatorConfig, db_pool: PgPool) -> Result<Self> {
+        // Detect system resources
+        let system_limits = SystemResourceLimits::detect(&db_pool);
+
+        // Validate configuration against resources
+        let resource_budget = ResourceBudget::calculate(&system_limits, &config.executor_pools)?;
+
+        info!(
+            cpu_cores = system_limits.cpu_cores,
+            max_db_connections = system_limits.database_max_connections,
+            max_total_executors = resource_budget.total_executor_limit,
+            "System resources detected and validated"
+        );
+
+        Ok(Self::with_resource_budget(config, db_pool, resource_budget).await?)
+    }
+}
+```
+
+### Configuration Changes
+
+Continued in [Supplemental](./TAS-34-supplemental.md)

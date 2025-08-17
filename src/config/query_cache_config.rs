@@ -254,9 +254,9 @@ impl QueryCacheConfigLoader {
             .or_else(|_| env::var("RUST_ENV"))
             .unwrap_or_else(|_| "production".to_string());
 
-        let config_file = "config/tasker-config.yaml";
+        let config_source = "component-based configuration";
 
-        info!("Loading query cache configuration from: {}", config_file);
+        info!("Loading query cache configuration from: {}", config_source);
 
         // For now, return environment-based config since we don't have a YAML parser
         // In the future, this could use serde_yaml to parse the actual files
