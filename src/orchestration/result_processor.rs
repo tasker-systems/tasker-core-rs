@@ -23,6 +23,7 @@ use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::{
     backoff_calculator::{BackoffCalculator, BackoffContext},
+    finalization_claimer::FinalizationClaimer,
     task_finalizer::TaskFinalizer,
 };
 
@@ -45,17 +46,24 @@ use crate::orchestration::{
 pub struct OrchestrationResultProcessor {
     task_finalizer: TaskFinalizer,
     backoff_calculator: BackoffCalculator,
+    finalization_claimer: FinalizationClaimer,
     pool: PgPool,
+    processor_id: String,
 }
 
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
     pub fn new(task_finalizer: TaskFinalizer, pool: PgPool) -> Self {
         let backoff_calculator = BackoffCalculator::with_defaults(pool.clone());
+        let processor_id = FinalizationClaimer::generate_processor_id("orchestration");
+        let finalization_claimer = FinalizationClaimer::new(pool.clone(), processor_id.clone());
+
         Self {
             task_finalizer,
             backoff_calculator,
+            finalization_claimer,
             pool,
+            processor_id,
         }
     }
 
@@ -65,10 +73,33 @@ impl OrchestrationResultProcessor {
         backoff_calculator: BackoffCalculator,
         pool: PgPool,
     ) -> Self {
+        let processor_id = FinalizationClaimer::generate_processor_id("orchestration");
+        let finalization_claimer = FinalizationClaimer::new(pool.clone(), processor_id.clone());
+
         Self {
             task_finalizer,
             backoff_calculator,
+            finalization_claimer,
             pool,
+            processor_id,
+        }
+    }
+
+    /// Create a new orchestration result processor with custom components
+    pub fn with_components(
+        task_finalizer: TaskFinalizer,
+        backoff_calculator: BackoffCalculator,
+        finalization_claimer: FinalizationClaimer,
+        pool: PgPool,
+    ) -> Self {
+        let processor_id = finalization_claimer.processor_id().to_string();
+
+        Self {
+            task_finalizer,
+            backoff_calculator,
+            finalization_claimer,
+            pool,
+            processor_id,
         }
     }
 
@@ -146,27 +177,84 @@ impl OrchestrationResultProcessor {
         // TAS-32: NO STATE UPDATES - Ruby workers handle step state transitions and result saving
         // Rust orchestration only coordinates task-level finalization
 
-        // Only handle task finalization for completed or failed steps
+        // TAS-37: Use finalization claiming to prevent race conditions
         if matches!(status.as_str(), "success" | "failed") {
             if let Ok(Some(workflow_step)) = WorkflowStep::find_by_id(&self.pool, step_uuid).await {
+                // Try to claim the task for finalization
                 match self
-                    .task_finalizer
-                    .finalize_task(workflow_step.task_uuid, false)
+                    .finalization_claimer
+                    .claim_task(workflow_step.task_uuid)
                     .await
                 {
-                    Ok(finalization_result) => {
-                        tracing::info!(
-                            "Task {} finalization result: action={:?}, reason={:?}",
-                            workflow_step.task_uuid,
-                            finalization_result.action,
-                            finalization_result.reason
-                        );
+                    Ok(claim_result) => {
+                        if claim_result.claimed {
+                            // We got the claim - proceed with finalization
+                            tracing::info!(
+                                task_uuid = %workflow_step.task_uuid,
+                                processor_id = %self.processor_id,
+                                step_uuid = %step_uuid,
+                                "Claimed task for finalization"
+                            );
+
+                            // Perform finalization with the claim
+                            let _finalization_result = match self
+                                .task_finalizer
+                                .finalize_task(workflow_step.task_uuid, false)
+                                .await
+                            {
+                                Ok(result) => {
+                                    tracing::info!(
+                                        task_uuid = %workflow_step.task_uuid,
+                                        action = ?result.action,
+                                        reason = ?result.reason,
+                                        "Task finalization completed"
+                                    );
+                                    result
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        task_uuid = %workflow_step.task_uuid,
+                                        error = %e,
+                                        "Task finalization failed"
+                                    );
+                                    // Release claim on error
+                                    let _ = self
+                                        .finalization_claimer
+                                        .release_claim(workflow_step.task_uuid)
+                                        .await;
+                                    return Err(e.into());
+                                }
+                            };
+
+                            // Release the claim after finalization
+                            if let Err(e) = self
+                                .finalization_claimer
+                                .release_claim(workflow_step.task_uuid)
+                                .await
+                            {
+                                tracing::warn!(
+                                    task_uuid = %workflow_step.task_uuid,
+                                    error = %e,
+                                    "Failed to release finalization claim"
+                                );
+                            }
+                        } else {
+                            // Another processor is handling or will handle finalization
+                            tracing::debug!(
+                                task_uuid = %workflow_step.task_uuid,
+                                already_claimed_by = ?claim_result.already_claimed_by,
+                                reason = ?claim_result.message,
+                                step_uuid = %step_uuid,
+                                "Task finalization not needed or already claimed by another processor"
+                            );
+                        }
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Task finalization check failed for task {}: {}",
-                            workflow_step.task_uuid,
-                            e
+                            task_uuid = %workflow_step.task_uuid,
+                            step_uuid = %step_uuid,
+                            error = %e,
+                            "Failed to attempt finalization claim"
                         );
                     }
                 }
