@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::error::{Result, TaskerError};
 
+use super::operational_state::{OperationalStateManager, SystemOperationalState};
 use super::pool::HealthReport;
 
 /// Health monitoring system for orchestration coordinators
@@ -60,17 +61,67 @@ impl HealthMonitor {
         }
     }
 
-    /// Record a health report from the pool manager
+    /// Record a health report from the pool manager (TAS-37 Supplemental: enhanced for operational state awareness)
     pub async fn record_health_report(&self, report: HealthReport) -> Result<()> {
+        self.record_health_report_with_operational_state(report, None)
+            .await
+    }
+
+    /// Record a health report with operational state context (TAS-37 Supplemental)
+    ///
+    /// This method provides operational state awareness for context-sensitive health monitoring.
+    /// During graceful shutdown, health degradation is expected and alerts can be suppressed.
+    pub async fn record_health_report_with_operational_state(
+        &self,
+        report: HealthReport,
+        operational_state: Option<&OperationalStateManager>,
+    ) -> Result<()> {
+        self.record_health_report_with_config(report, operational_state, None)
+            .await
+    }
+
+    /// Record a health report with operational state and configuration context (TAS-37 Supplemental)
+    ///
+    /// This method provides full configuration-aware health monitoring by using actual
+    /// configuration values for threshold multipliers instead of hardcoded defaults.
+    pub async fn record_health_report_with_config(
+        &self,
+        report: HealthReport,
+        operational_state: Option<&OperationalStateManager>,
+        config: Option<&crate::config::OperationalStateConfig>,
+    ) -> Result<()> {
         let timestamp = Instant::now();
 
+        // TAS-37 Supplemental: Get operational state context for context-aware monitoring
+        let (current_state, should_suppress_alerts, health_threshold_multiplier) =
+            if let Some(op_state) = operational_state {
+                let state = op_state.current_state().await;
+                let suppress = op_state.should_suppress_alerts().await;
+
+                // Use configuration-aware threshold multiplier if config is provided
+                let multiplier = if let Some(operational_config) = config {
+                    op_state
+                        .health_threshold_multiplier_with_config(operational_config)
+                        .await
+                } else {
+                    op_state.health_threshold_multiplier().await
+                };
+
+                (Some(state), suppress, multiplier)
+            } else {
+                (None, false, 1.0)
+            };
+
         debug!(
-            "HEALTH[{}]: Recording health report - {} pools, {} executors ({} healthy, {} unhealthy)",
+            "HEALTH[{}]: Recording health report - {} pools, {} executors ({} healthy, {} unhealthy) | operational_state={:?}, suppress_alerts={}, threshold_multiplier={}",
             self.id,
             report.total_pools,
             report.total_executors,
             report.healthy_executors,
-            report.unhealthy_executors
+            report.unhealthy_executors,
+            current_state,
+            should_suppress_alerts,
+            health_threshold_multiplier
         );
 
         // Calculate health metrics
@@ -80,15 +131,34 @@ impl HealthMonitor {
             0.0
         };
 
-        // Update system status based on health
-        let new_status = self.calculate_system_status(&report).await?;
+        // Update system status based on health with operational context
+        let new_status = self
+            .calculate_system_status_with_context(
+                &report,
+                current_state.as_ref(),
+                health_threshold_multiplier,
+            )
+            .await?;
         {
             let mut status = self.system_status.lock().await;
             *status = new_status.clone();
         }
 
-        // Check for alerts
-        self.check_alerts(&report, health_percentage).await?;
+        // Check for alerts with operational state awareness
+        if !should_suppress_alerts {
+            self.check_alerts_with_context(
+                &report,
+                health_percentage,
+                current_state.as_ref(),
+                health_threshold_multiplier,
+            )
+            .await?;
+        } else {
+            debug!(
+                "HEALTH[{}]: Alerts suppressed due to operational state: {:?}",
+                self.id, current_state
+            );
+        }
 
         // Store the timestamped report
         let timestamped_report = TimestampedHealthReport {
@@ -111,25 +181,72 @@ impl HealthMonitor {
         Ok(())
     }
 
-    /// Calculate overall system status
+    /// Calculate overall system status (backward compatibility)
+    #[allow(dead_code)]
     async fn calculate_system_status(&self, report: &HealthReport) -> Result<SystemStatus> {
+        self.calculate_system_status_with_context(report, None, 1.0)
+            .await
+    }
+
+    /// Calculate overall system status with operational state context (TAS-37 Supplemental)
+    async fn calculate_system_status_with_context(
+        &self,
+        report: &HealthReport,
+        operational_state: Option<&SystemOperationalState>,
+        health_threshold_multiplier: f64,
+    ) -> Result<SystemStatus> {
         let health_percentage = if report.total_executors > 0 {
             (report.healthy_executors as f64 / report.total_executors as f64) * 100.0
         } else {
             return Ok(SystemStatus::Starting);
         };
 
-        // System is unhealthy if more than 50% of executors are unhealthy
-        if health_percentage < 50.0 {
+        // TAS-37 Supplemental: Adjust thresholds based on operational state
+        // During startup or graceful shutdown, use relaxed thresholds
+        let unhealthy_threshold = 50.0 * health_threshold_multiplier;
+        let degraded_threshold = 90.0 * health_threshold_multiplier;
+
+        // Log context when using adjusted thresholds
+        if let Some(state) = operational_state {
+            if health_threshold_multiplier != 1.0 {
+                debug!(
+                    "HEALTH[{}]: Using adjusted thresholds for {:?} - unhealthy: {:.1}%, degraded: {:.1}%",
+                    self.id,
+                    state,
+                    unhealthy_threshold,
+                    degraded_threshold
+                );
+            }
+        }
+
+        // System is unhealthy if below the adjusted unhealthy threshold
+        if health_percentage < unhealthy_threshold {
             // Track when unhealthy state began
             let unhealthy_since = {
                 let mut unhealthy_guard = self.unhealthy_since.lock().await;
                 if unhealthy_guard.is_none() {
                     *unhealthy_guard = Some(Instant::now());
-                    warn!(
-                        "🚨 HEALTH: System becoming unhealthy - {:.1}% healthy",
-                        health_percentage
-                    );
+                    // TAS-37 Supplemental: Context-aware logging based on operational state
+                    match operational_state {
+                        Some(SystemOperationalState::GracefulShutdown) => {
+                            info!(
+                                "ℹ️ HEALTH: System health degrading during graceful shutdown - {:.1}% healthy (expected during shutdown)",
+                                health_percentage
+                            );
+                        }
+                        Some(SystemOperationalState::Startup) => {
+                            info!(
+                                "ℹ️ HEALTH: System health low during startup - {:.1}% healthy (expected during initialization)",
+                                health_percentage
+                            );
+                        }
+                        _ => {
+                            warn!(
+                                "🚨 HEALTH: System becoming unhealthy - {:.1}% healthy",
+                                health_percentage
+                            );
+                        }
+                    }
                 }
                 unhealthy_guard.unwrap()
             };
@@ -143,17 +260,34 @@ impl HealthMonitor {
             });
         }
 
-        // System is degraded if 10-50% of executors are unhealthy
-        if health_percentage < 90.0 {
+        // System is degraded if below the adjusted degraded threshold
+        if health_percentage < degraded_threshold {
             // Track when degraded state began
             let degraded_since = {
                 let mut degraded_guard = self.degraded_since.lock().await;
                 if degraded_guard.is_none() {
                     *degraded_guard = Some(Instant::now());
-                    warn!(
-                        "⚠️ HEALTH: System becoming degraded - {:.1}% healthy",
-                        health_percentage
-                    );
+                    // TAS-37 Supplemental: Context-aware logging for degraded state
+                    match operational_state {
+                        Some(SystemOperationalState::GracefulShutdown) => {
+                            debug!(
+                                "ℹ️ HEALTH: System performance degrading during graceful shutdown - {:.1}% healthy (expected)",
+                                health_percentage
+                            );
+                        }
+                        Some(SystemOperationalState::Startup) => {
+                            debug!(
+                                "ℹ️ HEALTH: System performance degraded during startup - {:.1}% healthy (expected during initialization)",
+                                health_percentage
+                            );
+                        }
+                        _ => {
+                            warn!(
+                                "⚠️ HEALTH: System becoming degraded - {:.1}% healthy",
+                                health_percentage
+                            );
+                        }
+                    }
                 }
                 degraded_guard.unwrap()
             };
@@ -184,42 +318,115 @@ impl HealthMonitor {
         Ok(SystemStatus::Healthy)
     }
 
-    /// Check for alert conditions
+    /// Check for alert conditions (backward compatibility)
+    #[allow(dead_code)]
     async fn check_alerts(&self, report: &HealthReport, health_percentage: f64) -> Result<()> {
+        self.check_alerts_with_context(report, health_percentage, None, 1.0)
+            .await
+    }
+
+    /// Check for alert conditions with operational state context (TAS-37 Supplemental)
+    async fn check_alerts_with_context(
+        &self,
+        report: &HealthReport,
+        health_percentage: f64,
+        operational_state: Option<&SystemOperationalState>,
+        health_threshold_multiplier: f64,
+    ) -> Result<()> {
         let alert_thresholds = self.alert_thresholds.lock().await;
 
-        // Low health percentage alert
-        if health_percentage < alert_thresholds.min_health_percentage {
-            warn!(
-                "🚨 HEALTH ALERT: System health is {:.1}% (threshold: {:.1}%)",
-                health_percentage, alert_thresholds.min_health_percentage
-            );
+        // TAS-37 Supplemental: Adjust alert thresholds based on operational state
+        let adjusted_min_health =
+            alert_thresholds.min_health_percentage * health_threshold_multiplier;
+        let adjusted_max_error_rate =
+            alert_thresholds.max_error_rate / health_threshold_multiplier.max(0.1); // Prevent division by zero
+
+        // Low health percentage alert with context-aware messaging
+        if health_percentage < adjusted_min_health {
+            match operational_state {
+                Some(SystemOperationalState::GracefulShutdown) => {
+                    debug!(
+                        "ℹ️ HEALTH: Low health during graceful shutdown - {:.1}% (adjusted threshold: {:.1}%) - expected during shutdown",
+                        health_percentage, adjusted_min_health
+                    );
+                }
+                Some(SystemOperationalState::Startup) => {
+                    debug!(
+                        "ℹ️ HEALTH: Low health during startup - {:.1}% (adjusted threshold: {:.1}%) - expected during initialization",
+                        health_percentage, adjusted_min_health
+                    );
+                }
+                _ => {
+                    warn!(
+                        "🚨 HEALTH ALERT: System health is {:.1}% (threshold: {:.1}%)",
+                        health_percentage, adjusted_min_health
+                    );
+                }
+            }
         }
 
-        // Check for pools with no healthy executors
+        // Check for pools with no healthy executors with context-aware messaging
         for (executor_type, pool_status) in &report.pool_statuses {
             if pool_status.healthy_executors == 0 && pool_status.active_executors > 0 {
-                error!(
-                    "🚨 HEALTH ALERT: {} pool has no healthy executors ({} total)",
-                    executor_type.name(),
-                    pool_status.active_executors
-                );
+                match operational_state {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        info!(
+                            "ℹ️ HEALTH: {} pool has no healthy executors during graceful shutdown ({} total) - expected during shutdown",
+                            executor_type.name(),
+                            pool_status.active_executors
+                        );
+                    }
+                    Some(SystemOperationalState::Emergency) => {
+                        error!(
+                            "🚨 HEALTH ALERT: {} pool has no healthy executors during emergency shutdown ({} total)",
+                            executor_type.name(),
+                            pool_status.active_executors
+                        );
+                    }
+                    _ => {
+                        error!(
+                            "🚨 HEALTH ALERT: {} pool has no healthy executors ({} total)",
+                            executor_type.name(),
+                            pool_status.active_executors
+                        );
+                    }
+                }
             }
 
-            // Check for high error rates (calculated from pool metrics)
+            // Check for high error rates with context-aware thresholds and messaging
             let error_rate = if pool_status.total_items_processed > 0 {
                 pool_status.total_items_failed as f64 / pool_status.total_items_processed as f64
             } else {
                 0.0
             };
 
-            if error_rate > alert_thresholds.max_error_rate {
-                warn!(
-                    "🚨 HEALTH ALERT: {} pool has high error rate {:.1}% (threshold: {:.1}%)",
-                    executor_type.name(),
-                    error_rate * 100.0,
-                    alert_thresholds.max_error_rate * 100.0
-                );
+            if error_rate > adjusted_max_error_rate {
+                match operational_state {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        debug!(
+                            "ℹ️ HEALTH: {} pool has elevated error rate during graceful shutdown {:.1}% (adjusted threshold: {:.1}%) - may be expected",
+                            executor_type.name(),
+                            error_rate * 100.0,
+                            adjusted_max_error_rate * 100.0
+                        );
+                    }
+                    Some(SystemOperationalState::Startup) => {
+                        debug!(
+                            "ℹ️ HEALTH: {} pool has elevated error rate during startup {:.1}% (adjusted threshold: {:.1}%) - may be expected during initialization",
+                            executor_type.name(),
+                            error_rate * 100.0,
+                            adjusted_max_error_rate * 100.0
+                        );
+                    }
+                    _ => {
+                        warn!(
+                            "🚨 HEALTH ALERT: {} pool has high error rate {:.1}% (threshold: {:.1}%)",
+                            executor_type.name(),
+                            error_rate * 100.0,
+                            adjusted_max_error_rate * 100.0
+                        );
+                    }
+                }
             }
         }
 

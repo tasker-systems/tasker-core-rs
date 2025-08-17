@@ -51,15 +51,26 @@ module TaskerCore
 
     # Stop the embedded orchestration system
     #
-    # Gracefully shuts down the background orchestration system.
+    # Gracefully shuts down the background orchestration system with proper
+    # operational state coordination to eliminate health monitoring false alerts.
     #
     # @return [Boolean] true if stopped successfully, false if not running
     def stop
       return false unless running?
 
-      @logger.info '🛑 EMBEDDED_ORCHESTRATOR: Stopping orchestration system'
+      @logger.info '🛑 EMBEDDED_ORCHESTRATOR: Initiating graceful shutdown with operational state coordination'
 
       begin
+        # First, transition to graceful shutdown state to suppress health alerts (TAS-37 Supplemental)
+        begin
+          TaskerCore.transition_to_graceful_shutdown
+          @logger.info '✅ EMBEDDED_ORCHESTRATOR: Transitioned to graceful shutdown state'
+        rescue StandardError => e
+          @logger.warn "⚠️ EMBEDDED_ORCHESTRATOR: Failed to transition operational state - #{e.message}"
+          # Continue with shutdown even if state transition fails
+        end
+
+        # Now stop the orchestration system
         result = TaskerCore.stop_embedded_orchestration
         @started_at = nil
         @logger.info "✅ EMBEDDED_ORCHESTRATOR: #{result}"
@@ -165,7 +176,7 @@ module TaskerCore
       embedded_orchestrator.start
     end
 
-    # Stop global embedded orchestrator
+    # Stop global embedded orchestrator with graceful shutdown coordination
     def stop_embedded_orchestration!
       embedded_orchestrator.stop if @embedded_orchestrator
     end

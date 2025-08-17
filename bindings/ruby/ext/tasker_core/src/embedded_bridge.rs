@@ -307,6 +307,42 @@ fn stop_embedded_orchestration() -> Result<String, Error> {
     }
 }
 
+/// Transition the embedded orchestration system to a graceful shutdown state
+///
+/// This enables context-aware health monitoring by signaling that the system is
+/// intentionally shutting down, which allows health monitors to suppress false alerts.
+fn transition_to_graceful_shutdown() -> Result<String, Error> {
+    let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
+        error!("Failed to acquire embedded system lock: {}", e);
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Lock acquisition failed",
+        )
+    })?;
+
+    let handle = handle_guard.as_ref().ok_or_else(|| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            "Embedded system not running",
+        )
+    })?;
+
+    // Use the orchestration system to signal graceful shutdown
+    let system = handle.orchestration_core().clone();
+    let runtime_handle = handle.runtime_handle().clone();
+
+    runtime_handle
+        .block_on(async {
+            system.transition_to_graceful_shutdown().await.map_err(|e| {
+                error!("Failed to transition to graceful shutdown: {}", e);
+                format!("Graceful shutdown transition failed: {e}")
+            })
+        })
+        .map_err(|e| Error::new(magnus::exception::runtime_error(), e))?;
+
+    Ok("Embedded orchestration system transitioned to graceful shutdown".to_string())
+}
+
 /// Get status of the embedded orchestration system
 fn get_embedded_orchestration_status() -> Result<Value, Error> {
     let handle_guard = EMBEDDED_SYSTEM.lock().map_err(|e| {
@@ -733,6 +769,10 @@ pub fn init_embedded_bridge(tasker_core_module: &RModule) -> Result<(), Error> {
     tasker_core_module.define_singleton_method(
         "stop_embedded_orchestration",
         function!(stop_embedded_orchestration, 0),
+    )?;
+    tasker_core_module.define_singleton_method(
+        "transition_to_graceful_shutdown",
+        function!(transition_to_graceful_shutdown, 0),
     )?;
     tasker_core_module.define_singleton_method(
         "embedded_orchestration_status",
