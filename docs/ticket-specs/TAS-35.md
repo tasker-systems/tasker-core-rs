@@ -340,6 +340,20 @@ impl MessagingService {
 5. **Performance**: No degradation when integrated with executor pools
 6. **Backpressure Coordination**: Global backpressure works across messaging and executors
 7. **Scaling Harmony**: Messaging service scales in coordination with executor pools
+8. **Infrastructure Ready**: 
+   - Docker Compose includes both PostgreSQL/PGMQ and RabbitMQ services
+   - CI/CD pipeline tests both messaging providers in parallel
+   - Local development setup script for quick initialization
+   - Management UIs accessible for debugging (RabbitMQ: http://localhost:15672)
+9. **Provider Flexibility**:
+   - Runtime switching between PGMQ and RabbitMQ via configuration
+   - Graceful fallback when primary provider unavailable
+   - Zero code changes required to switch providers
+10. **Testing Coverage**:
+   - Integration tests pass for both PGMQ and RabbitMQ
+   - Performance benchmarks document provider differences
+   - Failover scenarios tested and documented
+   - CI matrix tests all provider combinations
 
 ## Risks and Mitigations
 
@@ -1024,6 +1038,671 @@ impl AmqpExtensions for RabbitMqMessageService {
             .map_err(|e| RabbitMqError::Channel(e.to_string()))?;
         
         Ok(())
+    }
+}
+
+### 2.3 RabbitMQ Configuration
+
+#### TOML Configuration File: `config/tasker/base/rabbit_mq.toml`
+
+```toml
+# RabbitMQ Configuration for Tasker Core
+# This file defines the base RabbitMQ/AMQP messaging configuration
+
+[rabbit_mq]
+# Connection settings
+url = "amqp://localhost:5672"
+vhost = "/"
+username = "guest"  # Override in environment-specific config
+password = "guest"  # Override in environment-specific config
+
+# Connection pool settings
+[rabbit_mq.connection_pool]
+max_connections = 10
+min_connections = 2
+connection_timeout_ms = 5000
+heartbeat_interval_secs = 60
+automatic_recovery = true
+network_recovery_interval_ms = 5000
+
+# Channel settings
+[rabbit_mq.channels]
+max_channels_per_connection = 100
+channel_max = 2047  # 0 means no limit
+
+# Consumer settings
+[rabbit_mq.consumer]
+prefetch_count = 10
+consumer_tag_prefix = "tasker_"
+no_ack = false  # Always use manual acknowledgment
+exclusive = false
+no_local = false  # Don't receive messages published by same connection
+
+# Publisher settings
+[rabbit_mq.publisher]
+confirm_mode = true  # Wait for broker confirmations
+mandatory = true  # Return message if can't route
+immediate = false  # Deprecated in AMQP 0-9-1
+persistent = true  # Messages survive broker restart
+
+# Queue defaults
+[rabbit_mq.queue_defaults]
+durable = true
+auto_delete = false
+exclusive = false
+max_length = 100000  # Maximum number of messages
+max_length_bytes = 1073741824  # 1GB
+message_ttl_ms = 86400000  # 24 hours
+overflow = "drop-head"  # or "reject-publish"
+dead_letter_exchange = "tasker_dlx"
+dead_letter_routing_key_prefix = "dlq."
+
+# Exchange configuration
+[[rabbit_mq.exchanges]]
+name = "tasker_direct"
+type = "direct"
+durable = true
+auto_delete = false
+internal = false
+
+[[rabbit_mq.exchanges]]
+name = "tasker_events"
+type = "topic"
+durable = true
+auto_delete = false
+internal = false
+
+[[rabbit_mq.exchanges]]
+name = "tasker_dlx"
+type = "direct"
+durable = true
+auto_delete = false
+internal = false
+description = "Dead letter exchange for failed messages"
+
+# Queue bindings
+[[rabbit_mq.bindings]]
+queue = "fulfillment_queue"
+exchange = "tasker_direct"
+routing_key = "fulfillment"
+
+[[rabbit_mq.bindings]]
+queue = "inventory_queue"
+exchange = "tasker_direct"
+routing_key = "inventory"
+
+[[rabbit_mq.bindings]]
+queue = "notifications_queue"
+exchange = "tasker_direct"
+routing_key = "notifications"
+
+# Topic bindings for event-driven patterns
+[[rabbit_mq.bindings]]
+queue = "order_events"
+exchange = "tasker_events"
+routing_key = "order.*"
+
+[[rabbit_mq.bindings]]
+queue = "inventory_events"
+exchange = "tasker_events"
+routing_key = "inventory.*"
+
+# Dead letter queue bindings
+[[rabbit_mq.bindings]]
+queue = "fulfillment_dlq"
+exchange = "tasker_dlx"
+routing_key = "dlq.fulfillment"
+
+[[rabbit_mq.bindings]]
+queue = "inventory_dlq"
+exchange = "tasker_dlx"
+routing_key = "dlq.inventory"
+
+# Retry policy
+[rabbit_mq.retry]
+max_retries = 3
+initial_backoff_ms = 1000
+max_backoff_ms = 30000
+backoff_multiplier = 2.0
+jitter = true  # Add randomization to prevent thundering herd
+
+# Circuit breaker (aligned with TAS-34)
+[rabbit_mq.circuit_breaker]
+enabled = true
+failure_threshold = 5
+success_threshold = 2
+timeout_ms = 30000
+half_open_max_calls = 3
+reset_timeout_ms = 60000
+
+# Monitoring and metrics
+[rabbit_mq.monitoring]
+enable_metrics = true
+metrics_collection_interval_secs = 10
+log_level = "info"  # debug, info, warn, error
+trace_messages = false  # Enable for debugging only
+
+# Resource limits (aligned with TAS-34 resource management)
+[rabbit_mq.resources]
+max_memory_bytes = 536870912  # 512MB
+max_message_size_bytes = 10485760  # 10MB
+connection_memory_limit_bytes = 104857600  # 100MB per connection
+```
+
+#### Environment-Specific Override: `config/tasker/environments/production/rabbit_mq.toml`
+
+```toml
+# Production overrides for RabbitMQ configuration
+
+[rabbit_mq]
+url = "${RABBITMQ_URL}"  # From environment variable
+username = "${RABBITMQ_USERNAME}"
+password = "${RABBITMQ_PASSWORD}"
+vhost = "${RABBITMQ_VHOST:-/tasker}"
+
+[rabbit_mq.connection_pool]
+max_connections = 50
+min_connections = 10
+
+[rabbit_mq.consumer]
+prefetch_count = 50  # Higher throughput in production
+
+[rabbit_mq.queue_defaults]
+max_length = 1000000  # Higher limits in production
+message_ttl_ms = 259200000  # 72 hours
+
+[rabbit_mq.monitoring]
+log_level = "warn"
+trace_messages = false
+```
+
+### 2.4 Configuration System Updates
+
+To support RabbitMQ configuration, the following updates are needed to the configuration system:
+
+#### Update to `src/config/messaging.rs`:
+
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MessagingConfig {
+    #[serde(flatten)]
+    pub provider_config: ProviderConfig,
+    pub retry: RetryConfig,
+    pub circuit_breaker: CircuitBreakerConfig,
+    pub resources: ResourceConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ProviderConfig {
+    Pgmq(PgmqConfig),
+    RabbitMq(RabbitMqConfig),
+    // Future: Sqs, Kafka, etc.
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RabbitMqConfig {
+    pub url: String,
+    pub vhost: String,
+    pub username: String,
+    pub password: String,
+    pub connection_pool: ConnectionPoolConfig,
+    pub channels: ChannelConfig,
+    pub consumer: ConsumerConfig,
+    pub publisher: PublisherConfig,
+    pub queue_defaults: QueueDefaultsConfig,
+    pub exchanges: Vec<ExchangeConfig>,
+    pub bindings: Vec<BindingConfig>,
+    pub retry: RetryConfig,
+    pub circuit_breaker: CircuitBreakerConfig,
+    pub monitoring: MonitoringConfig,
+    pub resources: ResourceConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConnectionPoolConfig {
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub connection_timeout_ms: u64,
+    pub heartbeat_interval_secs: u64,
+    pub automatic_recovery: bool,
+    pub network_recovery_interval_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ChannelConfig {
+    pub max_channels_per_connection: u32,
+    pub channel_max: u16,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConsumerConfig {
+    pub prefetch_count: u16,
+    pub consumer_tag_prefix: String,
+    pub no_ack: bool,
+    pub exclusive: bool,
+    pub no_local: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PublisherConfig {
+    pub confirm_mode: bool,
+    pub mandatory: bool,
+    pub immediate: bool,
+    pub persistent: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct QueueDefaultsConfig {
+    pub durable: bool,
+    pub auto_delete: bool,
+    pub exclusive: bool,
+    pub max_length: Option<i64>,
+    pub max_length_bytes: Option<i64>,
+    pub message_ttl_ms: Option<i64>,
+    pub overflow: String,
+    pub dead_letter_exchange: String,
+    pub dead_letter_routing_key_prefix: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExchangeConfig {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub exchange_type: String,
+    pub durable: bool,
+    pub auto_delete: bool,
+    pub internal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BindingConfig {
+    pub queue: String,
+    pub exchange: String,
+    pub routing_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MonitoringConfig {
+    pub enable_metrics: bool,
+    pub metrics_collection_interval_secs: u64,
+    pub log_level: String,
+    pub trace_messages: bool,
+}
+```
+
+#### Update to `ComponentConfigLoader` to handle messaging config:
+
+```rust
+impl ComponentConfigLoader {
+    pub async fn load_messaging_config(
+        &self,
+        environment: &str,
+    ) -> Result<Option<MessagingConfig>, ConfigError> {
+        // Check for RabbitMQ config
+        if let Some(rabbit_config) = self.load_component_config::<RabbitMqConfig>(
+            "rabbit_mq",
+            environment,
+        ).await? {
+            return Ok(Some(MessagingConfig {
+                provider_config: ProviderConfig::RabbitMq(rabbit_config),
+                // ... map other fields
+            }));
+        }
+        
+        // Check for PGMQ config
+        if let Some(pgmq_config) = self.load_component_config::<PgmqConfig>(
+            "pgmq",
+            environment,
+        ).await? {
+            return Ok(Some(MessagingConfig {
+                provider_config: ProviderConfig::Pgmq(pgmq_config),
+                // ... map other fields
+            }));
+        }
+        
+        Ok(None)
+    }
+}
+```
+
+#### Integration with TAS-34 Resource Management:
+
+The RabbitMQ configuration includes resource limits that align with TAS-34's resource management:
+
+1. **Connection Pool Limits**: Ensures RabbitMQ connections don't exceed database connection limits
+2. **Memory Limits**: Per-connection and total memory limits prevent OOM conditions
+3. **Circuit Breaker**: Aligned with TAS-34's circuit breaker patterns for coordinated degradation
+4. **Prefetch Count**: Controls message buffering to prevent memory exhaustion
+
+### 2.5 Messaging Provider Selection
+
+The messaging provider is determined through a hierarchical configuration approach:
+
+#### Provider Detection Logic:
+
+```rust
+impl ComponentConfigLoader {
+    pub async fn detect_messaging_provider(
+        &self,
+        environment: &str,
+    ) -> Result<MessageServiceProvider, ConfigError> {
+        // 1. Check environment variable override
+        if let Ok(provider) = std::env::var("TASKER_MESSAGING_PROVIDER") {
+            return match provider.to_lowercase().as_str() {
+                "rabbitmq" | "rabbit_mq" | "amqp" => Ok(MessageServiceProvider::RabbitMq),
+                "pgmq" | "postgres" => Ok(MessageServiceProvider::Pgmq),
+                "sqs" => Ok(MessageServiceProvider::Sqs),
+                "redis" => Ok(MessageServiceProvider::Redis),
+                "kafka" => Ok(MessageServiceProvider::Kafka),
+                _ => Err(ConfigError::InvalidProvider(provider)),
+            };
+        }
+        
+        // 2. Check for provider-specific config files
+        let config_path = self.config_dir.join("tasker");
+        
+        // Check base configs
+        if config_path.join("base/rabbit_mq.toml").exists() {
+            return Ok(MessageServiceProvider::RabbitMq);
+        }
+        
+        if config_path.join("base/pgmq.toml").exists() {
+            return Ok(MessageServiceProvider::Pgmq);
+        }
+        
+        // 3. Check environment-specific overrides
+        let env_path = config_path.join(format!("environments/{}", environment));
+        if env_path.join("rabbit_mq.toml").exists() {
+            return Ok(MessageServiceProvider::RabbitMq);
+        }
+        
+        if env_path.join("pgmq.toml").exists() {
+            return Ok(MessageServiceProvider::Pgmq);
+        }
+        
+        // 4. Default to PGMQ (current implementation)
+        Ok(MessageServiceProvider::Pgmq)
+    }
+    
+    pub async fn load_messaging_service(
+        &self,
+        environment: &str,
+    ) -> Result<Box<dyn MessagingService>, ConfigError> {
+        let provider = self.detect_messaging_provider(environment).await?;
+        
+        match provider {
+            MessageServiceProvider::RabbitMq => {
+                let config = self.load_component_config::<RabbitMqConfig>(
+                    "rabbit_mq",
+                    environment,
+                ).await?
+                .ok_or(ConfigError::MissingConfig("rabbit_mq"))?;
+                
+                let service = RabbitMqMessageService::new(config);
+                service.initialize().await
+                    .map_err(|e| ConfigError::ServiceInit(e.to_string()))?;
+                Ok(Box::new(service))
+            },
+            MessageServiceProvider::Pgmq => {
+                let config = self.load_component_config::<PgmqConfig>(
+                    "pgmq",
+                    environment,
+                ).await?
+                .ok_or(ConfigError::MissingConfig("pgmq"))?;
+                
+                let service = PgmqMessageService::new(config);
+                service.initialize().await
+                    .map_err(|e| ConfigError::ServiceInit(e.to_string()))?;
+                Ok(Box::new(service))
+            },
+            _ => Err(ConfigError::UnsupportedProvider(format!("{:?}", provider))),
+        }
+    }
+}
+```
+
+#### Migration from Existing PGMQ Configuration:
+
+For smooth migration, the system supports both configurations simultaneously:
+
+```toml
+# config/tasker/base/messaging.toml - Unified messaging config
+[messaging]
+# Primary provider selection
+provider = "pgmq"  # or "rabbitmq"
+
+# Fallback configuration for high availability
+[messaging.fallback]
+enabled = true
+provider = "pgmq"
+failover_timeout_ms = 5000
+
+# Provider-specific configs are loaded from their respective files:
+# - config/tasker/base/pgmq.toml
+# - config/tasker/base/rabbit_mq.toml
+```
+
+#### Queue Name Mapping for Migration:
+
+To support gradual migration from PGMQ to RabbitMQ:
+
+```rust
+pub struct QueueNameMapper {
+    mappings: HashMap<String, QueueMapping>,
+}
+
+pub struct QueueMapping {
+    pub pgmq_name: String,
+    pub rabbitmq_exchange: String,
+    pub rabbitmq_routing_key: String,
+    pub rabbitmq_queue: String,
+}
+
+impl QueueNameMapper {
+    pub fn new() -> Self {
+        let mut mappings = HashMap::new();
+        
+        // Define standard mappings
+        mappings.insert("fulfillment_queue".to_string(), QueueMapping {
+            pgmq_name: "fulfillment_queue".to_string(),
+            rabbitmq_exchange: "tasker_direct".to_string(),
+            rabbitmq_routing_key: "fulfillment".to_string(),
+            rabbitmq_queue: "fulfillment_queue".to_string(),
+        });
+        
+        mappings.insert("inventory_queue".to_string(), QueueMapping {
+            pgmq_name: "inventory_queue".to_string(),
+            rabbitmq_exchange: "tasker_direct".to_string(),
+            rabbitmq_routing_key: "inventory".to_string(),
+            rabbitmq_queue: "inventory_queue".to_string(),
+        });
+        
+        Self { mappings }
+    }
+    
+    pub fn map_for_provider(
+        &self,
+        logical_name: &str,
+        provider: &MessageServiceProvider,
+    ) -> QueueDestination {
+        let mapping = self.mappings.get(logical_name)
+            .unwrap_or_else(|| self.default_mapping(logical_name));
+            
+        match provider {
+            MessageServiceProvider::Pgmq => {
+                QueueDestination::Simple(mapping.pgmq_name.clone())
+            },
+            MessageServiceProvider::RabbitMq => {
+                QueueDestination::Routed {
+                    exchange: mapping.rabbitmq_exchange.clone(),
+                    routing_key: mapping.rabbitmq_routing_key.clone(),
+                    queue: mapping.rabbitmq_queue.clone(),
+                }
+            },
+            _ => QueueDestination::Simple(logical_name.to_string()),
+        }
+    }
+}
+```
+
+#### Environment Variable Configuration:
+
+Support for environment-based configuration without changing code:
+
+```bash
+# Development - use PGMQ
+export TASKER_MESSAGING_PROVIDER=pgmq
+export PGMQ_DATABASE_URL=postgresql://localhost/tasker_dev
+
+# Staging - use RabbitMQ
+export TASKER_MESSAGING_PROVIDER=rabbitmq
+export RABBITMQ_URL=amqp://staging.rabbitmq.local:5672
+export RABBITMQ_USERNAME=tasker
+export RABBITMQ_PASSWORD=secure_password
+
+# Production - use RabbitMQ with PGMQ fallback
+export TASKER_MESSAGING_PROVIDER=rabbitmq
+export TASKER_MESSAGING_FALLBACK=pgmq
+export RABBITMQ_URL=amqp://prod.rabbitmq.cluster:5672
+export PGMQ_DATABASE_URL=postgresql://prod.db.cluster/tasker
+```
+
+```
+
+### 2.6 Integration with TAS-34 Component Configuration System
+
+The messaging configuration follows the component-based configuration pattern established in TAS-34:
+
+#### Component File Structure:
+```
+config/tasker/
+├── base/
+│   ├── pgmq.toml                 # PGMQ base configuration
+│   ├── rabbit_mq.toml             # RabbitMQ base configuration
+│   └── messaging.toml             # Provider selection and common settings
+├── environments/
+│   ├── development/
+│   │   ├── pgmq.toml             # Dev PGMQ overrides
+│   │   └── rabbit_mq.toml        # Dev RabbitMQ overrides
+│   ├── staging/
+│   │   ├── pgmq.toml             # Staging PGMQ overrides
+│   │   └── rabbit_mq.toml        # Staging RabbitMQ overrides
+│   └── production/
+│       ├── pgmq.toml             # Production PGMQ overrides
+│       └── rabbit_mq.toml        # Production RabbitMQ overrides
+```
+
+#### Loading Order (following TAS-34 pattern):
+1. Load base configuration from `config/tasker/base/{provider}.toml`
+2. Check for environment-specific overrides in `config/tasker/environments/{env}/{provider}.toml`
+3. Merge configurations with environment overrides taking precedence
+4. Apply environment variable substitutions (e.g., `${RABBITMQ_URL}`)
+5. Validate against schema and resource constraints
+
+#### Resource Validation Integration:
+The messaging service configuration participates in TAS-34's global resource validation:
+
+```rust
+impl ResourceValidator {
+    pub async fn validate_messaging_resources(
+        &self,
+        messaging_config: &MessagingConfig,
+        global_resources: &GlobalResourceLimits,
+    ) -> Result<(), ResourceValidationError> {
+        match &messaging_config.provider_config {
+            ProviderConfig::RabbitMq(config) => {
+                // Validate RabbitMQ connections don't exceed limits
+                let required_connections = config.connection_pool.max_connections;
+                if required_connections > global_resources.max_database_connections / 4 {
+                    return Err(ResourceValidationError::ExcessiveConnections {
+                        service: "RabbitMQ",
+                        requested: required_connections,
+                        available: global_resources.max_database_connections / 4,
+                    });
+                }
+                
+                // Validate memory allocation
+                let required_memory = config.resources.max_memory_bytes;
+                if required_memory > global_resources.max_memory_bytes / 10 {
+                    return Err(ResourceValidationError::ExcessiveMemory {
+                        service: "RabbitMQ",
+                        requested: required_memory,
+                        available: global_resources.max_memory_bytes / 10,
+                    });
+                }
+            },
+            ProviderConfig::Pgmq(config) => {
+                // PGMQ uses existing database connections
+                // Validate within database connection pool limits
+                self.validate_pgmq_resources(config, global_resources)?;
+            },
+        }
+        Ok(())
+    }
+}
+```
+
+#### Configuration Loader Extension:
+```rust
+impl ComponentConfigLoader {
+    /// Load messaging configuration with provider auto-detection
+    pub async fn load_messaging(
+        &self,
+        environment: &str,
+    ) -> Result<MessagingConfig, ConfigError> {
+        // First, try to load messaging.toml for provider selection
+        let messaging_meta = self.load_component_config::<MessagingMetaConfig>(
+            "messaging",
+            environment,
+        ).await?;
+        
+        // Determine provider from meta or auto-detect
+        let provider = messaging_meta
+            .as_ref()
+            .and_then(|m| m.provider.clone())
+            .or_else(|| self.detect_provider_from_files(environment))
+            .unwrap_or(MessageServiceProvider::Pgmq);
+        
+        // Load provider-specific configuration
+        let provider_config = match provider {
+            MessageServiceProvider::RabbitMq => {
+                let config = self.load_component_config::<RabbitMqConfig>(
+                    "rabbit_mq",
+                    environment,
+                ).await?
+                .ok_or(ConfigError::MissingComponent("rabbit_mq"))?;
+                ProviderConfig::RabbitMq(config)
+            },
+            MessageServiceProvider::Pgmq => {
+                let config = self.load_component_config::<PgmqConfig>(
+                    "pgmq",
+                    environment,
+                ).await?
+                .ok_or(ConfigError::MissingComponent("pgmq"))?;
+                ProviderConfig::Pgmq(config)
+            },
+            _ => return Err(ConfigError::UnsupportedProvider(provider)),
+        };
+        
+        Ok(MessagingConfig {
+            provider_config,
+            // Common fields from messaging_meta if present
+            retry: messaging_meta.as_ref()
+                .and_then(|m| m.retry.clone())
+                .unwrap_or_default(),
+            circuit_breaker: messaging_meta.as_ref()
+                .and_then(|m| m.circuit_breaker.clone())
+                .unwrap_or_default(),
+            resources: messaging_meta.as_ref()
+                .and_then(|m| m.resources.clone())
+                .unwrap_or_default(),
+        })
     }
 }
 ```
@@ -1984,3 +2663,179 @@ Key insights from lapin examples:
 - Manual acknowledgment provides transaction-like semantics
 
 The messaging service abstraction must be deeply integrated with TAS-34's architecture rather than being a standalone component. This ensures resource safety, health visibility, and coordinated scaling across the entire orchestration system. The implementation should proceed only after TAS-34's critical fixes are complete to avoid building on unstable foundations.
+
+### Infrastructure Checklist
+
+Before implementation begins, ensure:
+
+1. **Local Development Environment**:
+   - [ ] Docker Compose file updated with RabbitMQ service
+   - [ ] Setup script created for quick initialization
+   - [ ] Management UI accessible at http://localhost:15672
+   - [ ] Both PGMQ and RabbitMQ can run simultaneously for A/B testing
+
+   **Docker Compose Addition** (`docker-compose.yml`):
+   ```yaml
+   services:
+     # Existing PostgreSQL with PGMQ
+     postgres:
+       image: postgres:15
+       environment:
+         POSTGRES_USER: tasker
+         POSTGRES_PASSWORD: tasker
+         POSTGRES_DB: tasker_rust_test
+       ports:
+         - "5432:5432"
+       volumes:
+         - postgres_data:/var/lib/postgresql/data
+     
+     # Add RabbitMQ service
+     rabbitmq:
+       image: rabbitmq:3.12-management-alpine
+       container_name: tasker_rabbitmq
+       environment:
+         RABBITMQ_DEFAULT_USER: tasker
+         RABBITMQ_DEFAULT_PASS: tasker_dev
+         RABBITMQ_DEFAULT_VHOST: /tasker
+       ports:
+         - "5672:5672"    # AMQP port
+         - "15672:15672"  # Management UI
+       volumes:
+         - rabbitmq_data:/var/lib/rabbitmq
+       healthcheck:
+         test: ["CMD", "rabbitmq-diagnostics", "ping"]
+         interval: 10s
+         timeout: 5s
+         retries: 5
+   
+   volumes:
+     postgres_data:
+     rabbitmq_data:
+   ```
+
+2. **CI/CD Pipeline**:
+   - [ ] GitHub Actions workflow includes RabbitMQ service
+   - [ ] Test matrix covers both messaging providers
+   - [ ] Health checks ensure services are ready before tests
+   - [ ] Cleanup tasks prevent test pollution
+
+   **GitHub Actions Service Addition** (`.github/workflows/test.yml`):
+   ```yaml
+   jobs:
+     test:
+       runs-on: ubuntu-latest
+       
+       strategy:
+         matrix:
+           messaging-provider: [pgmq, rabbitmq]
+       
+       services:
+         postgres:
+           image: postgres:15
+           env:
+             POSTGRES_USER: tasker
+             POSTGRES_PASSWORD: tasker
+             POSTGRES_DB: tasker_rust_test
+           options: >-
+             --health-cmd pg_isready
+             --health-interval 10s
+             --health-timeout 5s
+             --health-retries 5
+           ports:
+             - 5432:5432
+         
+         rabbitmq:
+           image: rabbitmq:3.12-alpine
+           env:
+             RABBITMQ_DEFAULT_USER: tasker
+             RABBITMQ_DEFAULT_PASS: tasker_ci
+             RABBITMQ_DEFAULT_VHOST: /tasker
+           options: >-
+             --health-cmd "rabbitmq-diagnostics ping"
+             --health-interval 10s
+             --health-timeout 5s
+             --health-retries 5
+           ports:
+             - 5672:5672
+       
+       steps:
+         - uses: actions/checkout@v4
+         
+         - name: Setup Rust
+           uses: actions-rs/toolchain@v1
+           with:
+             toolchain: stable
+             override: true
+         
+         - name: Install PGMQ extension
+           if: matrix.messaging-provider == 'pgmq'
+           run: |
+             # Install PGMQ extension in PostgreSQL
+             cargo install --locked cargo-pgmq
+             cargo pgmq install
+         
+         - name: Run tests with messaging provider
+           env:
+             TASKER_MESSAGING_PROVIDER: ${{ matrix.messaging-provider }}
+             DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
+             RABBITMQ_URL: amqp://tasker:tasker_ci@localhost:5672/tasker
+           run: |
+             cargo test --all-features -- --test-threads=1
+   ```
+
+3. **Documentation**:
+   - [ ] README updated with RabbitMQ setup instructions
+   - [ ] Environment variable documentation complete
+   - [ ] Troubleshooting guide for common RabbitMQ issues
+   - [ ] Migration guide from PGMQ to RabbitMQ
+
+   **Local Setup Script** (`scripts/setup-messaging.sh`):
+   ```bash
+   #!/bin/bash
+   set -e
+   
+   echo "Setting up messaging infrastructure..."
+   
+   # Start services
+   docker-compose up -d postgres rabbitmq
+   
+   # Wait for PostgreSQL
+   echo "Waiting for PostgreSQL..."
+   until docker-compose exec -T postgres pg_isready -U tasker; do
+     sleep 1
+   done
+   
+   # Install PGMQ extension
+   echo "Installing PGMQ extension..."
+   docker-compose exec -T postgres psql -U tasker -d tasker_rust_test -c "CREATE EXTENSION IF NOT EXISTS pgmq;"
+   
+   # Wait for RabbitMQ
+   echo "Waiting for RabbitMQ..."
+   until docker-compose exec -T rabbitmq rabbitmq-diagnostics ping; do
+     sleep 1
+   done
+   
+   # Create RabbitMQ vhost and set permissions
+   echo "Configuring RabbitMQ..."
+   docker-compose exec -T rabbitmq rabbitmqctl add_vhost /tasker || true
+   docker-compose exec -T rabbitmq rabbitmqctl set_permissions -p /tasker tasker ".*" ".*" ".*"
+   
+   echo "✅ Messaging infrastructure ready!"
+   echo "   PostgreSQL: postgresql://tasker:tasker@localhost/tasker_rust_test"
+   echo "   RabbitMQ: amqp://tasker:tasker_dev@localhost:5672/tasker"
+   echo "   RabbitMQ Management UI: http://localhost:15672 (tasker/tasker_dev)"
+   ```
+
+4. **Monitoring & Observability**:
+   - [ ] RabbitMQ metrics exposed to monitoring system
+   - [ ] Dashboard created for queue depth and consumer lag
+   - [ ] Alerts configured for connection failures
+   - [ ] Distributed tracing spans for message flow
+
+5. **Testing Strategy**:
+   - [ ] Integration tests for both PGMQ and RabbitMQ providers
+   - [ ] Performance benchmarks comparing both providers
+   - [ ] Failover testing between providers
+   - [ ] Load testing with concurrent consumers
+   - [ ] Message ordering guarantees verified
+   - [ ] Dead letter queue handling tested
