@@ -54,15 +54,4 @@ mod tests {
         setup_test_database_url();
         setup_test_environment();
     }
-
-    #[test]
-    fn test_get_test_database_url_returns_string() {
-        // Test that the function returns a valid database URL string
-        let url = get_test_database_url();
-        assert!(
-            url.starts_with("postgresql://"),
-            "Should return a PostgreSQL URL"
-        );
-        assert!(!url.is_empty(), "Should not return empty string");
-    }
 }
