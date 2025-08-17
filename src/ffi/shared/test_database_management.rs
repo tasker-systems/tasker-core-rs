@@ -146,7 +146,54 @@ impl TestDatabaseManager {
             .await
         {
             Ok(_) => {
-                json!({ "pgmq_extension": "ready" })
+                info!("✅ pgmq extension ready");
+
+                // Step 2a: Create required queues for orchestration executors
+                let required_queues = vec![
+                    // Core orchestration queues
+                    "orchestration_step_results", // For StepResultProcessor (from config)
+                    "task_requests_queue",        // For TaskRequestProcessor (from config)
+                    "task_processing_queue",      // Task processing queue
+                    "batch_results_queue",        // Batch results queue
+                    // Worker queues for workflow namespaces (matching YAML configs)
+                    "linear_workflow_queue", // For linear_workflow namespace
+                    "tree_workflow_queue",   // For tree_workflow namespace
+                    "mixed_dag_workflow_queue", // For mixed_dag_workflow namespace
+                    "diamond_workflow_queue", // For diamond_workflow namespace
+                    "fulfillment_queue",     // For fulfillment namespace (order_fulfillment)
+                    // Additional test queues
+                    "test_inventory_queue",     // For test_inventory namespace
+                    "test_notifications_queue", // For test_notifications namespace
+                    // Default worker queue
+                    "default_queue", // Default worker queue
+                ];
+
+                let mut queue_creation_results = Vec::new();
+                for queue_name in required_queues {
+                    match sqlx::query(&format!("SELECT pgmq.create('{queue_name}');"))
+                        .execute(&self.pool)
+                        .await
+                    {
+                        Ok(_) => {
+                            debug!("✅ Created queue: {}", queue_name);
+                            queue_creation_results
+                                .push(json!({ "queue": queue_name, "status": "created" }));
+                        }
+                        Err(e) => {
+                            // Queue might already exist, which is fine
+                            debug!(
+                                "⚠️ Queue creation for {} failed (may already exist): {}",
+                                queue_name, e
+                            );
+                            queue_creation_results.push(json!({ "queue": queue_name, "status": "exists_or_failed", "message": e.to_string() }));
+                        }
+                    }
+                }
+
+                json!({
+                    "pgmq_extension": "ready",
+                    "queues_created": queue_creation_results
+                })
             }
             Err(e) => {
                 warn!("⚠️ pgmq extension setup issue (may already exist): {}", e);
