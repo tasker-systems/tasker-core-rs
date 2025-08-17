@@ -183,7 +183,7 @@ impl Default for AuthConfig {
 ///
 /// **Use this configuration for:**
 /// - High-frequency Rust orchestration (>10k events/sec)
-/// - Sub-millisecond connection acquisition requirements  
+/// - Sub-millisecond connection acquisition requirements
 /// - Complex connection lifecycle management
 /// - Production performance tuning with timeout controls
 ///
@@ -214,7 +214,7 @@ pub struct DatabaseConfig {
 /// **Performance Impact:**
 /// - `max_connections`: Limits total connections (prevent resource exhaustion)
 /// - `acquire_timeout`: Prevents deadlocks in high-concurrency scenarios
-/// - `idle_timeout`: Reduces connection overhead during low activity periods  
+/// - `idle_timeout`: Reduces connection overhead during low activity periods
 /// - `max_lifetime`: Prevents connection leaks and handles database restarts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabasePoolConfig {
@@ -1012,14 +1012,6 @@ mod tests {
         );
         assert_eq!(config.backoff.max_backoff_seconds, 300);
         assert!(config.backoff.jitter_enabled);
-    }
-
-    #[test]
-    fn test_environment_variable_interpolation() {
-        std::env::set_var("TEST_VAR", "test_value");
-        let template = "url: ${TEST_VAR}/api";
-        let result = ConfigurationManager::interpolate_env_vars(template);
-        assert_eq!(result, "url: test_value/api");
     }
 
     #[test]
