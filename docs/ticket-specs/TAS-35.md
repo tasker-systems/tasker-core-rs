@@ -149,7 +149,7 @@ pub trait AmqpExtensions: MessagingService {
         exchange_type: &str,  // "direct", "topic", "fanout", "headers"
         durable: bool,
     ) -> Result<(), Self::Error>;
-    
+
     /// Bind a queue to an exchange with routing key
     async fn bind_queue(
         &self,
@@ -157,7 +157,7 @@ pub trait AmqpExtensions: MessagingService {
         exchange: &str,
         routing_key: &str,
     ) -> Result<(), Self::Error>;
-    
+
     /// Publish to a specific exchange with routing
     async fn publish_to_exchange<M: QueueMessage>(
         &self,
@@ -165,10 +165,10 @@ pub trait AmqpExtensions: MessagingService {
         routing_key: &str,
         message: M,
     ) -> Result<String, Self::Error>;
-    
+
     /// Set QoS prefetch count for fair dispatch
     async fn set_qos(&self, prefetch_count: u16) -> Result<(), Self::Error>;
-    
+
     /// Create a stream-based consumer for async iteration
     async fn create_consumer_stream(
         &self,
@@ -181,7 +181,7 @@ pub trait AmqpExtensions: MessagingService {
 pub trait PgmqExtensions: MessagingService {
     /// Create queue with visibility timeout
     async fn create_queue_with_vt(&self, name: &str, vt: i64) -> Result<(), Self::Error>;
-    
+
     /// Read batch of messages without removing
     async fn read_batch(
         &self,
@@ -189,10 +189,10 @@ pub trait PgmqExtensions: MessagingService {
         vt: i64,
         limit: i32,
     ) -> Result<Vec<QueuedMessage<Box<dyn QueueMessage>>>, Self::Error>;
-    
+
     /// Archive messages to archive table
     async fn archive_messages(&self, queue: &str, msg_ids: &[i64]) -> Result<(), Self::Error>;
-    
+
     /// Get queue metrics
     async fn get_metrics(&self, queue: &str) -> Result<serde_json::Value, Self::Error>;
 }
@@ -340,7 +340,7 @@ impl MessagingService {
 5. **Performance**: No degradation when integrated with executor pools
 6. **Backpressure Coordination**: Global backpressure works across messaging and executors
 7. **Scaling Harmony**: Messaging service scales in coordination with executor pools
-8. **Infrastructure Ready**: 
+8. **Infrastructure Ready**:
    - Docker Compose includes both PostgreSQL/PGMQ and RabbitMQ services
    - CI/CD pipeline tests both messaging providers in parallel
    - Local development setup script for quick initialization
@@ -897,7 +897,7 @@ impl RabbitMqConsumerStream {
 
 impl Stream for RabbitMqConsumerStream {
     type Item = Result<QueuedMessage<Box<dyn QueueMessage>>, RabbitMqError>;
-    
+
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -913,7 +913,7 @@ impl Stream for RabbitMqConsumerStream {
                     visibility_timeout_expires: None,
                     dead_letter_count: None,
                 };
-                
+
                 // Deserialize message
                 match serde_json::from_slice(&delivery.data) {
                     Ok(message) => Poll::Ready(Some(Ok(QueuedMessage {
@@ -944,7 +944,7 @@ impl AmqpExtensions for RabbitMqMessageService {
         durable: bool,
     ) -> Result<(), Self::Error> {
         let channel = self.ensure_channel().await?;
-        
+
         let kind = match exchange_type {
             "direct" => lapin::ExchangeKind::Direct,
             "topic" => lapin::ExchangeKind::Topic,
@@ -954,7 +954,7 @@ impl AmqpExtensions for RabbitMqMessageService {
                 format!("Unknown exchange type: {}", exchange_type)
             )),
         };
-        
+
         channel
             .exchange_declare(
                 name,
@@ -967,10 +967,10 @@ impl AmqpExtensions for RabbitMqMessageService {
             )
             .await
             .map_err(|e| RabbitMqError::Channel(e.to_string()))?;
-        
+
         Ok(())
     }
-    
+
     async fn bind_queue(
         &self,
         queue: &str,
@@ -978,7 +978,7 @@ impl AmqpExtensions for RabbitMqMessageService {
         routing_key: &str,
     ) -> Result<(), Self::Error> {
         let channel = self.ensure_channel().await?;
-        
+
         channel
             .queue_bind(
                 queue,
@@ -989,10 +989,10 @@ impl AmqpExtensions for RabbitMqMessageService {
             )
             .await
             .map_err(|e| RabbitMqError::Channel(e.to_string()))?;
-        
+
         Ok(())
     }
-    
+
     async fn publish_to_exchange<M: QueueMessage>(
         &self,
         exchange: &str,
@@ -1000,12 +1000,12 @@ impl AmqpExtensions for RabbitMqMessageService {
         message: M,
     ) -> Result<String, Self::Error> {
         let channel = self.ensure_channel().await?;
-        
+
         let payload = message.to_json()
             .map_err(|e| RabbitMqError::Serialization(e.to_string()))?;
-        
+
         let message_id = format!("{}_{}", routing_key, uuid::Uuid::new_v4());
-        
+
         let confirm = channel
             .basic_publish(
                 exchange,
@@ -1023,20 +1023,20 @@ impl AmqpExtensions for RabbitMqMessageService {
             .map_err(|e| RabbitMqError::SendMessage(
                 format!("Confirmation failed: {}", e)
             ))?;
-        
+
         tracing::debug!("Exchange message sent with confirmation: {:?}", confirm);
-        
+
         Ok(message_id)
     }
-    
+
     async fn set_qos(&self, prefetch_count: u16) -> Result<(), Self::Error> {
         let channel = self.ensure_channel().await?;
-        
+
         channel
             .basic_qos(prefetch_count, lapin::options::BasicQosOptions::default())
             .await
             .map_err(|e| RabbitMqError::Channel(e.to_string()))?;
-        
+
         Ok(())
     }
 }
@@ -1354,7 +1354,7 @@ impl ComponentConfigLoader {
                 // ... map other fields
             }));
         }
-        
+
         // Check for PGMQ config
         if let Some(pgmq_config) = self.load_component_config::<PgmqConfig>(
             "pgmq",
@@ -1365,7 +1365,7 @@ impl ComponentConfigLoader {
                 // ... map other fields
             }));
         }
-        
+
         Ok(None)
     }
 }
@@ -1403,39 +1403,39 @@ impl ComponentConfigLoader {
                 _ => Err(ConfigError::InvalidProvider(provider)),
             };
         }
-        
+
         // 2. Check for provider-specific config files
         let config_path = self.config_dir.join("tasker");
-        
+
         // Check base configs
         if config_path.join("base/rabbit_mq.toml").exists() {
             return Ok(MessageServiceProvider::RabbitMq);
         }
-        
+
         if config_path.join("base/pgmq.toml").exists() {
             return Ok(MessageServiceProvider::Pgmq);
         }
-        
+
         // 3. Check environment-specific overrides
         let env_path = config_path.join(format!("environments/{}", environment));
         if env_path.join("rabbit_mq.toml").exists() {
             return Ok(MessageServiceProvider::RabbitMq);
         }
-        
+
         if env_path.join("pgmq.toml").exists() {
             return Ok(MessageServiceProvider::Pgmq);
         }
-        
+
         // 4. Default to PGMQ (current implementation)
         Ok(MessageServiceProvider::Pgmq)
     }
-    
+
     pub async fn load_messaging_service(
         &self,
         environment: &str,
     ) -> Result<Box<dyn MessagingService>, ConfigError> {
         let provider = self.detect_messaging_provider(environment).await?;
-        
+
         match provider {
             MessageServiceProvider::RabbitMq => {
                 let config = self.load_component_config::<RabbitMqConfig>(
@@ -1443,7 +1443,7 @@ impl ComponentConfigLoader {
                     environment,
                 ).await?
                 .ok_or(ConfigError::MissingConfig("rabbit_mq"))?;
-                
+
                 let service = RabbitMqMessageService::new(config);
                 service.initialize().await
                     .map_err(|e| ConfigError::ServiceInit(e.to_string()))?;
@@ -1455,7 +1455,7 @@ impl ComponentConfigLoader {
                     environment,
                 ).await?
                 .ok_or(ConfigError::MissingConfig("pgmq"))?;
-                
+
                 let service = PgmqMessageService::new(config);
                 service.initialize().await
                     .map_err(|e| ConfigError::ServiceInit(e.to_string()))?;
@@ -1507,7 +1507,7 @@ pub struct QueueMapping {
 impl QueueNameMapper {
     pub fn new() -> Self {
         let mut mappings = HashMap::new();
-        
+
         // Define standard mappings
         mappings.insert("fulfillment_queue".to_string(), QueueMapping {
             pgmq_name: "fulfillment_queue".to_string(),
@@ -1515,17 +1515,17 @@ impl QueueNameMapper {
             rabbitmq_routing_key: "fulfillment".to_string(),
             rabbitmq_queue: "fulfillment_queue".to_string(),
         });
-        
+
         mappings.insert("inventory_queue".to_string(), QueueMapping {
             pgmq_name: "inventory_queue".to_string(),
             rabbitmq_exchange: "tasker_direct".to_string(),
             rabbitmq_routing_key: "inventory".to_string(),
             rabbitmq_queue: "inventory_queue".to_string(),
         });
-        
+
         Self { mappings }
     }
-    
+
     pub fn map_for_provider(
         &self,
         logical_name: &str,
@@ -1533,7 +1533,7 @@ impl QueueNameMapper {
     ) -> QueueDestination {
         let mapping = self.mappings.get(logical_name)
             .unwrap_or_else(|| self.default_mapping(logical_name));
-            
+
         match provider {
             MessageServiceProvider::Pgmq => {
                 QueueDestination::Simple(mapping.pgmq_name.clone())
@@ -1626,7 +1626,7 @@ impl ResourceValidator {
                         available: global_resources.max_database_connections / 4,
                     });
                 }
-                
+
                 // Validate memory allocation
                 let required_memory = config.resources.max_memory_bytes;
                 if required_memory > global_resources.max_memory_bytes / 10 {
@@ -1661,14 +1661,14 @@ impl ComponentConfigLoader {
             "messaging",
             environment,
         ).await?;
-        
+
         // Determine provider from meta or auto-detect
         let provider = messaging_meta
             .as_ref()
             .and_then(|m| m.provider.clone())
             .or_else(|| self.detect_provider_from_files(environment))
             .unwrap_or(MessageServiceProvider::Pgmq);
-        
+
         // Load provider-specific configuration
         let provider_config = match provider {
             MessageServiceProvider::RabbitMq => {
@@ -1689,7 +1689,7 @@ impl ComponentConfigLoader {
             },
             _ => return Err(ConfigError::UnsupportedProvider(provider)),
         };
-        
+
         Ok(MessagingConfig {
             provider_config,
             // Common fields from messaging_meta if present
@@ -2261,7 +2261,7 @@ async fn test_message_routing() {
 
 Based on production lapin examples, key patterns to incorporate:
 
-1. **Connection/Channel Separation**: 
+1. **Connection/Channel Separation**:
    - Single connection per service
    - Multiple channels for concurrent operations
    - Channel recovery on failure
@@ -2269,7 +2269,7 @@ Based on production lapin examples, key patterns to incorporate:
 2. **Consumer Models**:
    - Stream-based (async iteration) - preferred for Rust
    - Callback-based (set_delegate) - for event-driven patterns
-   
+
 3. **Message Flow**:
    - Direct queue publishing (simple)
    - Exchange→Routing Key→Queue (AMQP routing)
@@ -2290,7 +2290,7 @@ Based on production lapin examples, key patterns to incorporate:
        delivery.ack(BasicAckOptions::default()).await?;
    }
    ```
-   
+
    This pattern aligns with our trait's streaming approach:
    - Async iteration over messages
    - Built-in backpressure through stream polling
@@ -2318,7 +2318,7 @@ To handle the differences between PGMQ (simple queue) and AMQP (exchange/routing
    ```rust
    // Unified interface
    let consumer = service.create_consumer("fulfillment_queue").await?;
-   
+
    // PGMQ: Direct queue polling
    // AMQP: Creates consumer with queue binding
    ```
@@ -2329,7 +2329,7 @@ To handle the differences between PGMQ (simple queue) and AMQP (exchange/routing
    ```rust
    // Simple (works for both)
    service.send_message("notifications_queue", message).await?;
-   
+
    // Advanced AMQP routing
    if let Some(amqp) = service.as_amqp_extensions() {
        amqp.publish_to_exchange("events", "order.created", message).await?;
@@ -2514,7 +2514,7 @@ while let Some(result) = consumer.next().await {
         Ok(queued_msg) => {
             // Process the message
             let step_result = handle_inventory_step(&queued_msg.message).await;
-            
+
             if step_result.is_ok() {
                 // Acknowledge successful processing
                 service.delete_message("inventory_queue", &queued_msg.metadata.queue_id).await?;
@@ -2541,15 +2541,15 @@ while let Some(result) = consumer.next().await {
 if let Some(amqp_service) = service.as_any().downcast_ref::<RabbitMqMessageService>() {
     // Declare topic exchange for event routing
     amqp_service.declare_exchange("workflow_events", "topic", true).await?;
-    
+
     // Create queues for different event types
     service.create_queue("order_events").await?;
     service.create_queue("inventory_events").await?;
-    
+
     // Bind queues to exchange with routing patterns
     amqp_service.bind_queue("order_events", "workflow_events", "order.*").await?;
     amqp_service.bind_queue("inventory_events", "workflow_events", "inventory.*").await?;
-    
+
     // Publish events with routing
     let order_created = OrderCreatedEvent { /* ... */ };
     amqp_service.publish_to_exchange(
@@ -2557,7 +2557,7 @@ if let Some(amqp_service) = service.as_any().downcast_ref::<RabbitMqMessageServi
         "order.created",
         order_created
     ).await?;
-    
+
     // This message goes to order_events queue via topic routing
 }
 ```
@@ -2576,7 +2576,7 @@ pub async fn create_messaging_service(
         },
         Err(e) => {
             tracing::warn!("Primary provider failed: {}", e);
-            
+
             // Fallback to PGMQ if available
             if let Some(pgmq_config) = &config.fallback_pgmq {
                 tracing::info!("Falling back to PGMQ");
@@ -2603,16 +2603,16 @@ let orchestrator = OrchestrationLoopCoordinator::new(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     /// Mock provider for testing without real queues
     struct MockMessageService {
         messages: Arc<Mutex<HashMap<String, Vec<QueuedMessage>>>>,
     }
-    
+
     #[async_trait]
     impl MessagingService for MockMessageService {
         type Error = MockError;
-        
+
         async fn send_message<M: QueueMessage>(
             &self,
             queue_name: &str,
@@ -2622,7 +2622,7 @@ mod tests {
             let queue = messages.entry(queue_name.to_string()).or_default();
             let msg_id = uuid::Uuid::new_v4().to_string();
             queue.push(QueuedMessage {
-                metadata: QueuedMessageMetadata { 
+                metadata: QueuedMessageMetadata {
                     queue_id: msg_id.clone(),
                     // ... other fields
                 },
@@ -2630,18 +2630,18 @@ mod tests {
             });
             Ok(msg_id)
         }
-        
+
         // ... other trait methods
     }
-    
+
     #[tokio::test]
     async fn test_workflow_with_mock_messaging() {
         let mock_service = MockMessageService::new();
         let workflow = create_test_workflow(Box::new(mock_service));
-        
+
         // Test workflow behavior without real queue infrastructure
         workflow.execute().await.unwrap();
-        
+
         // Verify messages were "sent"
         assert_eq!(mock_service.message_count("fulfillment_queue").await, 3);
     }
@@ -2688,7 +2688,7 @@ Before implementation begins, ensure:
          - "5432:5432"
        volumes:
          - postgres_data:/var/lib/postgresql/data
-     
+
      # Add RabbitMQ service
      rabbitmq:
        image: rabbitmq:3.12-management-alpine
@@ -2707,7 +2707,7 @@ Before implementation begins, ensure:
          interval: 10s
          timeout: 5s
          retries: 5
-   
+
    volumes:
      postgres_data:
      rabbitmq_data:
@@ -2719,69 +2719,494 @@ Before implementation begins, ensure:
    - [ ] Health checks ensure services are ready before tests
    - [ ] Cleanup tasks prevent test pollution
 
-   **GitHub Actions Service Addition** (`.github/workflows/test.yml`):
-   ```yaml
-   jobs:
-     test:
-       runs-on: ubuntu-latest
-       
-       strategy:
-         matrix:
-           messaging-provider: [pgmq, rabbitmq]
-       
-       services:
-         postgres:
-           image: postgres:15
-           env:
-             POSTGRES_USER: tasker
-             POSTGRES_PASSWORD: tasker
-             POSTGRES_DB: tasker_rust_test
-           options: >-
-             --health-cmd pg_isready
-             --health-interval 10s
-             --health-timeout 5s
-             --health-retries 5
-           ports:
-             - 5432:5432
-         
-         rabbitmq:
-           image: rabbitmq:3.12-alpine
-           env:
-             RABBITMQ_DEFAULT_USER: tasker
-             RABBITMQ_DEFAULT_PASS: tasker_ci
-             RABBITMQ_DEFAULT_VHOST: /tasker
-           options: >-
-             --health-cmd "rabbitmq-diagnostics ping"
-             --health-interval 10s
-             --health-timeout 5s
-             --health-retries 5
-           ports:
-             - 5672:5672
-       
-       steps:
-         - uses: actions/checkout@v4
-         
-         - name: Setup Rust
-           uses: actions-rs/toolchain@v1
-           with:
-             toolchain: stable
-             override: true
-         
-         - name: Install PGMQ extension
-           if: matrix.messaging-provider == 'pgmq'
-           run: |
-             # Install PGMQ extension in PostgreSQL
-             cargo install --locked cargo-pgmq
-             cargo pgmq install
-         
-         - name: Run tests with messaging provider
-           env:
-             TASKER_MESSAGING_PROVIDER: ${{ matrix.messaging-provider }}
-             DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
-             RABBITMQ_URL: amqp://tasker:tasker_ci@localhost:5672/tasker
-           run: |
-             cargo test --all-features -- --test-threads=1
-   ```
+**GitHub Actions Service Addition** (.github/workflows/test.yml):
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        messaging-provider: [pgmq, rabbitmq]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      rabbitmq:
+        image: rabbitmq:3.12-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: tasker
+          RABBITMQ_DEFAULT_PASS: tasker_ci
+          RABBITMQ_DEFAULT_VHOST: /tasker
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5672:5672
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install PGMQ extension
+        if: matrix.messaging-provider == 'pgmq'
+        run: |
+          # Install PGMQ extension in PostgreSQL
+          cargo install --locked cargo-pgmq
+          cargo pgmq install
+
+      - name: Run tests with messaging provider
+        env:
+          TASKER_MESSAGING_PROVIDER: ${{ matrix.messaging-provider }}
+          DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
+          RABBITMQ_URL: amqp://tasker:tasker_ci@localhost:5672/tasker
+        run: |
+                  cargo test --all-features -- --test-threads=1
+```
+
+## CI Strategy for Dual-Provider Integration Testing
+
+### Overview
+
+The integration test suite in `bindings/ruby/spec/integration/` must validate that both PGMQ and RabbitMQ messaging providers deliver identical workflow execution behavior. This section defines the comprehensive strategy for ensuring provider compatibility without duplicating test code.
+
+### Test Matrix Strategy
+
+#### 1. Environment-Based Provider Selection
+
+The integration tests will use environment variables to determine which messaging provider to use:
+
+```ruby
+# spec/support/messaging_provider_helper.rb
+module MessagingProviderHelper
+  def current_messaging_provider
+    ENV.fetch('TASKER_MESSAGING_PROVIDER', 'pgmq').downcase
+  end
+
+  def using_pgmq?
+    current_messaging_provider == 'pgmq'
+  end
+
+  def using_rabbitmq?
+    current_messaging_provider == 'rabbitmq'
+  end
+
+  def skip_if_provider(provider, reason = nil)
+    skip_reason = reason || "Test skipped for #{provider} provider"
+    skip skip_reason if current_messaging_provider == provider.to_s
+  end
+
+  def provider_specific_config
+    case current_messaging_provider
+    when 'pgmq'
+      {
+        connection_string: ENV.fetch('DATABASE_URL'),
+        pool_size: 10
+      }
+    when 'rabbitmq'
+      {
+        url: ENV.fetch('RABBITMQ_URL', 'amqp://tasker:tasker@localhost:5672/tasker'),
+        prefetch_count: 10,
+        vhost: '/tasker'
+      }
+    else
+      raise "Unknown messaging provider: #{current_messaging_provider}"
+    end
+  end
+end
+```
+
+#### 2. SharedTestLoop Modifications
+
+Update the `SharedTestLoop` helper to be provider-aware:
+
+```ruby
+# spec/integration/test_helpers/shared_test_loop.rb
+class SharedTestLoop
+  include MessagingProviderHelper
+
+  def create_workers(namespace:, num_workers: 2, poll_interval: 0.1)
+    # Provider-specific worker creation
+    worker_config = {
+      namespace: namespace,
+      poll_interval: poll_interval,
+      provider: current_messaging_provider,
+      **provider_specific_config
+    }
+
+    num_workers.times do |i|
+      @test_workers << TaskerCore::Messaging.create_queue_worker(**worker_config)
+    end
+  end
+
+  def verify_messaging_setup
+    case current_messaging_provider
+    when 'pgmq'
+      # Verify PGMQ queues exist
+      pgmq_client = TaskerCore::Messaging::PgmqClient.new
+      expect(pgmq_client.connection).not_to be_nil
+    when 'rabbitmq'
+      # Verify RabbitMQ connection and exchanges
+      service = TaskerCore::Services::MessageServiceFactory.create(
+        provider: 'rabbitmq',
+        config: provider_specific_config
+      )
+      expect(service.healthy?).to be true
+    end
+  end
+end
+```
+
+#### 3. GitHub Actions Matrix Configuration
+
+```yaml
+# .github/workflows/integration-tests.yml
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        messaging-provider: [pgmq, rabbitmq]
+        test-suite:
+          - linear_workflow
+          - diamond_workflow
+          - tree_workflow
+          - mixed_dag_workflow
+          - order_fulfillment
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      rabbitmq:
+        image: rabbitmq:3.12-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: tasker
+          RABBITMQ_DEFAULT_PASS: tasker
+          RABBITMQ_DEFAULT_VHOST: /tasker
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install PGMQ Extension
+        if: matrix.messaging-provider == 'pgmq'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          PGPASSWORD=tasker psql -h localhost -U tasker -d tasker_rust_test -c "CREATE EXTENSION IF NOT EXISTS pgmq;"
+
+      - name: Setup RabbitMQ Exchanges
+        if: matrix.messaging-provider == 'rabbitmq'
+        run: |
+          # Wait for RabbitMQ to be fully ready
+          sleep 10
+          # Create required exchanges and queues
+          docker exec $(docker ps -q -f ancestor=rabbitmq:3.12-management-alpine) \
+            rabbitmqctl eval 'rabbit_exchange:declare({resource, <<"/">>, exchange, <<"tasker.topic">>}, topic, true, false, false, []).'
+
+      - name: Run Migrations
+        env:
+          DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
+        run: |
+          cd bindings/ruby
+          bundle exec rake db:migrate
+
+      - name: Compile Ruby Extension
+        run: |
+          cd bindings/ruby
+          bundle exec rake compile
+
+      - name: Run Integration Tests
+        env:
+          TASKER_MESSAGING_PROVIDER: ${{ matrix.messaging-provider }}
+          DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
+          RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/tasker
+          TASKER_ENV: test
+        run: |
+          cd bindings/ruby
+          bundle exec rspec spec/integration/${{ matrix.test-suite }}_integration_spec.rb \
+            --format documentation \
+            --format RspecJunitFormatter --out results/${{ matrix.messaging-provider }}-${{ matrix.test-suite }}.xml
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.messaging-provider }}-${{ matrix.test-suite }}
+          path: bindings/ruby/results/*.xml
+```
+
+### Test Implementation Patterns
+
+#### 1. Provider-Agnostic Test Structure
+
+All integration tests should remain provider-agnostic:
+
+```ruby
+RSpec.describe 'Workflow Integration', type: :integration do
+  include MessagingProviderHelper
+
+  before(:suite) do
+    # Provider-specific setup happens automatically via environment
+    puts "Running tests with #{current_messaging_provider.upcase} provider"
+  end
+
+  it 'executes workflow steps in correct order' do
+    # Test implementation remains the same regardless of provider
+    task_request = TaskerCore::Types::TaskRequest.new(...)
+    task = shared_loop.run(task_request: task_request, ...)
+
+    # Assertions work identically for both providers
+    expect(task.workflow_steps.count).to eq(4)
+  end
+
+  context 'provider-specific behavior' do
+    it 'handles high throughput scenarios', :high_throughput do
+      skip_if_provider('pgmq', 'PGMQ handles throughput differently')
+
+      # RabbitMQ-specific high throughput test
+      # ...
+    end
+  end
+end
+```
+
+#### 2. Performance Comparison Metrics
+
+Collect metrics to compare provider performance:
+
+```ruby
+# spec/support/performance_collector.rb
+class PerformanceCollector
+  def self.record_execution(provider:, test_name:, &block)
+    start_time = Time.now
+    result = yield
+    duration = Time.now - start_time
+
+    File.open("tmp/performance_#{provider}.jsonl", "a") do |f|
+      f.puts({
+        provider: provider,
+        test: test_name,
+        duration_seconds: duration,
+        timestamp: Time.now.iso8601
+      }.to_json)
+    end
+
+    result
+  end
+end
+
+# Usage in tests
+it 'processes complex workflow' do
+  PerformanceCollector.record_execution(
+    provider: current_messaging_provider,
+    test_name: 'complex_workflow'
+  ) do
+    task = shared_loop.run(task_request: task_request, ...)
+    expect(task).not_to be_nil
+  end
+end
+```
+
+### Local Development Testing
+
+#### Running Tests Against Different Providers Locally
+
+Tests run against PGMQ by default. To test with RabbitMQ, simply set the environment variable:
+
+```bash
+# Test with PGMQ (default)
+bundle exec rspec spec/integration/
+
+# Test with RabbitMQ
+TASKER_MESSAGING_PROVIDER=rabbitmq bundle exec rspec spec/integration/
+
+# Or export for the session
+export TASKER_MESSAGING_PROVIDER=rabbitmq
+bundle exec rspec spec/integration/
+```
+
+The provider configuration is automatically selected based on the `TASKER_MESSAGING_PROVIDER` environment variable:
+- `pgmq` (default): Uses PostgreSQL with PGMQ extension
+- `rabbitmq`: Uses RabbitMQ with AMQP
+
+Ensure the appropriate service is running:
+```bash
+# For PGMQ
+docker-compose up -d postgres
+
+# For RabbitMQ
+docker-compose up -d rabbitmq
+
+# Or both if switching between them
+docker-compose up -d postgres rabbitmq
+```
+
+### Debugging Provider-Specific Issues
+
+#### 1. Enhanced Logging for Provider Comparison
+
+```ruby
+# spec/support/provider_debug_helper.rb
+module ProviderDebugHelper
+  def log_provider_operation(operation, details = {})
+    return unless ENV['DEBUG_PROVIDER']
+
+    log_entry = {
+      provider: current_messaging_provider,
+      operation: operation,
+      timestamp: Time.now.iso8601,
+      **details
+    }
+
+    Rails.logger.debug "[PROVIDER_DEBUG] #{log_entry.to_json}"
+    File.open("tmp/provider_debug.jsonl", "a") { |f| f.puts(log_entry.to_json) }
+  end
+
+  def compare_provider_behavior(&block)
+    if ENV['COMPARE_PROVIDERS']
+      results = {}
+
+      ['pgmq', 'rabbitmq'].each do |provider|
+        ENV['TASKER_MESSAGING_PROVIDER'] = provider
+        results[provider] = yield
+      end
+
+      if results['pgmq'] != results['rabbitmq']
+        raise "Provider behavior mismatch: PGMQ=#{results['pgmq']}, RabbitMQ=#{results['rabbitmq']}"
+      end
+    else
+      yield
+    end
+  end
+end
+```
+
+#### 2. Provider-Specific Health Checks
+
+```ruby
+# spec/support/provider_health_check.rb
+class ProviderHealthCheck
+  def self.verify_all_providers_healthy
+    issues = []
+
+    # Check PGMQ
+    begin
+      pgmq = TaskerCore::Messaging::PgmqClient.new
+      pgmq.create_queue('health_check_queue')
+      pgmq.send_message('health_check_queue', {test: true})
+      pgmq.delete_queue('health_check_queue')
+    rescue => e
+      issues << "PGMQ unhealthy: #{e.message}"
+    end
+
+    # Check RabbitMQ
+    begin
+      rabbit = TaskerCore::Services::RabbitMqMessageService.new(
+        url: ENV.fetch('RABBITMQ_URL', 'amqp://tasker:tasker@localhost:5672/tasker')
+      )
+      rabbit.initialize_service
+      raise "RabbitMQ not healthy" unless rabbit.healthy?
+    rescue => e
+      issues << "RabbitMQ unhealthy: #{e.message}"
+    end
+
+    unless issues.empty?
+      puts "⚠️  Provider Health Issues:"
+      issues.each { |issue| puts "  - #{issue}" }
+      raise "Not all providers are healthy"
+    end
+
+    puts "✅ All messaging providers are healthy"
+  end
+end
+```
+
+### Success Criteria for CI Integration Testing
+
+1. **Provider Parity**: All integration tests must pass for both PGMQ and RabbitMQ providers
+2. **Performance Baselines**: Establish acceptable performance differences between providers
+3. **Failure Isolation**: Provider-specific failures should be clearly identified in CI output
+4. **Parallel Execution**: Tests run in parallel for different providers to reduce CI time
+5. **Artifact Collection**: Test results, logs, and performance metrics collected for analysis
+6. **Required Pass**: Both providers must pass for CI to succeed - no gradual adoption
+
+### Risk Mitigation
+
+1. **Test Flakiness**: Use retry logic for provider-specific transient failures
+2. **Resource Constraints**: Configure appropriate resource limits in CI environment
+3. **Provider Coupling**: Ensure tests don't accidentally couple to provider-specific behavior
+4. **Maintenance Overhead**: Automated provider comparison to catch divergence early
+
+### Implementation Checklist
+
+1. **Update SharedTestLoop**: Add MessagingProviderHelper module
+2. **Configure CI Matrix**: GitHub Actions configuration for both providers
+3. **Update Test Helpers**: Make all test helpers provider-aware
+4. **Documentation**: Update README with environment variable documentation
+5. **Validation**: Ensure all existing integration tests pass with both providers
+
+This comprehensive CI strategy ensures that the messaging abstraction fully supports both PGMQ and RabbitMQ providers from day one, with all tests required to pass for both providers in CI while maintaining simple environment-variable-based switching for local development.
 
 3. **Documentation**:
    - [ ] README updated with RabbitMQ setup instructions
@@ -2793,33 +3218,33 @@ Before implementation begins, ensure:
    ```bash
    #!/bin/bash
    set -e
-   
+
    echo "Setting up messaging infrastructure..."
-   
+
    # Start services
    docker-compose up -d postgres rabbitmq
-   
+
    # Wait for PostgreSQL
    echo "Waiting for PostgreSQL..."
    until docker-compose exec -T postgres pg_isready -U tasker; do
      sleep 1
    done
-   
+
    # Install PGMQ extension
    echo "Installing PGMQ extension..."
    docker-compose exec -T postgres psql -U tasker -d tasker_rust_test -c "CREATE EXTENSION IF NOT EXISTS pgmq;"
-   
+
    # Wait for RabbitMQ
    echo "Waiting for RabbitMQ..."
    until docker-compose exec -T rabbitmq rabbitmq-diagnostics ping; do
      sleep 1
    done
-   
+
    # Create RabbitMQ vhost and set permissions
    echo "Configuring RabbitMQ..."
    docker-compose exec -T rabbitmq rabbitmqctl add_vhost /tasker || true
    docker-compose exec -T rabbitmq rabbitmqctl set_permissions -p /tasker tasker ".*" ".*" ".*"
-   
+
    echo "✅ Messaging infrastructure ready!"
    echo "   PostgreSQL: postgresql://tasker:tasker@localhost/tasker_rust_test"
    echo "   RabbitMQ: amqp://tasker:tasker_dev@localhost:5672/tasker"

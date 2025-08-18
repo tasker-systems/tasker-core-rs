@@ -45,7 +45,6 @@ use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::EventPublisher;
 use crate::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use crate::orchestration::config::ConfigurationManager;
-use crate::orchestration::handler_config::HandlerConfiguration;
 use crate::orchestration::state_manager::StateManager;
 use crate::orchestration::task_config_finder::TaskConfigFinder;
 use serde::{Deserialize, Serialize};
@@ -267,29 +266,23 @@ impl TaskInitializer {
             Some("Task record created in database"),
         );
 
-        // Try to load handler configuration
-        let handler_config = match self
-            .load_handler_configuration(&task_request_for_handler)
-            .await
-        {
-            Ok(config) => {
+        // Try to load task template
+        let task_template = match self.load_task_template(&task_request_for_handler).await {
+            Ok(template) => {
                 crate::logging::log_registry_operation(
-                    "HANDLER_CONFIG_LOADED",
+                    "TASK_TEMPLATE_LOADED",
                     Some(&namespace),
                     Some(&task_name),
                     Some(&version),
                     "SUCCESS",
-                    Some(&format!(
-                        "Found {} step templates",
-                        config.step_templates.len()
-                    )),
+                    Some(&format!("Found {} step definitions", template.steps.len())),
                 );
 
-                Some(config)
+                template
             }
             Err(e) => {
                 crate::logging::log_registry_operation(
-                    "HANDLER_CONFIG_FAILED",
+                    "TASK_TEMPLATE_FAILED",
                     Some(&namespace),
                     Some(&task_name),
                     Some(&version),
@@ -300,14 +293,11 @@ impl TaskInitializer {
                   task_uuid = task_uuid.to_string(),
                   task_name = %task_name,
                   error = %e,
-                  "Failed to load handler configuration"
+                  "Failed to load task template"
                 );
-                return Err(TaskInitializationError::ConfigurationNotFound(format!("Failed to load handler configuration for task: {task_name}, namespace: {namespace}, version: {version}, error: {e}")));
+                return Err(TaskInitializationError::ConfigurationNotFound(format!("Failed to load task template for task: {task_name}, namespace: {namespace}, version: {version}, error: {e}")));
             }
         };
-
-        // Handler configuration is guaranteed to exist (we return early with error if not)
-        let config = handler_config.as_ref().unwrap();
 
         crate::logging::log_task_operation(
             "WORKFLOW_STEPS_CREATION_START",
@@ -317,13 +307,13 @@ impl TaskInitializer {
             "STARTING",
             Some(&format!(
                 "Creating {} workflow steps",
-                config.step_templates.len()
+                task_template.steps.len()
             )),
         );
 
         // Create workflow steps and dependencies
         let (step_count, step_mapping) = self
-            .create_workflow_steps(&mut tx, task_uuid, config)
+            .create_workflow_steps(&mut tx, task_uuid, &task_template)
             .await?;
 
         crate::logging::log_task_operation(
@@ -502,18 +492,18 @@ impl TaskInitializer {
         Ok(named_task)
     }
 
-    /// Create workflow steps and their dependencies from handler configuration
+    /// Create workflow steps and their dependencies from task template
     async fn create_workflow_steps(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         task_uuid: Uuid,
-        config: &HandlerConfiguration,
+        task_template: &crate::models::core::task_template::TaskTemplate,
     ) -> Result<(usize, HashMap<String, Uuid>), TaskInitializationError> {
         // Step 1: Create all named steps and workflow steps
-        let step_mapping = self.create_steps(tx, task_uuid, config).await?;
+        let step_mapping = self.create_steps(tx, task_uuid, task_template).await?;
 
         // Step 2: Create dependencies between steps
-        self.create_step_dependencies(tx, config, &step_mapping)
+        self.create_step_dependencies(tx, task_template, &step_mapping)
             .await?;
 
         Ok((step_mapping.len(), step_mapping))
@@ -524,18 +514,18 @@ impl TaskInitializer {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         task_uuid: Uuid,
-        config: &HandlerConfiguration,
+        task_template: &crate::models::core::task_template::TaskTemplate,
     ) -> Result<HashMap<String, Uuid>, TaskInitializationError> {
         let mut step_mapping = HashMap::new();
 
-        for step_template in &config.step_templates {
+        for step_definition in &task_template.steps {
             // Create or find named step using transaction
-            let named_steps = NamedStep::find_by_name(&self.pool, &step_template.name)
+            let named_steps = NamedStep::find_by_name(&self.pool, &step_definition.name)
                 .await
                 .map_err(|e| {
                     TaskInitializationError::Database(format!(
                         "Failed to search for NamedStep '{}': {}",
-                        step_template.name, e
+                        step_definition.name, e
                     ))
                 })?;
 
@@ -547,26 +537,40 @@ impl TaskInitializer {
                 NamedStep::find_or_create_by_name_with_transaction(
                     tx,
                     &self.pool,
-                    &step_template.name,
+                    &step_definition.name,
                     system_name,
                 )
                 .await
                 .map_err(|e| {
                     TaskInitializationError::Database(format!(
                         "Failed to create NamedStep '{}': {}",
-                        step_template.name, e
+                        step_definition.name, e
                     ))
                 })?
             };
 
             // Create workflow step using consistent transaction method
+            // Convert handler initialization to JSON Value for inputs
+            let inputs = if step_definition.handler.initialization.is_empty() {
+                None
+            } else {
+                Some(
+                    serde_json::to_value(&step_definition.handler.initialization).map_err(|e| {
+                        TaskInitializationError::Database(format!(
+                            "Failed to serialize handler initialization for step '{}': {}",
+                            step_definition.name, e
+                        ))
+                    })?,
+                )
+            };
+
             let new_workflow_step = crate::models::core::workflow_step::NewWorkflowStep {
                 task_uuid,
                 named_step_uuid: named_step.named_step_uuid,
-                retryable: step_template.default_retryable,
-                retry_limit: step_template.default_retry_limit,
-                inputs: step_template.handler_config.clone(),
-                skippable: step_template.skippable,
+                retryable: Some(step_definition.retry.retryable),
+                retry_limit: Some(step_definition.retry.limit as i32),
+                inputs,
+                skippable: None, // Not available in new TaskTemplate - could be added if needed
             };
 
             let workflow_step = WorkflowStep::create_with_transaction(tx, new_workflow_step)
@@ -574,11 +578,14 @@ impl TaskInitializer {
                 .map_err(|e| {
                     TaskInitializationError::Database(format!(
                         "Failed to create WorkflowStep '{}': {}",
-                        step_template.name, e
+                        step_definition.name, e
                     ))
                 })?;
 
-            step_mapping.insert(step_template.name.clone(), workflow_step.workflow_step_uuid);
+            step_mapping.insert(
+                step_definition.name.clone(),
+                workflow_step.workflow_step_uuid,
+            );
         }
 
         Ok(step_mapping)
@@ -588,15 +595,15 @@ impl TaskInitializer {
     async fn create_step_dependencies(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        config: &HandlerConfiguration,
+        task_template: &crate::models::core::task_template::TaskTemplate,
         step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
-        for step_template in &config.step_templates {
-            let to_step_uuid = step_mapping[&step_template.name];
+        for step_definition in &task_template.steps {
+            let to_step_uuid = step_mapping[&step_definition.name];
 
             // Create edges for all dependencies using transaction method
-            for dependency_name in step_template.all_dependencies() {
-                if let Some(&from_step_uuid) = step_mapping.get(&dependency_name) {
+            for dependency_name in &step_definition.dependencies {
+                if let Some(&from_step_uuid) = step_mapping.get(dependency_name) {
                     let new_edge = crate::models::core::workflow_step_edge::NewWorkflowStepEdge {
                         from_step_uuid,
                         to_step_uuid,
@@ -608,7 +615,7 @@ impl TaskInitializer {
                         .map_err(|e| {
                             TaskInitializationError::Database(format!(
                                 "Failed to create edge '{}' -> '{}': {}",
-                                dependency_name, step_template.name, e
+                                dependency_name, step_definition.name, e
                             ))
                         })?;
                 }
@@ -726,13 +733,13 @@ impl TaskInitializer {
         Ok(())
     }
 
-    /// Load handler configuration from TaskHandlerRegistry or filesystem
+    /// Load task template from TaskHandlerRegistry or filesystem
     /// In FFI integration, handlers register their configuration in the registry
     /// For tests, falls back to filesystem-based YAML discovery
-    async fn load_handler_configuration(
+    async fn load_task_template(
         &self,
         task_request: &TaskRequest,
-    ) -> Result<HandlerConfiguration, TaskInitializationError> {
+    ) -> Result<crate::models::core::task_template::TaskTemplate, TaskInitializationError> {
         // Try registry first if available
         if let Some(registry) = &self.registry {
             match self.load_from_registry(task_request, registry).await {
@@ -761,7 +768,7 @@ impl TaskInitializer {
         &self,
         task_request: &TaskRequest,
         registry: &crate::registry::TaskHandlerRegistry,
-    ) -> Result<HandlerConfiguration, TaskInitializationError> {
+    ) -> Result<crate::models::core::task_template::TaskTemplate, TaskInitializationError> {
         // Use the namespace and name directly from the TaskRequest
         let namespace = &task_request.namespace;
         let name = &task_request.name;
@@ -779,114 +786,26 @@ impl TaskInitializer {
 
         if let Some(config_json) = metadata.config_schema {
             // The database now stores the full TaskTemplate structure directly
-            // Try to deserialize as TaskTemplate first (new format), then convert to HandlerConfiguration
+            // Deserialize as TaskTemplate (new format) and return directly
             match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(
                 config_json.clone(),
             ) {
                 Ok(task_template) => {
-                    // Convert TaskTemplate to HandlerConfiguration
-                    // We need to convert the step templates and environments from TaskTemplate types to HandlerConfiguration types
-                    let handler_step_templates = task_template
-                        .step_templates
-                        .into_iter()
-                        .map(|st| {
-                            crate::orchestration::handler_config::StepTemplate {
-                                name: st.name,
-                                description: st.description,
-                                dependent_system: st.dependent_system,
-                                default_retryable: st.default_retryable,
-                                default_retry_limit: st.default_retry_limit,
-                                skippable: st.skippable,
-                                timeout_seconds: None, // TaskTemplate doesn't have this field
-                                handler_class: st.handler_class,
-                                handler_config: st.handler_config,
-                                depends_on_step: st.depends_on_step,
-                                depends_on_steps: st.depends_on_steps,
-                                custom_events: st.custom_events,
-                            }
-                        })
-                        .collect();
-
-                    let handler_environments = task_template.environments.map(|envs| {
-                        envs.into_iter()
-                            .map(|(name, env)| {
-                                let handler_env =
-                                    crate::orchestration::handler_config::EnvironmentConfig {
-                                        step_templates: env.step_templates.map(|sts| {
-                                            sts.into_iter().map(|st| {
-                                        crate::orchestration::handler_config::StepTemplateOverride {
-                                            name: st.name,
-                                            handler_config: st.handler_config,
-                                            description: st.description,
-                                            dependent_system: st.dependent_system,
-                                            default_retryable: st.default_retryable,
-                                            default_retry_limit: st.default_retry_limit,
-                                            skippable: st.skippable,
-                                            timeout_seconds: None, // TaskTemplate doesn't have this field
-                                        }
-                                    }).collect()
-                                        }),
-                                        default_context: env.default_context,
-                                        default_options: env.default_options,
-                                    };
-                                (name, handler_env)
-                            })
-                            .collect()
-                    });
-
-                    let handler_config = HandlerConfiguration {
-                        name: task_template.name,
-                        module_namespace: task_template.module_namespace,
-                        task_handler_class: task_template.task_handler_class,
-                        namespace_name: task_template.namespace_name,
-                        version: task_template.version,
-                        description: None, // TaskTemplate doesn't have description in this context
-                        default_dependent_system: task_template.default_dependent_system,
-                        named_steps: task_template.named_steps,
-                        schema: task_template.schema,
-                        step_templates: handler_step_templates,
-                        environments: handler_environments,
-                        handler_config: None, // The handler_config is at the task level in TaskTemplate
-                        default_context: task_template.default_context,
-                        default_options: task_template.default_options,
-                    };
-
-                    if handler_config.step_templates.is_empty() {
+                    // Return TaskTemplate directly - no more legacy conversion!
+                    if task_template.steps.is_empty() {
                         return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                            "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
-                            handler_config.namespace_name, handler_config.name
+                            "Empty steps array in task template configuration for {}/{}. Cannot create workflow steps without step definitions.",
+                            task_template.namespace_name, task_template.name
                         )));
                     }
 
-                    Ok(handler_config)
+                    Ok(task_template)
                 }
                 Err(task_template_error) => {
-                    // Fall back to old nested format for backward compatibility
-                    debug!("Failed to deserialize as TaskTemplate (new format): {}, trying old nested format", task_template_error);
-
-                    let handler_config_value = config_json.get("handler_config").ok_or_else(|| {
-                        TaskInitializationError::ConfigurationNotFound(format!(
-                            "Configuration is neither new TaskTemplate format nor old nested format with handler_config field for {namespace}/{name}. TaskTemplate error: {task_template_error}"
-                        ))
-                    })?;
-
-                    // Try to deserialize from the handler_config field (old nested format)
-                    let handler_config =
-                        serde_json::from_value::<HandlerConfiguration>(handler_config_value.clone())
-                            .map_err(|e| {
-                                TaskInitializationError::ConfigurationNotFound(format!(
-                            "Failed to deserialize handler configuration for {namespace}/{name}: {e}. Handler config: {handler_config_value}"
-                        ))
-                            })?;
-
-                    if handler_config.step_templates.is_empty() {
-                        return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                            "Empty step_templates array in task handler configuration for {}/{}. Cannot create workflow steps without step templates.",
-                            handler_config.namespace_name, handler_config.name
-                        )));
-                    }
-
-                    Ok(handler_config)
+                    // Aggressive forward-only change: No backward compatibility for legacy formats
+                    Err(TaskInitializationError::ConfigurationNotFound(format!(
+                        "Failed to deserialize configuration as TaskTemplate for {namespace}/{name}. Error: {task_template_error}. Legacy formats are no longer supported - please migrate to new self-describing TaskTemplate format."
+                    )))
                 }
             }
         } else {
@@ -903,7 +822,7 @@ impl TaskInitializer {
         &self,
         task_request: &TaskRequest,
         task_config_finder: &TaskConfigFinder,
-    ) -> Result<HandlerConfiguration, TaskInitializationError> {
+    ) -> Result<crate::models::core::task_template::TaskTemplate, TaskInitializationError> {
         let namespace = &task_request.namespace;
         let name = &task_request.name;
         let version = &task_request.version;
@@ -918,68 +837,15 @@ impl TaskInitializer {
                 ))
             })?;
 
-        // Convert TaskTemplate to HandlerConfiguration
-        let handler_config = HandlerConfiguration {
-            name: task_template.name,
-            module_namespace: task_template.module_namespace,
-            task_handler_class: task_template.task_handler_class,
-            namespace_name: task_template.namespace_name,
-            version: task_template.version,
-            description: None, // TaskTemplate doesn't have a top-level description
-            default_dependent_system: task_template.default_dependent_system,
-            named_steps: task_template.named_steps,
-            schema: task_template.schema,
-            step_templates: task_template
-                .step_templates
-                .into_iter()
-                .map(|st| {
-                    crate::orchestration::handler_config::StepTemplate {
-                        name: st.name,
-                        description: st.description,
-                        dependent_system: st
-                            .dependent_system
-                            .or_else(|| Some("default".to_string())), // Use actual field with default fallback
-                        default_retryable: st.default_retryable,
-                        default_retry_limit: st.default_retry_limit,
-                        skippable: st.skippable, // Use actual field from models
-                        timeout_seconds: None, // This field exists in handler_config but not in models - keep as None for now
-                        handler_class: st.handler_class,
-                        handler_config: st.handler_config,
-                        depends_on_step: st.depends_on_step,
-                        depends_on_steps: st.depends_on_steps,
-                        custom_events: st.custom_events, // Use actual field from models
-                    }
-                })
-                .collect(),
-            environments: task_template.environments.map(|envs| {
-                envs.into_keys()
-                    .map(|key| {
-                        // For now, just create empty environment configs
-                        // We could expand this if needed
-                        (
-                            key,
-                            crate::orchestration::handler_config::EnvironmentConfig {
-                                step_templates: None,
-                                default_context: None,
-                                default_options: None,
-                            },
-                        )
-                    })
-                    .collect()
-            }),
-            handler_config: None, // TaskTemplate doesn't have a top-level handler_config
-            default_context: task_template.default_context,
-            default_options: task_template.default_options,
-        };
-
-        if handler_config.step_templates.is_empty() {
+        // Return TaskTemplate directly - no more legacy conversion!
+        if task_template.steps.is_empty() {
             return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                "Empty step_templates array in task configuration for {}/{}. Cannot create workflow steps without step templates.",
-                handler_config.namespace_name, handler_config.name
+                "Empty steps array in task template for {}/{}. Cannot create workflow steps without step definitions.",
+                task_template.namespace_name, task_template.name
             )));
         }
 
-        Ok(handler_config)
+        Ok(task_template)
     }
 
     /// Publish task initialization event

@@ -20,8 +20,8 @@ async fn create_test_database_pool() -> Result<PgPool> {
 }
 
 #[tokio::test]
-async fn test_yaml_executor_configuration_loading() {
-    // This test verifies that executor configuration is correctly loaded from YAML
+async fn test_toml_executor_configuration_loading() {
+    // This test verifies that executor configuration is correctly loaded from TOML
     // and used to create properly configured executors
 
     let config_manager = ConfigManager::load().expect("Failed to load configuration");

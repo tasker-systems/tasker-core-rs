@@ -1,0 +1,157 @@
+# TaskTemplate Configuration
+# 
+# This TaskTemplate uses the new self-describing structure for workflow configuration.
+# Compatible with both Ruby and Rust parsers.
+#
+# Template Structure:
+# - Self-describing with complete metadata
+# - Callable-based handlers (not class-based)
+# - Environment-specific overrides
+# - Comprehensive retry and timeout configuration
+#
+---
+---
+name: diamond_workflow
+namespace_name: integration
+version: 1.0.0
+description: Diamond workflow for integration testing with parallel execution and
+  convergence
+metadata:
+  author: TaskerCore Migration Tool
+  tags:
+  - namespace:integration
+  - pattern:linear
+  - dependencies:simple
+  - environments:configured
+  - migrated:handler-configuration
+  documentation_url:
+  created_at: '2025-08-17T20:18:41Z'
+  updated_at: '2025-08-17T20:18:41Z'
+task_handler:
+  callable: IntegrationTest::DiamondWorkflowHandler
+  initialization: {}
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum:
+      - diamond
+    test:
+      type: string
+steps:
+- name: step_a
+  description: Initial step that starts the diamond
+  handler:
+    callable: IntegrationTest::StepHandler::DiamondStartHandler
+    initialization:
+      action: initialize
+      parallel_branches: 2
+      test_mode: true
+  system_dependency:
+  dependencies: []
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: step_b
+  description: First parallel branch
+  handler:
+    callable: IntegrationTest::StepHandler::ParallelBranchBHandler
+    initialization:
+      action: process_branch_b
+      branch_id: b
+      test_mode: true
+  system_dependency:
+  dependencies:
+  - step_a
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 45
+  publishes_events: []
+- name: step_c
+  description: Second parallel branch
+  handler:
+    callable: IntegrationTest::StepHandler::ParallelBranchCHandler
+    initialization:
+      action: process_branch_c
+      branch_id: c
+      test_mode: true
+  system_dependency:
+  dependencies:
+  - step_a
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 45
+  publishes_events: []
+- name: step_d
+  description: Convergence step that depends on both branches
+  handler:
+    callable: IntegrationTest::StepHandler::DiamondConvergeHandler
+    initialization:
+      action: merge_results
+      expected_branches:
+      - b
+      - c
+      test_mode: true
+  system_dependency:
+  dependencies:
+  - step_b
+  - step_c
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 60
+  publishes_events: []
+environments:
+  test:
+    task_handler:
+    steps:
+    - name: step_a
+      handler:
+        initialization:
+          debug_mode: true
+          timeout_ms: 2000
+      timeout_seconds:
+      retry:
+    - name: step_b
+      handler:
+        initialization:
+          debug_mode: true
+          timeout_ms: 3000
+      timeout_seconds:
+      retry:
+    - name: step_c
+      handler:
+        initialization:
+          debug_mode: true
+          timeout_ms: 3000
+      timeout_seconds:
+      retry:
+    - name: step_d
+      handler:
+        initialization:
+          debug_mode: true
+          timeout_ms: 5000
+      timeout_seconds:
+      retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/integration/diamond_workflow/1.0.0.yaml"

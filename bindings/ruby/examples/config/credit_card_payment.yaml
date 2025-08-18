@@ -1,171 +1,210 @@
-# Credit Card Payment Task Template
-# This matches the actual format used in config/tasks/payment_processing.yaml
-
-name: credit_card_payment
-module_namespace: PaymentProcessing
-task_handler_class: CreditCardPaymentHandler
-namespace_name: payments
-version: "1.0.0"
-description: "Process credit card payments with validation and fraud detection"
-default_dependent_system: payment_gateway
-
-# JSON Schema for input validation
-schema:
+# TaskTemplate Configuration (Migrated)
+# 
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: payments/credit_card_payment:1.0.0
+# Migration Date: 2025-08-17T20:19:11Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
+:name: credit_card_payment
+:namespace_name: payments
+:version: 1.0.0
+:description: Process credit card payments with validation and fraud detection
+:metadata:
+  :author: TaskerCore Migration Tool
+  :tags:
+  - namespace:payments
+  - pattern:complex
+  - dependencies:complex
+  - environments:configured
+  - migrated:handler-configuration
+  :documentation_url:
+  :created_at: '2025-08-17T20:19:11Z'
+  :updated_at: '2025-08-17T20:19:11Z'
+:task_handler:
+  :callable: CreditCardPaymentHandler
+  :initialization: {}
+:system_dependencies:
+  :primary: payment_gateway
+  :secondary: []
+:domain_events: []
+:input_schema:
   type: object
   required:
-    - order_id
-    - payment_info
-    - customer_id
+  - order_id
+  - payment_info
+  - customer_id
   properties:
     order_id:
       type: integer
       minimum: 1
     payment_info:
       type: object
-      required: ['amount', 'currency', 'card_token']
+      required:
+      - amount
+      - currency
+      - card_token
       properties:
         amount:
           type: number
           minimum: 0.01
         currency:
           type: string
-          enum: ['USD', 'EUR', 'GBP']
+          enum:
+          - USD
+          - EUR
+          - GBP
         card_token:
           type: string
           minLength: 10
     customer_id:
       type: integer
       minimum: 1
-
-# Named steps in execution order
-named_steps:
-  - validate_payment
-  - check_fraud
-  - authorize_payment
-  - capture_payment
-  - send_confirmation
-
-# Step template definitions
-step_templates:
-  - name: validate_payment
-    description: "Validate payment information and check card status"
-    handler_class: PaymentProcessing::StepHandler::ValidatePaymentHandler
-    handler_config:
+:steps:
+- :name: validate_payment
+  :description: Validate payment information and check card status
+  :handler:
+    :callable: PaymentProcessing::StepHandler::ValidatePaymentHandler
+    :initialization:
       validation_rules:
-        - check_card_expiry
-        - validate_cvv
-        - check_amount_limits
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-  - name: check_fraud
-    description: "Run fraud detection algorithms"
-    depends_on_step: validate_payment
-    handler_class: PaymentProcessing::StepHandler::FraudCheckHandler
-    handler_config:
+      - check_card_expiry
+      - validate_cvv
+      - check_amount_limits
+  :system_dependency:
+  :dependencies: []
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: check_fraud
+  :description: Run fraud detection algorithms
+  :handler:
+    :callable: PaymentProcessing::StepHandler::FraudCheckHandler
+    :initialization:
       risk_threshold: 0.8
       timeout_ms: 5000
-    default_retryable: true
-    default_retry_limit: 2
-    timeout_seconds: 60
-
-  - name: authorize_payment
-    description: "Authorize payment with payment gateway"
-    depends_on_steps:
-      - validate_payment
-      - check_fraud
-    handler_class: PaymentProcessing::StepHandler::AuthorizePaymentHandler
-    handler_config:
+  :system_dependency:
+  :dependencies:
+  - validate_payment
+  :retry:
+    :retryable: true
+    :limit: 2
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 60
+  :publishes_events: []
+- :name: authorize_payment
+  :description: Authorize payment with payment gateway
+  :handler:
+    :callable: PaymentProcessing::StepHandler::AuthorizePaymentHandler
+    :initialization:
       timeout_ms: 30000
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 120
-    retry_backoff: "exponential"
-
-  - name: capture_payment
-    description: "Capture the authorized payment"
-    depends_on_step: authorize_payment
-    handler_class: PaymentProcessing::StepHandler::CapturePaymentHandler
-    handler_config:
+  :system_dependency:
+  :dependencies:
+  - validate_payment
+  - check_fraud
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 120
+  :publishes_events: []
+- :name: capture_payment
+  :description: Capture the authorized payment
+  :handler:
+    :callable: PaymentProcessing::StepHandler::CapturePaymentHandler
+    :initialization:
       auto_capture: true
-    default_retryable: true
-    default_retry_limit: 5
-    timeout_seconds: 120
-
-  - name: send_confirmation
-    description: "Send payment confirmation to customer"
-    depends_on_step: capture_payment
-    handler_class: PaymentProcessing::StepHandler::SendConfirmationHandler
-    handler_config:
-      template_id: "payment_confirmation"
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-# Environment-specific overrides
-environments:
+  :system_dependency:
+  :dependencies:
+  - authorize_payment
+  :retry:
+    :retryable: true
+    :limit: 5
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 120
+  :publishes_events: []
+- :name: send_confirmation
+  :description: Send payment confirmation to customer
+  :handler:
+    :callable: PaymentProcessing::StepHandler::SendConfirmationHandler
+    :initialization:
+      template_id: payment_confirmation
+  :system_dependency:
+  :dependencies:
+  - capture_payment
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+:environments:
   development:
-    step_templates:
-      - name: check_fraud
-        handler_config:
+    :task_handler:
+    :steps:
+    - :name: check_fraud
+      :handler:
+        :initialization:
           risk_threshold: 0.5
           debug_mode: true
-      - name: authorize_payment
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: authorize_payment
+      :handler:
+        :initialization:
           debug_mode: true
-      - name: send_confirmation
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: send_confirmation
+      :handler:
+        :initialization:
           debug_mode: true
-
+      :timeout_seconds:
+      :retry:
   staging:
-    step_templates:
-      - name: check_fraud
-        handler_config:
+    :task_handler:
+    :steps:
+    - :name: check_fraud
+      :handler:
+        :initialization:
           risk_threshold: 0.7
-
+      :timeout_seconds:
+      :retry:
   production:
-    step_templates:
-      - name: check_fraud
-        handler_config:
+    :task_handler:
+    :steps:
+    - :name: check_fraud
+      :handler:
+        :initialization:
           risk_threshold: 0.8
-
-# Custom events for this task
-custom_events:
-  - name: payment_authorized
-    description: "Fired when payment is successfully authorized"
-    schema:
-      type: object
-      properties:
-        order_id:
-          type: integer
-        authorization_id:
-          type: string
-        amount:
-          type: number
-
-  - name: payment_captured
-    description: "Fired when payment is successfully captured"
-    schema:
-      type: object
-      properties:
-        order_id:
-          type: integer
-        transaction_id:
-          type: string
-        amount:
-          type: number
-
-  - name: fraud_detected
-    description: "Fired when fraud is detected"
-    schema:
-      type: object
-      properties:
-        order_id:
-          type: integer
-        risk_score:
-          type: number
-        reasons:
-          type: array
-          items:
-            type: string
+      :timeout_seconds:
+      :retry:
+:loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/bindings/ruby/examples/config/credit_card_payment.yaml"

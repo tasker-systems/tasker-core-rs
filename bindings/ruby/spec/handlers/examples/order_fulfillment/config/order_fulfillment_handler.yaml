@@ -1,176 +1,226 @@
-# Order Fulfillment Task Configuration
-# Complete 4-step e-commerce workflow with inventory, payment, and shipping
-name: process_order
-namespace_name: fulfillment
-version: "1.0.0"
-task_handler_class: OrderFulfillment::OrderFulfillmentHandler
-description: "Complete order fulfillment workflow with inventory, payment, and shipping"
-
-# JSON Schema for task context validation
-schema:
+# TaskTemplate Configuration (Migrated)
+# 
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: fulfillment/process_order:1.0.0
+# Migration Date: 2025-08-17T19:32:47Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
+:name: process_order
+:namespace_name: fulfillment
+:version: 1.0.0
+:description: Complete order fulfillment workflow with inventory, payment, and shipping
+:metadata:
+  :author: TaskerCore Migration Tool
+  :tags:
+  - namespace:fulfillment
+  - pattern:linear
+  - dependencies:simple
+  - environments:configured
+  - migrated:handler-configuration
+  :documentation_url:
+  :created_at: '2025-08-17T19:32:47Z'
+  :updated_at: '2025-08-17T19:32:47Z'
+:task_handler:
+  :callable: OrderFulfillment::OrderFulfillmentHandler
+  :initialization:
+    timeout: 300
+    retries: 3
+    log_level: info
+    premium_customer_optimizations: true
+    order_validation_rules:
+      max_items_per_order: 50
+      max_order_value: 10000.0
+      min_order_value: 0.01
+:system_dependencies:
+  :primary: default
+  :secondary: []
+:domain_events: []
+:input_schema:
   type: object
-  required: [customer_info, order_items, payment_info, shipping_info]
+  required:
+  - customer_info
+  - order_items
+  - payment_info
+  - shipping_info
   properties:
     customer_info:
       type: object
-      required: [id, email]
+      required:
+      - id
+      - email
       properties:
         id:
           type: integer
-          description: "Customer unique identifier"
+          description: Customer unique identifier
         email:
           type: string
           format: email
-          description: "Customer email address"
+          description: Customer email address
         tier:
           type: string
-          enum: [standard, premium]
+          enum:
+          - standard
+          - premium
           default: standard
-          description: "Customer tier for optimization handling"
+          description: Customer tier for optimization handling
     order_items:
       type: array
       minItems: 1
       items:
         type: object
-        required: [product_id, quantity, price]
+        required:
+        - product_id
+        - quantity
+        - price
         properties:
           product_id:
             type: integer
-            description: "Product unique identifier"
+            description: Product unique identifier
           quantity:
             type: integer
             minimum: 1
-            description: "Quantity to order"
+            description: Quantity to order
           price:
             type: number
             minimum: 0
-            description: "Unit price in USD"
+            description: Unit price in USD
     payment_info:
       type: object
-      required: [method, token, amount]
+      required:
+      - method
+      - token
+      - amount
       properties:
         method:
           type: string
-          enum: [credit_card, debit_card, paypal, bank_transfer]
-          description: "Payment method type"
+          enum:
+          - credit_card
+          - debit_card
+          - paypal
+          - bank_transfer
+          description: Payment method type
         token:
           type: string
-          description: "Payment token from payment gateway"
+          description: Payment token from payment gateway
         amount:
           type: number
           minimum: 0
-          description: "Total amount to charge in USD"
+          description: Total amount to charge in USD
     shipping_info:
       type: object
-      required: [address, method]
+      required:
+      - address
+      - method
       properties:
         address:
           type: string
-          description: "Complete shipping address"
+          description: Complete shipping address
         method:
           type: string
-          enum: [standard, express, overnight]
+          enum:
+          - standard
+          - express
+          - overnight
           default: standard
-          description: "Shipping method"
-
-# Step Templates - Define the 4-step workflow with dependencies
-step_templates:
-  - name: validate_order
-    handler_class: OrderFulfillment::StepHandlers::ValidateOrderHandler
-    description: "Validate order data and customer information"
-    default_retryable: true
-    default_retry_limit: 1
-    depends_on_steps: []
-    handler_config:
+          description: Shipping method
+:steps:
+- :name: validate_order
+  :description: Validate order data and customer information
+  :handler:
+    :callable: OrderFulfillment::StepHandlers::ValidateOrderHandler
+    :initialization:
       validation_timeout: 10
       strict_validation: true
-
-  - name: reserve_inventory
-    handler_class: OrderFulfillment::StepHandlers::ReserveInventoryHandler
-    description: "Reserve inventory items from stock"
-    default_retryable: true
-    default_retry_limit: 3
-    depends_on_steps: [validate_order]
-    handler_config:
+  :system_dependency:
+  :dependencies: []
+  :retry:
+    :retryable: true
+    :limit: 1
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds:
+  :publishes_events: []
+- :name: reserve_inventory
+  :description: Reserve inventory items from stock
+  :handler:
+    :callable: OrderFulfillment::StepHandlers::ReserveInventoryHandler
+    :initialization:
       reservation_timeout: 30
       allow_backorder: false
-
-  - name: process_payment
-    handler_class: OrderFulfillment::StepHandlers::ProcessPaymentHandler
-    description: "Process customer payment method"
-    default_retryable: true
-    default_retry_limit: 2
-    depends_on_steps: [validate_order, reserve_inventory]
-    handler_config:
+  :system_dependency:
+  :dependencies:
+  - validate_order
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds:
+  :publishes_events: []
+- :name: process_payment
+  :description: Process customer payment method
+  :handler:
+    :callable: OrderFulfillment::StepHandlers::ProcessPaymentHandler
+    :initialization:
       payment_timeout: 45
       capture_immediately: true
-
-  - name: ship_order
-    handler_class: OrderFulfillment::StepHandlers::ShipOrderHandler
-    description: "Generate shipping labels and send notifications"
-    default_retryable: true
-    default_retry_limit: 5
-    depends_on_steps: [process_payment]
-    handler_config:
+  :system_dependency:
+  :dependencies:
+  - validate_order
+  - reserve_inventory
+  :retry:
+    :retryable: true
+    :limit: 2
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds:
+  :publishes_events: []
+- :name: ship_order
+  :description: Generate shipping labels and send notifications
+  :handler:
+    :callable: OrderFulfillment::StepHandlers::ShipOrderHandler
+    :initialization:
       shipping_timeout: 60
       send_notifications: true
-
-# Environment-specific overrides for testing and production
-environments:
+  :system_dependency:
+  :dependencies:
+  - process_payment
+  :retry:
+    :retryable: true
+    :limit: 5
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds:
+  :publishes_events: []
+:environments:
   test:
-    step_overrides:
-      validate_order:
-        handler_config:
-          validation_timeout: 5
-          strict_validation: false
-      reserve_inventory:
-        retry_limit: 1
-        handler_config:
-          reservation_timeout: 10
-      process_payment:
-        retry_limit: 1
-        handler_config:
-          payment_timeout: 15
-      ship_order:
-        retry_limit: 2
-        handler_config:
-          shipping_timeout: 20
-          send_notifications: false
-
+    :task_handler:
+    :steps: []
   development:
-    step_overrides:
-      process_payment:
-        handler_config:
-          capture_immediately: false
-      ship_order:
-        handler_config:
-          send_notifications: false
-
+    :task_handler:
+    :steps: []
   production:
-    step_overrides:
-      validate_order:
-        handler_config:
-          strict_validation: true
-      reserve_inventory:
-        retry_limit: 5
-        handler_config:
-          allow_backorder: true
-      process_payment:
-        retry_limit: 3
-        handler_config:
-          payment_timeout: 60
-      ship_order:
-        retry_limit: 10
-        handler_config:
-          shipping_timeout: 120
-
-# Handler-specific configuration
-handler_config:
-  timeout: 300
-  retries: 3
-  log_level: info
-  premium_customer_optimizations: true
-  order_validation_rules:
-    max_items_per_order: 50
-    max_order_value: 10000.00
-    min_order_value: 0.01
+    :task_handler:
+    :steps: []
+:loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/bindings/ruby/spec/handlers/examples/order_fulfillment/config/order_fulfillment_handler.yaml"

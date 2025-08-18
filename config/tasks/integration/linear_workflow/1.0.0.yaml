@@ -1,93 +1,148 @@
-# Linear Workflow Test Template (A→B→C→D)
-# Demonstrates sequential step dependencies for integration testing
-
+# TaskTemplate Configuration
+# 
+# This TaskTemplate uses the new self-describing structure for workflow configuration.
+# Compatible with both Ruby and Rust parsers.
+#
+# Template Structure:
+# - Self-describing with complete metadata
+# - Callable-based handlers (not class-based)
+# - Environment-specific overrides
+# - Comprehensive retry and timeout configuration
+#
+---
 name: linear_workflow
-module_namespace: IntegrationTest
-task_handler_class: IntegrationTest::LinearWorkflowHandler
 namespace_name: integration
-version: "1.0.0"
-description: "Linear workflow for integration testing with sequential dependencies"
-default_dependent_system: test_system
-
-# Simple schema for testing
-schema:
+version: 1.0.0
+description: Linear workflow for integration testing with sequential dependencies
+metadata:
+  author: TaskerCore Migration Tool
+  tags:
+  - namespace:integration
+  - pattern:linear
+  - dependencies:simple
+  - environments:configured
+  - migrated:handler-configuration
+  documentation_url:
+  created_at: '2025-08-17T20:18:41Z'
+  updated_at: '2025-08-17T20:18:41Z'
+task_handler:
+  callable: IntegrationTest::LinearWorkflowHandler
+  initialization: {}
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
   type: object
   properties:
     workflow_type:
       type: string
-      enum: ["linear"]
+      enum:
+      - linear
     test:
       type: string
-
-# Named steps in linear order
-named_steps:
+steps:
+- name: step_a
+  description: First step in linear workflow
+  handler:
+    callable: IntegrationTest::StepHandler::StepAHandler
+    initialization:
+      action: initialize
+      test_mode: true
+  system_dependency:
+  dependencies: []
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: step_b
+  description: Second step, depends on A
+  handler:
+    callable: IntegrationTest::StepHandler::StepBHandler
+    initialization:
+      action: process
+      test_mode: true
+  system_dependency:
+  dependencies:
   - step_a
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: step_c
+  description: Third step, depends on B
+  handler:
+    callable: IntegrationTest::StepHandler::StepCHandler
+    initialization:
+      action: validate
+      test_mode: true
+  system_dependency:
+  dependencies:
   - step_b
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: step_d
+  description: Fourth step, depends on C
+  handler:
+    callable: IntegrationTest::StepHandler::StepDHandler
+    initialization:
+      action: finalize
+      test_mode: true
+  system_dependency:
+  dependencies:
   - step_c
-  - step_d
-
-# Step template definitions with linear dependencies
-step_templates:
-  - name: step_a
-    description: "First step in linear workflow"
-    handler_class: IntegrationTest::StepHandler::StepAHandler
-    handler_config:
-      action: "initialize"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-  - name: step_b
-    description: "Second step, depends on A"
-    depends_on_step: step_a
-    handler_class: IntegrationTest::StepHandler::StepBHandler
-    handler_config:
-      action: "process"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-  - name: step_c
-    description: "Third step, depends on B"
-    depends_on_step: step_b
-    handler_class: IntegrationTest::StepHandler::StepCHandler
-    handler_config:
-      action: "validate"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-  - name: step_d
-    description: "Fourth step, depends on C"
-    depends_on_step: step_c
-    handler_class: IntegrationTest::StepHandler::StepDHandler
-    handler_config:
-      action: "finalize"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-# Test environment configuration
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
 environments:
   test:
-    step_templates:
-      - name: step_a
-        handler_config:
+    task_handler:
+    steps:
+    - name: step_a
+      handler:
+        initialization:
           debug_mode: true
           timeout_ms: 1000
-      - name: step_b
-        handler_config:
+      timeout_seconds:
+      retry:
+    - name: step_b
+      handler:
+        initialization:
           debug_mode: true
           timeout_ms: 1000
-      - name: step_c
-        handler_config:
+      timeout_seconds:
+      retry:
+    - name: step_c
+      handler:
+        initialization:
           debug_mode: true
           timeout_ms: 1000
-      - name: step_d
-        handler_config:
+      timeout_seconds:
+      retry:
+    - name: step_d
+      handler:
+        initialization:
           debug_mode: true
           timeout_ms: 1000
+      timeout_seconds:
+      retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/integration/linear_workflow/1.0.0.yaml"

@@ -45,6 +45,7 @@ require_relative 'tasker_core/config'                    # Configuration managem
 # 🎯 NEW: Utility infrastructure
 require_relative 'tasker_core/utils/path_resolver' # Centralized path resolution
 require_relative 'tasker_core/utils/template_loader' # Centralized template loading
+require_relative 'tasker_core/utils/task_template_migrator' # TaskTemplate migration utility
 
 # 🎯 NEW: Internal infrastructure (hidden from public API)
 require_relative 'tasker_core/internal/orchestration_manager' # Singleton orchestration manager

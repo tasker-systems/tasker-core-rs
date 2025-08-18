@@ -348,7 +348,7 @@ impl ViableStepDiscovery {
 
             // 3. Load step template configuration (fail-fast if not found)
             let step_template = task_template
-                .step_templates
+                .steps
                 .iter()
                 .find(|st| st.name == step.name)
                 .ok_or_else(|| DiscoveryError::ConfigurationError {
@@ -365,22 +365,24 @@ impl ViableStepDiscovery {
 
             debug!(
                 step_uuid = %step.step_uuid,
-                handler_class = %step_template.handler_class,
+                handler_callable = %step_template.handler.callable,
                 "Found step template configuration"
             );
 
-            let handler_class = step_template.handler_class.clone();
-            let handler_config = step_template
-                .handler_config
-                .as_ref()
-                .and_then(|v| v.as_object())
-                .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default();
+            let handler_class = step_template.handler.callable.clone();
+            let handler_config: std::collections::HashMap<String, serde_json::Value> =
+                step_template
+                    .handler
+                    .initialization
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
             let timeout_ms = step_template
-                .handler_config
-                .as_ref()
-                .and_then(|config| config.get("timeout_ms"))
+                .handler
+                .initialization
+                .get("timeout_ms")
                 .and_then(|v| v.as_u64())
+                .or_else(|| step_template.timeout_seconds.map(|t| t as u64 * 1000))
                 .unwrap_or(30000u64);
 
             // 4. Load previous step results (dependencies)
@@ -448,7 +450,7 @@ impl ViableStepDiscovery {
     }
 
     /// Get task template from database using database-first approach
-    /// Replaces the deprecated registry.get_task_template() call
+    /// Loads TaskTemplate directly from database (new self-describing format)
     async fn get_task_template_from_database(
         &self,
         task_for_orchestration: &crate::models::core::task::TaskForOrchestration,
@@ -495,7 +497,7 @@ impl ViableStepDiscovery {
             ),
         })?;
 
-        // Extract the handler configuration from the named task
+        // Extract the task template configuration from the named task
         let configuration =
             named_task
                 .configuration
@@ -515,95 +517,52 @@ impl ViableStepDiscovery {
                     ),
                 })?;
 
-        // Get the handler_config field which contains the YAML structure
-        let handler_config_value = configuration.get("handler_config").ok_or_else(|| {
-            DiscoveryError::ConfigurationError {
-                entity_type: "handler_config".to_string(),
-                entity_id: format!(
-                    "{}/{}",
-                    task_for_orchestration.namespace_name, task_for_orchestration.task_name
-                ),
-                reason: format!(
-                    "TaskHandlerInfo missing handler_config field for {}/{}",
-                    task_for_orchestration.namespace_name, task_for_orchestration.task_name
-                ),
+        // FORWARD-ONLY CHANGE: Database now stores TaskTemplate directly
+        // Deserialize as TaskTemplate (new self-describing format)
+        match serde_json::from_value::<crate::models::core::task_template::TaskTemplate>(
+            configuration.clone(),
+        ) {
+            Ok(task_template) => {
+                // Validate that the task template has steps
+                if task_template.steps.is_empty() {
+                    return Err(DiscoveryError::ConfigurationError {
+                        entity_type: "task_template_validation".to_string(),
+                        entity_id: format!(
+                            "{}/{} v{}",
+                            task_for_orchestration.namespace_name,
+                            task_for_orchestration.task_name,
+                            task_for_orchestration.task_version
+                        ),
+                        reason: format!(
+                            "Empty steps array in task template for {}/{} v{}. Cannot execute workflow without step definitions.",
+                            task_for_orchestration.namespace_name,
+                            task_for_orchestration.task_name,
+                            task_for_orchestration.task_version
+                        ),
+                    });
+                }
+                Ok(task_template)
             }
-        })?;
-
-        // Convert HandlerConfiguration to TaskTemplate
-        let handler_config: crate::orchestration::handler_config::HandlerConfiguration =
-            serde_json::from_value(handler_config_value.clone()).map_err(|e| {
-                DiscoveryError::ConfigurationError {
-                    entity_type: "handler_config_deserialization".to_string(),
+            Err(e) => {
+                // AGGRESSIVE FORWARD-ONLY: No backward compatibility for legacy formats
+                Err(DiscoveryError::ConfigurationError {
+                    entity_type: "task_template_deserialization".to_string(),
                     entity_id: format!(
-                        "{}/{}",
-                        task_for_orchestration.namespace_name, task_for_orchestration.task_name
+                        "{}/{} v{}",
+                        task_for_orchestration.namespace_name,
+                        task_for_orchestration.task_name,
+                        task_for_orchestration.task_version
                     ),
                     reason: format!(
-                        "Failed to deserialize handler configuration for {}/{}: {}",
-                        task_for_orchestration.namespace_name, task_for_orchestration.task_name, e
+                        "Failed to deserialize configuration as TaskTemplate for {}/{} v{}. Error: {}. Legacy HandlerConfiguration format is no longer supported - please migrate to new self-describing TaskTemplate format.",
+                        task_for_orchestration.namespace_name,
+                        task_for_orchestration.task_name,
+                        task_for_orchestration.task_version,
+                        e
                     ),
-                }
-            })?;
-
-        // Convert HandlerConfiguration to TaskTemplate
-        let task_template = crate::models::core::task_template::TaskTemplate {
-            name: handler_config.name,
-            module_namespace: handler_config.module_namespace,
-            task_handler_class: handler_config.task_handler_class,
-            namespace_name: handler_config.namespace_name,
-            version: handler_config.version,
-            default_dependent_system: handler_config.default_dependent_system,
-            named_steps: handler_config.named_steps,
-            schema: handler_config.schema,
-            step_templates: handler_config
-                .step_templates
-                .into_iter()
-                .map(|st| crate::models::core::task_template::StepTemplate {
-                    name: st.name,
-                    description: st.description,
-                    dependent_system: st.dependent_system,
-                    default_retryable: st.default_retryable,
-                    default_retry_limit: st.default_retry_limit,
-                    skippable: st.skippable,
-                    handler_class: st.handler_class,
-                    handler_config: st.handler_config,
-                    depends_on_step: st.depends_on_step,
-                    depends_on_steps: st.depends_on_steps,
-                    custom_events: st.custom_events,
                 })
-                .collect(),
-            environments: handler_config.environments.map(|envs| {
-                envs.into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k,
-                            crate::models::core::task_template::EnvironmentConfig {
-                                step_templates: v.step_templates.map(|templates| {
-                                    templates.into_iter().map(|t| {
-                                crate::models::core::task_template::StepTemplateOverride {
-                                    name: t.name,
-                                    handler_config: t.handler_config,
-                                    description: t.description,
-                                    dependent_system: t.dependent_system,
-                                    default_retryable: t.default_retryable,
-                                    default_retry_limit: t.default_retry_limit,
-                                    skippable: t.skippable,
-                                }
-                            }).collect()
-                                }),
-                                default_context: v.default_context,
-                                default_options: v.default_options,
-                            },
-                        )
-                    })
-                    .collect()
-            }),
-            default_context: handler_config.default_context,
-            default_options: handler_config.default_options,
-        };
-
-        Ok(task_template)
+            }
+        }
     }
 }
 

@@ -1,145 +1,239 @@
-# Mixed DAG Workflow Task Configuration
-# Implements complex DAG: A -> B, A -> C, B -> D, C -> D, B -> E, C -> F, (D,E,F) -> G
-
-name: complex_dag_computation
-task_handler_class: MixedDagWorkflow::MixedDagWorkflowHandler
-namespace_name: mixed_dag_workflow
-version: "1.0.0"
-description: "Mixed DAG pattern with multiple convergence points and dependency types"
-default_dependent_system: "default"
-
-# Mixed DAG step definitions (7 steps total)
-named_steps:
-  - dag_init            # Square the input (A)
-  - dag_process_left    # Square again (B, depends on A)
-  - dag_process_right   # Square again (C, depends on A)
-  - dag_validate        # Multiply left×right, square (D, depends on B&C - multiple parents)
-  - dag_transform       # Square left result (E, depends on B - single parent)
-  - dag_analyze         # Square right result (F, depends on C - single parent)
-  - dag_finalize        # Multiply all three (D×E×F), square (G, depends on D&E&F - multiple parents)
-
-step_templates:
-  - name: dag_init
-    description: "Square the even number (initial step A)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagInitHandler
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the input number (n²)"
-
-  - name: dag_process_left
-    description: "Square the init result (step B)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagProcessLeftHandler
-    depends_on_step: dag_init
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the init result ((n²)²)"
-
-  - name: dag_process_right
-    description: "Square the init result (step C)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagProcessRightHandler
-    depends_on_step: dag_init
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the init result ((n²)²)"
-
-  - name: dag_validate
-    description: "Multiply left×right results, then square (step D - multiple parents)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagValidateHandler
-    depends_on_steps:
-      - dag_process_left
-      - dag_process_right
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "multiply_and_square"
-      description: "Multiply both process results, then square ((n²)² × (n²)²)²"
-
-  - name: dag_transform
-    description: "Square the left process result (step E - single parent)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagTransformHandler
-    depends_on_step: dag_process_left
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the left process result (((n²)²)²)"
-
-  - name: dag_analyze
-    description: "Square the right process result (step F - single parent)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagAnalyzeHandler
-    depends_on_step: dag_process_right
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the right process result (((n²)²)²)"
-
-  - name: dag_finalize
-    description: "Multiply all three results (D×E×F), then square (step G - multiple parents)"
-    handler_class: MixedDagWorkflow::StepHandlers::DagFinalizeHandler
-    depends_on_steps:
-      - dag_validate
-      - dag_transform
-      - dag_analyze
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "multiply_three_and_square"
-      description: "Multiply validate×transform×analyze results, then square"
-
-# Environment-specific overrides
-environments:
+# TaskTemplate Configuration (Migrated)
+# 
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: mixed_dag_workflow/complex_dag_computation:1.0.0
+# Migration Date: 2025-08-17T19:32:47Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
+:name: complex_dag_computation
+:namespace_name: mixed_dag_workflow
+:version: 1.0.0
+:description: Mixed DAG pattern with multiple convergence points and dependency types
+:metadata:
+  :author: TaskerCore Migration Tool
+  :tags:
+  - namespace:mixed_dag_workflow
+  - pattern:complex
+  - dependencies:complex
+  - environments:configured
+  - migrated:handler-configuration
+  :documentation_url:
+  :created_at: '2025-08-17T19:32:47Z'
+  :updated_at: '2025-08-17T19:32:47Z'
+:task_handler:
+  :callable: MixedDagWorkflow::MixedDagWorkflowHandler
+  :initialization:
+    input_validation:
+      required_fields:
+      - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 10
+    expected_results:
+      dag_init: n²
+      dag_process_left: "(n²)²"
+      dag_process_right: "(n²)²"
+      dag_validate: "((n²)² × (n²)²)² = (n²)⁸"
+      dag_transform: "((n²)²)² = (n²)⁸"
+      dag_analyze: "((n²)²)² = (n²)⁸"
+      dag_finalize: "(n¹⁶ × n⁸ × n⁸)² = (n³²)² = n⁶⁴"
+:system_dependencies:
+  :primary: default
+  :secondary: []
+:domain_events: []
+:input_schema:
+:steps:
+- :name: dag_init
+  :description: Square the even number (initial step A)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagInitHandler
+    :initialization:
+      operation: square
+      description: Square the input number (n²)
+  :system_dependency:
+  :dependencies: []
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_process_left
+  :description: Square the init result (step B)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagProcessLeftHandler
+    :initialization:
+      operation: square
+      description: Square the init result ((n²)²)
+  :system_dependency:
+  :dependencies:
+  - dag_init
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_process_right
+  :description: Square the init result (step C)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagProcessRightHandler
+    :initialization:
+      operation: square
+      description: Square the init result ((n²)²)
+  :system_dependency:
+  :dependencies:
+  - dag_init
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_validate
+  :description: Multiply left×right results, then square (step D - multiple parents)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagValidateHandler
+    :initialization:
+      operation: multiply_and_square
+      description: Multiply both process results, then square ((n²)² × (n²)²)²
+  :system_dependency:
+  :dependencies:
+  - dag_process_left
+  - dag_process_right
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_transform
+  :description: Square the left process result (step E - single parent)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagTransformHandler
+    :initialization:
+      operation: square
+      description: Square the left process result (((n²)²)²)
+  :system_dependency:
+  :dependencies:
+  - dag_process_left
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_analyze
+  :description: Square the right process result (step F - single parent)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagAnalyzeHandler
+    :initialization:
+      operation: square
+      description: Square the right process result (((n²)²)²)
+  :system_dependency:
+  :dependencies:
+  - dag_process_right
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: dag_finalize
+  :description: Multiply all three results (D×E×F), then square (step G - multiple
+    parents)
+  :handler:
+    :callable: MixedDagWorkflow::StepHandlers::DagFinalizeHandler
+    :initialization:
+      operation: multiply_three_and_square
+      description: Multiply validate×transform×analyze results, then square
+  :system_dependency:
+  :dependencies:
+  - dag_validate
+  - dag_transform
+  - dag_analyze
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+:environments:
   test:
-    step_templates:
-      - name: dag_init
-        handler_config:
+    :task_handler:
+    :steps:
+    - :name: dag_init
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_process_left
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_process_left
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_process_right
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_process_right
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_validate
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_validate
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_transform
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_transform
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_analyze
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_analyze
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: dag_finalize
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: dag_finalize
+      :handler:
+        :initialization:
           timeout_seconds: 15
-
-# Custom validation rules
-handler_config:
-  input_validation:
-    required_fields: ["even_number"]
-    even_number_constraint: "must_be_even"
-    value_range:
-      min: 2
-      max: 10  # Keep very small due to exponential growth
-  
-  expected_results:
-    dag_init: "n²"                                    # A: n²
-    dag_process_left: "(n²)²"                         # B: (n²)²  
-    dag_process_right: "(n²)²"                        # C: (n²)²
-    dag_validate: "((n²)² × (n²)²)² = (n²)⁸"          # D: ((n²)² × (n²)²)² = n¹⁶
-    dag_transform: "((n²)²)² = (n²)⁸"                 # E: ((n²)²)² = n⁸
-    dag_analyze: "((n²)²)² = (n²)⁸"                   # F: ((n²)²)² = n⁸
-    dag_finalize: "(n¹⁶ × n⁸ × n⁸)² = (n³²)² = n⁶⁴"  # G: (n¹⁶ × n⁸ × n⁸)² = n⁶⁴
+      :timeout_seconds:
+      :retry:
+:loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/bindings/ruby/spec/handlers/examples/mixed_dag_workflow/config/mixed_dag_workflow_handler.yaml"

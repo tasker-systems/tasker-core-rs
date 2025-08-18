@@ -1,0 +1,74 @@
+# TaskTemplate Configuration
+# 
+# This TaskTemplate uses the new self-describing structure for workflow configuration.
+# Compatible with both Ruby and Rust parsers.
+#
+# Template Structure:
+# - Self-describing with complete metadata
+# - Callable-based handlers (not class-based)
+# - Environment-specific overrides
+# - Comprehensive retry and timeout configuration
+#
+---
+---
+name: orchestration_test
+namespace_name: integration
+version: 1.0.0
+description: Basic orchestration test workflow
+metadata:
+  author: TaskerCore Migration Tool
+  tags:
+  - namespace:integration
+  - pattern:single-step
+  - dependencies:none
+  - environments:configured
+  - migrated:handler-configuration
+  documentation_url:
+  created_at: '2025-08-17T20:18:41Z'
+  updated_at: '2025-08-17T20:18:41Z'
+task_handler:
+  callable: IntegrationTest::OrchestrationTestHandler
+  initialization: {}
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    workflow_type:
+      type: string
+      enum:
+      - basic
+    test:
+      type: string
+steps:
+- name: orchestration_step
+  description: Basic orchestration test step
+  handler:
+    callable: IntegrationTest::StepHandler::OrchestrationTestStepHandler
+    initialization:
+      action: test_orchestration
+      test_mode: true
+  system_dependency:
+  dependencies: []
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+environments:
+  test:
+    task_handler:
+    steps:
+    - name: orchestration_step
+      handler:
+        initialization:
+          debug_mode: true
+          timeout_ms: 5000
+      timeout_seconds:
+      retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/integration/orchestration_test/1.0.0.yaml"

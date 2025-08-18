@@ -1,71 +1,128 @@
-# Mock Workflow Test Template
-# Simple mock workflow for testing configuration loading and step creation
-
+# TaskTemplate Configuration (Migrated)
+# 
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: test/mock_workflow:1.0.0
+# Migration Date: 2025-08-17T20:18:41Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
 name: mock_workflow
-module_namespace: TestModule
-task_handler_class: MockWorkflowHandler
 namespace_name: test
-version: "1.0.0"
-description: "Mock workflow for testing step templates and configuration loading"
-default_dependent_system: test_system
-
-# Simple schema for mock testing
-schema:
+version: 1.0.0
+description: Mock workflow for testing step templates and configuration loading
+metadata:
+  author: TaskerCore Migration Tool
+  tags:
+  - namespace:test
+  - pattern:linear
+  - dependencies:simple
+  - environments:configured
+  - migrated:handler-configuration
+  documentation_url:
+  created_at: '2025-08-17T20:18:41Z'
+  updated_at: '2025-08-17T20:18:41Z'
+task_handler:
+  callable: MockWorkflowHandler
+  initialization: {}
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
   type: object
   properties:
     workflow_id:
       type: string
-
-# Named steps for mock workflow
-named_steps:
+steps:
+- name: initialize
+  description: Initialize the mock process
+  handler:
+    callable: InitializeHandler
+    initialization:
+      action: initialize
+      test_mode: true
+  system_dependency:
+  dependencies: []
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: process
+  description: Process the mock data
+  handler:
+    callable: ProcessHandler
+    initialization:
+      action: process
+      test_mode: true
+  system_dependency:
+  dependencies:
   - initialize
+  retry:
+    retryable: true
+    limit: 5
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: finalize
+  description: Finalize the mock process
+  handler:
+    callable: FinalizeHandler
+    initialization:
+      action: finalize
+      test_mode: true
+  system_dependency:
+  dependencies:
   - process
-  - finalize
-
-# Step template definitions
-step_templates:
-  - name: initialize
-    description: "Initialize the mock process"
-    handler_class: InitializeHandler
-    handler_config:
-      action: "initialize"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-
-  - name: process
-    description: "Process the mock data"
-    depends_on_step: initialize
-    handler_class: ProcessHandler
-    handler_config:
-      action: "process"
-      test_mode: true
-    default_retryable: true
-    default_retry_limit: 5
-    timeout_seconds: 30
-
-  - name: finalize
-    description: "Finalize the mock process"
-    depends_on_step: process
-    handler_class: FinalizeHandler
-    handler_config:
-      action: "finalize"
-      test_mode: true
-    default_retryable: false
-    default_retry_limit: 1
-    timeout_seconds: 30
-
-# Test environment configuration
+  retry:
+    retryable: true
+    limit: 1
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
 environments:
   test:
-    step_templates:
-      - name: initialize
-        handler_config:
+    task_handler:
+    steps:
+    - name: initialize
+      handler:
+        initialization:
           debug_mode: true
-      - name: process
-        handler_config:
+      timeout_seconds:
+      retry:
+    - name: process
+      handler:
+        initialization:
           debug_mode: true
-      - name: finalize
-        handler_config:
+      timeout_seconds:
+      retry:
+    - name: finalize
+      handler:
+        initialization:
           debug_mode: true
+      timeout_seconds:
+      retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/mock_workflow/1.0.0.yaml"

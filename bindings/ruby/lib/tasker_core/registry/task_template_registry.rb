@@ -253,6 +253,8 @@ module TaskerCore
           config = named_task.configuration
           next unless config
 
+          # Use configuration directly from JSONB database column
+          # PostgreSQL JSONB is automatically parsed into a Ruby hash by ActiveRecord
           symbolized_config = prepare_config_for_task_template(config)
           TaskerCore::Types::TaskTemplate.new(symbolized_config)
         rescue StandardError => e
@@ -267,32 +269,16 @@ module TaskerCore
       # @param config_hash [Hash] Raw configuration from database
       # @return [Hash] Symbolized and properly structured configuration
       def prepare_config_for_task_template(config_hash)
-        # Convert string keys to symbols for dry-struct
-        symbolized_config = config_hash.transform_keys(&:to_sym)
-
-        # Transform step_templates to proper structure if present
-        if symbolized_config[:step_templates].is_a?(Array)
-          symbolized_config[:step_templates] = symbolized_config[:step_templates].map do |step|
-            step.is_a?(Hash) ? step.transform_keys(&:to_sym) : step
-          end
+        # Use ActiveSupport's deep symbolization for all nested structures
+        # This is required for dry-types validation to work correctly
+        symbolized = config_hash.deep_symbolize_keys
+        
+        # Special handling for environments: keep environment names as strings but symbolize nested keys
+        if symbolized[:environments].is_a?(Hash)
+          symbolized[:environments] = symbolized[:environments].transform_keys(&:to_s)
         end
-
-        # Transform environments to proper structure if present (keys should remain strings)
-        if symbolized_config[:environments].is_a?(Hash)
-          symbolized_config[:environments] = symbolized_config[:environments].transform_values do |env|
-            if env.is_a?(Hash) && env['step_overrides'].is_a?(Hash)
-              {
-                step_overrides: env['step_overrides'].transform_values do |override|
-                  override.is_a?(Hash) ? override.transform_keys(&:to_sym) : override
-                end
-              }
-            else
-              env
-            end
-          end
-        end
-
-        symbolized_config
+        
+        symbolized
       end
 
       # Load TaskTemplate from YAML file
@@ -360,8 +346,7 @@ module TaskerCore
         required_fields = {
           name: template.name,
           namespace_name: template.namespace_name,
-          version: template.version,
-          task_handler_class: template.task_handler_class
+          version: template.version
         }
 
         missing_fields = []
@@ -374,13 +359,13 @@ module TaskerCore
                 "TaskTemplate missing required fields for Rust compatibility: #{missing_fields.join(', ')}"
         end
 
-        # Validate step templates have required fields
-        template.step_templates.each_with_index do |step, index|
+        # Validate steps have required fields for new self-describing structure
+        template.steps.each_with_index do |step, index|
           if step.name.nil? || step.name.empty?
-            raise ArgumentError, "Step template at index #{index} missing required 'name' field"
+            raise ArgumentError, "Step at index #{index} missing required 'name' field"
           end
-          if step.handler_class.nil? || step.handler_class.empty?
-            raise ArgumentError, "Step template '#{step.name}' missing required 'handler_class' field"
+          if step.handler.callable.nil? || step.handler.callable.empty?
+            raise ArgumentError, "Step '#{step.name}' missing required callable in handler definition"
           end
         end
 
@@ -389,104 +374,43 @@ module TaskerCore
 
       # Build database configuration structure from TaskTemplate
       # @param template [TaskerCore::Types::TaskTemplate] TaskTemplate instance
-      # @return [Hash] Configuration for database storage
+      # @return [Hash] Hash configuration for database JSONB storage (compatible with Rust serde_json::from_value)
       def build_database_configuration(template)
-        {
-          # Required fields for Rust TaskTemplate deserialization
-          name: template.name,
-          namespace_name: template.namespace_name,
-          version: template.version,
-          task_handler_class: template.task_handler_class,
-
-          # Optional fields
-          module_namespace: template.module_namespace,
-          default_dependent_system: template.default_dependent_system,
-          schema: template.schema,
-          named_steps: template.named_steps,
-          environments: serialize_environments(template.environments),
-          custom_events: template.custom_events,
-
-          # Store step templates as part of the configuration
-          step_templates: template.step_templates.map do |step|
-            {
-              name: step.name,
-              description: step.description,
-              handler_class: step.handler_class,
-              handler_config: step.handler_config,
-              depends_on_step: step.depends_on_step,
-              depends_on_steps: step.depends_on_steps,
-              default_retryable: step.default_retryable,
-              default_retry_limit: step.default_retry_limit,
-              timeout_seconds: step.timeout_seconds
-            }
-          end,
-
-          # Task-level handler config
-          default_context: nil,
-          default_options: nil,
-          handler_class: template.task_handler_class,
-          handler_config: template.handler_config
-        }
+        # Convert TaskTemplate to hash for JSONB storage
+        # PostgreSQL will handle the JSON conversion, and Rust will receive it as serde_json::Value
+        # The Rust side uses serde_json::from_value to deserialize this
+        template.to_h
       end
 
       # Normalize template data from YAML for TaskTemplate creation
       # @param yaml_data [Hash] Raw YAML data
       # @return [Hash] Normalized template data
       def normalize_template_data(yaml_data)
-        template_data = yaml_data.transform_keys(&:to_sym)
+        # Convert keys to symbols with special handling for environments
+        normalized = deep_symbolize_keys(yaml_data)
 
-        # Normalize step templates
-        if template_data[:step_templates]
-          template_data[:step_templates] = normalize_step_templates_to_structs(template_data[:step_templates])
+        # Special handling for environments: keep environment names as strings but symbolize nested keys
+        if normalized[:environments].is_a?(Hash)
+          normalized[:environments] = normalized[:environments].transform_keys(&:to_s)
         end
 
-        # Normalize environments
-        if template_data[:environments]
-          template_data[:environments] = normalize_environments_to_structs(template_data[:environments])
-        end
-
-        template_data
+        normalized
       end
 
-      # Convert step template hashes to proper dry-struct format
-      # @param step_templates [Array<Hash>] Array of step template hashes
-      # @return [Array<TaskerCore::Types::StepTemplate>] Array of StepTemplate instances
-      def normalize_step_templates_to_structs(step_templates)
-        return [] unless step_templates.is_a?(Array)
-
-        step_templates.map do |step_data|
-          normalized_step = step_data.deep_symbolize_keys
-
-          # Ensure required fields have defaults
-          normalized_step[:depends_on_steps] ||= []
-          normalized_step[:handler_config] ||= {}
-          normalized_step[:default_retryable] = true if normalized_step[:default_retryable].nil?
-          # Use configuration-driven retry limit instead of hardcoded value
-          normalized_step[:default_retry_limit] ||= TaskerCore::Config.instance.max_retries
-
-          TaskerCore::Types::StepTemplate.new(normalized_step)
+      # Recursively symbolize keys in nested hashes and arrays
+      # @param obj [Object] The object to process
+      # @return [Object] The object with symbolized keys
+      def deep_symbolize_keys(obj)
+        case obj
+        when Hash
+          obj.transform_keys(&:to_sym).transform_values { |value| deep_symbolize_keys(value) }
+        when Array
+          obj.map { |item| deep_symbolize_keys(item) }
+        else
+          obj
         end
       end
 
-      # Convert environment hashes to proper format for TaskTemplate
-      # @param environments [Hash] Hash of environment configurations
-      # @return [Hash] Normalized environment configurations
-      def normalize_environments_to_structs(environments)
-        return {} unless environments.is_a?(Hash)
-
-        environment_structs = {}
-        environments.each do |env_key, env_config|
-          env_hash = env_config.to_h.deep_symbolize_keys
-
-          next unless env_hash.is_a?(Hash) && env_hash[:step_templates].is_a?(Array)
-
-          step_overrides = env_hash[:step_templates].map do |step_override|
-            TaskerCore::Types::StepOverride.new(step_override)
-          end
-          environment_structs[env_key] = TaskerCore::Types::EnvironmentConfig.new(step_templates: step_overrides)
-        end
-        environment_structs
-      end
 
       # Serialize environments for database storage
       # @param environments [Hash] Environment configurations
@@ -506,9 +430,7 @@ module TaskerCore
       # Get current environment name
       # @return [String] Current environment name
       def current_environment
-        Rails.env if defined?(Rails)
-      rescue StandardError
-        'development'
+        ENV['TASKER_ENV'] || ENV['RAILS_ENV'] || ENV['APP_ENV'] || ENV['RACK_ENV'] || 'development'
       end
 
       # Apply environment-specific overrides to template data

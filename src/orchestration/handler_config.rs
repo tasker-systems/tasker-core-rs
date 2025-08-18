@@ -3,47 +3,10 @@
 //! Provides YAML-driven configuration for task handlers including step templates,
 //! environment overrides, and schema validation.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::error::{Result, TaskerError};
-
-/// Custom deserializer for numeric values that may be integers or floats in YAML
-/// Converts floats to i32 by truncating (e.g., 0.0 -> 0, 10.5 -> 10)
-fn deserialize_optional_numeric<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<i32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
-
-    match value {
-        None => Ok(None),
-        Some(serde_yaml::Value::Number(n)) => {
-            if let Some(i) = n.as_i64() {
-                Ok(Some(i as i32))
-            } else if let Some(f) = n.as_f64() {
-                // Truncate floating point to integer
-                Ok(Some(f as i32))
-            } else {
-                Err(D::Error::custom(format!("Invalid numeric value: {n}")))
-            }
-        }
-        Some(serde_yaml::Value::String(s)) => {
-            // Try to parse string as number
-            s.parse::<i32>()
-                .map(Some)
-                .or_else(|_| s.parse::<f64>().map(|f| Some(f as i32)))
-                .map_err(|_| D::Error::custom(format!("Cannot parse '{s}' as numeric")))
-        }
-        Some(other) => Err(D::Error::custom(format!(
-            "Expected numeric value, found: {other:?}"
-        ))),
-    }
-}
 
 /// HandlerConfiguration represents the complete configuration for a task handler
 /// This matches the YAML structure exactly as stored in handler_config field
@@ -110,7 +73,10 @@ pub struct StepTemplate {
     pub default_retryable: Option<bool>,
 
     /// The default maximum number of retry attempts
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub default_retry_limit: Option<i32>,
 
     /// Whether this step can be skipped in the workflow
@@ -118,7 +84,10 @@ pub struct StepTemplate {
 
     /// Step-specific timeout in seconds
     /// If not specified, uses the global timeout configuration
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub timeout_seconds: Option<i32>,
 
     /// The class that implements the step's logic
@@ -169,14 +138,20 @@ pub struct StepTemplateOverride {
     pub default_retryable: Option<bool>,
 
     /// Override for retry limit
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub default_retry_limit: Option<i32>,
 
     /// Override for skippable setting
     pub skippable: Option<bool>,
 
     /// Override for timeout_seconds setting
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub timeout_seconds: Option<i32>,
 }
 

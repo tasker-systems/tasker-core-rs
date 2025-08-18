@@ -1,95 +1,164 @@
-# Linear Workflow Task Configuration
-# Implements A -> B -> C -> D pattern with mathematical operations
-
-name: mathematical_sequence
-task_handler_class: LinearWorkflow::LinearWorkflowHandler
-namespace_name: linear_workflow
-version: "1.0.0"
-description: "Sequential mathematical operations: input -> square -> add -> multiply -> divide"
-default_dependent_system: "default"
-
-# Sequential step definitions
-named_steps:
-  - linear_step_1 # Square the input
-  - linear_step_2 # Add constant
-  - linear_step_3 # Multiply by factor
-  - linear_step_4 # Divide by divisor (final result)
-
-step_templates:
-  - name: linear_step_1
-    description: "Square the even number"
-    handler_class: LinearWorkflow::StepHandlers::LinearStep1Handler
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "square"
-      description: "Square the input number (n²)"
-
-  - name: linear_step_2
-    description: "Add constant to result"
-    handler_class: LinearWorkflow::StepHandlers::LinearStep2Handler
-    depends_on_step: linear_step_1
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "add"
+# TaskTemplate Configuration (Migrated)
+# 
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: linear_workflow/mathematical_sequence:1.0.0
+# Migration Date: 2025-08-17T19:32:38Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
+:name: mathematical_sequence
+:namespace_name: linear_workflow
+:version: 1.0.0
+:description: 'Sequential mathematical operations: input -> square -> add -> multiply
+  -> divide'
+:metadata:
+  :author: TaskerCore Migration Tool
+  :tags:
+  - namespace:linear_workflow
+  - pattern:linear
+  - dependencies:simple
+  - environments:configured
+  - migrated:handler-configuration
+  :documentation_url:
+  :created_at: '2025-08-17T19:32:38Z'
+  :updated_at: '2025-08-17T19:32:38Z'
+:task_handler:
+  :callable: LinearWorkflow::LinearWorkflowHandler
+  :initialization:
+    input_validation:
+      required_fields:
+      - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 100
+    expected_results:
+      step_1: input²
+      step_2: "(input² + 10)"
+      step_3: "(input² + 10) × 3"
+      step_4: "((input² + 10) × 3) ÷ 2"
+:system_dependencies:
+  :primary: default
+  :secondary: []
+:domain_events: []
+:input_schema:
+:steps:
+- :name: linear_step_1
+  :description: Square the even number
+  :handler:
+    :callable: LinearWorkflow::StepHandlers::LinearStep1Handler
+    :initialization:
+      operation: square
+      description: Square the input number (n²)
+  :system_dependency:
+  :dependencies: []
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: linear_step_2
+  :description: Add constant to result
+  :handler:
+    :callable: LinearWorkflow::StepHandlers::LinearStep2Handler
+    :initialization:
+      operation: add
       constant: 10
-      description: "Add 10 to the squared result"
-
-  - name: linear_step_3
-    description: "Multiply by factor"
-    handler_class: LinearWorkflow::StepHandlers::LinearStep3Handler
-    depends_on_step: linear_step_2
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "multiply"
+      description: Add 10 to the squared result
+  :system_dependency:
+  :dependencies:
+  - linear_step_1
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: linear_step_3
+  :description: Multiply by factor
+  :handler:
+    :callable: LinearWorkflow::StepHandlers::LinearStep3Handler
+    :initialization:
+      operation: multiply
       factor: 3
-      description: "Multiply by 3"
-
-  - name: linear_step_4
-    description: "Divide by divisor for final result"
-    handler_class: LinearWorkflow::StepHandlers::LinearStep4Handler
-    depends_on_step: linear_step_3
-    default_retryable: true
-    default_retry_limit: 3
-    timeout_seconds: 30
-    handler_config:
-      operation: "divide"
+      description: Multiply by 3
+  :system_dependency:
+  :dependencies:
+  - linear_step_2
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+- :name: linear_step_4
+  :description: Divide by divisor for final result
+  :handler:
+    :callable: LinearWorkflow::StepHandlers::LinearStep4Handler
+    :initialization:
+      operation: divide
       divisor: 2
-      description: "Divide by 2 for final result"
-
-# Environment-specific overrides
-environments:
+      description: Divide by 2 for final result
+  :system_dependency:
+  :dependencies:
+  - linear_step_3
+  :retry:
+    :retryable: true
+    :limit: 3
+    :backoff: exponential
+    :backoff_base_ms: 1000
+    :max_backoff_ms: 30000
+  :timeout_seconds: 30
+  :publishes_events: []
+:environments:
   test:
-    step_templates:
-      - name: linear_step_1
-        handler_config:
+    :task_handler:
+    :steps:
+    - :name: linear_step_1
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: linear_step_2
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: linear_step_2
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: linear_step_3
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: linear_step_3
+      :handler:
+        :initialization:
           timeout_seconds: 10
-      - name: linear_step_4
-        handler_config:
+      :timeout_seconds:
+      :retry:
+    - :name: linear_step_4
+      :handler:
+        :initialization:
           timeout_seconds: 10
-
-# Custom validation rules
-handler_config:
-  input_validation:
-    required_fields: ["even_number"]
-    even_number_constraint: "must_be_even"
-    value_range:
-      min: 2
-      max: 100
-
-  expected_results:
-    step_1: "input²"
-    step_2: "(input² + 10)"
-    step_3: "(input² + 10) × 3"
-    step_4: "((input² + 10) × 3) ÷ 2"
+      :timeout_seconds:
+      :retry:
+:loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/bindings/ruby/spec/handlers/examples/linear_workflow/config/linear_workflow_handler.yaml"

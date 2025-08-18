@@ -99,6 +99,7 @@ pub mod sql_functions;
 pub mod state_machine;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+pub mod utils;
 pub mod validation;
 
 pub use constants::events as system_events;

@@ -42,7 +42,7 @@ pub mod manager;
 pub mod metrics;
 
 #[cfg(test)]
-mod yaml_config_test;
+mod toml_config_test;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerError, CircuitState};
 pub use config::{CircuitBreakerConfig, GlobalCircuitBreakerSettings};
