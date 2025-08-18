@@ -1,0 +1,254 @@
+# TaskTemplate Configuration
+# 
+# This TaskTemplate uses the new self-describing structure for workflow configuration.
+# Compatible with both Ruby and Rust parsers.
+#
+# Template Structure:
+# - Self-describing with complete metadata
+# - Callable-based handlers (not class-based)
+# - Environment-specific overrides
+# - Comprehensive retry and timeout configuration
+#
+---
+---
+name: credit_card_payment
+namespace_name: payments
+version: 1.0.0
+description: Process credit card payments with validation and fraud detection
+metadata:
+  author: TaskerCore Migration Tool
+  tags:
+  - namespace:payments
+  - pattern:complex
+  - dependencies:complex
+  - environments:configured
+  - migrated:handler-configuration
+  documentation_url:
+  created_at: '2025-08-17T20:18:41Z'
+  updated_at: '2025-08-17T20:18:41Z'
+task_handler:
+  callable: CreditCardPaymentHandler
+  initialization: {}
+system_dependencies:
+  primary: payment_gateway
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  required:
+  - order_id
+  - payment_info
+  - customer_id
+  properties:
+    order_id:
+      type: integer
+      minimum: 1
+    payment_info:
+      type: object
+      required:
+      - amount
+      - currency
+      - card_token
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+        currency:
+          type: string
+          enum:
+          - USD
+          - EUR
+          - GBP
+        card_token:
+          type: string
+          minLength: 10
+    customer_id:
+      type: integer
+      minimum: 1
+steps:
+- name: validate_payment
+  description: Validate payment information and check card status
+  handler:
+    callable: PaymentProcessing::StepHandler::ValidatePaymentHandler
+    initialization:
+      validation_rules:
+      - check_card_expiry
+      - validate_cvv
+      - check_amount_limits
+  system_dependency:
+  dependencies: []
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+- name: check_fraud
+  description: Run fraud detection algorithms
+  handler:
+    callable: PaymentProcessing::StepHandler::FraudCheckHandler
+    initialization:
+      fraud_service_url: "${FRAUD_SERVICE_URL}"
+      risk_threshold: 0.8
+      timeout_ms: 5000
+  system_dependency:
+  dependencies:
+  - validate_payment
+  retry:
+    retryable: true
+    limit: 2
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 60
+  publishes_events: []
+- name: authorize_payment
+  description: Authorize payment with payment gateway
+  handler:
+    callable: PaymentProcessing::StepHandler::AuthorizePaymentHandler
+    initialization:
+      gateway_url: "${PAYMENT_GATEWAY_URL}"
+      api_key: "${PAYMENT_GATEWAY_API_KEY}"
+      timeout_ms: 30000
+  system_dependency:
+  dependencies:
+  - validate_payment
+  - check_fraud
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 120
+  publishes_events: []
+- name: capture_payment
+  description: Capture the authorized payment
+  handler:
+    callable: PaymentProcessing::StepHandler::CapturePaymentHandler
+    initialization:
+      gateway_url: "${PAYMENT_GATEWAY_URL}"
+      api_key: "${PAYMENT_GATEWAY_API_KEY}"
+      auto_capture: true
+  system_dependency:
+  dependencies:
+  - authorize_payment
+  retry:
+    retryable: true
+    limit: 5
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 120
+  publishes_events: []
+- name: send_confirmation
+  description: Send payment confirmation to customer
+  handler:
+    callable: PaymentProcessing::StepHandler::SendConfirmationHandler
+    initialization:
+      notification_service_url: "${NOTIFICATION_SERVICE_URL}"
+      template_id: payment_confirmation
+  system_dependency:
+  dependencies:
+  - capture_payment
+  retry:
+    retryable: true
+    limit: 3
+    backoff: exponential
+    backoff_base_ms: 1000
+    max_backoff_ms: 30000
+  timeout_seconds: 30
+  publishes_events: []
+environments:
+  development:
+    task_handler:
+    steps:
+    - name: check_fraud
+      handler:
+        initialization:
+          fraud_service_url: http://localhost:8080/fraud-check
+          risk_threshold: 0.5
+          debug_mode: true
+      timeout_seconds:
+      retry:
+    - name: authorize_payment
+      handler:
+        initialization:
+          gateway_url: http://localhost:3000/api/payments
+          api_key: dev_key_123
+      timeout_seconds:
+      retry:
+    - name: capture_payment
+      handler:
+        initialization:
+          gateway_url: http://localhost:3000/api/payments
+          api_key: dev_key_123
+          auto_capture: false
+      timeout_seconds:
+      retry:
+    - name: send_confirmation
+      handler:
+        initialization:
+          notification_service_url: http://localhost:9000/notifications
+          debug_mode: true
+      timeout_seconds:
+      retry:
+  staging:
+    task_handler:
+    steps:
+    - name: check_fraud
+      handler:
+        initialization:
+          fraud_service_url: https://staging-fraud.example.com
+          risk_threshold: 0.7
+      timeout_seconds:
+      retry:
+    - name: authorize_payment
+      handler:
+        initialization:
+          gateway_url: https://staging-gateway.example.com
+      timeout_seconds:
+      retry:
+    - name: capture_payment
+      handler:
+        initialization:
+          gateway_url: https://staging-gateway.example.com
+      timeout_seconds:
+      retry:
+    - name: send_confirmation
+      handler:
+        initialization:
+          notification_service_url: https://staging-notifications.example.com
+      timeout_seconds:
+      retry:
+  production:
+    task_handler:
+    steps:
+    - name: check_fraud
+      handler:
+        initialization:
+          fraud_service_url: https://fraud-service.example.com
+          risk_threshold: 0.8
+      timeout_seconds:
+      retry:
+    - name: authorize_payment
+      handler:
+        initialization:
+          gateway_url: https://api.paymentgateway.com
+      timeout_seconds:
+      retry:
+    - name: capture_payment
+      handler:
+        initialization:
+          gateway_url: https://api.paymentgateway.com
+      timeout_seconds:
+      retry:
+    - name: send_confirmation
+      handler:
+        initialization:
+          notification_service_url: https://notifications.example.com
+      timeout_seconds:
+      retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/credit_card_payment.yaml"

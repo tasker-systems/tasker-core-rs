@@ -59,18 +59,18 @@ module TaskerCore
         end
 
         # Resolve handler class
-        handler_class = resolve_handler_class(step_template.handler_class)
+        handler_class = resolve_handler_class(step_template.handler.callable)
         unless handler_class
-          @logger.warn("⚠️ STEP_RESOLVER: Handler class '#{step_template.handler_class}' not available")
+          @logger.warn("⚠️ STEP_RESOLVER: Handler class '#{step_template.handler.callable}' not available")
           return nil
         end
 
-        @logger.info("✅ STEP_RESOLVER: Handler resolved - step: #{step.workflow_step_uuid}, class: #{step_template.handler_class}")
+        @logger.info("✅ STEP_RESOLVER: Handler resolved - step: #{step.workflow_step_uuid}, class: #{step_template.handler.callable}")
 
         ResolvedStepHandler.new(
-          handler_class_name: step_template.handler_class,
+          handler_class_name: step_template.handler.callable,
           handler_class: handler_class,
-          handler_config: step_template.handler_config || {},
+          handler_config: step_template.handler.initialization || {},
           step_template: step_template,
           task_template: task_template
         )
@@ -188,12 +188,12 @@ module TaskerCore
 
       private
 
-      # Find step template by name within task template
+      # Find step definition by name within task template
       # @param task_template [TaskerCore::Types::TaskTemplate] Task template
       # @param step_name [String] Step name to find
-      # @return [TaskerCore::Types::StepTemplate, nil] Step template or nil if not found
+      # @return [TaskerCore::Types::StepDefinition, nil] Step definition or nil if not found
       def find_step_template(task_template, step_name)
-        task_template.step_templates.find { |st| st.name == step_name }
+        task_template.steps.find { |st| st.name == step_name }
       end
 
       # Resolve handler class from class name string
@@ -233,11 +233,11 @@ module TaskerCore
 
           task_templates.each do |template|
             # Add task-level handler
-            handlers << template.task_handler_class if template.task_handler_class
+            handlers << template.task_handler.callable if template.task_handler
 
             # Add step-level handlers
-            template.step_templates.each do |step_template|
-              handlers << step_template.handler_class if step_template.handler_class
+            template.steps.each do |step_definition|
+              handlers << step_definition.handler.callable if step_definition.handler
             end
           end
 

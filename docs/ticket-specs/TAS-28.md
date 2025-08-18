@@ -1,41 +1,46 @@
 # TAS-28: Axum Web API Implementation Plan
 
 ## Executive Summary
-Implement a **read-focused REST API** using Axum that provides visibility into the Tasker orchestration system. The API will be primarily read-only with only two carefully controlled mutations: task cancellation and manual step resolution.
+Implement a **production-ready REST API** using Axum that provides both orchestration system visibility and task creation capabilities. The API will serve as the HTTP interface for both the orchestration system and future worker systems as outlined in TAS-40.
+
+## Context from TAS-40
+Per TAS-40 (Worker Foundations), we will NOT implement an embedded orchestration system. The orchestration core and worker systems will run as separate services from day one, communicating via HTTP API. This makes the Axum web service a critical foundation component that must be implemented before the worker system.
 
 ## API Scope Analysis
 
 ### ✅ Endpoints to Implement
 
-#### 1. Health & Monitoring (No Auth Required)
-- `GET /tasker/health/ready` - Readiness check
-- `GET /tasker/health/live` - Liveness check  
-- `GET /tasker/health/status` - Detailed health (optional auth)
-- `GET /tasker/metrics` - Prometheus metrics export
+#### 1. Health & Monitoring (No Auth Required) - Root Level
+- `GET /health` - Basic health check
+- `GET /ready` - Kubernetes readiness probe
+- `GET /live` - Kubernetes liveness probe
+- `GET /health/detailed` - Detailed health status (optional auth)
+- `GET /metrics` - Prometheus metrics export
 
-#### 2. Tasks (Read-Only + Cancel)
-- `GET /tasker/tasks` - List tasks with pagination
-- `GET /tasker/tasks/{task_id}` - Get task details with dependency graph
-- `DELETE /tasker/tasks/{task_id}` - Cancel task (only allowed mutation)
+#### 2. Tasks API v1
+- `POST /v1/tasks` - Create new task (REQUIRED for TAS-40 worker integration)
+- `GET /v1/tasks` - List tasks with pagination
+- `GET /v1/tasks/{uuid}` - Get task details with dependency graph
+- `DELETE /v1/tasks/{uuid}` - Cancel task
 
-#### 3. Workflow Steps (Read-Only + Manual Resolution)
-- `GET /tasker/tasks/{task_id}/workflow_steps` - List steps for a task
-- `GET /tasker/tasks/{task_id}/workflow_steps/{step_id}` - Get step details
-- `PATCH /tasker/tasks/{task_id}/workflow_steps/{step_id}` - Update step for manual resolution only
+#### 3. Workflow Steps API v1
+- `GET /v1/tasks/{uuid}/workflow_steps` - List steps for a task
+- `GET /v1/tasks/{uuid}/workflow_steps/{step_uuid}` - Get step details
+- `PATCH /v1/tasks/{uuid}/workflow_steps/{step_uuid}` - Update step for manual resolution only
 
-#### 4. Handlers (Read-Only)
-- `GET /tasker/handlers` - List registered namespaces
-- `GET /tasker/handlers/{namespace}` - List handlers in namespace
-- `GET /tasker/handlers/{namespace}/{name}` - Get handler details with dependency graph
+#### 4. Handlers API v1 (Read-Only)
+- `GET /v1/handlers` - List registered namespaces
+- `GET /v1/handlers/{namespace}` - List handlers in namespace
+- `GET /v1/handlers/{namespace}/{name}` - Get handler details with dependency graph
 
-#### 5. Analytics (Read-Only)
-- `GET /tasker/analytics/performance` - System performance metrics
-- `GET /tasker/analytics/bottlenecks` - Bottleneck analysis
+#### 5. Analytics API v1 (Read-Only)
+- `GET /v1/analytics/performance` - System performance metrics
+- `GET /v1/analytics/bottlenecks` - Bottleneck analysis
 
 ### ❌ Endpoints NOT to Implement
-- `POST /tasker/tasks` - Task creation (handled internally by orchestration)
-- `PUT/PATCH /tasker/tasks/{task_id}` - Task updates (except cancellation)
-- `PUT /tasker/tasks/{task_id}/workflow_steps/{step_id}` - Full step updates
+- `PUT/PATCH /v1/tasks/{uuid}` - Full task updates (except cancellation)
+- `PUT /v1/tasks/{uuid}/workflow_steps/{step_uuid}` - Full step updates
+- Direct step enqueueing endpoints (handled internally by orchestration)
 
 ## Technical Architecture
 
@@ -53,7 +58,8 @@ pub mod errors;
 // Main app factory
 pub fn create_app(config: WebConfig, pool: PgPool) -> Router {
     Router::new()
-        .nest("/tasker", api_routes())
+        .nest("/v1", api_v1_routes())  // Versioned API routes
+        .merge(health_routes())        // Health/metrics at root level
         .layer(middleware::stack())
         .with_state(AppState { config, pool })
 }
@@ -61,7 +67,36 @@ pub fn create_app(config: WebConfig, pool: PgPool) -> Router {
 
 ### Key Design Decisions
 
-#### 1. Step Result Alignment
+#### 1. Task Creation API (NEW - Required for TAS-40)
+The `POST /v1/tasks` endpoint is critical for worker system integration. It accepts a TaskRequest and returns task metadata:
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct TaskCreationRequest {
+    pub name: String,
+    pub namespace: String,
+    pub version: String,
+    pub context: serde_json::Value,
+    pub initiator: String,
+    pub source_system: String,
+    pub reason: String,
+    pub priority: Option<i32>,
+    pub claim_timeout_seconds: Option<i32>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct TaskCreationResponse {
+    pub task_uuid: String,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub estimated_completion: Option<chrono::DateTime<chrono::Utc>>,
+}
+```
+
+#### 2. UUID-based Identifiers
+Changed from integer IDs to UUID strings in URLs for better compatibility with distributed systems and future scaling.
+
+#### 3. Step Result Alignment
 Align step results with Ruby's `StepHandlerCallResult`:
 ```rust
 #[derive(Serialize, Deserialize)]
@@ -76,18 +111,20 @@ pub struct StepResult {
 }
 ```
 
-#### 2. Authentication Strategy
+#### 4. Authentication Strategy
 - Use optional JWT authentication via middleware
-- Health endpoints: No auth required
+- Health/metrics endpoints: No auth required (Kubernetes standard)
 - Read endpoints: Optional auth (configurable)
+- Task creation endpoint: Required auth (configurable for worker systems)
 - Mutation endpoints: Required auth
 
-#### 3. Database Connection
-- Use SQLx with connection pooling
+#### 5. Database Connection
+- Use SQLx with connection pooling shared with orchestration system
 - Custom extractor for database connections
 - Read replicas for analytics queries
+- Reuse existing models from orchestration system
 
-#### 4. Error Handling
+#### 6. Error Handling
 ```rust
 #[derive(thiserror::Error)]
 pub enum ApiError {
@@ -128,25 +165,38 @@ impl IntoResponse for ApiError {
    - Query builders
 
 ### Phase 2: Health & Metrics (Week 1)
-1. **Health Endpoints**
-   - Implement readiness/liveness checks
+1. **Health Endpoints** (Kubernetes-ready)
+   - Implement `/health`, `/ready`, `/live` checks
    - Database connectivity checks
    - Queue health status
+   - Orchestration system health
 
 2. **Prometheus Metrics**
-   - Setup metrics registry
+   - Setup metrics registry at `/metrics`
    - HTTP request metrics
    - Custom business metrics
+   - Orchestration system metrics
 
-### Phase 3: Read-Only Endpoints (Week 2)
-1. **Task Endpoints**
-   - List with pagination/filtering
-   - Get by ID with relationships
+### Phase 3: Task Creation API (Week 2) - PRIORITY for TAS-40
+1. **Core Task Creation**
+   - `POST /v1/tasks` endpoint implementation
+   - Integration with existing TaskInitializer
+   - UUID-based response format
+   - Error handling and validation
+
+2. **Task Status API**
+   - `GET /v1/tasks/{uuid}` for worker correlation
+   - Task status tracking
    - Dependency graph serialization
 
+### Phase 4: Read-Only Endpoints (Week 2)
+1. **Task List Endpoints**
+   - List with pagination/filtering
+   - Get by UUID with relationships
+
 2. **Step Endpoints**
-   - List steps by task
-   - Get step details
+   - List steps by task UUID
+   - Get step details by UUID
    - Result formatting per Ruby spec
 
 3. **Handler Endpoints**
@@ -154,7 +204,7 @@ impl IntoResponse for ApiError {
    - Handler enumeration
    - Dependency visualization
 
-### Phase 4: Controlled Mutations (Week 2)
+### Phase 5: Controlled Mutations (Week 3)
 1. **Task Cancellation**
    - Validate task state
    - Update database
@@ -219,10 +269,34 @@ thiserror = "1.0"
 ### 2. Integration Tests
 ```rust
 #[tokio::test]
+async fn test_task_creation() {
+    let app = test_app();
+    let task_request = TaskCreationRequest {
+        name: "test_task".to_string(),
+        namespace: "test".to_string(),
+        version: "1.0.0".to_string(),
+        context: json!({"test": true}),
+        initiator: "test_worker".to_string(),
+        source_system: "test".to_string(),
+        reason: "Integration test".to_string(),
+        priority: None,
+        claim_timeout_seconds: None,
+        tags: None,
+    };
+
+    let response = app.oneshot(
+        Request::post("/v1/tasks")
+            .header("content-type", "application/json")
+            .body(serde_json::to_string(&task_request).unwrap())
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
 async fn test_task_cancellation() {
     let app = test_app();
     let response = app.oneshot(
-        Request::delete("/tasker/tasks/123")
+        Request::delete("/v1/tasks/550e8400-e29b-41d4-a716-446655440000")
     ).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -252,30 +326,78 @@ async fn test_task_cancellation() {
 
 ## Success Criteria
 
-- ✅ All read endpoints return data matching database state
+- ✅ Task creation endpoint (`POST /v1/tasks`) fully functional for worker integration
+- ✅ All read endpoints return data matching database state with UUID identifiers
+- ✅ Health endpoints (`/health`, `/ready`, `/live`) follow Kubernetes standards
+- ✅ Prometheus metrics exposed at `/metrics` and queryable
 - ✅ Task cancellation properly updates state and triggers events
 - ✅ Manual step resolution follows Ruby StepHandlerCallResult format
-- ✅ Prometheus metrics exposed and queryable
-- ✅ Health checks accurately reflect system state
-- ✅ API responses are fast (<100ms p99 for reads)
+- ✅ API responses are fast (<100ms p99 for reads, <500ms p99 for task creation)
 - ✅ Comprehensive test coverage (>80%)
 - ✅ Zero unauthorized mutations possible
+- ✅ Worker systems can successfully create and track tasks via HTTP API
 
 ## Implementation Notes
 
 ### Why These Choices
 
-1. **Read-Only Focus**: The orchestration system is designed to be internally driven. External mutations could break workflow integrity.
+1. **Task Creation Priority**: Per TAS-40, worker systems must be able to POST to `/v1/tasks` to create tasks and receive UUIDs for correlation. This is fundamental to the distributed architecture.
 
-2. **Two Allowed Mutations**: 
+2. **UUID-based URLs**: Future-proof for distributed systems and horizontal scaling. Avoids integer ID conflicts.
+
+3. **Health Endpoints at Root**: Follows Kubernetes and industry standards for `/health`, `/ready`, `/live`, and `/metrics` endpoints.
+
+4. **Version Prefix**: `/v1` allows for future API evolution without breaking existing integrations.
+
+5. **Controlled Mutations**:
+   - Task creation enables worker integration (TAS-40 requirement)
    - Task cancellation is necessary for operational control
    - Manual step resolution allows human intervention when automation fails
 
-3. **StepHandlerCallResult Alignment**: Ensures consistency between Ruby workers and API responses
+6. **StepHandlerCallResult Alignment**: Ensures consistency between Ruby workers and API responses
 
-4. **Optional Authentication**: Allows flexible deployment (internal vs external facing)
+7. **Optional Authentication**: Allows flexible deployment (internal vs external facing)
 
 ### Example Implementations
+
+#### Task Creation Handler (NEW - Required for TAS-40)
+```rust
+async fn create_task(
+    State(pool): State<PgPool>,
+    _auth: RequireAuth,  // Configurable auth requirement
+    Json(request): Json<TaskCreationRequest>,
+) -> Result<Json<TaskCreationResponse>, ApiError> {
+    // Validate request
+    if request.name.is_empty() || request.namespace.is_empty() {
+        return Err(ApiError::BadRequest("Name and namespace are required".into()));
+    }
+
+    // Create TaskRequest for orchestration system
+    let task_request = TaskRequest::new(request.name, request.namespace)
+        .with_version(request.version)
+        .with_context(request.context)
+        .with_initiator(request.initiator)
+        .with_source_system(request.source_system)
+        .with_reason(request.reason);
+
+    // Use existing TaskInitializer
+    let initializer = TaskInitializer::for_production(pool.clone());
+    let result = initializer
+        .create_task_from_request(task_request)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    // Return UUID and metadata for worker correlation
+    let response = TaskCreationResponse {
+        task_uuid: result.task_uuid.to_string(),
+        status: "created".to_string(),
+        created_at: chrono::Utc::now(),
+        estimated_completion: None, // Could be calculated from workflow complexity
+    };
+
+    Ok(Json(response))
+}
+```
 
 #### Health Check Handler
 ```rust
@@ -285,10 +407,10 @@ async fn health_ready(State(pool): State<PgPool>) -> Result<Json<HealthStatus>, 
         .fetch_one(&pool)
         .await
         .is_ok();
-    
+
     // Check queue connectivity (if applicable)
     let queue_healthy = check_queue_health().await;
-    
+
     let status = HealthStatus {
         status: if db_healthy && queue_healthy { "ready" } else { "not_ready" },
         checks: vec![
@@ -296,7 +418,7 @@ async fn health_ready(State(pool): State<PgPool>) -> Result<Json<HealthStatus>, 
             HealthCheck { name: "queue", status: queue_healthy },
         ],
     };
-    
+
     Ok(Json(status))
 }
 ```
@@ -304,23 +426,27 @@ async fn health_ready(State(pool): State<PgPool>) -> Result<Json<HealthStatus>, 
 #### Task Cancellation Handler
 ```rust
 async fn cancel_task(
-    Path(task_id): Path<i64>,
+    Path(task_uuid): Path<String>,
     State(pool): State<PgPool>,
     _auth: RequireAuth,  // Ensures authentication
 ) -> Result<Json<TaskResponse>, ApiError> {
+    // Parse and validate UUID
+    let task_uuid = Uuid::parse_str(&task_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid task UUID".into()))?;
+
     // Validate task exists and is cancellable
-    let task = get_task_by_id(&pool, task_id).await?;
-    
+    let task = get_task_by_uuid(&pool, task_uuid).await?;
+
     if !task.is_cancellable() {
         return Err(ApiError::BadRequest("Task cannot be cancelled".into()));
     }
-    
+
     // Update task status
-    update_task_status(&pool, task_id, TaskStatus::Cancelled).await?;
-    
+    update_task_status(&pool, task_uuid, TaskStatus::Cancelled).await?;
+
     // Trigger orchestration events
-    publish_cancellation_event(task_id).await?;
-    
+    publish_cancellation_event(task_uuid).await?;
+
     Ok(Json(TaskResponse::from(task)))
 }
 ```
@@ -328,18 +454,24 @@ async fn cancel_task(
 #### Manual Step Resolution Handler
 ```rust
 async fn resolve_step_manually(
-    Path((task_id, step_id)): Path<(i64, i64)>,
+    Path((task_uuid, step_uuid)): Path<(String, String)>,
     State(pool): State<PgPool>,
     Json(payload): Json<ManualResolutionRequest>,
     _auth: RequireAuth,
 ) -> Result<Json<StepResponse>, ApiError> {
+    // Parse and validate UUIDs
+    let task_uuid = Uuid::parse_str(&task_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid task UUID".into()))?;
+    let step_uuid = Uuid::parse_str(&step_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid step UUID".into()))?;
+
     // Validate step can be manually resolved
-    let step = get_step(&pool, task_id, step_id).await?;
-    
+    let step = get_step_by_uuid(&pool, task_uuid, step_uuid).await?;
+
     if step.status != StepStatus::Failed && step.status != StepStatus::Pending {
         return Err(ApiError::BadRequest("Step cannot be manually resolved".into()));
     }
-    
+
     // Format results per Ruby StepHandlerCallResult
     let results = StepResult {
         success: true,
@@ -353,23 +485,675 @@ async fn resolve_step_manually(
             "resolution_reason" => json!(payload.reason),
         },
     };
-    
+
     // Update step in database
-    update_step_results(&pool, step_id, results).await?;
-    update_step_status(&pool, step_id, StepStatus::ResolvedManually).await?;
-    
+    update_step_results(&pool, step_uuid, results).await?;
+    update_step_status(&pool, step_uuid, StepStatus::ResolvedManually).await?;
+
     Ok(Json(StepResponse::from(step)))
 }
 ```
 
 ## Next Steps
 
-1. Create web module structure
-2. Implement health endpoints first
-3. Add SQLx and database extractors
-4. Build out read-only endpoints incrementally
-5. Carefully implement the two allowed mutations
-6. Add comprehensive testing
-7. Document API with OpenAPI/Swagger
+1. **Priority 1**: Create web module structure and health endpoints (Kubernetes readiness)
+2. **Priority 2**: Implement `POST /v1/tasks` endpoint (CRITICAL for TAS-40 worker integration)
+3. **Priority 3**: Add `GET /v1/tasks/{uuid}` endpoint (worker correlation)
+4. Add SQLx and database extractors with UUID support
+5. Build out remaining read-only endpoints incrementally
+6. Implement controlled mutations (cancellation and manual resolution)
+7. Add comprehensive testing with UUID-based examples
+8. Document API with OpenAPI/Swagger spec
 
-This approach ensures we maintain the integrity of the orchestration system while providing necessary visibility and limited, controlled mutation capabilities for operational needs.
+## Integration with Existing Orchestration System
+
+### Boot Process Integration with OrchestrationBootstrap
+
+The Axum web server will be integrated into our existing `OrchestrationBootstrap` system to ensure unified component lifecycle management. This follows the established pattern in `src/orchestration/bootstrap.rs`:
+
+```rust
+// Enhanced BootstrapConfig to include web server configuration
+#[derive(Debug, Clone)]
+pub struct BootstrapConfig {
+    /// Namespaces to initialize queues for
+    pub namespaces: Vec<String>,
+    /// Whether to start processors immediately (vs manual control)
+    pub auto_start_processors: bool,
+    /// Environment override (None = auto-detect)
+    pub environment_override: Option<String>,
+    /// Web server configuration (NEW)
+    pub web_server_config: Option<WebServerConfig>,
+}
+
+// NEW: Web server configuration integrated with existing config system
+#[derive(Debug, Clone)]
+pub struct WebServerConfig {
+    pub enabled: bool,
+    pub bind_address: String,
+    pub cors_enabled: bool,
+    pub auth_enabled: bool,
+    pub rate_limiting_enabled: bool,
+}
+
+impl WebServerConfig {
+    /// Create from existing ConfigManager (leverages TOML configuration)
+    pub fn from_config_manager(config_manager: &ConfigManager) -> Option<Self> {
+        let config = config_manager.config();
+        
+        // Check if web server is enabled in configuration
+        if !config.web_server.enabled {
+            return None;
+        }
+        
+        Some(Self {
+            enabled: config.web_server.enabled,
+            bind_address: config.web_server.bind_address.clone(),
+            cors_enabled: config.web_server.cors.enabled,
+            auth_enabled: config.web_server.auth.enabled,
+            rate_limiting_enabled: config.web_server.rate_limiting.enabled,
+        })
+    }
+}
+
+// Enhanced OrchestrationBootstrap to include web server
+impl OrchestrationBootstrap {
+    /// Enhanced bootstrap method with web server integration
+    pub async fn bootstrap(config: BootstrapConfig) -> Result<OrchestrationSystemHandle> {
+        info!("🚀 BOOTSTRAP: Starting unified orchestration system bootstrap with web server support");
+
+        // Existing bootstrap logic for orchestration core...
+        let orchestration_core = Arc::new(OrchestrationCore::from_config(config_manager.clone()).await?);
+        
+        // NEW: Start web server if configured
+        let web_server_handle = if let Some(web_config) = config.web_server_config {
+            Some(Self::start_web_server(web_config, orchestration_core.clone()).await?)
+        } else {
+            None
+        };
+
+        // Enhanced handle to include web server
+        let handle = OrchestrationSystemHandle::new_with_web_server(
+            orchestration_core,
+            shutdown_sender,
+            runtime_handle,
+            config_manager,
+            web_server_handle,
+        );
+
+        info!("🎉 BOOTSTRAP: Unified orchestration system with web server bootstrap completed");
+        Ok(handle)
+    }
+
+    /// Start Axum web server integrated with orchestration system
+    async fn start_web_server(
+        web_config: WebServerConfig,
+        orchestration_core: Arc<OrchestrationCore>,
+    ) -> Result<WebServerHandle> {
+        info!("🌐 BOOTSTRAP: Starting Axum web server on {}", web_config.bind_address);
+
+        // Create shared app state using orchestration resources
+        let app_state = AppState {
+            config: Arc::new(web_config.clone()),
+            db_pool: orchestration_core.database_pool().clone(),
+            pgmq_client: orchestration_core.pgmq_client().clone(),
+            metrics_registry: orchestration_core.metrics_registry().clone(),
+            task_initializer: orchestration_core.task_initializer().clone(),
+            orchestration_status: orchestration_core.status().clone(),
+        };
+
+        // Create Axum app with shared state
+        let app = crate::web::create_app(app_state);
+        
+        // Bind to configured address
+        let listener = tokio::net::TcpListener::bind(&web_config.bind_address)
+            .await
+            .map_err(|e| TaskerError::ConfigurationError(
+                format!("Failed to bind web server to {}: {}", web_config.bind_address, e)
+            ))?;
+        
+        // Start server with graceful shutdown integration
+        let server_future = axum::serve(listener, app);
+        let server_handle = tokio::spawn(server_future);
+        
+        info!("✅ BOOTSTRAP: Axum web server started successfully on {}", web_config.bind_address);
+        
+        Ok(WebServerHandle {
+            server_handle,
+            bind_address: web_config.bind_address,
+        })
+    }
+
+    /// Convenience method for starting orchestration with web server
+    pub async fn bootstrap_with_web_server(
+        namespaces: Vec<String>,
+        environment: Option<String>,
+    ) -> Result<OrchestrationSystemHandle> {
+        // Load configuration to determine if web server should be enabled
+        let config_manager = ConfigManager::load()?;
+        let web_server_config = WebServerConfig::from_config_manager(&config_manager);
+        
+        let config = BootstrapConfig {
+            namespaces,
+            auto_start_processors: true,
+            environment_override: environment,
+            web_server_config,
+        };
+
+        Self::bootstrap(config).await
+    }
+}
+
+// Enhanced system handle to manage both orchestration and web server
+pub struct OrchestrationSystemHandle {
+    pub orchestration_core: Arc<OrchestrationCore>,
+    pub shutdown_sender: Option<oneshot::Sender<()>>,
+    pub runtime_handle: tokio::runtime::Handle,
+    pub config_manager: Arc<ConfigManager>,
+    pub web_server_handle: Option<WebServerHandle>, // NEW
+}
+
+impl OrchestrationSystemHandle {
+    pub fn new_with_web_server(
+        orchestration_core: Arc<OrchestrationCore>,
+        shutdown_sender: oneshot::Sender<()>,
+        runtime_handle: tokio::runtime::Handle,
+        config_manager: Arc<ConfigManager>,
+        web_server_handle: Option<WebServerHandle>,
+    ) -> Self {
+        Self {
+            orchestration_core,
+            shutdown_sender: Some(shutdown_sender),
+            runtime_handle,
+            config_manager,
+            web_server_handle,
+        }
+    }
+
+    /// Enhanced stop method that gracefully shuts down both orchestration and web server
+    pub async fn stop(&mut self) -> Result<()> {
+        info!("🛑 SYSTEM: Stopping orchestration system and web server");
+
+        // Stop web server first
+        if let Some(web_handle) = &self.web_server_handle {
+            if let Err(e) = web_handle.stop().await {
+                error!("❌ Failed to stop web server gracefully: {}", e);
+            } else {
+                info!("✅ Web server stopped successfully");
+            }
+        }
+
+        // Stop orchestration system
+        if let Some(sender) = self.shutdown_sender.take() {
+            sender.send(()).map_err(|_| {
+                TaskerError::OrchestrationError("Failed to send shutdown signal".to_string())
+            })?;
+            info!("✅ Orchestration system shutdown requested");
+        }
+
+        Ok(())
+    }
+}
+
+// Web server handle for lifecycle management
+pub struct WebServerHandle {
+    server_handle: tokio::task::JoinHandle<()>,
+    bind_address: String,
+}
+
+impl WebServerHandle {
+    pub async fn stop(&self) -> Result<()> {
+        self.server_handle.abort();
+        info!("🌐 Web server on {} stopped", self.bind_address);
+        Ok(())
+    }
+}
+```
+
+### Configuration Integration
+
+The web server will use our existing component-based TOML configuration system:
+
+```toml
+# config/tasker/base/web_server.toml
+[web_server]
+enabled = true
+bind_address = "0.0.0.0:8080"
+request_timeout_ms = 30000
+max_request_size_mb = 10
+
+[web_server.cors]
+enabled = true
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "DELETE", "PATCH"]
+allowed_headers = ["Content-Type", "Authorization"]
+
+[web_server.auth]
+enabled = false  # Optional for internal deployments
+jwt_secret = "${JWT_SECRET}"
+api_key_header = "X-API-Key"
+
+[web_server.rate_limiting]
+enabled = true
+requests_per_minute = 1000
+burst_size = 100
+
+# Environment-specific overrides
+# config/tasker/environments/production/web_server.toml
+[web_server]
+bind_address = "0.0.0.0:8080"
+
+[web_server.auth]
+enabled = true
+jwt_secret = "${TASKER_JWT_SECRET}"
+```
+
+### Shared Resource Management
+
+The web server will reuse orchestration system components:
+
+```rust
+// src/web/state.rs
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Arc<WebServerConfig>,
+    pub db_pool: PgPool,                    // Shared with orchestration
+    pub pgmq_client: UnifiedPgmqClient,     // Shared with orchestration  
+    pub metrics_registry: Arc<Registry>,    // Shared with orchestration
+    pub task_initializer: Arc<TaskInitializer>,
+    pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
+}
+
+impl AppState {
+    pub fn from_orchestration_core(
+        web_config: WebServerConfig,
+        orchestration_core: &OrchestrationCore,
+    ) -> Self {
+        Self {
+            config: Arc::new(web_config),
+            db_pool: orchestration_core.database_pool().clone(),
+            pgmq_client: orchestration_core.pgmq_client().clone(),
+            metrics_registry: orchestration_core.metrics_registry().clone(),
+            task_initializer: orchestration_core.task_initializer().clone(),
+            orchestration_status: orchestration_core.status().clone(),
+        }
+    }
+}
+```
+
+### Operational State Coordination
+
+The web server will integrate with our operational state management:
+
+```rust
+// src/web/middleware/operational_state.rs
+pub async fn operational_state_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let orchestration_status = state.orchestration_status.read().await;
+    
+    match orchestration_status.operational_state {
+        SystemOperationalState::Normal => {
+            // All endpoints available
+            Ok(next.run(request).await)
+        }
+        SystemOperationalState::GracefulShutdown => {
+            // Only health endpoints available
+            if request.uri().path().starts_with("/health") 
+                || request.uri().path() == "/metrics" {
+                Ok(next.run(request).await)
+            } else {
+                Err(StatusCode::SERVICE_UNAVAILABLE)
+            }
+        }
+        SystemOperationalState::Emergency | SystemOperationalState::Stopped => {
+            // Only basic health check available
+            if request.uri().path() == "/health" {
+                Ok(next.run(request).await)
+            } else {
+                Err(StatusCode::SERVICE_UNAVAILABLE)
+            }
+        }
+        _ => Err(StatusCode::SERVICE_UNAVAILABLE)
+    }
+}
+```
+
+## Docker Integration
+
+### Orchestration System Dockerfile
+
+```dockerfile
+# Dockerfile.orchestration
+# Multi-stage build for optimized production image
+
+FROM rust:1.75-bullseye as builder
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Copy source code
+COPY src ./src
+COPY config ./config
+COPY migrations ./migrations
+
+# Build for release
+ENV SQLX_OFFLINE=true
+RUN cargo build --release --all-features
+
+# Runtime stage
+FROM debian:bullseye-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl1.1 \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -r -u 1000 tasker
+
+# Create app directory
+WORKDIR /app
+
+# Copy binary from builder stage
+COPY --from=builder /app/target/release/tasker-orchestration /usr/local/bin/
+COPY --from=builder /app/config ./config
+
+# Set permissions
+RUN chown -R tasker:tasker /app
+USER tasker
+
+# Configuration via environment variables
+ENV TASKER_ENV=production
+ENV RUST_LOG=info
+ENV TASKER_DATABASE_URL=""
+ENV TASKER_WEB_SERVER_ENABLED=true
+ENV TASKER_WEB_SERVER_BIND_ADDRESS="0.0.0.0:8080"
+
+# Health check using our health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Expose web server port
+EXPOSE 8080
+
+# Start orchestration system with integrated web server
+CMD ["tasker-orchestration", "--namespaces", "all"]
+```
+
+### Docker Compose for Development
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: tasker_development
+      POSTGRES_USER: tasker
+      POSTGRES_PASSWORD: tasker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tasker-orchestration:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestration
+    environment:
+      TASKER_ENV: development
+      RUST_LOG: debug,tasker_core=trace
+      TASKER_DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_development
+      TASKER_WEB_SERVER_ENABLED: true
+      TASKER_WEB_SERVER_BIND_ADDRESS: "0.0.0.0:8080"
+    ports:
+      - "8080:8080"  # Web API
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - ./config:/app/config:ro
+      
+  # Future worker service (TAS-40)
+  # tasker-worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   environment:
+  #     TASKER_ORCHESTRATION_URL: http://tasker-orchestration:8080
+  #     TASKER_WORKER_NAMESPACES: "payments,inventory"
+  #   depends_on:
+  #     tasker-orchestration:
+  #       condition: service_healthy
+
+volumes:
+  postgres_data:
+```
+
+### Production Kubernetes Deployment
+
+```yaml
+# k8s/orchestration-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasker-orchestration
+  labels:
+    app: tasker-orchestration
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tasker-orchestration
+  template:
+    metadata:
+      labels:
+        app: tasker-orchestration
+    spec:
+      containers:
+      - name: tasker-orchestration
+        image: tasker/orchestration:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: TASKER_ENV
+          value: "production"
+        - name: RUST_LOG
+          value: "info"
+        - name: TASKER_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: tasker-secrets
+              key: database-url
+        - name: TASKER_WEB_SERVER_ENABLED
+          value: "true"
+        - name: TASKER_WEB_SERVER_BIND_ADDRESS
+          value: "0.0.0.0:8080"
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tasker-orchestration-service
+spec:
+  selector:
+    app: tasker-orchestration
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasker-orchestration-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: tasker-api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tasker-orchestration-service
+            port:
+              number: 80
+```
+
+## TAS-40 Integration Points
+
+The following endpoints are **REQUIRED** for TAS-40 worker system integration:
+- `POST /v1/tasks` - Workers must be able to create tasks
+- `GET /v1/tasks/{uuid}` - Workers need task status for correlation
+- `GET /health` - Workers need to validate orchestration system health
+- `GET /metrics` - Monitoring and observability
+
+### Configuration for Worker Communication
+
+```toml
+# config/tasker/environments/production/web_server.toml
+[web_server]
+# Bind to all interfaces for container networking
+bind_address = "0.0.0.0:8080"
+
+[web_server.auth]
+# Enable auth for production worker communication
+enabled = true
+jwt_secret = "${TASKER_JWT_SECRET}"
+
+[web_server.rate_limiting]
+# Higher limits for worker traffic
+requests_per_minute = 10000
+burst_size = 1000
+```
+
+### Main Binary Implementation
+
+The main binary (`src/bin/tasker-orchestration.rs`) would use the integrated bootstrap system:
+
+```rust
+// src/bin/tasker-orchestration.rs
+use clap::{Arg, Command};
+use tasker_core::orchestration::bootstrap::OrchestrationBootstrap;
+use tracing::{error, info};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt::init();
+
+    let matches = Command::new("tasker-orchestration")
+        .version("1.0.0")
+        .about("Tasker Core Orchestration System with Web API")
+        .arg(
+            Arg::new("namespaces")
+                .long("namespaces")
+                .value_name("NAMESPACES")
+                .help("Comma-separated list of namespaces to initialize")
+                .default_value("all")
+        )
+        .arg(
+            Arg::new("environment")
+                .long("environment")
+                .short('e')
+                .value_name("ENV")
+                .help("Environment override (development, staging, production)")
+        )
+        .get_matches();
+
+    let namespaces_str = matches.get_one::<String>("namespaces").unwrap();
+    let namespaces = if namespaces_str == "all" {
+        vec![] // Empty means all available namespaces
+    } else {
+        namespaces_str.split(',').map(|s| s.trim().to_string()).collect()
+    };
+
+    let environment = matches.get_one::<String>("environment").cloned();
+
+    info!("🚀 Starting Tasker Orchestration System with Web API");
+    info!("   Namespaces: {:?}", if namespaces.is_empty() { vec!["all".to_string()] } else { namespaces.clone() });
+    info!("   Environment: {:?}", environment.as_ref().unwrap_or(&"auto-detect".to_string()));
+
+    // Use integrated bootstrap that includes web server
+    let mut handle = OrchestrationBootstrap::bootstrap_with_web_server(namespaces, environment).await?;
+
+    info!("✅ System started successfully");
+    info!("   Running: {}", handle.status().running);
+    info!("   Environment: {}", handle.status().environment);
+    if let Some(web_handle) = &handle.web_server_handle {
+        info!("   Web API: Available on {}", web_handle.bind_address);
+        info!("   Health Check: GET /health");
+        info!("   Task Creation: POST /v1/tasks");
+        info!("   Metrics: GET /metrics");
+    }
+
+    // Wait for shutdown signal
+    tokio::signal::ctrl_c().await?;
+    info!("🛑 Shutdown signal received");
+
+    // Graceful shutdown
+    handle.stop().await?;
+    info!("✅ System stopped successfully");
+
+    Ok(())
+}
+```
+
+### Integration Benefits
+
+This integration approach ensures the Axum web server leverages all existing orchestration infrastructure while providing the HTTP interface required for TAS-40's distributed worker architecture:
+
+1. **Unified Lifecycle**: Both orchestration and web server start/stop together
+2. **Shared Resources**: Database pools, PGMQ clients, metrics all shared
+3. **Configuration Consistency**: Single TOML configuration system
+4. **Operational State**: Web server respects orchestration operational state
+5. **Graceful Shutdown**: Coordinated shutdown prevents data loss

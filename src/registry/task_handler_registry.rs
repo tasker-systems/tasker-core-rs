@@ -155,13 +155,27 @@ impl TaskHandlerRegistry {
         name: &str,
         version: &str,
     ) -> Result<HandlerMetadata> {
+        debug!(
+            namespace = namespace,
+            name = name,
+            version = version,
+            "🔍 Starting database lookup for TaskTemplate"
+        );
+
         // 1. Find the task namespace
         let task_namespace = TaskNamespace::find_by_name(&self.db_pool, namespace)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to query namespace: {e}")))?
             .ok_or_else(|| {
+                debug!(namespace = namespace, "❌ Namespace not found in database");
                 TaskerError::ValidationError(format!("Namespace not found: {namespace}"))
             })?;
+
+        debug!(
+            namespace = namespace,
+            namespace_uuid = %task_namespace.task_namespace_uuid,
+            "✅ Found namespace in database"
+        );
 
         // 2. Find the named task in that namespace
         let named_task = NamedTask::find_latest_by_name_namespace(
@@ -172,8 +186,23 @@ impl TaskHandlerRegistry {
         .await
         .map_err(|e| TaskerError::DatabaseError(format!("Failed to query named task: {e}")))?
         .ok_or_else(|| {
+            debug!(
+                namespace = namespace,
+                name = name,
+                namespace_uuid = %task_namespace.task_namespace_uuid,
+                "❌ Named task not found in database"
+            );
             TaskerError::ValidationError(format!("Task not found: {namespace}/{name}"))
         })?;
+
+        debug!(
+            namespace = namespace,
+            name = name,
+            version = named_task.version,
+            task_uuid = %named_task.named_task_uuid,
+            config_present = named_task.configuration.is_some(),
+            "✅ Found named task in database"
+        );
 
         info!(
             namespace = &namespace,

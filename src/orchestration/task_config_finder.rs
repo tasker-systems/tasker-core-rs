@@ -158,6 +158,27 @@ impl TaskConfigFinder {
         for path in search_paths {
             debug!(path = %path.display(), "Searching for template");
 
+            // Try loading as new TaskTemplate format first
+            match self.load_new_format_template(&path).await {
+                Ok(template) => {
+                    info!(
+                        path = %path.display(),
+                        namespace = namespace,
+                        name = name,
+                        version = version,
+                        "Found new-format template in file system"
+                    );
+                    return Ok(template);
+                }
+                Err(_) => {
+                    debug!(
+                        path = %path.display(),
+                        "Not a new-format template, trying old format"
+                    );
+                }
+            }
+
+            // Fall back to old format (for backward compatibility)
             match self.config_manager.load_task_template(&path).await {
                 Ok(config_template) => {
                     info!(
@@ -165,7 +186,7 @@ impl TaskConfigFinder {
                         namespace = namespace,
                         name = name,
                         version = version,
-                        "Found template in file system"
+                        "Found old-format template in file system"
                     );
                     // Convert config::TaskTemplate to models::core::task_template::TaskTemplate
                     let template = self.convert_config_template_to_model(config_template)?;
@@ -246,65 +267,155 @@ impl TaskConfigFinder {
         PathBuf::from("config").join(task_config_dir)
     }
 
+    /// Load TaskTemplate directly from new format YAML file
+    async fn load_new_format_template(
+        &self,
+        path: &std::path::Path,
+    ) -> OrchestrationResult<TaskTemplate> {
+        use tokio::fs;
+
+        // Check if file exists with either yaml or yml extension
+        let mut actual_path = path.to_path_buf();
+        if !actual_path.exists() {
+            // Try with .yaml extension
+            if actual_path.extension().is_none() {
+                actual_path.set_extension("yaml");
+                if !actual_path.exists() {
+                    actual_path.set_extension("yml");
+                }
+            }
+        }
+
+        if !actual_path.exists() {
+            return Err(OrchestrationError::ConfigurationError {
+                source: "TaskConfigFinder".to_string(),
+                reason: format!("TaskTemplate file not found: {}", path.display()),
+            });
+        }
+
+        // Read and parse the YAML file
+        let yaml_content = fs::read_to_string(&actual_path).await.map_err(|e| {
+            OrchestrationError::ConfigurationError {
+                source: "TaskConfigFinder".to_string(),
+                reason: format!(
+                    "Failed to read TaskTemplate file {}: {}",
+                    actual_path.display(),
+                    e
+                ),
+            }
+        })?;
+
+        // Parse YAML content directly into TaskTemplate
+        let template: TaskTemplate = serde_yaml::from_str(&yaml_content).map_err(|e| {
+            OrchestrationError::ConfigurationError {
+                source: "TaskConfigFinder".to_string(),
+                reason: format!(
+                    "Failed to parse TaskTemplate YAML {}: {}",
+                    actual_path.display(),
+                    e
+                ),
+            }
+        })?;
+
+        debug!(
+            path = %actual_path.display(),
+            template_name = %template.name,
+            template_namespace = %template.namespace_name,
+            template_version = %template.version,
+            "Successfully loaded new-format TaskTemplate"
+        );
+
+        Ok(template)
+    }
+
     /// Convert config::TaskTemplate to models::core::task_template::TaskTemplate
     fn convert_config_template_to_model(
         &self,
         config_template: crate::orchestration::config::TaskTemplate,
     ) -> OrchestrationResult<TaskTemplate> {
-        use crate::models::core::task_template::{EnvironmentConfig, StepTemplate};
+        use crate::models::core::task_template::{
+            BackoffStrategy, EnvironmentOverride, HandlerDefinition, RetryConfiguration,
+            StepDefinition, SystemDependencies,
+        };
         use std::collections::HashMap;
 
-        // Convert step templates
-        let step_templates: Vec<StepTemplate> = config_template
+        // Convert step templates to new StepDefinition structure
+        let steps: Vec<StepDefinition> = config_template
             .step_templates
             .into_iter()
-            .map(|config_step| StepTemplate {
+            .map(|config_step| StepDefinition {
                 name: config_step.name,
                 description: config_step.description,
-                dependent_system: None, // Not present in config::StepTemplate
-                default_retryable: config_step.default_retryable,
-                default_retry_limit: config_step.default_retry_limit,
-                skippable: None, // Not present in config::StepTemplate
-                handler_class: config_step.handler_class,
-                handler_config: config_step
-                    .handler_config
-                    .map(|hc| serde_json::to_value(hc).unwrap_or_default()),
-                depends_on_step: config_step.depends_on_step,
-                depends_on_steps: config_step.depends_on_steps,
-                custom_events: None, // Not present in config::StepTemplate
+                handler: HandlerDefinition {
+                    callable: config_step.handler_class,
+                    initialization: config_step.handler_config.unwrap_or_default(),
+                },
+                system_dependency: None, // Could be derived from dependent_system field
+                dependencies: config_step.depends_on_steps.unwrap_or_default(),
+                retry: RetryConfiguration {
+                    retryable: config_step.default_retryable.unwrap_or(true),
+                    limit: config_step.default_retry_limit.unwrap_or(3) as u32,
+                    backoff: BackoffStrategy::Exponential, // Default backoff
+                    backoff_base_ms: Some(1000),
+                    max_backoff_ms: Some(30000),
+                },
+                timeout_seconds: config_step.timeout_seconds.map(|t| t as u32),
+                publishes_events: Vec::new(), // Not available in config structure
             })
             .collect();
 
-        // Convert environments (simplified conversion)
-        let environments: Option<HashMap<String, EnvironmentConfig>> =
-            config_template.environments.map(|env_map| {
-                env_map
-                    .into_keys()
-                    .map(|key| {
-                        // Create a simplified environment config
-                        let env_config = EnvironmentConfig {
-                            step_templates: None,
-                            default_context: None,
-                            default_options: None,
-                        };
-                        (key, env_config)
+        // Convert environments to new EnvironmentOverride structure
+        let environments: HashMap<String, EnvironmentOverride> = config_template
+            .environments
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(key, env_config)| {
+                // Convert the step template overrides
+                let step_overrides = env_config
+                    .step_templates
+                    .into_iter()
+                    .map(|step_override| {
+                        use crate::models::core::task_template::{HandlerOverride, StepOverride};
+                        StepOverride {
+                            name: step_override.name,
+                            handler: step_override.handler_config.map(|init| HandlerOverride {
+                                initialization: Some(init),
+                            }),
+                            timeout_seconds: None, // Not available in config structure
+                            retry: None,           // Not available in config structure
+                        }
                     })
-                    .collect()
-            });
+                    .collect();
 
+                let env_override = EnvironmentOverride {
+                    task_handler: None, // Not available in config structure
+                    steps: step_overrides,
+                };
+                (key, env_override)
+            })
+            .collect();
+
+        // Create the new self-describing TaskTemplate
         Ok(TaskTemplate {
             name: config_template.name,
-            module_namespace: config_template.module_namespace,
-            task_handler_class: config_template.task_handler_class,
             namespace_name: config_template.namespace_name,
             version: config_template.version,
-            default_dependent_system: config_template.default_dependent_system,
-            named_steps: config_template.named_steps,
-            schema: config_template.schema,
-            step_templates,
+            description: config_template.description,
+            metadata: None, // Not available in config structure
+            task_handler: Some(HandlerDefinition {
+                callable: config_template.task_handler_class,
+                initialization: HashMap::new(), // Could be enhanced with config data
+            }),
+            system_dependencies: SystemDependencies {
+                primary: config_template
+                    .default_dependent_system
+                    .unwrap_or_else(|| "default".to_string()),
+                secondary: Vec::new(), // Not available in config structure
+            },
+            domain_events: Vec::new(), // Not available in config structure
+            input_schema: config_template.schema,
+            steps,
             environments,
-            default_context: None, // Not present in config::TaskTemplate
-            default_options: None, // Not present in config::TaskTemplate
         })
     }
 }

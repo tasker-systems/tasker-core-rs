@@ -1,0 +1,290 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tasker.systems/schemas/v1/task-template.json",
+  "title": "TaskTemplate",
+  "description": "Schema for Tasker workflow task templates with self-describing configuration",
+  "type": "object",
+  "required": ["name", "namespace_name", "version", "steps"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Unique task template name within namespace"
+    },
+    "namespace_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Namespace for logical grouping"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (x.y.z format)"
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Human-readable description of the task"
+    },
+    "metadata": {
+      "$ref": "#/definitions/TemplateMetadata"
+    },
+    "task_handler": {
+      "$ref": "#/definitions/HandlerDefinition"
+    },
+    "system_dependencies": {
+      "$ref": "#/definitions/SystemDependencies"
+    },
+    "domain_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DomainEventDefinition"
+      },
+      "default": []
+    },
+    "input_schema": {
+      "type": ["object", "null"],
+      "description": "JSON Schema for input validation"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/StepDefinition"
+      },
+      "description": "Workflow step definitions (at least one step required)"
+    },
+    "environments": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/EnvironmentOverride"
+      },
+      "description": "Environment-specific configuration overrides"
+    },
+    "loaded_from": {
+      "type": ["string", "null"],
+      "description": "File path where template was loaded from (metadata, not persisted)"
+    }
+  },
+  "definitions": {
+    "TemplateMetadata": {
+      "type": "object",
+      "description": "Template metadata for documentation and discovery",
+      "properties": {
+        "author": {
+          "type": ["string", "null"]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "documentation_url": {
+          "type": ["string", "null"],
+          "format": "uri"
+        },
+        "created_at": {
+          "type": ["string", "null"],
+          "description": "ISO8601 formatted date-time or date-time string"
+        },
+        "updated_at": {
+          "type": ["string", "null"],
+          "description": "ISO8601 formatted date-time or date-time string"
+        }
+      }
+    },
+    "HandlerDefinition": {
+      "type": "object",
+      "required": ["callable"],
+      "description": "Handler definition with callable and initialization parameters",
+      "properties": {
+        "callable": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_]*(::[A-Z][A-Za-z0-9_]*)*$",
+          "description": "Fully qualified class or module path (allows underscores in segments)"
+        },
+        "initialization": {
+          "type": "object",
+          "default": {},
+          "description": "Handler-specific initialization parameters"
+        }
+      }
+    },
+    "SystemDependencies": {
+      "type": "object",
+      "description": "External system dependencies",
+      "properties": {
+        "primary": {
+          "type": "string",
+          "default": "default",
+          "description": "Primary system interaction (accepts any string)"
+        },
+        "secondary": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Secondary systems (accepts any string values)"
+        }
+      }
+    },
+    "DomainEventDefinition": {
+      "type": "object",
+      "required": ["name"],
+      "description": "Domain event definition with optional schema",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "description": {
+          "type": ["string", "null"]
+        },
+        "schema": {
+          "type": ["object", "null"],
+          "description": "JSON Schema for event payload"
+        }
+      }
+    },
+    "StepDefinition": {
+      "type": "object",
+      "required": ["name", "handler"],
+      "description": "Individual workflow step definition",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "description": {
+          "type": ["string", "null"]
+        },
+        "handler": {
+          "$ref": "#/definitions/HandlerDefinition"
+        },
+        "system_dependency": {
+          "type": ["string", "null"],
+          "description": "System this step interacts with (accepts any string)"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "uniqueItems": true,
+          "description": "Dependencies on other steps by name"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryConfiguration"
+        },
+        "timeout_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "Step timeout in seconds (optional)"
+        },
+        "publishes_events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Events this step publishes"
+        }
+      }
+    },
+    "RetryConfiguration": {
+      "type": "object",
+      "description": "Retry configuration with backoff strategies",
+      "properties": {
+        "retryable": {
+          "type": "boolean",
+          "default": true
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "backoff": {
+          "type": "string",
+          "enum": ["none", "linear", "exponential", "fibonacci"],
+          "default": "exponential"
+        },
+        "backoff_base_ms": {
+          "type": ["integer", "null"],
+          "minimum": 100,
+          "default": 1000,
+          "description": "Base backoff time in milliseconds"
+        },
+        "max_backoff_ms": {
+          "type": ["integer", "null"],
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Maximum backoff time in milliseconds"
+        }
+      }
+    },
+    "EnvironmentOverride": {
+      "type": "object",
+      "description": "Environment-specific configuration overrides",
+      "properties": {
+        "task_handler": {
+          "anyOf": [
+            { "$ref": "#/definitions/HandlerOverride" },
+            { "type": "null" }
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/StepOverride"
+          },
+          "default": []
+        }
+      }
+    },
+    "HandlerOverride": {
+      "type": "object",
+      "description": "Handler override for environments",
+      "properties": {
+        "initialization": {
+          "type": ["object", "null"],
+          "description": "Override initialization parameters"
+        }
+      }
+    },
+    "StepOverride": {
+      "type": "object",
+      "required": ["name"],
+      "description": "Step override for environments",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^([a-z][a-z0-9_]*|ALL)$",
+          "description": "Step name or 'ALL' for all steps"
+        },
+        "handler": {
+          "anyOf": [
+            { "$ref": "#/definitions/HandlerOverride" },
+            { "type": "null" }
+          ]
+        },
+        "timeout_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Override timeout in seconds"
+        },
+        "retry": {
+          "anyOf": [
+            { "$ref": "#/definitions/RetryConfiguration" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

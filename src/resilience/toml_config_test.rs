@@ -1,4 +1,4 @@
-//! Test for YAML-based circuit breaker configuration
+//! Test for TOML-based circuit breaker configuration
 
 #[cfg(test)]
 mod tests {
@@ -8,10 +8,10 @@ mod tests {
     use crate::resilience::CircuitBreakerManager;
     use std::collections::HashMap;
 
-    /// Test that the new YAML-based configuration works correctly
+    /// Test that the new TOML-based configuration works correctly
     #[tokio::test]
-    async fn test_yaml_based_circuit_breaker_configuration() {
-        // Create a YAML-compatible configuration structure
+    async fn test_toml_based_circuit_breaker_configuration() {
+        // Create a TOML-compatible configuration structure
         let mut component_configs = HashMap::new();
         component_configs.insert(
             "database".to_string(),
@@ -38,7 +38,7 @@ mod tests {
             },
         );
 
-        let yaml_config = CircuitBreakerConfig {
+        let toml_config = CircuitBreakerConfig {
             enabled: true,
             global_settings: CircuitBreakerGlobalSettings {
                 max_circuit_breakers: 25,
@@ -54,8 +54,8 @@ mod tests {
             component_configs,
         };
 
-        // Create manager using the YAML-based configuration
-        let manager = CircuitBreakerManager::from_config(&yaml_config);
+        // Create manager using the TOML-based configuration
+        let manager = CircuitBreakerManager::from_config(&toml_config);
 
         // Test that we can create circuit breakers with the configuration
         let db_breaker = manager.get_circuit_breaker("database").await;
@@ -84,9 +84,9 @@ mod tests {
 
     /// Test that environment-specific configurations can be applied
     #[tokio::test]
-    async fn test_environment_specific_yaml_configuration() {
+    async fn test_environment_specific_toml_configuration() {
         // Simulate test environment configuration with faster timeouts
-        let yaml_config = CircuitBreakerConfig {
+        let toml_config = CircuitBreakerConfig {
             enabled: true,
             global_settings: CircuitBreakerGlobalSettings {
                 max_circuit_breakers: 10,
@@ -102,7 +102,7 @@ mod tests {
             component_configs: HashMap::new(),
         };
 
-        let manager = CircuitBreakerManager::from_config(&yaml_config);
+        let manager = CircuitBreakerManager::from_config(&toml_config);
         let test_breaker = manager.get_circuit_breaker("test_component").await;
 
         // Test that the circuit breaker was created with test configuration

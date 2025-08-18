@@ -60,48 +60,11 @@
 
 use crate::orchestration::errors::{OrchestrationError, OrchestrationResult};
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
-
-/// Custom deserializer for numeric values that may be integers or floats in YAML
-/// Converts floats to i32 by truncating (e.g., 0.0 -> 0, 10.5 -> 10)
-fn deserialize_optional_numeric<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<i32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::Error;
-
-    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
-
-    match value {
-        None => Ok(None),
-        Some(serde_yaml::Value::Number(n)) => {
-            if let Some(i) = n.as_i64() {
-                Ok(Some(i as i32))
-            } else if let Some(f) = n.as_f64() {
-                // Truncate floating point to integer
-                Ok(Some(f as i32))
-            } else {
-                Err(D::Error::custom(format!("Invalid numeric value: {n}")))
-            }
-        }
-        Some(serde_yaml::Value::String(s)) => {
-            // Try to parse string as number
-            s.parse::<i32>()
-                .map(Some)
-                .or_else(|_| s.parse::<f64>().map(|f| Some(f as i32)))
-                .map_err(|_| D::Error::custom(format!("Cannot parse '{s}' as numeric")))
-        }
-        Some(other) => Err(D::Error::custom(format!(
-            "Expected numeric value, found: {other:?}"
-        ))),
-    }
-}
 
 /// Main system configuration struct that mirrors Rails engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -608,9 +571,15 @@ pub struct StepTemplate {
     pub depends_on_step: Option<String>,
     pub depends_on_steps: Option<Vec<String>>,
     pub default_retryable: Option<bool>,
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub default_retry_limit: Option<i32>,
-    #[serde(deserialize_with = "deserialize_optional_numeric", default)]
+    #[serde(
+        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
+        default
+    )]
     pub timeout_seconds: Option<i32>,
     pub retry_backoff: Option<String>,
 }
