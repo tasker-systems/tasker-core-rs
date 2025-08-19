@@ -112,19 +112,70 @@ pub struct StepResult {
 ```
 
 #### 4. Authentication Strategy
-- Use optional JWT authentication via middleware
+- **JWT with Shared Keys**: Public/private key pair shared between orchestration server and workers
+- **Environment Variables**: Store keys via `TASKER_JWT_PUBLIC_KEY` and `TASKER_JWT_PRIVATE_KEY` for now
+- **Future Secrets Management**: Designed for easy migration to secrets manager with key rotation
 - Health/metrics endpoints: No auth required (Kubernetes standard)
 - Read endpoints: Optional auth (configurable)
 - Task creation endpoint: Required auth (configurable for worker systems)
 - Mutation endpoints: Required auth
 
-#### 5. Database Connection
-- Use SQLx with connection pooling shared with orchestration system
+```rust
+#[derive(Debug, Clone)]
+pub struct JwtConfig {
+    pub private_key: String,  // Environment variable: TASKER_JWT_PRIVATE_KEY
+    pub public_key: String,   // Environment variable: TASKER_JWT_PUBLIC_KEY
+    pub token_expiry_hours: u64,
+    pub issuer: String,       // "tasker-orchestration"
+    pub audience: String,     // "tasker-workers"
+}
+
+// JWT Claims for worker authentication
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkerClaims {
+    pub sub: String,          // Worker identifier
+    pub worker_namespaces: Vec<String>, // Authorized namespaces
+    pub iss: String,          // Issuer
+    pub aud: String,          // Audience
+    pub exp: i64,             // Expiration
+    pub iat: i64,             // Issued at
+}
+```
+
+#### 5. Database Connection & Resource Management
+- **Dedicated Web API Pool**: Separate connection pool for web operations to prevent resource contention
+- **Shared Read Access**: Reference to orchestration pool for read-heavy operations when appropriate
+- **Pool Sizing Strategy**: Web API pool sized based on expected concurrent HTTP connections
+- **Configuration Integration**: Pool sizes configured via existing component-based TOML system
 - Custom extractor for database connections
-- Read replicas for analytics queries
+- Read replicas for analytics queries (future enhancement)
 - Reuse existing models from orchestration system
 
-#### 6. Error Handling
+```rust
+#[derive(Debug, Clone)]
+pub struct DatabasePoolConfig {
+    pub web_api_pool_size: u32,           // Dedicated for HTTP operations
+    pub web_api_max_connections: u32,     // Connection limit for web pool
+    pub orchestration_shared_pool: PgPool, // Reference to shared pool for reads
+    pub connection_timeout_seconds: u64,
+    pub idle_timeout_seconds: u64,
+}
+
+// AppState uses dedicated pool strategy
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Arc<WebServerConfig>,
+    pub web_db_pool: PgPool,                    // Dedicated for web operations
+    pub orchestration_db_pool: PgPool,          // Shared reference for read operations
+    pub pgmq_client: UnifiedPgmqClient,         // Shared with orchestration
+    pub task_initializer: Arc<TaskInitializer>, // Shared component
+    pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
+}
+```
+
+#### 6. Error Handling & Resilience
+Leverage existing circuit breaker patterns and Axum/Tokio native capabilities for resilience:
+
 ```rust
 #[derive(thiserror::Error)]
 pub enum ApiError {
@@ -134,130 +185,299 @@ pub enum ApiError {
     Forbidden,
     #[error("Invalid request: {0}")]
     BadRequest(String),
+    #[error("Service temporarily unavailable")]
+    ServiceUnavailable,
+    #[error("Request timeout")]
+    Timeout,
+    #[error("Circuit breaker open")]
+    CircuitBreakerOpen,
     #[error("Internal error")]
     Internal,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        // Convert to proper HTTP responses
+        let (status, message) = match self {
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "Resource not found"),
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "Access denied"),
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.as_str()),
+            ApiError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service temporarily unavailable"),
+            ApiError::Timeout => (StatusCode::REQUEST_TIMEOUT, "Request timeout"),
+            ApiError::CircuitBreakerOpen => (StatusCode::SERVICE_UNAVAILABLE, "Service temporarily unavailable"),
+            ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
+        };
+        
+        (status, Json(json!({"error": message}))).into_response()
+    }
+}
+
+// Request timeout middleware using Axum tower integration
+pub fn timeout_layer() -> TimeoutLayer {
+    TimeoutLayer::new(Duration::from_secs(30)) // 30s default timeout
+}
+
+// Web-specific circuit breaker for database operations
+pub async fn database_circuit_breaker_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    // Check if database operations are healthy for web API
+    // This would be based on recent database operation failures, not PGMQ
+    if state.web_db_pool_health.is_circuit_open() {
+        return Err(ApiError::ServiceUnavailable);
+    }
+    
+    Ok(next.run(request).await)
+}
+
+// Web API specific circuit breaker for database health
+#[derive(Debug, Clone)]
+pub struct WebDatabaseCircuitBreaker {
+    failure_threshold: u32,
+    recovery_timeout: Duration,
+    current_failures: Arc<AtomicU32>,
+    last_failure_time: Arc<AtomicU64>,
+    state: Arc<AtomicU8>, // 0 = Closed, 1 = Open, 2 = HalfOpen
+}
+
+impl WebDatabaseCircuitBreaker {
+    pub fn new(failure_threshold: u32, recovery_timeout: Duration) -> Self {
+        Self {
+            failure_threshold,
+            recovery_timeout,
+            current_failures: Arc::new(AtomicU32::new(0)),
+            last_failure_time: Arc::new(AtomicU64::new(0)),
+            state: Arc::new(AtomicU8::new(0)), // Start closed
+        }
+    }
+
+    pub fn is_circuit_open(&self) -> bool {
+        match self.state.load(Ordering::Relaxed) {
+            1 => {
+                // Check if recovery timeout has passed
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                let last_failure = self.last_failure_time.load(Ordering::Relaxed);
+                
+                if now - last_failure > self.recovery_timeout.as_secs() {
+                    // Move to half-open state
+                    self.state.store(2, Ordering::Relaxed);
+                    false
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        }
+    }
+
+    pub fn record_success(&self) {
+        self.current_failures.store(0, Ordering::Relaxed);
+        self.state.store(0, Ordering::Relaxed); // Closed
+    }
+
+    pub fn record_failure(&self) {
+        let failures = self.current_failures.fetch_add(1, Ordering::Relaxed) + 1;
+        
+        if failures >= self.failure_threshold {
+            self.state.store(1, Ordering::Relaxed); // Open
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            self.last_failure_time.store(now, Ordering::Relaxed);
+        }
     }
 }
 ```
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Week 1)
+Implementation will proceed organically as a personal project, but phases provide logical organization and ensure comprehensive testing at each stage.
+
+### Phase 1: Foundation & Infrastructure
 1. **Project Setup**
    - Add Axum dependencies
-   - Create web module structure
-   - Setup basic routing
+   - Create web module structure with proper separation
+   - Setup basic routing framework
 
-2. **Core Middleware**
-   - Request ID generation
+2. **Core Middleware & Resilience**
+   - Request ID generation and tracing integration
    - Request/response logging
-   - Error handling
+   - Error handling with circuit breaker integration
    - CORS configuration
+   - JWT authentication middleware
+   - Request timeout middleware using Axum's native tower integration
 
-3. **Database Integration**
-   - SQLx connection pool setup
-   - Custom extractors
-   - Query builders
+3. **Database Integration & Resource Management**
+   - Dedicated SQLx connection pool setup for web operations
+   - Custom extractors for database connections
+   - Integration with existing orchestration database pools
+   - Resource contention prevention strategies
 
-### Phase 2: Health & Metrics (Week 1)
+4. **Integration Testing**
+   - Foundation component testing
+   - Database pool resource contention testing
+   - Middleware integration validation
+
+### Phase 2: Health & Core Infrastructure
 1. **Health Endpoints** (Kubernetes-ready)
-   - Implement `/health`, `/ready`, `/live` checks
-   - Database connectivity checks
-   - Queue health status
-   - Orchestration system health
+   - Implement `/health`, `/ready`, `/live` checks following K8s standards
+   - Database connectivity checks using dedicated pool
+   - Queue health status via existing PGMQ client
+   - Orchestration system operational state integration
 
-2. **Prometheus Metrics**
-   - Setup metrics registry at `/metrics`
-   - HTTP request metrics
-   - Custom business metrics
-   - Orchestration system metrics
+2. **Basic Metrics Integration**
+   - Setup lightweight metrics at `/metrics` endpoint
+   - HTTP request metrics using existing prometheus patterns
+   - Integration with existing orchestration metrics registry
+   - Avoid over-engineering - foundation for future comprehensive observability
 
-### Phase 3: Task Creation API (Week 2) - PRIORITY for TAS-40
+3. **Integration Testing**
+   - Health endpoint validation under various system states
+   - Metrics collection verification
+   - Kubernetes probe compatibility testing
+
+### Phase 3: Task Creation API - CRITICAL for TAS-40
 1. **Core Task Creation**
    - `POST /v1/tasks` endpoint implementation
    - Integration with existing TaskInitializer
    - UUID-based response format
-   - Error handling and validation
+   - Comprehensive error handling and validation
+   - JWT authentication for worker systems
 
 2. **Task Status API**
    - `GET /v1/tasks/{uuid}` for worker correlation
    - Task status tracking
    - Dependency graph serialization
 
-### Phase 4: Read-Only Endpoints (Week 2)
+3. **Integration Testing**
+   - End-to-end task creation workflow testing
+   - Worker authentication simulation
+   - Task correlation and status tracking validation
+   - Performance testing under concurrent load
+
+### Phase 4: Read-Only Operations
 1. **Task List Endpoints**
    - List with pagination/filtering
-   - Get by UUID with relationships
+   - Get by UUID with complete relationships
 
 2. **Step Endpoints**
    - List steps by task UUID
    - Get step details by UUID
-   - Result formatting per Ruby spec
+   - Result formatting per Ruby StepHandlerCallResult spec
 
 3. **Handler Endpoints**
    - Namespace listing
    - Handler enumeration
-   - Dependency visualization
+   - Basic dependency visualization
 
-### Phase 5: Controlled Mutations (Week 3)
+4. **Integration Testing**
+   - Read operation performance validation
+   - Data consistency verification
+   - Pagination and filtering correctness
+
+### Phase 5: Controlled Mutations
 1. **Task Cancellation**
-   - Validate task state
-   - Update database
+   - Validate task state and cancellation eligibility
+   - Update database using existing patterns
    - Trigger orchestration events
 
 2. **Manual Step Resolution**
-   - Validate step state
-   - Update results per Ruby format
+   - Validate step state and resolution eligibility
+   - Update results per Ruby StepHandlerCallResult format
    - State transition to `resolved_manually`
 
-### Phase 5: Analytics & Testing (Week 3)
+3. **Integration Testing**
+   - Mutation operation validation
+   - State consistency verification
+   - Event triggering confirmation
+
+### Phase 6: Analytics & Production Readiness
 1. **Analytics Endpoints**
-   - Performance aggregation
-   - Bottleneck detection
+   - Performance aggregation using existing database functions
+   - Basic bottleneck detection
    - Query optimization
 
-2. **Testing Suite**
-   - Unit tests for handlers
-   - Integration tests with test database
-   - API contract tests
+2. **Production Hardening**
+   - Rate limiting implementation
+   - Security validation
+   - Load testing and performance optimization
+   - Docker and Kubernetes deployment validation
+
+3. **Comprehensive Testing**
+   - Full API contract testing
+   - Security penetration testing
+   - Production deployment simulation
 
 ## Dependencies to Add
 
 ```toml
 [dependencies]
+# Web framework and middleware
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
+
+# Database and serialization (extend existing)
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Authentication and security
 jsonwebtoken = "9"
-prometheus = "0.13"
-thiserror = "1.0"
+rsa = "0.9"  # For RSA key pair management
+
+# Observability (lightweight integration)
+prometheus = "0.13"  # Already included
+metrics = "0.21"     # For additional web metrics
+
+# Error handling
+thiserror = "1.0"    # Already included
+
+# Additional utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }  # Already included
 ```
 
 ## Security Considerations
 
-### 1. Authentication
-- Optional JWT support
-- API key authentication fallback
-- Configurable per endpoint
+### 1. Authentication Strategy (Concrete Implementation)
+- **JWT with RSA Keys**: Public/private key pairs for secure worker authentication
+- **Environment-based Key Management**: Keys stored in environment variables for development
+- **Namespace-based Authorization**: Workers authorized for specific namespaces only
+- **Configurable Requirements**: Authentication can be disabled for internal development
 
-### 2. Authorization
-- Role-based access control
-- Resource-level permissions
-- Audit logging
+```rust
+// Concrete JWT implementation
+#[derive(Debug, Clone)]
+pub struct JwtAuthenticator {
+    private_key: RsaPrivateKey,
+    public_key: RsaPublicKey,
+    config: JwtConfig,
+}
 
-### 3. Rate Limiting
-- Per-client limits
-- Endpoint-specific throttling
-- Circuit breaker integration
+impl JwtAuthenticator {
+    pub fn from_env() -> Result<Self, AuthError> {
+        let private_key_pem = env::var("TASKER_JWT_PRIVATE_KEY")?;
+        let public_key_pem = env::var("TASKER_JWT_PUBLIC_KEY")?;
+        // Key parsing and validation
+    }
+
+    pub fn validate_worker_token(&self, token: &str) -> Result<WorkerClaims, AuthError> {
+        // JWT validation with namespace authorization
+    }
+}
+```
+
+### 2. Input Validation & Security
+- **UUID Validation**: Strict UUID parsing with proper error handling
+- **Payload Size Limits**: Configurable request size limits via middleware
+- **SQL Injection Prevention**: All database operations use parameterized queries
+- **Request Sanitization**: Input validation for all user-provided data
+
+### 3. Rate Limiting & Circuit Breakers
+- **Per-client Rate Limiting**: Individual client request limits
+- **Endpoint-specific Throttling**: Different limits for read vs write operations
+- **Circuit Breaker Integration**: Leverage existing orchestration circuit breaker patterns
+- **Backpressure Handling**: Graceful degradation when orchestration system is overloaded
 
 ## Testing Strategy
 
@@ -326,16 +546,32 @@ async fn test_task_cancellation() {
 
 ## Success Criteria
 
-- ✅ Task creation endpoint (`POST /v1/tasks`) fully functional for worker integration
+### Core Functionality
+- ✅ Task creation endpoint (`POST /v1/tasks`) fully functional for worker integration with JWT authentication
 - ✅ All read endpoints return data matching database state with UUID identifiers
 - ✅ Health endpoints (`/health`, `/ready`, `/live`) follow Kubernetes standards
 - ✅ Prometheus metrics exposed at `/metrics` and queryable
 - ✅ Task cancellation properly updates state and triggers events
 - ✅ Manual step resolution follows Ruby StepHandlerCallResult format
-- ✅ API responses are fast (<100ms p99 for reads, <500ms p99 for task creation)
-- ✅ Comprehensive test coverage (>80%)
+
+### Security & Authentication
+- ✅ JWT authentication working with RSA public/private key pairs
+- ✅ Namespace-based authorization for worker systems
+- ✅ Input validation prevents malicious payloads
 - ✅ Zero unauthorized mutations possible
+
+### Performance & Resilience
+- ✅ API responses are fast (<100ms p99 for reads, <500ms p99 for task creation)
+- ✅ Dedicated database pools prevent resource contention with orchestration
+- ✅ Circuit breaker integration provides graceful degradation
+- ✅ Request timeout middleware prevents hanging requests
+
+### Production Readiness
+- ✅ Operational state integration with graceful shutdown support
+- ✅ Rate limiting protects against abuse
+- ✅ Comprehensive test coverage (>80%) with integration testing per phase
 - ✅ Worker systems can successfully create and track tasks via HTTP API
+- ✅ Configuration integration with existing component-based TOML system
 
 ## Implementation Notes
 
@@ -711,7 +947,7 @@ impl WebServerHandle {
 
 ### Configuration Integration
 
-The web server will use our existing component-based TOML configuration system:
+The web server will use our existing component-based TOML configuration system with enhanced authentication and database pool management:
 
 ```toml
 # config/tasker/base/web_server.toml
@@ -721,68 +957,135 @@ bind_address = "0.0.0.0:8080"
 request_timeout_ms = 30000
 max_request_size_mb = 10
 
+[web_server.database_pools]
+# Dedicated pool for web API operations to prevent resource contention
+web_api_pool_size = 10
+web_api_max_connections = 15
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+
 [web_server.cors]
 enabled = true
 allowed_origins = ["*"]
-allowed_methods = ["GET", "POST", "DELETE", "PATCH"]
-allowed_headers = ["Content-Type", "Authorization"]
+allowed_methods = ["GET", "POST", "DELETE", "PATCH", "OPTIONS"]
+allowed_headers = ["Content-Type", "Authorization", "X-Request-ID"]
 
 [web_server.auth]
 enabled = false  # Optional for internal deployments
-jwt_secret = "${JWT_SECRET}"
+jwt_private_key = "${TASKER_JWT_PRIVATE_KEY}"
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY}"
+jwt_token_expiry_hours = 24
+jwt_issuer = "tasker-orchestration"
+jwt_audience = "tasker-workers"
 api_key_header = "X-API-Key"
 
 [web_server.rate_limiting]
 enabled = true
 requests_per_minute = 1000
 burst_size = 100
+per_client_limit = true
+
+[web_server.resilience]
+# Leverage existing circuit breaker patterns
+circuit_breaker_enabled = true
+request_timeout_seconds = 30
+max_concurrent_requests = 1000
 
 # Environment-specific overrides
 # config/tasker/environments/production/web_server.toml
 [web_server]
 bind_address = "0.0.0.0:8080"
 
+[web_server.database_pools]
+# Production sizing for concurrent load
+web_api_pool_size = 25
+web_api_max_connections = 30
+
 [web_server.auth]
 enabled = true
-jwt_secret = "${TASKER_JWT_SECRET}"
+jwt_private_key = "${TASKER_JWT_PRIVATE_KEY}"
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY}"
+
+[web_server.rate_limiting]
+# Higher limits for production worker traffic
+requests_per_minute = 10000
+burst_size = 1000
+
+# Development environment for easier testing
+# config/tasker/environments/development/web_server.toml
+[web_server.auth]
+enabled = false  # No auth required for development
+
+[web_server.database_pools]
+# Smaller pools for development
+web_api_pool_size = 5
+web_api_max_connections = 8
 ```
 
-### Shared Resource Management
+### Shared Resource Management & Resource Contention Prevention
 
-The web server will reuse orchestration system components:
+The web server will reuse orchestration system components while maintaining dedicated resources for critical operations:
 
 ```rust
 // src/web/state.rs
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<WebServerConfig>,
-    pub db_pool: PgPool,                    // Shared with orchestration
-    pub pgmq_client: UnifiedPgmqClient,     // Shared with orchestration  
-    pub metrics_registry: Arc<Registry>,    // Shared with orchestration
-    pub task_initializer: Arc<TaskInitializer>,
+    pub web_db_pool: PgPool,                        // Dedicated for web operations
+    pub orchestration_db_pool: PgPool,              // Shared reference for reads
+    pub web_db_pool_health: WebDatabaseCircuitBreaker, // Circuit breaker for web DB operations
+    pub metrics_registry: Arc<Registry>,            // Shared with orchestration
+    pub task_initializer: Arc<TaskInitializer>,     // Shared component
     pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
 }
 
 impl AppState {
-    pub fn from_orchestration_core(
+    pub async fn from_orchestration_core(
         web_config: WebServerConfig,
         orchestration_core: &OrchestrationCore,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, TaskerError> {
+        // Create dedicated database pool for web operations
+        let database_url = orchestration_core.config_manager().database_url();
+        let web_db_pool = PgPoolOptions::new()
+            .max_connections(web_config.database_pools.web_api_max_connections)
+            .min_connections(web_config.database_pools.web_api_pool_size / 2)
+            .connect_timeout(Duration::from_secs(web_config.database_pools.web_api_connection_timeout_seconds))
+            .idle_timeout(Duration::from_secs(web_config.database_pools.web_api_idle_timeout_seconds))
+            .connect(&database_url)
+            .await?;
+
+        Ok(Self {
             config: Arc::new(web_config),
-            db_pool: orchestration_core.database_pool().clone(),
+            web_db_pool,
+            orchestration_db_pool: orchestration_core.database_pool().clone(),
             pgmq_client: orchestration_core.pgmq_client().clone(),
             metrics_registry: orchestration_core.metrics_registry().clone(),
             task_initializer: orchestration_core.task_initializer().clone(),
             orchestration_status: orchestration_core.status().clone(),
+        })
+    }
+
+    // Smart pool selection based on operation type
+    pub fn select_db_pool(&self, operation_type: DbOperationType) -> &PgPool {
+        match operation_type {
+            DbOperationType::WebWrite | DbOperationType::WebCritical => &self.web_db_pool,
+            DbOperationType::ReadOnly | DbOperationType::Analytics => &self.orchestration_db_pool,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum DbOperationType {
+    WebWrite,       // Task creation, cancellation, etc.
+    WebCritical,    // High-priority web operations
+    ReadOnly,       // Task status, listing, etc.
+    Analytics,      // Performance queries, metrics
 }
 ```
 
 ### Operational State Coordination
 
-The web server will integrate with our operational state management:
+The web server will integrate with existing operational state management using simple, effective patterns:
 
 ```rust
 // src/web/middleware/operational_state.rs
@@ -792,16 +1095,17 @@ pub async fn operational_state_middleware(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let orchestration_status = state.orchestration_status.read().await;
+    let path = request.uri().path();
     
+    // Simple operational state handling - lean on existing patterns
     match orchestration_status.operational_state {
         SystemOperationalState::Normal => {
             // All endpoints available
             Ok(next.run(request).await)
         }
         SystemOperationalState::GracefulShutdown => {
-            // Only health endpoints available
-            if request.uri().path().starts_with("/health") 
-                || request.uri().path() == "/metrics" {
+            // Health and metrics remain available during graceful shutdown
+            if path.starts_with("/health") || path == "/metrics" {
                 Ok(next.run(request).await)
             } else {
                 Err(StatusCode::SERVICE_UNAVAILABLE)
@@ -809,13 +1113,38 @@ pub async fn operational_state_middleware(
         }
         SystemOperationalState::Emergency | SystemOperationalState::Stopped => {
             // Only basic health check available
-            if request.uri().path() == "/health" {
+            if path == "/health" {
                 Ok(next.run(request).await)
             } else {
                 Err(StatusCode::SERVICE_UNAVAILABLE)
             }
         }
         _ => Err(StatusCode::SERVICE_UNAVAILABLE)
+    }
+}
+
+// Simple graceful shutdown integration leveraging Axum/Tokio patterns
+pub async fn graceful_shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
 }
 ```

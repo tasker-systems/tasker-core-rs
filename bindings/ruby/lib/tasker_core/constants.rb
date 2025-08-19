@@ -358,7 +358,7 @@ module TaskerCore
           username: { type: 'string' },
           password: { type: 'string' },
           api_key_header: { type: 'string',
-                            default: 'X-API-Key' }
+                            default: 'Bearer' }
         }
       }
     }.freeze

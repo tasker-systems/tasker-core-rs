@@ -22,6 +22,12 @@ readme = "README.md"
 name = "tasker_core"
 crate-type = ["cdylib", "rlib"]
 
+# Binary targets
+[[bin]]
+name = "tasker-server"
+path = "src/bin/tasker-server.rs"
+required-features = ["web-api"]
+
 [dependencies]
 # Async runtime and utilities
 tokio = { version = "1.46", features = ["full"] }
@@ -50,6 +56,21 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "0.8"
 
+# Web framework and HTTP server (TAS-28)
+axum = { version = "0.7", optional = true }
+axum-extra = { version = "0.9", features = ["typed-header"], optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = [
+    "cors",
+    "trace",
+    "timeout",
+], optional = true }
+jsonwebtoken = { version = "9", optional = true }
+rsa = { version = "0.9", optional = true }
+# OpenAPI documentation
+utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"], optional = true }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"], optional = true }
+
 # Time and date handling
 chrono = { version = "0.4.38", features = ["serde"] }
 
@@ -70,11 +91,8 @@ opentelemetry-otlp = "0.27"
 
 # Concurrency and state management
 parking_lot = "0.12"
-dashmap = "6.1"
+# dashmap = "6.1"
 crossbeam = "0.8"
-
-# State machine
-smlang = "0.8"
 
 # Configuration
 config = "0.15"
@@ -84,13 +102,13 @@ dotenvy = "0.15" # For loading .env files
 # Random number generation
 fastrand = "2.0"
 
-# FFI support
-magnus = { version = "0.7", optional = true }
-pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
-wasm-bindgen = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", optional = true }
+# FFI support to be added in bindings and workers
+# magnus = { version = "0.7", optional = true }
+# pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
+# wasm-bindgen = { version = "0.2", optional = true }
+# wasm-bindgen-futures = { version = "0.4", optional = true }
+# js-sys = { version = "0.3", optional = true }
+# web-sys = { version = "0.3", optional = true }
 
 # Development and testing
 criterion = { version = "0.5.1", optional = true }
@@ -108,15 +126,19 @@ factori = "1.1"
 url = "2.0"
 serial_test = "3.1"
 
+# Web API testing
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 # Coverage tools (used in CI)
 cargo-llvm-cov = "0.6"
 
 [features]
-default = ["postgres", "test-utils"]
+default = ["postgres", "test-utils", "web-api"]
 postgres = ["sqlx/postgres"]
-ruby-ffi = ["magnus"]
-python-ffi = ["pyo3"]
-wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
+web-api = ["axum", "axum-extra", "tower", "tower-http", "jsonwebtoken", "rsa", "utoipa", "utoipa-swagger-ui"]
+# FFI support to be added in bindings and workers
+# ruby-ffi = ["magnus"]
+# python-ffi = ["pyo3"]
+# wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 benchmarks = ["criterion"]
 test-helpers = []
 test-utils = []

@@ -1,0 +1,75 @@
+# Docker ignore file for tasker-server
+# Excludes unnecessary files from Docker build context
+
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation and development files
+*.md
+docs/
+examples/
+benches/
+
+# Test files and data
+tests/
+test_data/
+**/*_test.rs
+
+# Log files
+log/
+logs/
+*.log
+
+# Environment files (should be provided via Docker environment)
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage reports
+coverage/
+*.profraw
+
+# Local development scripts
+scripts/dev_*
+scripts/local_*
+
+# Ruby bindings (not needed for server deployment)
+bindings/ruby/
+
+# Cargo registry cache
+.cargo/registry/
+.cargo/git/
+
+# SQLx offline query cache (will be rebuilt)
+.sqlx/
+
+# Local configuration overrides
+config/local/
+config/tasker/environments/development/
+config/tasker/environments/test/

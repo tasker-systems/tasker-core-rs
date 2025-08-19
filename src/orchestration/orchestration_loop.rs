@@ -347,14 +347,14 @@ impl OrchestrationLoop {
         let cycle_start = Instant::now();
         let cycle_started_at = Utc::now();
 
-        info!(
+        debug!(
             "🔄 ORCHESTRATION_LOOP: Starting cycle - orchestrator_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
             self.orchestrator_id, self.config.tasks_per_cycle, self.config.namespace_filter
         );
 
         // PHASE 1: Claim ready tasks with priority fairness
         let claim_start = Instant::now();
-        info!(
+        debug!(
             "🎯 ORCHESTRATION_LOOP: Attempting to claim {} ready tasks",
             self.config.tasks_per_cycle
         );
@@ -368,14 +368,14 @@ impl OrchestrationLoop {
             .await?;
         let claim_duration_ms = claim_start.elapsed().as_millis() as u64;
 
-        info!(
+        debug!(
             "📊 ORCHESTRATION_LOOP: Task claiming completed - claimed {} tasks in {}ms",
             claimed_tasks.len(),
             claim_duration_ms
         );
 
         if claimed_tasks.is_empty() {
-            info!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
+            debug!("⏸️ ORCHESTRATION_LOOP: No tasks available for claiming in this cycle - orchestration cycle ending early");
             return Ok(self.create_empty_cycle_result(
                 cycle_started_at,
                 cycle_start.elapsed().as_millis() as u64,
@@ -384,14 +384,14 @@ impl OrchestrationLoop {
 
         // Log details about claimed tasks
         for task in &claimed_tasks {
-            info!(
+            debug!(
                 "📋 ORCHESTRATION_LOOP: Claimed task {} (namespace: '{}') with {} ready steps, priority: {}",
                 task.task_uuid, task.namespace_name, task.ready_steps_count, task.priority
             );
         }
 
         let tasks_claimed = claimed_tasks.len();
-        info!(tasks_claimed = tasks_claimed, "Successfully claimed tasks");
+        debug!(tasks_claimed = tasks_claimed, "Successfully claimed tasks");
 
         // PHASE 2 & 3: Discover and enqueue steps for each claimed task, then release immediately
         let discovery_enqueueing_start = Instant::now();
