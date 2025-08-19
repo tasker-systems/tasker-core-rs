@@ -35,7 +35,7 @@ pub struct PgmqClient {
 
 impl PgmqClient {
     /// Create new pgmq client using connection string
-    pub async fn new(database_url: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn new(database_url: &str) -> Result<Self, crate::messaging::MessagingError> {
         info!("🚀 Connecting to pgmq using pgmq-rs crate");
 
         let pgmq = PGMQueue::new(database_url.to_string()).await?;
@@ -58,7 +58,7 @@ impl PgmqClient {
     pub async fn create_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         debug!("📋 Creating queue: {}", queue_name);
 
         self.pgmq
@@ -75,7 +75,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         debug!(
             "📤 Sending message to queue: {} for step: {}",
             queue_name, message.step_uuid
@@ -99,7 +99,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         debug!("📤 Sending JSON message to queue: {}", queue_name);
 
         let serialized = serde_json::to_value(message)?;
@@ -122,7 +122,7 @@ impl PgmqClient {
         queue_name: &str,
         vt: Option<i32>, // visibility timeout
         limit: Option<i32>,
-    ) -> Result<Vec<Message<serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<Message<serde_json::Value>>, crate::messaging::MessagingError> {
         debug!(
             "📥 Reading messages from queue: {} (limit: {:?})",
             queue_name, limit
@@ -153,7 +153,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         debug!(
             "🗑️ Deleting message {} from queue: {}",
             message_id, queue_name
@@ -173,7 +173,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         debug!(
             "📦 Archiving message {} from queue: {}",
             message_id, queue_name
@@ -192,7 +192,7 @@ impl PgmqClient {
     pub async fn purge_queue(
         &self,
         queue_name: &str,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<u64, crate::messaging::MessagingError> {
         warn!("🧹 Purging queue: {}", queue_name);
 
         let purged_count = self
@@ -212,7 +212,7 @@ impl PgmqClient {
     pub async fn drop_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         warn!("💥 Dropping queue: {}", queue_name);
 
         self.pgmq
@@ -228,7 +228,7 @@ impl PgmqClient {
     pub async fn queue_metrics(
         &self,
         queue_name: &str,
-    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
         debug!("📊 Getting metrics for queue: {}", queue_name);
 
         // Query actual pgmq metrics from the database using pgmq.metrics() function
@@ -261,7 +261,7 @@ impl PgmqClient {
         queue_name: &str,
         message: &T,
         _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>>
+    ) -> Result<i64, crate::messaging::MessagingError>
     where
         T: serde::Serialize,
     {
@@ -301,7 +301,7 @@ impl PgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.send_message(&queue_name, &step_message).await
     }
@@ -312,7 +312,7 @@ impl PgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<Vec<Message<serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<Message<serde_json::Value>>, crate::messaging::MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.read_messages(&queue_name, visibility_timeout, Some(batch_size))
             .await
@@ -323,7 +323,7 @@ impl PgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.delete_message(&queue_name, message_id).await
     }
@@ -332,7 +332,7 @@ impl PgmqClient {
     pub async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         info!("🏗️ Initializing {} namespace queues", namespaces.len());
 
         for namespace in namespaces {
@@ -348,10 +348,7 @@ impl PgmqClient {
 /// Implement PgmqClientTrait for standard PgmqClient
 #[async_trait::async_trait]
 impl crate::messaging::PgmqClientTrait for PgmqClient {
-    async fn create_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
         self.create_queue(queue_name).await
     }
 
@@ -359,7 +356,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         self.send_message(queue_name, message).await
     }
 
@@ -367,7 +364,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         self.send_json_message(queue_name, message).await
     }
 
@@ -376,10 +373,8 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
+    {
         self.read_messages(queue_name, visibility_timeout, qty)
             .await
     }
@@ -388,7 +383,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.delete_message(queue_name, message_id).await
     }
 
@@ -396,35 +391,29 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.archive_message(queue_name, message_id).await
     }
 
-    async fn purge_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    async fn purge_queue(&self, queue_name: &str) -> Result<u64, crate::messaging::MessagingError> {
         self.purge_queue(queue_name).await
     }
 
-    async fn drop_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn drop_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
         self.drop_queue(queue_name).await
     }
 
     async fn queue_metrics(
         &self,
         queue_name: &str,
-    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
         self.queue_metrics(queue_name).await
     }
 
     async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.initialize_namespace_queues(namespaces).await
     }
 
@@ -432,7 +421,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         self.enqueue_step(namespace, step_message).await
     }
 
@@ -441,10 +430,8 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
+    {
         self.process_namespace_queue(namespace, visibility_timeout, batch_size)
             .await
     }
@@ -453,7 +440,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.complete_message(namespace, message_id).await
     }
 }

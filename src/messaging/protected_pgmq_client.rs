@@ -28,7 +28,7 @@ impl ProtectedPgmqClient {
     pub async fn new(
         database_url: &str,
         circuit_manager: Arc<CircuitBreakerManager>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, crate::messaging::MessagingError> {
         let client = PgmqClient::new(database_url).await?;
 
         Ok(Self {
@@ -56,7 +56,7 @@ impl ProtectedPgmqClient {
     pub async fn new_with_config(
         database_url: &str,
         circuit_config: &CircuitBreakerConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, crate::messaging::MessagingError> {
         let client = PgmqClient::new(database_url).await?;
         let circuit_manager = Arc::new(CircuitBreakerManager::from_config(circuit_config));
 
@@ -86,7 +86,7 @@ impl ProtectedPgmqClient {
     pub async fn create_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -102,7 +102,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<i64, CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -118,7 +118,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<i64, CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -142,7 +142,7 @@ impl ProtectedPgmqClient {
         qty: Option<i32>,
     ) -> Result<
         Vec<Message<serde_json::Value>>,
-        CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>,
+        CircuitBreakerError<crate::messaging::MessagingError>,
     > {
         let circuit_breaker = self
             .circuit_manager
@@ -163,7 +163,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -179,7 +179,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -194,7 +194,7 @@ impl ProtectedPgmqClient {
     pub async fn purge_queue(
         &self,
         queue_name: &str,
-    ) -> Result<u64, CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<u64, CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -209,7 +209,7 @@ impl ProtectedPgmqClient {
     pub async fn drop_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -224,7 +224,7 @@ impl ProtectedPgmqClient {
     pub async fn queue_metrics(
         &self,
         queue_name: &str,
-    ) -> Result<QueueMetrics, CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<QueueMetrics, CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -239,7 +239,7 @@ impl ProtectedPgmqClient {
     pub async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -299,38 +299,33 @@ impl ProtectedPgmqClient {
 }
 
 /// Convenience type alias for protected PGMQ errors
-pub type ProtectedPgmqError = CircuitBreakerError<Box<dyn std::error::Error + Send + Sync>>;
+pub type ProtectedPgmqError = CircuitBreakerError<crate::messaging::MessagingError>;
 
 /// Implement PgmqClientTrait for circuit breaker protected PgmqClient
 #[async_trait::async_trait]
 impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
-    async fn create_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.create_queue(queue_name)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    async fn create_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+        self.create_queue(queue_name).await.map_err(|e| e.into())
     }
 
     async fn send_message(
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         self.send_message(queue_name, message)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
     async fn send_json_message<T: serde::Serialize + Clone + Send + Sync>(
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         self.send_json_message(queue_name, message)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
     async fn read_messages(
@@ -338,76 +333,62 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
+    {
         self.read_messages(queue_name, visibility_timeout, qty)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
     async fn delete_message(
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.delete_message(queue_name, message_id)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
     async fn archive_message(
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.archive_message(queue_name, message_id)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
-    async fn purge_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        self.purge_queue(queue_name)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    async fn purge_queue(&self, queue_name: &str) -> Result<u64, crate::messaging::MessagingError> {
+        self.purge_queue(queue_name).await.map_err(|e| e.into())
     }
 
-    async fn drop_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.drop_queue(queue_name)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    async fn drop_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+        self.drop_queue(queue_name).await.map_err(|e| e.into())
     }
 
     async fn queue_metrics(
         &self,
         queue_name: &str,
-    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
-        self.queue_metrics(queue_name)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
+        self.queue_metrics(queue_name).await.map_err(|e| e.into())
     }
 
     async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         self.initialize_namespace_queues(namespaces)
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| e.into())
     }
 
     async fn enqueue_step(
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<i64, crate::messaging::MessagingError> {
         // Delegate to underlying client for enqueue_step
         self.client.enqueue_step(namespace, step_message).await
     }
@@ -417,10 +398,8 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
+    {
         // Delegate to underlying client for process_namespace_queue
         self.client
             .process_namespace_queue(namespace, visibility_timeout, batch_size)
@@ -431,7 +410,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), crate::messaging::MessagingError> {
         // Delegate to underlying client for complete_message
         self.client.complete_message(namespace, message_id).await
     }

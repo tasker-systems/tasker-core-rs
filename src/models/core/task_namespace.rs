@@ -195,6 +195,46 @@ impl TaskNamespace {
         Self::create(pool, new_namespace).await
     }
 
+    /// Get namespace info with handler count for registry API
+    pub async fn get_namespace_info_with_handler_count(
+        pool: &PgPool,
+    ) -> Result<Vec<(TaskNamespace, i64)>, sqlx::Error> {
+        let results = sqlx::query!(
+            r#"
+            SELECT
+                tn.task_namespace_uuid,
+                tn.name,
+                tn.description,
+                tn.created_at,
+                tn.updated_at,
+                COUNT(nt.named_task_uuid) as handler_count
+            FROM tasker_task_namespaces tn
+            LEFT JOIN tasker_named_tasks nt ON tn.task_namespace_uuid = nt.task_namespace_uuid
+            GROUP BY tn.task_namespace_uuid, tn.name, tn.description, tn.created_at, tn.updated_at
+            ORDER BY tn.name
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let namespace_infos: Vec<(TaskNamespace, i64)> = results
+            .into_iter()
+            .map(|row| {
+                let namespace = TaskNamespace {
+                    task_namespace_uuid: row.task_namespace_uuid,
+                    name: row.name,
+                    description: row.description,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                };
+                let handler_count = row.handler_count.unwrap_or(0);
+                (namespace, handler_count)
+            })
+            .collect();
+
+        Ok(namespace_infos)
+    }
+
     pub async fn find_or_create_with_transaction(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         name: &str,

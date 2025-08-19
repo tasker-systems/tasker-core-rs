@@ -357,4 +357,53 @@ impl NamedTask {
 
         Self::create(pool, new_named_task).await
     }
+
+    /// List tasks in a namespace by namespace name (for registry API)
+    pub async fn list_by_namespace_name(
+        pool: &PgPool,
+        namespace_name: &str,
+    ) -> Result<Vec<NamedTask>, sqlx::Error> {
+        let tasks = sqlx::query_as!(
+            NamedTask,
+            r#"
+            SELECT nt.named_task_uuid, nt.name, nt.version, nt.description, 
+                   nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
+            FROM tasker_named_tasks nt
+            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
+            WHERE tn.name = $1
+            ORDER BY nt.name, nt.version
+            "#,
+            namespace_name
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(tasks)
+    }
+
+    /// Find latest version of a task by name and namespace name (for registry API)
+    pub async fn find_latest_by_name_and_namespace_name(
+        pool: &PgPool,
+        name: &str,
+        namespace_name: &str,
+    ) -> Result<Option<NamedTask>, sqlx::Error> {
+        let task = sqlx::query_as!(
+            NamedTask,
+            r#"
+            SELECT nt.named_task_uuid, nt.name, nt.version, nt.description,
+                   nt.task_namespace_uuid, nt.configuration, nt.created_at, nt.updated_at
+            FROM tasker_named_tasks nt
+            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
+            WHERE tn.name = $1 AND nt.name = $2
+            ORDER BY nt.created_at DESC
+            LIMIT 1
+            "#,
+            namespace_name,
+            name
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(task)
+    }
 }

@@ -363,11 +363,12 @@ impl ExecutorPool {
             let health = executor.health().await;
             let metrics = executor.metrics().await;
 
-            match health {
-                crate::orchestration::executor::health::ExecutorHealth::Healthy { .. } => {
-                    healthy_count += 1
-                }
-                _ => unhealthy_count += 1,
+            // Use is_operational() to properly classify health states
+            // Both Healthy and Degraded states are considered operational
+            if health.is_operational() {
+                healthy_count += 1
+            } else {
+                unhealthy_count += 1
             }
 
             total_items_processed += metrics.total_items_processed;

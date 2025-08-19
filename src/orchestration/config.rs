@@ -736,31 +736,6 @@ impl ConfigurationManager {
         })
     }
 
-    /// Load configuration from a YAML string
-    pub fn load_from_yaml(yaml_content: &str) -> OrchestrationResult<Self> {
-        let interpolated_content = Self::interpolate_env_vars(yaml_content);
-        let config: TaskerConfig = serde_yaml::from_str(&interpolated_content).map_err(|e| {
-            OrchestrationError::ConfigurationError {
-                source: "yaml_string".to_string(),
-                reason: format!("Failed to parse configuration YAML: {e}"),
-            }
-        })?;
-
-        let manager = Self {
-            system_config: Arc::new(config),
-            environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
-            config_directory: "config".to_string(),
-        };
-
-        // Apply environment overrides and create final config
-        let effective_config = manager.effective_config();
-        Ok(Self {
-            system_config: Arc::new(effective_config),
-            environment: manager.environment,
-            config_directory: manager.config_directory,
-        })
-    }
-
     /// Get the system configuration
     pub fn system_config(&self) -> Arc<TaskerConfig> {
         Arc::clone(&self.system_config)

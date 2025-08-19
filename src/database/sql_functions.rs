@@ -59,11 +59,13 @@
 //!
 //! For complete examples with test data setup, see `tests/database/sql_functions.rs`.
 
-use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
+
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
 
 // Import the orchestration models for transitive dependencies
 use crate::models::orchestration::StepTransitiveDependencies;
@@ -310,39 +312,39 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedAnalyticsMetrics
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AnalyticsMetrics {
-    pub active_tasks_count: i32,
-    pub total_namespaces_count: i32,
-    pub unique_task_types_count: i32,
-    pub system_health_score: f64,
-    pub task_throughput: i32,
-    pub completion_count: i32,
-    pub error_count: i32,
-    pub completion_rate: f64,
-    pub error_rate: f64,
-    pub avg_task_duration: f64,
-    pub avg_step_duration: f64,
-    pub step_throughput: i32,
-    pub analysis_period_start: String,
-    pub calculated_at: String,
+    pub active_tasks_count: i64,
+    pub total_namespaces_count: i64,
+    pub unique_task_types_count: i64,
+    pub system_health_score: BigDecimal,
+    pub task_throughput: i64,
+    pub completion_count: i64,
+    pub error_count: i64,
+    pub completion_rate: BigDecimal,
+    pub error_rate: BigDecimal,
+    pub avg_task_duration: BigDecimal,
+    pub avg_step_duration: BigDecimal,
+    pub step_throughput: i64,
+    pub analysis_period_start: DateTime<Utc>,
+    pub calculated_at: DateTime<Utc>,
 }
 
 impl Default for AnalyticsMetrics {
     fn default() -> Self {
         Self {
-            active_tasks_count: 0,
-            total_namespaces_count: 0,
-            unique_task_types_count: 0,
-            system_health_score: 0.0,
-            task_throughput: 0,
-            completion_count: 0,
-            error_count: 0,
-            completion_rate: 0.0,
-            error_rate: 0.0,
-            avg_task_duration: 0.0,
-            avg_step_duration: 0.0,
-            step_throughput: 0,
-            analysis_period_start: "".to_string(),
-            calculated_at: Utc::now().to_rfc3339(),
+            active_tasks_count: 0i64,
+            total_namespaces_count: 0i64,
+            unique_task_types_count: 0i64,
+            system_health_score: BigDecimal::from(0),
+            task_throughput: 0i64,
+            completion_count: 0i64,
+            error_count: 0i64,
+            completion_rate: BigDecimal::from(0),
+            error_rate: BigDecimal::from(0),
+            avg_task_duration: BigDecimal::from(0),
+            avg_step_duration: BigDecimal::from(0),
+            step_throughput: 0i64,
+            analysis_period_start: Utc::now(),
+            calculated_at: Utc::now(),
         }
     }
 }
@@ -380,6 +382,7 @@ impl SqlFunctionExecutor {
 /// Comprehensive step readiness analysis
 /// Equivalent to Rails: FunctionBasedStepReadinessStatus
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct StepReadinessStatus {
     pub workflow_step_uuid: Uuid,
     pub task_uuid: Uuid,
@@ -579,6 +582,7 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedTaskExecutionContext
 /// FIXED: Aligned with actual SQL function return columns
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskExecutionContext {
     pub task_uuid: Uuid,
     pub named_task_uuid: Uuid,
@@ -685,12 +689,14 @@ impl SqlFunctionExecutor {
     pub async fn get_slowest_steps(
         &self,
         limit: Option<i32>,
-        min_executions: Option<i32>,
+        _min_executions: Option<i32>,
     ) -> Result<Vec<SlowestStepAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_steps($1, $2, NULL, NULL, NULL)";
+        // Database function signature: get_slowest_steps(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)
+        // We don't use min_executions parameter as it doesn't exist in the database function
+        let sql =
+            "SELECT * FROM get_slowest_steps(NULL::timestamp with time zone, $1, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestStepAnalysis>(sql)
-            .bind(limit)
-            .bind(min_executions)
+            .bind(limit.unwrap_or(10))
             .fetch_all(&self.pool)
             .await
     }
@@ -700,12 +706,14 @@ impl SqlFunctionExecutor {
     pub async fn get_slowest_tasks(
         &self,
         limit: Option<i32>,
-        min_executions: Option<i32>,
+        _min_executions: Option<i32>,
     ) -> Result<Vec<SlowestTaskAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_tasks($1, $2, NULL, NULL, NULL)";
+        // Database function signature: get_slowest_tasks(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)
+        // We don't use min_executions parameter as it doesn't exist in the database function
+        let sql =
+            "SELECT * FROM get_slowest_tasks(NULL::timestamp with time zone, $1, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestTaskAnalysis>(sql)
-            .bind(limit)
-            .bind(min_executions)
+            .bind(limit.unwrap_or(10))
             .fetch_all(&self.pool)
             .await
     }
@@ -906,218 +914,5 @@ impl SqlFunctionExecutor {
             .into_iter()
             .filter(|dep| dep.distance == 1)
             .collect())
-    }
-}
-
-// ============================================================================
-// 8. OPTIMIZED WORKER QUERIES
-// ============================================================================
-
-/// Result structure for find_active_workers_for_task function
-/// Provides complete worker and task information with pre-computed health scoring
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ActiveWorkerResult {
-    pub id: i32,
-    pub worker_id: i32,
-    pub named_task_uuid: i32,
-    pub configuration: serde_json::Value,
-    pub priority: i32,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-    pub worker_name: String,
-    pub task_name: String,
-    pub task_version: String,
-    pub namespace_name: String,
-}
-
-/// Result structure for get_worker_health_batch function
-/// Provides comprehensive worker health information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct WorkerHealthResult {
-    pub worker_id: i32,
-    pub worker_name: String,
-    pub status: String,
-    pub last_heartbeat_at: Option<chrono::NaiveDateTime>,
-    pub connection_healthy: bool,
-    pub current_load: i32,
-}
-
-/// Result structure for select_optimal_worker_for_task function
-/// Provides intelligent worker selection with comprehensive scoring
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct OptimalWorkerResult {
-    pub worker_id: i32,
-    pub worker_name: String,
-    pub priority: i32,
-    pub configuration: serde_json::Value,
-    pub health_score: sqlx::types::BigDecimal,
-    pub current_load: i32,
-    pub max_concurrent_steps: i32,
-    pub available_capacity: i32,
-    pub selection_score: sqlx::types::BigDecimal,
-}
-
-impl OptimalWorkerResult {
-    /// Get health score as f64
-    pub fn health_score_f64(&self) -> f64 {
-        self.health_score.to_f64().unwrap_or(0.0)
-    }
-
-    /// Get selection score as f64
-    pub fn selection_score_f64(&self) -> f64 {
-        self.selection_score.to_f64().unwrap_or(0.0)
-    }
-
-    /// Check if worker is healthy enough for task execution
-    pub fn is_healthy(&self) -> bool {
-        self.health_score_f64() > 50.0
-    }
-
-    /// Get capacity utilization percentage
-    pub fn capacity_utilization(&self) -> f64 {
-        if self.max_concurrent_steps > 0 {
-            (self.current_load as f64 / self.max_concurrent_steps as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-}
-
-/// Result structure for get_worker_pool_statistics function
-/// Provides comprehensive worker pool monitoring information
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct WorkerPoolStatistics {
-    pub total_workers: i32,
-    pub healthy_workers: i32,
-    pub registered_workers: i32,
-    pub active_workers: i32,
-    pub workers_with_recent_heartbeat: i32,
-    pub avg_health_score: Option<sqlx::types::BigDecimal>,
-}
-
-impl Default for WorkerPoolStatistics {
-    fn default() -> Self {
-        Self {
-            total_workers: 0,
-            healthy_workers: 0,
-            registered_workers: 0,
-            active_workers: 0,
-            workers_with_recent_heartbeat: 0,
-            avg_health_score: Some(BigDecimal::from(0)),
-        }
-    }
-}
-
-impl WorkerPoolStatistics {
-    /// Get average health score as f64
-    pub fn avg_health_score_f64(&self) -> f64 {
-        self.avg_health_score
-            .as_ref()
-            .and_then(|score| score.to_f64())
-            .unwrap_or(0.0)
-    }
-
-    /// Calculate worker availability percentage
-    pub fn availability_percentage(&self) -> f64 {
-        if self.total_workers > 0 {
-            (self.healthy_workers as f64 / self.total_workers as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-
-    /// Calculate recent heartbeat percentage
-    pub fn recent_heartbeat_percentage(&self) -> f64 {
-        if self.active_workers > 0 {
-            (self.workers_with_recent_heartbeat as f64 / self.active_workers as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-
-    /// Check if worker pool is healthy
-    pub fn is_healthy(&self) -> bool {
-        self.availability_percentage() > 70.0 && self.recent_heartbeat_percentage() > 80.0
-    }
-}
-
-impl SqlFunctionExecutor {
-    /// Find active workers for a specific task with optimized SQL function
-    /// Uses pre-computed query plan with health scoring and proper indexing
-    ///
-    /// Equivalent to Rails: optimized worker selection with complex JOIN operations
-    pub async fn find_active_workers_for_task(
-        &self,
-        named_task_uuid: i32,
-    ) -> Result<Vec<ActiveWorkerResult>, sqlx::Error> {
-        let sql = "SELECT * FROM find_active_workers_for_task($1)";
-        sqlx::query_as::<_, ActiveWorkerResult>(sql)
-            .bind(named_task_uuid)
-            .fetch_all(&self.pool)
-            .await
-    }
-
-    /// Get worker health information for multiple workers in a single batch operation
-    /// Uses optimized SQL function for efficient health status retrieval
-    ///
-    /// Provides comprehensive health metrics including connection status and load information
-    pub async fn get_worker_health_batch(
-        &self,
-        worker_ids: &[i32],
-    ) -> Result<Vec<WorkerHealthResult>, sqlx::Error> {
-        let sql = "SELECT * FROM get_worker_health_batch($1)";
-        sqlx::query_as::<_, WorkerHealthResult>(sql)
-            .bind(worker_ids)
-            .fetch_all(&self.pool)
-            .await
-    }
-
-    /// Select the optimal worker for a task using comprehensive scoring algorithm
-    /// Uses pre-computed SQL function with advanced worker selection logic
-    ///
-    /// Scoring factors:
-    /// - Worker health (40% weight)
-    /// - Priority level (30% weight)
-    /// - Available capacity (30% weight)
-    pub async fn select_optimal_worker_for_task(
-        &self,
-        named_task_uuid: i32,
-        required_capacity: Option<i32>,
-    ) -> Result<Option<OptimalWorkerResult>, sqlx::Error> {
-        let sql = "SELECT * FROM select_optimal_worker_for_task($1, $2)";
-        sqlx::query_as::<_, OptimalWorkerResult>(sql)
-            .bind(named_task_uuid)
-            .bind(required_capacity.unwrap_or(1))
-            .fetch_optional(&self.pool)
-            .await
-    }
-
-    /// Get comprehensive worker pool statistics for monitoring and health assessment
-    /// Uses optimized SQL function for efficient pool-wide metrics calculation
-    ///
-    /// Provides metrics including:
-    /// - Total, healthy, registered, and active worker counts
-    /// - Workers with recent heartbeat activity
-    /// - Average health score across all workers
-    pub async fn get_worker_pool_statistics(&self) -> Result<WorkerPoolStatistics, sqlx::Error> {
-        let sql = "SELECT * FROM get_worker_pool_statistics()";
-        let result = self.execute_single(sql).await?;
-        Ok(result.unwrap_or_default())
-    }
-
-    /// Invalidate worker-related caches for a specific task or all tasks
-    /// Uses SQL function to coordinate cache invalidation across system components
-    ///
-    /// Returns true if cache invalidation was successfully requested
-    pub async fn invalidate_worker_cache(
-        &self,
-        named_task_uuid: Option<i32>,
-    ) -> Result<bool, sqlx::Error> {
-        let sql = "SELECT invalidate_worker_cache($1)";
-        let result: Option<bool> = sqlx::query_scalar(sql)
-            .bind(named_task_uuid)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(result.unwrap_or(false))
     }
 }

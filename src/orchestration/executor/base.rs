@@ -113,6 +113,11 @@ impl ProcessingLoop {
     async fn process_batch_with_executor(&self, executor: &Arc<BaseExecutor>) -> Result<()> {
         let loop_start = Instant::now();
 
+        // Send heartbeat to mark executor as healthy
+        if let Err(e) = executor.heartbeat().await {
+            debug!("Failed to send heartbeat: {}", e);
+        }
+
         // Check circuit breaker state
         let cb_state = executor.circuit_breaker.state();
 

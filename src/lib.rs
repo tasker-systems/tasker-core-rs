@@ -41,6 +41,7 @@
 //! - [`registry`] - Component registration and discovery
 //! - [`ffi`] - Multi-language FFI bindings
 //! - [`resilience`] - Circuit breaker patterns and fault tolerance
+//! - [`web`] - REST API server (optional, requires `web-api` feature)
 //!
 //! ## Performance Targets
 //!
@@ -101,6 +102,8 @@ pub mod state_machine;
 pub mod test_utils;
 pub mod utils;
 pub mod validation;
+#[cfg(feature = "web-api")]
+pub mod web;
 
 pub use constants::events as system_events;
 pub use constants::{
@@ -128,4 +131,11 @@ pub use orchestration::{
 pub use registry::{
     EventSubscriber, Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats,
     SubscriberDetail, SubscriberRegistry, SubscriberStats, TaskHandlerRegistry,
+};
+
+#[cfg(feature = "web-api")]
+pub use web::{
+    create_app,
+    response_types::{ApiError, ApiResult},
+    state::{AppState, WebServerConfig},
 };

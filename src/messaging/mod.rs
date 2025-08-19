@@ -3,12 +3,14 @@
 //! PostgreSQL message queue (pgmq) based messaging for workflow orchestration.
 //! Provides queue-based task and step processing, replacing the TCP command architecture.
 
+pub mod errors;
 pub mod execution_types;
 pub mod message;
 pub mod orchestration_messages;
 pub mod pgmq_client;
 pub mod protected_pgmq_client;
 
+pub use errors::{MessagingError, MessagingResult};
 pub use execution_types::{
     StepBatchRequest, StepBatchResponse, StepExecutionError, StepExecutionRequest,
     StepExecutionResult, StepRequestMetadata, StepResultMetadata,
@@ -25,24 +27,21 @@ pub use protected_pgmq_client::{ProtectedPgmqClient, ProtectedPgmqError};
 #[async_trait::async_trait]
 pub trait PgmqClientTrait: Send + Sync {
     /// Create queue if it doesn't exist
-    async fn create_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn create_queue(&self, queue_name: &str) -> MessagingResult<()>;
 
     /// Send step message to queue
     async fn send_message(
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> MessagingResult<i64>;
 
     /// Send generic JSON message to queue
     async fn send_json_message<T: serde::Serialize + Clone + Send + Sync>(
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> MessagingResult<i64>;
 
     /// Read messages from queue
     async fn read_messages(
@@ -50,55 +49,32 @@ pub trait PgmqClientTrait: Send + Sync {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    >;
+    ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>>;
 
     /// Delete message from queue
-    async fn delete_message(
-        &self,
-        queue_name: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn delete_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()>;
 
     /// Archive message (move to archive)
-    async fn archive_message(
-        &self,
-        queue_name: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn archive_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()>;
 
     /// Purge queue (delete all messages)
-    async fn purge_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>;
+    async fn purge_queue(&self, queue_name: &str) -> MessagingResult<u64>;
 
     /// Drop queue completely
-    async fn drop_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn drop_queue(&self, queue_name: &str) -> MessagingResult<()>;
 
     /// Get queue metrics/statistics
-    async fn queue_metrics(
-        &self,
-        queue_name: &str,
-    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>>;
+    async fn queue_metrics(&self, queue_name: &str) -> MessagingResult<QueueMetrics>;
 
     /// Initialize standard namespace queues
-    async fn initialize_namespace_queues(
-        &self,
-        namespaces: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> MessagingResult<()>;
 
     /// Send step execution message to namespace queue
     async fn enqueue_step(
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> MessagingResult<i64>;
 
     /// Process messages from namespace queue
     async fn process_namespace_queue(
@@ -106,17 +82,10 @@ pub trait PgmqClientTrait: Send + Sync {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    >;
+    ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>>;
 
     /// Complete message processing (delete from queue)
-    async fn complete_message(
-        &self,
-        namespace: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn complete_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()>;
 }
 
 /// Unified PGMQ client that can be either standard or circuit-breaker protected
@@ -133,16 +102,10 @@ pub enum UnifiedPgmqClient {
 
 #[async_trait::async_trait]
 impl PgmqClientTrait for UnifiedPgmqClient {
-    async fn create_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_queue(&self, queue_name: &str) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.create_queue(queue_name).await,
-            Self::Protected(client) => client
-                .create_queue(queue_name)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::Protected(client) => client.create_queue(queue_name).await.map_err(|e| e.into()),
         }
     }
 
@@ -150,13 +113,13 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> MessagingResult<i64> {
         match self {
             Self::Standard(client) => client.send_message(queue_name, message).await,
             Self::Protected(client) => client
                 .send_message(queue_name, message)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
@@ -164,13 +127,13 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> MessagingResult<i64> {
         match self {
             Self::Standard(client) => client.send_json_message(queue_name, message).await,
             Self::Protected(client) => client
                 .send_json_message(queue_name, message)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
@@ -179,10 +142,7 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>> {
         match self {
             Self::Standard(client) => {
                 client
@@ -192,87 +152,58 @@ impl PgmqClientTrait for UnifiedPgmqClient {
             Self::Protected(client) => client
                 .read_messages(queue_name, visibility_timeout, qty)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
-    async fn delete_message(
-        &self,
-        queue_name: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn delete_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.delete_message(queue_name, message_id).await,
             Self::Protected(client) => client
                 .delete_message(queue_name, message_id)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
-    async fn archive_message(
-        &self,
-        queue_name: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn archive_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.archive_message(queue_name, message_id).await,
             Self::Protected(client) => client
                 .archive_message(queue_name, message_id)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
-    async fn purge_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    async fn purge_queue(&self, queue_name: &str) -> MessagingResult<u64> {
         match self {
             Self::Standard(client) => client.purge_queue(queue_name).await,
-            Self::Protected(client) => client
-                .purge_queue(queue_name)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::Protected(client) => client.purge_queue(queue_name).await.map_err(|e| e.into()),
         }
     }
 
-    async fn drop_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn drop_queue(&self, queue_name: &str) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.drop_queue(queue_name).await,
-            Self::Protected(client) => client
-                .drop_queue(queue_name)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::Protected(client) => client.drop_queue(queue_name).await.map_err(|e| e.into()),
         }
     }
 
-    async fn queue_metrics(
-        &self,
-        queue_name: &str,
-    ) -> Result<QueueMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    async fn queue_metrics(&self, queue_name: &str) -> MessagingResult<QueueMetrics> {
         match self {
             Self::Standard(client) => client.queue_metrics(queue_name).await,
-            Self::Protected(client) => client
-                .queue_metrics(queue_name)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::Protected(client) => client.queue_metrics(queue_name).await.map_err(|e| e.into()),
         }
     }
 
-    async fn initialize_namespace_queues(
-        &self,
-        namespaces: &[&str],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.initialize_namespace_queues(namespaces).await,
             Self::Protected(client) => client
                 .initialize_namespace_queues(namespaces)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                .map_err(|e| e.into()),
         }
     }
 
@@ -280,7 +211,7 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> MessagingResult<i64> {
         match self {
             Self::Standard(client) => client.enqueue_step(namespace, step_message).await,
             Self::Protected(client) => {
@@ -295,10 +226,7 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<
-        Vec<pgmq::types::Message<serde_json::Value>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>> {
         match self {
             Self::Standard(client) => {
                 client
@@ -314,11 +242,7 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         }
     }
 
-    async fn complete_message(
-        &self,
-        namespace: &str,
-        message_id: i64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn complete_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()> {
         match self {
             Self::Standard(client) => client.complete_message(namespace, message_id).await,
             Self::Protected(client) => {

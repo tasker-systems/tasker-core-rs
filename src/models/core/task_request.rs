@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 use super::named_task::NamedTask;
 use super::task::{NewTask, Task};
 use crate::error::{Result, TaskerError};
@@ -17,6 +20,7 @@ use crate::error::{Result, TaskerError};
 /// This is the primary routing input that identifies which handler should process the task
 /// and contains all the information needed to create a Task instance from a NamedTask template
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskRequest {
     /// The name of the task to be performed (Rails: name)
     pub name: String,

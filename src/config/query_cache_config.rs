@@ -241,31 +241,3 @@ impl QueryCacheConfig {
         Ok(())
     }
 }
-
-/// Configuration loader for YAML files
-pub struct QueryCacheConfigLoader;
-
-impl QueryCacheConfigLoader {
-    /// Load configuration from YAML file based on environment
-    pub fn load_from_yaml() -> Result<QueryCacheConfig, Box<dyn std::error::Error>> {
-        // Try to detect config file based on environment
-        let _environment = env::var("RAILS_ENV")
-            .or_else(|_| env::var("TASKER_ENV"))
-            .or_else(|_| env::var("RUST_ENV"))
-            .unwrap_or_else(|_| "production".to_string());
-
-        let config_source = "component-based configuration";
-
-        info!("Loading query cache configuration from: {}", config_source);
-
-        // For now, return environment-based config since we don't have a YAML parser
-        // In the future, this could use serde_yaml to parse the actual files
-        let config = QueryCacheConfig::from_environment();
-
-        // Validate the configuration
-        config.validate()?;
-        config.log_configuration();
-
-        Ok(config)
-    }
-}

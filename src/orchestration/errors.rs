@@ -786,3 +786,103 @@ impl From<crate::events::PublishError> for OrchestrationError {
         }
     }
 }
+
+impl From<crate::orchestration::task_finalizer::FinalizationError> for OrchestrationError {
+    fn from(err: crate::orchestration::task_finalizer::FinalizationError) -> Self {
+        use crate::orchestration::task_finalizer::FinalizationError;
+        match err {
+            FinalizationError::Database(sqlx_err) => OrchestrationError::DatabaseError {
+                operation: "task_finalization".to_string(),
+                reason: sqlx_err.to_string(),
+            },
+            FinalizationError::TaskNotFound(task_uuid) => OrchestrationError::InvalidTaskState {
+                task_uuid,
+                current_state: "not_found".to_string(),
+                expected_states: vec!["exists".to_string()],
+            },
+            FinalizationError::StateMachine(reason) => OrchestrationError::StateTransitionFailed {
+                entity_type: "task".to_string(),
+                entity_uuid: uuid::Uuid::now_v7(), // Default UUID since it's not in the error
+                reason,
+            },
+            FinalizationError::InvalidTransition(reason) => {
+                OrchestrationError::StateTransitionFailed {
+                    entity_type: "task".to_string(),
+                    entity_uuid: uuid::Uuid::now_v7(),
+                    reason,
+                }
+            }
+            FinalizationError::ContextUnavailable(task_id) => {
+                OrchestrationError::ConfigurationError {
+                    source: "task_finalizer".to_string(),
+                    reason: format!("Context unavailable for task ID {task_id}"),
+                }
+            }
+            FinalizationError::EventPublishing(reason) => {
+                OrchestrationError::EventPublishingError {
+                    event_type: "task_finalization".to_string(),
+                    reason,
+                }
+            }
+        }
+    }
+}
+
+impl From<crate::orchestration::backoff_calculator::BackoffError> for OrchestrationError {
+    fn from(err: crate::orchestration::backoff_calculator::BackoffError) -> Self {
+        use crate::orchestration::backoff_calculator::BackoffError;
+        match err {
+            BackoffError::Database(sqlx_err) => OrchestrationError::DatabaseError {
+                operation: "backoff_calculation".to_string(),
+                reason: sqlx_err.to_string(),
+            },
+            BackoffError::InvalidConfig(reason) => OrchestrationError::ConfigurationError {
+                source: "backoff_calculator".to_string(),
+                reason,
+            },
+            BackoffError::StepNotFound(step_id) => OrchestrationError::StepHandlerNotFound {
+                step_uuid: uuid::Uuid::now_v7(), // Default UUID since we only have the i64 id
+                reason: format!("Step with ID {step_id} not found"),
+            },
+        }
+    }
+}
+
+/// Convert `Box<dyn Error>` patterns to OrchestrationError for legacy compatibility
+impl From<Box<dyn std::error::Error + Send + Sync>> for OrchestrationError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        // Get the error string before attempting downcasts
+        let error_string = err.to_string();
+
+        // Try to downcast to known error types first
+        if let Ok(sqlx_err) = err.downcast::<sqlx::Error>() {
+            return (*sqlx_err).into();
+        }
+
+        // If downcast fails, create a generic database error
+        OrchestrationError::DatabaseError {
+            operation: "unknown_operation".to_string(),
+            reason: error_string,
+        }
+    }
+}
+
+/// Convert from String to OrchestrationError
+impl From<String> for OrchestrationError {
+    fn from(message: String) -> Self {
+        OrchestrationError::ConfigurationError {
+            source: "string_conversion".to_string(),
+            reason: message,
+        }
+    }
+}
+
+/// Convert from &str to OrchestrationError
+impl From<&str> for OrchestrationError {
+    fn from(message: &str) -> Self {
+        OrchestrationError::ConfigurationError {
+            source: "str_conversion".to_string(),
+            reason: message.to_string(),
+        }
+    }
+}

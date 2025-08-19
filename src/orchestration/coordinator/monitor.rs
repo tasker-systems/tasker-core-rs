@@ -578,6 +578,186 @@ impl HealthMonitor {
     pub fn max_db_pool_usage_threshold(&self) -> f64 {
         self.max_db_pool_usage
     }
+
+    /// Check web API database pool usage with configurable thresholds (TAS-37 Web Integration)
+    ///
+    /// This method provides web API pool monitoring with custom thresholds from web configuration.
+    /// It checks against both warning and critical thresholds for graduated alerting.
+    pub fn check_web_database_pool_usage(
+        &self,
+        active_connections: u32,
+        max_connections: u32,
+        warning_threshold: f64,
+        critical_threshold: f64,
+    ) -> WebPoolHealthStatus {
+        if max_connections == 0 {
+            return WebPoolHealthStatus::Healthy {
+                usage_ratio: 0.0,
+                active_connections: 0,
+                max_connections: 0,
+            };
+        }
+
+        let current_usage = active_connections as f64 / max_connections as f64;
+
+        if current_usage >= critical_threshold {
+            warn!(
+                "HEALTH[{}]: Web API database pool CRITICAL usage {:.1}% (threshold: {:.1}%) - {} of {} connections",
+                self.id,
+                current_usage * 100.0,
+                critical_threshold * 100.0,
+                active_connections,
+                max_connections
+            );
+            WebPoolHealthStatus::Critical {
+                usage_ratio: current_usage,
+                active_connections,
+                max_connections,
+                threshold_exceeded: critical_threshold,
+            }
+        } else if current_usage >= warning_threshold {
+            warn!(
+                "HEALTH[{}]: Web API database pool WARNING usage {:.1}% (threshold: {:.1}%) - {} of {} connections",
+                self.id,
+                current_usage * 100.0,
+                warning_threshold * 100.0,
+                active_connections,
+                max_connections
+            );
+            WebPoolHealthStatus::Warning {
+                usage_ratio: current_usage,
+                active_connections,
+                max_connections,
+                threshold_exceeded: warning_threshold,
+            }
+        } else {
+            debug!(
+                "HEALTH[{}]: Web API database pool healthy usage {:.1}% - {} of {} connections",
+                self.id,
+                current_usage * 100.0,
+                active_connections,
+                max_connections
+            );
+            WebPoolHealthStatus::Healthy {
+                usage_ratio: current_usage,
+                active_connections,
+                max_connections,
+            }
+        }
+    }
+
+    /// Record web API pool usage metrics for health monitoring (TAS-37 Web Integration)
+    ///
+    /// This method integrates web API pool monitoring into the broader health monitoring system.
+    /// It can be called periodically by the web API to report pool usage statistics.
+    pub async fn record_web_pool_usage(
+        &self,
+        pool_usage: WebPoolUsageReport,
+        operational_state: Option<&OperationalStateManager>,
+    ) -> Result<()> {
+        let _timestamp = Instant::now();
+
+        // Get operational state context for monitoring decisions
+        let (current_state, should_suppress_alerts) = if let Some(op_state) = operational_state {
+            let state = op_state.current_state().await;
+            let suppress = op_state.should_suppress_alerts().await;
+            (Some(state), suppress)
+        } else {
+            (None, false)
+        };
+
+        debug!(
+            "HEALTH[{}]: Recording web pool usage - {:.1}% utilization ({} active, {} max) | operational_state={:?}, suppress_alerts={}",
+            self.id,
+            pool_usage.usage_ratio * 100.0,
+            pool_usage.active_connections,
+            pool_usage.max_connections,
+            current_state,
+            should_suppress_alerts
+        );
+
+        // Check web pool health status with custom thresholds
+        let health_status = self.check_web_database_pool_usage(
+            pool_usage.active_connections,
+            pool_usage.max_connections,
+            pool_usage.warning_threshold,
+            pool_usage.critical_threshold,
+        );
+
+        // Generate alerts if not suppressed and pool is unhealthy
+        if !should_suppress_alerts {
+            match &health_status {
+                WebPoolHealthStatus::Warning {
+                    usage_ratio,
+                    threshold_exceeded,
+                    ..
+                } => match current_state.as_ref() {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        debug!(
+                                "ℹ️ HEALTH: Web API pool elevated usage during graceful shutdown - {:.1}% (warning threshold: {:.1}%) - expected during shutdown",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                    Some(SystemOperationalState::Startup) => {
+                        debug!(
+                                "ℹ️ HEALTH: Web API pool elevated usage during startup - {:.1}% (warning threshold: {:.1}%) - expected during initialization",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                    _ => {
+                        warn!(
+                                "⚠️ HEALTH ALERT: Web API database pool usage HIGH - {:.1}% (warning threshold: {:.1}%)",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                },
+                WebPoolHealthStatus::Critical {
+                    usage_ratio,
+                    threshold_exceeded,
+                    ..
+                } => match current_state.as_ref() {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        info!(
+                                "ℹ️ HEALTH: Web API pool critical usage during graceful shutdown - {:.1}% (critical threshold: {:.1}%) - may be expected during shutdown",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                    Some(SystemOperationalState::Emergency) => {
+                        error!(
+                                "🚨 HEALTH ALERT: Web API pool CRITICAL usage during emergency shutdown - {:.1}% (critical threshold: {:.1}%)",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                    _ => {
+                        error!(
+                                "🚨 HEALTH ALERT: Web API database pool usage CRITICAL - {:.1}% (critical threshold: {:.1}%)",
+                                usage_ratio * 100.0,
+                                threshold_exceeded * 100.0
+                            );
+                    }
+                },
+                WebPoolHealthStatus::Healthy { .. } => {
+                    // No alert needed for healthy status
+                }
+            }
+        } else {
+            debug!(
+                "HEALTH[{}]: Web pool usage alerts suppressed due to operational state: {:?}",
+                self.id, current_state
+            );
+        }
+
+        // TODO: Store web pool usage history for trend analysis
+        // This could be implemented similarly to the main health_history Vec
+        // For now, we just log and alert
+
+        Ok(())
+    }
 }
 
 /// System status enumeration
@@ -640,6 +820,48 @@ pub struct HealthSummary {
     pub degraded_reports: usize,
     pub unhealthy_reports: usize,
     pub time_span_seconds: f64,
+}
+
+/// Web API database pool health status (TAS-37 Web Integration)
+#[derive(Debug, Clone)]
+pub enum WebPoolHealthStatus {
+    /// Pool usage is within healthy limits
+    Healthy {
+        usage_ratio: f64,
+        active_connections: u32,
+        max_connections: u32,
+    },
+    /// Pool usage exceeds warning threshold but below critical
+    Warning {
+        usage_ratio: f64,
+        active_connections: u32,
+        max_connections: u32,
+        threshold_exceeded: f64,
+    },
+    /// Pool usage exceeds critical threshold
+    Critical {
+        usage_ratio: f64,
+        active_connections: u32,
+        max_connections: u32,
+        threshold_exceeded: f64,
+    },
+}
+
+/// Web API pool usage report for health monitoring (TAS-37 Web Integration)
+#[derive(Debug, Clone)]
+pub struct WebPoolUsageReport {
+    /// Current connection usage ratio (0.0-1.0)
+    pub usage_ratio: f64,
+    /// Number of active connections
+    pub active_connections: u32,
+    /// Maximum allowed connections
+    pub max_connections: u32,
+    /// Warning threshold from web configuration (0.0-1.0)
+    pub warning_threshold: f64,
+    /// Critical threshold from web configuration (0.0-1.0)
+    pub critical_threshold: f64,
+    /// Pool name for identification
+    pub pool_name: String,
 }
 
 #[cfg(test)]
@@ -815,5 +1037,110 @@ mod tests {
         // Verify thresholds are accessible
         assert_eq!(monitor.health_check_interval_seconds(), 45);
         assert_eq!(monitor.max_db_pool_usage_threshold(), 0.75);
+    }
+
+    #[test]
+    fn test_web_database_pool_usage_monitoring() {
+        let monitor = HealthMonitor::new(Uuid::new_v4(), 30, 0.8);
+
+        // Test healthy usage (below warning threshold)
+        let status = monitor.check_web_database_pool_usage(3, 10, 0.5, 0.8);
+        assert!(matches!(status, WebPoolHealthStatus::Healthy { .. }));
+        if let WebPoolHealthStatus::Healthy {
+            usage_ratio,
+            active_connections,
+            max_connections,
+        } = status
+        {
+            assert_eq!(usage_ratio, 0.3);
+            assert_eq!(active_connections, 3);
+            assert_eq!(max_connections, 10);
+        }
+
+        // Test warning usage (above warning, below critical threshold)
+        let status = monitor.check_web_database_pool_usage(6, 10, 0.5, 0.8);
+        assert!(matches!(status, WebPoolHealthStatus::Warning { .. }));
+        if let WebPoolHealthStatus::Warning {
+            usage_ratio,
+            threshold_exceeded,
+            ..
+        } = status
+        {
+            assert_eq!(usage_ratio, 0.6);
+            assert_eq!(threshold_exceeded, 0.5);
+        }
+
+        // Test critical usage (above critical threshold)
+        let status = monitor.check_web_database_pool_usage(9, 10, 0.5, 0.8);
+        assert!(matches!(status, WebPoolHealthStatus::Critical { .. }));
+        if let WebPoolHealthStatus::Critical {
+            usage_ratio,
+            threshold_exceeded,
+            ..
+        } = status
+        {
+            assert_eq!(usage_ratio, 0.9);
+            assert_eq!(threshold_exceeded, 0.8);
+        }
+
+        // Test edge case - no pool configured
+        let status = monitor.check_web_database_pool_usage(5, 0, 0.5, 0.8);
+        assert!(matches!(status, WebPoolHealthStatus::Healthy { .. }));
+        if let WebPoolHealthStatus::Healthy {
+            usage_ratio,
+            active_connections,
+            max_connections,
+        } = status
+        {
+            assert_eq!(usage_ratio, 0.0);
+            assert_eq!(active_connections, 0);
+            assert_eq!(max_connections, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_web_pool_usage_recording() {
+        let monitor = HealthMonitor::new(Uuid::new_v4(), 30, 0.8);
+
+        // Create a test web pool usage report
+        let pool_report = WebPoolUsageReport {
+            usage_ratio: 0.6,
+            active_connections: 6,
+            max_connections: 10,
+            warning_threshold: 0.75,
+            critical_threshold: 0.90,
+            pool_name: "web_api_pool".to_string(),
+        };
+
+        // Test recording without operational state (should succeed)
+        let result = monitor
+            .record_web_pool_usage(pool_report.clone(), None)
+            .await;
+        assert!(result.is_ok());
+
+        // Test recording with different usage levels
+        let warning_report = WebPoolUsageReport {
+            usage_ratio: 0.8,
+            active_connections: 8,
+            max_connections: 10,
+            warning_threshold: 0.75,
+            critical_threshold: 0.90,
+            pool_name: "web_api_pool".to_string(),
+        };
+
+        let result = monitor.record_web_pool_usage(warning_report, None).await;
+        assert!(result.is_ok());
+
+        let critical_report = WebPoolUsageReport {
+            usage_ratio: 0.95,
+            active_connections: 19,
+            max_connections: 20,
+            warning_threshold: 0.75,
+            critical_threshold: 0.90,
+            pool_name: "web_api_pool".to_string(),
+        };
+
+        let result = monitor.record_web_pool_usage(critical_report, None).await;
+        assert!(result.is_ok());
     }
 }
