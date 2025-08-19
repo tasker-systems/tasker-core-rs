@@ -118,8 +118,8 @@ async fn test_tls_certificate_integration() {
         println!("   Private key: {} chars", key_content.len());
     } else {
         println!("⚠️  TLS certificates not found - run ./scripts/generate_test_certs.sh");
-        println!("   Cert exists: {}", cert_exists);
-        println!("   Key exists: {}", key_exists);
+        println!("   Cert exists: {cert_exists}");
+        println!("   Key exists: {key_exists}");
     }
 }
 
@@ -167,7 +167,7 @@ async fn test_environment_configuration() {
 
     for (var_name, expected_default) in web_config_vars {
         let value = std::env::var(var_name).unwrap_or_else(|_| expected_default.to_string());
-        println!("   {}: {}", var_name, value);
+        println!("   {var_name}: {value}");
     }
 }
 
@@ -203,8 +203,8 @@ async fn test_resource_coordination_configuration() {
     );
 
     println!("✅ Resource coordination thresholds configured correctly");
-    println!("   Warning threshold: {}", warning_val);
-    println!("   Critical threshold: {}", critical_val);
+    println!("   Warning threshold: {warning_val}");
+    println!("   Critical threshold: {critical_val}");
 }
 
 /// Test that configuration is compatible with Rust config system
@@ -238,8 +238,8 @@ async fn test_config_compatibility() {
     );
 
     println!("✅ Configuration values compatible with TOML format");
-    println!("   JWT issuer: {}", jwt_issuer);
-    println!("   JWT audience: {}", jwt_audience);
+    println!("   JWT issuer: {jwt_issuer}");
+    println!("   JWT audience: {jwt_audience}");
 }
 
 /// Integration test that combines multiple components
@@ -256,9 +256,9 @@ async fn test_comprehensive_web_integration() {
         std::env::var("JWT_PRIVATE_KEY").is_ok() && std::env::var("JWT_PUBLIC_KEY").is_ok();
     let has_api_key = std::env::var("API_KEY").is_ok();
 
-    println!("   Database configured: {}", has_database);
-    println!("   JWT keys configured: {}", has_jwt_keys);
-    println!("   API key configured: {}", has_api_key);
+    println!("   Database configured: {has_database}");
+    println!("   JWT keys configured: {has_jwt_keys}");
+    println!("   API key configured: {has_api_key}");
 
     // 2. Test test infrastructure
     println!("2️⃣  Testing test infrastructure...");
@@ -352,10 +352,10 @@ async fn test_web_toml_configuration_scenarios() {
     let total_connections = orchestration_pool + web_pool;
 
     println!("Configuration from TOML files:");
-    println!("   Orchestration pool: {}", orchestration_pool);
-    println!("   Web API pool: {}", web_pool);
-    println!("   Total connections: {}", total_connections);
-    println!("   Coordination hint: {}", coordination_hint);
+    println!("   Orchestration pool: {orchestration_pool}");
+    println!("   Web API pool: {web_pool}");
+    println!("   Total connections: {total_connections}");
+    println!("   Coordination hint: {coordination_hint}");
 
     // Test resource coordination
     assert!(
@@ -367,8 +367,8 @@ async fn test_web_toml_configuration_scenarios() {
     let orch_percentage = (orchestration_pool as f64 / total_connections as f64) * 100.0;
     let web_percentage = (web_pool as f64 / total_connections as f64) * 100.0;
 
-    println!("   Orchestration: {:.1}%", orch_percentage);
-    println!("   Web API: {:.1}%", web_percentage);
+    println!("   Orchestration: {orch_percentage:.1}%");
+    println!("   Web API: {web_percentage:.1}%");
 
     // Verify it's close to our optimal 70/30 split
     let orch_target = 70.0;
@@ -378,15 +378,12 @@ async fn test_web_toml_configuration_scenarios() {
     let orch_deviation = (orch_percentage - orch_target).abs();
     let web_deviation = (web_percentage - web_target).abs();
 
-    println!(
-        "   Orchestration deviation from optimal: {:.1}%",
-        orch_deviation
-    );
-    println!("   Web deviation from optimal: {:.1}%", web_deviation);
+    println!("   Orchestration deviation from optimal: {orch_deviation:.1}%");
+    println!("   Web deviation from optimal: {web_deviation:.1}%");
 
     // Log whether this is considered optimal
     let is_optimal = orch_deviation <= tolerance && web_deviation <= tolerance;
-    println!("   Allocation is optimal: {}", is_optimal);
+    println!("   Allocation is optimal: {is_optimal}");
 
     // Test utilization ratio
     let utilization = total_connections as f64 / coordination_hint as f64;

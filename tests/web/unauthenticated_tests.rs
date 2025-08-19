@@ -16,7 +16,9 @@ use tokio::time::timeout;
 #[tokio::test]
 async fn test_health_endpoint_unauthenticated() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Test health endpoint
@@ -29,18 +31,28 @@ async fn test_health_endpoint_unauthenticated() {
         .expect("Failed to parse health response");
 
     // Health endpoint might return "ok" or "healthy" depending on implementation
-    let status = health_data["status"].as_str().expect("Status should be string");
-    assert!(status == "healthy" || status == "ok", "Health status should be 'healthy' or 'ok', got '{}'", status);
-    
+    let status = health_data["status"]
+        .as_str()
+        .expect("Status should be string");
+    assert!(
+        status == "healthy" || status == "ok",
+        "Health status should be 'healthy' or 'ok', got '{status}'"
+    );
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test that health endpoint returns proper JSON structure
 #[tokio::test]
 async fn test_health_endpoint_json_structure() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     let response = client.get("/health").await.expect("Failed to send request");
@@ -58,16 +70,21 @@ async fn test_health_endpoint_json_structure() {
         .as_str()
         .expect("Timestamp should be string");
     assert!(!timestamp_str.is_empty());
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test CORS preflight request (OPTIONS)
 #[tokio::test]
 async fn test_cors_preflight_request() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Make an OPTIONS request to test CORS
@@ -83,22 +100,37 @@ async fn test_cors_preflight_request() {
 
     // CORS is implemented with CorsLayer allowing any origin/methods/headers
     // Should return 200 OK for preflight requests
-    assert_eq!(response.status(), StatusCode::OK, "CORS preflight should return 200 OK");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "CORS preflight should return 200 OK"
+    );
 
     // Check required CORS headers are present
     let headers = response.headers();
-    assert!(headers.get("access-control-allow-origin").is_some(), "CORS allow-origin header missing");
-    assert!(headers.get("access-control-allow-methods").is_some(), "CORS allow-methods header missing");
-    
+    assert!(
+        headers.get("access-control-allow-origin").is_some(),
+        "CORS allow-origin header missing"
+    );
+    assert!(
+        headers.get("access-control-allow-methods").is_some(),
+        "CORS allow-methods header missing"
+    );
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test that protected endpoints return expected responses without authentication
 #[tokio::test]
 async fn test_protected_endpoints_require_auth() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Test actual endpoints that exist (from routes.rs)
@@ -114,32 +146,36 @@ async fn test_protected_endpoints_require_auth() {
     for (endpoint, description) in test_endpoints {
         let response = client.get(endpoint).await.expect("Failed to send request");
 
-        // In test mode with auth disabled, we expect endpoints to respond 
+        // In test mode with auth disabled, we expect endpoints to respond
         // (not 401) but may return 500 if not fully implemented
         assert_ne!(
             response.status(),
             StatusCode::UNAUTHORIZED,
-            "{} should not return 401 in test mode (auth disabled)",
-            description
+            "{description} should not return 401 in test mode (auth disabled)"
         );
 
         // Verify we get some kind of response (not connection refused)
         let status = response.status();
         assert!(
             status.is_client_error() || status.is_server_error() || status.is_success(),
-            "{} should return a valid HTTP status, got {}", description, status
+            "{description} should return a valid HTTP status, got {status}"
         );
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test invalid endpoint returns 404
 #[tokio::test]
 async fn test_invalid_endpoint_returns_404() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     let response = client
@@ -151,7 +187,12 @@ async fn test_invalid_endpoint_returns_404() {
 
     // Try to parse JSON response, but handle cases where 404 might not return JSON
     match response.headers().get("content-type") {
-        Some(content_type) if content_type.to_str().unwrap_or("").contains("application/json") => {
+        Some(content_type)
+            if content_type
+                .to_str()
+                .unwrap_or("")
+                .contains("application/json") =>
+        {
             // Response contains JSON, parse it
             let error_data = assert_error_response(response, 404, "not found")
                 .await
@@ -167,20 +208,25 @@ async fn test_invalid_endpoint_returns_404() {
         _ => {
             // Response doesn't contain JSON (e.g., plain text 404 from Axum default handler)
             let body = response.text().await.expect("Failed to get response text");
-            println!("✅ Invalid endpoint test: Got non-JSON 404 response: {}", body);
+            println!("✅ Invalid endpoint test: Got non-JSON 404 response: {body}");
             // Just verify we got 404, which we already did above
         }
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test malformed JSON request returns 400
 #[tokio::test]
 async fn test_malformed_json_returns_400() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Send malformed JSON to the actual tasks POST endpoint
@@ -200,21 +246,25 @@ async fn test_malformed_json_returns_400() {
         status == StatusCode::BAD_REQUEST
             || status == StatusCode::UNAUTHORIZED
             || status == StatusCode::INTERNAL_SERVER_ERROR,
-        "Expected 400 (Bad Request), 401 (Unauthorized), or 500 (Internal Server Error) for malformed JSON, got {}",
-        status
+        "Expected 400 (Bad Request), 401 (Unauthorized), or 500 (Internal Server Error) for malformed JSON, got {status}"
     );
-    
-    println!("✅ Malformed JSON test: Got {} status for malformed JSON request to /v1/tasks", status);
-    
+
+    println!("✅ Malformed JSON test: Got {status} status for malformed JSON request to /v1/tasks");
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test rate limiting (if enabled)
 #[tokio::test]
 async fn test_rate_limiting_behavior() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Make multiple rapid requests to test rate limiting
@@ -247,16 +297,21 @@ async fn test_rate_limiting_behavior() {
         successful_requests,
         responses.len()
     );
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test server response time is reasonable
 #[tokio::test]
 async fn test_response_time_performance() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     let start = std::time::Instant::now();
@@ -268,21 +323,25 @@ async fn test_response_time_performance() {
     // Health endpoint should respond quickly (under 1 second for local testing)
     assert!(
         duration < Duration::from_secs(1),
-        "Health endpoint took too long: {:?}",
-        duration
+        "Health endpoint took too long: {duration:?}"
     );
 
-    println!("Health endpoint response time: {:?}", duration);
-    
+    println!("Health endpoint response time: {duration:?}");
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test content-type headers
 #[tokio::test]
 async fn test_content_type_headers() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     let response = client.get("/health").await.expect("Failed to send request");
@@ -299,19 +358,23 @@ async fn test_content_type_headers() {
 
     assert!(
         content_type.contains("application/json"),
-        "Expected JSON content-type, got: {}",
-        content_type
+        "Expected JSON content-type, got: {content_type}"
     );
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test request timeout handling
 #[tokio::test]
 async fn test_request_timeout_handling() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Test that requests complete within reasonable time
@@ -321,9 +384,12 @@ async fn test_request_timeout_handling() {
 
     let response = result.unwrap().expect("Request should succeed");
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 #[cfg(test)]

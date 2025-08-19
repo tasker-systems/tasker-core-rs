@@ -28,13 +28,13 @@ pub async fn operational_state_middleware(
 ) -> Result<Response, StatusCode> {
     let operational_state = state.operational_state();
     let path = request.uri().path();
-    
+
     debug!(
         operational_state = ?operational_state,
         path = %path,
         "Checking operational state for request"
     );
-    
+
     match operational_state {
         SystemOperationalState::Normal => {
             // All endpoints available during normal operation

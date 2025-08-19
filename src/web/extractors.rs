@@ -10,8 +10,8 @@ use sqlx::PgPool;
 use tracing::debug;
 
 use crate::web::auth::WorkerClaims;
-use crate::web::errors::ApiError;
 use crate::web::middleware::request_id::RequestId;
+use crate::web::response_types::ApiError;
 use crate::web::state::{AppState, DbOperationType};
 
 /// Database connection extractor with smart pool selection

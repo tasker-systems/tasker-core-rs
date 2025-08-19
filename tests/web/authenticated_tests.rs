@@ -122,7 +122,9 @@ nsV6EjVk
 #[tokio::test]
 async fn test_authenticated_endpoints_with_valid_jwt() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Generate a valid JWT token
@@ -145,8 +147,7 @@ async fn test_authenticated_endpoints_with_valid_jwt() {
         assert_ne!(
             response.status(),
             StatusCode::UNAUTHORIZED,
-            "Endpoint {} should accept valid JWT",
-            endpoint
+            "Endpoint {endpoint} should accept valid JWT"
         );
 
         // Should return either 200 OK or other valid status (not 401)
@@ -159,16 +160,21 @@ async fn test_authenticated_endpoints_with_valid_jwt() {
             response.status()
         );
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test that expired JWT tokens are rejected
 #[tokio::test]
 async fn test_expired_jwt_token_rejected() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Generate an expired JWT token
@@ -195,26 +201,33 @@ async fn test_expired_jwt_token_rejected() {
         let error_msg = error_data["error"].as_str().unwrap().to_lowercase();
         assert!(
             error_msg.contains("expired") || error_msg.contains("unauthorized"),
-            "Expected token expiration error, got: {}",
-            error_msg
+            "Expected token expiration error, got: {error_msg}"
         );
         println!("✅ Production auth behavior: Expired token rejected with 401");
     } else {
         // Test environment behavior with auth disabled
-        assert_eq!(response.status(), StatusCode::OK, 
-            "In test environment with auth disabled, health endpoint should return 200 OK");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "In test environment with auth disabled, health endpoint should return 200 OK"
+        );
         println!("✅ Test environment behavior: Auth disabled, expired token ignored, health endpoint accessible");
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test that malformed JWT tokens are rejected
 #[tokio::test]
 async fn test_malformed_jwt_token_rejected() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Use a malformed JWT token
@@ -236,26 +249,33 @@ async fn test_malformed_jwt_token_rejected() {
         let error_msg = error_data["error"].as_str().unwrap().to_lowercase();
         assert!(
             error_msg.contains("invalid") || error_msg.contains("unauthorized"),
-            "Expected token validation error, got: {}",
-            error_msg
+            "Expected token validation error, got: {error_msg}"
         );
         println!("✅ Production auth behavior: Malformed token rejected with 401");
     } else {
         // Test environment behavior with auth disabled
-        assert_eq!(response.status(), StatusCode::OK, 
-            "In test environment with auth disabled, health endpoint should return 200 OK");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "In test environment with auth disabled, health endpoint should return 200 OK"
+        );
         println!("✅ Test environment behavior: Auth disabled, malformed token ignored, health endpoint accessible");
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test task creation with authentication
 #[tokio::test]
 async fn test_authenticated_task_creation() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Generate a valid JWT token with task creation permissions
@@ -317,27 +337,32 @@ async fn test_authenticated_task_creation() {
 
         // Validate step_count is a number
         if let Some(step_count) = task_data.get("step_count").and_then(|v| v.as_u64()) {
-            println!("Task created with {} workflow steps", step_count);
+            println!("Task created with {step_count} workflow steps");
         }
 
         // Validate step_mapping is an object
         if let Some(step_mapping) = task_data.get("step_mapping").and_then(|v| v.as_object()) {
             println!("Step mapping contains {} entries", step_mapping.len());
             for (step_name, step_uuid) in step_mapping {
-                println!("  Step '{}' -> UUID '{}'", step_name, step_uuid);
+                println!("  Step '{step_name}' -> UUID '{step_uuid}'");
             }
         }
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test that different users have proper isolation
 #[tokio::test]
 async fn test_user_isolation_with_different_tokens() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let private_key = get_test_private_key();
 
     // Create tokens for two different users
@@ -369,16 +394,21 @@ async fn test_user_isolation_with_different_tokens() {
     // Both should not get 401 (both have valid tokens)
     assert_ne!(response1.status(), StatusCode::UNAUTHORIZED);
     assert_ne!(response2.status(), StatusCode::UNAUTHORIZED);
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test JWT token with missing required claims
 #[tokio::test]
 async fn test_jwt_token_missing_claims() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Create a JWT token with minimal claims (missing required fields)
@@ -419,20 +449,28 @@ async fn test_jwt_token_missing_claims() {
         println!("✅ Production auth behavior: Token with missing claims rejected with 401");
     } else {
         // Test environment behavior with auth disabled
-        assert_eq!(response.status(), StatusCode::OK, 
-            "In test environment with auth disabled, health endpoint should return 200 OK");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "In test environment with auth disabled, health endpoint should return 200 OK"
+        );
         println!("✅ Test environment behavior: Auth disabled, token with missing claims ignored, health endpoint accessible");
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test enhanced task creation response structure
 #[tokio::test]
 async fn test_enhanced_task_creation_response() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Generate a valid JWT token
@@ -473,10 +511,9 @@ async fn test_enhanced_task_creation_response() {
         for field in &expected_fields {
             assert!(
                 task_data.get(field).is_some(),
-                "Missing required field: {}",
-                field
+                "Missing required field: {field}"
             );
-            println!("  ✓ {} present", field);
+            println!("  ✓ {field} present");
         }
 
         // Validate optional fields
@@ -502,10 +539,7 @@ async fn test_enhanced_task_creation_response() {
                         uuid_str.chars().filter(|&c| c == '-').count() == 4,
                         "UUID should have 4 hyphens"
                     );
-                    println!(
-                        "    ✓ '{}' -> '{}' (valid UUID format)",
-                        step_name, uuid_str
-                    );
+                    println!("    ✓ '{step_name}' -> '{uuid_str}' (valid UUID format)");
                 } else {
                     panic!("Step mapping values should be UUID strings");
                 }
@@ -521,7 +555,7 @@ async fn test_enhanced_task_creation_response() {
                 task_uuid.chars().filter(|&c| c == '-').count() == 4,
                 "Task UUID should have 4 hyphens"
             );
-            println!("  ✓ task_uuid: '{}' (valid UUID format)", task_uuid);
+            println!("  ✓ task_uuid: '{task_uuid}' (valid UUID format)");
         } else {
             panic!("task_uuid should be a valid UUID string");
         }
@@ -535,16 +569,21 @@ async fn test_enhanced_task_creation_response() {
         );
         println!("   This is expected if the web API server is not running");
     }
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 /// Test permissions-based access control
 #[tokio::test]
 async fn test_permissions_based_access_control() {
     // Start test server with dynamic port allocation
-    let test_server = TestServer::start().await.expect("Failed to start test server");
+    let test_server = TestServer::start()
+        .await
+        .expect("Failed to start test server");
     let mut client = WebTestClient::for_server(&test_server).expect("Failed to create test client");
 
     // Create a token with limited permissions (no task write permissions)
@@ -578,9 +617,12 @@ async fn test_permissions_based_access_control() {
         "Write operation status with limited permissions: {}",
         write_response.status()
     );
-    
+
     // Shutdown test server
-    test_server.shutdown().await.expect("Failed to shutdown test server");
+    test_server
+        .shutdown()
+        .await
+        .expect("Failed to shutdown test server");
 }
 
 #[cfg(test)]

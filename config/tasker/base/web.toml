@@ -48,6 +48,18 @@ jwt_public_key = ""
 api_key = ""
 api_key_header = "X-API-Key"
 
+# Route-specific authentication configuration
+# Configure which routes require authentication and what type
+[web.auth.protected_routes]
+# Mutation endpoints that should require JWT auth by default
+"DELETE /v1/tasks/{task_uuid}" = { auth_type = "bearer", required = true }
+"PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}" = { auth_type = "bearer", required = true }
+
+# Additional routes that can be configured to require auth
+"POST /v1/tasks" = { auth_type = "bearer", required = false }
+"GET /v1/analytics/performance" = { auth_type = "bearer", required = false }
+"GET /v1/analytics/bottlenecks" = { auth_type = "bearer", required = false }
+
 [web.rate_limiting]
 enabled = false
 requests_per_minute = 1000

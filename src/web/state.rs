@@ -4,11 +4,11 @@
 //! configuration, and circuit breaker health monitoring.
 
 use crate::config::loader::ConfigManager;
+use crate::orchestration::coordinator::operational_state::SystemOperationalState;
 use crate::orchestration::core::OrchestrationCore;
 use crate::orchestration::task_initializer::TaskInitializer;
-use crate::orchestration::coordinator::operational_state::SystemOperationalState;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
-use crate::web::errors::{ApiError, ApiResult};
+use crate::web::response_types::{ApiError, ApiResult};
 use parking_lot::RwLock;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
@@ -35,7 +35,7 @@ pub struct WebServerConfig {
     pub bind_address: String,
     pub request_timeout_ms: u64,
     pub max_request_size_mb: u64,
-    
+
     pub database_pools: DatabasePoolConfig,
     pub cors: CorsConfig,
     pub auth: AuthConfig,
@@ -71,6 +71,106 @@ pub struct AuthConfig {
     pub jwt_issuer: String,
     pub jwt_audience: String,
     pub api_key_header: String,
+    pub protected_routes: std::collections::HashMap<String, RouteAuthConfig>,
+}
+
+/// Authentication configuration for a specific route
+#[derive(Debug, Clone)]
+pub struct RouteAuthConfig {
+    /// Type of authentication required ("bearer", "api_key")
+    pub auth_type: String,
+
+    /// Whether authentication is required for this route
+    pub required: bool,
+}
+
+impl AuthConfig {
+    /// Check if a route requires authentication
+    pub fn route_requires_auth(&self, method: &str, path: &str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            return config.required;
+        }
+
+        // Check for pattern matches (basic support for path parameters)
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Get authentication type for a route
+    pub fn auth_type_for_route(&self, method: &str, path: &str) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            if config.required {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        // Check for pattern matches
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Simple pattern matching for route paths with parameters
+    /// Supports basic {param} patterns like "/v1/tasks/{task_uuid}"
+    fn route_matches_pattern(&self, route: &str, pattern: &str) -> bool {
+        let route_parts: Vec<&str> = route.split_whitespace().collect();
+        let pattern_parts: Vec<&str> = pattern.split_whitespace().collect();
+
+        if route_parts.len() != 2 || pattern_parts.len() != 2 {
+            return false;
+        }
+
+        // Method must match exactly
+        if route_parts[0] != pattern_parts[0] {
+            return false;
+        }
+
+        // Path matching with parameter support
+        let route_path_segments: Vec<&str> = route_parts[1].split('/').collect();
+        let pattern_path_segments: Vec<&str> = pattern_parts[1].split('/').collect();
+
+        if route_path_segments.len() != pattern_path_segments.len() {
+            return false;
+        }
+
+        for (route_segment, pattern_segment) in
+            route_path_segments.iter().zip(pattern_path_segments.iter())
+        {
+            // If pattern segment is a parameter (starts and ends with {}), it matches any value
+            if pattern_segment.starts_with('{') && pattern_segment.ends_with('}') {
+                continue;
+            }
+            // Otherwise, segments must match exactly
+            if route_segment != pattern_segment {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Rate limiting configuration
@@ -121,19 +221,19 @@ pub struct DatabasePoolUsageStats {
 pub struct AppState {
     /// Web server configuration
     pub config: Arc<WebServerConfig>,
-    
+
     /// Dedicated database pool for web API operations
     pub web_db_pool: PgPool,
-    
+
     /// Shared orchestration database pool (for read operations)
     pub orchestration_db_pool: PgPool,
-    
+
     /// Circuit breaker for web database health monitoring
     pub web_db_circuit_breaker: WebDatabaseCircuitBreaker,
-    
+
     /// Shared task initializer component
     pub task_initializer: Arc<TaskInitializer>,
-    
+
     /// Orchestration system operational status
     pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
 }
@@ -149,11 +249,11 @@ impl AppState {
         config_manager: &crate::config::ConfigManager,
     ) -> ApiResult<Self> {
         info!("Creating web API application state with dedicated database pool");
-        
+
         // Extract database URL from orchestration configuration
         let database_url = config_manager.config().database_url();
         let pool_config = &web_config.database_pools;
-        
+
         debug!(
             pool_size = pool_config.web_api_pool_size,
             max_connections = pool_config.web_api_max_connections,
@@ -161,23 +261,29 @@ impl AppState {
             idle_timeout = pool_config.web_api_idle_timeout_seconds,
             "Creating dedicated web API database pool"
         );
-        
+
         let web_db_pool = PgPoolOptions::new()
             .max_connections(pool_config.web_api_max_connections)
             .min_connections(pool_config.web_api_pool_size / 2)
-            .acquire_timeout(Duration::from_secs(pool_config.web_api_connection_timeout_seconds))
-            .idle_timeout(Duration::from_secs(pool_config.web_api_idle_timeout_seconds))
+            .acquire_timeout(Duration::from_secs(
+                pool_config.web_api_connection_timeout_seconds,
+            ))
+            .idle_timeout(Duration::from_secs(
+                pool_config.web_api_idle_timeout_seconds,
+            ))
             .test_before_acquire(true)
             .connect(&database_url)
             .await
-            .map_err(|e| ApiError::database_error(format!("Failed to create web database pool: {e}")))?;
+            .map_err(|e| {
+                ApiError::database_error(format!("Failed to create web database pool: {e}"))
+            })?;
 
         // Create circuit breaker for web database health
         let circuit_breaker = if web_config.resilience.circuit_breaker_enabled {
             WebDatabaseCircuitBreaker::new(
-                5,                          // failure_threshold
-                Duration::from_secs(30),    // recovery_timeout  
-                "web_database"              // component_name
+                5,                       // failure_threshold
+                Duration::from_secs(30), // recovery_timeout
+                "web_database",          // component_name
             )
         } else {
             // Disabled circuit breaker (always closed)
@@ -188,7 +294,7 @@ impl AppState {
         let operational_state = orchestration_core.operational_state().await;
         let database_pool_size = orchestration_core.database_pool().size();
         let environment = config_manager.environment().to_string();
-        
+
         let orchestration_status = Arc::new(RwLock::new(OrchestrationStatus {
             running: true,
             environment: environment.clone(),
@@ -247,25 +353,25 @@ impl AppState {
     #[cfg(feature = "test-utils")]
     pub async fn new_for_testing(tasker_config: crate::config::TaskerConfig) -> ApiResult<Self> {
         use crate::orchestration::task_initializer::TaskInitializer;
-        
+
         info!("Creating test web API application state");
-        
+
         // Get web configuration from TaskerConfig
         let web_config_toml = tasker_config.web_config();
-        
+
         // Convert to WebServerConfig
         let web_config = WebServerConfig::from_toml_config(&web_config_toml)?;
-        
+
         // Extract database URL from configuration
         let database_url = tasker_config.database_url();
         let pool_config = &web_config.database_pools;
-        
+
         debug!(
             pool_size = pool_config.web_api_pool_size,
             max_connections = pool_config.web_api_max_connections,
             "Creating test web API database pool"
         );
-        
+
         // Create simplified database pool for testing
         let web_db_pool = PgPoolOptions::new()
             .max_connections(pool_config.web_api_max_connections.min(5)) // Smaller for tests
@@ -275,7 +381,9 @@ impl AppState {
             .test_before_acquire(true)
             .connect(&database_url)
             .await
-            .map_err(|e| ApiError::database_error(format!("Failed to create test web database pool: {e}")))?;
+            .map_err(|e| {
+                ApiError::database_error(format!("Failed to create test web database pool: {e}"))
+            })?;
 
         // Create a second pool for orchestration simulation in tests
         let orchestration_db_pool = PgPoolOptions::new()
@@ -285,15 +393,18 @@ impl AppState {
             .test_before_acquire(true)
             .connect(&database_url)
             .await
-            .map_err(|e| ApiError::database_error(format!("Failed to create test orchestration database pool: {e}")))?;
+            .map_err(|e| {
+                ApiError::database_error(format!(
+                    "Failed to create test orchestration database pool: {e}"
+                ))
+            })?;
 
         // Create disabled circuit breaker for testing
-        let circuit_breaker = WebDatabaseCircuitBreaker::new(u32::MAX, Duration::from_secs(1), "test_disabled");
+        let circuit_breaker =
+            WebDatabaseCircuitBreaker::new(u32::MAX, Duration::from_secs(1), "test_disabled");
 
         // Create test task initializer
-        let task_initializer = Arc::new(TaskInitializer::new(
-            orchestration_db_pool.clone(),
-        ));
+        let task_initializer = Arc::new(TaskInitializer::new(orchestration_db_pool.clone()));
 
         // Create test orchestration status
         let orchestration_status = Arc::new(RwLock::new(OrchestrationStatus {
@@ -338,7 +449,9 @@ impl AppState {
     pub async fn report_pool_usage_to_health_monitor(
         &self,
         health_monitor: &crate::orchestration::coordinator::monitor::HealthMonitor,
-        operational_state_manager: Option<&crate::orchestration::coordinator::operational_state::OperationalStateManager>,
+        operational_state_manager: Option<
+            &crate::orchestration::coordinator::operational_state::OperationalStateManager,
+        >,
     ) -> crate::error::Result<()> {
         use crate::orchestration::coordinator::monitor::WebPoolUsageReport;
 
@@ -364,7 +477,7 @@ impl AppState {
             active_connections: current_size,
             max_connections: max_size,
             // Use thresholds from web.toml configuration
-            warning_threshold: 0.75,  // Could be config.resource_monitoring.pool_usage_warning_threshold
+            warning_threshold: 0.75, // Could be config.resource_monitoring.pool_usage_warning_threshold
             critical_threshold: 0.90, // Could be config.resource_monitoring.pool_usage_critical_threshold
             pool_name: "web_api_pool".to_string(),
         };
@@ -412,7 +525,7 @@ impl WebServerConfig {
             "Loading web server configuration from TOML: enabled={}, bind_address={}",
             web_config.enabled, web_config.bind_address
         );
-        
+
         Ok(WebServerConfig {
             enabled: web_config.enabled,
             bind_address: web_config.bind_address.clone(),
@@ -421,8 +534,12 @@ impl WebServerConfig {
             database_pools: DatabasePoolConfig {
                 web_api_pool_size: web_config.database_pools.web_api_pool_size,
                 web_api_max_connections: web_config.database_pools.web_api_max_connections,
-                web_api_connection_timeout_seconds: web_config.database_pools.web_api_connection_timeout_seconds,
-                web_api_idle_timeout_seconds: web_config.database_pools.web_api_idle_timeout_seconds,
+                web_api_connection_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_connection_timeout_seconds,
+                web_api_idle_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_idle_timeout_seconds,
             },
             cors: CorsConfig {
                 enabled: web_config.cors.enabled,
@@ -438,6 +555,20 @@ impl WebServerConfig {
                 jwt_private_key: web_config.auth.jwt_private_key.clone(),
                 jwt_public_key: web_config.auth.jwt_public_key.clone(),
                 api_key_header: web_config.auth.api_key_header.clone(),
+                protected_routes: web_config
+                    .auth
+                    .protected_routes
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            RouteAuthConfig {
+                                auth_type: v.auth_type.clone(),
+                                required: v.required,
+                            },
+                        )
+                    })
+                    .collect(),
             },
             rate_limiting: RateLimitConfig {
                 enabled: web_config.rate_limiting.enabled,
@@ -459,7 +590,7 @@ impl WebServerConfig {
     /// environment-specific overrides.
     pub fn from_config_manager(config_manager: &ConfigManager) -> ApiResult<Option<Self>> {
         let config = config_manager.config();
-        
+
         // Check if web API is enabled
         if !config.web_enabled() {
             debug!("Web API is disabled in configuration");
@@ -467,12 +598,12 @@ impl WebServerConfig {
         }
 
         let web_config = config.web_config();
-        
+
         info!(
             "Loading web server configuration from TOML: enabled={}, bind_address={}",
             web_config.enabled, web_config.bind_address
         );
-        
+
         Ok(Some(WebServerConfig {
             enabled: web_config.enabled,
             bind_address: web_config.bind_address,
@@ -481,8 +612,12 @@ impl WebServerConfig {
             database_pools: DatabasePoolConfig {
                 web_api_pool_size: web_config.database_pools.web_api_pool_size,
                 web_api_max_connections: web_config.database_pools.web_api_max_connections,
-                web_api_connection_timeout_seconds: web_config.database_pools.web_api_connection_timeout_seconds,
-                web_api_idle_timeout_seconds: web_config.database_pools.web_api_idle_timeout_seconds,
+                web_api_connection_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_connection_timeout_seconds,
+                web_api_idle_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_idle_timeout_seconds,
             },
             cors: CorsConfig {
                 enabled: web_config.cors.enabled,
@@ -498,6 +633,20 @@ impl WebServerConfig {
                 jwt_private_key: web_config.auth.jwt_private_key,
                 jwt_public_key: web_config.auth.jwt_public_key,
                 api_key_header: web_config.auth.api_key_header,
+                protected_routes: web_config
+                    .auth
+                    .protected_routes
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            RouteAuthConfig {
+                                auth_type: v.auth_type.clone(),
+                                required: v.required,
+                            },
+                        )
+                    })
+                    .collect(),
             },
             rate_limiting: RateLimitConfig {
                 enabled: web_config.rate_limiting.enabled,

@@ -51,6 +51,9 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Uuid, FromRow, PgPool};
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// Represents computed step readiness analysis.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
@@ -73,6 +76,7 @@ use sqlx::{types::Uuid, FromRow, PgPool};
 ///
 /// Only read operations are available via the SQL function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct StepReadinessStatus {
     pub workflow_step_uuid: Uuid,
     pub task_uuid: Uuid,

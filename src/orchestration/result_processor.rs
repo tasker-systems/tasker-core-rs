@@ -23,6 +23,7 @@ use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::workflow_step::WorkflowStep;
 use crate::orchestration::{
     backoff_calculator::{BackoffCalculator, BackoffContext},
+    errors::OrchestrationResult,
     finalization_claimer::FinalizationClaimer,
     task_finalizer::TaskFinalizer,
 };
@@ -119,7 +120,7 @@ impl OrchestrationResultProcessor {
         status: String,
         execution_time_ms: u64,
         orchestration_metadata: Option<OrchestrationMetadata>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> OrchestrationResult<()> {
         tracing::info!(
             "Processing step result notification for coordination - step_uuid: {}, status: {}, exec_time: {}ms, has_metadata: {}",
             step_uuid,
@@ -165,7 +166,7 @@ impl OrchestrationResultProcessor {
         status: String,
         execution_time_ms: u64,
         worker_id: String,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> OrchestrationResult<()> {
         tracing::info!(
             "Processing step result notification for task coordination - step {} status={} worker={} exec_time={}ms",
             step_uuid,
@@ -287,7 +288,7 @@ impl OrchestrationResultProcessor {
         &self,
         step_uuid: Uuid,
         metadata: &OrchestrationMetadata,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> OrchestrationResult<()> {
         tracing::debug!(
             "Processing orchestration metadata for step {}: headers={}, error_context={:?}, backoff_hint={:?}",
             step_uuid,

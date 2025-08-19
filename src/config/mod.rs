@@ -1518,7 +1518,7 @@ pub struct WebConfig {
 }
 
 /// Web API TLS configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct WebTlsConfig {
     /// Whether TLS is enabled
     pub enabled: bool,
@@ -1602,6 +1602,20 @@ pub struct WebAuthConfig {
 
     /// API key header name
     pub api_key_header: String,
+
+    /// Route-specific authentication configuration
+    #[serde(default)]
+    pub protected_routes: HashMap<String, RouteAuthConfig>,
+}
+
+/// Authentication configuration for a specific route
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RouteAuthConfig {
+    /// Type of authentication required ("bearer", "api_key")
+    pub auth_type: String,
+
+    /// Whether authentication is required for this route
+    pub required: bool,
 }
 
 /// Web API rate limiting configuration
@@ -1664,16 +1678,6 @@ impl Default for WebConfig {
     }
 }
 
-impl Default for WebTlsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            cert_path: String::new(),
-            key_path: String::new(),
-        }
-    }
-}
-
 impl Default for WebDatabasePoolsConfig {
     fn default() -> Self {
         Self {
@@ -1706,6 +1710,95 @@ impl Default for WebCorsConfig {
     }
 }
 
+impl WebAuthConfig {
+    /// Check if a route requires authentication
+    pub fn route_requires_auth(&self, method: &str, path: &str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            return config.required;
+        }
+
+        // Check for pattern matches (basic support for path parameters)
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Get authentication type for a route
+    pub fn auth_type_for_route(&self, method: &str, path: &str) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            if config.required {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        // Check for pattern matches
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Simple pattern matching for route paths with parameters
+    /// Supports basic {param} patterns like "/v1/tasks/{task_uuid}"
+    fn route_matches_pattern(&self, route: &str, pattern: &str) -> bool {
+        let route_parts: Vec<&str> = route.split_whitespace().collect();
+        let pattern_parts: Vec<&str> = pattern.split_whitespace().collect();
+
+        if route_parts.len() != 2 || pattern_parts.len() != 2 {
+            return false;
+        }
+
+        // Method must match exactly
+        if route_parts[0] != pattern_parts[0] {
+            return false;
+        }
+
+        // Path matching with parameter support
+        let route_path_segments: Vec<&str> = route_parts[1].split('/').collect();
+        let pattern_path_segments: Vec<&str> = pattern_parts[1].split('/').collect();
+
+        if route_path_segments.len() != pattern_path_segments.len() {
+            return false;
+        }
+
+        for (route_segment, pattern_segment) in
+            route_path_segments.iter().zip(pattern_path_segments.iter())
+        {
+            // If pattern segment is a parameter (starts and ends with {}), it matches any value
+            if pattern_segment.starts_with('{') && pattern_segment.ends_with('}') {
+                continue;
+            }
+            // Otherwise, segments must match exactly
+            if route_segment != pattern_segment {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 impl Default for WebAuthConfig {
     fn default() -> Self {
         Self {
@@ -1717,6 +1810,7 @@ impl Default for WebAuthConfig {
             jwt_public_key: String::new(),
             api_key: String::new(),
             api_key_header: "X-API-Key".to_string(),
+            protected_routes: HashMap::new(),
         }
     }
 }
@@ -1760,7 +1854,7 @@ impl TaskerConfig {
 
     /// Check if web API is enabled
     pub fn web_enabled(&self) -> bool {
-        self.web.as_ref().map_or(false, |w| w.enabled)
+        self.web.as_ref().is_some_and(|w| w.enabled)
     }
 
     /// Get total database connections across all pools for resource coordination
@@ -1779,9 +1873,8 @@ impl TaskerConfig {
             let hint = web_config.database_pools.max_total_connections_hint;
             if total > hint {
                 return Err(format!(
-                    "Total database connections ({}) exceeds resource hint ({}). \
-                     Consider adjusting pool sizes or increasing database server limits.",
-                    total, hint
+                    "Total database connections ({total}) exceeds resource hint ({hint}). \
+                     Consider adjusting pool sizes or increasing database server limits."
                 ));
             }
         }

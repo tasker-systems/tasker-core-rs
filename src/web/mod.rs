@@ -17,16 +17,16 @@
 //! - [`middleware`] - Authentication, error handling, operational state middleware
 //! - [`state`] - Shared application state and database pools
 //! - [`auth`] - JWT authentication and authorization
-//! - [`errors`] - Web-specific error types and responses
+//! - [`response_types`] - Web-specific error types and responses
 //! - [`circuit_breaker`] - Database circuit breaker implementation
 
 pub mod auth;
 pub mod circuit_breaker;
-pub mod errors;
 pub mod extractors;
 pub mod handlers;
 pub mod middleware;
 pub mod openapi;
+pub mod response_types;
 pub mod routes;
 pub mod state;
 
@@ -48,29 +48,32 @@ use state::AppState;
 pub fn create_app(app_state: AppState) -> Router {
     // Extract timeout from configuration
     let request_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms);
-    
-    let mut router = Router::new()
+
+    let router = Router::new()
         // API v1 routes - versioned endpoints
         .nest("/v1", routes::api_v1_routes())
         // Health and metrics at root level (Kubernetes standard)
-        .merge(routes::health_routes());
-
-    // API documentation routes (conditionally included)
-    #[cfg(feature = "web-api")]
-    {
-        router = router.merge(routes::docs_routes());
-    }
+        .merge(routes::health_routes())
+        .merge(routes::docs_routes());
 
     router
         // Apply production middleware stack which includes CORS, auth, timeouts, etc.
-        .layer(axum::middleware::from_fn(middleware::request_id::add_request_id))
+        .layer(axum::middleware::from_fn(
+            middleware::request_id::add_request_id,
+        ))
         .layer(tower_http::timeout::TimeoutLayer::new(request_timeout))
-        .layer(tower_http::cors::CorsLayer::new()
-            .allow_origin(tower_http::cors::Any)
-            .allow_methods(tower_http::cors::Any)
-            .allow_headers(tower_http::cors::Any)
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
+        // Apply conditional authentication middleware based on route configuration
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::conditional_auth,
+        ))
         .with_state(app_state)
 }
 
@@ -84,9 +87,9 @@ pub fn create_app(app_state: AppState) -> Router {
 #[cfg(feature = "test-utils")]
 pub fn create_test_app(app_state: AppState) -> Router {
     // Use longer timeout for tests (configured value + 90 seconds buffer)
-    let test_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms) 
+    let test_timeout = std::time::Duration::from_millis(app_state.config.request_timeout_ms)
         + std::time::Duration::from_secs(90);
-    
+
     let mut router = Router::new()
         .nest("/v1", routes::api_v1_routes())
         .merge(routes::health_routes());
@@ -99,13 +102,21 @@ pub fn create_test_app(app_state: AppState) -> Router {
 
     router
         // Apply test middleware stack which includes CORS with relaxed settings
-        .layer(axum::middleware::from_fn(middleware::request_id::add_request_id))
+        .layer(axum::middleware::from_fn(
+            middleware::request_id::add_request_id,
+        ))
         .layer(tower_http::timeout::TimeoutLayer::new(test_timeout))
-        .layer(tower_http::cors::CorsLayer::new()
-            .allow_origin(tower_http::cors::Any)
-            .allow_methods(tower_http::cors::Any)
-            .allow_headers(tower_http::cors::Any)
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
+        // Apply conditional authentication middleware (typically disabled in test config)
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::conditional_auth,
+        ))
         .with_state(app_state)
 }

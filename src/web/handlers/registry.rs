@@ -7,15 +7,17 @@ use axum::Json;
 use serde::Serialize;
 use tracing::info;
 
+use crate::models::{NamedTask, TaskNamespace};
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::errors::{ApiError, ApiResult};
-use crate::web::state::AppState;
+use crate::web::response_types::{ApiError, ApiResult};
+use crate::web::state::{AppState, DbOperationType};
 
 #[cfg(feature = "web-api")]
-// use utoipa::ToSchema;
+use utoipa::ToSchema;
 
 /// Namespace information
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct NamespaceInfo {
     pub name: String,
     pub description: Option<String>,
@@ -24,6 +26,7 @@ pub struct NamespaceInfo {
 
 /// Handler information
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct HandlerInfo {
     pub name: String,
     pub namespace: String,
@@ -37,8 +40,8 @@ pub struct HandlerInfo {
     get,
     path = "/v1/handlers",
     responses(
-        (status = 200, description = "List of available namespaces", body = crate::web::openapi::NamespaceListResponse),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "List of available namespaces", body = Vec<NamespaceInfo>),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "handlers"
 ))]
@@ -46,29 +49,16 @@ pub async fn list_namespaces(State(state): State<AppState>) -> ApiResult<Json<Ve
     info!("Listing available handler namespaces");
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::ReadOnly);
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
 
-        let namespaces = sqlx::query!(
-            r#"
-            SELECT
-                tn.name,
-                tn.description,
-                COUNT(nt.named_task_uuid) as handler_count
-            FROM tasker_task_namespaces tn
-            LEFT JOIN tasker_named_tasks nt ON tn.task_namespace_uuid = nt.task_namespace_uuid
-            GROUP BY tn.task_namespace_uuid, tn.name, tn.description
-            ORDER BY tn.name
-            "#
-        )
-        .fetch_all(db_pool)
-        .await?;
+        let namespace_infos = TaskNamespace::get_namespace_info_with_handler_count(db_pool).await?;
 
-        let result: Vec<NamespaceInfo> = namespaces
+        let result: Vec<NamespaceInfo> = namespace_infos
             .into_iter()
-            .map(|row| NamespaceInfo {
-                name: row.name,
-                description: row.description,
-                handler_count: row.handler_count.unwrap_or(0) as u32,
+            .map(|(namespace, handler_count)| NamespaceInfo {
+                name: namespace.name,
+                description: namespace.description,
+                handler_count: handler_count as u32,
             })
             .collect();
 
@@ -85,8 +75,8 @@ pub async fn list_namespaces(State(state): State<AppState>) -> ApiResult<Json<Ve
         ("namespace" = String, Path, description = "Namespace name")
     ),
     responses(
-        (status = 200, description = "List of handlers in namespace", body = crate::web::openapi::HandlerListResponse),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "List of handlers in namespace", body = Vec<HandlerInfo>),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "handlers"
 ))]
@@ -97,32 +87,17 @@ pub async fn list_namespace_handlers(
     info!(namespace = %namespace, "Listing handlers in namespace");
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::ReadOnly);
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
 
-        let handlers = sqlx::query!(
-            r#"
-            SELECT
-                nt.name,
-                tn.name as namespace_name,
-                nt.version,
-                nt.description
-            FROM tasker_named_tasks nt
-            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
-            WHERE tn.name = $1
-            ORDER BY nt.name, nt.version
-            "#,
-            namespace
-        )
-        .fetch_all(db_pool)
-        .await?;
+        let tasks = NamedTask::list_by_namespace_name(db_pool, &namespace).await?;
 
-        let result: Vec<HandlerInfo> = handlers
+        let result: Vec<HandlerInfo> = tasks
             .into_iter()
-            .map(|row| HandlerInfo {
-                name: row.name,
-                namespace: row.namespace_name,
-                version: row.version,
-                description: row.description,
+            .map(|task| HandlerInfo {
+                name: task.name,
+                namespace: namespace.clone(),
+                version: task.version,
+                description: task.description,
                 step_templates: Vec::new(), // Would need additional query to fetch step templates
             })
             .collect();
@@ -141,9 +116,9 @@ pub async fn list_namespace_handlers(
         ("name" = String, Path, description = "Handler name")
     ),
     responses(
-        (status = 200, description = "Handler information", body = crate::web::openapi::HandlerInfoResponse),
-        (status = 404, description = "Handler not found", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Handler information", body = HandlerInfo),
+        (status = 404, description = "Handler not found", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "handlers"
 ))]
@@ -154,37 +129,58 @@ pub async fn get_handler_info(
     info!(namespace = %namespace, name = %name, "Getting handler information");
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::ReadOnly);
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
 
-        let handler = sqlx::query!(
-            r#"
-            SELECT
-                nt.name,
-                tn.name as namespace_name,
-                nt.version,
-                nt.description
-            FROM tasker_named_tasks nt
-            JOIN tasker_task_namespaces tn ON nt.task_namespace_uuid = tn.task_namespace_uuid
-            WHERE tn.name = $1 AND nt.name = $2
-            ORDER BY nt.version DESC
-            LIMIT 1
-            "#,
-            namespace,
-            name
-        )
-        .fetch_optional(db_pool)
-        .await?;
+        let task =
+            NamedTask::find_latest_by_name_and_namespace_name(db_pool, &name, &namespace).await?;
 
-        match handler {
-            Some(row) => Ok(Json(HandlerInfo {
-                name: row.name,
-                namespace: row.namespace_name,
-                version: row.version,
-                description: row.description,
+        match task {
+            Some(task) => Ok(Json(HandlerInfo {
+                name: task.name,
+                namespace,
+                version: task.version,
+                description: task.description,
                 step_templates: Vec::new(), // Would need additional query to fetch step templates
             })),
             None => Err(ApiError::NotFound),
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_namespace_info_creation() {
+        let namespace_info = NamespaceInfo {
+            name: "test_namespace".to_string(),
+            description: Some("Test description".to_string()),
+            handler_count: 5,
+        };
+
+        assert_eq!(namespace_info.name, "test_namespace");
+        assert_eq!(
+            namespace_info.description,
+            Some("Test description".to_string())
+        );
+        assert_eq!(namespace_info.handler_count, 5);
+    }
+
+    #[test]
+    fn test_handler_info_creation() {
+        let handler_info = HandlerInfo {
+            name: "test_handler".to_string(),
+            namespace: "test_namespace".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Test handler description".to_string()),
+            step_templates: vec!["step1".to_string(), "step2".to_string()],
+        };
+
+        assert_eq!(handler_info.name, "test_handler");
+        assert_eq!(handler_info.namespace, "test_namespace");
+        assert_eq!(handler_info.version, "1.0.0");
+        assert_eq!(handler_info.step_templates.len(), 2);
+    }
 }

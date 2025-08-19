@@ -12,20 +12,21 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
-#[cfg(feature = "web-api")]
-// use utoipa::ToSchema;
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::events::publisher::EventPublisher;
 use crate::models::core::workflow_step::WorkflowStep;
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
 // StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
 use crate::state_machine::events::StepEvent;
 use crate::state_machine::step_state_machine::StepStateMachine;
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::errors::{ApiError, ApiResult};
-use crate::web::state::AppState;
+use crate::web::response_types::{ApiError, ApiResult};
+use crate::web::state::{AppState, DbOperationType};
 
 /// Manual step resolution request
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct ManualResolutionRequest {
     pub resolution_data: serde_json::Value,
     pub resolved_by: String,
@@ -34,6 +35,7 @@ pub struct ManualResolutionRequest {
 
 /// Step details response with readiness information
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct StepResponse {
     pub step_uuid: String,
     pub task_uuid: String,
@@ -65,9 +67,9 @@ pub struct StepResponse {
         ("uuid" = String, Path, description = "Task UUID")
     ),
     responses(
-        (status = 200, description = "List of workflow steps", body = crate::web::openapi::WorkflowStepListResponse),
-        (status = 400, description = "Invalid task UUID", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "List of workflow steps", body = Vec<StepResponse>),
+        (status = 400, description = "Invalid task UUID", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "workflow_steps"
 ))]
@@ -81,10 +83,10 @@ pub async fn list_task_steps(
         .map_err(|_| ApiError::bad_request("Invalid task UUID format"))?;
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::ReadOnly);
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
 
         // Use WorkflowStep domain model to get step data
-        let workflow_steps = WorkflowStep::for_task(&db_pool, task_uuid).await?;
+        let workflow_steps = WorkflowStep::for_task(db_pool, task_uuid).await?;
 
         if workflow_steps.is_empty() {
             return Ok::<Json<Vec<StepResponse>>, sqlx::Error>(Json(vec![]));
@@ -187,10 +189,10 @@ pub async fn list_task_steps(
         ("step_uuid" = String, Path, description = "Step UUID")
     ),
     responses(
-        (status = 200, description = "Workflow step details", body = crate::web::openapi::WorkflowStepResponse),
-        (status = 400, description = "Invalid UUID", body = crate::web::openapi::ApiError),
-        (status = 404, description = "Step not found", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Workflow step details", body = StepResponse),
+        (status = 400, description = "Invalid UUID", body = ApiError),
+        (status = 404, description = "Step not found", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "workflow_steps"
 ))]
@@ -206,29 +208,23 @@ pub async fn get_step(
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::ReadOnly);
+        let db_pool = state.select_db_pool(DbOperationType::ReadOnly);
 
         // Use WorkflowStep domain model to find the step
-        let workflow_step = WorkflowStep::find_by_id(&db_pool, step_uuid)
+        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
             .await
-            .map_err(|e| std::io::Error::other(e))?;
+            .map_err(ApiError::from)?;
 
         let step = match workflow_step {
             Some(step) => {
                 // Verify the step belongs to the specified task
                 if step.task_uuid != task_uuid {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "Step not found for this task",
-                    ));
+                    return Err(ApiError::NotFound);
                 }
                 step
             }
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Step not found",
-                ));
+                return Err(ApiError::NotFound);
             }
         };
 
@@ -237,7 +233,7 @@ pub async fn get_step(
         let readiness_statuses = sql_executor
             .get_step_readiness_status(task_uuid, Some(vec![step_uuid]))
             .await
-            .map_err(|e| std::io::Error::other(e))?;
+            .map_err(ApiError::from)?;
 
         // Build comprehensive response with step data and readiness information
         let step_response = if let Some(readiness) = readiness_statuses.first() {
@@ -301,15 +297,15 @@ pub async fn get_step(
             }
         };
 
-        Ok::<Json<StepResponse>, std::io::Error>(Json(step_response))
+        Ok::<Json<StepResponse>, ApiError>(Json(step_response))
     })
     .await
-    .or_else(|e| {
+    .map_err(|e| {
         let error_str = e.to_string();
         if error_str.contains("Step not found") {
-            Err(ApiError::NotFound)
+            ApiError::NotFound
         } else {
-            Err(e)
+            e
         }
     })
 }
@@ -322,12 +318,12 @@ pub async fn get_step(
         ("uuid" = String, Path, description = "Task UUID"),
         ("step_uuid" = String, Path, description = "Step UUID")
     ),
-    request_body = crate::web::openapi::StepManualResolutionRequest,
+    request_body = ManualResolutionRequest,
     responses(
-        (status = 200, description = "Step resolved successfully", body = crate::web::openapi::WorkflowStepResponse),
-        (status = 400, description = "Invalid request or step cannot be resolved", body = crate::web::openapi::ApiError),
-        (status = 404, description = "Step not found", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Step resolved successfully", body = StepResponse),
+        (status = 400, description = "Invalid request or step cannot be resolved", body = ApiError),
+        (status = 404, description = "Step not found", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "workflow_steps"
 ))]
@@ -350,29 +346,23 @@ pub async fn resolve_step_manually(
         .map_err(|_| ApiError::bad_request("Invalid step UUID format"))?;
 
     execute_with_circuit_breaker(&state, || async {
-        let db_pool = state.select_db_pool(crate::web::state::DbOperationType::WebWrite);
+        let db_pool = state.select_db_pool(DbOperationType::WebWrite);
 
         // Use WorkflowStep domain model to find the step
-        let workflow_step = WorkflowStep::find_by_id(&db_pool, step_uuid)
+        let workflow_step = WorkflowStep::find_by_id(db_pool, step_uuid)
             .await
-            .map_err(|e| std::io::Error::other(e))?;
+            .map_err(ApiError::from)?;
 
         let step = match workflow_step {
             Some(step) => {
                 // Verify the step belongs to the specified task
                 if step.task_uuid != task_uuid {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "Step not found for this task",
-                    ));
+                    return Err(ApiError::NotFound);
                 }
                 step
             }
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Step not found",
-                ));
+                return Err(ApiError::NotFound);
             }
         };
 
@@ -397,22 +387,17 @@ pub async fn resolve_step_manually(
                 );
 
                 // Get updated step data after state transition
-                let updated_step = WorkflowStep::find_by_id(&db_pool, step_uuid)
+                let updated_step = WorkflowStep::find_by_id(db_pool, step_uuid)
                     .await
-                    .map_err(|e| std::io::Error::other(e))?
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "Step not found after update",
-                        )
-                    })?;
+                    .map_err(ApiError::from)?
+                    .ok_or(ApiError::NotFound)?;
 
                 // Get step readiness status after resolution
                 let sql_executor = SqlFunctionExecutor::new(db_pool.clone());
                 let readiness_statuses = sql_executor
                     .get_step_readiness_status(task_uuid, Some(vec![step_uuid]))
                     .await
-                    .map_err(|e| std::io::Error::other(e))?;
+                    .map_err(ApiError::from)?;
 
                 // Build response with updated step data
                 let step_response = if let Some(readiness) = readiness_statuses.first() {
@@ -488,7 +473,7 @@ pub async fn resolve_step_manually(
                     }
                 };
 
-                Ok::<Json<StepResponse>, std::io::Error>(Json(step_response))
+                Ok::<Json<StepResponse>, ApiError>(Json(step_response))
             }
             Err(state_machine_error) => {
                 error!(
@@ -503,42 +488,35 @@ pub async fn resolve_step_manually(
                         to,
                     } => {
                         format!(
-                            "Cannot manually resolve step: invalid transition from {} to {}",
-                            from.unwrap_or("unknown".to_string()),
-                            to
+                            "Cannot manually resolve step: invalid transition from {} to {to}",
+                            from.unwrap_or("unknown".to_string())
                         )
                     }
                     crate::state_machine::errors::StateMachineError::GuardFailed { reason } => {
-                        format!("Cannot manually resolve step: {}", reason)
+                        format!("Cannot manually resolve step: {reason}")
                     }
                     crate::state_machine::errors::StateMachineError::Database(db_error) => {
-                        format!("Database error during manual resolution: {}", db_error)
+                        format!("Database error during manual resolution: {db_error}")
                     }
-                    _ => format!("Manual resolution failed: {}", state_machine_error),
+                    _ => format!("Manual resolution failed: {state_machine_error}"),
                 };
 
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    error_message,
-                ))
+                Err(ApiError::bad_request(error_message))
             }
         }
     })
     .await
-    .or_else(|e| {
+    .map_err(|e| {
         let error_str = e.to_string();
         if error_str.contains("Step not found") {
-            Err(ApiError::NotFound)
+            ApiError::NotFound
         } else if error_str.contains("Cannot manually resolve")
             || error_str.contains("Manual resolution failed")
         {
-            Err(ApiError::bad_request(&error_str))
+            ApiError::bad_request(error_str)
         } else {
             error!(error = %error_str, "Unexpected error during manual step resolution");
-            Err(ApiError::internal_server_error(format!(
-                "Manual resolution failed: {}",
-                error_str
-            )))
+            ApiError::internal_server_error(format!("Manual resolution failed: {error_str}"))
         }
     })
 }

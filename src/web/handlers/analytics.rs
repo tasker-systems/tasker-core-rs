@@ -4,17 +4,19 @@
 
 use axum::extract::{Query, State};
 use axum::Json;
+use bigdecimal::ToPrimitive;
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::errors::ApiResult;
+#[allow(unused_imports)]
+use crate::web::response_types::{ApiError, ApiResult};
 use crate::web::state::{AppState, DbOperationType};
 
 #[cfg(feature = "web-api")]
-// use utoipa::ToSchema;
+use utoipa::ToSchema;
 
 /// Query parameters for performance metrics
 #[derive(Debug, Deserialize)]
@@ -34,17 +36,18 @@ pub struct BottleneckQuery {
 
 /// Performance metrics response
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct PerformanceMetrics {
     pub total_tasks: i64,
-    pub active_tasks: i32,
-    pub completed_tasks: i32,
-    pub failed_tasks: i32,
+    pub active_tasks: i64,
+    pub completed_tasks: i64,
+    pub failed_tasks: i64,
     pub completion_rate: f64,
     pub error_rate: f64,
     pub average_task_duration_seconds: f64,
     pub average_step_duration_seconds: f64,
-    pub tasks_per_hour: i32,
-    pub steps_per_hour: i32,
+    pub tasks_per_hour: i64,
+    pub steps_per_hour: i64,
     pub system_health_score: f64,
     pub analysis_period_start: String,
     pub calculated_at: String,
@@ -52,6 +55,7 @@ pub struct PerformanceMetrics {
 
 /// Bottleneck analysis response
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct BottleneckAnalysis {
     pub slow_steps: Vec<SlowStepInfo>,
     pub slow_tasks: Vec<SlowTaskInfo>,
@@ -61,6 +65,7 @@ pub struct BottleneckAnalysis {
 
 /// Information about slow-performing steps
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct SlowStepInfo {
     pub step_name: String,
     pub average_duration_seconds: f64,
@@ -73,6 +78,7 @@ pub struct SlowStepInfo {
 
 /// Information about slow-performing tasks
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct SlowTaskInfo {
     pub task_name: String,
     pub average_duration_seconds: f64,
@@ -86,6 +92,7 @@ pub struct SlowTaskInfo {
 
 /// Resource utilization metrics
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct ResourceUtilization {
     pub database_connections_active: i64,
     pub database_connections_max: i64,
@@ -105,8 +112,8 @@ pub struct ResourceUtilization {
         ("hours" = Option<u32>, Query, description = "Number of hours to look back (default: 24)")
     ),
     responses(
-        (status = 200, description = "Performance metrics", body = crate::web::openapi::PerformanceMetricsResponse),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Performance metrics", body = PerformanceMetrics),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "analytics"
 ))]
@@ -140,15 +147,15 @@ pub async fn get_performance_metrics(
             active_tasks: analytics.active_tasks_count,
             completed_tasks: analytics.completion_count,
             failed_tasks: analytics.error_count,
-            completion_rate: analytics.completion_rate,
-            error_rate: analytics.error_rate,
-            average_task_duration_seconds: analytics.avg_task_duration,
-            average_step_duration_seconds: analytics.avg_step_duration,
+            completion_rate: analytics.completion_rate.to_f64().unwrap_or(0.0),
+            error_rate: analytics.error_rate.to_f64().unwrap_or(0.0),
+            average_task_duration_seconds: analytics.avg_task_duration.to_f64().unwrap_or(0.0),
+            average_step_duration_seconds: analytics.avg_step_duration.to_f64().unwrap_or(0.0),
             tasks_per_hour: analytics.task_throughput,
             steps_per_hour: analytics.step_throughput,
-            system_health_score: analytics.system_health_score,
-            analysis_period_start: analytics.analysis_period_start,
-            calculated_at: analytics.calculated_at,
+            system_health_score: analytics.system_health_score.to_f64().unwrap_or(0.0),
+            analysis_period_start: analytics.analysis_period_start.to_rfc3339(),
+            calculated_at: analytics.calculated_at.to_rfc3339(),
         };
 
         Ok::<Json<PerformanceMetrics>, sqlx::Error>(Json(metrics))
@@ -165,8 +172,8 @@ pub async fn get_performance_metrics(
         ("min_executions" = Option<i32>, Query, description = "Minimum number of executions for inclusion (default: 5)")
     ),
     responses(
-        (status = 200, description = "Bottleneck analysis", body = crate::web::openapi::BottleneckAnalysisResponse),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Bottleneck analysis", body = BottleneckAnalysis),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "analytics"
 ))]

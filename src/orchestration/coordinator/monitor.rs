@@ -687,56 +687,60 @@ impl HealthMonitor {
         // Generate alerts if not suppressed and pool is unhealthy
         if !should_suppress_alerts {
             match &health_status {
-                WebPoolHealthStatus::Warning { usage_ratio, threshold_exceeded, .. } => {
-                    match current_state.as_ref() {
-                        Some(SystemOperationalState::GracefulShutdown) => {
-                            debug!(
+                WebPoolHealthStatus::Warning {
+                    usage_ratio,
+                    threshold_exceeded,
+                    ..
+                } => match current_state.as_ref() {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        debug!(
                                 "ℹ️ HEALTH: Web API pool elevated usage during graceful shutdown - {:.1}% (warning threshold: {:.1}%) - expected during shutdown",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
-                        Some(SystemOperationalState::Startup) => {
-                            debug!(
+                    }
+                    Some(SystemOperationalState::Startup) => {
+                        debug!(
                                 "ℹ️ HEALTH: Web API pool elevated usage during startup - {:.1}% (warning threshold: {:.1}%) - expected during initialization",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
-                        _ => {
-                            warn!(
+                    }
+                    _ => {
+                        warn!(
                                 "⚠️ HEALTH ALERT: Web API database pool usage HIGH - {:.1}% (warning threshold: {:.1}%)",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
                     }
-                }
-                WebPoolHealthStatus::Critical { usage_ratio, threshold_exceeded, .. } => {
-                    match current_state.as_ref() {
-                        Some(SystemOperationalState::GracefulShutdown) => {
-                            info!(
+                },
+                WebPoolHealthStatus::Critical {
+                    usage_ratio,
+                    threshold_exceeded,
+                    ..
+                } => match current_state.as_ref() {
+                    Some(SystemOperationalState::GracefulShutdown) => {
+                        info!(
                                 "ℹ️ HEALTH: Web API pool critical usage during graceful shutdown - {:.1}% (critical threshold: {:.1}%) - may be expected during shutdown",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
-                        Some(SystemOperationalState::Emergency) => {
-                            error!(
+                    }
+                    Some(SystemOperationalState::Emergency) => {
+                        error!(
                                 "🚨 HEALTH ALERT: Web API pool CRITICAL usage during emergency shutdown - {:.1}% (critical threshold: {:.1}%)",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
-                        _ => {
-                            error!(
+                    }
+                    _ => {
+                        error!(
                                 "🚨 HEALTH ALERT: Web API database pool usage CRITICAL - {:.1}% (critical threshold: {:.1}%)",
                                 usage_ratio * 100.0,
                                 threshold_exceeded * 100.0
                             );
-                        }
                     }
-                }
+                },
                 WebPoolHealthStatus::Healthy { .. } => {
                     // No alert needed for healthy status
                 }
@@ -1042,7 +1046,12 @@ mod tests {
         // Test healthy usage (below warning threshold)
         let status = monitor.check_web_database_pool_usage(3, 10, 0.5, 0.8);
         assert!(matches!(status, WebPoolHealthStatus::Healthy { .. }));
-        if let WebPoolHealthStatus::Healthy { usage_ratio, active_connections, max_connections } = status {
+        if let WebPoolHealthStatus::Healthy {
+            usage_ratio,
+            active_connections,
+            max_connections,
+        } = status
+        {
             assert_eq!(usage_ratio, 0.3);
             assert_eq!(active_connections, 3);
             assert_eq!(max_connections, 10);
@@ -1051,7 +1060,12 @@ mod tests {
         // Test warning usage (above warning, below critical threshold)
         let status = monitor.check_web_database_pool_usage(6, 10, 0.5, 0.8);
         assert!(matches!(status, WebPoolHealthStatus::Warning { .. }));
-        if let WebPoolHealthStatus::Warning { usage_ratio, threshold_exceeded, .. } = status {
+        if let WebPoolHealthStatus::Warning {
+            usage_ratio,
+            threshold_exceeded,
+            ..
+        } = status
+        {
             assert_eq!(usage_ratio, 0.6);
             assert_eq!(threshold_exceeded, 0.5);
         }
@@ -1059,7 +1073,12 @@ mod tests {
         // Test critical usage (above critical threshold)
         let status = monitor.check_web_database_pool_usage(9, 10, 0.5, 0.8);
         assert!(matches!(status, WebPoolHealthStatus::Critical { .. }));
-        if let WebPoolHealthStatus::Critical { usage_ratio, threshold_exceeded, .. } = status {
+        if let WebPoolHealthStatus::Critical {
+            usage_ratio,
+            threshold_exceeded,
+            ..
+        } = status
+        {
             assert_eq!(usage_ratio, 0.9);
             assert_eq!(threshold_exceeded, 0.8);
         }
@@ -1067,7 +1086,12 @@ mod tests {
         // Test edge case - no pool configured
         let status = monitor.check_web_database_pool_usage(5, 0, 0.5, 0.8);
         assert!(matches!(status, WebPoolHealthStatus::Healthy { .. }));
-        if let WebPoolHealthStatus::Healthy { usage_ratio, active_connections, max_connections } = status {
+        if let WebPoolHealthStatus::Healthy {
+            usage_ratio,
+            active_connections,
+            max_connections,
+        } = status
+        {
             assert_eq!(usage_ratio, 0.0);
             assert_eq!(active_connections, 0);
             assert_eq!(max_connections, 0);
@@ -1089,7 +1113,9 @@ mod tests {
         };
 
         // Test recording without operational state (should succeed)
-        let result = monitor.record_web_pool_usage(pool_report.clone(), None).await;
+        let result = monitor
+            .record_web_pool_usage(pool_report.clone(), None)
+            .await;
         assert!(result.is_ok());
 
         // Test recording with different usage levels

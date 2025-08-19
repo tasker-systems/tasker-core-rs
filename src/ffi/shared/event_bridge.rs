@@ -7,6 +7,7 @@ use super::errors::*;
 use super::types::*;
 use crate::events::EventPublisher;
 use crate::orchestration::OrchestrationCore;
+use bigdecimal::ToPrimitive;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -198,13 +199,13 @@ impl SharedEventBridge {
                 .await
             {
                 Ok(metrics) => {
-                    let total = (metrics.active_tasks_count * 4) as i64; // Estimate based on task events
+                    let total = metrics.active_tasks_count * 4; // Estimate based on task events
                     let by_type = json!({
                         "task.created": metrics.active_tasks_count,
-                        "task.completed": metrics.active_tasks_count as f64 * metrics.completion_rate,
+                        "task.completed": (metrics.active_tasks_count as f64 * metrics.completion_rate.to_f64().unwrap_or(0.0)) as i64,
                         "step.started": metrics.active_tasks_count * 3, // Average steps per task
-                        "step.completed": (metrics.active_tasks_count as f64 * 3.0 * metrics.completion_rate) as i32,
-                        "error.occurred": (metrics.active_tasks_count as f64 * (1.0 - metrics.completion_rate)) as i32
+                        "step.completed": (metrics.active_tasks_count as f64 * 3.0 * metrics.completion_rate.to_f64().unwrap_or(0.0)) as i32,
+                        "error.occurred": (metrics.active_tasks_count as f64 * (1.0 - metrics.completion_rate.to_f64().unwrap_or(0.0))) as i32
                     });
                     (total, by_type)
                 }

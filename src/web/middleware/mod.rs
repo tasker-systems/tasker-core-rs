@@ -9,10 +9,10 @@ pub mod request_id;
 
 use axum::middleware;
 use axum::Router;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
-use std::time::Duration;
 
 use crate::web::state::AppState;
 
@@ -35,8 +35,8 @@ pub fn apply_middleware_stack(router: Router<AppState>) -> Router<AppState> {
         .layer(create_cors_layer())
         // Request tracing
         .layer(TraceLayer::new_for_http())
-        // Note: Operational state checking will be handled at the handler level
-        // since it requires State extractor which conflicts with from_fn middleware
+    // Note: Operational state checking will be handled at the handler level
+    // since it requires State extractor which conflicts with from_fn middleware
 }
 
 /// Apply the test middleware stack for a router with app state
@@ -52,7 +52,7 @@ pub fn apply_test_middleware_stack(router: Router<AppState>) -> Router<AppState>
         .layer(TimeoutLayer::new(Duration::from_secs(120))) // Longer timeout for tests
         .layer(create_cors_layer())
         .layer(TraceLayer::new_for_http())
-        // No operational state or auth checking for tests
+    // No operational state or auth checking for tests
 }
 
 /// Create CORS layer with appropriate settings

@@ -43,6 +43,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// Represents a task execution instance with workflow orchestration metadata.
 ///
 /// Each task is created from a `NamedTask` template and contains all execution context
@@ -168,6 +171,7 @@ pub struct PaginatedTaskList {
 
 /// Pagination metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct PaginationInfo {
     pub page: u32,
     pub per_page: u32,
@@ -1815,7 +1819,7 @@ impl Task {
         let current_state = task_state_machine
             .current_state()
             .await
-            .map_err(|e| sqlx::Error::Protocol(format!("Failed to get task state: {}", e)))?;
+            .map_err(|e| sqlx::Error::Protocol(format!("Failed to get task state: {e}")))?;
 
         // Task can be cancelled if it's not in a terminal state
         Ok(!current_state.is_terminal())
@@ -1877,13 +1881,12 @@ impl Task {
         let current_task_state = task_state_machine
             .current_state()
             .await
-            .map_err(|e| sqlx::Error::Protocol(format!("Failed to get task state: {}", e)))?;
+            .map_err(|e| sqlx::Error::Protocol(format!("Failed to get task state: {e}")))?;
 
         // Check if task can be cancelled (not in terminal state)
         if current_task_state.is_terminal() {
             return Err(sqlx::Error::Protocol(format!(
-                "Cannot cancel task in terminal state: {}",
-                current_task_state
+                "Cannot cancel task in terminal state: {current_task_state}"
             )));
         }
 
@@ -1903,7 +1906,7 @@ impl Task {
             let current_step_state = step_state_machine
                 .current_state()
                 .await
-                .map_err(|e| sqlx::Error::Protocol(format!("Failed to get step state: {}", e)))?;
+                .map_err(|e| sqlx::Error::Protocol(format!("Failed to get step state: {e}")))?;
 
             // Only cancel non-terminal steps
             if !current_step_state.is_terminal() {
@@ -1911,7 +1914,7 @@ impl Task {
                 step_sm
                     .transition(StepEvent::Cancel)
                     .await
-                    .map_err(|e| sqlx::Error::Protocol(format!("Failed to cancel step: {}", e)))?;
+                    .map_err(|e| sqlx::Error::Protocol(format!("Failed to cancel step: {e}")))?;
             }
         }
 
@@ -1921,7 +1924,7 @@ impl Task {
         let _final_task_state = task_sm
             .transition(TaskEvent::Cancel)
             .await
-            .map_err(|e| sqlx::Error::Protocol(format!("Failed to cancel task: {}", e)))?;
+            .map_err(|e| sqlx::Error::Protocol(format!("Failed to cancel task: {e}")))?;
 
         // Step 5: Update the local task instance to reflect the new state
         // Reload the task from database to get the latest state machine updates

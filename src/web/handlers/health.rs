@@ -8,14 +8,15 @@ use serde::Serialize;
 use std::collections::HashMap;
 use tracing::{debug, error};
 
-use crate::web::errors::ApiError;
+use crate::web::response_types::ApiError;
 use crate::web::state::AppState;
 
 #[cfg(feature = "web-api")]
-// use utoipa::ToSchema;
+use utoipa::ToSchema;
 
 /// Basic health check response
 #[derive(Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct HealthResponse {
     status: String,
     timestamp: String,
@@ -23,6 +24,7 @@ pub struct HealthResponse {
 
 /// Detailed health check response
 #[derive(Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct DetailedHealthResponse {
     status: String,
     timestamp: String,
@@ -32,6 +34,7 @@ pub struct DetailedHealthResponse {
 
 /// Individual health check result
 #[derive(Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct HealthCheck {
     status: String,
     message: Option<String>,
@@ -40,6 +43,7 @@ pub struct HealthCheck {
 
 /// System information for detailed health
 #[derive(Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct HealthInfo {
     version: String,
     environment: String,
@@ -57,7 +61,7 @@ pub struct HealthInfo {
     get,
     path = "/health",
     responses(
-        (status = 200, description = "Service is running", body = crate::web::openapi::HealthResponse)
+        (status = 200, description = "Service is running", body = HealthResponse)
     ),
     tag = "health"
 ))]
@@ -76,8 +80,8 @@ pub async fn basic_health(_state: State<AppState>) -> Json<HealthResponse> {
     get,
     path = "/ready",
     responses(
-        (status = 200, description = "Service is ready", body = crate::web::openapi::DetailedHealthResponse),
-        (status = 503, description = "Service is not ready", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Service is ready", body = DetailedHealthResponse),
+        (status = 503, description = "Service is not ready", body = ApiError)
     ),
     tag = "health"
 ))]
@@ -138,7 +142,7 @@ pub async fn readiness_probe(
     get,
     path = "/live",
     responses(
-        (status = 200, description = "Service is alive", body = crate::web::openapi::HealthResponse)
+        (status = 200, description = "Service is alive", body = HealthResponse)
     ),
     tag = "health"
 ))]
@@ -160,7 +164,7 @@ pub async fn liveness_probe(State(state): State<AppState>) -> Json<HealthRespons
     get,
     path = "/health/detailed",
     responses(
-        (status = 200, description = "Detailed health information", body = crate::web::openapi::DetailedHealthResponse)
+        (status = 200, description = "Detailed health information", body = DetailedHealthResponse)
     ),
     tag = "health"
 ))]

@@ -12,24 +12,22 @@ use std::collections::HashMap;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-#[cfg(feature = "web-api")]
-// use utoipa::ToSchema;
 use crate::database::sql_functions::{
     SqlFunctionExecutor, StepReadinessStatus, TaskExecutionContext,
 };
 use crate::models::core::task::PaginationInfo;
 use crate::models::core::task_request::TaskRequest;
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::errors::{ApiError, ApiResult};
+use crate::web::response_types::{ApiError, ApiResult};
 use crate::web::state::{AppState, DbOperationType};
-
 #[cfg(feature = "web-api")]
-use crate::web::openapi::{TaskListResponse as OpenApiTaskListResponse, TaskResponse as OpenApiTaskResponse, TaskStatus, PaginationMeta};
+use utoipa::ToSchema;
 
 // Note: Using TaskRequest from src/models/core/task_request.rs instead of duplicate struct
 
 /// Response for successful task creation
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskCreationResponse {
     pub task_uuid: String,
     pub status: String,
@@ -45,6 +43,7 @@ pub struct TaskCreationResponse {
 
 /// Task details response with execution context and step readiness information
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskResponse {
     pub task_uuid: String,
     pub name: String,
@@ -79,6 +78,7 @@ pub struct TaskResponse {
 
 /// Task list response with pagination
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskListResponse {
     pub tasks: Vec<TaskResponse>,
     pub pagination: PaginationInfo,
@@ -113,11 +113,11 @@ fn default_per_page() -> u32 {
 #[cfg_attr(feature = "web-api", utoipa::path(
     post,
     path = "/v1/tasks",
-    request_body = crate::web::openapi::TaskRequest,
+    request_body = TaskRequest,
     responses(
-        (status = 201, description = "Task created successfully", body = crate::web::openapi::TaskResponse),
-        (status = 400, description = "Invalid request", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 201, description = "Task created successfully", body = TaskCreationResponse),
+        (status = 400, description = "Invalid request", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "tasks"
 ))]
@@ -221,9 +221,9 @@ pub async fn create_task(
         ("uuid" = String, Path, description = "Task UUID")
     ),
     responses(
-        (status = 200, description = "Task details", body = crate::web::openapi::TaskResponse),
-        (status = 404, description = "Task not found", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Task details", body = TaskResponse),
+        (status = 404, description = "Task not found", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "tasks"
 ))]
@@ -244,7 +244,7 @@ pub async fn get_task(
         // Get basic task information using existing Task model
         let task = crate::models::Task::find_by_id(pool, uuid)
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         if task.is_none() {
             return Ok::<
@@ -253,7 +253,7 @@ pub async fn get_task(
                     TaskExecutionContext,
                     Vec<StepReadinessStatus>,
                 )>,
-                std::io::Error,
+                ApiError,
             >(None);
         }
 
@@ -263,19 +263,14 @@ pub async fn get_task(
         let execution_context = sql_executor
             .get_task_execution_context(uuid)
             .await
-            .map_err(std::io::Error::other)?
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Task execution context not found",
-                )
-            })?;
+            .map_err(ApiError::from)?
+            .ok_or(ApiError::NotFound)?;
 
         // Get step readiness status using SQL function
         let steps = sql_executor
             .get_step_readiness_status(uuid, None)
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         Ok(Some((task, execution_context, steps)))
     })
@@ -382,9 +377,9 @@ pub async fn get_task(
         ("source_system" = Option<String>, Query, description = "Filter by source system")
     ),
     responses(
-        (status = 200, description = "List of tasks", body = crate::web::openapi::TaskListResponse),
-        (status = 400, description = "Invalid query parameters", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "List of tasks", body = TaskListResponse),
+        (status = 400, description = "Invalid query parameters", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "tasks"
 ))]
@@ -420,7 +415,7 @@ pub async fn list_tasks(
         // Step 2: Get paginated tasks using domain model
         let paginated_result = crate::models::Task::list_with_pagination(pool, &task_query)
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         // Step 3: Extract task UUIDs for batch execution context lookup
         let task_uuids: Vec<Uuid> = paginated_result
@@ -433,7 +428,7 @@ pub async fn list_tasks(
         let execution_contexts = sql_executor
             .get_task_execution_contexts_batch(task_uuids.clone())
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         // Step 5: Create a lookup map for execution contexts
         let execution_context_map: HashMap<Uuid, TaskExecutionContext> = execution_contexts
@@ -530,10 +525,7 @@ pub async fn list_tasks(
             })
             .collect();
 
-        Ok::<(Vec<TaskResponse>, PaginationInfo), std::io::Error>((
-            tasks,
-            paginated_result.pagination,
-        ))
+        Ok::<(Vec<TaskResponse>, PaginationInfo), ApiError>((tasks, paginated_result.pagination))
     })
     .await;
 
@@ -561,10 +553,10 @@ pub async fn list_tasks(
         ("uuid" = String, Path, description = "Task UUID")
     ),
     responses(
-        (status = 200, description = "Task cancelled successfully", body = crate::web::openapi::TaskResponse),
-        (status = 400, description = "Task cannot be cancelled", body = crate::web::openapi::ApiError),
-        (status = 404, description = "Task not found", body = crate::web::openapi::ApiError),
-        (status = 503, description = "Service unavailable", body = crate::web::openapi::ApiError)
+        (status = 200, description = "Task cancelled successfully", body = TaskResponse),
+        (status = 400, description = "Task cannot be cancelled", body = ApiError),
+        (status = 404, description = "Task not found", body = ApiError),
+        (status = 503, description = "Service unavailable", body = ApiError)
     ),
     tag = "tasks"
 ))]
@@ -586,48 +578,35 @@ pub async fn cancel_task(
         // Step 1: Find the task using existing Task model
         let task = crate::models::Task::find_by_id(pool, uuid)
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         let task = match task {
             Some(t) => t,
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Task not found",
-                ));
+                return Err(ApiError::NotFound);
             }
         };
 
         // Step 2: Check if task can be cancelled using domain model
-        let can_cancel = task
-            .can_be_cancelled(pool)
-            .await
-            .map_err(std::io::Error::other)?;
+        let can_cancel = task.can_be_cancelled(pool).await.map_err(ApiError::from)?;
 
         if !can_cancel {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Cannot cancel a completed task",
-            ));
+            return Err(ApiError::bad_request("Cannot cancel a completed task"));
         }
 
         // Step 3: Cancel the task using domain model
         let mut task = task; // Make mutable for cancellation
-        task.cancel_task(pool)
-            .await
-            .map_err(std::io::Error::other)?;
+        task.cancel_task(pool).await.map_err(ApiError::from)?;
 
         // Step 4: Get task metadata using domain model
-        let (name, namespace, version, status) = task
-            .get_task_metadata(pool)
-            .await
-            .map_err(std::io::Error::other)?;
+        let (name, namespace, version, status) =
+            task.get_task_metadata(pool).await.map_err(ApiError::from)?;
 
         // Step 5: Get execution context using SQL function
         let execution_context = sql_executor
             .get_task_execution_context(uuid)
             .await
-            .map_err(std::io::Error::other)?
+            .map_err(ApiError::from)?
             .unwrap_or_else(|| {
                 // Fallback execution context if not found
                 TaskExecutionContext {
@@ -651,7 +630,7 @@ pub async fn cancel_task(
         let steps = sql_executor
             .get_step_readiness_status(uuid, None)
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(ApiError::from)?;
 
         // Step 7: Convert tags from JSONB to Vec<String> if it's an array
         let tags = match &task.tags {
@@ -706,7 +685,7 @@ pub async fn cancel_task(
             steps,
         };
 
-        Ok::<TaskResponse, std::io::Error>(task_response)
+        Ok::<TaskResponse, ApiError>(task_response)
     })
     .await;
 

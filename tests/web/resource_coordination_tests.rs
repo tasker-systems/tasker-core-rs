@@ -17,18 +17,17 @@ async fn test_resource_coordination_configuration() {
 
     // Verify that the test environment includes web coordination settings
     let web_enabled = std::env::var("WEB_API_ENABLED").unwrap_or_default();
-    println!("Web API enabled: {}", web_enabled);
+    println!("Web API enabled: {web_enabled}");
 
     // Check resource monitoring settings
     let monitoring_enabled = std::env::var("WEB_RESOURCE_MONITORING_ENABLED").unwrap_or_default();
-    println!("Resource monitoring enabled: {}", monitoring_enabled);
+    println!("Resource monitoring enabled: {monitoring_enabled}");
 
     let warning_threshold = std::env::var("WEB_POOL_USAGE_WARNING_THRESHOLD").unwrap_or_default();
     let critical_threshold = std::env::var("WEB_POOL_USAGE_CRITICAL_THRESHOLD").unwrap_or_default();
 
     println!(
-        "Pool usage thresholds - Warning: {}, Critical: {}",
-        warning_threshold, critical_threshold
+        "Pool usage thresholds - Warning: {warning_threshold}, Critical: {critical_threshold}"
     );
 }
 
@@ -46,19 +45,13 @@ async fn test_database_resource_allocation_assessment() {
     ];
 
     for (scenario_name, orch_pool, web_pool, should_be_optimal) in test_scenarios {
-        println!(
-            "Testing scenario '{}': orch={}, web={}",
-            scenario_name, orch_pool, web_pool
-        );
+        println!("Testing scenario '{scenario_name}': orch={orch_pool}, web={web_pool}");
 
         let total = orch_pool + web_pool;
         let orch_percentage = (orch_pool as f64 / total as f64) * 100.0;
         let web_percentage = (web_pool as f64 / total as f64) * 100.0;
 
-        println!(
-            "  Allocation: {:.1}% orchestration, {:.1}% web",
-            orch_percentage, web_percentage
-        );
+        println!("  Allocation: {orch_percentage:.1}% orchestration, {web_percentage:.1}% web");
 
         // Verify our expected optimal ratio (70/30) logic
         let optimal_orch = 70.0;
@@ -72,13 +65,11 @@ async fn test_database_resource_allocation_assessment() {
 
         assert_eq!(
             is_optimal, should_be_optimal,
-            "Scenario '{}' optimization assessment mismatch. Expected {}, got {}",
-            scenario_name, should_be_optimal, is_optimal
+            "Scenario '{scenario_name}' optimization assessment mismatch. Expected {should_be_optimal}, got {is_optimal}"
         );
 
         println!(
-            "  Optimal: {} (deviations: orch={:.1}, web={:.1})",
-            is_optimal, orch_deviation, web_deviation
+            "  Optimal: {is_optimal} (deviations: orch={orch_deviation:.1}, web={web_deviation:.1})"
         );
     }
 }
@@ -99,10 +90,7 @@ async fn test_web_pool_health_monitoring_integration() {
     for (scenario_name, active, max_conn, warning_thresh, critical_thresh, expected_status) in
         usage_scenarios
     {
-        println!(
-            "Testing health scenario '{}': {}/{} connections",
-            scenario_name, active, max_conn
-        );
+        println!("Testing health scenario '{scenario_name}': {active}/{max_conn} connections");
 
         let usage_ratio = if max_conn > 0 {
             active as f64 / max_conn as f64
@@ -129,11 +117,10 @@ async fn test_web_pool_health_monitoring_integration() {
 
         assert_eq!(
             expected_health_status, expected_status,
-            "Scenario '{}' health status mismatch",
-            scenario_name
+            "Scenario '{scenario_name}' health status mismatch"
         );
 
-        println!("  Health status: {}", expected_health_status);
+        println!("  Health status: {expected_health_status}");
     }
 }
 
@@ -150,7 +137,7 @@ async fn test_web_pool_system_health_impact() {
     ];
 
     for (scenario_name, is_graceful_shutdown, is_emergency) in system_scenarios {
-        println!("Testing system scenario '{}'", scenario_name);
+        println!("Testing system scenario '{scenario_name}'");
 
         // In graceful shutdown, high pool usage alerts should be suppressed
         // In emergency shutdown, critical alerts should still be shown
@@ -160,8 +147,7 @@ async fn test_web_pool_system_health_impact() {
         let should_show_critical = !is_graceful_shutdown || is_emergency;
 
         println!(
-            "  Suppress alerts: {}, Show critical: {}",
-            should_suppress_alerts, should_show_critical
+            "  Suppress alerts: {should_suppress_alerts}, Show critical: {should_show_critical}"
         );
 
         // This validates our operational state-aware monitoring logic
@@ -195,8 +181,7 @@ async fn test_resource_coordination_limits_validation() {
 
     for (scenario_name, orch_pool, web_pool, limit_hint, should_pass) in validation_scenarios {
         println!(
-            "Testing validation scenario '{}': orch={}, web={}, limit={}",
-            scenario_name, orch_pool, web_pool, limit_hint
+            "Testing validation scenario '{scenario_name}': orch={orch_pool}, web={web_pool}, limit={limit_hint}"
         );
 
         let total_connections = orch_pool + web_pool;
@@ -210,14 +195,10 @@ async fn test_resource_coordination_limits_validation() {
 
         assert_eq!(
             is_valid, should_pass,
-            "Scenario '{}' validation mismatch. Total: {}, Limit: {}, Expected: {}",
-            scenario_name, total_connections, limit_hint, should_pass
+            "Scenario '{scenario_name}' validation mismatch. Total: {total_connections}, Limit: {limit_hint}, Expected: {should_pass}"
         );
 
-        println!(
-            "  Total connections: {}, Valid: {}",
-            total_connections, is_valid
-        );
+        println!("  Total connections: {total_connections}, Valid: {is_valid}");
     }
 }
 
@@ -295,8 +276,7 @@ async fn test_resource_allocation_optimization_recommendations() {
 
     for (scenario_name, orch_pool, web_pool, expected_recommendations) in optimization_scenarios {
         println!(
-            "Testing optimization scenario '{}': orch={}, web={}",
-            scenario_name, orch_pool, web_pool
+            "Testing optimization scenario '{scenario_name}': orch={orch_pool}, web={web_pool}"
         );
 
         let total = orch_pool + web_pool;
@@ -334,15 +314,14 @@ async fn test_resource_allocation_optimization_recommendations() {
             recommendations.push("exceed limit");
         }
 
-        println!("  Generated recommendations: {:?}", recommendations);
+        println!("  Generated recommendations: {recommendations:?}");
 
         // Verify that expected recommendations are present
         for expected in &expected_recommendations {
             let found = recommendations.iter().any(|rec| rec.contains(expected));
             assert!(
                 found,
-                "Expected recommendation '{}' not found in {:?}",
-                expected, recommendations
+                "Expected recommendation '{expected}' not found in {recommendations:?}"
             );
         }
 
@@ -352,8 +331,7 @@ async fn test_resource_allocation_optimization_recommendations() {
                     || recommendations
                         .iter()
                         .all(|r| !r.contains("increase") && !r.contains("decrease")),
-                "Expected no recommendations for optimal scenario, got: {:?}",
-                recommendations
+                "Expected no recommendations for optimal scenario, got: {recommendations:?}"
             );
         }
     }
@@ -380,13 +358,12 @@ async fn test_web_configuration_environment_integration() {
             Ok(val) => {
                 assert!(
                     !val.is_empty(),
-                    "Environment variable {} should not be empty",
-                    env_var
+                    "Environment variable {env_var} should not be empty"
                 );
                 println!("  ✓ {}: {} chars", env_var, val.len());
             }
             Err(_) => {
-                println!("  ⚠ {} not set (may be loaded from .env.web_test)", env_var);
+                println!("  ⚠ {env_var} not set (may be loaded from .env.web_test)");
             }
         }
     }
@@ -401,9 +378,9 @@ async fn test_web_configuration_environment_integration() {
 
     for env_var in &optional_env_vars {
         if let Ok(val) = std::env::var(env_var) {
-            println!("  ✓ {}: {}", env_var, val);
+            println!("  ✓ {env_var}: {val}");
         } else {
-            println!("  - {}: not set", env_var);
+            println!("  - {env_var}: not set");
         }
     }
 }
@@ -427,15 +404,11 @@ mod resource_coordination_unit_tests {
 
             assert!(
                 (orch_pct - expected_orch_pct).abs() < 0.1,
-                "Orchestration percentage mismatch: expected {}, got {}",
-                expected_orch_pct,
-                orch_pct
+                "Orchestration percentage mismatch: expected {expected_orch_pct}, got {orch_pct}"
             );
             assert!(
                 (web_pct - expected_web_pct).abs() < 0.1,
-                "Web percentage mismatch: expected {}, got {}",
-                expected_web_pct,
-                web_pct
+                "Web percentage mismatch: expected {expected_web_pct}, got {web_pct}"
             );
         }
     }
@@ -468,8 +441,7 @@ mod resource_coordination_unit_tests {
 
             assert_eq!(
                 status, expected,
-                "Health status mismatch for {}/{} connections",
-                active, max_conn
+                "Health status mismatch for {active}/{max_conn} connections"
             );
         }
     }

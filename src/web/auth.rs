@@ -4,8 +4,13 @@
 
 use axum::http::HeaderValue;
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm};
-use rsa::{RsaPrivateKey, RsaPublicKey, pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey}, pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use rsa::{
+    pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey},
+    pkcs8::DecodePrivateKey,
+    pkcs8::DecodePublicKey,
+    RsaPrivateKey, RsaPublicKey,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, warn};
@@ -17,10 +22,10 @@ use crate::web::state::AuthConfig;
 pub enum AuthError {
     #[error("RSA key parsing error: {0}")]
     KeyParsingError(String),
-    
+
     #[error("Token validation error: {0}")]
     TokenValidationError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
 
@@ -81,12 +86,12 @@ impl JwtAuthenticator {
 
         if config.jwt_private_key.is_empty() {
             return Err(AuthError::ConfigurationError(
-                "JWT private key not configured".to_string()
+                "JWT private key not configured".to_string(),
             ));
         }
         if config.jwt_public_key.is_empty() {
             return Err(AuthError::ConfigurationError(
-                "JWT public key not configured".to_string()
+                "JWT public key not configured".to_string(),
             ));
         }
 
@@ -107,38 +112,46 @@ impl JwtAuthenticator {
     fn parse_private_key(pem_str: &str) -> Result<EncodingKey, AuthError> {
         // Try PKCS#8 format first (modern standard)
         if let Ok(key) = RsaPrivateKey::from_pkcs8_pem(pem_str) {
-            let der = key.to_pkcs1_der()
-                .map_err(|e| AuthError::KeyParsingError(format!("Failed to convert private key to DER: {e}")))?;
-            return Ok(EncodingKey::from_rsa_der(der.as_bytes()));
-        }
-        
-        // Fall back to PKCS#1 format (legacy)
-        if let Ok(key) = RsaPrivateKey::from_pkcs1_pem(pem_str) {
-            let der = key.to_pkcs1_der()
-                .map_err(|e| AuthError::KeyParsingError(format!("Failed to convert private key to DER: {e}")))?;
+            let der = key.to_pkcs1_der().map_err(|e| {
+                AuthError::KeyParsingError(format!("Failed to convert private key to DER: {e}"))
+            })?;
             return Ok(EncodingKey::from_rsa_der(der.as_bytes()));
         }
 
-        Err(AuthError::KeyParsingError("Failed to parse RSA private key from PEM".to_string()))
+        // Fall back to PKCS#1 format (legacy)
+        if let Ok(key) = RsaPrivateKey::from_pkcs1_pem(pem_str) {
+            let der = key.to_pkcs1_der().map_err(|e| {
+                AuthError::KeyParsingError(format!("Failed to convert private key to DER: {e}"))
+            })?;
+            return Ok(EncodingKey::from_rsa_der(der.as_bytes()));
+        }
+
+        Err(AuthError::KeyParsingError(
+            "Failed to parse RSA private key from PEM".to_string(),
+        ))
     }
 
     /// Parse RSA public key from PEM string
     fn parse_public_key(pem_str: &str) -> Result<DecodingKey, AuthError> {
         // Try PKCS#8 format first (modern standard)
         if let Ok(key) = RsaPublicKey::from_public_key_pem(pem_str) {
-            let der = key.to_pkcs1_der()
-                .map_err(|e| AuthError::KeyParsingError(format!("Failed to convert public key to DER: {e}")))?;
-            return Ok(DecodingKey::from_rsa_der(der.as_bytes()));
-        }
-        
-        // Fall back to PKCS#1 format (legacy)
-        if let Ok(key) = RsaPublicKey::from_pkcs1_pem(pem_str) {
-            let der = key.to_pkcs1_der()
-                .map_err(|e| AuthError::KeyParsingError(format!("Failed to convert public key to DER: {e}")))?;
+            let der = key.to_pkcs1_der().map_err(|e| {
+                AuthError::KeyParsingError(format!("Failed to convert public key to DER: {e}"))
+            })?;
             return Ok(DecodingKey::from_rsa_der(der.as_bytes()));
         }
 
-        Err(AuthError::KeyParsingError("Failed to parse RSA public key from PEM".to_string()))
+        // Fall back to PKCS#1 format (legacy)
+        if let Ok(key) = RsaPublicKey::from_pkcs1_pem(pem_str) {
+            let der = key.to_pkcs1_der().map_err(|e| {
+                AuthError::KeyParsingError(format!("Failed to convert public key to DER: {e}"))
+            })?;
+            return Ok(DecodingKey::from_rsa_der(der.as_bytes()));
+        }
+
+        Err(AuthError::KeyParsingError(
+            "Failed to parse RSA public key from PEM".to_string(),
+        ))
     }
 
     /// Validate a worker JWT token
@@ -156,22 +169,19 @@ impl JwtAuthenticator {
             });
         }
 
-        let decoding_key = self.decoding_key.as_ref()
-            .ok_or_else(|| AuthError::ConfigurationError("Decoding key not configured".to_string()))?;
+        let decoding_key = self.decoding_key.as_ref().ok_or_else(|| {
+            AuthError::ConfigurationError("Decoding key not configured".to_string())
+        })?;
 
         debug!(token_length = token.len(), "Validating worker JWT token");
-        
+
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.config.jwt_issuer]);
         validation.set_audience(&[&self.config.jwt_audience]);
         validation.validate_exp = true;
         validation.validate_nbf = false; // Not using 'not before' field
 
-        let token_data = decode::<WorkerClaims>(
-            token,
-            decoding_key,
-            &validation,
-        ).map_err(|e| {
+        let token_data = decode::<WorkerClaims>(token, decoding_key, &validation).map_err(|e| {
             warn!(error = %e, "JWT token validation failed");
             AuthError::JwtError(e)
         })?;
@@ -187,13 +197,19 @@ impl JwtAuthenticator {
     }
 
     /// Generate a JWT token for a worker
-    pub fn generate_worker_token(&self, worker_id: &str, namespaces: Vec<String>, permissions: Vec<String>) -> Result<String, AuthError> {
+    pub fn generate_worker_token(
+        &self,
+        worker_id: &str,
+        namespaces: Vec<String>,
+        permissions: Vec<String>,
+    ) -> Result<String, AuthError> {
         if !self.config.enabled {
             return Ok(format!("test-token-{worker_id}"));
         }
 
-        let encoding_key = self.encoding_key.as_ref()
-            .ok_or_else(|| AuthError::ConfigurationError("Encoding key not configured".to_string()))?;
+        let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
+            AuthError::ConfigurationError("Encoding key not configured".to_string())
+        })?;
 
         let now = Utc::now();
         let expiry = now + Duration::hours(self.config.jwt_token_expiry_hours as i64);
@@ -217,19 +233,22 @@ impl JwtAuthenticator {
         );
 
         let header = Header::new(Algorithm::RS256);
-        let token = encode(&header, &claims, encoding_key)
-            .map_err(|e| {
-                error!(error = %e, "Failed to generate JWT token");
-                AuthError::JwtError(e)
-            })?;
+        let token = encode(&header, &claims, encoding_key).map_err(|e| {
+            error!(error = %e, "Failed to generate JWT token");
+            AuthError::JwtError(e)
+        })?;
 
-        debug!(token_length = token.len(), "JWT token generated successfully");
+        debug!(
+            token_length = token.len(),
+            "JWT token generated successfully"
+        );
         Ok(token)
     }
 
     /// Extract bearer token from Authorization header
     pub fn extract_bearer_token(auth_header: &HeaderValue) -> Result<&str, AuthError> {
-        let auth_str = auth_header.to_str()
+        let auth_str = auth_header
+            .to_str()
             .map_err(|_| AuthError::InvalidAuthFormat)?;
 
         if !auth_str.starts_with("Bearer ") {
@@ -241,13 +260,13 @@ impl JwtAuthenticator {
 
     /// Check if worker has permission to access a namespace
     pub fn has_namespace_access(&self, claims: &WorkerClaims, namespace: &str) -> bool {
-        claims.worker_namespaces.contains(&namespace.to_string()) || 
-        claims.worker_namespaces.contains(&"*".to_string()) // Wildcard access
+        claims.worker_namespaces.contains(&namespace.to_string())
+            || claims.worker_namespaces.contains(&"*".to_string()) // Wildcard access
     }
 
     /// Check if worker has a specific permission
     pub fn has_permission(&self, claims: &WorkerClaims, permission: &str) -> bool {
-        claims.permissions.contains(&permission.to_string()) ||
-        claims.permissions.contains(&"*".to_string()) // Admin access
+        claims.permissions.contains(&permission.to_string())
+            || claims.permissions.contains(&"*".to_string()) // Admin access
     }
 }

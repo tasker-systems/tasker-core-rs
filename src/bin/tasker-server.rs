@@ -33,7 +33,10 @@ use tracing::{error, info, warn};
 
 use tasker_core::logging;
 use tasker_core::orchestration::bootstrap::{BootstrapConfig, OrchestrationBootstrap};
-use tasker_core::web::{create_app, state::{AppState, WebServerConfig}};
+use tasker_core::web::{
+    create_app,
+    state::{AppState, WebServerConfig},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,12 +45,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("🚀 Starting Tasker Server...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));
-    info!("   Build Mode: {}", if cfg!(debug_assertions) { "Debug" } else { "Release" });
+    info!(
+        "   Build Mode: {}",
+        if cfg!(debug_assertions) {
+            "Debug"
+        } else {
+            "Release"
+        }
+    );
 
     // Get environment override (only override if explicitly set)
     let environment_override = env::var("TASKER_ENV").ok();
 
-    info!("   Environment: {}", environment_override.as_deref().unwrap_or("auto-detect"));
+    info!(
+        "   Environment: {}",
+        environment_override.as_deref().unwrap_or("auto-detect")
+    );
 
     // Bootstrap orchestration system using unified bootstrap
     info!("🔧 Bootstrapping orchestration system...");
@@ -59,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let orchestration_handle = OrchestrationBootstrap::bootstrap(bootstrap_config)
         .await
-        .map_err(|e| format!("Failed to bootstrap orchestration: {}", e))?;
+        .map_err(|e| format!("Failed to bootstrap orchestration: {e}"))?;
 
     info!("✅ Orchestration system bootstrapped successfully");
 
@@ -68,33 +81,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize web API
     info!("🌐 Initializing web API...");
-    
+
     // Create WebServerConfig from configuration system
     let web_server_config = match WebServerConfig::from_config_manager(&config_manager)
-        .map_err(|e| format!("Failed to load web server configuration: {}", e))? {
+        .map_err(|e| format!("Failed to load web server configuration: {e}"))?
+    {
         Some(config) => config,
         None => {
             return Err("Web API is disabled in configuration - cannot start server mode".into());
         }
     };
-    
+
     let app_state = AppState::from_orchestration_core(
         web_server_config.clone(),
         &orchestration_handle.orchestration_core,
         &config_manager,
     )
     .await
-    .map_err(|e| format!("Failed to create app state: {}", e))?;
+    .map_err(|e| format!("Failed to create app state: {e}"))?;
 
     let app = create_app(app_state);
-    
+
     // Start web server
     let bind_address = &web_server_config.bind_address;
     info!("🌐 Starting web server on {}", bind_address);
-    
+
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
-        .map_err(|e| format!("Failed to bind to {}: {}", bind_address, e))?;
+        .map_err(|e| format!("Failed to bind to {bind_address}: {e}"))?;
 
     info!("✅ Web server listening on http://{}", bind_address);
     info!("📖 API Documentation: http://{}/api-docs/ui", bind_address);
@@ -122,13 +136,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🛑 Shutdown signal received, initiating graceful shutdown...");
 
     // Transition to graceful shutdown state
-    if let Err(e) = orchestration_handle.orchestration_core.transition_to_graceful_shutdown().await {
+    if let Err(e) = orchestration_handle
+        .orchestration_core
+        .transition_to_graceful_shutdown()
+        .await
+    {
         warn!("Failed to transition to graceful shutdown: {}", e);
     }
 
     // Stop web server (it should already be stopping due to graceful shutdown)
     server_task.abort();
-    
+
     // Stop orchestration system using handle
     info!("🔧 Stopping orchestration system...");
     let mut handle = orchestration_handle;

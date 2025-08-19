@@ -4,6 +4,8 @@
 //! Protects against database connection failures and query timeouts without
 //! interfering with the orchestration system's PGMQ operations.
 
+use crate::web::response_types::{ApiError, ApiResult};
+use crate::web::state::AppState;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -96,7 +98,8 @@ impl WebDatabaseCircuitBreaker {
                         component = %self.component_name,
                         "Circuit breaker transitioning to half-open state for recovery testing"
                     );
-                    self.state.store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+                    self.state
+                        .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
                     false
                 } else {
                     true
@@ -110,7 +113,10 @@ impl WebDatabaseCircuitBreaker {
     /// Resets the failure count and closes the circuit if it was open.
     pub fn record_success(&self) {
         let previous_failures = self.current_failures.swap(0, Ordering::Relaxed);
-        let previous_state = CircuitState::from(self.state.swap(CircuitState::Closed as u8, Ordering::Relaxed));
+        let previous_state = CircuitState::from(
+            self.state
+                .swap(CircuitState::Closed as u8, Ordering::Relaxed),
+        );
 
         if previous_failures > 0 || previous_state != CircuitState::Closed {
             debug!(
@@ -127,9 +133,10 @@ impl WebDatabaseCircuitBreaker {
     /// Increments the failure count and opens the circuit if threshold is exceeded.
     pub fn record_failure(&self) {
         let failures = self.current_failures.fetch_add(1, Ordering::Relaxed) + 1;
-        
+
         if failures >= self.failure_threshold {
-            let previous_state = CircuitState::from(self.state.swap(CircuitState::Open as u8, Ordering::Relaxed));
+            let previous_state =
+                CircuitState::from(self.state.swap(CircuitState::Open as u8, Ordering::Relaxed));
             let now = self.current_timestamp();
             self.last_failure_time.store(now, Ordering::Relaxed);
 
@@ -179,9 +186,9 @@ impl WebDatabaseCircuitBreaker {
 impl Default for WebDatabaseCircuitBreaker {
     fn default() -> Self {
         Self::new(
-            5,                              // failure_threshold
-            Duration::from_secs(30),        // recovery_timeout
-            "web_database",                 // component_name
+            5,                       // failure_threshold
+            Duration::from_secs(30), // recovery_timeout
+            "web_database",          // component_name
         )
     }
 }
@@ -208,8 +215,8 @@ impl Default for WebDatabaseCircuitBreaker {
 /// ```rust
 /// use tasker_core::web::circuit_breaker::execute_with_circuit_breaker;
 /// use tasker_core::web::state::AppState;
-/// use tasker_core::web::errors::ApiResult;
 /// use tasker_core::models::core::task::Task;
+/// use tasker_core::web::response_types::ApiResult;
 ///
 /// async fn get_task_handler(state: &AppState, task_id: uuid::Uuid) -> ApiResult<Option<Task>> {
 ///     execute_with_circuit_breaker(state, || async {
@@ -218,15 +225,14 @@ impl Default for WebDatabaseCircuitBreaker {
 /// }
 /// ```
 pub async fn execute_with_circuit_breaker<T, E, F, Fut>(
-    state: &crate::web::state::AppState,
+    state: &AppState,
     operation: F,
-) -> crate::web::errors::ApiResult<T>
+) -> ApiResult<T>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    use crate::web::errors::ApiError;
     use tracing::error;
 
     // Check circuit breaker before executing operation
@@ -238,11 +244,13 @@ where
         Ok(result) => {
             state.record_database_success();
             Ok(result)
-        },
+        }
         Err(e) => {
             state.record_database_failure();
             error!(error = %e, "Database operation failed");
-            Err(ApiError::internal_server_error(format!("Operation failed: {e}")))
+            Err(ApiError::internal_server_error(format!(
+                "Operation failed: {e}"
+            )))
         }
     }
 }
@@ -262,13 +270,13 @@ mod tests {
     #[test]
     fn test_circuit_opens_after_threshold_failures() {
         let cb = WebDatabaseCircuitBreaker::new(3, Duration::from_secs(5), "test");
-        
+
         // Record failures below threshold
         cb.record_failure();
         cb.record_failure();
         assert!(!cb.is_circuit_open());
         assert_eq!(cb.current_state(), CircuitState::Closed);
-        
+
         // Record failure that exceeds threshold
         cb.record_failure();
         assert!(cb.is_circuit_open());
@@ -278,12 +286,12 @@ mod tests {
     #[test]
     fn test_circuit_closes_on_success() {
         let cb = WebDatabaseCircuitBreaker::new(2, Duration::from_secs(5), "test");
-        
+
         // Open the circuit
         cb.record_failure();
         cb.record_failure();
         assert!(cb.is_circuit_open());
-        
+
         // Success should close the circuit (after recovery timeout or in half-open)
         cb.record_success();
         assert!(!cb.is_circuit_open());

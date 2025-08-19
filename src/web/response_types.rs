@@ -9,8 +9,12 @@ use axum::Json;
 use serde_json::json;
 use thiserror::Error;
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// Web API specific errors with HTTP status code mappings
 #[derive(Error, Debug)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub enum ApiError {
     #[error("Resource not found")]
     NotFound,
@@ -95,30 +99,62 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status_code, error_code, message) = match &self {
             ApiError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found"),
-            
+
             ApiError::Forbidden => (StatusCode::FORBIDDEN, "FORBIDDEN", "Access denied"),
-            
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Authentication required"),
-            
-            ApiError::BadRequest { message } => (StatusCode::BAD_REQUEST, "BAD_REQUEST", message.as_str()),
-            
-            ApiError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"),
-            
+
+            ApiError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Authentication required",
+            ),
+
+            ApiError::BadRequest { message } => {
+                (StatusCode::BAD_REQUEST, "BAD_REQUEST", message.as_str())
+            }
+
+            ApiError::ServiceUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable",
+            ),
+
             ApiError::Timeout => (StatusCode::REQUEST_TIMEOUT, "TIMEOUT", "Request timeout"),
-            
-            ApiError::CircuitBreakerOpen => (StatusCode::SERVICE_UNAVAILABLE, "CIRCUIT_BREAKER_OPEN", "Service temporarily unavailable"),
-            
-            ApiError::DatabaseError { operation } => (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR", operation.as_str()),
-            
-            ApiError::AuthenticationError { reason } => (StatusCode::UNAUTHORIZED, "AUTHENTICATION_FAILED", reason.as_str()),
-            
-            ApiError::AuthorizationError { reason } => (StatusCode::FORBIDDEN, "AUTHORIZATION_FAILED", reason.as_str()),
-            
-            ApiError::InvalidUuid { uuid } => (StatusCode::BAD_REQUEST, "INVALID_UUID", uuid.as_str()),
-            
+
+            ApiError::CircuitBreakerOpen => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CIRCUIT_BREAKER_OPEN",
+                "Service temporarily unavailable",
+            ),
+
+            ApiError::DatabaseError { operation } => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                operation.as_str(),
+            ),
+
+            ApiError::AuthenticationError { reason } => (
+                StatusCode::UNAUTHORIZED,
+                "AUTHENTICATION_FAILED",
+                reason.as_str(),
+            ),
+
+            ApiError::AuthorizationError { reason } => (
+                StatusCode::FORBIDDEN,
+                "AUTHORIZATION_FAILED",
+                reason.as_str(),
+            ),
+
+            ApiError::InvalidUuid { uuid } => {
+                (StatusCode::BAD_REQUEST, "INVALID_UUID", uuid.as_str())
+            }
+
             ApiError::JsonError => (StatusCode::BAD_REQUEST, "JSON_ERROR", "Invalid JSON format"),
-            
-            ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error"),
+
+            ApiError::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Internal server error",
+            ),
         };
 
         let error_response = json!({

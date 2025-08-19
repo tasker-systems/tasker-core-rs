@@ -64,6 +64,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 // Import the orchestration models for transitive dependencies
 use crate::models::orchestration::StepTransitiveDependencies;
 
@@ -309,39 +312,39 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedAnalyticsMetrics
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AnalyticsMetrics {
-    pub active_tasks_count: i32,
-    pub total_namespaces_count: i32,
-    pub unique_task_types_count: i32,
-    pub system_health_score: f64,
-    pub task_throughput: i32,
-    pub completion_count: i32,
-    pub error_count: i32,
-    pub completion_rate: f64,
-    pub error_rate: f64,
-    pub avg_task_duration: f64,
-    pub avg_step_duration: f64,
-    pub step_throughput: i32,
-    pub analysis_period_start: String,
-    pub calculated_at: String,
+    pub active_tasks_count: i64,
+    pub total_namespaces_count: i64,
+    pub unique_task_types_count: i64,
+    pub system_health_score: BigDecimal,
+    pub task_throughput: i64,
+    pub completion_count: i64,
+    pub error_count: i64,
+    pub completion_rate: BigDecimal,
+    pub error_rate: BigDecimal,
+    pub avg_task_duration: BigDecimal,
+    pub avg_step_duration: BigDecimal,
+    pub step_throughput: i64,
+    pub analysis_period_start: DateTime<Utc>,
+    pub calculated_at: DateTime<Utc>,
 }
 
 impl Default for AnalyticsMetrics {
     fn default() -> Self {
         Self {
-            active_tasks_count: 0,
-            total_namespaces_count: 0,
-            unique_task_types_count: 0,
-            system_health_score: 0.0,
-            task_throughput: 0,
-            completion_count: 0,
-            error_count: 0,
-            completion_rate: 0.0,
-            error_rate: 0.0,
-            avg_task_duration: 0.0,
-            avg_step_duration: 0.0,
-            step_throughput: 0,
-            analysis_period_start: "".to_string(),
-            calculated_at: Utc::now().to_rfc3339(),
+            active_tasks_count: 0i64,
+            total_namespaces_count: 0i64,
+            unique_task_types_count: 0i64,
+            system_health_score: BigDecimal::from(0),
+            task_throughput: 0i64,
+            completion_count: 0i64,
+            error_count: 0i64,
+            completion_rate: BigDecimal::from(0),
+            error_rate: BigDecimal::from(0),
+            avg_task_duration: BigDecimal::from(0),
+            avg_step_duration: BigDecimal::from(0),
+            step_throughput: 0i64,
+            analysis_period_start: Utc::now(),
+            calculated_at: Utc::now(),
         }
     }
 }
@@ -379,6 +382,7 @@ impl SqlFunctionExecutor {
 /// Comprehensive step readiness analysis
 /// Equivalent to Rails: FunctionBasedStepReadinessStatus
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct StepReadinessStatus {
     pub workflow_step_uuid: Uuid,
     pub task_uuid: Uuid,
@@ -578,6 +582,7 @@ impl SqlFunctionExecutor {
 /// Equivalent to Rails: FunctionBasedTaskExecutionContext
 /// FIXED: Aligned with actual SQL function return columns
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskExecutionContext {
     pub task_uuid: Uuid,
     pub named_task_uuid: Uuid,
@@ -684,12 +689,14 @@ impl SqlFunctionExecutor {
     pub async fn get_slowest_steps(
         &self,
         limit: Option<i32>,
-        min_executions: Option<i32>,
+        _min_executions: Option<i32>,
     ) -> Result<Vec<SlowestStepAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_steps($1, $2, NULL, NULL, NULL)";
+        // Database function signature: get_slowest_steps(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)
+        // We don't use min_executions parameter as it doesn't exist in the database function
+        let sql =
+            "SELECT * FROM get_slowest_steps(NULL::timestamp with time zone, $1, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestStepAnalysis>(sql)
-            .bind(limit)
-            .bind(min_executions)
+            .bind(limit.unwrap_or(10))
             .fetch_all(&self.pool)
             .await
     }
@@ -699,12 +706,14 @@ impl SqlFunctionExecutor {
     pub async fn get_slowest_tasks(
         &self,
         limit: Option<i32>,
-        min_executions: Option<i32>,
+        _min_executions: Option<i32>,
     ) -> Result<Vec<SlowestTaskAnalysis>, sqlx::Error> {
-        let sql = "SELECT * FROM get_slowest_tasks($1, $2, NULL, NULL, NULL)";
+        // Database function signature: get_slowest_tasks(since_timestamp, limit_count, namespace_filter, task_name_filter, version_filter)
+        // We don't use min_executions parameter as it doesn't exist in the database function
+        let sql =
+            "SELECT * FROM get_slowest_tasks(NULL::timestamp with time zone, $1, NULL, NULL, NULL)";
         sqlx::query_as::<_, SlowestTaskAnalysis>(sql)
-            .bind(limit)
-            .bind(min_executions)
+            .bind(limit.unwrap_or(10))
             .fetch_all(&self.pool)
             .await
     }

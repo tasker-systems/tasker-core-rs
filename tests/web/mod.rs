@@ -7,13 +7,13 @@
 //! - Database pool resource coordination validation
 //! - Health monitoring integration testing
 
-pub mod test_infrastructure;
-pub mod unauthenticated_tests;
 pub mod authenticated_tests;
-pub mod tls_tests;
 pub mod resource_coordination_tests;
 pub mod test_analytics_endpoints;
+pub mod test_infrastructure;
 pub mod test_openapi_documentation;
+pub mod tls_tests;
+pub mod unauthenticated_tests;
 
 /// Re-export common test utilities
 pub use test_infrastructure::*;

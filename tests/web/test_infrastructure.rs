@@ -55,10 +55,12 @@ impl TestServer {
         let port = find_available_port().await?;
 
         // Create test configuration
-        let mut config = WebTestConfig::default();
-        config.port = port;
-        config.base_url = format!("http://localhost:{}", port);
-        config.bind_address = format!("127.0.0.1:{}", port);
+        let config = WebTestConfig {
+            port,
+            base_url: format!("http://localhost:{port}"),
+            bind_address: format!("127.0.0.1:{port}"),
+            ..Default::default()
+        };
 
         // Set up test environment
         std::env::set_var("TASKER_ENV", "test");
@@ -103,7 +105,6 @@ impl TestServer {
     // pub fn base_url(&self) -> &str {
     //     &self.config.base_url
     // }
-
     /// Shutdown the test server
     pub async fn shutdown(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Send shutdown signal
@@ -262,9 +263,7 @@ pub async fn assert_error_response(
     if let Some(error_message) = json.get("error").and_then(|e| e.as_str()) {
         assert!(
             error_message.contains(expected_error_pattern),
-            "Error message '{}' does not contain expected pattern '{}'",
-            error_message,
-            expected_error_pattern
+            "Error message '{error_message}' does not contain expected pattern '{expected_error_pattern}'"
         );
     } else {
         panic!(
@@ -279,7 +278,7 @@ pub async fn assert_error_response(
 /// Test helper to generate authentication headers
 pub fn create_auth_headers(token: &str) -> HashMap<String, String> {
     let mut headers = HashMap::new();
-    headers.insert("Authorization".to_string(), format!("Bearer {}", token));
+    headers.insert("Authorization".to_string(), format!("Bearer {token}"));
     headers.insert("Content-Type".to_string(), "application/json".to_string());
     headers
 }

@@ -7,6 +7,7 @@ use super::errors::*;
 use super::types::*;
 use crate::database::sql_functions::SqlFunctionExecutor;
 use crate::orchestration::OrchestrationCore;
+use bigdecimal::ToPrimitive;
 use serde_json::json;
 use sqlx::types::Uuid;
 use tracing::{debug, info};
@@ -169,8 +170,12 @@ impl SharedAnalyticsManager {
                             .unwrap_or(0),
                         failed_tasks: health_counts.as_ref().map(|h| h.error_tasks).unwrap_or(0),
                         pending_tasks: health_counts.as_ref().map(|h| h.pending_tasks).unwrap_or(0),
-                        average_completion_time_seconds: metrics.avg_task_duration,
-                        success_rate_percentage: metrics.completion_rate * 100.0,
+                        average_completion_time_seconds: metrics
+                            .avg_task_duration
+                            .to_f64()
+                            .unwrap_or(0.0),
+                        success_rate_percentage: metrics.completion_rate.to_f64().unwrap_or(0.0)
+                            * 100.0,
                         most_common_failure_reason: {
                             // Use health counts to determine most common failure type
                             match health_counts.as_ref() {
@@ -183,7 +188,7 @@ impl SharedAnalyticsManager {
                                 _ => "Processing error".to_string(),
                             }
                         },
-                        peak_throughput_tasks_per_hour: (metrics.task_throughput as i64) * 60, // Convert from per minute
+                        peak_throughput_tasks_per_hour: metrics.task_throughput * 60, // Convert from per minute
                         current_load_percentage: {
                             // Calculate load based on active vs max capacity
                             let active = metrics.active_tasks_count as f64;
@@ -315,8 +320,8 @@ impl SharedAnalyticsManager {
 
             // Calculate average step duration from actual metrics
             let avg_step_duration = match self.sql_executor.get_analytics_metrics(None).await {
-                Ok(metrics) => (metrics.avg_step_duration * 60.0) as i64, // Convert from minutes to seconds
-                Err(_) => 30,                                             // Fallback default
+                Ok(metrics) => (metrics.avg_step_duration.to_f64().unwrap_or(0.0) * 60.0) as i64, // Convert from minutes to seconds
+                Err(_) => 30, // Fallback default
             };
             let estimated_completion_time_seconds = remaining_steps * avg_step_duration;
 
@@ -437,9 +442,10 @@ impl SharedAnalyticsManager {
                 total_operations,
                 successful_operations,
                 failed_operations,
-                average_response_time_ms: metrics.avg_step_duration * 1000.0,
-                p95_response_time_ms: metrics.avg_step_duration * 1500.0, // Estimate
-                p99_response_time_ms: metrics.avg_step_duration * 2000.0, // Estimate
+                average_response_time_ms: metrics.avg_step_duration.to_f64().unwrap_or(0.0)
+                    * 1000.0,
+                p95_response_time_ms: metrics.avg_step_duration.to_f64().unwrap_or(0.0) * 1500.0, // Estimate
+                p99_response_time_ms: metrics.avg_step_duration.to_f64().unwrap_or(0.0) * 2000.0, // Estimate
                 throughput_operations_per_second: (metrics.step_throughput as f64 / 60.0),
                 error_rate_percentage: error_rate,
                 resource_usage: json!({

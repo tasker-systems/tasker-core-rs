@@ -136,6 +136,6 @@ pub use registry::{
 #[cfg(feature = "web-api")]
 pub use web::{
     create_app,
-    errors::{ApiError, ApiResult},
+    response_types::{ApiError, ApiResult},
     state::{AppState, WebServerConfig},
 };

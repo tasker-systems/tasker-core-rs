@@ -15,23 +15,24 @@ use uuid::Uuid;
 /// - Tracing context for log correlation
 pub async fn add_request_id(mut request: Request, next: Next) -> Response {
     let request_id = Uuid::new_v4().to_string();
-    
+
     // Add request ID to request extensions for handlers to access
-    request.extensions_mut().insert(RequestId(request_id.clone()));
-    
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
+
     // Add to tracing span for log correlation
     let span = tracing::Span::current();
     span.record("request_id", &request_id);
-    
+
     // Process the request
     let mut response = next.run(request).await;
-    
+
     // Add request ID to response headers
-    response.headers_mut().insert(
-        "x-request-id",
-        request_id.parse().unwrap()
-    );
-    
+    response
+        .headers_mut()
+        .insert("x-request-id", request_id.parse().unwrap());
+
     response
 }
 
