@@ -37,14 +37,14 @@ max_age_seconds = 86400
 [web.auth]
 enabled = false
 jwt_issuer = "tasker-core"
-jwt_audience = "tasker-api" 
+jwt_audience = "tasker-api"
 jwt_token_expiry_hours = 24
 # JWT keys should be provided via environment variables for security:
-# WEB_JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
-# WEB_JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+# JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
+# JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
 jwt_private_key = ""
 jwt_public_key = ""
-# API key for testing (use env var WEB_API_KEY in production)
+# API key for testing (use env var API_KEY in production)
 api_key = ""
 api_key_header = "X-API-Key"
 

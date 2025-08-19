@@ -3,7 +3,7 @@
 
 [web]
 enabled = true
-bind_address = "127.0.0.1:8080"  # Localhost-only for tests
+bind_address = "127.0.0.1:8080" # Localhost-only for tests
 
 [web.tls]
 enabled = false
@@ -18,19 +18,19 @@ allowed_origins = ["http://localhost:3000", "https://localhost:3000"]
 enabled = true
 jwt_issuer = "tasker-core-test"
 jwt_audience = "tasker-api-test"
-jwt_token_expiry_hours = 1  # Short expiry for tests
+jwt_token_expiry_hours = 1       # Short expiry for tests
 # JWT keys loaded from environment variables during test setup
-# WEB_JWT_PRIVATE_KEY and WEB_JWT_PUBLIC_KEY set by .env.web_test
-# WEB_API_KEY set by .env.web_test
+# JWT_PRIVATE_KEY and JWT_PUBLIC_KEY set by .env.web_test
+# API_KEY set by .env.web_test
 
 [web.rate_limiting]
-enabled = false  # Disabled for testing
+enabled = false           # Disabled for testing
 requests_per_minute = 100
 
 [web.resilience]
 circuit_breaker_enabled = true
 request_timeout_seconds = 30
-max_concurrent_requests = 50  # Lower for test environment
+max_concurrent_requests = 50   # Lower for test environment
 
 [web.resource_monitoring]
 report_pool_usage_to_health_monitor = true
@@ -44,4 +44,4 @@ web_api_max_connections = 8
 web_api_connection_timeout_seconds = 10
 web_api_idle_timeout_seconds = 300
 coordinate_with_orchestration_pool = true
-max_total_connections_hint = 20  # Much smaller for tests
+max_total_connections_hint = 20           # Much smaller for tests
