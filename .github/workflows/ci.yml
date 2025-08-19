@@ -46,7 +46,7 @@ jobs:
       - name: Build and push PostgreSQL image to GHCR
         id: docker-build
         if: steps.ghcr-login.outcome == 'success'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile.postgres-extensions
