@@ -54,7 +54,7 @@ uuid = { version = "1.11", features = ["v4", "v7", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "0.9"
 
 # Web framework and HTTP server (TAS-28)
 axum = { version = "0.7", optional = true }
