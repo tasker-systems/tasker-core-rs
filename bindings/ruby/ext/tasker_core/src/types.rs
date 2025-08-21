@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 // Import shared types for conversion functions
-use tasker_core::ffi::shared::types::*;
+use tasker_shared::ffi::shared::types::*;
 use tracing::debug;
 
 /// Trait for converting Ruby hashes to Rust structs without JSON serialization

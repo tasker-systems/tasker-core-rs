@@ -1,0 +1,431 @@
+//! # Unified Orchestration Core
+//!
+//! Single-source-of-truth orchestration bootstrap system that eliminates
+//! multiple entry points with different configuration assumptions.
+//!
+//! ## Architecture
+//!
+//! This module provides the unified bootstrap path that all orchestration
+//! entry points use:
+//! - embedded_bridge.rs uses OrchestrationCore::from_database_url()
+//! - main orchestration_system.rs delegates to OrchestrationCore::from_config()
+//! - Circuit breaker integration based on unified configuration
+//! - Consistent component initialization everywhere
+//!
+//! ## Key Benefits
+//!
+//! 1. **Single Configuration Source**: Uses only src/config/mod.rs Config structure
+//! 2. **Type Unification**: PgmqClientTrait allows seamless client switching
+//! 3. **Consistent Bootstrap**: Same initialization logic everywhere
+//! 4. **Circuit Breaker Integration**: config.circuit_breakers controls protection
+
+use crate::orchestration::{
+    coordinator::operational_state::{OperationalStateManager, SystemOperationalState},
+    orchestration_loop::OrchestrationLoop,
+    step_result_processor::StepResultProcessor,
+    task_initializer::TaskInitializer,
+    task_request_processor::{TaskRequestProcessor, TaskRequestProcessorConfig},
+    TaskInitializationResult,
+};
+use sqlx::PgPool;
+use std::sync::Arc;
+use tasker_shared::config::orchestration::OrchestrationLoopConfig;
+use tasker_shared::config::{CircuitBreakerConfig, ConfigManager};
+use tasker_shared::messaging::{
+    PgmqClient, PgmqClientTrait, ProtectedPgmqClient, UnifiedPgmqClient,
+};
+use tasker_shared::models::core::task_request::TaskRequest;
+use tasker_shared::registry::TaskHandlerRegistry;
+use tasker_shared::resilience::CircuitBreakerManager;
+use tasker_shared::{TaskerError, TaskerResult};
+use tracing::info;
+use uuid::Uuid;
+
+/// Unified orchestration core that all entry points use
+pub struct OrchestrationCore {
+    /// Unified PGMQ client (either standard or circuit-breaker protected)
+    pub pgmq_client: Arc<UnifiedPgmqClient>,
+
+    /// Database connection pool
+    pub database_pool: PgPool,
+
+    /// Task initializer for creating tasks from requests
+    pub task_initializer: Arc<TaskInitializer>,
+
+    /// Task request processor for handling incoming requests
+    pub task_request_processor: Arc<TaskRequestProcessor>,
+
+    /// Orchestration loop for continuous step enqueueing
+    pub orchestration_loop: Arc<OrchestrationLoop>,
+
+    /// Step result processor for handling completed steps
+    pub step_result_processor: Arc<StepResultProcessor>,
+
+    /// Task handler registry
+    pub task_handler_registry: Arc<TaskHandlerRegistry>,
+
+    /// Circuit breaker manager (optional, only when circuit breakers enabled)
+    pub circuit_breaker_manager: Option<Arc<CircuitBreakerManager>>,
+
+    /// Operational state manager for shutdown-aware health monitoring (TAS-37 Supplemental)
+    pub operational_state_manager: OperationalStateManager,
+}
+
+impl std::fmt::Debug for OrchestrationCore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestrationCore")
+            .field("pgmq_client", &"Arc<UnifiedPgmqClient>")
+            .field(
+                "database_pool",
+                &format!("PgPool(size={})", self.database_pool.size()),
+            )
+            .field("task_initializer", &"Arc<TaskInitializer>")
+            .field("task_request_processor", &"Arc<TaskRequestProcessor>")
+            .field("orchestration_loop", &"Arc<OrchestrationLoop>")
+            .field("step_result_processor", &"Arc<StepResultProcessor>")
+            .field("task_handler_registry", &"Arc<TaskHandlerRegistry>")
+            .field(
+                "circuit_breaker_manager",
+                &self
+                    .circuit_breaker_manager
+                    .as_ref()
+                    .map(|_| "Some(Arc<CircuitBreakerManager>)")
+                    .unwrap_or("None"),
+            )
+            .field("operational_state_manager", &"OperationalStateManager")
+            .finish()
+    }
+}
+
+impl OrchestrationCore {
+    /// Create OrchestrationCore with environment-aware configuration loading
+    ///
+    /// This is the primary initialization method that auto-detects environment and loads
+    /// the appropriate configuration, then bootstraps all orchestration components
+    /// with the parsed configuration settings.
+    ///
+    /// # Returns
+    /// Fully configured OrchestrationCore with all components initialized from configuration
+    pub async fn new() -> TaskerResult<Self> {
+        info!("🔧 Initializing OrchestrationCore with auto-detected environment configuration");
+
+        // Auto-detect environment and load configuration
+        let config_manager = tasker_shared::config::ConfigManager::load().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
+        })?;
+
+        Self::from_config(config_manager).await
+    }
+
+    /// Create OrchestrationCore from configuration manager
+    ///
+    /// This method provides the complete initialization path with configuration
+    /// support, including circuit breaker integration based on config settings.
+    ///
+    /// # Arguments
+    /// * `config_manager` - Loaded configuration manager (wrapped in Arc)
+    ///
+    /// # Returns
+    /// Initialized OrchestrationCore with all configuration applied
+    pub async fn from_config(config_manager: Arc<ConfigManager>) -> TaskerResult<Self> {
+        info!("🔧 Initializing OrchestrationCore from configuration (environment-aware)");
+
+        let config = config_manager.config();
+
+        // Extract database connection settings from configuration
+        let database_url = config.database_url();
+        info!(
+            "📊 CORE: Database URL derived from config: {} (pool options: {:?})",
+            database_url.chars().take(30).collect::<String>(),
+            config.database.pool
+        );
+
+        // Create database connection pool with configuration
+        let database_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.database.pool.max_connections)
+            .min_connections(config.database.pool.min_connections)
+            .acquire_timeout(std::time::Duration::from_secs(
+                config.database.checkout_timeout,
+            ))
+            .max_lifetime(std::time::Duration::from_secs(
+                config.database.pool.max_lifetime_seconds,
+            ))
+            .idle_timeout(Some(std::time::Duration::from_secs(
+                config.database.reaping_frequency,
+            )))
+            .connect(&database_url)
+            .await
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!(
+                    "Failed to connect to database with config: {e}"
+                ))
+            })?;
+
+        info!("✅ CORE: Database connection established from configuration");
+
+        // Circuit breaker configuration
+        let circuit_breaker_config = if config.circuit_breakers.enabled {
+            info!("🛡️ CORE: Circuit breakers enabled in configuration");
+            Some(config.circuit_breakers.clone())
+        } else {
+            info!("📤 CORE: Circuit breakers disabled in configuration");
+            None
+        };
+
+        // Pass config_manager (already Arc) for component initialization
+        Self::from_pool_and_config(database_pool, config_manager, circuit_breaker_config).await
+    }
+
+    /// Internal constructor with full configuration support
+    ///
+    /// This method contains the unified bootstrap logic that creates all orchestration
+    /// components with proper configuration passed to each component.
+    async fn from_pool_and_config(
+        database_pool: PgPool,
+        config_manager: Arc<ConfigManager>,
+        circuit_breaker_config: Option<CircuitBreakerConfig>,
+    ) -> TaskerResult<Self> {
+        info!("🏗️ Creating orchestration components with unified configuration");
+
+        let config = config_manager.config();
+
+        // Create circuit breaker manager if enabled
+        let (circuit_breaker_manager, pgmq_client): (
+            Option<Arc<CircuitBreakerManager>>,
+            Arc<UnifiedPgmqClient>,
+        ) = if let Some(cb_config) = circuit_breaker_config {
+            info!("🛡️ Circuit breakers enabled - creating ProtectedPgmqClient with configuration");
+            let manager = Arc::new(CircuitBreakerManager::from_config(&cb_config));
+            let protected_client =
+                ProtectedPgmqClient::new_with_pool_and_config(database_pool.clone(), &cb_config)
+                    .await;
+            (
+                Some(manager),
+                Arc::new(UnifiedPgmqClient::Protected(protected_client)),
+            )
+        } else {
+            info!("📤 Circuit breakers disabled - using standard PgmqClient");
+            let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
+            (None, Arc::new(UnifiedPgmqClient::Standard(standard_client)))
+        };
+
+        // Create task handler registry with configuration
+        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
+
+        // Create task initializer with proper configuration support using for_testing approach
+        // This approach sets up both TaskHandlerRegistry and TaskConfigFinder correctly
+        let task_initializer = Arc::new(TaskInitializer::for_testing(database_pool.clone()));
+
+        // Create orchestration loop configuration from environment config
+        let orchestration_loop_config =
+            OrchestrationLoopConfig::from_config_manager(&config_manager);
+
+        // Create orchestration loop with environment-configured instance ID
+        let orchestrator_id = format!(
+            "orch-{}-{}",
+            config.execution.environment,
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("default")
+        );
+
+        let orchestration_loop = Arc::new({
+            info!("🛡️ CORE: OrchestrationLoop using unified client with circuit breaker support");
+            OrchestrationLoop::with_unified_client(
+                database_pool.clone(),
+                pgmq_client.clone(),
+                orchestrator_id,
+                orchestration_loop_config.clone(),
+                config.clone(),
+            )
+            .await?
+        });
+
+        // Create task request processor configuration from environment config
+        let task_request_config = TaskRequestProcessorConfig {
+            request_queue_name: config.orchestration.task_requests_queue_name.clone(),
+            polling_interval_seconds: (config.orchestration.task_request_polling_interval_ms
+                / 1000),
+            visibility_timeout_seconds: config.orchestration.task_request_visibility_timeout_seconds
+                as i32,
+            batch_size: config.orchestration.task_request_batch_size as i32,
+            max_processing_attempts: 3, // Keep default for now
+        };
+
+        let task_request_processor = Arc::new(TaskRequestProcessor::new(
+            pgmq_client.clone(),
+            task_handler_registry.clone(),
+            task_initializer.clone(),
+            task_request_config,
+        ));
+
+        // Create step result processor with configuration
+        let step_result_processor = Arc::new(
+            StepResultProcessor::new(database_pool.clone(), pgmq_client.clone(), config.clone())
+                .await?,
+        );
+
+        // Create operational state manager for shutdown-aware health monitoring (TAS-37 Supplemental)
+        let operational_state_manager = OperationalStateManager::new();
+
+        // Transition to Normal operation immediately after successful component initialization
+        if let Err(e) = operational_state_manager
+            .transition_to(SystemOperationalState::Normal)
+            .await
+        {
+            return Err(TaskerError::OrchestrationError(format!(
+                "Failed to transition to normal operation state: {e}"
+            )));
+        }
+
+        info!("✅ CORE: Operational state transitioned to Normal operation");
+
+        info!("✅ OrchestrationCore components created successfully");
+
+        Ok(Self {
+            pgmq_client,
+            database_pool,
+            task_initializer,
+            task_request_processor,
+            orchestration_loop,
+            step_result_processor,
+            task_handler_registry,
+            circuit_breaker_manager,
+            operational_state_manager,
+        })
+    }
+
+    /// Initialize a task using the unified task initializer
+    pub async fn initialize_task(
+        &self,
+        task_request: TaskRequest,
+    ) -> TaskerResult<TaskInitializationResult> {
+        let name = task_request.name.clone();
+        let namespace = task_request.namespace.clone();
+        let version = task_request.version.clone();
+
+        info!(
+            namespace = %namespace,
+            name = %name,
+            version = %task_request.version,
+            "🚀 CORE: Initializing task via unified orchestration core"
+        );
+
+        let result = self
+            .task_initializer
+            .create_task_from_request(task_request)
+            .await
+            .map_err(|e| TaskerError::TaskInitializationError {
+                message: format!("Failed to initialize task: {e}"),
+                name: name,
+                namespace: namespace,
+                version: version,
+            })?;
+
+        info!(
+            task_uuid = result.task_uuid.to_string(),
+            step_count = result.step_count,
+            "✅ CORE: Task initialized successfully"
+        );
+
+        Ok(result)
+    }
+
+    /// Initialize standard namespace queues
+    pub async fn initialize_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
+        info!("🏗️ CORE: Initializing namespace queues via unified client");
+
+        self.pgmq_client
+            .initialize_namespace_queues(namespaces)
+            .await
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to initialize queues: {e}"))
+            })?;
+
+        info!("✅ CORE: All namespace queues initialized");
+        Ok(())
+    }
+
+    /// Get database pool reference
+    pub fn database_pool(&self) -> &PgPool {
+        &self.database_pool
+    }
+
+    /// Get PGMQ client reference
+    pub fn pgmq_client(&self) -> Arc<UnifiedPgmqClient> {
+        self.pgmq_client.clone()
+    }
+
+    /// Get circuit breaker manager if enabled
+    pub fn circuit_breaker_manager(&self) -> Option<Arc<CircuitBreakerManager>> {
+        self.circuit_breaker_manager.clone()
+    }
+
+    /// Check if circuit breakers are enabled
+    pub fn circuit_breakers_enabled(&self) -> bool {
+        self.circuit_breaker_manager.is_some()
+    }
+
+    /// Enqueue ready steps for a task (compatibility method for embedded testing)
+    ///
+    /// This method triggers a single orchestration cycle to enqueue any steps that
+    /// are ready for the specified task. In production, the OrchestrationLoop handles
+    /// this automatically through continuous processing.
+    pub async fn enqueue_ready_steps(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<crate::orchestration::OrchestrationCycleResult> {
+        info!(
+            task_uuid = task_uuid.to_string(),
+            "🚀 CORE: Enqueueing ready steps for task via orchestration cycle"
+        );
+
+        // Run a single orchestration cycle which will discover and enqueue ready steps
+        let result = self.orchestration_loop.run_cycle().await?;
+
+        info!(
+            task_uuid = task_uuid.to_string(),
+            tasks_processed = result.tasks_processed,
+            steps_enqueued = result.total_steps_enqueued,
+            "✅ CORE: Orchestration cycle completed - steps enqueued"
+        );
+
+        Ok(result)
+    }
+
+    /// Transition the orchestration system to graceful shutdown state (TAS-37 Supplemental)
+    ///
+    /// This method signals that the system is intentionally shutting down, enabling
+    /// context-aware health monitoring to suppress false alerts during planned operations.
+    pub async fn transition_to_graceful_shutdown(&self) -> TaskerResult<()> {
+        info!(
+            "🛑 CORE: Transitioning to graceful shutdown state for context-aware health monitoring"
+        );
+
+        self.operational_state_manager
+            .transition_to(SystemOperationalState::GracefulShutdown)
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to transition to graceful shutdown: {e}"
+                ))
+            })?;
+
+        info!("✅ CORE: Operational state transitioned to graceful shutdown");
+        Ok(())
+    }
+
+    /// Get current operational state (TAS-37 Supplemental)
+    pub async fn operational_state(&self) -> SystemOperationalState {
+        self.operational_state_manager.current_state().await
+    }
+
+    /// Check if system should suppress health alerts (TAS-37 Supplemental)
+    pub async fn should_suppress_health_alerts(&self) -> bool {
+        self.operational_state_manager
+            .should_suppress_alerts()
+            .await
+    }
+}

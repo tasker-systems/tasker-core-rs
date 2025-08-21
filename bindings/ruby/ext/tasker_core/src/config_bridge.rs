@@ -9,7 +9,7 @@ use dotenvy::dotenv;
 use magnus::{prelude::*, Error, IntoValue, RArray, RHash, RModule, Ruby, Value};
 use serde_json::Value as JsonValue;
 use std::path::PathBuf;
-use tasker_core::ffi::shared::WorkerConfigManager;
+use tasker_shared::ffi::shared::WorkerConfigManager;
 
 /// Ruby wrapper for WorkerConfigManager
 ///
@@ -157,7 +157,7 @@ impl RubyConfigManager {
     /// # Returns
     /// * Ruby String with detected environment name
     fn detect_environment() -> String {
-        tasker_core::config::unified_loader::UnifiedConfigLoader::detect_environment()
+        tasker_shared::config::unified_loader::UnifiedConfigLoader::detect_environment()
     }
 }
 

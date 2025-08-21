@@ -8,16 +8,16 @@
 /// Initialize FFI logging (now just ensures main logging is available)
 pub fn init_ffi_logger() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize main structured logging if not already done
-    tasker_core::logging::init_structured_logging();
+    tasker_shared::logging::init_structured_logging();
 
     // Use unified logging macro instead of file logging
-    tasker_core::log_ffi!(info, "FFI logging initialized", component: "ffi_boundary");
+    tasker_shared::log_ffi!(info, "FFI logging initialized", component: "ffi_boundary");
     Ok(())
 }
 
 /// Log a debug message using unified FFI logging
 pub fn log_ffi_debug(component: &str, message: &str) {
-    tasker_core::log_ffi!(debug, message, component: component);
+    tasker_shared::log_ffi!(debug, message, component: component);
 }
 
 /// Log task initialization data for debugging
@@ -26,7 +26,7 @@ pub fn log_task_init_data(stage: &str, data: &serde_json::Value) {
     let data_str =
         serde_json::to_string_pretty(data).unwrap_or_else(|_| "SERIALIZATION_ERROR".to_string());
 
-    tasker_core::log_ffi!(debug, operation,
+    tasker_shared::log_ffi!(debug, operation,
         component: "initialize_task",
         stage: stage,
         data_preview: &data_str[0..data_str.len().min(200)] // Limit preview size
@@ -35,7 +35,7 @@ pub fn log_task_init_data(stage: &str, data: &serde_json::Value) {
 
 /// Log the result data before returning to Ruby
 pub fn log_task_init_result(result: &crate::types::TaskHandlerInitializeResult) {
-    tasker_core::log_ffi!(debug, "Task initialization result",
+    tasker_shared::log_ffi!(debug, "Task initialization result",
         component: "initialize_task",
         stage: "RESULT",
         task_uuid: result.task_uuid,
@@ -54,7 +54,7 @@ pub fn log_magnus_value(stage: &str, value: magnus::Value) {
         .and_then(|c: magnus::Value| c.funcall("name", ()));
 
     let operation = format!("Magnus value at {stage}");
-    tasker_core::log_ffi!(debug, operation,
+    tasker_shared::log_ffi!(debug, operation,
         component: "magnus_inspection",
         stage: stage,
         class_name: &class_name.unwrap_or_else(|_| "UNKNOWN".to_string()),
@@ -71,7 +71,7 @@ pub fn log_ffi_boundary(direction: &str, component: &str, data: &str) {
         data
     };
 
-    tasker_core::log_ffi!(debug, operation,
+    tasker_shared::log_ffi!(debug, operation,
         component: "ffi_boundary",
         direction: direction,
         boundary_component: component,

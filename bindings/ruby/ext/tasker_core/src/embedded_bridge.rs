@@ -13,11 +13,11 @@ use magnus::{function, prelude::*, Error, RHash, RModule, Value};
 use serde::{Deserialize, Serialize};
 use serde_magnus::{deserialize, serialize};
 use std::sync::{Arc, Mutex};
-use tasker_core::ffi::shared::test_database_management::TestDatabaseManager;
-use tasker_core::orchestration::{
+tasker_shared::use tasker_shared::orchestration::{
     bootstrap::{OrchestrationBootstrap, OrchestrationSystemHandle},
     OrchestrationCore,
 };
+use tasker_shared::ffi::shared::test_database_management::TestDatabaseManager;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -137,13 +137,13 @@ impl RubyTaskRequest {
     /// Convert RubyTaskRequest to core TaskRequest
     fn into_task_request(
         self,
-    ) -> Result<tasker_core::models::core::task_request::TaskRequest, Error> {
+    ) -> Result<tasker_shared::models::core::task_request::TaskRequest, Error> {
         // Parse requested_at timestamp
         let requested_at =
             chrono::NaiveDateTime::parse_from_str(&self.requested_at, "%Y-%m-%dT%H:%M:%S")
                 .unwrap_or_else(|_| chrono::Utc::now().naive_utc());
 
-        Ok(tasker_core::models::core::task_request::TaskRequest {
+        Ok(tasker_shared::models::core::task_request::TaskRequest {
             namespace: self.namespace,
             name: self.name,
             version: self.version,
@@ -190,7 +190,7 @@ struct TaskMetadata {
 impl TaskInitializationResponse {
     /// Create response from orchestration result
     fn from_orchestration_result(
-        result: tasker_core::orchestration::task_initializer::TaskInitializationResult,
+        result: tasker_shared::orchestration::task_initializer::TaskInitializationResult,
     ) -> Self {
         Self {
             task_uuid: result.task_uuid,

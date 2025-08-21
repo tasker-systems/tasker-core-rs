@@ -1,6 +1,10 @@
 [workspace]
 members = [
-    ".",
+    ".",                    # Current crate temporarily remains during migration
+    "tasker-shared",
+    "tasker-orchestration",
+    "tasker-worker",
+    "pgmq-notify",
     # Note: bindings/ruby/ext/tasker_core is excluded - it has its own workspace for Ruby extension build
     # "bindings/python",  # Future
     # "bindings/wasm",    # Future
@@ -19,16 +23,9 @@ categories = ["concurrency", "database", "web-programming"]
 readme = "README.md"
 
 [lib]
-name = "tasker_core"
-crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
 
-# Binary targets
-[[bin]]
-name = "tasker-server"
-path = "src/bin/tasker-server.rs"
-required-features = ["web-api"]
-
-[dependencies]
+[workspace.dependencies]
 # Async runtime and utilities
 tokio = { version = "1.46", features = ["full"] }
 async-trait = "0.1"
@@ -57,19 +54,15 @@ serde_yaml = "0.9"
 toml = "0.8"
 
 # Web framework and HTTP server (TAS-28)
-axum = { version = "0.7", optional = true }
-axum-extra = { version = "0.9", features = ["typed-header"], optional = true }
-tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = [
-    "cors",
-    "trace",
-    "timeout",
-], optional = true }
-jsonwebtoken = { version = "9", optional = true }
-rsa = { version = "0.9", optional = true }
+axum = "0.7"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4" }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
+jsonwebtoken = { version = "9" }
+rsa = { version = "0.9" }
 # OpenAPI documentation
-utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"], optional = true }
-utoipa-swagger-ui = { version = "7.1", features = ["axum"], optional = true }
+utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
 
 # Time and date handling
 chrono = { version = "0.4.38", features = ["serde"] }
@@ -101,21 +94,10 @@ dotenvy = "0.15" # For loading .env files
 
 # Random number generation
 fastrand = "2.0"
-
-# FFI support to be added in bindings and workers
-# magnus = { version = "0.7", optional = true }
-# pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
-# wasm-bindgen = { version = "0.2", optional = true }
-# wasm-bindgen-futures = { version = "0.4", optional = true }
-# js-sys = { version = "0.3", optional = true }
-# web-sys = { version = "0.3", optional = true }
-
-# Development and testing
-criterion = { version = "0.5.1", optional = true }
 rand = "0.9.1"
 workspace_tools = { version = "0.2.0", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
-[dev-dependencies]
 # Testing tools
 tokio-test = "0.4"
 tempfile = "3.0"
@@ -125,29 +107,17 @@ mockall = "0.13"
 factori = "1.1"
 url = "2.0"
 serial_test = "3.1"
-
-# Web API testing
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 # Coverage tools (used in CI)
 cargo-llvm-cov = "0.6"
-
-[features]
-default = ["postgres", "test-utils", "web-api"]
-postgres = ["sqlx/postgres"]
-web-api = ["axum", "axum-extra", "tower", "tower-http", "jsonwebtoken", "rsa", "utoipa", "utoipa-swagger-ui"]
+criterion = { version = "0.5.1" }
+nextest = "0.1.1"
 # FFI support to be added in bindings and workers
-# ruby-ffi = ["magnus"]
-# python-ffi = ["pyo3"]
-# wasm-ffi = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
-benchmarks = ["criterion"]
-test-helpers = []
-test-utils = []
-
-[[bench]]
-name = "core_benchmarks"
-harness = false
-required-features = ["benchmarks"]
-
+# magnus = { version = "0.7", optional = true }
+# pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
+# wasm-bindgen = { version = "0.2", optional = true }
+# wasm-bindgen-futures = { version = "0.4", optional = true }
+# js-sys = { version = "0.3", optional = true }
+# web-sys = { version = "0.3", optional = true }
 
 [profile.release]
 opt-level = 3

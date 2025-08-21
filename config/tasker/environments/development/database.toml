@@ -1,8 +1,7 @@
 [database]
-pool_size = 10
-pool_timeout_seconds = 5
-connection_timeout_seconds = 5
-idle_timeout_seconds = 300
+# Legacy pool_size removed - now using structured pool configuration below
+checkout_timeout = 5
+reaping_frequency = 10
 prepared_statements = true
 statement_cache_size = 100
 

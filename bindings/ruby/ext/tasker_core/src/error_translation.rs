@@ -15,7 +15,7 @@
 //! - **Better Integration**: Aligns with shared orchestration system error handling
 
 use magnus::{exception, Error, RHash};
-use tasker_core::ffi::shared::errors::SharedFFIError;
+use tasker_shared::ffi::shared::errors::SharedFFIError;
 use tracing::debug;
 
 /// **MIGRATED**: Convert SharedFFIError to appropriate Ruby exceptions
@@ -278,13 +278,13 @@ pub fn permanent_error(
 
 /// **NEW**: Translate configuration errors to Ruby exceptions
 /// This provides Ruby-specific error translation for the WorkerConfigManager
-pub fn translate_config_error(error: tasker_core::config::error::ConfigurationError) -> Error {
+pub fn translate_config_error(error: tasker_shared::config::error::ConfigurationError) -> Error {
     debug!(
         "🔧 Ruby FFI: Converting ConfigurationError to Ruby exception: {:?}",
         error
     );
 
-    use tasker_core::config::error::ConfigurationError;
+    use tasker_shared::config::error::ConfigurationError;
 
     match error {
         ConfigurationError::ConfigFileNotFound { searched_paths } => Error::new(

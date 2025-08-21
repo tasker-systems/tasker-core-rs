@@ -1,0 +1,122 @@
+[package]
+name = "tasker-worker"
+version = "0.1.0"
+edition = "2021"
+authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
+description = "Worker foundation system for multi-language step execution"
+license = "MIT"
+
+[lib]
+name = "tasker_worker"
+crate-type = ["rlib"]
+
+# Binary targets
+# [[bin]]
+# name = "tasker-worker"
+# path = "src/bin/worker.rs"
+# required-features = ["web-api"]
+
+[dependencies]
+tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }
+# Web framework and HTTP server (TAS-28)
+axum = { workspace = true, optional = true }
+axum-extra = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+rsa = { workspace = true, optional = true }
+# OpenAPI documentation
+utoipa = { workspace = true, optional = true }
+utoipa-swagger-ui = { workspace = true, optional = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Database and ORM
+sqlx = { workspace = true, optional = true }
+pgmq = { workspace = true }
+rust_decimal = { workspace = true }
+bigdecimal = { workspace = true }
+uuid = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
+
+# Time and date handling
+chrono = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# System information
+sysinfo = { workspace = true }
+
+# Logging and telemetry
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+structured-logger = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+
+# Concurrency and state management
+parking_lot = { workspace = true }
+# dashmap = { workspace = true }
+crossbeam = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+regex = { workspace = true }
+dotenvy = { workspace = true } # For loading .env files
+
+# Random number generation
+fastrand = { workspace = true }
+
+# Development and testing
+criterion = { workspace = true, optional = true }
+rand = { workspace = true }
+workspace_tools = { workspace = true }
+
+# Web API testing and API Integration
+reqwest = { workspace = true }
+
+[dev-dependencies]
+# Testing tools
+tokio-test = { workspace = true }
+tempfile = { workspace = true }
+proptest = { workspace = true }
+insta = { workspace = true }
+mockall = { workspace = true }
+factori = { workspace = true }
+url = { workspace = true }
+serial_test = { workspace = true }
+nextest = { workspace = true }
+
+# Coverage tools (used in CI)
+cargo-llvm-cov = { workspace = true }
+
+[features]
+default = ["postgres", "test-utils", "web-api"]
+postgres = ["sqlx/postgres"]
+web-api = [
+    "axum",
+    "axum-extra",
+    "tower",
+    "tower-http",
+    "jsonwebtoken",
+    "rsa",
+    "utoipa",
+    "utoipa-swagger-ui",
+]
+benchmarks = ["criterion"]
+test-utils = []
+
+[[bench]]
+name = "worker_benchmarks"
+harness = false
+required-features = ["benchmarks"]
