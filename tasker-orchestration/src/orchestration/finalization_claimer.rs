@@ -19,7 +19,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::finalization_claimer::FinalizationClaimer;
+//! use tasker_orchestration::orchestration::FinalizationClaimer;
 //! use sqlx::PgPool;
 //! use uuid::Uuid;
 //!

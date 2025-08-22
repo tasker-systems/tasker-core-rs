@@ -34,16 +34,18 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::step_result_processor::StepResultProcessor;
+//! use tasker_orchestration::orchestration::step_result_processor::StepResultProcessor;
 //! use tasker_shared::messaging::UnifiedPgmqClient;
+//! use tasker_shared::config::TaskerConfig;
 //! use std::sync::Arc;
 //!
-//! # async fn example() -> TaskerResult<(), Box<dyn std::error::Error>> {
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
 //! # let pgmq_client = Arc::new(UnifiedPgmqClient::Standard(
 //! #     tasker_shared::messaging::PgmqClient::new_with_pool(pool.clone()).await
 //! # ));
-//! let processor = StepResultProcessor::new(pool, pgmq_client).await?;
+//! # let config = TaskerConfig::default();
+//! let processor = StepResultProcessor::new(pool, pgmq_client, config).await?;
 //!
 //! // Process step results continuously
 //! processor.start_processing_loop().await?;

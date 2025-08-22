@@ -15,28 +15,28 @@
 //!
 //! ## Usage:
 //!
-//! ```rust
-//! use tasker_shared::orchestration::system_events::{SystemEventsConfig, EventMetadata};
-//!
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let events_config = SystemEventsConfig::load_from_file("config/system_events.yaml").await?;
-//!
-//! // Get metadata for a specific event
-//! let step_completed_metadata = events_config.get_event_metadata("step", "completed")?;
-//! assert_eq!(step_completed_metadata.description, "Fired when a step completes successfully");
-//!
-//! // Check state transitions
-//! let transitions = events_config.get_step_transitions();
-//! assert!(!transitions.is_empty());
-//!
-//! // Verify we can find specific transitions
-//! let pending_to_progress = transitions.iter()
-//!     .find(|t| t.from_state == Some("pending".to_string()) && t.to_state == "in_progress");
-//! assert!(pending_to_progress.is_some());
-//! # Ok(())
-//! # }
-//! ```
+/// ```rust,no_run
+/// use tasker_orchestration::orchestration::{SystemEventsConfig, EventMetadata};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let events_config = SystemEventsConfig::load_from_file("config/system_events.yaml").await?;
+///
+/// // Get metadata for a specific event
+/// let step_completed_metadata = events_config.get_event_metadata("step", "completed")?;
+/// assert_eq!(step_completed_metadata.description, "Fired when a step completes successfully");
+///
+/// // Check state transitions
+/// let transitions = events_config.get_step_transitions();
+/// assert!(!transitions.is_empty());
+///
+/// // Verify we can find specific transitions
+/// let pending_to_progress = transitions.iter()
+///     .find(|t| t.from_state == Some("pending".to_string()) && t.to_state == "in_progress");
+/// assert!(pending_to_progress.is_some());
+/// # Ok(())
+/// # }
+/// ```
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

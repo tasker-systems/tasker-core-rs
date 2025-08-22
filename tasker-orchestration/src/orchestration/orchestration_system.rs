@@ -58,10 +58,11 @@ impl OrchestrationSystem {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use tasker_shared::orchestration::{OrchestrationSystem, config::ConfigurationManager};
+    /// use tasker_orchestration::orchestration::{OrchestrationSystem, ConfigurationManager};
+    /// use tasker_orchestration::TaskerResult;
     ///
     /// #[tokio::main]
-    /// async fn main() -> TaskerResult<(), Box<dyn std::error::Error>> {
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Load configuration using component-based config
     ///     let config_manager = ConfigurationManager::new();
     ///

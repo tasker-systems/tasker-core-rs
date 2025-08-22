@@ -29,8 +29,8 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::workflow_coordinator::{WorkflowCoordinator, WorkflowCoordinatorConfig};
-//! use tasker_shared::orchestration::config::ConfigurationManager;
+//! use tasker_orchestration::orchestration::{WorkflowCoordinator, WorkflowCoordinatorConfig};
+//! use tasker_orchestration::orchestration::ConfigurationManager;
 //! use tasker_shared::events::publisher::EventPublisher;
 //! use tasker_shared::messaging::PgmqClient;
 //! use std::sync::Arc;
@@ -51,16 +51,16 @@
 //! let result = coordinator.execute_task_workflow(task_uuid).await?;
 //!
 //! match result {
-//!     tasker_shared::orchestration::TaskOrchestrationResult::Complete { .. } => {
+//!     tasker_shared::types::TaskOrchestrationResult::Complete { .. } => {
 //!         println!("Task completed successfully!");
 //!     },
-//!     tasker_shared::orchestration::TaskOrchestrationResult::Published { .. } => {
+//!     tasker_shared::types::TaskOrchestrationResult::Published { .. } => {
 //!         println!("Task steps published, continuing asynchronously");
 //!     },
-//!     tasker_shared::orchestration::TaskOrchestrationResult::Failed { .. } => {
+//!     tasker_shared::types::TaskOrchestrationResult::Failed { .. } => {
 //!         println!("Task failed");
 //!     },
-//!     tasker_shared::orchestration::TaskOrchestrationResult::Blocked { .. } => {
+//!     tasker_shared::types::TaskOrchestrationResult::Blocked { .. } => {
 //!         println!("Task blocked waiting for dependencies");
 //!     }
 //! }

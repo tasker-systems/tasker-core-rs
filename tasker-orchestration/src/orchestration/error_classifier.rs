@@ -31,10 +31,10 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::error_classifier::{
+//! use tasker_orchestration::orchestration::{
 //!     StandardErrorClassifier, ErrorClassifier, ErrorContext
 //! };
-//! use tasker_shared::orchestration::errors::OrchestrationError;
+//! use tasker_shared::errors::OrchestrationError;
 //! use std::time::Duration;
 //! use std::collections::HashMap;
 //! use uuid::Uuid;

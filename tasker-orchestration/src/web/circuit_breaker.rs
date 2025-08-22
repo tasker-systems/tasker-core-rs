@@ -213,10 +213,10 @@ impl Default for WebDatabaseCircuitBreaker {
 ///
 /// # Example
 /// ```rust
-/// use tasker_shared::web::circuit_breaker::execute_with_circuit_breaker;
-/// use tasker_shared::web::state::AppState;
+/// use tasker_orchestration::web::circuit_breaker::execute_with_circuit_breaker;
+/// use tasker_orchestration::web::state::AppState;
 /// use tasker_shared::models::core::task::Task;
-/// use tasker_shared::web::response_types::ApiResult;
+/// use tasker_orchestration::web::response_types::ApiResult;
 ///
 /// async fn get_task_handler(state: &AppState, task_id: uuid::Uuid) -> ApiResult<Option<Task>> {
 ///     execute_with_circuit_breaker(state, || async {

@@ -21,8 +21,8 @@
 //! ## Usage
 //!
 //! ```rust
-//! use tasker_shared::orchestration::TaskInitializer;
-//! use tasker_shared::orchestration::handler_config::HandlerConfiguration;
+//! use tasker_orchestration::orchestration::TaskInitializer;
+//! use tasker_orchestration::orchestration::handler_config::HandlerConfiguration;
 //! use tasker_shared::models::core::task_request::TaskRequest;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {

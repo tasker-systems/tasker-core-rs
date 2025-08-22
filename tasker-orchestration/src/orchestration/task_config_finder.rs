@@ -26,8 +26,8 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::task_config_finder::TaskConfigFinder;
-//! use tasker_shared::orchestration::config::ConfigurationManager;
+//! use tasker_orchestration::orchestration::task_config_finder::TaskConfigFinder;
+//! use tasker_orchestration::orchestration::config::ConfigurationManager;
 //! use tasker_shared::registry::TaskHandlerRegistry;
 //! use std::sync::Arc;
 //! use sqlx::PgPool;

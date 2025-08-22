@@ -214,7 +214,7 @@ impl fmt::Display for SystemOperationalState {
 /// # Example
 ///
 /// ```rust,no_run
-/// use tasker_shared::orchestration::coordinator::operational_state::{
+/// use tasker_orchestration::orchestration::coordinator::operational_state::{
 ///     OperationalStateManager, SystemOperationalState
 /// };
 ///

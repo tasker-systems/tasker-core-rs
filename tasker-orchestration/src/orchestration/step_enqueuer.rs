@@ -25,11 +25,11 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::{step_enqueuer::StepEnqueuer, task_claimer::ClaimedTask};
+//! use tasker_orchestration::orchestration::{step_enqueuer::StepEnqueuer, task_claimer::ClaimedTask};
 //! use tasker_shared::messaging::{PgmqClient, UnifiedPgmqClient};
 //! use uuid::Uuid;
 //!
-//! # async fn example() -> TaskerResult<(), Box<dyn std::error::Error>> {
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
 //! # let database_url = "postgresql://localhost/test";
 //! # let pgmq_client = PgmqClient::new(database_url).await

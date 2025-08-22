@@ -34,7 +34,7 @@
 //! ## Usage:
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::config::ConfigurationManager;
+//! use tasker_orchestration::orchestration::ConfigurationManager;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {

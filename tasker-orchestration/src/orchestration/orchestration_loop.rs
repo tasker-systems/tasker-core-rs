@@ -25,24 +25,28 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::orchestration_loop::{OrchestrationLoop, OrchestrationLoopConfig};
+//! use tasker_orchestration::orchestration::orchestration_loop::OrchestrationLoop;
+//! use tasker_shared::config::orchestration::OrchestrationLoopConfig;
+//! use tasker_shared::config::TaskerConfig;
 //! use tasker_shared::messaging::{PgmqClient, UnifiedPgmqClient};
 //! use sqlx::PgPool;
 //! use std::sync::Arc;
 //!
-//! # async fn example(pool: PgPool) -> TaskerResult<(), Box<dyn std::error::Error>> {
+//! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let database_url = "postgresql://localhost/tasker";
 //! let pgmq_client = PgmqClient::new(database_url).await
 //!     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
 //! let unified_client = Arc::new(UnifiedPgmqClient::Standard(pgmq_client));
 //! let orchestrator_id = "orchestrator-host123-uuid".to_string();
 //! let config = OrchestrationLoopConfig::default();
+//! let tasker_config = TaskerConfig::default();
 //!
 //! let orchestration_loop = OrchestrationLoop::with_unified_client(
 //!     pool,
 //!     unified_client,
 //!     orchestrator_id,
 //!     config,
+//!     tasker_config,
 //! ).await?;
 //!
 //! // Run a single orchestration cycle

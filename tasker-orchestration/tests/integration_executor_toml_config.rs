@@ -25,6 +25,9 @@ async fn test_toml_executor_configuration_loading() {
     // This test verifies that executor configuration is correctly loaded from TOML
     // and used to create properly configured executors
 
+    // Load .env file before configuration loading to ensure DATABASE_URL is available
+    dotenvy::dotenv().ok();
+
     let config_manager = ConfigManager::load().expect("Failed to load configuration");
 
     // Check that executor pools configuration is available
@@ -53,6 +56,9 @@ async fn test_toml_executor_configuration_loading() {
 async fn test_environment_specific_executor_configuration() {
     // This test verifies that test environment has different executor pool settings
     // than production, demonstrating environment-aware configuration
+
+    // Load .env file before configuration loading to ensure DATABASE_URL is available
+    dotenvy::dotenv().ok();
 
     let config_manager =
         ConfigManager::load_from_env("test").expect("Failed to load test configuration");
@@ -92,6 +98,9 @@ async fn test_environment_specific_executor_configuration() {
 async fn test_executor_creation_from_toml_config() {
     // This test verifies that executors can be created using TOML configuration
     // and that the configuration values are properly applied
+
+    // Load .env file before configuration loading to ensure DATABASE_URL is available
+    dotenvy::dotenv().ok();
 
     let config_manager =
         ConfigManager::load_from_env("test").expect("Failed to load test configuration");
@@ -136,6 +145,9 @@ async fn test_executor_creation_from_toml_config() {
 async fn test_executor_config_type_conversion() {
     // This test verifies that ExecutorInstanceConfig correctly converts to ExecutorConfig
     // and that all configuration values are preserved
+
+    // Load .env file before configuration loading to ensure DATABASE_URL is available
+    dotenvy::dotenv().ok();
 
     let config_manager =
         ConfigManager::load_from_env("test").expect("Failed to load test configuration");
@@ -195,6 +207,9 @@ async fn test_executor_config_type_conversion() {
 async fn test_executor_pool_defaults_when_yaml_missing() {
     // This test verifies that when executor_pools is not specified in YAML,
     // sensible defaults are provided that allow the system to function
+
+    // Load .env file before configuration loading to ensure DATABASE_URL is available
+    dotenvy::dotenv().ok();
 
     let config_manager = ConfigManager::load().expect("Failed to load configuration");
 

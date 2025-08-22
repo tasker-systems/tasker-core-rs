@@ -30,7 +30,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::{TaskEnqueuer, EnqueueRequest, EnqueueHandler, EnqueuePriority};
+//! use tasker_orchestration::orchestration::{TaskEnqueuer, EnqueueRequest, EnqueueHandler, EnqueuePriority};
 //! use tasker_shared::models::Task;
 //! use sqlx::PgPool;
 //!

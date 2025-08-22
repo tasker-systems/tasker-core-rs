@@ -17,10 +17,10 @@
 //! ## Usage
 //!
 //! ```rust
-//! use tasker_shared::orchestration::task_claimer::TaskClaimer;
+//! use tasker_orchestration::orchestration::task_claimer::TaskClaimer;
 //! use sqlx::PgPool;
 //!
-//! # async fn example(pool: PgPool) -> TaskerResult<(), Box<dyn std::error::Error>> {
+//! # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //! let claimer = TaskClaimer::new(pool, "orchestrator-host123-uuid".to_string());
 //!
 //! // Claim up to 5 tasks with priority fairness

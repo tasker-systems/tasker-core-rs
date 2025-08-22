@@ -17,8 +17,8 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use tasker_shared::orchestration::state_manager::StateManager;
+//! ```rust,no_run
+//! use tasker_orchestration::orchestration::StateManager;
 //! use tasker_shared::events::publisher::EventPublisher;
 //! use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 //!

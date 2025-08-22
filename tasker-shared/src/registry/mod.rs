@@ -19,30 +19,21 @@
 //! ```text
 //! Registry Infrastructure
 //! ├── TaskHandlerRegistry   (Orchestration task handlers)
-//! ├── PluginRegistry        (Plugin lifecycle management)
-//! └── SubscriberRegistry    (Event subscription management)
 //! ```
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use tasker_shared::registry::{TaskHandlerRegistry, PluginRegistry, SubscriberRegistry};
+//! ```rust,no_run
+//! use tasker_shared::registry::TaskHandlerRegistry;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create task handler registry
 //! let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
 //! let task_handler_registry = TaskHandlerRegistry::new(pool);
+//!     Ok(())
+//! }
 //!
-//! // Create plugin registry
-//! let mut plugin_registry = PluginRegistry::new();
-//! plugin_registry.register_plugin("analytics", "1.0.0", "Analytics plugin").await?;
-//!
-//! // Create subscriber registry
-//! let subscriber_registry = SubscriberRegistry::new();
-//! // Register subscribers for events...
-//! # Ok(())
-//! # }
 //! ```
 
 pub mod task_handler_registry;

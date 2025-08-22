@@ -53,7 +53,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use tasker_shared::TaskerConfig;
+//! use tasker_shared::config::TaskerConfig;
 //!
 //! // Initialize configuration for tasker-core-rs
 //! let config = TaskerConfig::default();

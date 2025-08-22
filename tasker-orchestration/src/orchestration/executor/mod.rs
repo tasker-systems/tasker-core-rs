@@ -20,7 +20,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::orchestration::executor::{OrchestrationExecutor, BaseExecutor, ExecutorType};
+//! use tasker_orchestration::orchestration::{OrchestrationExecutor, BaseExecutor, ExecutorType};
 //! use sqlx::PgPool;
 //! use std::sync::Arc;
 //!

@@ -17,7 +17,7 @@
 //! ## Usage
 //!
 //! ```rust
-//! use tasker_shared::orchestration::viable_step_discovery::ViableStepDiscovery;
+//! use tasker_orchestration::orchestration::viable_step_discovery::ViableStepDiscovery;
 //! use tasker_shared::events::publisher::EventPublisher;
 //! use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 //!

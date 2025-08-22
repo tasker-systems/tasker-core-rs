@@ -23,30 +23,48 @@ use sqlx::{types::Uuid, PgPool};
 ///
 /// # Examples
 ///
-/// ```rust
-/// // Create a simple transition to 'complete' state
-/// let transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_uuid)
-///     .to_state("complete")
-///     .create(&pool)
-///     .await?;
+/// ```rust,no_run
+/// use sqlx::PgPool;
+/// use uuid::Uuid;
+/// use tasker_shared::models::factories::base::SqlxFactory;
+/// use tasker_shared::models::factories::core::WorkflowStepFactory;
+/// use tasker_shared::models::factories::states::WorkflowStepTransitionFactory;
 ///
-/// // Create a transition with error metadata
-/// let error_transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_uuid)
-///     .to_state("error")
-///     .with_error("Network timeout")
-///     .create(&pool)
-///     .await?;
+/// async fn create_workflow_transitions(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+///     // Create a workflow step first (required for transitions)
+///     let workflow_step = WorkflowStepFactory::new()
+///         .with_named_step("example_step")
+///         .create(pool)
+///         .await?;
 ///
-/// // Create a retry transition
-/// let retry_transition = WorkflowStepTransitionFactory::new()
-///     .for_workflow_step(step_uuid)
-///     .from_state("error")
-///     .to_state("pending")
-///     .with_retry_attempt(2)
-///     .create(&pool)
-///     .await?;
+///     let step_uuid = workflow_step.workflow_step_uuid;
+///
+///     // Create a simple transition to 'complete' state
+///     let transition = WorkflowStepTransitionFactory::new()
+///         .for_workflow_step(step_uuid)
+///         .to_state("complete")
+///         .create(pool)
+///         .await?;
+///
+///     // Create a transition with error metadata
+///     let error_transition = WorkflowStepTransitionFactory::new()
+///         .for_workflow_step(step_uuid)
+///         .to_state("error")
+///         .with_error("Network timeout")
+///         .create(pool)
+///         .await?;
+///
+///     // Create a retry transition
+///     let retry_transition = WorkflowStepTransitionFactory::new()
+///         .for_workflow_step(step_uuid)
+///         .from_state("error")
+///         .to_state("pending")
+///         .with_retry_attempt(2)
+///         .create(pool)
+///         .await?;
+///
+///     Ok(())
+/// }
 /// ```
 #[derive(Debug, Clone)]
 pub struct WorkflowStepTransitionFactory {
