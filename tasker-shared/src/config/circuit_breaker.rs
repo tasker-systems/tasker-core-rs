@@ -38,13 +38,13 @@ pub struct CircuitBreakerGlobalSettings {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CircuitBreakerComponentConfig {
     /// Number of consecutive failures before opening circuit
-    pub failure_threshold: usize,
+    pub failure_threshold: u32,
 
     /// Time to wait in open state before attempting recovery (in seconds)
     pub timeout_seconds: u64,
 
     /// Number of successful calls in half-open state to close circuit
-    pub success_threshold: usize,
+    pub success_threshold: u32,
 }
 
 impl CircuitBreakerConfig {

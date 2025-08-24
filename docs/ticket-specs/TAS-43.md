@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-The current orchestration system has an inherent throughput limitation due to its polling-based architecture. The `OrchestrationLoop::run_cycle()` method polls the `tasker_ready_tasks` view every second (configurable), creating several issues:
+The current orchestration system has an inherent throughput limitation due to its polling-based architecture. The `TaskClaimStepEnqueuer::process_batch()` method polls the `tasker_ready_tasks` view every second (configurable), creating several issues:
 
 1. **Latency**: Tasks wait up to `cycle_interval` before being discovered
 2. **Database Load**: Continuous polling even when no tasks are ready
@@ -87,9 +87,9 @@ BEGIN
     -- other steps might become ready due to dependency satisfaction
     IF NEW.to_state IN ('enqueued', 'complete', 'error', 'resolved_manually') OR
        OLD.to_state IN ('in_progress', 'enqueued') THEN
-        
+
         -- Get task and namespace information
-        SELECT 
+        SELECT
             t.task_uuid,
             t.priority,
             t.created_at,
@@ -101,20 +101,20 @@ BEGIN
         JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
         JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
         WHERE ws.workflow_step_uuid = NEW.workflow_step_uuid;
-        
+
         -- Skip if task is already complete
         IF task_info.complete THEN
             RETURN NEW;
         END IF;
-        
+
         -- Use existing get_task_execution_context() for proven readiness logic
         SELECT ready_steps, execution_status
         INTO execution_context
         FROM get_task_execution_context(task_info.task_uuid);
-        
+
         -- Only notify if task has ready steps (aligns with orchestration loop logic)
         IF execution_context.ready_steps > 0 AND execution_context.execution_status = 'has_ready_steps' THEN
-            
+
             -- Build minimal payload for pg_notify 8KB limit
             payload := jsonb_build_object(
                 'task_uuid', task_info.task_uuid,
@@ -125,16 +125,16 @@ BEGIN
                 'step_uuid', NEW.workflow_step_uuid,
                 'step_state', NEW.to_state
             );
-            
+
             -- Send namespace-specific notification
             PERFORM pg_notify('task_ready.' || task_info.namespace, payload::text);
-            
+
             -- Send global notification for coordinators listening to all namespaces
             PERFORM pg_notify('task_ready', payload::text);
-            
+
         END IF;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -155,9 +155,9 @@ DECLARE
 BEGIN
     -- Only process meaningful state transitions
     IF NEW.to_state != OLD.to_state OR OLD.to_state IS NULL THEN
-        
+
         -- Get task and namespace information
-        SELECT 
+        SELECT
             t.task_uuid,
             t.priority,
             t.created_at,
@@ -168,7 +168,7 @@ BEGIN
         JOIN tasker_named_tasks nt ON nt.named_task_uuid = t.named_task_uuid
         JOIN tasker_task_namespaces tn ON tn.task_namespace_uuid = nt.task_namespace_uuid
         WHERE t.task_uuid = NEW.task_uuid;
-        
+
         -- For task completion or error states, notify for cleanup/finalization
         IF NEW.to_state IN ('complete', 'error', 'cancelled') THEN
             payload := jsonb_build_object(
@@ -176,23 +176,23 @@ BEGIN
                 'namespace', task_info.namespace,
                 'task_state', NEW.to_state,
                 'triggered_by', 'task_transition',
-                'action_needed', CASE 
+                'action_needed', CASE
                     WHEN NEW.to_state = 'complete' THEN 'finalization'
                     WHEN NEW.to_state = 'error' THEN 'error_handling'
                     WHEN NEW.to_state = 'cancelled' THEN 'cleanup'
                 END
             );
-            
+
             PERFORM pg_notify('task_state_change.' || task_info.namespace, payload::text);
             PERFORM pg_notify('task_state_change', payload::text);
-            
+
         -- For new tasks (transitions to 'in_progress'), check for readiness
         ELSIF NEW.to_state = 'in_progress' AND (OLD.to_state IS NULL OR OLD.to_state = 'pending') THEN
             -- Use get_task_execution_context for consistency
             SELECT ready_steps, execution_status
             INTO execution_context
             FROM get_task_execution_context(task_info.task_uuid);
-            
+
             IF execution_context.ready_steps > 0 THEN
                 payload := jsonb_build_object(
                     'task_uuid', task_info.task_uuid,
@@ -202,13 +202,13 @@ BEGIN
                     'triggered_by', 'task_start',
                     'task_state', NEW.to_state
                 );
-                
+
                 PERFORM pg_notify('task_ready.' || task_info.namespace, payload::text);
                 PERFORM pg_notify('task_ready', payload::text);
             END IF;
         END IF;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -231,7 +231,7 @@ BEGIN
         'created_at', NEW.created_at,
         'triggered_by', 'namespace_creation'
     );
-    
+
     PERFORM pg_notify('namespace_created', payload::text);
     RETURN NEW;
 END;
@@ -243,12 +243,12 @@ CREATE TRIGGER namespace_creation_notification
     EXECUTE FUNCTION notify_namespace_created();
 
 -- Index optimizations for trigger performance
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_step_transitions_task_ready 
-ON tasker_workflow_step_transitions (workflow_step_uuid, to_state, created_at) 
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_step_transitions_task_ready
+ON tasker_workflow_step_transitions (workflow_step_uuid, to_state, created_at)
 WHERE to_state IN ('enqueued', 'complete', 'error', 'resolved_manually');
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_task_transitions_state_changes 
-ON tasker_task_transitions (task_uuid, to_state, created_at) 
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_task_transitions_state_changes
+ON tasker_task_transitions (task_uuid, to_state, created_at)
 WHERE to_state IN ('in_progress', 'complete', 'error', 'cancelled');
 ```
 
@@ -282,16 +282,16 @@ impl EventDrivenOrchestrator {
     pub async fn start(&self) -> Result<()> {
         // Start global listener for namespace creation
         let global_listener = self.spawn_global_listener().await?;
-        
+
         // Start namespace-specific coordinators for existing namespaces
         self.initialize_existing_namespaces().await?;
-        
+
         // Start fallback poller for reliability
         let fallback_poller = self.spawn_fallback_poller().await?;
-        
+
         // Wait for shutdown
         self.shutdown.cancelled().await;
-        
+
         Ok(())
     }
 
@@ -299,11 +299,11 @@ impl EventDrivenOrchestrator {
         let mut listener = PgListener::connect_with(&*self.pool).await?;
         listener.listen("namespace_created").await?;
         listener.listen("task_ready").await?; // Global channel for all tasks
-        
+
         let coordinators = Arc::clone(&self.coordinators);
         let pool = Arc::clone(&self.pool);
         let shutdown = self.shutdown.clone();
-        
+
         Ok(tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -363,7 +363,7 @@ impl EventDrivenOrchestrator {
                 namespace.clone(),
                 pool.clone(),
             ).await;
-            
+
             if let Ok(coordinator) = coordinator {
                 coordinator.start().await;
                 coordinators.insert(namespace, coordinator);
@@ -382,7 +382,7 @@ pub struct NamespaceCoordinator {
 impl NamespaceCoordinator {
     pub async fn new(namespace: String, pool: PgPool) -> Result<Self> {
         let (tx, rx) = mpsc::channel(1000);
-        
+
         Ok(Self {
             namespace,
             pool,
@@ -394,23 +394,23 @@ impl NamespaceCoordinator {
     pub async fn start(&mut self) -> Result<()> {
         // Start namespace-specific listener
         self.spawn_namespace_listener().await?;
-        
+
         // Start worker pool
         self.spawn_worker_pool().await?;
-        
+
         Ok(())
     }
 
     async fn spawn_namespace_listener(&self) -> Result<()> {
         let mut listener = PgListener::connect_with(&self.pool).await?;
-        
+
         // Listen to namespace-specific channels
         listener.listen(&format!("task_ready.{}", self.namespace)).await?;
         listener.listen(&format!("step_ready.{}", self.namespace)).await?;
-        
+
         let tx = self.task_channel.clone();
         let namespace = self.namespace.clone();
-        
+
         tokio::spawn(async move {
             while let Ok(notification) = listener.recv().await {
                 if let Ok(event) = serde_json::from_str(notification.payload()) {
@@ -420,19 +420,19 @@ impl NamespaceCoordinator {
                 }
             }
         });
-        
+
         Ok(())
     }
 
     async fn spawn_worker_pool(&mut self) -> Result<()> {
         let worker_count = self.calculate_worker_count();
         let mut rx = self.task_channel.subscribe();
-        
+
         for i in 0..worker_count {
             let pool = self.pool.clone();
             let namespace = self.namespace.clone();
             let mut rx = rx.resubscribe();
-            
+
             let handle = tokio::spawn(async move {
                 while let Ok(event) = rx.recv().await {
                     match Self::process_task_ready_event(event, &pool).await {
@@ -441,10 +441,10 @@ impl NamespaceCoordinator {
                     }
                 }
             });
-            
+
             self.worker_handles.push(handle);
         }
-        
+
         Ok(())
     }
 
@@ -454,11 +454,11 @@ impl NamespaceCoordinator {
         let claim_result = sqlx::query!(
             r#"
             WITH claimed AS (
-                UPDATE tasker_tasks 
+                UPDATE tasker_tasks
                 SET claimed_at = NOW(),
                     claimed_by = $2,
                     claim_id = $3
-                WHERE task_uuid = $1 
+                WHERE task_uuid = $1
                   AND (claimed_at IS NULL OR claimed_at < (NOW() - (claim_timeout_seconds || ' seconds')::interval))
                   AND complete = false
                 RETURNING task_uuid
@@ -466,7 +466,7 @@ impl NamespaceCoordinator {
             SELECT task_uuid FROM claimed
             "#,
             event.task_uuid,
-            "event_driven_coordinator", 
+            "event_driven_coordinator",
             format!("evt_{}", uuid::Uuid::new_v4().simple())
         )
         .fetch_optional(pool)
@@ -476,14 +476,14 @@ impl NamespaceCoordinator {
             // Task claimed successfully, enqueue ready steps using existing logic
             let step_enqueuer = StepEnqueuer::new(pool.clone());
             step_enqueuer.enqueue_ready_steps_for_task(event.task_uuid).await?;
-            
+
             // Increment metrics
             EVENT_DRIVEN_METRICS.tasks_claimed_via_event.inc();
         } else {
             // Claim failed - another coordinator got it (expected in high concurrency)
             EVENT_DRIVEN_METRICS.claim_conflicts.inc();
         }
-        
+
         Ok(())
     }
 }
@@ -503,17 +503,17 @@ pub struct FallbackPoller {
 impl FallbackPoller {
     pub async fn start(&self) -> Result<()> {
         let mut interval = tokio::time::interval(self.interval);
-        
+
         loop {
             interval.tick().await;
-            
+
             // Query for any ready tasks older than threshold using existing tasker_ready_tasks view
             // This view already uses get_task_execution_context() for proven readiness logic
             let stale_tasks = sqlx::query!(
                 r#"
-                SELECT 
-                    rt.task_uuid, 
-                    rt.namespace, 
+                SELECT
+                    rt.task_uuid,
+                    rt.namespace,
                     rt.priority,
                     rt.ready_steps_count,
                     rt.age_hours
@@ -540,7 +540,7 @@ impl FallbackPoller {
                         source: EventSource::FallbackPoller,
                         age_hours: task.age_hours,
                     }).await;
-                    
+
                     // Track fallback polling metrics
                     EVENT_DRIVEN_METRICS.tasks_claimed_via_polling.inc();
                 }
@@ -560,7 +560,7 @@ The event-driven architecture aligns perfectly with TAS-35's message service abs
 pub trait EventDrivenQueueProvider: QueueProvider {
     /// Check if provider supports push notifications
     fn supports_push_notifications(&self) -> bool;
-    
+
     /// Create event stream for queue
     async fn create_event_stream(
         &self,
@@ -573,11 +573,11 @@ impl EventDrivenQueueProvider for PgmqProvider {
     fn supports_push_notifications(&self) -> bool {
         true // Via pg_notify
     }
-    
+
     async fn create_event_stream(&self, queue: &str) -> Result<Box<dyn Stream<Item = Result<QueueEvent>> + Send>> {
         let listener = PgListener::connect_with(&self.pool).await?;
         listener.listen(&format!("pgmq.{}", queue)).await?;
-        
+
         Ok(Box::new(listener.into_stream().map(|n| {
             Ok(QueueEvent::from_notification(n?))
         })))
@@ -588,13 +588,13 @@ impl EventDrivenQueueProvider for RabbitMqProvider {
     fn supports_push_notifications(&self) -> bool {
         true // Native AMQP streaming
     }
-    
+
     async fn create_event_stream(&self, queue: &str) -> Result<Box<dyn Stream<Item = Result<QueueEvent>> + Send>> {
         // Use lapin's consumer stream directly
         let consumer = self.channel
             .basic_consume(queue, "event_consumer", BasicConsumeOptions::default())
             .await?;
-            
+
         Ok(Box::new(consumer.map(|delivery| {
             Ok(QueueEvent::from_delivery(delivery?))
         })))
@@ -682,17 +682,17 @@ pub struct EventDrivenMetrics {
     notifications_processed: Counter,
     notifications_failed: Counter,
     notification_lag: Histogram,
-    
+
     // Coordinator metrics
     coordinators_active: Gauge,
     coordinators_spawned: Counter,
     coordinator_worker_count: Gauge,
-    
+
     // Task claiming metrics
     tasks_claimed_via_event: Counter,
     tasks_claimed_via_polling: Counter,
     claim_conflicts: Counter,
-    
+
     // Channel metrics
     channel_queue_depth: Gauge,
     channel_throughput: Histogram,
@@ -710,7 +710,7 @@ impl HealthCheck for EventDrivenOrchestrator {
             self.check_fallback_poller().await,
             self.check_notification_lag().await,
         ];
-        
+
         HealthStatus::aggregate(checks)
     }
 }
@@ -737,7 +737,7 @@ pub struct OrchestrationMode {
 
 pub enum Mode {
     PollingOnly,        // Original behavior
-    EventDrivenOnly,    // New behavior  
+    EventDrivenOnly,    // New behavior
     Hybrid {            // Transition phase
         event_namespaces: HashSet<String>,
         polling_namespaces: HashSet<String>,
@@ -782,8 +782,8 @@ BEGIN
         PERFORM pg_notify('pgmq_queue_created', json_build_object(
             'queue_name', TG_TABLE_NAME,
             'created_at', NOW(),
-            'namespace', CASE 
-                WHEN TG_TABLE_NAME LIKE '%_queue' THEN 
+            'namespace', CASE
+                WHEN TG_TABLE_NAME LIKE '%_queue' THEN
                     substring(TG_TABLE_NAME from '^(.+)_queue$')
                 ELSE 'default'
             END
@@ -805,19 +805,19 @@ DECLARE
 BEGIN
     -- Extract queue name from table name
     queue_name := TG_TABLE_NAME;
-    namespace := CASE 
-        WHEN queue_name LIKE '%_queue' THEN 
+    namespace := CASE
+        WHEN queue_name LIKE '%_queue' THEN
             substring(queue_name from '^(.+)_queue$')
         ELSE 'default'
     END;
-    
+
     -- Notify with minimal payload to avoid overwhelming pg_notify
     PERFORM pg_notify('pgmq_message_ready.' || namespace, json_build_object(
         'msg_id', NEW.msg_id,
         'queue', queue_name,
         'enqueued_at', NEW.enqueued_at
     )::text);
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -827,16 +827,16 @@ DO $$
 DECLARE
     queue_record RECORD;
 BEGIN
-    FOR queue_record IN 
-        SELECT schemaname, tablename 
-        FROM pg_tables 
-        WHERE schemaname = 'pgmq' 
+    FOR queue_record IN
+        SELECT schemaname, tablename
+        FROM pg_tables
+        WHERE schemaname = 'pgmq'
           AND tablename NOT LIKE 'pgmq_%'
     LOOP
         EXECUTE format('CREATE TRIGGER pgmq_enqueue_notify_%s
             AFTER INSERT ON pgmq.%I
             FOR EACH ROW
-            EXECUTE FUNCTION pgmq_message_enqueued_notify()', 
+            EXECUTE FUNCTION pgmq_message_enqueued_notify()',
             queue_record.tablename, queue_record.tablename);
     END LOOP;
 END;
@@ -853,7 +853,7 @@ This enables true event-driven PGMQ integration:
 
 Store all state transitions as events for:
 - Complete audit trail
-- Time-travel debugging  
+- Time-travel debugging
 - Event replay for testing
 - CQRS pattern implementation
 

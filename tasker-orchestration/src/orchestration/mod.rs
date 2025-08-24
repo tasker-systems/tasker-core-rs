@@ -8,11 +8,10 @@ pub mod bootstrap;
 pub mod config;
 pub mod error_classifier;
 pub mod errors;
-pub mod executor_processors;
+pub mod lifecycle;
 pub mod state_manager;
 pub mod system_events;
 pub mod task_claim;
-pub mod task_config_finder;
 pub mod types;
 pub mod viable_step_discovery;
 pub mod workflow_coordinator;
@@ -31,18 +30,16 @@ pub use bootstrap::{
     BootstrapConfig, OrchestrationBootstrap, OrchestrationSystemHandle, SystemStatus,
 };
 
-pub use executor_processors::step_enqueuer::{
-    NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer,
-};
+pub use lifecycle::step_enqueuer::{NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer};
 
-pub use executor_processors::task_enqueuer::{
+pub use lifecycle::task_enqueuer::{
     DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
     EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
 };
-pub use executor_processors::task_finalizer::{
+pub use lifecycle::task_finalizer::{
     FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
-pub use executor_processors::task_initializer::{
+pub use lifecycle::task_initializer::{
     TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
@@ -58,7 +55,7 @@ pub use error_classifier::{
 };
 
 // Use unified event publisher from events module
-pub use executor_processors::result_processor::{OrchestrationResultProcessor, StepError};
+pub use lifecycle::result_processor::{OrchestrationResultProcessor, StepError};
 pub use state_manager::StateManager;
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
