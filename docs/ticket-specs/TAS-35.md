@@ -17,10 +17,11 @@ The current Tasker system is tightly coupled to PGMQ (PostgreSQL Message Queue),
 
 1. **PostgreSQL as Source of Truth**: The database remains the authoritative data store
 2. **Simple UUID Messages**: Maintain the 3-field UUID message structure
-3. **Pull-Based Consistency**: All providers use pull model for uniform behavior
+3. **Push-First, Pull-Fallback**: All providers use push notifications (events) as primary, with pull as fallback for reliability
 4. **Provider Agnostic**: Core business logic remains independent of queue provider
-5. **Zero Downtime Migration**: Support gradual migration between providers
-6. **Test Parity**: All providers must pass the same test suite
+5. **Event-Driven by Default**: Both PGMQ (via pg_notify) and AMQP (via native streaming) support push notifications
+6. **Zero Downtime Migration**: Support gradual migration between providers
+7. **Test Parity**: All providers must pass the same test suite
 
 ## Phase 1: Core Trait Architecture (Week 1)
 
@@ -76,6 +77,29 @@ pub struct QueueStats {
     pub in_flight_count: Option<u64>,
     pub oldest_message_age_seconds: Option<i64>,
     pub dead_letter_count: Option<u64>,
+}
+
+/// Queue notification events (TAS-43 integration)
+/// Enables push-based notifications for both PGMQ and AMQP providers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueNotification {
+    pub event_type: QueueEventType,
+    pub queue_name: String,
+    pub namespace: Option<String>,
+    pub message_id: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QueueEventType {
+    /// New message enqueued (immediate processing trigger)
+    MessageReady { msg_id: String },
+    /// Queue created (coordinator spawning trigger)
+    QueueCreated,
+    /// Queue deleted (cleanup trigger)
+    QueueDeleted,
+    /// Message dead lettered (error handling trigger)
+    MessageDeadLettered { msg_id: String, reason: String },
 }
 
 /// Core messaging service trait
@@ -174,6 +198,21 @@ pub trait AmqpExtensions: MessagingService {
         &self,
         queue: &str,
     ) -> Result<Box<dyn Stream<Item = Result<QueuedMessage<Box<dyn QueueMessage>>, Self::Error>> + Send>, Self::Error>;
+
+    /// Create a push notification stream for queue events (TAS-43 integration)
+    /// This enables event-driven processing for both PGMQ (pg_notify) and AMQP (native streaming)
+    async fn create_notification_stream(
+        &self,
+        queue: &str,
+    ) -> Result<Box<dyn Stream<Item = Result<QueueNotification>, Self::Error>> + Send>, Self::Error>;
+
+    /// Check if provider supports push notifications (should always be true per TAS-43)
+    fn supports_push_notifications(&self) -> bool { true }
+    
+    /// Get notification channel pattern for this provider
+    /// PGMQ: "pgmq_message_ready.{namespace}" (from pgmq-notify crate)
+    /// AMQP: Direct consumer stream
+    fn notification_channel_pattern(&self) -> &str;
 }
 
 /// PGMQ-specific extensions for PostgreSQL message queues

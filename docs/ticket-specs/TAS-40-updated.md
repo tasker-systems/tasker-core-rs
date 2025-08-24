@@ -6,7 +6,7 @@ Create a robust Rust worker foundation system within a new multi-workspace archi
 
 ## Workspace Context
 
-This ticket implements the worker foundation as part of the broader workspace reorganization outlined in TAS-40-preamble.md. The worker foundation will be created as a separate workspace (`tasker-worker-foundation/`) that depends on shared components (`tasker-shared/`) and provides infrastructure for binding language implementations.
+This ticket implements the worker foundation as part of the broader workspace reorganization outlined in TAS-40-preamble.md. The worker foundation will be created as a separate workspace (`tasker-worker/`) that depends on shared components (`tasker-shared/`) and provides infrastructure for binding language implementations.
 
 ## Current State Analysis
 
@@ -34,7 +34,7 @@ Our `tasker-orchestration/` workspace (current `tasker-core-rs/`) provides prove
 ```bash
 # Create new workspace structure within current repo
 mkdir -p tasker-orchestration
-mkdir -p tasker-worker-foundation/{src,config,tests}
+mkdir -p tasker-worker/{src,config,tests}
 mkdir -p tasker-shared/{src,config}
 mkdir -p tasker-worker-rust/{src,config,tests}
 
@@ -55,7 +55,7 @@ mv target/ tasker-orchestration/ 2>/dev/null || true
 [workspace]
 members = [
     "tasker-orchestration",
-    "tasker-worker-foundation",
+    "tasker-worker",
     "tasker-shared"
 ]
 resolver = "2"
@@ -153,7 +153,7 @@ use tasker_shared::{
     logging::{log_orchestrator, log_task},
 };
 
-// tasker-worker-foundation/src/worker/core.rs
+// tasker-worker/src/worker/core.rs
 use tasker_shared::{
     models::{Task, WorkflowStep, Sequence},
     config::ConfigManager,
@@ -213,7 +213,7 @@ step_processing_rate_threshold = 10.0
 
 #### 2.2 WorkerCore Bootstrap System
 ```rust
-// tasker-worker-foundation/src/worker/core.rs
+// tasker-worker/src/worker/core.rs
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use anyhow::Result;
@@ -357,7 +357,7 @@ impl WorkerCore {
 
 #### 2.3 Worker Module Structure
 ```rust
-// tasker-worker-foundation/src/lib.rs
+// tasker-worker/src/lib.rs
 pub mod worker;
 pub mod event_publisher;
 pub mod event_subscriber;
@@ -366,7 +366,7 @@ pub use worker::core::WorkerCore;
 pub use event_publisher::EventPublisher;
 pub use event_subscriber::EventSubscriber;
 
-// tasker-worker-foundation/src/worker/mod.rs
+// tasker-worker/src/worker/mod.rs
 pub mod core;
 pub mod coordinator;
 pub mod executor_pool;
@@ -375,7 +375,7 @@ pub mod api;
 
 pub use core::WorkerCore;
 
-// tasker-worker-foundation/src/event_publisher/mod.rs
+// tasker-worker/src/event_publisher/mod.rs
 use std::sync::Arc;
 use anyhow::Result;
 use uuid::Uuid;
@@ -414,7 +414,7 @@ impl EventPublisher {
     }
 }
 
-// tasker-worker-foundation/src/event_subscriber/mod.rs
+// tasker-worker/src/event_subscriber/mod.rs
 use std::sync::Arc;
 use anyhow::Result;
 
@@ -448,7 +448,7 @@ impl EventSubscriber {
 
 #### 3.1 WorkerLoopCoordinator Implementation
 ```rust
-// tasker-worker-foundation/src/worker/coordinator/mod.rs
+// tasker-worker/src/worker/coordinator/mod.rs
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -656,7 +656,7 @@ impl WorkerLoopCoordinator {
     }
 }
 
-// tasker-worker-foundation/src/worker/executor_pool/mod.rs
+// tasker-worker/src/worker/executor_pool/mod.rs
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -837,7 +837,7 @@ impl WorkerExecutorPool {
 The WorkerExecutor follows the same patterns as OrchestratorExecutor but focuses on step processing:
 
 ```rust
-// tasker-worker-foundation/src/worker/executor/mod.rs
+// tasker-worker/src/worker/executor/mod.rs
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
@@ -1043,7 +1043,7 @@ impl WorkerExecutor {
 The worker foundation uses in-process events to coordinate between queue processing and step handlers:
 
 ```rust
-// tasker-worker-foundation/src/event_system/mod.rs
+// tasker-worker/src/event_system/mod.rs
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -1147,7 +1147,7 @@ event_subscriber.subscribe_to_step_events("generate_even_number", |payload| {
 
 #### 5.1 Worker Web API
 ```rust
-// tasker-worker-foundation/src/worker/api/mod.rs
+// tasker-worker/src/worker/api/mod.rs
 use axum::{
     extract::State,
     http::StatusCode,
@@ -1230,7 +1230,7 @@ async fn metrics(State(state): State<ApiState>) -> Result<String, StatusCode> {
 
 #### 6.1 Comprehensive Integration Tests
 ```rust
-// tasker-worker-foundation/tests/integration/worker_system_test.rs
+// tasker-worker/tests/integration/worker_system_test.rs
 use tokio::time::{sleep, Duration};
 use anyhow::Result;
 

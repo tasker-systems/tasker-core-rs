@@ -886,3 +886,130 @@ Store all state transitions as events for:
 Moving from polling to event-driven architecture with pg_notify will dramatically improve system responsiveness and efficiency. The hybrid approach with fallback polling ensures reliability, while integration with TAS-35's queue abstractions provides a path to even more sophisticated event-driven patterns with external message systems.
 
 The key innovation is using PostgreSQL itself as the event bus initially, which keeps the architecture simple while delivering most of the benefits. As scale demands grow, the abstraction layers allow seamless migration to dedicated message infrastructure.
+
+---
+
+## Proposal: Extract PGMQ-specific pg_notify into pgmq-notify Workspace
+
+We have identified that several PGMQ-centric events (e.g., queue created, message enqueued) are broadly useful outside of Tasker-specific orchestration. To encourage reuse and maintain a clean separation of concerns, extract PGMQ-specific pg_notify production and consumption into the standalone pgmq-notify crate in this workspace.
+
+### Goals
+
+- Decouple PGMQ pg_notify logic from tasker-orchestration and tasker-worker-foundation
+- Provide a general-purpose, reusable crate for PGMQ-related notifications
+- Encapsulate sqlx::PgListener usage and notification channel conventions
+- Integrate cleanly with our existing PgmqClient and UnifiedPgmqClient (tasker-shared), without introducing tasker-specific types
+- Support the Tasker use case directly via configuration and light adapters
+
+### Scope
+
+What lives in pgmq-notify:
+- Channel naming conventions for PGMQ-level events (no tasker types)
+  - pgmq_queue_created
+  - pgmq_message_ready.{namespace}
+  - Optional pgmq_queue_deleted (future)
+- Thin emitters that publish notifications when queues are created and messages are enqueued
+  - Application-level emitters (wrapping create_queue/send) for immediate value
+  - Optional SQL trigger DDL helpers for database-level instrumentation
+- A listener abstraction over sqlx::PgListener that yields typed events
+- Event type definitions that are task-agnostic
+- Installation/verification helpers (e.g., ensure_triggers_installed)
+
+What stays in Tasker crates:
+- Task/step orchestration semantics, claim logic, and routing
+- Namespace orchestration, worker pools, fallback poller
+- Any Tasker domain payloads beyond generic PGMQ metadata
+
+### Event Model and Channels
+
+- Queue lifecycle:
+  - Channel: pgmq_queue_created
+  - Payload: { "queue": String, "created_at": DateTime<Utc>, "namespace": String }
+- Message enqueue:
+  - Channel: pgmq_message_ready.{namespace}
+  - Payload: { "msg_id": i64, "queue": String, "enqueued_at": DateTime<Utc> }
+- Namespace derivation
+  - Default: derived from queue name using configured pattern (e.g., {namespace}_queue)
+  - Overrideable via a pluggable mapping function provided at crate initialization
+
+### Public API Sketch (pgmq-notify)
+
+- Configuration
+  - PgmqNotifyConfig { queue_naming_pattern: String, enable_triggers: bool, channels_prefix: Option<String> }
+- Emitters
+  - trait PgmqNotifyEmitter { fn on_queue_created(&self, queue: &str) -> Result<()>; fn on_message_enqueued(&self, queue: &str, msg_id: i64) -> Result<()>; }
+  - struct DbEmitter(sqlx::PgPool) implements PgmqNotifyEmitter via SELECT pg_notify(...)
+  - struct NoopEmitter for tests
+- Listener
+  - struct PgmqNotifyListener { listener: sqlx::postgres::PgListener, config: PgmqNotifyConfig }
+    - async fn listen_queue_created(&mut self) -> Result<()>
+    - async fn listen_message_ready_for_namespace(&mut self, ns: &str) -> Result<()>
+    - async fn into_stream(self) -> impl Stream<Item = Result<PgmqNotifyEvent>>
+- Events
+  - enum PgmqNotifyEvent { QueueCreated { queue: String, namespace: String, created_at: DateTime<Utc> }, MessageReady { msg_id: i64, queue: String, namespace: String, enqueued_at: DateTime<Utc> } }
+- Trigger DDL Helpers (optional)
+  - fn install_triggers(pool: &PgPool, schemas: &[&str]) -> Result<()>
+  - fn uninstall_triggers(pool: &PgPool) -> Result<()>
+
+### Integration with PgmqClient and UnifiedPgmqClient
+
+- Provide small adapter wrappers that compose the existing clients with an emitter:
+  - struct NotifyingPgmqClient<C: PgmqClientTrait, E: PgmqNotifyEmitter> { client: C, emitter: E, cfg: PgmqNotifyConfig }
+    - create_queue: call client.create_queue(..) then emitter.on_queue_created(..)
+    - send_message/send_json_message: call client, then emitter.on_message_enqueued(..)
+- Because tasker-shared already defines UnifiedPgmqClient and PgmqClientTrait, the adapter composes with both Standard and Protected variants without leaking circuit breaker details into pgmq-notify
+- Adapter remains Tasker-agnostic; Tasker crates choose whether to use adapter-level emits or to rely on DB triggers for emits
+
+### How Tasker Uses It (without coupling)
+
+- Orchestrator:
+  - Use PgmqNotifyListener to subscribe to pgmq_queue_created and pgmq_message_ready.{namespace}
+  - Convert MessageReady events into Tasker domain actions via existing routing and claim logic
+- Worker foundation:
+  - Optionally subscribe to MessageReady for namespaces to support push-style consumption
+- Message send/queue creation:
+  - Wrap UnifiedPgmqClient in NotifyingPgmqClient to ensure emits exist even if DB triggers aren’t installed
+
+### Configuration and Conventions
+
+- Respect existing config/tasker/base/pgmq.toml values:
+  - queue_naming_pattern drives namespace extraction
+  - default_namespaces can be pre-listened automatically
+- Allow an optional channels_prefix to avoid conflicts in shared DBs (e.g., tenant1.pgmq_message_ready.ns)
+
+### Reliability and Limits
+
+- Keep payloads minimal (IDs and queue name) to stay well under pg_notify 8KB limit
+- Acknowledge at-most-once semantics by recommending fallback poller in Tasker for critical paths
+- Backpressure: rely on LISTEN reconnection and Tasker’s fallback mechanisms; provide notification_lag metric
+
+### Testing Strategy
+
+- Unit tests for namespace extraction and channel naming
+- Integration tests with a real Postgres for:
+  - Listener receiving QueueCreated and MessageReady events
+  - Adapter emitting events on create_queue/send_message
+  - Optional trigger installation smoke tests
+- Mocks/NoopEmitter for consumer code paths
+
+### Migration Plan
+
+1. Create pgmq-notify crate API as above (no Tasker deps)
+2. Add NotifyingPgmqClient adapter in pgmq-notify with a generic PgmqClientTrait bound
+3. In tasker-orchestration and tasker-worker-foundation:
+   - Replace direct sqlx::PgListener setup for PGMQ events with PgmqNotifyListener
+   - Optionally replace direct UnifiedPgmqClient usage with NotifyingPgmqClient to guarantee emits
+4. Optional: Add a feature flag to enable DB trigger installation during init
+5. Roll out behind the same event-driven feature flag used in this ticket; preserve fallback poller
+
+### Risks
+
+- Dual emitters (adapter + triggers) could double-notify: mitigate via configuration to enable only one mode
+- Channel namespace collisions: mitigate via channels_prefix and strict naming rules
+- Reconnection behavior: rely on sqlx::PgListener auto-reconnect; surface health metrics
+
+### Success Criteria (for this extraction)
+
+- Tasker crates compile and run using pgmq-notify without Tasker-specific code inside pgmq-notify
+- End-to-end: creating a queue and sending a message results in the correct pg_notify events observed by the listener
+- No change to Tasker domain models or orchestration semantics is required to adopt the new crate

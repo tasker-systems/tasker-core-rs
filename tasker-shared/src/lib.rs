@@ -82,10 +82,11 @@
 
 pub mod config;
 pub mod constants;
+pub mod coordinator;
 pub mod database;
 pub mod errors;
 pub mod events;
-pub mod execution;
+pub mod executor;
 pub mod logging;
 pub mod messaging;
 pub mod models;

@@ -1,66 +1,12 @@
 //! # Configuration Manager
 //!
-//! ## Architecture: YAML-driven Configuration System
+//! The Configuration Manager is responsible for loading and managing the configuration settings for the Tasker orchestration system.
+//! It provides a unified interface for accessing configuration values across different components of the system.
 //!
-//! The ConfigurationManager provides a comprehensive configuration system that mirrors
-//! the Rails Tasker engine's configuration capabilities while leveraging Rust's type
-//! safety and performance characteristics.
-//!
-//! ## Key Components:
-//!
-//! - **System Configuration**: Complete system-level configuration matching Rails engine defaults
-//! - **Task Templates**: YAML-based task and step template definitions
-//! - **Environment Support**: Environment-specific configuration overlays
-//! - **Type Safety**: Strong typing for all configuration values
-//! - **Validation**: Comprehensive validation for required fields and constraints
-//!
-//! ## Configuration Structure:
-//!
-//! ```yaml
-//! # config/tasker/database.yaml
-//! auth:
-//!   authentication_enabled: false
-//!   strategy: "none"
-//!
-//! database:
-//!   enable_secondary_database: false
-//!
-//! backoff:
-//!   default_backoff_seconds: [1, 2, 4, 8, 16, 32]
-//!   max_backoff_seconds: 300
-//!   jitter_enabled: true
-//! ```
-//!
-//! ## Usage:
-//!
-//! ```rust,no_run
-//! use tasker_orchestration::orchestration::ConfigurationManager;
-//!
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Load system configuration using component-based config
-//! let config_manager = ConfigurationManager::new();
-//! let system_config = config_manager.system_config();
-//!
-//! // Load task template (example file path - would need to exist)
-//! // let task_template = config_manager.load_task_template("config/tasks/payment_processing.yaml").await?;
-//!
-//! // Access configuration values
-//! let auth_enabled = system_config.auth.authentication_enabled;
-//! let retry_limit = system_config.backoff.default_backoff_seconds.len();
-//!
-//! // Verify the values are as expected
-//! assert!(!auth_enabled); // Default is false
-//! assert_eq!(retry_limit, 6); // [1, 2, 4, 8, 16, 32]
-//! // Example task template validation (would require actual file)
-//! // assert_eq!(task_template.name, "payment_processing/credit_card_payment");
-//! # Ok(())
-//! # }
-//! ```
-
+//! Re-export shared types instead of redefining them
 pub use tasker_shared::config::orchestration::{
-    OrchestrationLoopConfig, OrchestrationSystemConfig, StepEnqueuerConfig,
-    StepResultProcessorConfig, TaskClaimerConfig,
+    OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
+    TaskClaimStepEnqueuerConfig, TaskClaimerConfig,
 };
 
 // Re-export shared types instead of redefining them

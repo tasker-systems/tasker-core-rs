@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    ".",                    # Current crate temporarily remains during migration
+    ".",                             # Current crate temporarily remains during migration
     "tasker-shared",
     "tasker-orchestration",
     "tasker-worker",
     "pgmq-notify",
-    # Note: bindings/ruby/ext/tasker_core is excluded - it has its own workspace for Ruby extension build
+    "bindings/ruby/ext/tasker_core",
     # "bindings/python",  # Future
     # "bindings/wasm",    # Future
 ]
@@ -28,6 +28,8 @@ path = "src/lib.rs"
 [workspace.dependencies]
 # Async runtime and utilities
 tokio = { version = "1.46", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
 async-trait = "0.1"
 futures = "0.3"
 
@@ -112,7 +114,7 @@ cargo-llvm-cov = "0.6"
 criterion = { version = "0.5.1" }
 nextest = "0.1.1"
 # FFI support to be added in bindings and workers
-# magnus = { version = "0.7", optional = true }
+magnus = "0.7"
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
 # wasm-bindgen-futures = { version = "0.4", optional = true }

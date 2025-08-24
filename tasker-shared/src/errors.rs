@@ -2,6 +2,7 @@
 //!
 
 use crate::config::ConfigurationError;
+use anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -56,8 +57,8 @@ impl From<serde_json::Error> for TaskerError {
     }
 }
 
-pub type TaskerResult<T> = std::result::Result<T, TaskerError>;
-pub type OrchestrationResult<T> = std::result::Result<T, OrchestrationError>;
+pub type TaskerResult<T> = anyhow::Result<T, TaskerError>;
+pub type OrchestrationResult<T> = anyhow::Result<T, OrchestrationError>;
 
 /// Specific orchestration error types for detailed error handling
 #[derive(Debug, Clone, PartialEq, Error)]

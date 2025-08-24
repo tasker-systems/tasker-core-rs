@@ -6,16 +6,15 @@ use std::time::{Duration, SystemTime};
 pub mod embedded;
 pub use embedded::EmbeddedOrchestratorConfig;
 
-pub mod orchestration_loop;
-pub use orchestration_loop::OrchestrationLoopConfig;
+pub mod task_claim_step_enqueuer;
+pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;
 pub use step_enqueuer::StepEnqueuerConfig;
 pub mod step_result_processor;
 pub use step_result_processor::StepResultProcessorConfig;
 pub mod task_claimer;
+pub use crate::config::executor::{ExecutorConfig, ExecutorType};
 pub use task_claimer::TaskClaimerConfig;
-pub mod executor;
-pub use executor::{ExecutorConfig, ExecutorType};
 
 /// Orchestration system configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -75,7 +74,7 @@ impl OrchestrationConfig {
         let orchestrator_id = format!("orchestrator-{timestamp}");
 
         // Create orchestration loop configuration
-        let orchestration_loop_config = OrchestrationLoopConfig {
+        let orchestration_loop_config = TaskClaimStepEnqueuerConfig {
             tasks_per_cycle: self.tasks_per_cycle as i32,
             namespace_filter: None,
             cycle_interval: Duration::from_millis(self.cycle_interval_ms),
@@ -167,7 +166,7 @@ pub struct OrchestrationSystemConfig {
     /// Orchestrator instance identifier
     pub orchestrator_id: String,
     /// Orchestration loop configuration
-    pub orchestration_loop_config: OrchestrationLoopConfig,
+    pub orchestration_loop_config: TaskClaimStepEnqueuerConfig,
     /// Task request processor polling interval in milliseconds
     pub task_request_polling_interval_ms: u64,
     /// Visibility timeout for task request messages (seconds)
@@ -195,7 +194,7 @@ impl Default for OrchestrationSystemConfig {
         Self {
             task_requests_queue_name: "task_requests_queue".to_string(),
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            orchestration_loop_config: OrchestrationLoopConfig::default(),
+            orchestration_loop_config: TaskClaimStepEnqueuerConfig::default(),
             task_request_polling_interval_ms: 250, // 250ms = 4x/sec default
             task_request_visibility_timeout_seconds: 300, // 5 minutes
             task_request_batch_size: 10,
@@ -228,7 +227,10 @@ impl OrchestrationSystemConfig {
         Self {
             task_requests_queue_name: config.orchestration.task_requests_queue_name.clone(),
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            orchestration_loop_config: OrchestrationLoopConfig::from_config_manager(config_manager),
+            orchestration_loop_config: TaskClaimStepEnqueuerConfig::from_config_manager(
+                config_manager,
+            ),
+
             task_request_polling_interval_ms: config.orchestration.task_request_polling_interval_ms,
             task_request_visibility_timeout_seconds: config
                 .orchestration

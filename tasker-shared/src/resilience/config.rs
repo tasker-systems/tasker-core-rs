@@ -13,13 +13,13 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitBreakerConfig {
     /// Number of consecutive failures before opening circuit
-    pub failure_threshold: usize,
+    pub failure_threshold: u32,
 
     /// Time to wait in open state before attempting recovery
     pub timeout: Duration,
 
     /// Number of successful calls in half-open state to close circuit
-    pub success_threshold: usize,
+    pub success_threshold: u32,
 }
 
 impl CircuitBreakerConfig {

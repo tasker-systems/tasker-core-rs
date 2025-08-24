@@ -228,26 +228,15 @@ impl OrchestrationBootstrap {
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
-        // Start coordinator if auto-start is enabled (NEW UNIFIED ARCHITECTURE)
-        if config.auto_start_processors {
-            // Create OrchestrationLoopCoordinator for unified architecture
-            let coordinator = Arc::new(
-                OrchestrationLoopCoordinator::new(
-                    config_manager.clone(),
-                    orchestration_core.clone(),
-                )
+        // Create OrchestrationLoopCoordinator for unified architecture
+        let coordinator = Arc::new(
+            OrchestrationLoopCoordinator::new(config_manager.clone(), orchestration_core.clone())
                 .await?,
-            );
+        );
 
-            info!("✅ BOOTSTRAP: Using OrchestrationLoopCoordinator for unified architecture");
+        info!("✅ BOOTSTRAP: Using OrchestrationLoopCoordinator for unified architecture");
 
-            Self::start_coordinator(coordinator, shutdown_receiver).await?;
-        } else {
-            info!("📋 BOOTSTRAP: Coordinator not auto-started - manual control mode");
-            // If not auto-starting, we need to consume the receiver somehow
-            drop(shutdown_receiver);
-        }
-
+        Self::start_coordinator(coordinator, shutdown_receiver).await?;
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
             shutdown_sender,

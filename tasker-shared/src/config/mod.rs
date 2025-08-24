@@ -30,11 +30,13 @@
 
 pub mod circuit_breaker;
 pub mod error;
+pub mod executor;
 pub mod manager;
 pub mod orchestration;
 pub mod query_cache;
 pub mod queue;
 pub mod state;
+pub mod task_config_finder;
 pub mod unified_loader;
 
 use serde::{Deserialize, Serialize};
@@ -60,6 +62,7 @@ pub use state::OperationalStateConfig;
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
 pub use manager::ConfigManager;
+pub use task_config_finder::TaskConfigFinder;
 
 /// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]

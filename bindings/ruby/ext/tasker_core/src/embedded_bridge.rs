@@ -13,7 +13,7 @@ use magnus::{function, prelude::*, Error, RHash, RModule, Value};
 use serde::{Deserialize, Serialize};
 use serde_magnus::{deserialize, serialize};
 use std::sync::{Arc, Mutex};
-tasker_shared::use tasker_shared::orchestration::{
+use tasker_orchestration::orchestration::{
     bootstrap::{OrchestrationBootstrap, OrchestrationSystemHandle},
     OrchestrationCore,
 };
@@ -333,7 +333,7 @@ fn transition_to_graceful_shutdown() -> Result<String, Error> {
 
     runtime_handle
         .block_on(async {
-            system.transition_to_graceful_shutdown().await.map_err(|e| {
+            system.stop().await.map_err(|e| {
                 error!("Failed to transition to graceful shutdown: {}", e);
                 format!("Graceful shutdown transition failed: {e}")
             })
