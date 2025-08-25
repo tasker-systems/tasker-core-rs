@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Core library dependency (relative path to parent)
+tasker-shared = { path = "../../../../tasker-shared" }
 tasker-orchestration = { path = "../../../../tasker-orchestration" }
 
 # Ruby FFI

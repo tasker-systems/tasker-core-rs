@@ -14,7 +14,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
@@ -41,19 +41,22 @@ use crate::orchestration::task_claim::finalization_claimer::{
 /// while preserving all sophisticated orchestration logic through delegation.
 pub struct OrchestrationCore {
     /// System context for dependency injection
-    context: Arc<SystemContext>,
+    pub context: Arc<SystemContext>,
 
     /// Command sender for orchestration operations
     command_sender: mpsc::Sender<OrchestrationCommand>,
 
     /// Orchestration processor (handles commands in background)
+    /// Kept alive for the lifetime of OrchestrationCore to ensure background task runs
+    /// Future: Will be used for reaper/sweeper processes for missed messages
+    #[allow(dead_code)]
     processor: Option<OrchestrationProcessor>,
 
     /// System status
-    status: OrchestrationCoreStatus,
+    pub status: OrchestrationCoreStatus,
 
     /// Core configuration
-    core_id: String,
+    pub core_id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,7 +91,7 @@ impl OrchestrationCore {
         // Start the processor
         processor.start().await?;
 
-        let core_id = format!("orchestration_core_{}", Uuid::new_v4());
+        let core_id = Uuid::now_v7();
 
         Ok(Self {
             context,
@@ -252,7 +255,7 @@ impl OrchestrationCore {
     }
 
     /// Get core ID
-    pub fn core_id(&self) -> &str {
+    pub fn core_id(&self) -> &Uuid {
         &self.core_id
     }
 

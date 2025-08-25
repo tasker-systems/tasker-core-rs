@@ -2,30 +2,11 @@
 //!
 //! Rust client using the pgmq-rs crate for high-performance message queue operations
 
-use pgmq::{types::Message, PGMQueue};
-use serde::{Deserialize, Serialize};
+use super::types::{ClientStatus, PgmqStepMessage, PgmqStepMessageMetadata, QueueMetrics};
+use crate::messaging::MessagingError;
+use async_trait;
+use pgmq::{types::Message as PgmqMessage, PGMQueue};
 use tracing::{debug, info, warn};
-use uuid::Uuid;
-
-/// Queue message for step execution (pgmq-rs version)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PgmqStepMessage {
-    pub step_uuid: Uuid,
-    pub task_uuid: Uuid,
-    pub namespace: String,
-    pub step_name: String,
-    pub step_payload: serde_json::Value,
-    pub metadata: PgmqStepMessageMetadata,
-}
-
-/// Metadata for step messages (pgmq-rs version)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PgmqStepMessageMetadata {
-    pub enqueued_at: chrono::DateTime<chrono::Utc>,
-    pub retry_count: i32,
-    pub max_retries: i32,
-    pub timeout_seconds: Option<i64>,
-}
 
 /// pgmq-rs based message queue client
 #[derive(Debug, Clone)]
@@ -35,7 +16,7 @@ pub struct PgmqClient {
 
 impl PgmqClient {
     /// Create new pgmq client using connection string
-    pub async fn new(database_url: &str) -> Result<Self, crate::messaging::MessagingError> {
+    pub async fn new(database_url: &str) -> Result<Self, MessagingError> {
         info!("🚀 Connecting to pgmq using pgmq-rs crate");
 
         let pgmq = PGMQueue::new(database_url.to_string()).await?;
@@ -55,10 +36,7 @@ impl PgmqClient {
     }
 
     /// Create queue if it doesn't exist
-    pub async fn create_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    pub async fn create_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         debug!("📋 Creating queue: {}", queue_name);
 
         self.pgmq
@@ -75,7 +53,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         debug!(
             "📤 Sending message to queue: {} for step: {}",
             queue_name, message.step_uuid
@@ -99,7 +77,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         debug!("📤 Sending JSON message to queue: {}", queue_name);
 
         let serialized = serde_json::to_value(message)?;
@@ -122,7 +100,7 @@ impl PgmqClient {
         queue_name: &str,
         vt: Option<i32>, // visibility timeout
         limit: Option<i32>,
-    ) -> Result<Vec<Message<serde_json::Value>>, crate::messaging::MessagingError> {
+    ) -> Result<Vec<PgmqMessage<serde_json::Value>>, MessagingError> {
         debug!(
             "📥 Reading messages from queue: {} (limit: {:?})",
             queue_name, limit
@@ -153,7 +131,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         debug!(
             "🗑️ Deleting message {} from queue: {}",
             message_id, queue_name
@@ -173,7 +151,7 @@ impl PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         debug!(
             "📦 Archiving message {} from queue: {}",
             message_id, queue_name
@@ -189,10 +167,7 @@ impl PgmqClient {
     }
 
     /// Purge queue (delete all messages)
-    pub async fn purge_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<u64, crate::messaging::MessagingError> {
+    pub async fn purge_queue(&self, queue_name: &str) -> Result<u64, MessagingError> {
         warn!("🧹 Purging queue: {}", queue_name);
 
         let purged_count = self
@@ -209,10 +184,7 @@ impl PgmqClient {
     }
 
     /// Drop queue completely
-    pub async fn drop_queue(
-        &self,
-        queue_name: &str,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    pub async fn drop_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         warn!("💥 Dropping queue: {}", queue_name);
 
         self.pgmq
@@ -225,10 +197,7 @@ impl PgmqClient {
     }
 
     /// Get queue metrics/statistics
-    pub async fn queue_metrics(
-        &self,
-        queue_name: &str,
-    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
+    pub async fn queue_metrics(&self, queue_name: &str) -> Result<QueueMetrics, MessagingError> {
         debug!("📊 Getting metrics for queue: {}", queue_name);
 
         // Query actual pgmq metrics from the database using pgmq.metrics() function
@@ -243,6 +212,7 @@ impl PgmqClient {
             Ok(QueueMetrics {
                 queue_name: queue_name.to_string(),
                 message_count: row.queue_length.unwrap_or(0),
+                consumer_count: None,
                 oldest_message_age_seconds: row.oldest_msg_age_sec.map(|age| age as i64),
             })
         } else {
@@ -250,6 +220,7 @@ impl PgmqClient {
             Ok(QueueMetrics {
                 queue_name: queue_name.to_string(),
                 message_count: 0,
+                consumer_count: None,
                 oldest_message_age_seconds: None,
             })
         }
@@ -261,7 +232,7 @@ impl PgmqClient {
         queue_name: &str,
         message: &T,
         _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<i64, crate::messaging::MessagingError>
+    ) -> Result<i64, MessagingError>
     where
         T: serde::Serialize,
     {
@@ -286,14 +257,6 @@ impl PgmqClient {
     }
 }
 
-/// Queue metrics structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueMetrics {
-    pub queue_name: String,
-    pub message_count: i64,
-    pub oldest_message_age_seconds: Option<i64>,
-}
-
 /// Helper methods for common queue operations
 impl PgmqClient {
     /// Send step execution message to namespace queue
@@ -301,7 +264,7 @@ impl PgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.send_message(&queue_name, &step_message).await
     }
@@ -312,7 +275,7 @@ impl PgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<Vec<Message<serde_json::Value>>, crate::messaging::MessagingError> {
+    ) -> Result<Vec<PgmqMessage<serde_json::Value>>, MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.read_messages(&queue_name, visibility_timeout, Some(batch_size))
             .await
@@ -323,7 +286,7 @@ impl PgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         let queue_name = format!("{namespace}_queue");
         self.delete_message(&queue_name, message_id).await
     }
@@ -332,7 +295,7 @@ impl PgmqClient {
     pub async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         info!("🏗️ Initializing {} namespace queues", namespaces.len());
 
         for namespace in namespaces {
@@ -348,7 +311,7 @@ impl PgmqClient {
 /// Implement PgmqClientTrait for standard PgmqClient
 #[async_trait::async_trait]
 impl crate::messaging::PgmqClientTrait for PgmqClient {
-    async fn create_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+    async fn create_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         self.create_queue(queue_name).await
     }
 
@@ -356,7 +319,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         self.send_message(queue_name, message).await
     }
 
@@ -364,7 +327,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         self.send_json_message(queue_name, message).await
     }
 
@@ -373,8 +336,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
-    {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, MessagingError> {
         self.read_messages(queue_name, visibility_timeout, qty)
             .await
     }
@@ -383,7 +345,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         self.delete_message(queue_name, message_id).await
     }
 
@@ -391,29 +353,23 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         self.archive_message(queue_name, message_id).await
     }
 
-    async fn purge_queue(&self, queue_name: &str) -> Result<u64, crate::messaging::MessagingError> {
+    async fn purge_queue(&self, queue_name: &str) -> Result<u64, MessagingError> {
         self.purge_queue(queue_name).await
     }
 
-    async fn drop_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+    async fn drop_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         self.drop_queue(queue_name).await
     }
 
-    async fn queue_metrics(
-        &self,
-        queue_name: &str,
-    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
+    async fn queue_metrics(&self, queue_name: &str) -> Result<QueueMetrics, MessagingError> {
         self.queue_metrics(queue_name).await
     }
 
-    async fn initialize_namespace_queues(
-        &self,
-        namespaces: &[&str],
-    ) -> Result<(), crate::messaging::MessagingError> {
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> Result<(), MessagingError> {
         self.initialize_namespace_queues(namespaces).await
     }
 
@@ -421,7 +377,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         self.enqueue_step(namespace, step_message).await
     }
 
@@ -430,8 +386,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
-    {
+    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, MessagingError> {
         self.process_namespace_queue(namespace, visibility_timeout, batch_size)
             .await
     }
@@ -440,7 +395,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         self.complete_message(namespace, message_id).await
     }
 }
@@ -448,6 +403,7 @@ impl crate::messaging::PgmqClientTrait for PgmqClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_pgmq_client_creation() {
@@ -569,5 +525,202 @@ mod tests {
             .expect("Failed to drop test queue");
 
         println!("✅ Queue setup/teardown test completed successfully");
+    }
+}
+
+/// Implementation of UnifiedMessageClient trait for PgmqClient
+///
+/// This implementation bridges the existing PgmqClient methods to the unified MessageClient interface,
+/// enabling seamless backend abstraction for TAS-40 command pattern and future TAS-35 requirements.
+#[async_trait::async_trait]
+impl super::unified_client::MessageClient for PgmqClient {
+    async fn send_step_message(
+        &self,
+        namespace: &str,
+        message: crate::messaging::message::StepMessage,
+    ) -> crate::TaskerResult<()> {
+        // Convert StepMessage to PgmqStepMessage format
+        let pgmq_message = PgmqStepMessage {
+            step_uuid: message.step_uuid,
+            task_uuid: message.task_uuid,
+            namespace: message.namespace.clone(),
+            step_name: message.step_name.clone(),
+            step_payload: message.step_payload,
+            metadata: PgmqStepMessageMetadata {
+                enqueued_at: message.metadata.created_at,
+                retry_count: message.metadata.retry_count as i32,
+                max_retries: message.metadata.max_retries as i32,
+                timeout_seconds: Some((message.metadata.timeout_ms / 1000) as i64),
+            },
+        };
+
+        let queue_name = format!("{}_queue", namespace);
+        self.send_message(&queue_name, &pgmq_message)
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn send_simple_step_message(
+        &self,
+        namespace: &str,
+        message: crate::messaging::message::SimpleStepMessage,
+    ) -> crate::TaskerResult<()> {
+        let queue_name = format!("{}_queue", namespace);
+        self.send_json_message(&queue_name, &message)
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn receive_step_messages(
+        &self,
+        namespace: &str,
+        limit: i32,
+        visibility_timeout: i32,
+    ) -> crate::TaskerResult<Vec<crate::messaging::message::StepMessage>> {
+        let queue_name = format!("{}_queue", namespace);
+        let _raw_messages = self
+            .read_messages(&queue_name, Some(visibility_timeout), Some(limit))
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))?;
+
+        // Convert pgmq messages back to StepMessage format
+        // TODO: This is a placeholder - would need proper message parsing
+        // In practice, we'd likely store SimpleStepMessage and hydrate from database
+        Ok(vec![])
+    }
+
+    async fn send_step_result(
+        &self,
+        result: crate::messaging::execution_types::StepExecutionResult,
+    ) -> crate::TaskerResult<()> {
+        // Send step result to orchestration_step_results queue
+        self.send_json_message("orchestration_step_results", &result)
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn send_task_request(
+        &self,
+        request: crate::messaging::orchestration_messages::TaskRequestMessage,
+    ) -> crate::TaskerResult<()> {
+        // Send task request to orchestration_task_requests queue
+        self.send_json_message("orchestration_task_requests", &request)
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn receive_task_requests(
+        &self,
+        limit: i32,
+    ) -> crate::TaskerResult<Vec<crate::messaging::orchestration_messages::TaskRequestMessage>>
+    {
+        let raw_messages = self
+            .read_messages("orchestration_task_requests", Some(30), Some(limit))
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))?;
+
+        let mut task_requests = Vec::new();
+        for msg in raw_messages {
+            if let Ok(request) = serde_json::from_value::<
+                crate::messaging::orchestration_messages::TaskRequestMessage,
+            >(msg.message)
+            {
+                task_requests.push(request);
+            }
+        }
+
+        Ok(task_requests)
+    }
+
+    async fn send_step_result_message(
+        &self,
+        result: crate::messaging::orchestration_messages::StepResultMessage,
+    ) -> crate::TaskerResult<()> {
+        // Send step result message to orchestration_step_results queue
+        self.send_json_message("orchestration_step_results", &result)
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn receive_step_result_messages(
+        &self,
+        limit: i32,
+    ) -> crate::TaskerResult<Vec<crate::messaging::orchestration_messages::StepResultMessage>> {
+        let raw_messages = self
+            .read_messages("orchestration_step_results", Some(30), Some(limit))
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))?;
+
+        let mut step_results = Vec::new();
+        for msg in raw_messages {
+            if let Ok(result) = serde_json::from_value::<
+                crate::messaging::orchestration_messages::StepResultMessage,
+            >(msg.message)
+            {
+                step_results.push(result);
+            }
+        }
+
+        Ok(step_results)
+    }
+
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> crate::TaskerResult<()> {
+        // Use existing implementation
+        self.initialize_namespace_queues(namespaces)
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn create_queue(&self, queue_name: &str) -> crate::TaskerResult<()> {
+        self.create_queue(queue_name)
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn delete_message(&self, queue_name: &str, message_id: i64) -> crate::TaskerResult<()> {
+        self.delete_message(queue_name, message_id)
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))
+    }
+
+    async fn get_queue_metrics(&self, queue_name: &str) -> crate::TaskerResult<QueueMetrics> {
+        let metrics = self
+            .queue_metrics(queue_name)
+            .await
+            .map_err(|e| crate::TaskerError::MessagingError(e.to_string()))?;
+
+        Ok(QueueMetrics {
+            queue_name: queue_name.to_string(),
+            message_count: metrics.message_count,
+            consumer_count: None, // PGMQ doesn't track consumers
+            oldest_message_age_seconds: metrics.oldest_message_age_seconds,
+        })
+    }
+
+    fn client_type(&self) -> &'static str {
+        "pgmq"
+    }
+
+    async fn get_client_status(&self) -> crate::TaskerResult<ClientStatus> {
+        Ok(ClientStatus {
+            client_type: "pgmq".to_string(),
+            connected: true, // Assume connected if we can create the client
+            connection_info: std::collections::HashMap::from([
+                (
+                    "backend".to_string(),
+                    serde_json::Value::String("postgresql".to_string()),
+                ),
+                (
+                    "queue_type".to_string(),
+                    serde_json::Value::String("pgmq".to_string()),
+                ),
+            ]),
+            last_activity: Some(chrono::Utc::now()),
+        })
     }
 }

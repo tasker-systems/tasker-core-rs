@@ -3,8 +3,7 @@
 //! Defines the shared state for the web API including database pools,
 //! configuration, and circuit breaker health monitoring.
 
-// Note: SystemOperationalState removed as part of TAS-40 coordinator simplification
-// Using simplified operational state enum for web API compatibility
+// TAS-40: Simplified operational state for web API compatibility with command pattern
 #[derive(Debug, Clone, PartialEq)]
 pub enum SystemOperationalState {
     Normal,
@@ -13,8 +12,8 @@ pub enum SystemOperationalState {
     Stopped,
     Startup,
 }
-use crate::orchestration::core::OrchestrationCore;
-use crate::orchestration::task_initializer::TaskInitializer;
+use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
+use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 use crate::web::response_types::{ApiError, ApiResult};
 use parking_lot::RwLock;
@@ -300,34 +299,49 @@ impl AppState {
             WebDatabaseCircuitBreaker::new(u32::MAX, Duration::from_secs(1), "disabled")
         };
 
-        // Extract orchestration status from OrchestrationCore
-        let operational_state = orchestration_core.operational_state().await;
-        let database_pool_size = orchestration_core.database_pool().size();
+        // Extract orchestration status from OrchestrationCore (TAS-40 simplified)
+        let database_pool_size = orchestration_core.context.database_pool().size();
         let environment = config_manager.environment().to_string();
+        let core_status = orchestration_core.status();
+
+        // Convert OrchestrationCoreStatus to SystemOperationalState
+        let operational_state = match core_status {
+            OrchestrationCoreStatus::Running => SystemOperationalState::Normal,
+            OrchestrationCoreStatus::Starting => SystemOperationalState::Startup,
+            OrchestrationCoreStatus::Stopping => SystemOperationalState::GracefulShutdown,
+            OrchestrationCoreStatus::Stopped => SystemOperationalState::Stopped,
+            OrchestrationCoreStatus::Error(_) => SystemOperationalState::Emergency,
+            OrchestrationCoreStatus::Created => SystemOperationalState::Startup,
+        };
 
         let orchestration_status = Arc::new(RwLock::new(OrchestrationStatus {
-            running: true,
+            running: matches!(core_status, OrchestrationCoreStatus::Running),
             environment: environment.clone(),
-            operational_state: operational_state.clone(),
+            operational_state,
             database_pool_size,
             last_health_check: std::time::Instant::now(),
         }));
+
+        // Create TaskInitializer from orchestration context
+        let task_initializer = Arc::new(TaskInitializer::new(
+            orchestration_core.context.database_pool().clone(),
+        ));
 
         info!(
             web_pool_size = pool_config.web_api_max_connections,
             orchestration_pool_size = database_pool_size,
             circuit_breaker_enabled = web_config.resilience.circuit_breaker_enabled,
             environment = %environment,
-            operational_state = ?operational_state,
+            orchestration_status = ?orchestration_status,
             "Web API application state created successfully"
         );
 
         Ok(Self {
             config: Arc::new(web_config),
             web_db_pool: web_db_pool.clone(),
-            orchestration_db_pool: orchestration_core.database_pool().clone(),
+            orchestration_db_pool: orchestration_core.context.database_pool().clone(),
             web_db_circuit_breaker: circuit_breaker,
-            task_initializer: orchestration_core.task_initializer.clone(),
+            task_initializer,
             orchestration_status,
         })
     }
@@ -362,7 +376,7 @@ impl AppState {
     /// Create AppState for testing without requiring OrchestrationCore
     #[cfg(feature = "test-utils")]
     pub async fn new_for_testing(tasker_config: TaskerConfig) -> ApiResult<Self> {
-        use crate::orchestration::task_initializer::TaskInitializer;
+        use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 
         info!("Creating test web API application state");
 
@@ -452,12 +466,11 @@ impl AppState {
         self.orchestration_status.read().operational_state.clone()
     }
 
-    /// Report web API database pool usage to health monitoring system (TAS-37 Web Integration)
+    /// Report web API database pool usage to health monitoring system (TAS-40 Web Integration)
     ///
     /// This method creates a pool usage report for external health monitoring.
-    /// Note: Simplified for TAS-40 command pattern - complex coordinator monitoring removed.
+    /// Uses TAS-40 command pattern architecture with simplified operational state.
     pub async fn report_pool_usage_stats(&self) -> TaskerResult<DatabasePoolUsageStats> {
-
         // Get current pool usage statistics (simplified for TAS-40)
         Ok(self.get_pool_usage_stats())
     }

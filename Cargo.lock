@@ -4284,6 +4284,7 @@ dependencies = [
  "sqlx",
  "structured-logger",
  "tasker-orchestration",
+ "tasker-shared",
  "thiserror 2.0.14",
  "tokio",
  "tracing",

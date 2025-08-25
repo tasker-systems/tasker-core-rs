@@ -9,7 +9,7 @@ use dotenvy::dotenv;
 use magnus::{prelude::*, Error, IntoValue, RArray, RHash, RModule, Ruby, Value};
 use serde_json::Value as JsonValue;
 use std::path::PathBuf;
-use tasker_shared::ffi::shared::WorkerConfigManager;
+use tasker_orchestration::ffi::shared::WorkerConfigManager;
 
 /// Ruby wrapper for WorkerConfigManager
 ///

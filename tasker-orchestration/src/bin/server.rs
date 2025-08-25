@@ -29,7 +29,7 @@
 
 use std::env;
 use tokio::signal;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use tasker_orchestration::orchestration::bootstrap::{BootstrapConfig, OrchestrationBootstrap};
 use tasker_orchestration::web::{
@@ -135,14 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("🛑 Shutdown signal received, initiating graceful shutdown...");
 
-    // Transition to graceful shutdown state
-    if let Err(e) = orchestration_handle
-        .orchestration_core
-        .transition_to_graceful_shutdown()
-        .await
-    {
-        warn!("Failed to transition to graceful shutdown: {}", e);
-    }
+    // Note: The orchestration core will be stopped through the handle.stop() below
+    // which properly manages the shutdown sequence
 
     // Stop web server (it should already be stopping due to graceful shutdown)
     server_task.abort();

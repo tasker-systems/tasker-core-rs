@@ -6,7 +6,6 @@
 
 use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use std::sync::Arc;
-use std::time::Duration;
 use tasker_shared::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::registry::TaskHandlerRegistry;
@@ -66,39 +65,6 @@ impl TaskRequestProcessor {
             task_handler_registry,
             task_initializer,
             config,
-        }
-    }
-
-    /// Start the task request processing loop
-    #[instrument(skip(self))]
-    pub async fn start_processing_loop(&self) -> TaskerResult<()> {
-        info!(
-            request_queue = %self.config.request_queue_name,
-            "Starting task request processing loop"
-        );
-
-        // Ensure queues exist
-        self.ensure_queues_exist().await?;
-
-        loop {
-            match self.process_batch().await {
-                Ok(processed_count) => {
-                    if processed_count == 0 {
-                        // No messages processed, wait before polling again
-                        tokio::time::sleep(Duration::from_secs(
-                            self.config.polling_interval_seconds,
-                        ))
-                        .await;
-                    }
-                    // If we processed messages, continue immediately for better throughput
-                }
-                Err(e) => {
-                    error!(error = %e, "Error in task request processing batch");
-                    // Wait before retrying on error
-                    tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds))
-                        .await;
-                }
-            }
         }
     }
 
@@ -356,26 +322,6 @@ impl TaskRequestProcessor {
         );
 
         Ok(initialization_result.task_uuid)
-    }
-
-    /// Ensure required queues exist
-    async fn ensure_queues_exist(&self) -> TaskerResult<()> {
-        info!("Ensuring orchestration queues exist");
-
-        // Create request queue if it doesn't exist
-        if let Err(e) = self
-            .pgmq_client
-            .create_queue(&self.config.request_queue_name)
-            .await
-        {
-            debug!(
-                queue = %self.config.request_queue_name,
-                error = %e,
-                "Queue may already exist"
-            );
-        }
-
-        Ok(())
     }
 
     /// Get processing statistics

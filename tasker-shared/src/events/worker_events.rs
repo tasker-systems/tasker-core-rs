@@ -41,7 +41,7 @@
 //! }
 //! ```
 
-use crate::types::{StepEventPayload, StepExecutionEvent, StepExecutionCompletionEvent};
+use crate::types::{StepEventPayload, StepExecutionCompletionEvent, StepExecutionEvent};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
@@ -53,7 +53,7 @@ use uuid::Uuid;
 pub struct WorkerEventSystem {
     /// Broadcast channel for step execution events (Rust → FFI)
     step_execution_tx: Arc<broadcast::Sender<StepExecutionEvent>>,
-    /// Broadcast channel for step completion events (FFI → Rust)  
+    /// Broadcast channel for step completion events (FFI → Rust)
     step_completion_tx: Arc<broadcast::Sender<StepExecutionCompletionEvent>>,
     /// Event correlation tracking for debugging
     event_correlations: Arc<RwLock<HashMap<Uuid, EventCorrelation>>>,
@@ -130,7 +130,10 @@ impl WorkerEventSystem {
     }
 
     /// Publish step execution event to FFI handlers
-    pub async fn publish_step_execution(&self, event: StepExecutionEvent) -> Result<(), WorkerEventError> {
+    pub async fn publish_step_execution(
+        &self,
+        event: StepExecutionEvent,
+    ) -> Result<(), WorkerEventError> {
         debug!(
             event_id = %event.event_id,
             task_uuid = %event.payload.task_uuid,
@@ -201,19 +204,26 @@ impl WorkerEventSystem {
     }
 
     /// Subscribe to step completion events (for workers)
-    pub fn subscribe_to_step_completions(&self) -> broadcast::Receiver<StepExecutionCompletionEvent> {
+    pub fn subscribe_to_step_completions(
+        &self,
+    ) -> broadcast::Receiver<StepExecutionCompletionEvent> {
         self.step_completion_tx.subscribe()
     }
 
     /// Get system statistics for monitoring
     pub fn get_statistics(&self) -> WorkerEventSystemStats {
         let correlations = self.event_correlations.read().unwrap();
-        
-        let completed_events = correlations.values().filter(|c| c.completed_at.is_some()).count();
-        let successful_events = correlations.values()
+
+        let completed_events = correlations
+            .values()
+            .filter(|c| c.completed_at.is_some())
+            .count();
+        let successful_events = correlations
+            .values()
             .filter(|c| c.success == Some(true))
             .count();
-        let failed_events = correlations.values()
+        let failed_events = correlations
+            .values()
             .filter(|c| c.success == Some(false))
             .count();
 
@@ -234,7 +244,7 @@ impl WorkerEventSystem {
         }
 
         let mut correlations = self.event_correlations.write().unwrap();
-        
+
         if correlations.len() <= self.config.max_correlation_entries {
             return;
         }
@@ -242,11 +252,9 @@ impl WorkerEventSystem {
         // Remove oldest correlations, keeping the most recent ones
         let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(1);
         let initial_count = correlations.len();
-        
-        correlations.retain(|_, correlation| {
-            correlation.published_at > cutoff_time
-        });
-        
+
+        correlations.retain(|_, correlation| correlation.published_at > cutoff_time);
+
         let removed_count = initial_count - correlations.len();
         if removed_count > 0 {
             debug!(
@@ -260,7 +268,7 @@ impl WorkerEventSystem {
     /// Track step execution event for correlation
     fn track_execution_event(&self, event: &StepExecutionEvent) {
         let mut correlations = self.event_correlations.write().unwrap();
-        
+
         let correlation = EventCorrelation {
             event_id: event.event_id,
             task_uuid: event.payload.task_uuid,
@@ -270,14 +278,14 @@ impl WorkerEventSystem {
             completed_at: None,
             success: None,
         };
-        
+
         correlations.insert(event.event_id, correlation);
     }
 
     /// Track step completion event for correlation
     fn track_completion_event(&self, event: &StepExecutionCompletionEvent) {
         let mut correlations = self.event_correlations.write().unwrap();
-        
+
         // Update existing correlation if found
         if let Some(correlation) = correlations.get_mut(&event.event_id) {
             correlation.completed_at = Some(chrono::Utc::now());
@@ -355,7 +363,9 @@ impl WorkerEventSubscriber {
     }
 
     /// Subscribe to step completion events (for workers)
-    pub fn subscribe_to_step_completions(&self) -> broadcast::Receiver<StepExecutionCompletionEvent> {
+    pub fn subscribe_to_step_completions(
+        &self,
+    ) -> broadcast::Receiver<StepExecutionCompletionEvent> {
         self.event_system.subscribe_to_step_completions()
     }
 
@@ -384,13 +394,13 @@ pub struct WorkerEventSystemStats {
 pub enum WorkerEventError {
     #[error("Failed to publish event: {0}")]
     PublishError(String),
-    
+
     #[error("Failed to subscribe to events: {0}")]
     SubscriptionError(String),
-    
+
     #[error("Event correlation error: {0}")]
     CorrelationError(String),
-    
+
     #[error("Channel error: {0}")]
     ChannelError(String),
 }
@@ -455,7 +465,9 @@ mod tests {
         );
 
         // Publish completion event
-        let result = subscriber.publish_step_completion(completion_event.clone()).await;
+        let result = subscriber
+            .publish_step_completion(completion_event.clone())
+            .await;
         assert!(result.is_ok());
 
         // Receive completion event
@@ -471,8 +483,6 @@ mod tests {
             ..Default::default()
         };
         let event_system = WorkerEventSystem::with_config(config);
-        let publisher = event_system.create_publisher();
-        let subscriber = event_system.create_subscriber();
 
         // Create and publish execution event
         let payload = StepEventPayload::new(
@@ -487,7 +497,7 @@ mod tests {
 
         let execution_event = StepExecutionEvent::new(payload);
         let event_id = execution_event.event_id;
-        
+
         let _ = event_system.publish_step_execution(execution_event).await;
 
         // Create and publish completion event with same ID
@@ -514,7 +524,7 @@ mod tests {
     #[tokio::test]
     async fn test_event_system_statistics() {
         let event_system = WorkerEventSystem::new();
-        
+
         // Create subscribers
         let _execution_receiver = event_system.subscribe_to_step_executions();
         let _completion_receiver = event_system.subscribe_to_step_completions();
@@ -532,7 +542,7 @@ mod tests {
             ..Default::default()
         };
         let event_system = WorkerEventSystem::with_config(config);
-        
+
         // Add some correlations by tracking events
         for _ in 0..10 {
             let payload = StepEventPayload::new(
@@ -553,7 +563,7 @@ mod tests {
 
         // Cleanup should respect the limit eventually
         event_system.cleanup_correlations();
-        
+
         // Note: cleanup uses time-based retention, so all events may still be present
         // in this test since they were just created
         let final_stats = event_system.get_statistics();

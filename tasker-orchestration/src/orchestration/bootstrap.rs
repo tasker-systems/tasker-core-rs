@@ -19,9 +19,10 @@
 use crate::orchestration::OrchestrationCore;
 use std::sync::Arc;
 use tasker_shared::config::{ConfigManager, UnifiedConfigLoader};
+use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use workspace_tools::workspace;
 
 /// Unified orchestration system handle for lifecycle management
@@ -76,9 +77,9 @@ impl OrchestrationSystemHandle {
         SystemStatus {
             running: self.is_running(),
             environment: self.config_manager.environment().to_string(),
-            circuit_breakers_enabled: self.orchestration_core.circuit_breakers_enabled(),
-            database_pool_size: self.orchestration_core.database_pool().size(),
-            database_pool_idle: self.orchestration_core.database_pool().num_idle(),
+            circuit_breakers_enabled: self.orchestration_core.context.circuit_breakers_enabled(),
+            database_pool_size: self.orchestration_core.context.database_pool().size(),
+            database_pool_idle: self.orchestration_core.context.database_pool().num_idle(),
             database_url_preview: self
                 .config_manager
                 .config()
@@ -205,9 +206,11 @@ impl OrchestrationBootstrap {
             config_manager.config().circuit_breakers.enabled
         );
 
+        // Initialize system context
+        let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
+
         // Initialize OrchestrationCore with unified configuration
-        let orchestration_core =
-            Arc::new(OrchestrationCore::from_config(config_manager.clone()).await?);
+        let orchestration_core = Arc::new(OrchestrationCore::new(system_context.clone()).await?);
 
         info!("✅ BOOTSTRAP: OrchestrationCore initialized with unified configuration");
 
@@ -215,6 +218,7 @@ impl OrchestrationBootstrap {
         if !config.namespaces.is_empty() {
             let namespace_refs: Vec<&str> = config.namespaces.iter().map(|s| s.as_str()).collect();
             orchestration_core
+                .context
                 .initialize_queues(&namespace_refs)
                 .await?;
             info!(
@@ -232,7 +236,7 @@ impl OrchestrationBootstrap {
         // TODO: TAS-40 - Replace with OrchestrationProcessor command pattern
         // Temporarily simplified for command pattern migration
         info!("✅ BOOTSTRAP: Simplified bootstrap for TAS-40 command pattern migration");
-        
+
         // Spawn background task to handle shutdown
         tokio::spawn(async move {
             if let Ok(()) = shutdown_receiver.await {

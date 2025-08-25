@@ -3,10 +3,13 @@
 //! Wraps the standard PgmqClient with circuit breaker protection for fault tolerance.
 //! This prevents cascade failures when queue operations encounter issues.
 
+use super::pgmq_client::PgmqClient;
+use super::traits::PgmqClientTrait;
+use super::types::{PgmqStepMessage, QueueMetrics};
 use crate::config::CircuitBreakerConfig;
-use crate::messaging::{PgmqClient, PgmqStepMessage, QueueMetrics};
-use crate::resilience::{CircuitBreakerError, CircuitBreakerManager};
-use pgmq::types::Message;
+use crate::messaging::MessagingError;
+use crate::resilience::{CircuitBreakerError, CircuitBreakerManager, CircuitState};
+use pgmq::types::Message as PgmqMessage;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -28,7 +31,7 @@ impl ProtectedPgmqClient {
     pub async fn new(
         database_url: &str,
         circuit_manager: Arc<CircuitBreakerManager>,
-    ) -> Result<Self, crate::messaging::MessagingError> {
+    ) -> Result<Self, MessagingError> {
         let client = PgmqClient::new(database_url).await?;
 
         Ok(Self {
@@ -56,7 +59,7 @@ impl ProtectedPgmqClient {
     pub async fn new_with_config(
         database_url: &str,
         circuit_config: &CircuitBreakerConfig,
-    ) -> Result<Self, crate::messaging::MessagingError> {
+    ) -> Result<Self, MessagingError> {
         let client = PgmqClient::new(database_url).await?;
         let circuit_manager = Arc::new(CircuitBreakerManager::from_config(circuit_config));
 
@@ -86,7 +89,7 @@ impl ProtectedPgmqClient {
     pub async fn create_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<(), CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -102,7 +105,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<i64, CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -118,7 +121,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<i64, CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -140,10 +143,7 @@ impl ProtectedPgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<
-        Vec<Message<serde_json::Value>>,
-        CircuitBreakerError<crate::messaging::MessagingError>,
-    > {
+    ) -> Result<Vec<PgmqMessage<serde_json::Value>>, CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -163,7 +163,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<(), CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -179,7 +179,7 @@ impl ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<(), CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -194,7 +194,7 @@ impl ProtectedPgmqClient {
     pub async fn purge_queue(
         &self,
         queue_name: &str,
-    ) -> Result<u64, CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<u64, CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -209,7 +209,7 @@ impl ProtectedPgmqClient {
     pub async fn drop_queue(
         &self,
         queue_name: &str,
-    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<(), CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -224,22 +224,30 @@ impl ProtectedPgmqClient {
     pub async fn queue_metrics(
         &self,
         queue_name: &str,
-    ) -> Result<QueueMetrics, CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<QueueMetrics, CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
             .await;
 
-        circuit_breaker
+        let metrics = circuit_breaker
             .call(|| async { self.client.queue_metrics(queue_name).await })
-            .await
+            .await?;
+
+        // Convert from pgmq_client::QueueMetrics to unified_client::QueueMetrics
+        Ok(QueueMetrics {
+            queue_name: metrics.queue_name,
+            message_count: metrics.message_count,
+            consumer_count: None, // PGMQ doesn't track consumers
+            oldest_message_age_seconds: metrics.oldest_message_age_seconds,
+        })
     }
 
     /// Initialize namespace queues with circuit breaker protection
     pub async fn initialize_namespace_queues(
         &self,
         namespaces: &[&str],
-    ) -> Result<(), CircuitBreakerError<crate::messaging::MessagingError>> {
+    ) -> Result<(), CircuitBreakerError<MessagingError>> {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -260,7 +268,7 @@ impl ProtectedPgmqClient {
     }
 
     /// Get circuit breaker state
-    pub async fn circuit_breaker_state(&self) -> crate::resilience::CircuitState {
+    pub async fn circuit_breaker_state(&self) -> CircuitState {
         let circuit_breaker = self
             .circuit_manager
             .get_circuit_breaker(&self.component_name)
@@ -299,12 +307,12 @@ impl ProtectedPgmqClient {
 }
 
 /// Convenience type alias for protected PGMQ errors
-pub type ProtectedPgmqError = CircuitBreakerError<crate::messaging::MessagingError>;
+pub type ProtectedPgmqError = CircuitBreakerError<MessagingError>;
 
 /// Implement PgmqClientTrait for circuit breaker protected PgmqClient
 #[async_trait::async_trait]
-impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
-    async fn create_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+impl PgmqClientTrait for ProtectedPgmqClient {
+    async fn create_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         self.create_queue(queue_name).await.map_err(|e| e.into())
     }
 
@@ -312,7 +320,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         self.send_message(queue_name, message)
             .await
             .map_err(|e| e.into())
@@ -322,7 +330,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message: &T,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         self.send_json_message(queue_name, message)
             .await
             .map_err(|e| e.into())
@@ -333,8 +341,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         queue_name: &str,
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
-    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
-    {
+    ) -> Result<Vec<PgmqMessage<serde_json::Value>>, MessagingError> {
         self.read_messages(queue_name, visibility_timeout, qty)
             .await
             .map_err(|e| e.into())
@@ -344,7 +351,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         self.delete_message(queue_name, message_id)
             .await
             .map_err(|e| e.into())
@@ -354,31 +361,25 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         queue_name: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         self.archive_message(queue_name, message_id)
             .await
             .map_err(|e| e.into())
     }
 
-    async fn purge_queue(&self, queue_name: &str) -> Result<u64, crate::messaging::MessagingError> {
+    async fn purge_queue(&self, queue_name: &str) -> Result<u64, MessagingError> {
         self.purge_queue(queue_name).await.map_err(|e| e.into())
     }
 
-    async fn drop_queue(&self, queue_name: &str) -> Result<(), crate::messaging::MessagingError> {
+    async fn drop_queue(&self, queue_name: &str) -> Result<(), MessagingError> {
         self.drop_queue(queue_name).await.map_err(|e| e.into())
     }
 
-    async fn queue_metrics(
-        &self,
-        queue_name: &str,
-    ) -> Result<QueueMetrics, crate::messaging::MessagingError> {
+    async fn queue_metrics(&self, queue_name: &str) -> Result<QueueMetrics, MessagingError> {
         self.queue_metrics(queue_name).await.map_err(|e| e.into())
     }
 
-    async fn initialize_namespace_queues(
-        &self,
-        namespaces: &[&str],
-    ) -> Result<(), crate::messaging::MessagingError> {
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> Result<(), MessagingError> {
         self.initialize_namespace_queues(namespaces)
             .await
             .map_err(|e| e.into())
@@ -388,7 +389,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         namespace: &str,
         step_message: PgmqStepMessage,
-    ) -> Result<i64, crate::messaging::MessagingError> {
+    ) -> Result<i64, MessagingError> {
         // Delegate to underlying client for enqueue_step
         self.client.enqueue_step(namespace, step_message).await
     }
@@ -398,8 +399,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         namespace: &str,
         visibility_timeout: Option<i32>,
         batch_size: i32,
-    ) -> Result<Vec<pgmq::types::Message<serde_json::Value>>, crate::messaging::MessagingError>
-    {
+    ) -> Result<Vec<PgmqMessage<serde_json::Value>>, MessagingError> {
         // Delegate to underlying client for process_namespace_queue
         self.client
             .process_namespace_queue(namespace, visibility_timeout, batch_size)
@@ -410,7 +410,7 @@ impl crate::messaging::PgmqClientTrait for ProtectedPgmqClient {
         &self,
         namespace: &str,
         message_id: i64,
-    ) -> Result<(), crate::messaging::MessagingError> {
+    ) -> Result<(), MessagingError> {
         // Delegate to underlying client for complete_message
         self.client.complete_message(namespace, message_id).await
     }
@@ -455,10 +455,7 @@ mod tests {
         assert!(protected_client.is_ok());
 
         let client = protected_client.unwrap();
-        assert_eq!(
-            client.circuit_breaker_state().await,
-            crate::resilience::CircuitState::Closed
-        );
+        assert_eq!(client.circuit_breaker_state().await, CircuitState::Closed);
         assert!(client.is_healthy().await);
     }
 
@@ -508,21 +505,21 @@ mod tests {
         assert!(protected_client.is_healthy().await);
         assert_eq!(
             protected_client.circuit_breaker_state().await,
-            crate::resilience::CircuitState::Closed
+            CircuitState::Closed
         );
 
         // Test force operations
         protected_client.force_circuit_open().await;
         assert_eq!(
             protected_client.circuit_breaker_state().await,
-            crate::resilience::CircuitState::Open
+            CircuitState::Open
         );
         assert!(!protected_client.is_healthy().await);
 
         protected_client.force_circuit_closed().await;
         assert_eq!(
             protected_client.circuit_breaker_state().await,
-            crate::resilience::CircuitState::Closed
+            CircuitState::Closed
         );
         assert!(protected_client.is_healthy().await);
     }

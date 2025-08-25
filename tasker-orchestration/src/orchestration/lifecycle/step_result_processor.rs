@@ -47,8 +47,8 @@
 //! # let config = TaskerConfig::default();
 //! let processor = StepResultProcessor::new(pool, pgmq_client, config).await?;
 //!
-//! // Process step results continuously
-//! processor.start_processing_loop().await?;
+//! // Process step results
+//! processor.process_batch().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -59,7 +59,6 @@ use crate::orchestration::lifecycle::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::time::Duration;
 use tasker_shared::config::orchestration::StepResultProcessorConfig;
 use tasker_shared::messaging::{
     PgmqClientTrait, StepExecutionStatus, StepResultMessage, UnifiedPgmqClient,
@@ -123,40 +122,6 @@ impl StepResultProcessor {
             orchestration_result_processor,
             config,
         })
-    }
-
-    /// Start the step result processing loop
-    #[instrument(skip(self))]
-    pub async fn start_processing_loop(&self) -> TaskerResult<()> {
-        info!(
-            queue = %self.config.step_results_queue_name,
-            polling_interval = %self.config.polling_interval_seconds,
-            "Starting step result processing loop"
-        );
-
-        // Ensure step results queue exists
-        self.ensure_queue_exists().await?;
-
-        loop {
-            match self.process_batch().await {
-                Ok(processed_count) => {
-                    if processed_count == 0 {
-                        // No results processed, wait before polling again
-                        tokio::time::sleep(Duration::from_secs(
-                            self.config.polling_interval_seconds,
-                        ))
-                        .await;
-                    }
-                    // If we processed results, continue immediately for better throughput
-                }
-                Err(e) => {
-                    error!(error = %e, "Error in step result processing batch");
-                    // Wait before retrying on error
-                    tokio::time::sleep(Duration::from_secs(self.config.polling_interval_seconds))
-                        .await;
-                }
-            }
-        }
     }
 
     /// Process a batch of step result messages
@@ -294,28 +259,6 @@ impl StepResultProcessor {
             task_uuid = %step_result.task_uuid,
             msg_id = msg_id,
             "Step result processed successfully"
-        );
-
-        Ok(())
-    }
-
-    /// Ensure the step results queue exists
-    async fn ensure_queue_exists(&self) -> TaskerResult<()> {
-        if let Err(e) = self
-            .pgmq_client
-            .create_queue(&self.config.step_results_queue_name)
-            .await
-        {
-            debug!(
-                queue = %self.config.step_results_queue_name,
-                error = %e,
-                "Step results queue may already exist"
-            );
-        }
-
-        info!(
-            queue = %self.config.step_results_queue_name,
-            "Step results queue initialized"
         );
 
         Ok(())
