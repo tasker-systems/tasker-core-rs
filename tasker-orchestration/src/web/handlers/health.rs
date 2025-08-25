@@ -115,6 +115,11 @@ pub async fn readiness_probe(
     overall_healthy = overall_healthy && orch_check.status == "healthy";
     checks.insert("orchestration_system".to_string(), orch_check);
 
+    // Check command processor health
+    let cmd_check = check_command_processor_health(&state).await;
+    overall_healthy = overall_healthy && cmd_check.status == "healthy";
+    checks.insert("command_processor".to_string(), cmd_check);
+
     let response = DetailedHealthResponse {
         status: if overall_healthy {
             "ready"
@@ -190,6 +195,10 @@ pub async fn detailed_health(State(state): State<AppState>) -> Json<DetailedHeal
         "orchestration_system".to_string(),
         check_orchestration_health(&state).await,
     );
+    checks.insert(
+        "command_processor".to_string(),
+        check_command_processor_health(&state).await,
+    );
 
     // Determine overall status
     let overall_healthy = checks.values().all(|check| check.status == "healthy");
@@ -264,6 +273,45 @@ async fn check_orchestration_health(state: &AppState) -> HealthCheck {
         .to_string(),
         message: Some(format!("Operational state: {:?}", status.operational_state)),
         duration_ms: start.elapsed().as_millis() as u64,
+    }
+}
+
+async fn check_command_processor_health(state: &AppState) -> HealthCheck {
+    let start = std::time::Instant::now();
+
+    // Get the orchestration core and check if it can respond to health checks
+
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(1000),
+        state.orchestration_core.get_health(),
+    )
+    .await
+    {
+        Ok(Ok(system_health)) => HealthCheck {
+            status: if system_health.database_connected && system_health.message_queues_healthy {
+                "healthy"
+            } else {
+                "degraded"
+            }
+            .to_string(),
+            message: Some(format!(
+                "Command processor responsive - DB: {}, Queues: {}, Processors: {}",
+                system_health.database_connected,
+                system_health.message_queues_healthy,
+                system_health.active_processors
+            )),
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+        Ok(Err(e)) => HealthCheck {
+            status: "unhealthy".to_string(),
+            message: Some(format!("Command processor error: {e}")),
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+        Err(_) => HealthCheck {
+            status: "unhealthy".to_string(),
+            message: Some("Command processor health check timeout".to_string()),
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
     }
 }
 

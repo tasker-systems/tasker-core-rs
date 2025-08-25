@@ -3,11 +3,11 @@
 //! HTTP client for communicating with the tasker-orchestration web API.
 //! Used by workers to delegate task initialization and coordinate with the orchestration layer.
 
+use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use chrono::{DateTime, Utc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -92,14 +92,16 @@ impl OrchestrationApiClient {
             let mut default_headers = reqwest::header::HeaderMap::new();
             default_headers.insert(
                 reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", token).parse()
-                    .map_err(|e| TaskerError::ConfigurationError(format!("Invalid auth token: {}", e)))?
+                format!("Bearer {}", token).parse().map_err(|e| {
+                    TaskerError::ConfigurationError(format!("Invalid auth token: {}", e))
+                })?,
             );
             client_builder = client_builder.default_headers(default_headers);
         }
 
-        let client = client_builder.build()
-            .map_err(|e| TaskerError::ConfigurationError(format!("Failed to create HTTP client: {}", e)))?;
+        let client = client_builder.build().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to create HTTP client: {}", e))
+        })?;
 
         info!(
             base_url = %config.base_url,
@@ -116,11 +118,12 @@ impl OrchestrationApiClient {
     }
 
     /// Create a new task via the orchestration API
-    /// 
+    ///
     /// POST /v1/tasks
     pub async fn create_task(&self, request: TaskRequest) -> TaskerResult<TaskCreationResponse> {
-        let url = self.base_url.join("/v1/tasks")
-            .map_err(|e| TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e)))?;
+        let url = self.base_url.join("/v1/tasks").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
 
         debug!(
             url = %url,
@@ -131,11 +134,7 @@ impl OrchestrationApiClient {
 
         let mut retries = 0;
         loop {
-            let response = self.client
-                .post(url.clone())
-                .json(&request)
-                .send()
-                .await;
+            let response = self.client.post(url.clone()).json(&request).send().await;
 
             match response {
                 Ok(resp) => {
@@ -151,19 +150,28 @@ impl OrchestrationApiClient {
                             }
                             Err(e) => {
                                 error!(error = %e, "Failed to parse task creation response");
-                                return Err(TaskerError::OrchestrationError(format!("Invalid response format: {}", e)));
+                                return Err(TaskerError::OrchestrationError(format!(
+                                    "Invalid response format: {}",
+                                    e
+                                )));
                             }
                         }
                     } else {
                         let status = resp.status();
-                        let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                        
+                        let error_text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+
                         // Don't retry client errors (4xx)
                         if status.is_client_error() {
                             error!(status = %status, error = %error_text, "Client error creating task");
-                            return Err(TaskerError::OrchestrationError(format!("HTTP {}: {}", status, error_text)));
+                            return Err(TaskerError::OrchestrationError(format!(
+                                "HTTP {}: {}",
+                                status, error_text
+                            )));
                         }
-                        
+
                         warn!(
                             status = %status,
                             error = %error_text,
@@ -190,7 +198,9 @@ impl OrchestrationApiClient {
                     max_retries = self.config.max_retries,
                     "Exhausted all retries for task creation"
                 );
-                return Err(TaskerError::OrchestrationError("Failed to create task after all retries".to_string()));
+                return Err(TaskerError::OrchestrationError(
+                    "Failed to create task after all retries".to_string(),
+                ));
             }
 
             // Exponential backoff: 1s, 2s, 4s, ...
@@ -200,11 +210,15 @@ impl OrchestrationApiClient {
     }
 
     /// Get task status via the orchestration API
-    /// 
+    ///
     /// GET /v1/tasks/{task_uuid}
     pub async fn get_task_status(&self, task_uuid: Uuid) -> TaskerResult<TaskStatusResponse> {
-        let url = self.base_url.join(&format!("/v1/tasks/{}", task_uuid))
-            .map_err(|e| TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e)))?;
+        let url = self
+            .base_url
+            .join(&format!("/v1/tasks/{}", task_uuid))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
 
         debug!(
             url = %url,
@@ -212,15 +226,17 @@ impl OrchestrationApiClient {
             "Getting task status via orchestration API"
         );
 
-        let response = self.client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|e| TaskerError::OrchestrationError(format!("Failed to send request: {}", e)))?;
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
 
         if response.status().is_success() {
-            let task_status = response.json::<TaskStatusResponse>().await
-                .map_err(|e| TaskerError::OrchestrationError(format!("Failed to parse task status response: {}", e)))?;
+            let task_status = response.json::<TaskStatusResponse>().await.map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to parse task status response: {}",
+                    e
+                ))
+            })?;
 
             debug!(
                 task_uuid = %task_uuid,
@@ -231,26 +247,31 @@ impl OrchestrationApiClient {
             Ok(task_status)
         } else {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             error!(status = %status, error = %error_text, "Failed to get task status");
-            Err(TaskerError::OrchestrationError(format!("HTTP {}: {}", status, error_text)))
+            Err(TaskerError::OrchestrationError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )))
         }
     }
 
     /// Check if the orchestration API is healthy
-    /// 
+    ///
     /// GET /health
     pub async fn health_check(&self) -> TaskerResult<()> {
-        let url = self.base_url.join("/health")
-            .map_err(|e| TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e)))?;
+        let url = self.base_url.join("/health").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
 
         debug!(url = %url, "Checking orchestration API health");
 
-        let response = self.client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|e| TaskerError::OrchestrationError(format!("Health check request failed: {}", e)))?;
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Health check request failed: {}", e))
+        })?;
 
         if response.status().is_success() {
             debug!("Orchestration API health check passed");
@@ -258,7 +279,10 @@ impl OrchestrationApiClient {
         } else {
             let status = response.status();
             warn!(status = %status, "Orchestration API health check failed");
-            Err(TaskerError::OrchestrationError(format!("Health check failed with status: {}", status)))
+            Err(TaskerError::OrchestrationError(format!(
+                "Health check failed with status: {}",
+                status
+            )))
         }
     }
 

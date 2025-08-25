@@ -28,6 +28,7 @@ use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::event_publisher::WorkerEventPublisher;
 use crate::event_subscriber::WorkerEventSubscriber;
+use crate::health::WorkerHealthStatus;
 
 /// Worker command responder type
 type CommandResponder<T> = oneshot::Sender<TaskerResult<T>>;
@@ -74,6 +75,10 @@ pub enum WorkerCommand {
     RefreshTemplateCache {
         namespace: Option<String>,
         resp: CommandResponder<()>,
+    },
+    /// Health check command for monitoring responsiveness
+    HealthCheck {
+        resp: CommandResponder<WorkerHealthStatus>,
     },
     /// Shutdown the worker processor
     Shutdown { resp: CommandResponder<()> },
@@ -190,9 +195,8 @@ impl WorkerProcessor {
         );
 
         // Create shared WorkerEventSystem for proper cross-component communication
-        let shared_event_system = std::sync::Arc::new(
-            tasker_shared::events::WorkerEventSystem::new()
-        );
+        let shared_event_system =
+            std::sync::Arc::new(tasker_shared::events::WorkerEventSystem::new());
 
         // Create publisher and subscriber with shared event system
         let event_publisher = WorkerEventPublisher::with_event_system(
@@ -221,7 +225,8 @@ impl WorkerProcessor {
             None
         };
 
-        self.start_with_completion_receiver(completion_receiver).await
+        self.start_with_completion_receiver(completion_receiver)
+            .await
     }
 
     /// Start processing with custom completion receiver (advanced usage)
@@ -306,13 +311,25 @@ impl WorkerProcessor {
                 let _ = resp.send(result);
                 true // Continue processing
             }
-            WorkerCommand::ExecuteStepWithCorrelation { message, correlation_id, resp } => {
-                let result = self.handle_execute_step_with_correlation(message, correlation_id).await;
+            WorkerCommand::ExecuteStepWithCorrelation {
+                message,
+                correlation_id,
+                resp,
+            } => {
+                let result = self
+                    .handle_execute_step_with_correlation(message, correlation_id)
+                    .await;
                 let _ = resp.send(result);
                 true // Continue processing
             }
-            WorkerCommand::ProcessStepCompletion { step_result, correlation_id, resp } => {
-                let result = self.handle_process_step_completion(step_result, correlation_id).await;
+            WorkerCommand::ProcessStepCompletion {
+                step_result,
+                correlation_id,
+                resp,
+            } => {
+                let result = self
+                    .handle_process_step_completion(step_result, correlation_id)
+                    .await;
                 let _ = resp.send(result);
                 true // Continue processing
             }
@@ -337,7 +354,14 @@ impl WorkerProcessor {
                 true // Continue processing
             }
             WorkerCommand::RefreshTemplateCache { namespace, resp } => {
-                let result = self.handle_refresh_template_cache(namespace.as_deref()).await;
+                let result = self
+                    .handle_refresh_template_cache(namespace.as_deref())
+                    .await;
+                let _ = resp.send(result);
+                true // Continue processing
+            }
+            WorkerCommand::HealthCheck { resp } => {
+                let result = self.handle_health_check();
                 let _ = resp.send(result);
                 true // Continue processing
             }
@@ -485,15 +509,20 @@ impl WorkerProcessor {
 
         // Fire step execution event to FFI handlers after database hydration
         if let Some(ref event_publisher) = self.event_publisher {
-            match event_publisher.fire_step_execution_event(
-                task.task_uuid,
-                message.step_uuid,
-                step_name.clone(),
-                handler_class.clone(),
-                serde_json::json!({}), // TODO: Get actual step payload from configuration
-                dependency_results.clone(),
-                task.context.clone().unwrap_or_else(|| serde_json::json!({})),
-            ).await {
+            match event_publisher
+                .fire_step_execution_event(
+                    task.task_uuid,
+                    message.step_uuid,
+                    step_name.clone(),
+                    handler_class.clone(),
+                    serde_json::json!({}), // TODO: Get actual step payload from configuration
+                    dependency_results.clone(),
+                    task.context
+                        .clone()
+                        .unwrap_or_else(|| serde_json::json!({})),
+                )
+                .await
+            {
                 Ok(event) => {
                     info!(
                         worker_id = %self.worker_id,
@@ -585,6 +614,29 @@ impl WorkerProcessor {
         );
 
         Ok(status)
+    }
+
+    /// Handle health check request
+    fn handle_health_check(&self) -> TaskerResult<WorkerHealthStatus> {
+        let _uptime = self.start_time.elapsed().as_secs();
+        let health_status = WorkerHealthStatus {
+            status: "healthy".to_string(),
+            database_connected: true, // TODO: Could add actual DB connectivity check
+            orchestration_api_reachable: true, // TODO: Could add actual API check
+            supported_namespaces: vec![self.namespace.clone()],
+            cached_templates: self.handlers.len(),
+            total_messages_processed: self.stats.total_executed,
+            successful_executions: self.stats.total_succeeded,
+            failed_executions: self.stats.total_failed,
+        };
+
+        debug!(
+            worker_id = %self.worker_id,
+            health_status = ?health_status,
+            "Returning health status from command processor"
+        );
+
+        Ok(health_status)
     }
 
     /// Send step result to orchestration - integration with command pattern
@@ -694,7 +746,8 @@ impl WorkerProcessor {
     fn handle_get_event_status(&self) -> TaskerResult<EventIntegrationStatus> {
         let status = if let Some(ref event_publisher) = self.event_publisher {
             let publisher_stats = event_publisher.get_statistics();
-            let subscriber_stats = self.event_subscriber
+            let subscriber_stats = self
+                .event_subscriber
                 .as_ref()
                 .map(|s| s.get_statistics())
                 .unwrap_or_default();

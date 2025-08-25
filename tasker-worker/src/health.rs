@@ -9,25 +9,25 @@ use serde::{Deserialize, Serialize};
 pub struct WorkerHealthStatus {
     /// Overall status (healthy, degraded, unhealthy)
     pub status: String,
-    
+
     /// Database connectivity status
     pub database_connected: bool,
-    
+
     /// Orchestration API reachability
     pub orchestration_api_reachable: bool,
-    
+
     /// Namespaces this worker supports
     pub supported_namespaces: Vec<String>,
-    
+
     /// Number of cached templates
     pub cached_templates: usize,
-    
+
     /// Total messages processed
     pub total_messages_processed: u64,
-    
+
     /// Successful step executions
     pub successful_executions: u64,
-    
+
     /// Failed step executions
     pub failed_executions: u64,
 }

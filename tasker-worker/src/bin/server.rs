@@ -1,31 +1,31 @@
-//! # Tasker Orchestration Server
+//! # Tasker Worker Server
 //!
-//! Thin wrapper binary for running the orchestration system as a standalone server.
-//! This is the production deployment target for the Tasker orchestration service.
+//! Thin wrapper binary for running the worker system as a standalone server.
+//! This is the production deployment target for the Tasker worker service.
 //!
 //! ## Usage
 //!
 //! ```bash
 //! # Run with default configuration
-//! cargo run --bin tasker-server --features web-api
+//! cargo run --bin tasker-worker --features web-api
 //!
 //! # Run with specific environment
-//! TASKER_ENV=production cargo run --bin tasker-server --features web-api
+//! TASKER_ENV=production cargo run --bin tasker-worker --features web-api
 //! ```
 
 use std::env;
 use tokio::signal;
 use tracing::{error, info};
 
-use tasker_orchestration::orchestration::bootstrap::{BootstrapConfig, OrchestrationBootstrap};
 use tasker_shared::logging;
+use tasker_worker::bootstrap::{WorkerBootstrap, WorkerBootstrapConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging first
     logging::init_structured_logging();
 
-    info!("🚀 Starting Tasker Orchestration Server...");
+    info!("🚀 Starting Tasker Worker Server...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));
     info!(
         "   Build Mode: {}",
@@ -44,29 +44,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         environment_override.as_deref().unwrap_or("auto-detect")
     );
 
-    // Bootstrap orchestration system with web API enabled
-    info!("🔧 Bootstrapping orchestration system...");
+    // Bootstrap worker system with web API enabled
+    info!("🔧 Bootstrapping worker system...");
 
-    let bootstrap_config = BootstrapConfig {
-        namespaces: vec![], // Let configuration determine namespaces
-        auto_start_processors: true,
-        environment_override,
+    let bootstrap_config = WorkerBootstrapConfig {
+        worker_id: format!("server-worker-{}", uuid::Uuid::new_v4()),
+        supported_namespaces: vec![
+            "linear_workflow".to_string(),
+            "order_fulfillment".to_string(),
+            "inventory".to_string(),
+            "notifications".to_string(),
+            "payments".to_string(),
+        ],
         enable_web_api: true, // Always enable web API for server mode
-        web_config: None,     // Will be loaded from config manager
+        environment_override,
+        ..Default::default()
     };
 
-    let mut orchestration_handle = OrchestrationBootstrap::bootstrap(bootstrap_config)
+    let mut worker_handle = WorkerBootstrap::bootstrap(bootstrap_config)
         .await
-        .map_err(|e| format!("Failed to bootstrap orchestration: {e}"))?;
+        .map_err(|e| format!("Failed to bootstrap worker: {e}"))?;
 
-    info!("🎉 Orchestration Server started successfully!");
+    info!("🎉 Worker Server started successfully!");
 
-    if orchestration_handle.web_state.is_some() {
+    if worker_handle.web_state.is_some() {
         info!("   Web API: Running");
     }
     info!(
         "   Environment: {}",
-        orchestration_handle.config_manager.environment()
+        worker_handle.config_manager.environment()
+    );
+    info!(
+        "   Supported namespaces: {:?}",
+        worker_handle.worker_config.supported_namespaces
     );
     info!("   Press Ctrl+C to shutdown gracefully");
 
@@ -75,15 +85,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("🛑 Shutdown signal received, initiating graceful shutdown...");
 
-    // Stop orchestration system using handle (includes web server)
-    info!("🔧 Stopping orchestration system...");
-    if let Err(e) = orchestration_handle.stop() {
-        error!("Failed to stop orchestration cleanly: {}", e);
+    // Stop worker system using handle (includes web server)
+    info!("🔧 Stopping worker system...");
+    if let Err(e) = worker_handle.stop() {
+        error!("Failed to stop worker cleanly: {}", e);
     } else {
-        info!("✅ Orchestration system stopped");
+        info!("✅ Worker system stopped");
     }
 
-    info!("👋 Orchestration Server shutdown complete");
+    info!("👋 Worker Server shutdown complete");
 
     Ok(())
 }

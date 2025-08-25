@@ -8,19 +8,16 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, error, warn};
-use chrono::Utc;
 
 use crate::{
     task_template_manager::{CacheStats, WorkerTaskTemplateOperations},
     web::{response_types::ErrorResponse, state::WorkerWebState},
 };
-use tasker_shared::{
-    models::core::task_template::ResolvedTaskTemplate,
-    types::HandlerMetadata,
-};
+use tasker_shared::{models::core::task_template::ResolvedTaskTemplate, types::HandlerMetadata};
 
 /// Helper function to create standardized error responses
 fn error_response(error: String, message: String) -> ErrorResponse {
@@ -172,7 +169,7 @@ pub async fn list_templates(
     debug!("Listing supported templates and namespaces");
 
     let supported_namespaces = state.supported_namespaces();
-    
+
     // Filter by namespace if requested
     let filtered_namespaces = if let Some(filter_namespace) = &params.namespace {
         if state.is_namespace_supported(filter_namespace) {
@@ -182,7 +179,10 @@ pub async fn list_templates(
                 StatusCode::BAD_REQUEST,
                 Json(error_response(
                     "namespace_not_supported".to_string(),
-                    format!("Namespace '{}' is not supported by this worker", filter_namespace),
+                    format!(
+                        "Namespace '{}' is not supported by this worker",
+                        filter_namespace
+                    ),
                 )),
             ));
         }
@@ -240,12 +240,15 @@ pub async fn validate_template(
             let mut errors = Vec::new();
 
             // Validate template for worker execution
-            if let Err(validation_error) = state.task_template_manager.validate_for_worker(&template) {
+            if let Err(validation_error) =
+                state.task_template_manager.validate_for_worker(&template)
+            {
                 errors.push(validation_error.to_string());
             }
 
             // Extract required capabilities and step handlers
-            let required_capabilities = state.task_template_manager.requires_capabilities(&template);
+            let required_capabilities =
+                state.task_template_manager.requires_capabilities(&template);
             let step_handlers = state.task_template_manager.extract_step_handlers(&template);
 
             Ok(Json(TemplateValidationResponse {

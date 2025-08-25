@@ -235,10 +235,10 @@ impl WorkerEventSubscriber {
     /// Get event subscriber statistics
     pub fn get_statistics(&self) -> WorkerEventSubscriberStats {
         let stats = self.stats.lock().unwrap();
-        
+
         // Access shared event system data (available for future enhancement)
         let _system_stats = self.event_system.get_statistics();
-        
+
         // Return current statistics (can be enhanced with system_stats data later)
         WorkerEventSubscriberStats {
             worker_id: stats.worker_id.clone(),

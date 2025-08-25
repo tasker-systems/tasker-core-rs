@@ -13,11 +13,9 @@ use tasker_shared::messaging::clients::MessageClient;
 /// Basic worker status: GET /status
 ///
 /// Returns current worker status and basic information.
-pub async fn worker_status(
-    State(state): State<Arc<WorkerWebState>>,
-) -> Json<WorkerStatusResponse> {
+pub async fn worker_status(State(state): State<Arc<WorkerWebState>>) -> Json<WorkerStatusResponse> {
     debug!("Serving worker status");
-    
+
     Json(WorkerStatusResponse {
         worker_id: state.worker_id(),
         worker_type: state.worker_type(),
@@ -37,7 +35,7 @@ pub async fn detailed_status(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Json<WorkerStatusResponse> {
     debug!("Serving detailed worker status");
-    
+
     // For now, detailed status is the same as basic status
     // TODO: Add more detailed diagnostic information
     worker_status(State(state)).await
@@ -50,7 +48,7 @@ pub async fn registered_handlers(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Json<Vec<RegisteredHandler>> {
     debug!("Serving registered handlers information");
-    
+
     Json(create_registered_handlers(&state).await)
 }
 
@@ -61,31 +59,38 @@ pub async fn namespace_health(
     State(state): State<Arc<WorkerWebState>>,
 ) -> Json<Vec<NamespaceHealth>> {
     debug!("Serving namespace health information");
-    
+
     let mut namespace_health = Vec::new();
-    
+
     for namespace in state.supported_namespaces() {
         let queue_name = state.queue_name_for_namespace(&namespace);
-        
-        let (queue_depth, health_status) = match state.message_client.get_queue_metrics(&queue_name).await {
-            Ok(metrics) => {
-                let depth = metrics.message_count as u64;
-                let status = if depth < 100 { "healthy" } else if depth < 500 { "warning" } else { "critical" };
-                (depth, status.to_string())
-            }
-            Err(_) => (0, "unknown".to_string())
-        };
-        
+
+        let (queue_depth, health_status) =
+            match state.message_client.get_queue_metrics(&queue_name).await {
+                Ok(metrics) => {
+                    let depth = metrics.message_count as u64;
+                    let status = if depth < 100 {
+                        "healthy"
+                    } else if depth < 500 {
+                        "warning"
+                    } else {
+                        "critical"
+                    };
+                    (depth, status.to_string())
+                }
+                Err(_) => (0, "unknown".to_string()),
+            };
+
         namespace_health.push(NamespaceHealth {
             namespace: namespace.clone(),
             queue_depth,
             processing_rate: 0.0, // TODO: Calculate actual processing rate from metrics
-            active_steps: 0, // TODO: Get from database query of active workflow steps
+            active_steps: 0,      // TODO: Get from database query of active workflow steps
             health_status,
             last_processed: None, // TODO: Get timestamp of last processed step for this namespace
         });
     }
-    
+
     Json(namespace_health)
 }
 
@@ -94,9 +99,9 @@ pub async fn namespace_health(
 fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurationStatus {
     WorkerConfigurationStatus {
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
-        database_connected: true, // TODO: Check actual database status
+        database_connected: true,   // TODO: Check actual database status
         event_system_enabled: true, // TODO: Check actual event system status
-        command_buffer_size: 1000, // TODO: Get from actual configuration
+        command_buffer_size: 1000,  // TODO: Get from actual configuration
         supported_namespaces: state.supported_namespaces(),
     }
 }
@@ -118,7 +123,7 @@ async fn create_performance_metrics(state: &WorkerWebState) -> WorkerPerformance
     // Calculate total queue depth across all namespaces
     let mut _total_queue_depth = 0;
     let mut processing_rate = 0.0;
-    
+
     for namespace in state.supported_namespaces() {
         let queue_name = state.queue_name_for_namespace(&namespace);
         if let Ok(metrics) = state.message_client.get_queue_metrics(&queue_name).await {
@@ -127,33 +132,33 @@ async fn create_performance_metrics(state: &WorkerWebState) -> WorkerPerformance
             processing_rate += if metrics.message_count > 0 { 1.0 } else { 0.0 };
         }
     }
-    
+
     WorkerPerformanceMetrics {
-        steps_processed_total: 0, // TODO: Get from database step execution history
+        steps_processed_total: 0,   // TODO: Get from database step execution history
         steps_processed_success: 0, // TODO: Get from database successful step executions
-        steps_processed_failed: 0, // TODO: Get from database failed step executions
+        steps_processed_failed: 0,  // TODO: Get from database failed step executions
         average_processing_time_ms: 0.0, // TODO: Calculate from recent step timing
         queue_processing_rate: processing_rate,
         last_step_processed: None, // TODO: Get timestamp from last processed step
-        error_details: vec![], // TODO: Get recent errors from database
+        error_details: vec![],     // TODO: Get recent errors from database
     }
 }
 
 async fn create_registered_handlers(state: &WorkerWebState) -> Vec<RegisteredHandler> {
     // Create placeholder handlers for each supported namespace
     let mut handlers = Vec::new();
-    
+
     for namespace in state.supported_namespaces() {
         handlers.push(RegisteredHandler {
             namespace: namespace.clone(),
             handler_class: format!("{}::{}Handler", namespace, namespace),
             version: "1.0.0".to_string(),
-            last_used: None, // TODO: Get from actual usage tracking
+            last_used: None,  // TODO: Get from actual usage tracking
             success_count: 0, // TODO: Get from database metrics
             failure_count: 0, // TODO: Get from database metrics
         });
     }
-    
+
     // TODO: Get actual registered handlers from TaskTemplateRegistry
     // This would involve querying the registry for all registered handlers
     handlers

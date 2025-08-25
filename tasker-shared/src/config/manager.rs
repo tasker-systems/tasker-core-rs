@@ -8,13 +8,10 @@
 //! Follows fail-fast principle: any configuration error results in immediate failure.
 
 use crate::config::unified_loader::UnifiedConfigLoader;
-use crate::config::{
-    error::{ConfigResult, ConfigurationError},
-    EnvironmentConfig, TaskTemplate, TaskerConfig,
-};
-use regex::Regex;
+use crate::config::{error::ConfigResult, TaskerConfig};
+/// use regex::Regex;
 use std::sync::{Arc, RwLock};
-use tracing::{debug, info};
+use tracing::info;
 
 /// Simplified configuration manager that wraps UnifiedConfigLoader
 ///
@@ -98,107 +95,7 @@ impl ConfigManager {
         Arc::new(self.config.clone())
     }
 
-    /// Load and parse a TaskTemplate from YAML string
-    ///
-    /// This method provides the ability to load TaskTemplates from YAML content with environment variable interpolation.
-    pub fn load_task_template_from_yaml(&self, yaml_content: &str) -> ConfigResult<TaskTemplate> {
-        // Interpolate environment variables in the YAML content
-        let interpolated_content = Self::interpolate_env_vars(yaml_content);
-
-        // Parse the YAML into a TaskTemplate
-        let mut template: TaskTemplate =
-            serde_yaml::from_str(&interpolated_content).map_err(|e| {
-                ConfigurationError::ParseError {
-                    file_path: "yaml_string".to_string(),
-                    reason: format!("Failed to parse task template YAML: {}", e),
-                }
-            })?;
-
-        // Auto-populate named_steps from step_templates if it's empty
-        if template.named_steps.is_empty() {
-            template.named_steps = template
-                .step_templates
-                .iter()
-                .map(|st| st.name.clone())
-                .collect();
-        }
-
-        // Apply environment-specific overrides if present
-        if let Some(environments) = &template.environments {
-            if let Some(env_config) = environments.get(&self.environment) {
-                let env_config_clone = env_config.clone();
-                self.apply_environment_overrides(&mut template, &env_config_clone);
-            }
-        }
-
-        debug!("Task template loaded successfully: {}", template.name);
-        Ok(template)
-    }
-
-    /// Validate a TaskTemplate structure and dependencies
-    ///
-    /// This method provides backward compatibility with the legacy ConfigurationManager
-    /// for comprehensive TaskTemplate validation including dependency checks.
-    pub fn validate_task_template(&self, template: &TaskTemplate) -> ConfigResult<()> {
-        // Check required fields
-        if template.name.is_empty() {
-            return Err(ConfigurationError::ValidationError {
-                error: "Task template name cannot be empty".to_string(),
-            });
-        }
-
-        if template.task_handler_class.is_empty() {
-            return Err(ConfigurationError::ValidationError {
-                error: "Task handler class cannot be empty".to_string(),
-            });
-        }
-
-        if template.namespace_name.is_empty() {
-            return Err(ConfigurationError::ValidationError {
-                error: "Namespace name cannot be empty".to_string(),
-            });
-        }
-
-        // Validate named steps exist in step templates
-        for named_step in &template.named_steps {
-            if !template
-                .step_templates
-                .iter()
-                .any(|st| st.name == *named_step)
-            {
-                return Err(ConfigurationError::ValidationError {
-                    error: format!("Named step '{named_step}' not found in step templates"),
-                });
-            }
-        }
-
-        // Validate step dependencies
-        for step_template in &template.step_templates {
-            if let Some(depends_on) = &step_template.depends_on_step {
-                if !template
-                    .step_templates
-                    .iter()
-                    .any(|st| st.name == *depends_on)
-                {
-                    return Err(ConfigurationError::ValidationError {
-                        error: format!("Step dependency '{depends_on}' not found"),
-                    });
-                }
-            }
-
-            if let Some(depends_on_steps) = &step_template.depends_on_steps {
-                for dep in depends_on_steps {
-                    if !template.step_templates.iter().any(|st| st.name == *dep) {
-                        return Err(ConfigurationError::ValidationError {
-                            error: format!("Step dependency '{dep}' not found"),
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
+    // Legacy TaskTemplate methods removed - TaskTemplate handling now done via TaskHandlerRegistry
 
     // Private helper methods
 
@@ -208,38 +105,7 @@ impl ConfigManager {
         Self::load_from_env(env)
     }
 
-    /// Interpolate environment variables in configuration strings
-    ///
-    /// Replaces ${VAR_NAME} patterns with actual environment variable values
-    fn interpolate_env_vars(template: &str) -> String {
-        let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
-        re.replace_all(template, |caps: &regex::Captures| {
-            let var_name = &caps[1];
-            std::env::var(var_name).unwrap_or_else(|_| format!("${{{}}}", var_name))
-        })
-        .to_string()
-    }
-
-    /// Apply environment-specific overrides to a task template
-    ///
-    /// Updates step template configurations based on environment-specific settings
-    fn apply_environment_overrides(
-        &self,
-        template: &mut TaskTemplate,
-        env_config: &EnvironmentConfig,
-    ) {
-        for override_config in &env_config.step_templates {
-            if let Some(step_template) = template
-                .step_templates
-                .iter_mut()
-                .find(|s| s.name == override_config.name)
-            {
-                if let Some(handler_config) = &override_config.handler_config {
-                    step_template.handler_config = Some(handler_config.clone());
-                }
-            }
-        }
-    }
+    // Legacy environment override methods removed
 }
 
 // Global configuration singleton for backward compatibility

@@ -29,9 +29,18 @@ pub fn metrics_routes() -> Router<Arc<WorkerWebState>> {
 pub fn worker_status_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
         .route("/status", get(handlers::worker_status::worker_status))
-        .route("/status/detailed", get(handlers::worker_status::detailed_status))
-        .route("/status/namespaces", get(handlers::worker_status::namespace_health))
-        .route("/handlers", get(handlers::worker_status::registered_handlers))
+        .route(
+            "/status/detailed",
+            get(handlers::worker_status::detailed_status),
+        )
+        .route(
+            "/status/namespaces",
+            get(handlers::worker_status::namespace_health),
+        )
+        .route(
+            "/handlers",
+            get(handlers::worker_status::registered_handlers),
+        )
 }
 
 /// Task template management routes
@@ -39,13 +48,28 @@ pub fn template_routes() -> Router<Arc<WorkerWebState>> {
     Router::new()
         // Template retrieval and listing
         .route("/templates", get(handlers::templates::list_templates))
-        .route("/templates/:namespace/:name/:version", get(handlers::templates::get_template))
+        .route(
+            "/templates/:namespace/:name/:version",
+            get(handlers::templates::get_template),
+        )
         // Template validation
-        .route("/templates/:namespace/:name/:version/validate", post(handlers::templates::validate_template))
+        .route(
+            "/templates/:namespace/:name/:version/validate",
+            post(handlers::templates::validate_template),
+        )
         // Cache management
         .route("/templates/cache", delete(handlers::templates::clear_cache))
-        .route("/templates/cache/stats", get(handlers::templates::get_cache_stats))
-        .route("/templates/cache/maintain", post(handlers::templates::maintain_cache))
+        .route(
+            "/templates/cache/stats",
+            get(handlers::templates::get_cache_stats),
+        )
+        .route(
+            "/templates/cache/maintain",
+            post(handlers::templates::maintain_cache),
+        )
         // Template refresh
-        .route("/templates/:namespace/:name/:version/refresh", post(handlers::templates::refresh_template))
+        .route(
+            "/templates/:namespace/:name/:version/refresh",
+            post(handlers::templates::refresh_template),
+        )
 }

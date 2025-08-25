@@ -56,7 +56,7 @@ pub struct StepBatchResponse {
 }
 
 /// Individual step execution result within a batch response
-/// 
+///
 /// This structure aligns with Ruby StepHandlerCallResult to ensure consistent
 /// data serialization to `tasker_workflow_steps.results`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -87,7 +87,7 @@ pub struct StepExecutionError {
 }
 
 /// Comprehensive metadata for step execution results
-/// 
+///
 /// This structure provides rich metadata for observability, backoff evaluation,
 /// and operational insights. Aligns with Ruby StepHandlerCallResult metadata expectations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -170,13 +170,13 @@ impl StepExecutionRequest {
 
 impl StepExecutionResult {
     /// Create a successful step execution result
-    /// 
+    ///
     /// Follows Ruby StepHandlerCallResult.success pattern with comprehensive metadata
     pub fn success(
-        step_uuid: Uuid, 
-        result: Value, 
+        step_uuid: Uuid,
+        result: Value,
         execution_time_ms: i64,
-        custom_metadata: Option<HashMap<String, Value>>
+        custom_metadata: Option<HashMap<String, Value>>,
     ) -> Self {
         Self {
             step_uuid,
@@ -189,7 +189,9 @@ impl StepExecutionResult {
                 handler_version: None,
                 retryable: false, // Success doesn't need retry
                 completed_at: chrono::Utc::now(),
-                started_at: Some(chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms)),
+                started_at: Some(
+                    chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms),
+                ),
                 worker_id: None,
                 worker_hostname: None,
                 custom: custom_metadata.unwrap_or_default(),
@@ -202,7 +204,7 @@ impl StepExecutionResult {
     }
 
     /// Create a failed step execution result
-    /// 
+    ///
     /// Follows Ruby StepHandlerCallResult.error pattern - includes result field for consistency
     pub fn failure(
         step_uuid: Uuid,
@@ -229,7 +231,9 @@ impl StepExecutionResult {
                 handler_version: None,
                 retryable,
                 completed_at: chrono::Utc::now(),
-                started_at: Some(chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms)),
+                started_at: Some(
+                    chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms),
+                ),
                 worker_id: None,
                 worker_hostname: None,
                 custom: HashMap::new(),
@@ -242,7 +246,7 @@ impl StepExecutionResult {
     }
 
     /// Create an error step execution result (system-level errors)
-    /// 
+    ///
     /// Distinguishes between business logic failures and system errors
     pub fn error(
         step_uuid: Uuid,
@@ -268,7 +272,9 @@ impl StepExecutionResult {
                 handler_version: None,
                 retryable: false,
                 completed_at: chrono::Utc::now(),
-                started_at: Some(chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms)),
+                started_at: Some(
+                    chrono::Utc::now() - chrono::Duration::milliseconds(execution_time_ms),
+                ),
                 worker_id: None,
                 worker_hostname: None,
                 custom: HashMap::new(),
@@ -291,7 +297,7 @@ impl StepExecutionResult {
     }
 
     /// Get the result as the expected structure for persistence
-    /// 
+    ///
     /// Returns the structure that will be persisted to tasker_workflow_steps.results:
     /// { success: bool, result: Any, metadata: OrchestrationMetadata }
     pub fn to_persistence_format(&self) -> Value {
@@ -334,10 +340,10 @@ mod tests {
     fn test_step_execution_result_success() {
         let step_uuid = Uuid::now_v7();
         let result = StepExecutionResult::success(
-            step_uuid, 
-            serde_json::json!({"status": "valid"}), 
-            1500, 
-            None
+            step_uuid,
+            serde_json::json!({"status": "valid"}),
+            1500,
+            None,
         );
 
         assert_eq!(result.step_uuid, step_uuid);
@@ -353,13 +359,13 @@ mod tests {
     fn test_step_execution_result_failure() {
         let step_uuid = Uuid::now_v7();
         let result = StepExecutionResult::failure(
-            step_uuid, 
-            "Validation failed".to_string(), 
+            step_uuid,
+            "Validation failed".to_string(),
             Some("VALIDATION_ERROR".to_string()),
             Some("ValidationError".to_string()),
-            true, 
+            true,
             800,
-            None
+            None,
         );
 
         assert_eq!(result.step_uuid, step_uuid);
@@ -378,21 +384,27 @@ mod tests {
     fn test_step_execution_result_persistence_format() {
         let step_uuid = Uuid::now_v7();
         let result = StepExecutionResult::success(
-            step_uuid, 
-            serde_json::json!({"order_id": 12345, "total": 99.99}), 
-            750, 
-            Some(HashMap::from([("custom_field".to_string(), serde_json::json!("custom_value"))]))
+            step_uuid,
+            serde_json::json!({"order_id": 12345, "total": 99.99}),
+            750,
+            Some(HashMap::from([(
+                "custom_field".to_string(),
+                serde_json::json!("custom_value"),
+            )])),
         );
 
         let persistence_format = result.to_persistence_format();
-        
+
         // Verify the expected structure for tasker_workflow_steps.results
         assert_eq!(persistence_format["success"], true);
         assert_eq!(persistence_format["result"]["order_id"], 12345);
         assert_eq!(persistence_format["result"]["total"], 99.99);
         assert!(persistence_format["metadata"].is_object());
         assert_eq!(persistence_format["metadata"]["execution_time_ms"], 750);
-        assert_eq!(persistence_format["metadata"]["custom"]["custom_field"], "custom_value");
+        assert_eq!(
+            persistence_format["metadata"]["custom"]["custom_field"],
+            "custom_value"
+        );
     }
 
     #[test]
@@ -400,23 +412,26 @@ mod tests {
         let step_uuid = Uuid::now_v7();
         let context = HashMap::from([("retry_count".to_string(), serde_json::json!(2))]);
         let result = StepExecutionResult::failure(
-            step_uuid, 
-            "Database connection failed".to_string(), 
+            step_uuid,
+            "Database connection failed".to_string(),
             Some("DB_CONNECTION_ERROR".to_string()),
             Some("RetryableError".to_string()),
-            true, 
+            true,
             500,
-            Some(context)
+            Some(context),
         );
 
         let persistence_format = result.to_persistence_format();
-        
+
         // Verify failure structure still includes result field (empty object)
         assert_eq!(persistence_format["success"], false);
         assert_eq!(persistence_format["result"], serde_json::json!({}));
         assert!(persistence_format["metadata"].is_object());
         assert_eq!(persistence_format["metadata"]["retryable"], true);
-        assert_eq!(persistence_format["metadata"]["error_code"], "DB_CONNECTION_ERROR");
+        assert_eq!(
+            persistence_format["metadata"]["error_code"],
+            "DB_CONNECTION_ERROR"
+        );
         assert_eq!(persistence_format["metadata"]["context"]["retry_count"], 2);
     }
 }

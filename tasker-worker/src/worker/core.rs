@@ -255,6 +255,11 @@ impl WorkerCore {
     pub fn is_namespace_supported(&self, namespace: &str) -> bool {
         self.task_template_manager.is_namespace_supported(namespace)
     }
+
+    /// Get the command sender for communicating with the worker processor
+    pub fn command_sender(&self) -> &mpsc::Sender<WorkerCommand> {
+        &self.command_sender
+    }
 }
 
 impl std::fmt::Display for WorkerCoreStatus {

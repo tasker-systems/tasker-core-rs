@@ -46,7 +46,7 @@ pub struct StepHandlerErrorResult {
 }
 
 /// Unified result type that can represent either success or failure
-/// 
+///
 /// This enum provides a type-safe way to handle step results while maintaining
 /// compatibility with Ruby StepHandlerCallResult structure.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -122,7 +122,7 @@ impl StepHandlerCallResult {
     }
 
     /// Convert arbitrary handler output to StepHandlerCallResult
-    /// 
+    ///
     /// This mirrors Ruby's `from_handler_output` method for handling various
     /// return types from step handlers.
     pub fn from_handler_output(output: Value) -> Self {
@@ -139,11 +139,7 @@ impl StepHandlerCallResult {
                         let metadata = map
                             .get("metadata")
                             .and_then(|m| m.as_object())
-                            .map(|m| {
-                                m.iter()
-                                    .map(|(k, v)| (k.clone(), v.clone()))
-                                    .collect()
-                            })
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                             .unwrap_or_default();
 
                         Self::success(result, Some(metadata))
@@ -170,11 +166,7 @@ impl StepHandlerCallResult {
                         let metadata = map
                             .get("metadata")
                             .and_then(|m| m.as_object())
-                            .map(|m| {
-                                m.iter()
-                                    .map(|(k, v)| (k.clone(), v.clone()))
-                                    .collect()
-                            })
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                             .unwrap_or_default();
 
                         Self::error(error_type, message, error_code, retryable, Some(metadata))

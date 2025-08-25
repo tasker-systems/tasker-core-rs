@@ -6,9 +6,9 @@
 use sqlx::PgPool;
 
 use tasker_orchestration::orchestration::{
-    handler_config::{HandlerConfiguration, StepTemplate},
     TaskInitializationConfig, TaskInitializationError, TaskInitializer,
 };
+use tasker_shared::models::core::task_template::{TaskTemplate, StepDefinition, HandlerDefinition};
 use tasker_shared::models::{core::task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 
 /// Test TaskInitializer creation with filesystem configuration loading

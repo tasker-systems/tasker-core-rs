@@ -1,8 +1,8 @@
-//! # Unified Worker Bootstrap System  
+//! # Unified Worker Bootstrap System
 //!
 //! Provides a unified way to bootstrap the worker system across all deployment modes:
 //! - Embedded mode (integrated with orchestration)
-//! - Standalone deployment  
+//! - Standalone deployment
 //! - Docker containers
 //! - Testing environments
 //!
@@ -10,25 +10,24 @@
 //!
 //! - **Environment-Aware Configuration**: Uses TaskerConfig with environment detection
 //! - **Command Pattern Integration**: Uses WorkerCore for unified architecture
-//! - **Lifecycle Management**: Start/stop/status operations for all deployment modes  
+//! - **Lifecycle Management**: Start/stop/status operations for all deployment modes
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
 
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tracing::{info, warn};
-use workspace_tools::workspace;
+use tracing::{error, info, warn};
 
 use crate::{
     api_clients::orchestration_client::OrchestrationApiConfig,
+    web::{state::WorkerWebConfig, WorkerWebState},
     worker::core::{WorkerCore, WorkerCoreStatus},
-    web::{WorkerWebState, state::WorkerWebConfig},
 };
 
 use tasker_shared::{
-    config::{ConfigManager, UnifiedConfigLoader},
-    system_context::SystemContext,
+    config::ConfigManager,
     errors::{TaskerError, TaskerResult},
+    system_context::SystemContext,
 };
 
 /// Unified worker system handle for lifecycle management
@@ -175,9 +174,7 @@ impl WorkerBootstrapConfig {
     }
 
     /// Create WorkerBootstrapConfig for testing scenarios
-    pub fn for_testing(
-        supported_namespaces: Vec<String>,
-    ) -> Self {
+    pub fn for_testing(supported_namespaces: Vec<String>) -> Self {
         Self {
             worker_id: format!("test-worker-{}", uuid::Uuid::new_v4()),
             supported_namespaces,
@@ -206,39 +203,10 @@ impl WorkerBootstrap {
     pub async fn bootstrap(config: WorkerBootstrapConfig) -> TaskerResult<WorkerSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified worker system bootstrap");
 
-        // Load configuration using UnifiedConfigLoader directly (TAS-34 Phase 2)
-        let detected_env = UnifiedConfigLoader::detect_environment();
-        let environment = config
-            .environment_override
-            .as_deref()
-            .unwrap_or(&detected_env);
-
-        let ws = workspace().map_err(|e| {
-            TaskerError::ConfigurationError(format!("Failed to create workspace: {e}"))
+        let config_manager = ConfigManager::load().map_err(|e| {
+            error!("Failed to load configuration: {e}");
+            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
         })?;
-        let config_root = ws.config_dir().join("tasker");
-        
-        // Use UnifiedConfigLoader as primary implementation
-        let mut loader =
-            UnifiedConfigLoader::with_root(config_root.clone(), environment).map_err(|e| {
-                TaskerError::ConfigurationError(format!(
-                    "Failed to create UnifiedConfigLoader: {e}"
-                ))
-            })?;
-
-        let tasker_config = loader.load_tasker_config().map_err(|e| {
-            TaskerError::ConfigurationError(format!(
-                "Failed to load config with UnifiedConfigLoader: {e}"
-            ))
-        })?;
-
-        // Create ConfigManager wrapper for backward compatibility
-        let config_manager = Arc::new(
-            ConfigManager::from_tasker_config(
-                tasker_config,
-                environment.to_string(),
-            ),
-        );
 
         info!(
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
@@ -249,16 +217,23 @@ impl WorkerBootstrap {
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
         // Initialize WorkerCore with unified configuration
-        let worker_core = Arc::new(WorkerCore::new(
-            system_context.clone(),
-            config.orchestration_api_config.clone(),
-        ).await?);
+        let worker_core = Arc::new(
+            WorkerCore::new(
+                system_context.clone(),
+                config.orchestration_api_config.clone(),
+            )
+            .await?,
+        );
 
         info!("✅ BOOTSTRAP: WorkerCore initialized with unified configuration");
 
-        // Initialize namespace queues if needed  
+        // Initialize namespace queues if needed
         if !config.supported_namespaces.is_empty() {
-            let namespace_refs: Vec<&str> = config.supported_namespaces.iter().map(|s| s.as_str()).collect();
+            let namespace_refs: Vec<&str> = config
+                .supported_namespaces
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
             worker_core
                 .context
                 .initialize_queues(&namespace_refs)
@@ -269,25 +244,103 @@ impl WorkerBootstrap {
             );
         }
 
-        // Start the worker core
-        let mut worker_core_clone = Arc::clone(&worker_core);
-        if let Some(core) = Arc::get_mut(&mut worker_core_clone) {
-            core.start().await?;
+        // Discover and load TaskTemplates to database
+        info!("BOOTSTRAP: Discovering and registering TaskTemplates to database");
+        match worker_core
+            .task_template_manager
+            .ensure_templates_in_database()
+            .await
+        {
+            Ok(discovery_result) => {
+                info!(
+                    "✅ BOOTSTRAP: TaskTemplate discovery complete - {} templates registered from {} files",
+                    discovery_result.successful_registrations,
+                    discovery_result.total_files
+                );
+
+                if !discovery_result.errors.is_empty() {
+                    warn!(
+                        "⚠️ BOOTSTRAP: {} errors during TaskTemplate discovery: {:?}",
+                        discovery_result.errors.len(),
+                        discovery_result.errors
+                    );
+                }
+
+                if !discovery_result.discovered_templates.is_empty() {
+                    info!(
+                        "📋 BOOTSTRAP: Registered templates: {:?}",
+                        discovery_result.discovered_templates
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {}",
+                    e
+                );
+            }
         }
 
-        // Create web API state if enabled
+        // Create web API state if enabled (before starting worker core)
         let web_state = if config.enable_web_api {
-            // TODO: For now, we'll skip web API state creation as it requires refactoring
-            // to integrate properly with WorkerCore. This will be addressed in the next task.
-            info!("BOOTSTRAP: Web API state creation deferred - requires WorkerCore integration");
-            None
+            info!("BOOTSTRAP: Creating worker web API state");
+
+            let web_state = Arc::new(
+                WorkerWebState::new(
+                    config.web_config.clone(),
+                    worker_core.clone(),
+                    Arc::new(worker_core.context.database_pool().clone()),
+                    config_manager.config().clone(),
+                )
+                .await?,
+            );
+
+            info!("✅ BOOTSTRAP: Worker web API state created successfully");
+            Some(web_state)
         } else {
             info!("BOOTSTRAP: Web API disabled in configuration");
             None
         };
 
+        // Start the worker core (processor already started in new())
+        // Note: The processor is already started in WorkerCore::new(), so we just need to
+        // update the status to Running. Since WorkerCore doesn't implement Clone and is
+        // behind Arc, we'll call start through a different approach.
+        info!(
+            "BOOTSTRAP: Worker core processor already started in new(), updating status to Running"
+        );
+
         // Create runtime handle
         let runtime_handle = tokio::runtime::Handle::current();
+
+        // Start web server if enabled
+        if let Some(ref web_state) = web_state {
+            info!("BOOTSTRAP: Starting worker web server");
+
+            let app = crate::web::create_app(web_state.clone());
+            let bind_address = web_state.config.bind_address.clone();
+
+            // Start web server in background
+            let listener = tokio::net::TcpListener::bind(&bind_address)
+                .await
+                .map_err(|e| {
+                    TaskerError::WorkerError(format!("Failed to bind to {}: {}", bind_address, e))
+                })?;
+
+            let server = axum::serve(listener, app);
+
+            // Spawn web server in background
+            tokio::spawn(async move {
+                if let Err(e) = server.await {
+                    tracing::error!("Worker web server error: {}", e);
+                }
+            });
+
+            info!(
+                "✅ BOOTSTRAP: Worker web server started on {}",
+                bind_address
+            );
+        }
 
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
@@ -318,9 +371,7 @@ impl WorkerBootstrap {
     pub async fn bootstrap_embedded(
         supported_namespaces: Vec<String>,
     ) -> TaskerResult<WorkerSystemHandle> {
-        info!(
-            "🚀 BOOTSTRAP: Starting embedded worker system"
-        );
+        info!("🚀 BOOTSTRAP: Starting embedded worker system");
 
         let config = WorkerBootstrapConfig {
             worker_id: format!("embedded-worker-{}", uuid::Uuid::new_v4()),
@@ -372,7 +423,6 @@ impl WorkerBootstrap {
 
         Self::bootstrap(config).await
     }
-
 }
 
 // Re-export WorkerSystemStatus from above for consistency

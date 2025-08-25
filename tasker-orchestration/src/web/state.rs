@@ -20,7 +20,7 @@ use parking_lot::RwLock;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
-use tasker_shared::config::{ConfigManager, TaskerConfig, WebConfig};
+use tasker_shared::config::{ConfigManager, WebConfig};
 use tasker_shared::TaskerResult;
 use tracing::{debug, info};
 
@@ -245,6 +245,8 @@ pub struct AppState {
 
     /// Orchestration system operational status
     pub orchestration_status: Arc<RwLock<OrchestrationStatus>>,
+
+    pub orchestration_core: Arc<OrchestrationCore>,
 }
 
 impl AppState {
@@ -254,8 +256,8 @@ impl AppState {
     /// maintaining references to shared orchestration components.
     pub async fn from_orchestration_core(
         web_config: WebServerConfig,
-        orchestration_core: &OrchestrationCore,
-        config_manager: &ConfigManager,
+        orchestration_core: Arc<OrchestrationCore>,
+        config_manager: Arc<ConfigManager>,
     ) -> ApiResult<Self> {
         info!("Creating web API application state with dedicated database pool");
 
@@ -343,6 +345,7 @@ impl AppState {
             web_db_circuit_breaker: circuit_breaker,
             task_initializer,
             orchestration_status,
+            orchestration_core,
         })
     }
 
@@ -371,88 +374,6 @@ impl AppState {
     /// Record a failed database operation for circuit breaker
     pub fn record_database_failure(&self) {
         self.web_db_circuit_breaker.record_failure();
-    }
-
-    /// Create AppState for testing without requiring OrchestrationCore
-    #[cfg(feature = "test-utils")]
-    pub async fn new_for_testing(tasker_config: TaskerConfig) -> ApiResult<Self> {
-        use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
-
-        info!("Creating test web API application state");
-
-        // Get web configuration from TaskerConfig
-        let web_config_toml = tasker_config.web_config();
-
-        // Convert to WebServerConfig
-        let web_config = WebServerConfig::from_toml_config(&web_config_toml)?;
-
-        // Extract database URL from configuration
-        let database_url = tasker_config.database_url();
-        let pool_config = &web_config.database_pools;
-
-        debug!(
-            pool_size = pool_config.web_api_pool_size,
-            max_connections = pool_config.web_api_max_connections,
-            "Creating test web API database pool"
-        );
-
-        // Create simplified database pool for testing
-        let web_db_pool = PgPoolOptions::new()
-            .max_connections(pool_config.web_api_max_connections.min(5)) // Smaller for tests
-            .min_connections(1)
-            .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Duration::from_secs(60))
-            .test_before_acquire(true)
-            .connect(&database_url)
-            .await
-            .map_err(|e| {
-                ApiError::database_error(format!("Failed to create test web database pool: {e}"))
-            })?;
-
-        // Create a second pool for orchestration simulation in tests
-        let orchestration_db_pool = PgPoolOptions::new()
-            .max_connections(5) // Small test pool
-            .min_connections(1)
-            .acquire_timeout(Duration::from_secs(10))
-            .test_before_acquire(true)
-            .connect(&database_url)
-            .await
-            .map_err(|e| {
-                ApiError::database_error(format!(
-                    "Failed to create test orchestration database pool: {e}"
-                ))
-            })?;
-
-        // Create disabled circuit breaker for testing
-        let circuit_breaker =
-            WebDatabaseCircuitBreaker::new(u32::MAX, Duration::from_secs(1), "test_disabled");
-
-        // Create test task initializer
-        let task_initializer = Arc::new(TaskInitializer::new(orchestration_db_pool.clone()));
-
-        // Create test orchestration status
-        let orchestration_status = Arc::new(RwLock::new(OrchestrationStatus {
-            running: true,
-            environment: "test".to_string(),
-            operational_state: SystemOperationalState::Normal,
-            database_pool_size: 5,
-            last_health_check: std::time::Instant::now(),
-        }));
-
-        info!(
-            web_pool_size = pool_config.web_api_max_connections.min(5),
-            orchestration_pool_size = 5,
-            "Test web API application state created successfully"
-        );
-
-        Ok(Self {
-            config: Arc::new(web_config),
-            web_db_pool,
-            orchestration_db_pool,
-            web_db_circuit_breaker: circuit_breaker,
-            task_initializer,
-            orchestration_status,
-        })
     }
 
     /// Update orchestration status (called periodically by health check)

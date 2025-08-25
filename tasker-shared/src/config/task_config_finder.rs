@@ -224,15 +224,17 @@ impl TaskConfigFinder {
 
     /// Get the base configuration directory from the system config
     fn get_base_config_directory(&self) -> PathBuf {
+        use workspace_tools::workspace;
+
         // For tests and development, use WORKSPACE_PATH to find the project root
         // This is automatically set by Cargo when running tests
         if let Ok(workspace_path) = std::env::var("WORKSPACE_PATH") {
             return PathBuf::from(workspace_path).join("config").join("tasks");
         }
 
-        // Allow override via TASKER_CONFIG_PATH environment variable
-        if let Ok(config_path) = std::env::var("TASKER_CONFIG_PATH") {
-            return PathBuf::from(config_path).join("tasks");
+        // Try workspace_tools to find project root
+        if let Ok(ws) = workspace() {
+            return ws.join("config").join("tasks");
         }
 
         // For production, use the configured path

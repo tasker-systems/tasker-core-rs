@@ -15,7 +15,7 @@ use tasker_shared::{
         task_request::TaskRequest,
         task_template::{ResolvedTaskTemplate, TaskTemplate},
     },
-    registry::{HandlerKey, TaskHandlerRegistry},
+    registry::{HandlerKey, TaskHandlerRegistry, TaskTemplateDiscoveryResult},
     types::HandlerMetadata,
 };
 
@@ -261,6 +261,113 @@ impl TaskTemplateManager {
         );
 
         Ok(())
+    }
+
+    /// Discover and register TaskTemplates from filesystem to database
+    /// Similar to Ruby TaskTemplateRegistry.register_task_templates_from_directory
+    pub async fn discover_and_register_templates(
+        &self,
+        config_directory: &str,
+    ) -> TaskerResult<TaskTemplateDiscoveryResult> {
+        info!(
+            directory = config_directory,
+            "🔍 Worker discovering TaskTemplates for supported namespaces: {:?}",
+            self.config.supported_namespaces
+        );
+
+        // Use the registry to discover and register templates
+        let discovery_result = self
+            .registry
+            .discover_and_register_templates(config_directory)
+            .await?;
+
+        // Filter results to only include templates for supported namespaces
+        let mut filtered_result = TaskTemplateDiscoveryResult {
+            total_files: discovery_result.total_files,
+            successful_registrations: 0,
+            failed_registrations: discovery_result.failed_registrations,
+            errors: discovery_result.errors.clone(),
+            discovered_templates: Vec::new(),
+        };
+
+        for template_key in &discovery_result.discovered_templates {
+            // Template key format is "namespace/name/version"
+            if let Some(namespace) = template_key.split('/').next() {
+                if self.is_namespace_supported(namespace) {
+                    filtered_result.successful_registrations += 1;
+                    filtered_result
+                        .discovered_templates
+                        .push(template_key.clone());
+                    info!("✅ Registered supported template: {}", template_key);
+                } else {
+                    debug!(
+                        "⏩ Skipped unsupported namespace template: {}",
+                        template_key
+                    );
+                }
+            }
+        }
+
+        info!(
+            "📊 Worker template discovery complete: {} total files, {} supported templates registered, {} failed",
+            filtered_result.total_files,
+            filtered_result.successful_registrations,
+            filtered_result.failed_registrations
+        );
+
+        Ok(filtered_result)
+    }
+
+    /// Load TaskTemplates to database during worker startup
+    /// This ensures workers have their required templates available in the database
+    pub async fn ensure_templates_in_database(&self) -> TaskerResult<TaskTemplateDiscoveryResult> {
+        info!("🚀 Ensuring TaskTemplates are loaded to database for worker startup");
+
+        // Try to find template configuration directory
+        let config_directory = self.find_template_config_directory()?;
+
+        info!("📁 Using template directory: {}", config_directory);
+
+        // Discover and register templates
+        self.discover_and_register_templates(&config_directory)
+            .await
+    }
+
+    /// Find the template configuration directory using workspace_tools
+    /// Consistent with the unified configuration system
+    fn find_template_config_directory(&self) -> TaskerResult<String> {
+        use workspace_tools::workspace;
+
+        // Try WORKSPACE_PATH environment variable first (for compatibility)
+        if let Ok(workspace_path) = std::env::var("WORKSPACE_PATH") {
+            let template_dir = format!("{}/config/tasks", workspace_path);
+            if std::path::Path::new(&template_dir).exists() {
+                return Ok(template_dir);
+            }
+        }
+
+        // Use workspace_tools to find project root (preferred method)
+        match workspace() {
+            Ok(ws) => {
+                let template_dir = ws.join("config").join("tasks");
+                if template_dir.exists() {
+                    return Ok(template_dir.display().to_string());
+                }
+            }
+            Err(e) => {
+                debug!("Failed to find workspace root using workspace_tools: {e}");
+            }
+        }
+
+        // Default fallback to current directory
+        let default_dir = "config/tasks";
+        if std::path::Path::new(default_dir).exists() {
+            return Ok(default_dir.to_string());
+        }
+
+        Err(TaskerError::ConfigurationError(
+            "TaskTemplate configuration directory not found. Tried WORKSPACE_PATH/config/tasks, workspace_tools detection, and config/tasks".to_string()
+        ))
     }
 
     /// Clear entire cache

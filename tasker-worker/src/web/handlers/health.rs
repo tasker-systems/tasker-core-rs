@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use sqlx::Row;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, error, warn};
 
@@ -56,9 +57,7 @@ pub struct WorkerSystemInfo {
 ///
 /// Simple health check that returns OK if the worker service is running.
 /// Always available, even during graceful shutdown.
-pub async fn health_check(
-    State(state): State<Arc<WorkerWebState>>,
-) -> Json<BasicHealthResponse> {
+pub async fn health_check(State(state): State<Arc<WorkerWebState>>) -> Json<BasicHealthResponse> {
     Json(BasicHealthResponse {
         status: "ok".to_string(),
         timestamp: Utc::now(),
@@ -126,9 +125,7 @@ pub async fn readiness_check(
 ///
 /// Indicates whether the worker is alive and should not be restarted.
 /// Simple check focusing on basic process responsiveness.
-pub async fn liveness_check(
-    State(state): State<Arc<WorkerWebState>>,
-) -> Json<BasicHealthResponse> {
+pub async fn liveness_check(State(state): State<Arc<WorkerWebState>>) -> Json<BasicHealthResponse> {
     // Check if we can access our state (basic process health)
     let _uptime = state.uptime_seconds();
 
@@ -151,10 +148,7 @@ pub async fn detailed_health_check(
     let mut checks = HashMap::new();
 
     // Run all health checks
-    checks.insert(
-        "database".to_string(),
-        check_database_health(&state).await,
-    );
+    checks.insert("database".to_string(), check_database_health(&state).await);
     checks.insert(
         "command_processor".to_string(),
         check_command_processor_health(&state).await,
@@ -195,7 +189,10 @@ pub async fn detailed_health_check(
 async fn check_database_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
-    match sqlx::query("SELECT 1").fetch_one(state.database_pool.as_ref()).await {
+    match sqlx::query("SELECT 1")
+        .fetch_one(state.database_pool.as_ref())
+        .await
+    {
         Ok(_) => HealthCheck {
             status: "healthy".to_string(),
             message: Some("Database connection successful".to_string()),
@@ -218,30 +215,81 @@ async fn check_database_health(state: &WorkerWebState) -> HealthCheck {
 async fn check_command_processor_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
-    // For now, assume healthy if we can access the processor
-    // TODO: Add actual command processor health check via ping command
-    let _processor = &state.worker_processor;
+    // Use WorkerCore's get_health method directly
+    match state.worker_core.get_health().await {
+        Ok(health_status) => {
+            let is_healthy = health_status.status == "healthy"
+                && health_status.database_connected
+                && health_status.orchestration_api_reachable;
 
-    HealthCheck {
-        status: "healthy".to_string(),
-        message: Some("Command processor available".to_string()),
-        duration_ms: start.elapsed().as_millis() as u64,
-        last_checked: Utc::now(),
+            HealthCheck {
+                status: if is_healthy { "healthy" } else { "degraded" }.to_string(),
+                message: Some(format!(
+                    "Worker status: {}, DB connected: {}, API reachable: {}",
+                    health_status.status,
+                    health_status.database_connected,
+                    health_status.orchestration_api_reachable
+                )),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to get worker health status");
+            HealthCheck {
+                status: "unhealthy".to_string(),
+                message: Some(format!("Worker health check failed: {e}")),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
     }
 }
 
 /// Check queue processing capability and queue depths
-async fn check_queue_health(_state: &WorkerWebState) -> HealthCheck {
+async fn check_queue_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
-    // TODO: Check actual queue depths and processing capability
-    // This would involve checking PGMQ queue metrics
-    
-    HealthCheck {
-        status: "healthy".to_string(),
-        message: Some("Queue processing available".to_string()),
-        duration_ms: start.elapsed().as_millis() as u64,
-        last_checked: Utc::now(),
+    // Check PGMQ queue metrics for worker namespaces
+    match sqlx::query(
+        "SELECT queue_name, queue_length FROM pgmq.metrics_all() WHERE queue_name LIKE '%_queue'",
+    )
+    .fetch_all(state.database_pool.as_ref())
+    .await
+    {
+        Ok(rows) => {
+            let total_queue_depth: i64 = rows
+                .iter()
+                .filter_map(|row| row.try_get::<i64, _>("queue_length").ok())
+                .sum();
+
+            // Consider healthy if total queue depth is reasonable
+            let status = if total_queue_depth < 10000 {
+                "healthy"
+            } else if total_queue_depth < 50000 {
+                "degraded"
+            } else {
+                "unhealthy"
+            };
+
+            HealthCheck {
+                status: status.to_string(),
+                message: Some(format!(
+                    "Queue processing available, total depth: {total_queue_depth}"
+                )),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to check queue metrics");
+            HealthCheck {
+                status: "unhealthy".to_string(),
+                message: Some(format!("Queue metrics unavailable: {e}")),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
     }
 }
 
@@ -251,7 +299,7 @@ async fn check_event_system_health(_state: &WorkerWebState) -> HealthCheck {
 
     // TODO: Check event publisher/subscriber health
     // For now, assume healthy if configuration allows events
-    
+
     HealthCheck {
         status: "healthy".to_string(),
         message: Some("Event system available".to_string()),
@@ -261,17 +309,47 @@ async fn check_event_system_health(_state: &WorkerWebState) -> HealthCheck {
 }
 
 /// Check step processing performance and error rates
-async fn check_step_processing_health(_state: &WorkerWebState) -> HealthCheck {
+async fn check_step_processing_health(state: &WorkerWebState) -> HealthCheck {
     let start = std::time::Instant::now();
 
-    // TODO: Check recent step processing performance and error rates
-    // This would involve querying step execution metrics
-    
-    HealthCheck {
-        status: "healthy".to_string(),
-        message: Some("Step processing operational".to_string()),
-        duration_ms: start.elapsed().as_millis() as u64,
-        last_checked: Utc::now(),
+    // Use WorkerCore's get_processing_stats method directly
+    match state.worker_core.get_processing_stats().await {
+        Ok(worker_status) => {
+            // Calculate error rate and determine health
+            let total_executions = worker_status.steps_executed;
+            let error_rate = if total_executions > 0 {
+                (worker_status.steps_failed as f64 / total_executions as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let status = if error_rate < 5.0 {
+                "healthy"
+            } else if error_rate < 15.0 {
+                "degraded"
+            } else {
+                "unhealthy"
+            };
+
+            HealthCheck {
+                status: status.to_string(),
+                message: Some(format!(
+                    "Step processing operational - {} executed, {:.1}% error rate",
+                    total_executions, error_rate
+                )),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to get worker processing stats");
+            HealthCheck {
+                status: "unhealthy".to_string(),
+                message: Some(format!("Step processing stats failed: {e}")),
+                duration_ms: start.elapsed().as_millis() as u64,
+                last_checked: Utc::now(),
+            }
+        }
     }
 }
 
@@ -283,7 +361,10 @@ fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
         uptime_seconds: state.uptime_seconds(),
         worker_type: state.worker_type(),
         database_pool_size: state.database_pool.size(),
-        command_processor_active: true, // TODO: Check actual processor status
-        supported_namespaces: vec![], // TODO: Get from task template registry
+        command_processor_active: matches!(
+            state.worker_core.status(),
+            crate::worker::core::WorkerCoreStatus::Running
+        ),
+        supported_namespaces: state.worker_core.supported_namespaces().to_vec(),
     }
 }

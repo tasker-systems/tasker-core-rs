@@ -1225,67 +1225,7 @@ impl TaskerConfig {
     }
 }
 
-/// Task template definition structure (migrated from orchestration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskTemplate {
-    pub name: String,
-    pub module_namespace: Option<String>,
-    pub task_handler_class: String,
-    pub namespace_name: String,
-    pub version: String,
-    pub description: Option<String>,
-    pub default_dependent_system: Option<String>,
-    #[serde(default)]
-    pub named_steps: Vec<String>,
-    pub schema: Option<serde_json::Value>,
-    pub step_templates: Vec<StepTemplate>,
-    pub environments: Option<HashMap<String, EnvironmentConfig>>,
-    pub custom_events: Option<Vec<CustomEvent>>,
-}
-
-/// Step template definition (migrated from orchestration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepTemplate {
-    pub name: String,
-    pub description: Option<String>,
-    pub handler_class: String,
-    pub handler_config: Option<HashMap<String, serde_json::Value>>,
-    pub depends_on_step: Option<String>,
-    pub depends_on_steps: Option<Vec<String>>,
-    pub default_retryable: Option<bool>,
-    #[serde(
-        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
-        default
-    )]
-    pub default_retry_limit: Option<i32>,
-    #[serde(
-        deserialize_with = "crate::utils::serde::deserialize_optional_numeric",
-        default
-    )]
-    pub timeout_seconds: Option<i32>,
-    pub retry_backoff: Option<String>,
-}
-
-/// Environment-specific configuration (migrated from orchestration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnvironmentConfig {
-    pub step_templates: Vec<StepTemplateOverride>,
-}
-
-/// Step template override for environment-specific configuration (migrated from orchestration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepTemplateOverride {
-    pub name: String,
-    pub handler_config: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Custom event definition (migrated from orchestration)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomEvent {
-    pub name: String,
-    pub description: Option<String>,
-    pub schema: Option<serde_json::Value>,
-}
+// Legacy TaskTemplate types removed - use crate::models::core::task_template::TaskTemplate instead
 
 /// Web API configuration for TAS-28 Axum Web API
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -11,10 +11,10 @@ name = "tasker_worker"
 crate-type = ["rlib"]
 
 # Binary targets
-# [[bin]]
-# name = "tasker-worker"
-# path = "src/bin/worker.rs"
-# required-features = ["web-api"]
+[[bin]]
+name = "tasker-worker"
+path = "src/bin/server.rs"
+required-features = ["web-api"]
 
 [dependencies]
 tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }

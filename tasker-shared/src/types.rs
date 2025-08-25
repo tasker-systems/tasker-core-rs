@@ -120,28 +120,7 @@ pub struct RegistryStats {
     pub thread_safe: bool,
 }
 
-/// Configuration for YAML processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskHandlerConfig {
-    pub namespace: String,
-    pub name: String,
-    pub version: String,
-    pub steps: Vec<StepTemplate>,
-    pub schema: Option<serde_json::Value>,
-    pub retry_policy: Option<RetryPolicy>,
-    pub environment_overrides: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Step template from YAML configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepTemplate {
-    pub name: String,
-    pub handler_class: String,
-    pub dependencies: Vec<String>,
-    pub retry_limit: Option<i32>,
-    pub timeout: Option<Duration>,
-    pub config: Option<serde_json::Value>,
-}
+// Legacy TaskHandlerConfig and StepTemplate removed - use crate::models::core::task_template::TaskTemplate instead
 
 /// Retry policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

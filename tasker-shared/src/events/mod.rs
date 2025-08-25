@@ -12,5 +12,5 @@ pub use types::{
 
 // Re-export TAS-40 worker event types
 pub use worker_events::{
-    WorkerEventPublisher, WorkerEventSubscriber, WorkerEventSystem, WorkerEventError,
+    WorkerEventError, WorkerEventPublisher, WorkerEventSubscriber, WorkerEventSystem,
 };

@@ -3,10 +3,8 @@
 //! Database-backed registry for distributed task handler resolution.
 //!
 //! ## Architecture
-//!
-//! **AGGRESSIVE DATABASE-FIRST**: Eliminates all in-memory storage, uses database models directly:
 //! ```text
-//! TaskRequest -> Database Query -> TaskNamespace + NamedTask + WorkerNamedTask -> HandlerMetadata
+//! TaskRequest -> Database Query -> TaskNamespace + NamedTask -> HandlerMetadata
 //! ```
 //!
 //! ## Key Features
@@ -93,6 +91,16 @@ pub struct RegistryStats {
     pub namespaces: Vec<String>,
 }
 
+/// Result of TaskTemplate discovery and registration process
+#[derive(Debug, Clone)]
+pub struct TaskTemplateDiscoveryResult {
+    pub total_files: usize,
+    pub successful_registrations: usize,
+    pub failed_registrations: usize,
+    pub errors: Vec<String>,
+    pub discovered_templates: Vec<String>,
+}
+
 /// Database-first task handler registry for distributed orchestration
 pub struct TaskHandlerRegistry {
     /// Database connection pool for persistent storage
@@ -131,6 +139,308 @@ impl TaskHandlerRegistry {
         let task_template =
             serde_json::from_value(handler_metadata.config_schema.unwrap_or_default())?;
         Ok(task_template)
+    }
+
+    /// Register a TaskTemplate to the database
+    /// Similar to the Ruby TaskTemplateRegistry.register_task_template_in_database method
+    pub async fn register_task_template(&self, template: &TaskTemplate) -> TaskerResult<()> {
+        debug!(
+            namespace = &template.namespace_name,
+            name = &template.name,
+            version = &template.version,
+            "🔄 Registering TaskTemplate to database"
+        );
+
+        // Validate template has required fields
+        if template.name.is_empty() {
+            return Err(TaskerError::ValidationError(
+                "Template name cannot be empty".to_string(),
+            ));
+        }
+        if template.namespace_name.is_empty() {
+            return Err(TaskerError::ValidationError(
+                "Template namespace_name cannot be empty".to_string(),
+            ));
+        }
+        if template.version.is_empty() {
+            return Err(TaskerError::ValidationError(
+                "Template version cannot be empty".to_string(),
+            ));
+        }
+
+        // Validate template structure
+        template.validate().map_err(|e| {
+            TaskerError::ValidationError(format!("Template validation failed: {e}"))
+        })?;
+
+        // Convert template to JSON for database storage (similar to Ruby's build_database_configuration)
+        let configuration = serde_json::to_value(template).map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to serialize template: {e}"))
+        })?;
+
+        use crate::models::core::{named_task::NamedTask, task_namespace::TaskNamespace};
+
+        // 1. Find or create TaskNamespace using the model method
+        let namespace = TaskNamespace::find_or_create(&self.db_pool, &template.namespace_name)
+            .await
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to create/find namespace: {e}"))
+            })?;
+
+        // 2. Find existing named task or create new one
+        let existing_task = NamedTask::find_by_name_version_namespace(
+            &self.db_pool,
+            &template.name,
+            &template.version,
+            namespace.task_namespace_uuid,
+        )
+        .await
+        .map_err(|e| TaskerError::DatabaseError(format!("Failed to find existing task: {e}")))?;
+
+        if let Some(task) = existing_task {
+            // Update existing task with new configuration
+            NamedTask::update(
+                &self.db_pool,
+                task.named_task_uuid,
+                template.description.clone(),
+                Some(configuration),
+            )
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to update named task: {e}")))?;
+        } else {
+            // Create new named task
+            use crate::models::core::named_task::NewNamedTask;
+            let new_task = NewNamedTask {
+                name: template.name.clone(),
+                version: Some(template.version.clone()),
+                description: template.description.clone(),
+                task_namespace_uuid: namespace.task_namespace_uuid,
+                configuration: Some(configuration),
+            };
+
+            NamedTask::create(&self.db_pool, new_task)
+                .await
+                .map_err(|e| {
+                    TaskerError::DatabaseError(format!("Failed to create named task: {e}"))
+                })?;
+        }
+
+        info!(
+            namespace = &template.namespace_name,
+            name = &template.name,
+            version = &template.version,
+            "✅ TaskTemplate registered to database successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Discover and register TaskTemplates from a directory
+    /// Similar to the Ruby TaskTemplateRegistry.register_task_templates_from_directory method
+    pub async fn discover_and_register_templates(
+        &self,
+        directory_path: &str,
+    ) -> TaskerResult<TaskTemplateDiscoveryResult> {
+        info!(
+            "📁 Discovering TaskTemplates in directory: {}",
+            directory_path
+        );
+
+        let path = std::path::Path::new(directory_path);
+        if !path.exists() {
+            return Err(TaskerError::ConfigurationError(format!(
+                "Directory not found: {}",
+                directory_path
+            )));
+        }
+
+        // Find all YAML files recursively
+        let yaml_files = self.find_yaml_files(directory_path).await?;
+
+        if yaml_files.is_empty() {
+            info!("📁 No YAML files found in directory: {directory_path}");
+            return Ok(TaskTemplateDiscoveryResult {
+                total_files: 0,
+                successful_registrations: 0,
+                failed_registrations: 0,
+                errors: Vec::new(),
+                discovered_templates: Vec::new(),
+            });
+        }
+
+        let mut result = TaskTemplateDiscoveryResult {
+            total_files: yaml_files.len(),
+            successful_registrations: 0,
+            failed_registrations: 0,
+            errors: Vec::new(),
+            discovered_templates: Vec::new(),
+        };
+
+        // Process each YAML file
+        for yaml_path in &yaml_files {
+            match self.load_template_from_file(yaml_path).await {
+                Ok(template) => match self.register_task_template(&template).await {
+                    Ok(_) => {
+                        result.successful_registrations += 1;
+                        result.discovered_templates.push(format!(
+                            "{}/{}/{}",
+                            template.namespace_name, template.name, template.version
+                        ));
+                        debug!(
+                            "✅ Registered template from {}: {}/{}:{}",
+                            yaml_path.display(),
+                            template.namespace_name,
+                            template.name,
+                            template.version
+                        );
+                    }
+                    Err(e) => {
+                        result.failed_registrations += 1;
+                        let error_msg = format!(
+                            "Failed to register template from {}: {}",
+                            yaml_path.display(),
+                            e
+                        );
+                        result.errors.push(error_msg.clone());
+                        debug!("❌ {error_msg}");
+                    }
+                },
+                Err(e) => {
+                    result.failed_registrations += 1;
+                    let error_msg = format!(
+                        "Failed to load template from {}: {}",
+                        yaml_path.display(),
+                        e
+                    );
+                    result.errors.push(error_msg.clone());
+                    debug!("❌ {error_msg}");
+                }
+            }
+        }
+
+        info!(
+            "📊 Template discovery complete: {} files, {} successful, {} failed",
+            result.total_files, result.successful_registrations, result.failed_registrations
+        );
+
+        Ok(result)
+    }
+
+    /// Load a TaskTemplate from a YAML file
+    /// Similar to the Ruby TaskTemplateRegistry.load_task_template_from_file method
+    async fn load_template_from_file(&self, path: &std::path::Path) -> TaskerResult<TaskTemplate> {
+        debug!("📖 Loading TaskTemplate from file: {}", path.display());
+
+        let yaml_content = tokio::fs::read_to_string(path).await.map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to read file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        let template: TaskTemplate = serde_yaml::from_str(&yaml_content).map_err(|e| {
+            TaskerError::ConfigurationError(format!(
+                "Failed to parse TaskTemplate YAML from {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        debug!(
+            "📖 Loaded TaskTemplate from {}: {}/{}/{}",
+            path.display(),
+            template.namespace_name,
+            template.name,
+            template.version
+        );
+
+        Ok(template)
+    }
+
+    /// Find all YAML files in a directory recursively using async operations
+    async fn find_yaml_files(&self, directory_path: &str) -> TaskerResult<Vec<std::path::PathBuf>> {
+        use std::collections::VecDeque;
+        use std::path::PathBuf;
+        use tokio::fs;
+
+        let mut yaml_files = Vec::new();
+        let mut dirs_to_scan = VecDeque::new();
+        dirs_to_scan.push_back(PathBuf::from(directory_path));
+
+        // Iterative directory walking using async operations
+        while let Some(current_dir) = dirs_to_scan.pop_front() {
+            let mut entries = match fs::read_dir(&current_dir).await {
+                Ok(entries) => entries,
+                Err(e) => {
+                    debug!("Failed to read directory {:?}: {}", current_dir, e);
+                    continue; // Skip directories we can't read
+                }
+            };
+
+            loop {
+                let entry = match entries.next_entry().await {
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => break, // No more entries
+                    Err(e) => {
+                        debug!("Failed to read directory entry: {}", e);
+                        continue; // Skip this entry and try next
+                    }
+                };
+                let path = entry.path();
+
+                if path.is_dir() {
+                    // Add subdirectory to scan queue
+                    dirs_to_scan.push_back(path);
+                } else if let Some(extension) = path.extension() {
+                    if extension == "yml" || extension == "yaml" {
+                        yaml_files.push(path);
+                    }
+                }
+            }
+        }
+
+        debug!(
+            "📁 Found {} YAML files in {}",
+            yaml_files.len(),
+            directory_path
+        );
+        Ok(yaml_files)
+    }
+
+    /// Check if a TaskTemplate is already registered
+    /// Similar to the Ruby TaskTemplateRegistry.task_template_registered? method
+    pub async fn is_template_registered(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> TaskerResult<bool> {
+        use crate::models::core::{named_task::NamedTask, task_namespace::TaskNamespace};
+
+        // First find the namespace
+        let namespace_obj = TaskNamespace::find_by_name(&self.db_pool, namespace)
+            .await
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to find namespace '{namespace}': {e}"))
+            })?;
+
+        let namespace_uuid = match namespace_obj {
+            Some(ns) => ns.task_namespace_uuid,
+            None => return Ok(false), // Namespace doesn't exist, so template can't be registered
+        };
+
+        // Check if the named task exists
+        let named_task =
+            NamedTask::find_by_name_version_namespace(&self.db_pool, name, version, namespace_uuid)
+                .await
+                .map_err(|e| {
+                    TaskerError::DatabaseError(format!(
+                        "Failed to check template registration: {e}"
+                    ))
+                })?;
+
+        Ok(named_task.is_some())
     }
 
     /// Resolve a handler from a TaskRequest using database queries
@@ -234,8 +544,6 @@ impl TaskHandlerRegistry {
             config_schema: named_task.configuration,
             registered_at: Utc::now(),
         };
-
-        debug!("✅ DATABASE-FIRST: Handler resolved successfully (pgmq architecture)");
 
         Ok(handler_metadata)
     }

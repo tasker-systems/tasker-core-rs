@@ -8,8 +8,8 @@ use axum::middleware::Next;
 use axum::response::Response;
 use tracing::debug;
 
-use crate::web::state::SystemOperationalState;
 use crate::web::state::AppState;
+use crate::web::state::SystemOperationalState;
 
 /// Operational state middleware
 ///

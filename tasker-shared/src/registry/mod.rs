@@ -40,4 +40,5 @@ pub mod task_handler_registry;
 
 pub use task_handler_registry::{
     HandlerKey, RegistryStats as TaskHandlerRegistryStats, TaskHandlerRegistry,
+    TaskTemplateDiscoveryResult,
 };

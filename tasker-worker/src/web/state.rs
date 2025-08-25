@@ -3,14 +3,12 @@
 //! Contains shared state for the worker web API including database connections,
 //! configuration, and metrics tracking.
 
-use crate::{command_processor::WorkerProcessor, task_template_manager::TaskTemplateManager};
+use crate::task_template_manager::TaskTemplateManager;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
-    config::TaskerConfig, 
-    errors::TaskerResult,
-    messaging::clients::UnifiedMessageClient,
+    config::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
     registry::TaskHandlerRegistry,
 };
 use tracing::info;
@@ -44,24 +42,24 @@ impl Default for WorkerWebConfig {
 /// Shared state for the worker web application
 #[derive(Clone)]
 pub struct WorkerWebState {
-    /// Worker command processor handle
-    pub worker_processor: Arc<WorkerProcessor>,
-    
+    /// Worker core reference for health checks and status
+    pub worker_core: Arc<crate::worker::core::WorkerCore>,
+
     /// Database connection pool
     pub database_pool: Arc<PgPool>,
-    
+
     /// Unified message client for queue metrics and monitoring
     pub message_client: Arc<UnifiedMessageClient>,
-    
+
     /// Task template manager for template caching and validation
     pub task_template_manager: Arc<TaskTemplateManager>,
-    
+
     /// Web API configuration
     pub config: WorkerWebConfig,
-    
+
     /// Application start time for uptime calculations
     pub start_time: Instant,
-    
+
     /// Worker system configuration
     pub system_config: TaskerConfig,
 }
@@ -70,7 +68,7 @@ impl WorkerWebState {
     /// Create new worker web state with all required components
     pub async fn new(
         config: WorkerWebConfig,
-        worker_processor: Arc<WorkerProcessor>,
+        worker_core: Arc<crate::worker::core::WorkerCore>,
         database_pool: Arc<PgPool>,
         system_config: TaskerConfig,
     ) -> TaskerResult<Self> {
@@ -81,14 +79,15 @@ impl WorkerWebState {
         );
 
         // Create unified message client using the shared database pool
-        let message_client = Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
+        let message_client =
+            Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
 
         // Create task handler registry and task template manager
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new((*database_pool).clone()));
         let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry));
 
         Ok(Self {
-            worker_processor,
+            worker_core,
             database_pool,
             message_client,
             task_template_manager,
@@ -115,7 +114,7 @@ impl WorkerWebState {
 
     /// Get worker identifier for status reporting
     pub fn worker_id(&self) -> String {
-        format!("worker-{}", uuid::Uuid::new_v4())
+        format!("worker-{}", self.worker_core.core_id())
     }
 
     /// Get worker type classification

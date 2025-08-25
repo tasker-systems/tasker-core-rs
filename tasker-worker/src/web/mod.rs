@@ -1,5 +1,5 @@
 //! Worker Web API Module
-//! 
+//!
 //! Provides REST endpoints for worker observability, health checking, and status monitoring.
 //! Follows the same patterns as tasker-orchestration/src/web but tailored for worker operations.
 

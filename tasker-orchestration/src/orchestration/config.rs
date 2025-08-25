@@ -12,12 +12,13 @@ pub use tasker_shared::config::orchestration::{
 // Re-export shared types instead of redefining them
 pub use tasker_shared::config::orchestration::OrchestrationConfig;
 pub use tasker_shared::config::{
-    AuthConfig, BackoffConfig, CacheConfig, CustomEvent, DatabaseConfig, DatabasePoolConfig,
-    DependencyGraphConfig, EngineConfig, EnvironmentConfig, ExecutionConfig, HealthConfig,
-    ReenqueueDelays, StepTemplate, StepTemplateOverride, SystemConfig, TaskTemplate,
-    TaskTemplatesConfig, TaskerConfig, TelemetryConfig,
+    AuthConfig, BackoffConfig, CacheConfig, DatabaseConfig, DatabasePoolConfig,
+    DependencyGraphConfig, EngineConfig, ExecutionConfig, HealthConfig, ReenqueueDelays,
+    SystemConfig, TaskTemplatesConfig, TaskerConfig, TelemetryConfig,
 };
+// Use canonical TaskTemplate from models instead of legacy config types
 pub use tasker_shared::errors::{OrchestrationError, OrchestrationResult};
+pub use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
 pub type EventConfig = tasker_shared::config::EventsConfig;
 pub type ConfigurationManager = tasker_shared::config::ConfigManager;
 
@@ -45,82 +46,5 @@ mod tests {
         // Environment can be overridden by TASKER_ENV, so just verify it's not empty
         assert!(!config_manager.environment().is_empty());
         assert!(!config_manager.system_config().auth.authentication_enabled);
-    }
-
-    #[test]
-    fn test_load_task_template_from_yaml() {
-        let yaml_content = r#"
-name: test_task
-task_handler_class: TestHandler
-namespace_name: test_namespace
-version: "1.0.0"
-named_steps:
-  - step1
-  - step2
-step_templates:
-  - name: step1
-    handler_class: Step1Handler
-  - name: step2
-    handler_class: Step2Handler
-    depends_on_step: step1
-"#;
-
-        let config_manager = ConfigurationManager::new();
-        let template = config_manager
-            .load_task_template_from_yaml(yaml_content)
-            .unwrap();
-
-        assert_eq!(template.name, "test_task");
-        assert_eq!(template.task_handler_class, "TestHandler");
-        assert_eq!(template.namespace_name, "test_namespace");
-        assert_eq!(template.version, "1.0.0");
-        assert_eq!(template.named_steps.len(), 2);
-        assert_eq!(template.step_templates.len(), 2);
-    }
-
-    #[test]
-    fn test_task_template_validation() {
-        let config_manager = ConfigurationManager::new();
-
-        // Valid template
-        let valid_template = TaskTemplate {
-            name: "test_task".to_string(),
-            task_handler_class: "TestHandler".to_string(),
-            namespace_name: "test_namespace".to_string(),
-            version: "1.0.0".to_string(),
-            named_steps: vec!["step1".to_string()],
-            step_templates: vec![StepTemplate {
-                name: "step1".to_string(),
-                handler_class: "Step1Handler".to_string(),
-                description: None,
-                handler_config: None,
-                depends_on_step: None,
-                depends_on_steps: None,
-                default_retryable: None,
-                default_retry_limit: None,
-                timeout_seconds: None,
-                retry_backoff: None,
-            }],
-            module_namespace: None,
-            description: None,
-            default_dependent_system: None,
-            schema: None,
-            environments: None,
-            custom_events: None,
-        };
-
-        assert!(config_manager
-            .validate_task_template(&valid_template)
-            .is_ok());
-
-        // Invalid template - missing named step
-        let invalid_template = TaskTemplate {
-            named_steps: vec!["missing_step".to_string()],
-            ..valid_template.clone()
-        };
-
-        assert!(config_manager
-            .validate_task_template(&invalid_template)
-            .is_err());
     }
 }

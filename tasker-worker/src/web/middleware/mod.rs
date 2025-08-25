@@ -49,7 +49,9 @@ pub fn apply_middleware_stack(router: Router<Arc<WorkerWebState>>) -> Router<Arc
 /// - Longer timeouts
 /// - Additional debug logging
 #[cfg(feature = "test-utils")]
-pub fn apply_test_middleware_stack(router: Router<Arc<WorkerWebState>>) -> Router<Arc<WorkerWebState>> {
+pub fn apply_test_middleware_stack(
+    router: Router<Arc<WorkerWebState>>,
+) -> Router<Arc<WorkerWebState>> {
     router
         .layer(middleware::from_fn(request_id::add_request_id))
         .layer(TimeoutLayer::new(Duration::from_secs(120))) // Longer timeout for tests
@@ -61,6 +63,6 @@ pub fn apply_test_middleware_stack(router: Router<Arc<WorkerWebState>>) -> Route
 fn create_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
-        .allow_methods(tower_http::cors::Any) 
+        .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any)
 }

@@ -1,5 +1,5 @@
 //! # tasker-worker: TAS-40 Simple Worker Command Pattern
-//! 
+//!
 //! This crate provides a simple command pattern worker system that replaces
 //! complex executor pools, auto-scaling coordinators, and polling systems
 //! with pure tokio command processing and declarative FFI event integration.
@@ -58,19 +58,21 @@ pub mod task_template_manager;
 pub mod web;
 pub mod worker;
 
-pub use api_clients::{OrchestrationApiClient};
-pub use bootstrap::{WorkerBootstrap, WorkerSystemHandle, WorkerBootstrapConfig, WorkerSystemStatus};
+pub use api_clients::OrchestrationApiClient;
+pub use bootstrap::{
+    WorkerBootstrap, WorkerBootstrapConfig, WorkerSystemHandle, WorkerSystemStatus,
+};
 pub use command_processor::{
-    WorkerCommand, WorkerProcessor, WorkerStatus, StepExecutionStats, EventIntegrationStatus
+    EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerProcessor, WorkerStatus,
 };
-pub use event_publisher::{WorkerEventPublisher, WorkerEventPublisherStats, WorkerEventError};
+pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
 pub use event_subscriber::{
-    WorkerEventSubscriber, WorkerEventSubscriberStats, WorkerEventSubscriberError,
-    CorrelatedCompletionListener, CorrelatedStepResult,
+    CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,
+    WorkerEventSubscriberError, WorkerEventSubscriberStats,
 };
-pub use health::{WorkerHealthStatus};
+pub use health::WorkerHealthStatus;
 pub use task_template_manager::{
-    TaskTemplateManager, TaskTemplateManagerConfig, CachedTemplate, CacheStats, 
-    WorkerTaskTemplateOperations
+    CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
+    WorkerTaskTemplateOperations,
 };
 pub use worker::{WorkerCore, WorkerCoreStatus};
