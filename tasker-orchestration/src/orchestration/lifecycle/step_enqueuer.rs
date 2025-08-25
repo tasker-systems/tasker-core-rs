@@ -54,7 +54,7 @@
 //! ```
 
 use crate::orchestration::{
-    state_manager::StateManager, task_claimer::ClaimedTask,
+    state_manager::StateManager, task_claim::task_claimer::ClaimedTask,
     viable_step_discovery::ViableStepDiscovery,
 };
 use serde::{Deserialize, Serialize};
@@ -500,22 +500,10 @@ impl StepEnqueuer {
         let uuids = if completed_dependencies.is_empty() {
             Vec::new()
         } else {
-            let step_uuids: Vec<Uuid> = completed_dependencies
+            completed_dependencies
                 .iter()
                 .map(|dep| dep.workflow_step_uuid)
-                .collect();
-
-            let rows = sqlx::query!(
-                "SELECT workflow_step_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = ANY($1)",
-                &step_uuids
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| {
-                TaskerError::DatabaseError(format!("Failed to fetch dependency UUIDs: {e}"))
-            })?;
-
-            rows.into_iter().map(|row| row.workflow_step_uuid).collect()
+                .collect()
         };
 
         debug!(

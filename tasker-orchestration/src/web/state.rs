@@ -3,7 +3,16 @@
 //! Defines the shared state for the web API including database pools,
 //! configuration, and circuit breaker health monitoring.
 
-use crate::orchestration::coordinator::operational_state::SystemOperationalState;
+// Note: SystemOperationalState removed as part of TAS-40 coordinator simplification
+// Using simplified operational state enum for web API compatibility
+#[derive(Debug, Clone, PartialEq)]
+pub enum SystemOperationalState {
+    Normal,
+    GracefulShutdown,
+    Emergency,
+    Stopped,
+    Startup,
+}
 use crate::orchestration::core::OrchestrationCore;
 use crate::orchestration::task_initializer::TaskInitializer;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
@@ -445,55 +454,12 @@ impl AppState {
 
     /// Report web API database pool usage to health monitoring system (TAS-37 Web Integration)
     ///
-    /// This method creates a pool usage report and sends it to the health monitoring system
-    /// if pool monitoring is enabled in the web configuration.
-    pub async fn report_pool_usage_to_health_monitor(
-        &self,
-        health_monitor: &crate::orchestration::coordinator::monitor::HealthMonitor,
-        operational_state_manager: Option<
-            &crate::orchestration::coordinator::operational_state::OperationalStateManager,
-        >,
-    ) -> TaskerResult<()> {
-        use crate::orchestration::coordinator::monitor::WebPoolUsageReport;
+    /// This method creates a pool usage report for external health monitoring.
+    /// Note: Simplified for TAS-40 command pattern - complex coordinator monitoring removed.
+    pub async fn report_pool_usage_stats(&self) -> TaskerResult<DatabasePoolUsageStats> {
 
-        // Check if pool usage reporting is enabled
-        // Note: This would ideally check config.resource_monitoring.report_pool_usage_to_health_monitor
-        // For now, we'll always report since the health monitor can handle it gracefully
-
-        // Get current pool usage statistics
-        let web_pool = &self.web_db_pool;
-        let current_size = web_pool.size();
-        let max_size = self.config.database_pools.web_api_max_connections;
-
-        // Calculate usage ratio
-        let usage_ratio = if max_size > 0 {
-            current_size as f64 / max_size as f64
-        } else {
-            0.0
-        };
-
-        // Create usage report from web configuration thresholds
-        let pool_report = WebPoolUsageReport {
-            usage_ratio,
-            active_connections: current_size,
-            max_connections: max_size,
-            // Use thresholds from web.toml configuration
-            warning_threshold: 0.75, // Could be config.resource_monitoring.pool_usage_warning_threshold
-            critical_threshold: 0.90, // Could be config.resource_monitoring.pool_usage_critical_threshold
-            pool_name: "web_api_pool".to_string(),
-        };
-
-        debug!(
-            "WEB_POOL: Reporting usage to health monitor - {:.1}% ({}/{} connections)",
-            usage_ratio * 100.0,
-            current_size,
-            max_size
-        );
-
-        // Report to health monitoring system
-        health_monitor
-            .record_web_pool_usage(pool_report, operational_state_manager)
-            .await
+        // Get current pool usage statistics (simplified for TAS-40)
+        Ok(self.get_pool_usage_stats())
     }
 
     /// Get web API database pool usage statistics for external monitoring

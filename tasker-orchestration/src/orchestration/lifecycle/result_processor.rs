@@ -23,8 +23,8 @@ use tasker_shared::errors::OrchestrationResult;
 
 use crate::orchestration::{
     backoff_calculator::{BackoffCalculator, BackoffContext},
-    finalization_claimer::FinalizationClaimer,
-    task_finalizer::TaskFinalizer,
+    lifecycle::task_finalizer::TaskFinalizer,
+    task_claim::finalization_claimer::FinalizationClaimer,
 };
 use tasker_shared::messaging::message::OrchestrationMetadata;
 use tasker_shared::models::core::workflow_step::WorkflowStep;

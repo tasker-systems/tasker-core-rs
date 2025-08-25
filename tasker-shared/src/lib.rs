@@ -82,11 +82,9 @@
 
 pub mod config;
 pub mod constants;
-pub mod coordinator;
 pub mod database;
 pub mod errors;
 pub mod events;
-pub mod executor;
 pub mod logging;
 pub mod messaging;
 pub mod models;
@@ -96,6 +94,7 @@ pub mod scopes;
 pub mod services;
 pub mod sql_functions;
 pub mod state_machine;
+pub mod system_context;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 pub mod types;
@@ -123,3 +122,4 @@ pub use messaging::{
 };
 
 pub use registry::TaskHandlerRegistry;
+pub use system_context::SystemContext;

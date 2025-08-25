@@ -95,7 +95,6 @@ mockall = { workspace = true }
 factori = { workspace = true }
 url = { workspace = true }
 serial_test = { workspace = true }
-nextest = { workspace = true }
 
 # Coverage tools (used in CI)
 cargo-llvm-cov = { workspace = true }

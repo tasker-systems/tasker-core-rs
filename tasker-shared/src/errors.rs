@@ -31,6 +31,8 @@ pub enum TaskerError {
     FFIError(String),
     #[error("Messaging error: {0}")]
     MessagingError(String),
+    #[error("Worker error: {0}")]
+    WorkerError(String),
     // Additional variants needed for executor system
     #[error("Internal error: {0}")]
     Internal(String),

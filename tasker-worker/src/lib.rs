@@ -1,8 +1,62 @@
-// tasker-worker-foundation: Worker foundation for multi-language step execution
-//! This crate provides the worker foundation system that enables workers
-//! in different languages (Rust, Ruby, Python, WASM) to process workflow steps
-//! through a unified architecture.
+//! # tasker-worker: TAS-40 Simple Worker Command Pattern
+//! 
+//! This crate provides a simple command pattern worker system that replaces
+//! complex executor pools, auto-scaling coordinators, and polling systems
+//! with pure tokio command processing and declarative FFI event integration.
+//!
+//! ## Key Features
+//!
+//! - **Simple Command Pattern**: ~100 lines vs 1000+ lines of complex worker system
+//! - **No Polling**: Pure command-driven architecture with tokio channels
+//! - **Declarative FFI Integration**: Event-driven communication with Ruby/Python/WASM
+//! - **Database-as-API**: Workers hydrate context from SimpleStepMessage UUIDs
+//! - **Bidirectional Events**: Worker → FFI execution requests, FFI → Worker completions
+//! - **Ruby Integration**: Uses Ruby-aligned StepHandlerCallResult types
+//! - **Orchestration Integration**: Simple command-based communication
+//!
+//! ## Architecture
+//!
+//! ```text
+//! WorkerProcessor -> tokio::mpsc -> Command Handlers -> Database Hydration
+//!     ↓                                                        ↓
+//! WorkerEventPublisher -> WorkerEventSystem -> FFI Handler (Ruby/Python/WASM)
+//!     ↑                                           ↓
+//! WorkerEventSubscriber <- WorkerEventSystem <- FFI Handler Completion
+//!     ↓                                           
+//! StepExecutionResult -> OrchestrationCore
+//! ```
+//!
+//! ## Event-Driven Integration Example
+//!
+//! ```rust
+//! use tasker_worker::{WorkerProcessor, WorkerEventPublisher, WorkerEventSubscriber};
+//! use tasker_shared::system_context::SystemContext;
+//!
+//! // Create worker with event integration
+//! let context = SystemContext::new().await?;
+//! let (mut processor, sender) = WorkerProcessor::new("namespace".to_string(), context, 100);
+//!
+//! // Event publisher fires events to FFI handlers
+//! let event_publisher = WorkerEventPublisher::new(worker_id, namespace);
+//!
+//! // Event subscriber receives completions from FFI handlers  
+//! let event_subscriber = WorkerEventSubscriber::new(worker_id, namespace);
+//! let completion_receiver = event_subscriber.start_completion_listener();
+//!
+//! // Processor integrates both command and event channels
+//! processor.start_with_events(completion_receiver).await?;
+//! ```
 
-// Placeholder - will be implemented during TAS-40
-
+pub mod command_processor;
 pub mod config;
+pub mod event_publisher;
+pub mod event_subscriber;
+
+pub use command_processor::{
+    WorkerCommand, WorkerProcessor, WorkerStatus, StepExecutionStats, EventIntegrationStatus
+};
+pub use event_publisher::{WorkerEventPublisher, WorkerEventPublisherStats, WorkerEventError};
+pub use event_subscriber::{
+    WorkerEventSubscriber, WorkerEventSubscriberStats, WorkerEventSubscriberError,
+    CorrelatedCompletionListener, CorrelatedStepResult,
+};

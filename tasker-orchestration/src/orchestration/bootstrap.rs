@@ -14,7 +14,8 @@
 //! - **Graceful Shutdown**: Proper cleanup and resource management
 //! - **Consistent API**: Same bootstrap interface regardless of deployment mode
 
-use crate::orchestration::coordinator::OrchestrationLoopCoordinator;
+// Note: OrchestrationLoopCoordinator removed as part of TAS-40 command pattern migration
+// Bootstrap will be updated to use OrchestrationProcessor once implemented
 use crate::orchestration::OrchestrationCore;
 use std::sync::Arc;
 use tasker_shared::config::{ConfigManager, UnifiedConfigLoader};
@@ -228,15 +229,16 @@ impl OrchestrationBootstrap {
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
 
-        // Create OrchestrationLoopCoordinator for unified architecture
-        let coordinator = Arc::new(
-            OrchestrationLoopCoordinator::new(config_manager.clone(), orchestration_core.clone())
-                .await?,
-        );
-
-        info!("✅ BOOTSTRAP: Using OrchestrationLoopCoordinator for unified architecture");
-
-        Self::start_coordinator(coordinator, shutdown_receiver).await?;
+        // TODO: TAS-40 - Replace with OrchestrationProcessor command pattern
+        // Temporarily simplified for command pattern migration
+        info!("✅ BOOTSTRAP: Simplified bootstrap for TAS-40 command pattern migration");
+        
+        // Spawn background task to handle shutdown
+        tokio::spawn(async move {
+            if let Ok(()) = shutdown_receiver.await {
+                info!("🛑 BOOTSTRAP: Shutdown signal received");
+            }
+        });
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
             shutdown_sender,
@@ -300,35 +302,16 @@ impl OrchestrationBootstrap {
         Self::bootstrap(config).await
     }
 
-    /// Start OrchestrationLoopCoordinator with lifecycle management
+    // TODO: TAS-40 - Replace with OrchestrationProcessor startup method
+    // This method will be reimplemented once OrchestrationProcessor is created
+    /*
     async fn start_coordinator(
         coordinator: Arc<OrchestrationLoopCoordinator>,
         shutdown_receiver: oneshot::Receiver<()>,
     ) -> TaskerResult<()> {
-        info!("🚀 BOOTSTRAP: Starting OrchestrationLoopCoordinator");
-
-        // Start the coordinator
-        coordinator.start().await?;
-        info!("✅ BOOTSTRAP: OrchestrationLoopCoordinator started successfully");
-
-        // Spawn background task to manage coordinator lifecycle
-        tokio::spawn(async move {
-            // Wait for shutdown signal
-            if let Ok(()) = shutdown_receiver.await {
-                info!("🛑 BOOTSTRAP: Shutdown signal received, stopping coordinator");
-
-                // Stop coordinator with timeout
-                let timeout = std::time::Duration::from_secs(30);
-                if let Err(e) = coordinator.stop(timeout).await {
-                    error!("❌ BOOTSTRAP: Failed to stop coordinator gracefully: {}", e);
-                } else {
-                    info!("✅ BOOTSTRAP: OrchestrationLoopCoordinator stopped successfully");
-                }
-            }
-        });
-
-        Ok(())
+        // Implementation removed - will be replaced with command pattern startup
     }
+    */
 }
 
 #[cfg(test)]

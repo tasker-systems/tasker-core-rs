@@ -53,7 +53,7 @@
 //! # }
 //! ```
 
-use crate::orchestration::{
+use crate::orchestration::lifecycle::{
     result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer,
 };
 use serde::{Deserialize, Serialize};

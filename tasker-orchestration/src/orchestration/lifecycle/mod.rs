@@ -8,7 +8,7 @@ pub mod task_initializer;
 pub mod task_request_processor;
 
 pub use result_processor::{OrchestrationResultProcessor, StepError};
-pub use step_enqueuer::{StepEnqueuer, StepEnqueuerConfig, StepEnqueuerStats};
+pub use step_enqueuer::StepEnqueuer;
 pub use step_result_processor::{StepResultProcessingResult, StepResultProcessor};
 pub use task_claim_step_enqueuer::{
     AggregatePerformanceMetrics, ContinuousOrchestrationSummary, NamespaceStats,

@@ -43,11 +43,11 @@
 
 use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::state_manager::StateManager;
-use crate::orchestration::task_config_finder::TaskConfigFinder;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use tasker_shared::config::task_config_finder::TaskConfigFinder;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::events::EventPublisher;
 use tasker_shared::logging;

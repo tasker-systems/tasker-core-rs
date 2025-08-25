@@ -276,3 +276,177 @@ pub enum TaskOrchestrationResult {
         viable_steps_checked: usize,
     },
 }
+
+// ===== TAS-40 Worker-FFI Event System Types =====
+
+/// Event payload for step execution events sent from Rust workers to FFI handlers
+///
+/// This payload contains all the information needed for an FFI handler (Ruby, Python, WASM)
+/// to execute a step, following the database-as-API-layer pattern where the worker
+/// hydrates all necessary context from the database using SimpleStepMessage UUIDs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepEventPayload {
+    /// Task UUID for the step being executed
+    pub task_uuid: Uuid,
+    /// Workflow step UUID for the step being executed
+    pub step_uuid: Uuid,
+    /// Human-readable step name from the task template
+    pub step_name: String,
+    /// Handler class to execute (e.g., "OrderFulfillment::StepHandler::ProcessPayment")
+    pub handler_class: String,
+    /// Step-specific payload/configuration from the task template
+    pub step_payload: serde_json::Value,
+    /// Results from dependency steps, keyed by step name for easy lookup
+    pub dependency_results: HashMap<String, serde_json::Value>,
+    /// Execution context matching Ruby expectations (task, sequence, step structure)
+    pub execution_context: serde_json::Value,
+}
+
+/// Event for step execution requests (Rust → FFI)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepExecutionEvent {
+    /// Unique event identifier for correlation
+    pub event_id: Uuid,
+    /// Hydrated step payload with all execution context
+    pub payload: StepEventPayload,
+}
+
+/// Event for step execution completion (FFI → Rust)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepExecutionCompletionEvent {
+    /// Unique event identifier for correlation
+    pub event_id: Uuid,
+    /// Task UUID that this step belongs to
+    pub task_uuid: Uuid,
+    /// Workflow step UUID that was executed
+    pub step_uuid: Uuid,
+    /// Whether the step execution was successful
+    pub success: bool,
+    /// Step execution result data
+    pub result: serde_json::Value,
+    /// Optional metadata about the execution (timing, diagnostics, etc.)
+    pub metadata: Option<serde_json::Value>,
+    /// Error message if step execution failed
+    pub error_message: Option<String>,
+}
+
+/// Worker event types for categorizing different events
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum WorkerEventType {
+    /// Step execution request sent to FFI handler
+    StepExecutionRequest,
+    /// Step execution completion notification from FFI handler
+    StepExecutionCompletion,
+    /// Worker status update
+    WorkerStatusUpdate,
+    /// Handler registration notification
+    HandlerRegistration,
+}
+
+/// Generic event payload for worker events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EventPayload {
+    /// Step execution event payload
+    StepExecution(StepEventPayload),
+    /// Step completion event payload
+    StepCompletion(StepExecutionCompletionEvent),
+    /// Generic JSON payload for other event types
+    Generic(serde_json::Value),
+}
+
+impl StepEventPayload {
+    /// Create a new step event payload with all required context
+    pub fn new(
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        step_name: String,
+        handler_class: String,
+        step_payload: serde_json::Value,
+        dependency_results: HashMap<String, serde_json::Value>,
+        execution_context: serde_json::Value,
+    ) -> Self {
+        Self {
+            task_uuid,
+            step_uuid,
+            step_name,
+            handler_class,
+            step_payload,
+            dependency_results,
+            execution_context,
+        }
+    }
+}
+
+impl StepExecutionEvent {
+    /// Create a new step execution event with generated event ID
+    pub fn new(payload: StepEventPayload) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            payload,
+        }
+    }
+
+    /// Create a step execution event with specific event ID (for correlation)
+    pub fn with_event_id(event_id: Uuid, payload: StepEventPayload) -> Self {
+        Self { event_id, payload }
+    }
+}
+
+impl StepExecutionCompletionEvent {
+    /// Create a successful completion event
+    pub fn success(
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        result: serde_json::Value,
+        metadata: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            task_uuid,
+            step_uuid,
+            success: true,
+            result,
+            metadata,
+            error_message: None,
+        }
+    }
+
+    /// Create a failed completion event
+    pub fn failure(
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        error_message: String,
+        metadata: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            task_uuid,
+            step_uuid,
+            success: false,
+            result: serde_json::Value::Null,
+            metadata,
+            error_message: Some(error_message),
+        }
+    }
+
+    /// Create a completion event with specific event ID (for correlation)
+    pub fn with_event_id(
+        event_id: Uuid,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        success: bool,
+        result: serde_json::Value,
+        metadata: Option<serde_json::Value>,
+        error_message: Option<String>,
+    ) -> Self {
+        Self {
+            event_id,
+            task_uuid,
+            step_uuid,
+            success,
+            result,
+            metadata,
+            error_message,
+        }
+    }
+}

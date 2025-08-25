@@ -10,7 +10,7 @@
 //! - State management errors
 //! - Event publishing errors
 
-use crate::orchestration::task_finalizer::FinalizationError;
+use crate::orchestration::lifecycle::task_finalizer::FinalizationError;
 use tasker_shared::errors::OrchestrationError;
 
 impl From<FinalizationError> for OrchestrationError {

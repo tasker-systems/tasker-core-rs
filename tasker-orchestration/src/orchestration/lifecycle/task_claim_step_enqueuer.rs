@@ -61,8 +61,8 @@
 //! ```
 
 use crate::orchestration::{
-    step_enqueuer::StepEnqueuer,
-    task_claimer::{ClaimedTask, TaskClaimer},
+    lifecycle::step_enqueuer::{StepEnqueueResult, StepEnqueuer},
+    task_claim::task_claimer::{ClaimedTask, TaskClaimer},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -205,7 +205,7 @@ impl TaskClaimStepEnqueuer {
         tasker_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         let config = TaskClaimStepEnqueuerConfig::from_tasker_config(&tasker_config);
-        Self::with_config(pool, pgmq_client, orchestrator_id, config, tasker_config).await
+        Self::with_config(pool, pgmq_client, orchestrator_id, config).await
     }
 
     /// Create a new orchestration loop with unified client (supports circuit breakers)
@@ -214,7 +214,6 @@ impl TaskClaimStepEnqueuer {
         unified_client: Arc<tasker_shared::messaging::UnifiedPgmqClient>,
         orchestrator_id: String,
         config: TaskClaimStepEnqueuerConfig,
-        tasker_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         let task_claimer = TaskClaimer::with_config(
             pool.clone(),
@@ -244,7 +243,6 @@ impl TaskClaimStepEnqueuer {
         pgmq_client: PgmqClient,
         orchestrator_id: String,
         config: TaskClaimStepEnqueuerConfig,
-        tasker_config: TaskerConfig,
     ) -> TaskerResult<Self> {
         let task_claimer = TaskClaimer::with_config(
             pool.clone(),
@@ -258,11 +256,6 @@ impl TaskClaimStepEnqueuer {
             config.step_enqueuer_config.clone(),
         )
         .await?;
-
-        // Create standard unified client for StepResultProcessor
-        let step_result_client = Arc::new(tasker_shared::messaging::UnifiedPgmqClient::Standard(
-            pgmq_client.clone(),
-        ));
 
         Ok(Self {
             task_claimer,
@@ -543,7 +536,7 @@ impl TaskClaimStepEnqueuer {
     async fn process_claimed_task(
         &self,
         claimed_task: &ClaimedTask,
-    ) -> TaskerResult<crate::orchestration::step_enqueuer::StepEnqueueResult> {
+    ) -> TaskerResult<StepEnqueueResult> {
         debug!(
             task_uuid = claimed_task.task_uuid.to_string(),
             "Processing claimed task for step discovery and enqueueing"

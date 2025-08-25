@@ -4234,7 +4234,6 @@ dependencies = [
  "insta",
  "jsonwebtoken",
  "mockall",
- "nextest",
  "opentelemetry",
  "opentelemetry-otlp",
  "parking_lot",

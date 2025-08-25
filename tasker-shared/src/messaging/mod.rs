@@ -9,11 +9,15 @@ pub mod message;
 pub mod orchestration_messages;
 pub mod pgmq_client;
 pub mod protected_pgmq_client;
+pub mod step_handler_result;
 
 pub use errors::{MessagingError, MessagingResult};
 pub use execution_types::{
     StepBatchRequest, StepBatchResponse, StepExecutionError, StepExecutionRequest,
-    StepExecutionResult, StepRequestMetadata, StepResultMetadata,
+    StepExecutionResult, StepRequestMetadata, StepExecutionMetadata,
+};
+pub use step_handler_result::{
+    StepHandlerCallResult, StepHandlerErrorResult, StepHandlerSuccessResult,
 };
 pub use message::{StepMessage, StepMessageMetadata};
 pub use orchestration_messages::*;

@@ -4,7 +4,7 @@
 //! Validates requests, creates tasks using existing models, and enqueues
 //! validated tasks for orchestration processing.
 
-use crate::orchestration::task_initializer::TaskInitializer;
+use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use std::sync::Arc;
 use std::time::Duration;
 use tasker_shared::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
@@ -189,7 +189,11 @@ impl TaskRequestProcessor {
 
     /// Process a single task request message
     #[instrument(skip(self, payload))]
-    async fn process_single_request(&self, payload: &serde_json::Value, msg_id: i64) -> TaskerResult<()> {
+    async fn process_single_request(
+        &self,
+        payload: &serde_json::Value,
+        msg_id: i64,
+    ) -> TaskerResult<()> {
         // Parse the task request message
         let request: TaskRequestMessage = serde_json::from_value(payload.clone()).map_err(|e| {
             TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
@@ -281,7 +285,10 @@ impl TaskRequestProcessor {
     }
 
     /// Convert TaskRequestMessage to TaskRequest for proper initialization
-    fn convert_message_to_task_request(&self, request: &TaskRequestMessage) -> TaskerResult<TaskRequest> {
+    fn convert_message_to_task_request(
+        &self,
+        request: &TaskRequestMessage,
+    ) -> TaskerResult<TaskRequest> {
         debug!(
             request_id = %request.request_id,
             namespace = %request.namespace,

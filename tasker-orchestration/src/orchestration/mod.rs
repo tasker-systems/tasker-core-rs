@@ -5,7 +5,9 @@
 
 pub mod backoff_calculator;
 pub mod bootstrap;
+pub mod command_processor;
 pub mod config;
+pub mod core;
 pub mod error_classifier;
 pub mod errors;
 pub mod lifecycle;
@@ -14,7 +16,6 @@ pub mod system_events;
 pub mod task_claim;
 pub mod types;
 pub mod viable_step_discovery;
-pub mod workflow_coordinator;
 
 pub use tasker_shared::config::orchestration::{
     OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
@@ -43,6 +44,13 @@ pub use lifecycle::task_initializer::{
     TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
+
+// Re-export command pattern components (TAS-40)
+pub use command_processor::{
+    OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, StepProcessResult,
+    SystemHealth, TaskFinalizationResult, TaskInitializeResult,
+};
+pub use core::{OrchestrationCore, OrchestrationCoreStatus};
 
 // Re-export new components (to be implemented)
 pub use config::{

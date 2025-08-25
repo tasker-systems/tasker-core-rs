@@ -8,7 +8,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use tracing::debug;
 
-use crate::orchestration::coordinator::operational_state::SystemOperationalState;
+use crate::web::state::SystemOperationalState;
 use crate::web::state::AppState;
 
 /// Operational state middleware

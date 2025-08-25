@@ -44,7 +44,9 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::orchestration::task_enqueuer::{EnqueuePriority, EnqueueRequest, TaskEnqueuer};
+use crate::orchestration::lifecycle::task_enqueuer::{
+    EnqueuePriority, EnqueueRequest, TaskEnqueuer,
+};
 use std::sync::Arc;
 use tasker_shared::config::TaskerConfig;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
