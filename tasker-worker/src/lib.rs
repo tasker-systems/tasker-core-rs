@@ -47,11 +47,19 @@
 //! processor.start_with_events(completion_receiver).await?;
 //! ```
 
+pub mod api_clients;
+pub mod bootstrap;
 pub mod command_processor;
 pub mod config;
 pub mod event_publisher;
 pub mod event_subscriber;
+pub mod health;
+pub mod task_template_manager;
+pub mod web;
+pub mod worker;
 
+pub use api_clients::{OrchestrationApiClient};
+pub use bootstrap::{WorkerBootstrap, WorkerSystemHandle, WorkerBootstrapConfig, WorkerSystemStatus};
 pub use command_processor::{
     WorkerCommand, WorkerProcessor, WorkerStatus, StepExecutionStats, EventIntegrationStatus
 };
@@ -60,3 +68,9 @@ pub use event_subscriber::{
     WorkerEventSubscriber, WorkerEventSubscriberStats, WorkerEventSubscriberError,
     CorrelatedCompletionListener, CorrelatedStepResult,
 };
+pub use health::{WorkerHealthStatus};
+pub use task_template_manager::{
+    TaskTemplateManager, TaskTemplateManagerConfig, CachedTemplate, CacheStats, 
+    WorkerTaskTemplateOperations
+};
+pub use worker::{WorkerCore, WorkerCoreStatus};

@@ -1,0 +1,155 @@
+//! Worker Web Application State
+//!
+//! Contains shared state for the worker web API including database connections,
+//! configuration, and metrics tracking.
+
+use crate::{command_processor::WorkerProcessor, task_template_manager::TaskTemplateManager};
+use serde::Serialize;
+use sqlx::PgPool;
+use std::{sync::Arc, time::Instant};
+use tasker_shared::{
+    config::TaskerConfig, 
+    errors::TaskerResult,
+    messaging::clients::UnifiedMessageClient,
+    registry::TaskHandlerRegistry,
+};
+use tracing::info;
+
+/// Configuration for the worker web API
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkerWebConfig {
+    pub enabled: bool,
+    pub bind_address: String,
+    pub request_timeout_ms: u64,
+    pub authentication_enabled: bool,
+    pub cors_enabled: bool,
+    pub metrics_enabled: bool,
+    pub health_check_interval_seconds: u64,
+}
+
+impl Default for WorkerWebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind_address: "0.0.0.0:8081".to_string(),
+            request_timeout_ms: 30000,
+            authentication_enabled: false,
+            cors_enabled: true,
+            metrics_enabled: true,
+            health_check_interval_seconds: 30,
+        }
+    }
+}
+
+/// Shared state for the worker web application
+#[derive(Clone)]
+pub struct WorkerWebState {
+    /// Worker command processor handle
+    pub worker_processor: Arc<WorkerProcessor>,
+    
+    /// Database connection pool
+    pub database_pool: Arc<PgPool>,
+    
+    /// Unified message client for queue metrics and monitoring
+    pub message_client: Arc<UnifiedMessageClient>,
+    
+    /// Task template manager for template caching and validation
+    pub task_template_manager: Arc<TaskTemplateManager>,
+    
+    /// Web API configuration
+    pub config: WorkerWebConfig,
+    
+    /// Application start time for uptime calculations
+    pub start_time: Instant,
+    
+    /// Worker system configuration
+    pub system_config: TaskerConfig,
+}
+
+impl WorkerWebState {
+    /// Create new worker web state with all required components
+    pub async fn new(
+        config: WorkerWebConfig,
+        worker_processor: Arc<WorkerProcessor>,
+        database_pool: Arc<PgPool>,
+        system_config: TaskerConfig,
+    ) -> TaskerResult<Self> {
+        info!(
+            enabled = config.enabled,
+            bind_address = %config.bind_address,
+            "Initializing worker web state"
+        );
+
+        // Create unified message client using the shared database pool
+        let message_client = Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
+
+        // Create task handler registry and task template manager
+        let task_handler_registry = Arc::new(TaskHandlerRegistry::new((*database_pool).clone()));
+        let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry));
+
+        Ok(Self {
+            worker_processor,
+            database_pool,
+            message_client,
+            task_template_manager,
+            config,
+            start_time: Instant::now(),
+            system_config,
+        })
+    }
+
+    /// Get the uptime in seconds since the worker started
+    pub fn uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    /// Check if metrics collection is enabled
+    pub fn metrics_enabled(&self) -> bool {
+        self.config.metrics_enabled
+    }
+
+    /// Check if authentication is required
+    pub fn authentication_enabled(&self) -> bool {
+        self.config.authentication_enabled
+    }
+
+    /// Get worker identifier for status reporting
+    pub fn worker_id(&self) -> String {
+        format!("worker-{}", uuid::Uuid::new_v4())
+    }
+
+    /// Get worker type classification
+    pub fn worker_type(&self) -> String {
+        "command_processor".to_string()
+    }
+
+    /// Get supported namespaces for this worker
+    pub fn supported_namespaces(&self) -> Vec<String> {
+        self.task_template_manager.supported_namespaces().to_vec()
+    }
+
+    /// Get queue name for a namespace
+    pub fn queue_name_for_namespace(&self, namespace: &str) -> String {
+        format!("{}_queue", namespace)
+    }
+
+    /// Check if a namespace is supported by this worker
+    pub fn is_namespace_supported(&self, namespace: &str) -> bool {
+        self.task_template_manager.is_namespace_supported(namespace)
+    }
+
+    /// Get task template manager reference for template operations
+    pub fn task_template_manager(&self) -> &Arc<TaskTemplateManager> {
+        &self.task_template_manager
+    }
+
+    /// Get task template manager statistics
+    pub fn template_cache_stats(&self) -> crate::task_template_manager::CacheStats {
+        self.task_template_manager.cache_stats()
+    }
+
+    /// Perform cache maintenance on task templates
+    pub fn maintain_template_cache(&self) {
+        self.task_template_manager.maintain_cache();
+    }
+}

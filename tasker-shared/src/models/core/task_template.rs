@@ -225,7 +225,7 @@ pub struct StepOverride {
 }
 
 /// Resolved task template with environment-specific overrides applied
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedTaskTemplate {
     pub template: TaskTemplate,
     pub environment: String,

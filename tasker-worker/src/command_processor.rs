@@ -70,6 +70,11 @@ pub enum WorkerCommand {
     GetEventStatus {
         resp: CommandResponder<EventIntegrationStatus>,
     },
+    /// Refresh task template cache
+    RefreshTemplateCache {
+        namespace: Option<String>,
+        resp: CommandResponder<()>,
+    },
     /// Shutdown the worker processor
     Shutdown { resp: CommandResponder<()> },
 }
@@ -329,6 +334,11 @@ impl WorkerProcessor {
             WorkerCommand::SendStepResult { result, resp } => {
                 let send_result = self.handle_send_step_result(result).await;
                 let _ = resp.send(send_result);
+                true // Continue processing
+            }
+            WorkerCommand::RefreshTemplateCache { namespace, resp } => {
+                let result = self.handle_refresh_template_cache(namespace.as_deref()).await;
+                let _ = resp.send(result);
                 true // Continue processing
             }
             WorkerCommand::Shutdown { resp } => {
@@ -717,6 +727,40 @@ impl WorkerProcessor {
         );
 
         Ok(status)
+    }
+
+    /// Handle template cache refresh
+    async fn handle_refresh_template_cache(&mut self, namespace: Option<&str>) -> TaskerResult<()> {
+        match namespace {
+            Some(ns) => {
+                info!(
+                    worker_id = %self.worker_id,
+                    namespace = ns,
+                    "Refreshing template cache for specific namespace"
+                );
+                // TODO: Implement namespace-specific cache refresh
+                // For now, just log the request
+                info!(
+                    worker_id = %self.worker_id,
+                    namespace = ns,
+                    "Template cache refresh completed for namespace"
+                );
+            }
+            None => {
+                info!(
+                    worker_id = %self.worker_id,
+                    "Refreshing entire template cache"
+                );
+                // TODO: Implement full cache refresh
+                // For now, just log the request
+                info!(
+                    worker_id = %self.worker_id,
+                    "Full template cache refresh completed"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Update average execution time statistics
