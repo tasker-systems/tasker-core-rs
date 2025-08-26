@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines a comprehensive plan to optimize memory management in the tasker-core-rs codebase, focusing on reducing unnecessary allocations, improving clone vs reference patterns, and enhancing performance at scale.
+This document outlines a comprehensive plan to optimize memory management in the tasker-core codebase, focusing on reducing unnecessary allocations, improving clone vs reference patterns, and enhancing performance at scale.
 
 ## Current State Analysis
 
@@ -29,8 +29,8 @@ This document outlines a comprehensive plan to optimize memory management in the
 **Impact**: High - affects every Ruby interaction
 
 **Files to Modify**:
-- `bindings/ruby/ext/tasker_core/src/types.rs`
-- `bindings/ruby/ext/tasker_core/src/context.rs`
+- `workers/ruby/ext/tasker_core/src/types.rs`
+- `workers/ruby/ext/tasker_core/src/context.rs`
 
 **Current Issues**:
 ```rust
@@ -238,8 +238,8 @@ impl OrchestrationLoop {
 **Impact**: Medium - affects Ruby integration performance
 
 **Files to Modify**:
-- `bindings/ruby/ext/tasker_core/src/context.rs`
-- `bindings/ruby/ext/tasker_core/src/types.rs`
+- `workers/ruby/ext/tasker_core/src/context.rs`
+- `workers/ruby/ext/tasker_core/src/types.rs`
 
 **Current Issues**:
 ```rust
@@ -546,4 +546,4 @@ fn bench_message_processing_memory(b: &mut Bencher) {
 - Optimization opportunity identification
 - Performance culture development within team
 
-This plan provides a comprehensive roadmap for optimizing memory management in the tasker-core-rs codebase while maintaining code quality, performance, and maintainability.
+This plan provides a comprehensive roadmap for optimizing memory management in the tasker-core codebase while maintaining code quality, performance, and maintainability.

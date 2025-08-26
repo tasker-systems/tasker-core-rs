@@ -14,7 +14,7 @@ The next phase of Tasker development involves a fundamental architectural evolut
 - **Scalability limitations** due to shared infrastructure responsibilities
 
 ### Ruby Binding Complexity
-The current Ruby bindings in `bindings/ruby/` handle too many infrastructure concerns:
+The current Ruby bindings in `workers/ruby/` handle too many infrastructure concerns:
 - Database connection pooling and management
 - Queue worker thread coordination
 - Message parsing and claiming logic
@@ -28,7 +28,7 @@ This creates maintenance burden and prevents clean separation of business logic 
 ### Target Architecture
 ```
 tasker-systems/
-├── tasker-orchestration/     # Orchestration system (renamed from tasker-core-rs)
+├── tasker-orchestration/     # Orchestration system (renamed from tasker-core)
 ├── tasker-worker-foundation/ # Worker infrastructure foundation
 ├── tasker-worker-rust/       # Pure Rust worker implementation
 ├── tasker-shared/           # Shared models, config, messaging

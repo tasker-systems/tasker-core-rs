@@ -561,7 +561,7 @@ impl Default for TaskerConfig {
             },
             telemetry: TelemetryConfig {
                 enabled: false,
-                service_name: "tasker-core-rs".to_string(),
+                service_name: "tasker-core".to_string(),
                 sample_rate: 1.0,
             },
             engine: EngineConfig {

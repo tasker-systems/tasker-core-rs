@@ -6,9 +6,9 @@
 
 ## Executive Summary
 
-This document outlines a comprehensive stabilization plan to address **critical production-blocking issues** identified through systematic architecture review of the tasker-core-rs system.
+This document outlines a comprehensive stabilization plan to address **critical production-blocking issues** identified through systematic architecture review of the tasker-core system.
 
-**🎉 MAJOR UPDATE (August 8, 2025): PHASE 1 COMPLETED!** 
+**🎉 MAJOR UPDATE (August 8, 2025): PHASE 1 COMPLETED!**
 
 The most dangerous architectural issues have been **successfully resolved**:
 - ✅ **Simple Message Architecture**: Working across all workflow patterns (Linear, DAG, Tree, Diamond)
@@ -27,11 +27,11 @@ The most dangerous architectural issues have been **successfully resolved**:
 
 **✅ COMPLETED FIXES:**
 1. **~~Dual Message Architecture~~**: ✅ **RESOLVED** - Simple UUID-based messages working across all workflows
-2. **~~Incomplete UUID Migration~~**: ✅ **RESOLVED** - UUID schema fully implemented and operational  
+2. **~~Incomplete UUID Migration~~**: ✅ **RESOLVED** - UUID schema fully implemented and operational
 
 **✅ EVIDENCE OF SUCCESS:**
 - Linear workflow integration test: **PASSING** ✅
-- Mixed DAG workflow integration test: **PASSING** ✅  
+- Mixed DAG workflow integration test: **PASSING** ✅
 - UUID-based message processing: **OPERATIONAL** ✅
 - Complex dependency resolution: **WORKING** ✅
 - Parallel step execution: **WORKING** ✅
@@ -68,7 +68,7 @@ The most dangerous architectural issues have been **successfully resolved**:
 
 ## Implementation Plan
 
-### ✅ Phase 1: Critical Stability Foundation - **COMPLETED** ✅ 
+### ✅ Phase 1: Critical Stability Foundation - **COMPLETED** ✅
 **Priority**: Production-blocking issues
 **Focus**: Complete architectural migrations
 **Status**: ✅ **COMPLETED (August 8, 2025)**
@@ -95,7 +95,7 @@ tasker_workflow_steps: { workflow_step_id (integer), step_uuid (uuid) }
 
 **Critical Files to Update**:
 - `src/database/schema.rs` - Remove integer ID references
-- `bindings/ruby/lib/tasker_core/database/models/*.rb` - Update ActiveRecord models
+- `workers/ruby/lib/tasker_core/database/models/*.rb` - Update ActiveRecord models
 - All FFI bridge methods expecting integer task_id/step_id parameters
 
 **Deliverables**: ✅ **ALL COMPLETED**
@@ -105,7 +105,7 @@ tasker_workflow_steps: { workflow_step_id (integer), step_uuid (uuid) }
 - [x] ✅ Integration tests pass with UUID-only data access
 
 #### ✅ Task 1.2: Eliminate Dual Message Architecture - **COMPLETED** ✅
-**Estimated Effort**: 4-5 days  
+**Estimated Effort**: 4-5 days
 **Status**: ✅ **COMPLETED (August 8, 2025)**
 
 **Problem**: Two competing message types cause runtime failures
@@ -240,7 +240,7 @@ pub enum SagaStep {
 **Critical Files to Create/Update**:
 - `src/orchestration/saga.rs` - Saga pattern implementation
 - `src/messaging/pgmq_client.rs` - Add transaction-aware methods
-- `bindings/ruby/lib/tasker_core/step_handler/base.rb` - Add idempotency support
+- `workers/ruby/lib/tasker_core/step_handler/base.rb` - Add idempotency support
 
 **Deliverables**:
 - [ ] Saga pattern implementation with compensation actions
@@ -291,7 +291,7 @@ pub enum RetryStrategy {
 
 **Ruby Integration**:
 ```ruby
-# bindings/ruby/lib/tasker_core/errors/structured_error.rb
+# workers/ruby/lib/tasker_core/errors/structured_error.rb
 module TaskerCore
   class StructuredError < StandardError
     attr_reader :code, :category, :context, :retry_strategy
@@ -349,7 +349,7 @@ pub fn validate_cross_language_config(
 
 ---
 
-### Phase 3: Architectural Simplification (2-3 weeks) 
+### Phase 3: Architectural Simplification (2-3 weeks)
 **Priority**: Remove complexity, improve maintainability
 **Focus**: Code reduction and logic consolidation
 **Update**: SQL function task removed (architecture decision to retain), focus shifted to dead code elimination
@@ -365,7 +365,7 @@ pub fn validate_cross_language_config(
 
 ```rust
 // This approach would be DISASTROUS for network latency:
-// Current: 1 SQL query → Complete dependency analysis  
+// Current: 1 SQL query → Complete dependency analysis
 // Proposed: N+1 queries → Multiple network round trips
 
 for each_task in ready_tasks {
@@ -380,7 +380,7 @@ for each_task in ready_tasks {
 
 **✅ SQL Functions Are Correctly Architected** for workflow orchestration:
 
-1. **Graph Operations Belong in SQL**: 
+1. **Graph Operations Belong in SQL**:
    - Dependency resolution = graph traversal problem
    - PostgreSQL recursive CTEs optimized for this exact use case
    - Single query vs. dozens of application queries with network overhead
@@ -390,7 +390,7 @@ for each_task in ready_tasks {
    -- Optimized: Single server-side recursive query
    WITH RECURSIVE dependency_closure AS (
      SELECT step_id FROM workflow_steps WHERE task_id = $1
-     UNION ALL  
+     UNION ALL
      SELECT ws.step_id FROM workflow_steps ws
      JOIN step_dependencies sd ON ws.step_id = sd.dependent_step_id
      -- Complex recursive traversal with optimal execution plan
@@ -403,7 +403,7 @@ for each_task in ready_tasks {
 
 **✅ Current SQL Functions to Retain**:
 - `get_ready_steps_for_task()` - Core orchestration performance
-- `calculate_dependency_levels()` - Complex graph traversal  
+- `calculate_dependency_levels()` - Complex graph traversal
 - `get_step_readiness_status()` - Multi-table state aggregation
 - Recursive CTEs for transitive dependency closure
 
@@ -633,7 +633,7 @@ GET /health/config     -> Configuration validation status
 **✅ Milestone 1 Success Criteria - COMPLETED**:
 - [x] ✅ Zero message processing failures due to architecture confusion (**ACHIEVED**: Linear & DAG workflows passing)
 - [ ] All database operations have proper transaction boundaries (Phase 2 work)
-- [ ] Circuit breakers prevent cascade failures under load (Phase 2/3 work)  
+- [ ] Circuit breakers prevent cascade failures under load (Phase 2/3 work)
 - [ ] Structured errors enable intelligent retry logic (Phase 2 work)
 
 ### Month 2: Architectural Cleanup (Phase 3)

@@ -1,9 +1,9 @@
 # TAS-31: Production Resilience & Performance Optimization
 
-**Linear Ticket**: https://linear.app/tasker-systems/issue/TAS-31/production-resilience-and-performance-optimization  
-**GitHub Branch**: `jcoletaylor/tas-31-production-resilience-performance-optimization`  
-**Created**: August 8, 2025  
-**Estimated Duration**: 2 weeks  
+**Linear Ticket**: https://linear.app/tasker-systems/issue/TAS-31/production-resilience-and-performance-optimization
+**GitHub Branch**: `jcoletaylor/tas-31-production-resilience-performance-optimization`
+**Created**: August 8, 2025
+**Estimated Duration**: 2 weeks
 
 ## 🎯 Strategic Objective
 
@@ -75,7 +75,7 @@ With the architecture now stable, we can focus on:
 
 **Test Improvements**:
 - ✅ **Database Cleanup**: Per-test isolation without costly system restarts
-- ✅ **Template Reloading**: Proper TaskTemplate loading after cleanup  
+- ✅ **Template Reloading**: Proper TaskTemplate loading after cleanup
 - ✅ **Queue Message Cleanup**: Prevent stale messages between tests
 - ✅ **State Transition Fixes**: Eliminated invalid state transition errors
 - ✅ **Configuration Validation**: All integration tests passing with optimized timeouts
@@ -129,7 +129,7 @@ pub enum CircuitState {
 impl CircuitBreaker {
     pub async fn call<F, T, E>(&self, operation: F) -> Result<T, CircuitBreakerError<E>>
     where F: Future<Output = Result<T, E>>
-    
+
     pub fn metrics(&self) -> CircuitMetrics
     pub fn force_open(&self)
     pub fn force_closed(&self)
@@ -148,12 +148,12 @@ impl CircuitBreaker {
 - `src/config/mod.rs` - Add circuit breaker configuration
 - `src/orchestration/orchestration_system.rs` - Integrate circuit breakers
 - `src/messaging/pgmq_client.rs` - Add circuit breaker protection
-- `bindings/ruby/ext/tasker_core/src/lib.rs` - FFI call protection
+- `workers/ruby/ext/tasker_core/src/lib.rs` - FFI call protection
 
 #### Success Criteria ✅ ALL COMPLETED
 
 - ✅ **Failed namespace isolation**: Other namespaces continue processing → **ACHIEVED**
-- ✅ **Circuit breaker protection**: All PGMQ operations protected with configurable thresholds → **ACHIEVED**  
+- ✅ **Circuit breaker protection**: All PGMQ operations protected with configurable thresholds → **ACHIEVED**
 - ✅ **Circuit breaker state transitions**: Proper Open/Half-Open/Closed behavior → **ACHIEVED**
 - ✅ **Production integration**: Unified bootstrap architecture with circuit breaker integration → **ACHIEVED**
 - ✅ **Configuration flexibility**: Environment-specific circuit breaker settings → **ACHIEVED**
@@ -167,15 +167,15 @@ impl CircuitBreaker {
 
 **🎯 STATUS**: Reassessment required - major architectural achievements may have changed priorities
 
-**MAJOR CONTEXT CHANGE**: 
+**MAJOR CONTEXT CHANGE**:
 - ✅ **Unified Bootstrap Architecture**: Successfully implemented single configuration-driven entry point
-- ✅ **Circuit Breaker Production Readiness**: Full fault tolerance system operational  
+- ✅ **Circuit Breaker Production Readiness**: Full fault tolerance system operational
 - ✅ **Test Infrastructure Optimized**: 93% improvement in test execution efficiency
 - 🔄 **Simple Message Architecture**: Already planned in CLAUDE.md as next major phase
 
 **REASSESSMENT QUESTIONS**:
 1. **Priority vs Simple Messages**: Should we prioritize UUID-based Simple Message architecture (CLAUDE.md Phase 2) over FFI memory optimization?
-2. **Production Readiness**: Are FFI memory optimizations critical for production deployment, or is the system already production-ready?  
+2. **Production Readiness**: Are FFI memory optimizations critical for production deployment, or is the system already production-ready?
 3. **Architecture Consolidation**: Would Simple Message implementation provide greater architectural value than micro-optimizations?
 4. **Resource Allocation**: Should we complete the planned Simple Message architecture before diving into FFI optimizations?
 
@@ -209,12 +209,12 @@ impl OrchestrationHandleInfo {
     pub fn handle_type(&self) -> String {
         self.handle_type.clone()
     }
-    
+
     // After: Zero-copy access
     pub fn handle_type(&self) -> &str {
         &self.handle_type
     }
-    
+
     // Flexible ownership with Cow
     pub fn namespace(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.namespace)
@@ -241,16 +241,16 @@ impl StringCache {
 - `benches/memory_benchmarks.rs` - Memory allocation benchmarks
 
 **Modified Files**:
-- `bindings/ruby/ext/tasker_core/src/types.rs` - FFI type optimizations
-- `bindings/ruby/ext/tasker_core/src/context.rs` - Context handling improvements
-- `bindings/ruby/ext/tasker_core/src/orchestration_manager.rs` - String optimization
+- `workers/ruby/ext/tasker_core/src/types.rs` - FFI type optimizations
+- `workers/ruby/ext/tasker_core/src/context.rs` - Context handling improvements
+- `workers/ruby/ext/tasker_core/src/orchestration_manager.rs` - String optimization
 - `src/messaging/message.rs` - Message creation optimization
 
 #### Success Criteria
 
 - ✅ **String Allocation Reduction**: 60-80% fewer allocations at FFI boundary
 - ✅ **Memory Usage Improvement**: Measurable reduction in peak memory usage
-- ✅ **Performance Benchmarks**: Faster FFI call processing  
+- ✅ **Performance Benchmarks**: Faster FFI call processing
 - ✅ **API Compatibility**: Zero breaking changes to existing Ruby interfaces
 - ✅ **Cache Management**: Controlled memory usage with LRU eviction
 
@@ -269,7 +269,7 @@ impl PgmqClient {
 }
 ```
 
-**2. FFI Boundary** (`bindings/ruby/ext/tasker_core/src/lib.rs`)
+**2. FFI Boundary** (`workers/ruby/ext/tasker_core/src/lib.rs`)
 ```rust
 #[magnus::function]
 pub fn initialize_task_with_protection(request_json: String) -> Result<String, Error> {
@@ -287,7 +287,7 @@ class MyApiHandler < TaskerCore::StepHandler::Api
   def process(task, sequence, step)
     # Makes HTTP request with automatic error classification
     response = get('/api/endpoint')
-    
+
     # Returns StepHandlerCallResult with metadata for backoff calculation
     TaskerCore::Types::StepHandlerCallResult.success(
       result: response.body,
@@ -359,18 +359,18 @@ let pgmq_client = Arc::new(PgmqClient::new_with_pool(pool.clone()).await);
 
 // After: Protected client with circuit breaker
 let pgmq_client = Arc::new(ProtectedPgmqClient::new_with_yaml_config(
-    database_url, 
+    database_url,
     &config.circuit_breakers
 ).await?);
 ```
 
 ### Phase 3: Ruby Integration and API Circuit Breaking
 
-**Ruby Queue Worker Protection** (`bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`):
+**Ruby Queue Worker Protection** (`workers/ruby/lib/tasker_core/messaging/queue_worker.rb`):
 - Integrate circuit breaker protection for high-frequency polling operations
 - Protect result publishing to orchestration queue
 
-**API Circuit Breaker Integration** (`bindings/ruby/lib/tasker_core/step_handler/api.rb`):
+**API Circuit Breaker Integration** (`workers/ruby/lib/tasker_core/step_handler/api.rb`):
 - Leverage existing error classification system (RetryableError/PermanentError)
 - Integrate with backoff calculator for Retry-After header support
 - Add circuit breaker protection around Faraday HTTP calls
@@ -382,9 +382,9 @@ let pgmq_client = Arc::new(ProtectedPgmqClient::new_with_yaml_config(
 
 **Integration Flow:**
 ```
-Ruby API Handler → StepHandlerCallResult.metadata → 
-Queue Message → StepResultProcessor → 
-BackoffCalculator.calculate_and_apply_backoff() → 
+Ruby API Handler → StepHandlerCallResult.metadata →
+Queue Message → StepResultProcessor →
+BackoffCalculator.calculate_and_apply_backoff() →
 Circuit Breaker State Updates
 ```
 
@@ -457,7 +457,7 @@ Circuit Breaker State Updates
 - **Production Monitoring**: Circuit breaker status in health endpoints
 
 ### Performance Benefits
-- **Memory Efficiency**: 60-80% reduction in FFI string allocations  
+- **Memory Efficiency**: 60-80% reduction in FFI string allocations
 - **Reduced GC Pressure**: Less garbage collection in Ruby processes
 - **Faster FFI Calls**: Zero-copy string access where possible
 - **Sustainable Performance**: Better long-running process characteristics
@@ -477,7 +477,7 @@ Circuit Breaker State Updates
 
 ### Development Workflow
 1. **Week 1**: Focus on circuit breaker implementation and integration
-2. **Week 2**: Focus on FFI memory optimization and benchmarking  
+2. **Week 2**: Focus on FFI memory optimization and benchmarking
 3. **Continuous**: Run integration tests after each major change
 4. **End of Week 1**: Validate circuit breaker effectiveness with load testing
 5. **End of Week 2**: Validate memory improvements with benchmarks
@@ -544,7 +544,7 @@ Circuit Breaker State Updates
 - Provides incremental performance improvements
 - Maintains original ticket scope
 
-**OPTION B: Pivot to Simple Message Architecture**  
+**OPTION B: Pivot to Simple Message Architecture**
 - Implement UUID-based 3-field messages (CLAUDE.md Phase 2)
 - Major architectural simplification
 - Greater long-term value than FFI optimizations
@@ -560,7 +560,7 @@ Circuit Breaker State Updates
 
 **Final Implementation**:
 - ✅ **Primary Goal Achieved**: Production resilience implemented and operational
-- ✅ **Architecture Enhanced**: Unified bootstrap architecture provides deployment foundation  
+- ✅ **Architecture Enhanced**: Unified bootstrap architecture provides deployment foundation
 - ✅ **Performance Optimized**: Test infrastructure 93% more efficient (30s → 2s shutdown)
 - ✅ **System Stable**: All integration tests passing, circuit breakers operational
 - ✅ **Tech Debt Cleanup**: Removed 561 lines of legacy complex message structures
@@ -576,7 +576,7 @@ Circuit Breaker State Updates
 - ✅ **Production verification**: Confirmed Simple Message Architecture already operational → **VERIFIED**
 
 **Architecture Confirmed**:
-- ✅ **Rust Orchestration**: Uses `SimpleStepMessage` (3-UUID structure)  
+- ✅ **Rust Orchestration**: Uses `SimpleStepMessage` (3-UUID structure)
 - ✅ **Ruby Queue Workers**: Process `SimpleQueueMessageData` with ActiveRecord integration
 - ✅ **Database Integration**: UUID-based queries fetch real ActiveRecord models
 - ✅ **Handler Interface**: All 29 step handlers use `StepHandlerCallResult` (kept in production)

@@ -37,7 +37,7 @@ Since both Rust orchestration and Ruby execution share the same database, we can
 ```json
 {
   "task_uuid": "550e8400-e29b-41d4-a716-446655440001",
-  "step_uuid": "550e8400-e29b-41d4-a716-446655440002", 
+  "step_uuid": "550e8400-e29b-41d4-a716-446655440002",
   "ready_dependency_step_uuids": [
     "550e8400-e29b-41d4-a716-446655440003",
     "550e8400-e29b-41d4-a716-446655440004"
@@ -55,7 +55,7 @@ Since both Rust orchestration and Ruby execution share the same database, we can
 
 **UUID Solution:**
 - Globally unique identifiers prevent ID collision across test runs
-- Stale queue messages with non-existent UUIDs are safely ignored  
+- Stale queue messages with non-existent UUIDs are safely ignored
 - No accidental processing of wrong tasks due to ID reuse
 - Better data integrity in production environments
 
@@ -109,7 +109,7 @@ ALTER TABLE tasker_tasks ADD COLUMN task_uuid UUID DEFAULT gen_random_uuid();
 -- Backfill existing records (they'll get default UUIDs)
 UPDATE tasker_tasks SET task_uuid = gen_random_uuid() WHERE task_uuid IS NULL;
 
--- Make it NOT NULL and add unique constraint  
+-- Make it NOT NULL and add unique constraint
 ALTER TABLE tasker_tasks ALTER COLUMN task_uuid SET NOT NULL;
 ALTER TABLE tasker_tasks ADD CONSTRAINT tasker_tasks_task_uuid_unique UNIQUE (task_uuid);
 
@@ -120,7 +120,7 @@ CREATE INDEX index_tasker_tasks_on_task_uuid ON tasker_tasks (task_uuid);
 #### Migration 2: Add UUID to Workflow Steps Table
 ```sql
 -- migrations/add_step_uuid_to_workflow_steps.sql
--- Add UUID column to workflow_steps table  
+-- Add UUID column to workflow_steps table
 ALTER TABLE tasker_workflow_steps ADD COLUMN step_uuid UUID DEFAULT gen_random_uuid();
 
 -- Backfill existing records
@@ -140,21 +140,21 @@ CREATE INDEX index_tasker_workflow_steps_on_step_uuid ON tasker_workflow_steps (
 class Task < ApplicationRecord
   # Ensure new records get UUIDs (fallback if DB default fails)
   before_create :ensure_task_uuid
-  
+
   private
-  
+
   def ensure_task_uuid
     self.task_uuid ||= SecureRandom.uuid
   end
 end
 
-# In TaskerCore::Database::Models::WorkflowStep  
+# In TaskerCore::Database::Models::WorkflowStep
 class WorkflowStep < ApplicationRecord
   # Ensure new records get UUIDs (fallback if DB default fails)
   before_create :ensure_step_uuid
-  
+
   private
-  
+
   def ensure_step_uuid
     self.step_uuid ||= SecureRandom.uuid
   end
@@ -172,7 +172,7 @@ end
 
 ### Phase 0: Database Schema Updates
 - [ ] Create and run UUID migration for tasks table
-- [ ] Create and run UUID migration for workflow_steps table  
+- [ ] Create and run UUID migration for workflow_steps table
 - [ ] Update ActiveRecord models with UUID defaults
 - [ ] Verify UUID generation works for new records
 
@@ -188,7 +188,7 @@ end
 - [ ] Add error handling for missing records
 - [ ] Update handler calling convention
 
-### Phase 3: Update Rust Enqueueing  
+### Phase 3: Update Rust Enqueueing
 - [ ] Identify Rust step enqueueing code
 - [ ] Modify to create simple messages
 - [ ] Ensure dependency calculation works correctly
@@ -210,7 +210,7 @@ end
 ### Files to Remove Completely (No Backward Compatibility)
 
 #### Ruby Files for Complete Removal
-- `bindings/ruby/lib/tasker_core/internal/distributed_handler_registry.rb` (912 lines)
+- `workers/ruby/lib/tasker_core/internal/distributed_handler_registry.rb` (912 lines)
   - Complex callable/Proc/Lambda registration system - NOT NEEDED
   - TaskTemplate YAML loading can be moved to simpler utilities
   - Overly complex bootstrap and discovery logic
@@ -218,22 +218,22 @@ end
 
 ### Files to Simplify Dramatically (>70% Reduction)
 
-#### Ruby Files for Major Simplification  
-- **`bindings/ruby/lib/tasker_core/types/step_message.rb` (525 lines → ~150 lines)**
+#### Ruby Files for Major Simplification
+- **`workers/ruby/lib/tasker_core/types/step_message.rb` (525 lines → ~150 lines)**
   - **REMOVE (~375 lines):**
     - Lines 23-122: `StepDependencyResult`, `DependencyChain` - dependencies fetched from DB
-    - Lines 125-158: `StepExecutionContext` - complex execution context  
+    - Lines 125-158: `StepExecutionContext` - complex execution context
     - Lines 161-196: `StepMessageMetadata` - complex retry/timeout metadata
     - Lines 200-324: `StepMessage` - complex nested message structure
     - Lines 454-523: `QueueMessage`, `QueueMessageData` - complex queue parsing
   - **KEEP (~150 lines):**
     - Lines 12-21: Basic types (`StepId`, `TaskId`, etc.) - still useful for validation
     - Lines 327-355: `StepExecutionStatus` - result status still needed
-    - Lines 358-366: `StepExecutionError` - error handling still needed  
+    - Lines 358-366: `StepExecutionError` - error handling still needed
     - Lines 369-450: `StepResult` - result reporting still needed
   - **ADD (~25 lines):** New `SimpleStepMessage` type
 
-- **`bindings/ruby/lib/tasker_core/messaging/queue_worker.rb` (825 lines → ~300 lines)**
+- **`workers/ruby/lib/tasker_core/messaging/queue_worker.rb` (825 lines → ~300 lines)**
   - **REMOVE (~525 lines):**
     - Lines 789-821: `create_task_object_from_context`, `create_step_object_from_context` - no more hash conversion
     - Lines 634-704: Complex metadata processing and orchestration extraction
@@ -248,10 +248,10 @@ end
     - Result sending to orchestration
   - **MODIFY (~100 lines):** New simple message processing with ActiveRecord queries
 
-- **`bindings/ruby/lib/tasker_core/registry/step_handler_registry.rb` (271 lines → ~100 lines)**
+- **`workers/ruby/lib/tasker_core/registry/step_handler_registry.rb` (271 lines → ~100 lines)**
   - **REMOVE (~171 lines):**
     - Lines 160-225: Complex `get_task_template_for_task` with caching and TaskTemplate parsing
-    - Lines 227-237: `find_step_template` within parsed TaskTemplate 
+    - Lines 227-237: `find_step_template` within parsed TaskTemplate
     - Lines 25-38: Complex `CacheEntry` and `ResolvedStepHandler` dry-structs
     - Complex database query chains to resolve handler classes from TaskTemplate configurations
   - **KEEP (~50 lines):**
@@ -263,7 +263,7 @@ end
 ### Files to Modify (Targeted Changes)
 
 #### Ruby Files for Modification
-- **`bindings/ruby/lib/tasker_core/registry.rb` (60 lines)**
+- **`workers/ruby/lib/tasker_core/registry.rb` (60 lines)**
   - Update facade methods to work with simplified registry
   - Remove complex registry method delegates
 
@@ -275,16 +275,16 @@ end
 ### New Files to Create
 
 #### Ruby Files to Add
-- **`bindings/ruby/lib/tasker_core/types/simple_message.rb` (~50 lines)**
+- **`workers/ruby/lib/tasker_core/types/simple_message.rb` (~50 lines)**
   ```ruby
   class SimpleStepMessage < Dry::Struct
     attribute :task_uuid, Types::String
-    attribute :step_uuid, Types::String  
+    attribute :step_uuid, Types::String
     attribute :ready_dependency_step_uuids, Types::Array.of(Types::String)
   end
   ```
 
-- **`bindings/ruby/lib/tasker_core/execution/step_sequence.rb` (~100 lines)**
+- **`workers/ruby/lib/tasker_core/execution/step_sequence.rb` (~100 lines)**
   ```ruby
   class StepSequence
     # Wrapper for dependency steps loaded from database
@@ -300,7 +300,7 @@ end
   - Remove `StepExecutionContext`, `StepMessageMetadata` structs
   - Add `SimpleStepMessage` struct
 
-- **`src/orchestration/step_enqueuer.rs`**  
+- **`src/orchestration/step_enqueuer.rs`**
   - Modify step enqueueing to create simple messages
   - Replace complex context building with UUID collection
   - Remove dependency result serialization
@@ -330,7 +330,7 @@ end
 - **Rails philosophy**: Embraces ActiveRecord patterns instead of fighting them
 - **Test reliability**: No ID collision between test runs, safer isolation
 
-### Performance Benefits  
+### Performance Benefits
 - **Smaller messages**: Faster queue operations, less network overhead
 - **Database optimization**: Efficient UUID indexes, proper SQL queries
 - **Reduced memory**: No complex object graphs in messages
@@ -353,15 +353,15 @@ class StepSequence
   def initialize(dependency_steps)
     @dependency_steps = dependency_steps
   end
-  
+
   def dependencies
     @dependency_steps
   end
-  
+
   def each(&block)
     @dependency_steps.each(&block)
   end
-  
+
   # Additional convenience methods as needed
 end
 ```
@@ -375,10 +375,10 @@ def process_simple_message(simple_message)
   dependency_steps = TaskerCore::Database::Models::WorkflowStep.where(
     step_uuid: simple_message.ready_dependency_step_uuids
   ).includes(:results) # Or whatever association holds step results
-  
+
   # Create sequence wrapper
   sequence = StepSequence.new(dependency_steps)
-  
+
   # Call handler with real ActiveRecord models
   handler.call(task, sequence, step)
 rescue ActiveRecord::RecordNotFound => e
@@ -393,13 +393,13 @@ end
 
 ### Database Load
 - **Risk**: Additional queries per message processing
-- **Mitigation**: 
+- **Mitigation**:
   - Ensure proper indexes on `task_id`, `workflow_step_id`
   - Use ActiveRecord includes/joins for efficient loading
   - Database queries are simpler than current object conversion
 
 ### Race Conditions
-- **Risk**: Task/step deleted between enqueue and processing  
+- **Risk**: Task/step deleted between enqueue and processing
 - **Mitigation**: Graceful error handling, proper logging, maybe retry logic
 
 ### Handler Compatibility

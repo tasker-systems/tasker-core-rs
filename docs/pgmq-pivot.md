@@ -12,7 +12,7 @@
 
 **🎯 KEY ACHIEVEMENTS:**
 - ✅ **Complete pgmq Architecture**: Full message queue system operational
-- ✅ **TCP Infrastructure Eliminated**: ~1000+ lines of complex TCP code removed  
+- ✅ **TCP Infrastructure Eliminated**: ~1000+ lines of complex TCP code removed
 - ✅ **FFI Directory Restored**: All embedded system components working
 - ✅ **Individual Step Processing**: Advanced orchestration with metadata flow
 - ✅ **Distributed Safety**: SQL-based task claiming for horizontal scaling
@@ -196,14 +196,14 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/ffi/tcp_executor.rs` - TCP executor FFI wrapper
 - `src/ffi/shared/command_client.rs` - Command client FFI
 - `src/ffi/shared/command_listener.rs` - Command listener FFI
-- `bindings/ruby/ext/tasker_core/src/command_client.rs` - Ruby command client FFI
-- `bindings/ruby/ext/tasker_core/src/command_listener.rs` - Ruby command listener FFI
-- `bindings/ruby/ext/tasker_core/src/embedded_tcp_executor.rs` - Embedded TCP executor FFI
+- `workers/ruby/ext/tasker_core/src/command_client.rs` - Ruby command client FFI
+- `workers/ruby/ext/tasker_core/src/command_listener.rs` - Ruby command listener FFI
+- `workers/ruby/ext/tasker_core/src/embedded_tcp_executor.rs` - Embedded TCP executor FFI
 
 **Ruby TCP Components (Replace with Queue Workers):**
-- `bindings/ruby/lib/tasker_core/execution/command_client.rb` - TCP client obsolete
-- `bindings/ruby/lib/tasker_core/execution/command_listener.rb` - TCP listener obsolete
-- `bindings/ruby/lib/tasker_core/execution/command_backplane.rb` - TCP coordination obsolete
+- `workers/ruby/lib/tasker_core/execution/command_client.rb` - TCP client obsolete
+- `workers/ruby/lib/tasker_core/execution/command_listener.rb` - TCP listener obsolete
+- `workers/ruby/lib/tasker_core/execution/command_backplane.rb` - TCP coordination obsolete
 
 **Worker Management Infrastructure (Obsolete with Autonomous Workers):**
 - `migrations/20250728000001_create_workers_tables.sql` - Worker registration tables not needed
@@ -214,7 +214,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/models/core/worker_transport_availability.rs` - Worker transport info obsolete
 - `src/models/core/worker_command_audit.rs` - Worker command auditing obsolete
 - `src/services/worker_selection_service.rs` - Worker selection via queue polling instead
-- `bindings/ruby/lib/tasker_core/execution/worker_manager.rb` - Worker coordination obsolete
+- `workers/ruby/lib/tasker_core/execution/worker_manager.rb` - Worker coordination obsolete
 
 > **Key Insight**: In pgmq architecture, workers are completely autonomous. They poll queues based on their capabilities, no registration or coordination needed. Database can be rebuilt without worker tables.
 
@@ -235,18 +235,18 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/sql_functions.rs` - SQL functions remain useful
 
 **Ruby Business Logic (Unchanged):**
-- `bindings/ruby/lib/tasker_core/models/` - Ruby model wrappers unchanged
-- `bindings/ruby/lib/tasker_core/step_handler/` - Step handler API unchanged
-- `bindings/ruby/lib/tasker_core/task_handler/` - Task handler API unchanged
-- `bindings/ruby/lib/tasker_core/logging/` - Logging infrastructure unchanged
-- `bindings/ruby/lib/tasker_core/events/` - Event system unchanged
-- `bindings/ruby/lib/tasker_core/types/` - Type definitions unchanged
+- `workers/ruby/lib/tasker_core/models/` - Ruby model wrappers unchanged
+- `workers/ruby/lib/tasker_core/step_handler/` - Step handler API unchanged
+- `workers/ruby/lib/tasker_core/task_handler/` - Task handler API unchanged
+- `workers/ruby/lib/tasker_core/logging/` - Logging infrastructure unchanged
+- `workers/ruby/lib/tasker_core/events/` - Event system unchanged
+- `workers/ruby/lib/tasker_core/types/` - Type definitions unchanged
 
 **Ruby FFI Utilities (Unchanged):**
-- `bindings/ruby/ext/tasker_core/src/context.rs` - JSON<->Ruby conversion utilities
-- `bindings/ruby/ext/tasker_core/src/error_translation.rs` - Error translation
-- `bindings/ruby/ext/tasker_core/src/types.rs` - Type definitions
-- `bindings/ruby/ext/tasker_core/src/handles.rs` - Handle management (may be useful)
+- `workers/ruby/ext/tasker_core/src/context.rs` - JSON<->Ruby conversion utilities
+- `workers/ruby/ext/tasker_core/src/error_translation.rs` - Error translation
+- `workers/ruby/ext/tasker_core/src/types.rs` - Type definitions
+- `workers/ruby/ext/tasker_core/src/handles.rs` - Handle management (may be useful)
 
 #### 🔄 **ADAPT/MODIFY** - Components Needing Changes
 
@@ -270,13 +270,13 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/ffi/shared/testing.rs` - **ADAPT**: Update testing utilities for queue-based system
 
 **Ruby Orchestration (Adapt):**
-- `bindings/ruby/lib/tasker_core/orchestration/orchestration_manager.rb` - **MAJOR ADAPT**: Remove TCP singletons, add queue management
-- `bindings/ruby/lib/tasker_core/execution/batch_execution_handler.rb` - **ADAPT**: Process queue messages instead of TCP commands
+- `workers/ruby/lib/tasker_core/orchestration/orchestration_manager.rb` - **MAJOR ADAPT**: Remove TCP singletons, add queue management
+- `workers/ruby/lib/tasker_core/execution/batch_execution_handler.rb` - **ADAPT**: Process queue messages instead of TCP commands
 
 **Tests (Major Adaptation Needed):**
 - `tests/execution/` - **ADAPT**: Most TCP-based tests need queue equivalents
-- `bindings/ruby/spec/execution/` - **ADAPT**: Ruby execution tests for queue processing
-- `bindings/ruby/spec/handlers/integration/` - **ADAPT**: Integration tests for queue-based workflows
+- `workers/ruby/spec/execution/` - **ADAPT**: Ruby execution tests for queue processing
+- `workers/ruby/spec/handlers/integration/` - **ADAPT**: Integration tests for queue-based workflows
 - Unit tests for business logic - **MINIMAL CHANGES**: Core logic tests remain mostly unchanged
 
 #### 🆕 **NEW COMPONENTS** - Queue-Based Architecture
@@ -290,15 +290,15 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/messaging/queue_manager.rs` - **NEW**: Queue lifecycle management (create, monitor, cleanup)
 
 **Ruby pgmq Integration:**
-- `bindings/ruby/ext/tasker_core/src/pgmq_client.rs` - **NEW**: Magnus FFI wrapper for pgmq operations
-- `bindings/ruby/lib/tasker_core/messaging/` - **NEW**: Ruby messaging module
-- `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb` - **NEW**: Ruby wrapper for pgmq operations
-- `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb` - **NEW**: Queue polling worker with concurrent-ruby support
-- `bindings/ruby/lib/tasker_core/messaging/message_processor.rb` - **NEW**: Process queue messages and route to step handlers
+- `workers/ruby/ext/tasker_core/src/pgmq_client.rs` - **NEW**: Magnus FFI wrapper for pgmq operations
+- `workers/ruby/lib/tasker_core/messaging/` - **NEW**: Ruby messaging module
+- `workers/ruby/lib/tasker_core/messaging/pgmq_client.rb` - **NEW**: Ruby wrapper for pgmq operations
+- `workers/ruby/lib/tasker_core/messaging/queue_worker.rb` - **NEW**: Queue polling worker with concurrent-ruby support
+- `workers/ruby/lib/tasker_core/messaging/message_processor.rb` - **NEW**: Process queue messages and route to step handlers
 
 **Queue-Based Tests:**
 - `tests/messaging/` - **NEW**: Test queue operations, message processing, orchestration
-- `bindings/ruby/spec/messaging/` - **NEW**: Ruby queue worker tests, integration tests
+- `workers/ruby/spec/messaging/` - **NEW**: Ruby queue worker tests, integration tests
 - `tests/integration/queue_workflow_test.rs` - **NEW**: End-to-end queue-based workflow tests
 
 ### Migration Scope Summary
@@ -338,10 +338,10 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Deliverables** ✅:
 - `src/messaging/pgmq_client.rs` - Rust pgmq integration with full API
-- `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb` - Ruby pgmq wrapper using pg gem
-- `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb` - Autonomous queue worker framework
-- `bindings/ruby/lib/tasker_core/database/sql_functions.rb` - SQL function access layer
-- `bindings/ruby/lib/tasker_core/types/step_message.rb` - dry-struct message types
+- `workers/ruby/lib/tasker_core/messaging/pgmq_client.rb` - Ruby pgmq wrapper using pg gem
+- `workers/ruby/lib/tasker_core/messaging/queue_worker.rb` - Autonomous queue worker framework
+- `workers/ruby/lib/tasker_core/database/sql_functions.rb` - SQL function access layer
+- `workers/ruby/lib/tasker_core/types/step_message.rb` - dry-struct message types
 - `spec/integration/pgmq_architecture_spec.rb` - Comprehensive integration tests
 - Infrastructure cleanup: Removed 36+ TCP/worker management files
 
@@ -420,8 +420,8 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - `src/messaging/orchestration_messages.rs` - Complete orchestration queue message types
 - `src/orchestration/task_request_processor.rs` - Task validation and ingestion
 - `src/orchestration/orchestration_system_pgmq.rs` - Dual polling loop orchestration system
-- `bindings/ruby/lib/tasker_core/messaging/batch_queue_worker.rb` - Ruby batch workers
-- `bindings/ruby/lib/tasker_core/orchestration/batch_executor.rb` - Concurrent batch execution
+- `workers/ruby/lib/tasker_core/messaging/batch_queue_worker.rb` - Ruby batch workers
+- `workers/ruby/lib/tasker_core/orchestration/batch_executor.rb` - Concurrent batch execution
 - Complete queue-based orchestration system with autonomous workers
 
 **Key Achievements**:
@@ -437,7 +437,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 #### ✅ Phase 4.1: Embedded FFI Bridge (COMPLETED)
 **Objective**: Restore embedded system capability for local development and testing
-- [x] Create minimal FFI interface for lifecycle management (`bindings/ruby/ext/tasker_core/src/embedded_bridge.rs`)
+- [x] Create minimal FFI interface for lifecycle management (`workers/ruby/ext/tasker_core/src/embedded_bridge.rs`)
 - [x] Implement TaskerCore::EmbeddedOrchestrator Ruby class with start/stop/status methods
 - [x] Add embedded mode integration tests for local development
 - [x] Enable Ruby-Rust integration testing without docker-compose overhead
@@ -469,7 +469,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 **Objective**: Clean up configuration files and implement embedded vs distributed mode detection
 - [x] Remove obsolete `command_backplane` configuration from all config files
 - [x] Add `pgmq` configuration section with queue settings and namespaces
-- [x] Add `orchestration.mode` setting for embedded/distributed selection 
+- [x] Add `orchestration.mode` setting for embedded/distributed selection
 - [x] Update task_handler/base.rb to be mode-aware (embedded FFI vs pure pgmq)
 - [x] Configure mode defaults (embedded for test environment, distributed for production)
 - [x] Enhanced orchestration queue configuration for all orchestration core queues
@@ -485,7 +485,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 
 **Enhanced Queue Configuration Added**:
 - **task_requests_queue**: Incoming task requests from external systems
-- **task_processing_queue**: Tasks ready for orchestration processing  
+- **task_processing_queue**: Tasks ready for orchestration processing
 - **batch_results_queue**: Completed batch execution results
 - **worker_queues**: Namespaced queues (default, fulfillment, inventory, notifications)
 - **Environment-specific settings**: Different retention and DLQ policies per environment
@@ -498,9 +498,9 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 - ✅ Forward-compatible queue configuration ready for Rust orchestration core integration
 - ✅ All tests passing (18 examples, 0 failures) with mode-aware task handler
 
-#### ✅ Phase 4.5: Orchestration Layer Refactoring (COMPLETED)  
+#### ✅ Phase 4.5: Orchestration Layer Refactoring (COMPLETED)
 **Objective**: Massive simplification of orchestration layer through TCP infrastructure removal
-- [x] Simplify `orchestration_manager.rb` by removing 400+ lines of TCP infrastructure (72% reduction) 
+- [x] Simplify `orchestration_manager.rb` by removing 400+ lines of TCP infrastructure (72% reduction)
 - [x] Refactor `orchestration.rb` API to use pgmq step enqueueing instead of TCP commands
 - [x] Rename `enhanced_handler_registry.rb` to `distributed_handler_registry.rb`
 - [x] Implement bootstrapping functionality for queue setup and handler registration
@@ -561,7 +561,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 #### ✅ Phase 5.1: SQL View for "Ready" Tasks Discovery (COMPLETED - August 2, 2025)
 **Objective**: Replace imperative task readiness checking with declarative SQL view ✅
 
-**Problem Solved**: 
+**Problem Solved**:
 - ✅ OrchestrationSystemPgmq now has declarative task discovery via `tasker_ready_tasks` view
 - ✅ Eliminated expensive step discovery on each polling cycle
 - ✅ Added distributed safety with atomic task claiming functions
@@ -571,7 +571,7 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 **Delivered Infrastructure**:
 - ✅ **View**: `tasker_ready_tasks` - Uses existing `get_task_execution_context()` function for proven readiness logic
 - ✅ **Claiming Columns**: Added `claimed_at`, `claimed_by`, `priority`, `claim_timeout_seconds` to `tasker_tasks`
-- ✅ **Atomic Functions**: 
+- ✅ **Atomic Functions**:
   - `claim_ready_tasks(orchestrator_id, limit, namespace_filter)` - Atomic claiming with `FOR UPDATE SKIP LOCKED`
   - `release_task_claim(task_id, orchestrator_id)` - Safe claim release with ownership verification
   - `extend_task_claim(task_id, orchestrator_id)` - Heartbeat for long operations
@@ -584,25 +584,25 @@ async fn check_task_progress(task_id: i64) -> Result<(), Error> {
 loop {
     // 1. Atomic claim (prevents race conditions)
     let claimed_tasks = pgmq_client.query(&claim_ready_tasks_sql, params).await?;
-    
+
     for task in claimed_tasks {
         // 2. Discover ready steps (reuse existing logic)
         let viable_steps = get_viable_steps_for_task(task.task_id).await?;
-        
+
         // 3. Update states to 'in_progress' (database transaction)
         update_task_and_step_states(task.task_id, &viable_steps).await?;
-        
+
         // 4. Enqueue individual steps (namespace routing)
         for step in viable_steps {
             let queue_name = format!("{}_queue", step.namespace);
             let step_message = create_step_message(step);
             pgmq_client.send(&queue_name, &step_message).await?;
         }
-        
+
         // 5. Release claim immediately (<200ms total window)
         release_task_claim(task.task_id, orchestrator_id).await?;
     }
-    
+
     tokio::time::sleep(polling_interval).await;
 }
 ```
@@ -621,7 +621,7 @@ loop {
 - [x] Add performance indexes for orchestration polling efficiency
 - [x] Test migration deployment (successful in 20.48ms)
 - [x] Update Rust TaskRequest struct with priority and claim_timeout_seconds fields
-- [x] Update Ruby TaskRequest dry-struct with priority and claim_timeout_seconds fields  
+- [x] Update Ruby TaskRequest dry-struct with priority and claim_timeout_seconds fields
 - [x] Update all Task model methods to handle new database columns
 - [x] Update TaskInitializer and task creation paths to use new fields
 - [x] Add TaskPriority enum to i32 conversion for type safety
@@ -629,7 +629,7 @@ loop {
 - [x] Verify end-to-end FFI integration for new fields
 
 **Benefits Achieved**:
-- ✅ **Declarative Discovery**: Orchestrators use `SELECT * FROM tasker_ready_tasks` 
+- ✅ **Declarative Discovery**: Orchestrators use `SELECT * FROM tasker_ready_tasks`
 - ✅ **Built-in Claim Management**: View handles stale claim detection with configurable timeouts
 - ✅ **Performance**: PostgreSQL query planner optimizes using proven SQL function logic
 - ✅ **Logic Reuse**: Leverages existing `get_task_execution_context()` and `get_step_readiness_status()`
@@ -667,7 +667,7 @@ async fn enqueue_individual_steps(
     steps: Vec<ViableStep>,
 ) -> OrchestrationResult<Vec<StepResult>> {
     let mut results = Vec::new();
-    
+
     for step in steps {
         let step_message = StepMessage {
             step_id: step.step_id,
@@ -683,7 +683,7 @@ async fn enqueue_individual_steps(
                 correlation_id: uuid::Uuid::new_v4().to_string(),
             },
         };
-        
+
         let queue_name = format!("{}_queue", step_message.namespace);
         match self.pgmq_client.send_json_message(&queue_name, &step_message).await {
             Ok(message_id) => {
@@ -708,36 +708,36 @@ async fn enqueue_individual_steps(
             }
         }
     }
-    
+
     Ok(results)
 }
 ```
 
 **Simplified Queue Worker Pattern** (New Flow):
 ```ruby
-# bindings/ruby/lib/tasker_core/messaging/queue_worker.rb
+# workers/ruby/lib/tasker_core/messaging/queue_worker.rb
 def process_queue_message(msg_data)
   step_message = msg_data[:step_message]
-  
+
   # 1. Validate we can extract (task, sequence, step)
   return skip_result unless can_extract_execution_context?(step_message)
-  
+
   # 2. IMMEDIATELY delete message from queue (no retry logic here!)
   pgmq_client.delete_message(queue_name, msg_data[:queue_message][:msg_id])
-  
+
   # 3. Execute handler and collect rich metadata
   result = execute_step_handler_with_metadata(step_message)
-  
+
   # 4. Send result (with metadata) to orchestration result queue
   send_result_to_orchestration(result)
-  
+
   result
 end
 ```
 
 **Enhanced StepResult with Orchestration Metadata**:
 ```ruby
-# bindings/ruby/lib/tasker_core/types/step_result.rb
+# workers/ruby/lib/tasker_core/types/step_result.rb
 class StepResult < Dry::Struct
   attribute :step_id, Types::Integer
   attribute :task_id, Types::Integer
@@ -745,7 +745,7 @@ class StepResult < Dry::Struct
   attribute :result_data, Types::Hash.optional
   attribute :execution_time_ms, Types::Integer
   attribute :error, Types::StepExecutionError.optional
-  
+
   # NEW: Rich metadata for orchestration decisions
   attribute :orchestration_metadata, Types::Hash.optional
 end
@@ -755,10 +755,10 @@ end
   headers: { "retry-after" => "60", "x-rate-limit-remaining" => "0" },
   error_context: "Rate limited by payment gateway",
   backoff_hint: { type: "server_requested", seconds: 60 },
-  custom: { 
-    api_response_code: 429, 
+  custom: {
+    api_response_code: 429,
     endpoint: "/payments/charge",
-    quota_reset_at: "2025-08-02T15:00:00Z" 
+    quota_reset_at: "2025-08-02T15:00:00Z"
   }
 }
 ```
@@ -769,7 +769,7 @@ end
   "step_id": 12345,
   "task_id": 67890,
   "namespace": "fulfillment",
-  "step_name": "validate_order", 
+  "step_name": "validate_order",
   "step_payload": {
     "step_context": { /* step execution data */ },
     "task_context": { /* task execution data */ }
@@ -807,18 +807,18 @@ Rust Orchestration Layer:
 
 Ruby Worker Layer:
 ├── fulfillment_queue → Immediate delete → Execute → Send result
-├── inventory_queue → Immediate delete → Execute → Send result  
+├── inventory_queue → Immediate delete → Execute → Send result
 ├── notifications_queue → Immediate delete → Execute → Send result
 └── No retry logic (orchestration handles all coordination)
 
 Metadata Flow:
-Handler execution → HTTP headers/context → StepResult.orchestration_metadata 
+Handler execution → HTTP headers/context → StepResult.orchestration_metadata
 → BackoffCalculator → Intelligent retry decisions
 ```
 
 **Key Achievements (August 3, 2025)**:
 - ✅ **Enhanced StepMessage**: Complete execution context with (task, sequence, step) where sequence contains dependency results
-- ✅ **Immediate Delete Pattern**: Queue workers delete messages immediately, no retry logic duplication  
+- ✅ **Immediate Delete Pattern**: Queue workers delete messages immediately, no retry logic duplication
 - ✅ **Dependency Chain Results**: `StepExecutionContext.dependencies` provides convenient `sequence.get(step_name)` access
 - ✅ **Ruby Type System**: Complete dry-struct types matching Rust structures with wrapper classes
 - ✅ **Handler Interface Fixed**: Workers now call `handler.call(task, sequence, step)` and treat any return as success
@@ -870,7 +870,7 @@ Handler execution → HTTP headers/context → StepResult.orchestration_metadata
 
 **Codebase Metrics Improved**:
 - **Lines Removed**: ~1000+ lines of obsolete TCP infrastructure
-- **Compilation Warnings**: Reduced from 26+ to 11 minor formatting suggestions  
+- **Compilation Warnings**: Reduced from 26+ to 11 minor formatting suggestions
 - **Dead Code**: Eliminated all `#[allow(dead_code)]` attributes
 - **Module Count**: All 5 FFI modules restored and operational
 - **Import Errors**: Zero import or dependency issues remaining
@@ -904,7 +904,7 @@ Handler execution → HTTP headers/context → StepResult.orchestration_metadata
 - **Type Safety**: All timing fields properly typed as `u64` milliseconds
 - **Backward Compatibility**: Business logic timeouts remain in seconds
 
-#### ✅ Phase 2: Duration Conversion Logic (COMPLETED) 
+#### ✅ Phase 2: Duration Conversion Logic (COMPLETED)
 - **OrchestrationSystemConfig**: Updated `to_orchestration_system_config()` conversion
 - **Duration Creation**: All `Duration::from_millis()` implementations
 - **Configuration Defaults**: New millisecond defaults across all structures
@@ -927,7 +927,7 @@ Handler execution → HTTP headers/context → StepResult.orchestration_metadata
 # System Polling (Milliseconds - Fast Response)
 orchestration:
   cycle_interval_ms: 250                    # 4x/sec orchestration cycles
-  task_request_polling_interval_ms: 250     # 4x/sec task request polling  
+  task_request_polling_interval_ms: 250     # 4x/sec task request polling
   heartbeat_interval_ms: 5000              # 5 second heartbeats
 
 # Business Logic (Seconds - Domain Appropriate)
@@ -943,13 +943,13 @@ cycle_interval_ms: 100
 task_request_polling_interval_ms: 100
 heartbeat_interval_ms: 2000
 
-# Development (2x/sec - Balanced for debugging)  
+# Development (2x/sec - Balanced for debugging)
 cycle_interval_ms: 500
 task_request_polling_interval_ms: 500
 heartbeat_interval_ms: 5000
 
 # Production (5x/sec - High performance)
-cycle_interval_ms: 200  
+cycle_interval_ms: 200
 task_request_polling_interval_ms: 200
 heartbeat_interval_ms: 10000
 ```
@@ -979,7 +979,7 @@ heartbeat_interval_ms: 10000
 
 ### 🎯 Current Status Summary (August 4, 2025)
 
-**✅ MAJOR MILESTONE ACHIEVED**: The pgmq architecture pivot is **100% COMPLETE**! 
+**✅ MAJOR MILESTONE ACHIEVED**: The pgmq architecture pivot is **100% COMPLETE**!
 
 **Core Architecture Completed**:
 - ✅ **Phase 1-4**: Complete pgmq foundation, orchestration, and integration
@@ -989,7 +989,7 @@ heartbeat_interval_ms: 10000
 - ✅ **Phase 5.4**: Millisecond polling performance refactor
 
 **Key Systems Operational**:
-- ✅ Three-queue architecture: `orchestration_task_requests` → `{namespace}_queue` → `orchestration_step_results`  
+- ✅ Three-queue architecture: `orchestration_task_requests` → `{namespace}_queue` → `orchestration_step_results`
 - ✅ Complete orchestration loop with memory-efficient processing
 - ✅ Ruby workers with immediate-delete pattern and metadata flow
 - ✅ YAML configuration integration with bootstrapping methods
@@ -999,7 +999,7 @@ heartbeat_interval_ms: 10000
 - **Complete pgmq Architecture**: Full message queue system replacing TCP complexity
 - **Individual Step Processing**: Advanced orchestration with metadata flow
 - **Memory-safe orchestration**: No more unbounded results vectors
-- **Configuration-driven**: Complete YAML integration 
+- **Configuration-driven**: Complete YAML integration
 - **Clean architecture**: "Worker Executes, Orchestration Coordinates" principle
 - **Distributed-ready**: Transaction-based task claiming with timeout recovery
 - **Production-ready**: Comprehensive error handling and logging
@@ -1030,7 +1030,7 @@ heartbeat_interval_ms: 10000
 
 ## 🏆 Architecture Success Summary
 
-The **tasker-core-rs** pgmq architecture pivot represents a complete transformation from complex TCP-based coordination to elegant PostgreSQL message queue orchestration. Key achievements:
+The **tasker-core** pgmq architecture pivot represents a complete transformation from complex TCP-based coordination to elegant PostgreSQL message queue orchestration. Key achievements:
 
 - **✅ Complete Priority Fairness**: Advanced time-weighted escalation preventing task starvation
 - **✅ Millisecond Responsiveness**: Environment-optimized polling (100ms-500ms) with 4x performance improvement

@@ -1,5 +1,5 @@
 # TaskTemplate Configuration
-# 
+#
 # This TaskTemplate uses the new self-describing structure for workflow configuration.
 # Compatible with both Ruby and Rust parsers.
 #
@@ -154,4 +154,4 @@ environments:
           timeout_ms: 5000
       timeout_seconds:
       retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/integration/diamond_workflow/1.0.0.yaml"
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/integration/diamond_workflow/1.0.0.yaml"

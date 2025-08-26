@@ -23,7 +23,7 @@ The current Tasker workflow orchestration system has tight coupling to PGMQ mess
 - Namespace queue naming pattern hard-coded (`{namespace}_queue`)
 
 **Ruby Dependencies**:
-- PGMQ-specific Ruby client in `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb`
+- PGMQ-specific Ruby client in `workers/ruby/lib/tasker_core/messaging/pgmq_client.rb`
 - Queue worker polling logic specific to PGMQ visibility timeouts and batching
 
 
@@ -79,7 +79,7 @@ impl MessagingService for RabbitMqMessageService {
 
 **Ruby Side: Message Service Interface**
 ```ruby
-# bindings/ruby/lib/tasker_core/services/message_service.rb
+# workers/ruby/lib/tasker_core/services/message_service.rb
 module TaskerCore
   module Services
     class MessageService
@@ -189,7 +189,7 @@ impl MessageRouter for NamespaceMessageRouter {
 
 **Ruby Message Abstraction**:
 ```ruby
-# bindings/ruby/lib/tasker_core/services/message_service.rb
+# workers/ruby/lib/tasker_core/services/message_service.rb
 module TaskerCore
   module Services
     class MessageService

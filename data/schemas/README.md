@@ -62,7 +62,7 @@ openapi-generator-cli generate -i data/schemas/task-template-api.yaml -g python-
 
 **Tested Files:**
 - `linear_workflow_handler.yaml` - Sequential mathematical operations
-- `order_fulfillment_handler.yaml` - Complete order processing workflow  
+- `order_fulfillment_handler.yaml` - Complete order processing workflow
 - `tree_workflow_handler.yaml` - Hierarchical computation pattern
 - `credit_card_payment.yaml` - Payment processing with fraud detection
 
@@ -97,7 +97,7 @@ openapi-generator-cli generate -i data/schemas/task-template-api.yaml -g python-
 ### Ruby Integration
 The JSON Schema is designed to work with the Ruby dry-struct validation in `TaskerCore::Types::TaskTemplate`. Symbol keys from Ruby YAML serialization are supported through key normalization.
 
-### Rust Integration  
+### Rust Integration
 The schemas align with the Rust `TaskTemplate` struct in `src/models/core/task_template.rs` and support serde serialization/deserialization.
 
 ### Database Integration
@@ -108,7 +108,7 @@ Schemas support JSONB storage format used by PostgreSQL in the TaskTemplate regi
 When updating TaskTemplate structure:
 
 1. Update the Rust struct in `src/models/core/task_template.rs`
-2. Update the Ruby dry-struct in `bindings/ruby/lib/tasker_core/types/task_template.rb`  
+2. Update the Ruby dry-struct in `workers/ruby/lib/tasker_core/types/task_template.rb`
 3. Update `task-template.json` schema to match
 4. Update `task-template-api.yaml` components to match
 5. Validate changes against existing YAML files using the validation script
@@ -126,7 +126,7 @@ import json, yaml, jsonschema
 with open('data/schemas/task-template.json') as f:
     schema = json.load(f)
 
-# Validate your YAML file  
+# Validate your YAML file
 with open('your-template.yaml') as f:
     template = yaml.safe_load(f)
 

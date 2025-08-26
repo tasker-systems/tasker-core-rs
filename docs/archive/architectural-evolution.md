@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document captures the strategic insights and lessons learned from the architectural evolution of tasker-core-rs, progressing through three major phases: ZeroMQ pub-sub → TCP command architecture → PostgreSQL message queues (pgmq). Each evolution solved critical issues while teaching valuable lessons about distributed system design.
+This document captures the strategic insights and lessons learned from the architectural evolution of tasker-core, progressing through three major phases: ZeroMQ pub-sub → TCP command architecture → PostgreSQL message queues (pgmq). Each evolution solved critical issues while teaching valuable lessons about distributed system design.
 
 ## Evolution Timeline
 
@@ -11,7 +11,7 @@ This document captures the strategic insights and lessons learned from the archi
 **Implementation**: Bidirectional pub-sub with Rust orchestrator and Ruby workers
 **Achievement**: ✅ Eliminated FFI hangs and timeout issues
 
-### Phase 2: TCP Command Architecture (Mid 2025)  
+### Phase 2: TCP Command Architecture (Mid 2025)
 **Goal**: Simplify message patterns and improve reliability
 **Implementation**: Command-response pattern with worker registration
 **Achievement**: ✅ Sub-millisecond response times, handle-based FFI
@@ -34,7 +34,7 @@ This document captures the strategic insights and lessons learned from the archi
 - Connection management overhead
 - Process coupling through sockets
 
-**pgmq Approach**: Database-first coordination  
+**pgmq Approach**: Database-first coordination
 - Shared state through PostgreSQL
 - Autonomous worker polling
 - Natural persistence and recovery
@@ -69,7 +69,7 @@ Orchestrator → Enqueue Steps → Database ← Poll Workers
 let results = coordinator.execute_batch(steps).await?;
 database.persist_results(results).await?;
 
-// New: Enqueue intent  
+// New: Enqueue intent
 for step in ready_steps {
     pgmq.send("fulfillment_queue", step_message).await?;
 }
@@ -92,7 +92,7 @@ for step in ready_steps {
 
 ### 3. Message Protocol Evolution
 **ZeroMQ**: JSON over pub-sub topics
-**TCP**: Binary command-response with correlation IDs  
+**TCP**: Binary command-response with correlation IDs
 **pgmq**: JSON messages with rich metadata in database tables
 
 **Pattern**: Each evolution simplified the protocol while adding metadata richness
@@ -113,10 +113,10 @@ for step in ready_steps {
 
 ❌ **Avoid queues when**:
 - Real-time response requirements (<100ms)
-- Complex multi-party coordination needed  
+- Complex multi-party coordination needed
 - Message ordering guarantees required
 
-### When to Choose Command-Response Architecture  
+### When to Choose Command-Response Architecture
 ✅ **Choose command-response when**:
 - Synchronous feedback required
 - Complex negotiations between components
@@ -141,7 +141,7 @@ for step in ready_steps {
 
 ### Operational Complexity
 - **ZeroMQ**: Process coordination, connection management
-- **TCP**: Worker registration, heartbeat management  
+- **TCP**: Worker registration, heartbeat management
 - **pgmq**: Database monitoring, queue management
 
 ## Future Architecture Principles
@@ -162,7 +162,7 @@ The evolution from ZeroMQ → TCP → pgmq demonstrates that architectural compl
 
 ---
 
-**Document Purpose**: Strategic reference for future architectural decisions  
-**Audience**: Senior engineers and architects  
-**Last Updated**: August 2025  
+**Document Purpose**: Strategic reference for future architectural decisions
+**Audience**: Senior engineers and architects
+**Last Updated**: August 2025
 **Status**: Historical analysis - pgmq architecture current

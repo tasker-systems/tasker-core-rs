@@ -1,0 +1,58 @@
+[package]
+name = "tasker_core_rb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
+description = "Ruby bindings for tasker-core: High-performance workflow orchestration"
+license = "MIT"
+
+[lib]
+name = "tasker_core_rb"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core library dependency (relative path to parent)
+tasker-shared = { path = "../../../../tasker-shared" }
+tasker-orchestration = { path = "../../../../tasker-orchestration" }
+
+# Ruby FFI
+magnus = "0.7"
+
+# Database (needed for PgPool)
+sqlx = { workspace = true }
+
+# Async runtime for blocking on futures in FFI
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+# Async trait support for FrameworkIntegration
+async-trait = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+structured-logger = { workspace = true }
+
+# Serde for serialization/deserialization
+serde = { workspace = true }
+
+# Serialization for Ruby ↔ Rust data conversion
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+serde_magnus = "0.9"
+
+# Time handling for Ruby Time ↔ Rust DateTime conversion
+chrono = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# UUID generation for event bridge
+uuid = { workspace = true }
+
+# Environment variable loading
+dotenvy = { workspace = true }
+
+# Project root detection
+workspace_tools = { workspace = true }
+
+[features]
+default = []

@@ -11,7 +11,7 @@ This ticket implements the worker foundation as part of the broader workspace re
 ## Current State Analysis
 
 ### Ruby Binding Infrastructure Burden
-The current `bindings/ruby/` implementation handles extensive infrastructure concerns:
+The current `workers/ruby/` implementation handles extensive infrastructure concerns:
 - Database connection pooling via ActiveRecord
 - Concurrent Ruby threading for step processing
 - Queue message parsing and claiming logic
@@ -19,7 +19,7 @@ The current `bindings/ruby/` implementation handles extensive infrastructure con
 - Worker thread coordination and resource management
 
 ### Orchestration System Success Patterns
-Our `tasker-orchestration/` workspace (current `tasker-core-rs/`) provides proven patterns:
+Our `tasker-orchestration/` workspace (current `tasker-core/`) provides proven patterns:
 - `OrchestrationCore` unified bootstrap system
 - `OrchestrationLoopCoordinator` with auto-scaling and health monitoring
 - Atomic SQL operations for race condition prevention
@@ -1121,7 +1121,7 @@ event_subscriber.subscribe_to_step_events("generate_even_number", |payload| {
 }).await?;
 ```
 
-**Ruby FFI (bindings/ruby/):**
+**Ruby FFI (workers/ruby/):**
 ```rust
 // FFI bridge subscribes to events and forwards to Ruby
 event_subscriber.subscribe_to_step_events("generate_even_number", |payload| {
@@ -1337,7 +1337,7 @@ Based on compilation failures and architecture changes, tests fall into clear ca
 **Reason**: Test removed/renamed components that no longer exist
 
 1. **`tests/mod.rs`** - References missing modules (`circuit_breaker`, `coordinator`)
-2. **`integration_executor_toml_config.rs`** - Tests removed `executor` module  
+2. **`integration_executor_toml_config.rs`** - Tests removed `executor` module
 3. **`unified_bootstrap_test.rs`** - Tests obsolete `OrchestrationCore` API
 4. **`configuration_integration_test.rs`** - Tests removed `WorkflowCoordinatorConfig`
 5. **`messaging/task_request_processor_test.rs`** - Tests removed `task_request_processor`
@@ -1348,13 +1348,13 @@ Based on compilation failures and architecture changes, tests fall into clear ca
 
 1. **`web/`** directory (8 files) - Web API tests still relevant
    - `test_analytics_endpoints.rs` - Analytics API validation
-   - `authenticated_tests.rs` - JWT authentication  
+   - `authenticated_tests.rs` - JWT authentication
    - `tls_tests.rs` - HTTPS/TLS integration
    - `resource_coordination_tests.rs` - Database pool coordination
    - `test_infrastructure.rs` - Web test utilities
    - `test_openapi_documentation.rs` - API documentation validation
 
-#### 🔄 MIGRATE - Architecture-Specific Tests (3 files, ~1,200 lines)  
+#### 🔄 MIGRATE - Architecture-Specific Tests (3 files, ~1,200 lines)
 **Reason**: Valuable test patterns but need architecture updates
 
 1. **`tas_37_finalization_race_condition_test.rs`** - **MIGRATE TO tasker-worker**
@@ -1374,7 +1374,7 @@ Based on compilation failures and architecture changes, tests fall into clear ca
 #### 🔨 REWRITE - Command Pattern Tests (3 files, ~800 lines)
 **Reason**: Good test structure but need complete architectural pattern changes
 
-1. **`config_integration_test.rs`** - Update for component-based configuration  
+1. **`config_integration_test.rs`** - Update for component-based configuration
 2. **`messaging/mod.rs`** - Update for pgmq-based messaging patterns
 3. Create new **`command_pattern_integration_test.rs`** - Test event-driven architecture
 
@@ -1384,7 +1384,7 @@ Based on compilation failures and architecture changes, tests fall into clear ca
 ```bash
 # Remove files that test deleted architecture components
 rm tasker-orchestration/tests/integration_executor_toml_config.rs      # executor module removed
-rm tasker-orchestration/tests/unified_bootstrap_test.rs                # OrchestrationCore API changed  
+rm tasker-orchestration/tests/unified_bootstrap_test.rs                # OrchestrationCore API changed
 rm tasker-orchestration/tests/configuration_integration_test.rs        # WorkflowCoordinatorConfig removed
 rm tasker-orchestration/tests/messaging/task_request_processor_test.rs # task_request_processor removed
 rm tasker-orchestration/tests/task_initializer_test.rs                 # StepTemplate/HandlerConfiguration removed
@@ -1393,7 +1393,7 @@ rm tasker-orchestration/tests/task_initializer_test.rs                 # StepTem
 # Remove: pub mod circuit_breaker; pub mod coordinator;
 ```
 
-#### Step 2: Migrate Worker-Specific Tests  
+#### Step 2: Migrate Worker-Specific Tests
 ```bash
 # Move tests that belong in tasker-worker (step processing, finalization, workflow execution)
 mv tasker-orchestration/tests/tas_37_finalization_race_condition_test.rs \
@@ -1415,7 +1415,7 @@ async fn test_task_creation_command_flow(pool: PgPool) {
     // Verify orchestration system handles commands and events properly
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]  
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
 async fn test_orchestration_worker_coordination(pool: PgPool) {
     // Test: Orchestration enqueues step commands → Worker processes → Results flow back
     // Verify end-to-end command pattern coordination
@@ -1435,7 +1435,7 @@ async fn test_worker_consumes_step_commands(pool: PgPool) {
 // OLD: use tasker_orchestration::orchestration::executor::*;
 // NEW: use tasker_orchestration::orchestration::command_processors::*;
 
-// OLD: use tasker_orchestration::orchestration::orchestration_loop::*;  
+// OLD: use tasker_orchestration::orchestration::orchestration_loop::*;
 // NEW: use tasker_orchestration::orchestration::event_loop::*;
 
 // Update API calls:
@@ -1464,17 +1464,17 @@ async fn test_worker_functionality(pool: PgPool) {
     let test_data = WorkerTestData::new("test_step_processing")
         .build_with_factory(&factory)
         .await?;
-    
+
     // Test step processing logic
     assert!(test_data.foundation().is_some());
 }
 
-// tasker-orchestration tests  
+// tasker-orchestration tests
 #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
 async fn test_orchestration_functionality(pool: PgPool) {
     // Use simplified database patterns from tasker_shared::test_utils
     let utils = tasker_shared::database::DatabaseConnection::from_pool(pool);
-    
+
     // Test command pattern orchestration
 }
 ```
@@ -1487,7 +1487,7 @@ async fn test_orchestration_functionality(pool: PgPool) {
 - **Clean Compilation**: Zero architecture mismatch compilation errors
 - **Standard Patterns**: 100% of tests use `#[sqlx::test(migrator = "...")]` pattern
 
-#### Qualitative Benefits  
+#### Qualitative Benefits
 - **Clear Responsibility Separation**: Orchestration tests focus on command pattern, worker tests focus on step processing
 - **Architecture Consistency**: Tests reflect actual command pattern architecture
 - **Maintainable**: Standard sqlx test patterns instead of complex custom database management

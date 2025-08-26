@@ -6,7 +6,7 @@ Migrate the Tasker Core database schema from integer/bigint primary keys to UUID
 
 ### Scope
 - **8 Primary Tables**: Full UUID v7 migration for primary and foreign keys
-- **Database Functions**: 12 SQL functions updated for UUID parameters  
+- **Database Functions**: 12 SQL functions updated for UUID parameters
 - **Rust Models**: Complete type migration from i64/i32 to Uuid
 - **Ruby FFI**: Bridge updates for UUID string handling
 
@@ -28,7 +28,7 @@ Successfully migrated all tables to UUID v7 schema with full backward compatibil
 - `tasker_task_transitions` - task_transition_uuid (PK), task_uuid (FK)
 - `tasker_workflow_step_transitions` - workflow_step_transition_uuid (PK), workflow_step_uuid (FK)
 
-#### Registry Tables  
+#### Registry Tables
 - `tasker_named_tasks` - named_task_uuid (PK), task_namespace_uuid (FK)
 - `tasker_named_steps` - named_step_uuid (PK), dependent_system_uuid (FK)
 - `tasker_dependent_systems` - dependent_system_uuid (PK)
@@ -80,7 +80,7 @@ All test factories successfully migrated to UUID generation:
 
 **Ruby Bindings Migration Complete**
 - ✅ All ActiveRecord models updated with correct UUID primary keys
-- ✅ All associations updated to use UUID foreign keys  
+- ✅ All associations updated to use UUID foreign keys
 - ✅ All Ruby type definitions updated for UUID strings
 - ✅ Fixed association bugs (WorkflowStep edge references)
 - ✅ Fixed PGMQ client type casting issues
@@ -88,8 +88,8 @@ All test factories successfully migrated to UUID generation:
 - ✅ All legacy Integer ID references cleaned up
 
 **Ruby Files Updated**
-- All ActiveRecord models in `bindings/ruby/lib/tasker_core/database/models/`
-- All type definitions in `bindings/ruby/lib/tasker_core/types/`
+- All ActiveRecord models in `workers/ruby/lib/tasker_core/database/models/`
+- All type definitions in `workers/ruby/lib/tasker_core/types/`
 - PGMQ client and messaging system
 - Step handler call results and simple message types
 
@@ -97,7 +97,7 @@ All test factories successfully migrated to UUID generation:
 
 **Remaining Work**
 - Update test assertions for UUID values in integration tests
-- Fix remaining test data generation helpers  
+- Fix remaining test data generation helpers
 - Validate Ruby integration tests with new UUID architecture
 - Run full test suite validation across Rust and Ruby components
 
@@ -150,7 +150,7 @@ sqlx::query!("SELECT * FROM table WHERE uuid_column = $1", uuid)
 
 - [x] All Rust code compiles without errors ✅
 - [x] All models use UUID fields exclusively (no i64/i32 IDs) ✅
-- [x] All SQL queries use UUID columns ✅  
+- [x] All SQL queries use UUID columns ✅
 - [x] Factory system generates valid UUID test data ✅
 - [x] Ruby FFI bridge handles UUID strings ✅
 - [ ] Integration tests pass with UUID data 🔄
@@ -179,7 +179,7 @@ sqlx::query!("SELECT * FROM table WHERE uuid_column = $1", uuid)
 ### ✅ **Complete Ruby Type System Simplification**
 Successfully replaced the complex 562-line `step_message.rb` with a clean 111-line simplified version (80% reduction):
 - Removed TCP communication types (`execution_types.rb`, `orchestration_types.rb`)
-- Eliminated complex serialization patterns 
+- Eliminated complex serialization patterns
 - Kept only essential functionality for UUID-based simple message architecture
 
 ### ✅ **Comprehensive Ruby UUID v7 Compatibility Audit**
@@ -219,5 +219,5 @@ Systematically audited and fixed all Ruby bindings for UUID v7 compatibility:
 ## Related Documentation
 
 - Migration SQL: `migrations/20250810140000_uuid_v7_initial_schema.sql`
-- Ruby Integration: `bindings/ruby/lib/tasker_core/database/models/*`
+- Ruby Integration: `workers/ruby/lib/tasker_core/database/models/*`
 - Factory System: `tests/factories/*.rs`

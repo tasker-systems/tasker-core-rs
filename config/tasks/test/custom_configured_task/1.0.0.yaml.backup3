@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -70,4 +70,4 @@ environments:
   test:
     task_handler:
     steps: []
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/custom_configured_task/1.0.0.yaml"
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/custom_configured_task/1.0.0.yaml"

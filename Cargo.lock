@@ -4099,7 +4099,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tasker-core-rs"
+name = "tasker-core"
 version = "0.1.0"
 dependencies = [
  "serde_json",

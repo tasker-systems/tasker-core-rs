@@ -55,7 +55,7 @@
 //! ```rust
 //! use tasker_shared::config::TaskerConfig;
 //!
-//! // Initialize configuration for tasker-core-rs
+//! // Initialize configuration for tasker-core
 //! let config = TaskerConfig::default();
 //!
 //! // Configuration provides database settings

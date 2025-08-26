@@ -564,14 +564,14 @@ jobs:
           key: ruby-bindings
           workspaces: |
             . -> target
-            bindings/ruby -> target
+            workers/ruby -> target
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
           bundler-cache: true
-          working-directory: bindings/ruby
+          working-directory: workers/ruby
 
       - name: Install system dependencies
         run: |
@@ -591,12 +591,12 @@ jobs:
 
       - name: Build Ruby extension
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake compile
 
       - name: Run Ruby tests
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rspec spec/ --format documentation
 
   # Final status check

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# code_check.sh - Comprehensive code quality check for tasker-core-rs
+# code_check.sh - Comprehensive code quality check for tasker-core
 # This script runs formatting, linting, and documentation checks with detailed feedback
 #
 # Usage:
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "$SHOW_HELP" = true ]; then
-    echo "Code Quality Check for tasker-core-rs"
+    echo "Code Quality Check for tasker-core"
     echo ""
     echo "Usage:"
     echo "  $0              Check code quality (format, lint, docs)"
@@ -82,7 +82,7 @@ fi
 
 # Define Rust project paths in our monorepo
 MAIN_RUST_PROJECT="."
-RUBY_EXT_RUST_PROJECT="bindings/ruby/ext/tasker_core"
+RUBY_EXT_RUST_PROJECT="workers/ruby/ext/tasker_core"
 RUST_PROJECTS=("$MAIN_RUST_PROJECT")
 
 # Check if Ruby extension exists and add it to projects list
@@ -95,9 +95,9 @@ run_cargo_in_project() {
     local project_dir="$1"
     local cargo_cmd="$2"
     local description="$3"
-    
+
     echo -e "  ${YELLOW}→${NC} Checking $description in ${BLUE}${project_dir}${NC}..."
-    
+
     if [[ "$project_dir" == "." ]]; then
         eval "$cargo_cmd"
     else
@@ -112,7 +112,7 @@ BENCH_PASSED=0
 DOC_PASSED=0
 OVERALL_SUCCESS=1
 
-print_header "Code Quality Check for tasker-core-rs Monorepo"
+print_header "Code Quality Check for tasker-core Monorepo"
 echo -e "This script will check code formatting, run linter, check benchmark compilation, and generate documentation."
 echo -e "Checking ${#RUST_PROJECTS[@]} Rust project(s): ${RUST_PROJECTS[*]}\n"
 
@@ -154,7 +154,7 @@ for project in "${RUST_PROJECTS[@]}"; do
     else
         clippy_cmd="cargo clippy --all-targets --all-features -- -D warnings"
     fi
-    
+
     if ! run_cargo_in_project "$project" "$clippy_cmd" "linting"; then
         print_error "Clippy found linting issues in $project"
         print_warning "Review the warnings above and fix them before committing"

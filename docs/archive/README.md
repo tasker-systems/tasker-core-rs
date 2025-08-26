@@ -2,11 +2,11 @@
 
 ## Overview
 
-This archive contains consolidated documentation from multiple architectural iterations of tasker-core-rs. These documents preserve valuable strategic insights, technical lessons learned, and proven methodologies while removing obsolete implementation details.
+This archive contains consolidated documentation from multiple architectural iterations of tasker-core. These documents preserve valuable strategic insights, technical lessons learned, and proven methodologies while removing obsolete implementation details.
 
 ## Current Architecture Context
 
-**tasker-core-rs** has evolved through several major architectural phases:
+**tasker-core** has evolved through several major architectural phases:
 - **ZeroMQ pub-sub** → **TCP command architecture** → **pgmq (PostgreSQL message queues)**
 
 The current production architecture uses **pgmq** for queue-based workflow orchestration with autonomous Ruby workers. These archived documents contain insights that remain valuable regardless of the underlying messaging architecture.
@@ -14,18 +14,18 @@ The current production architecture uses **pgmq** for queue-based workflow orche
 ## Document Guide
 
 ### 📐 [Architectural Evolution](./architectural-evolution.md)
-**Purpose**: Strategic insights from the ZeroMQ → TCP → pgmq evolution  
-**Audience**: Senior engineers and architects making architectural decisions  
+**Purpose**: Strategic insights from the ZeroMQ → TCP → pgmq evolution
+**Audience**: Senior engineers and architects making architectural decisions
 **Key Value**: Lessons learned about distributed system design trade-offs
 
-**When to Read**: 
+**When to Read**:
 - Planning architectural changes
 - Evaluating messaging patterns
 - Understanding why pgmq was chosen over alternatives
 
-### 🔄 [Orchestration Principles](./orchestration-principles.md) 
-**Purpose**: Fundamental workflow orchestration concepts and patterns  
-**Audience**: Engineers building workflow management systems  
+### 🔄 [Orchestration Principles](./orchestration-principles.md)
+**Purpose**: Fundamental workflow orchestration concepts and patterns
+**Audience**: Engineers building workflow management systems
 **Key Value**: Architecture-agnostic principles for robust orchestration
 
 **When to Read**:
@@ -35,8 +35,8 @@ The current production architecture uses **pgmq** for queue-based workflow orche
 - Building event-driven orchestration systems
 
 ### 🧪 [Testing Methodologies](./testing-methodologies.md)
-**Purpose**: Comprehensive testing strategies for complex orchestration systems  
-**Audience**: Engineers building and maintaining orchestration platforms  
+**Purpose**: Comprehensive testing strategies for complex orchestration systems
+**Audience**: Engineers building and maintaining orchestration platforms
 **Key Value**: Proven testing patterns that ensure reliability and maintainability
 
 **When to Read**:
@@ -47,8 +47,8 @@ The current production architecture uses **pgmq** for queue-based workflow orche
 - Designing integration test suites
 
 ### ⚡ [Performance Optimization](./performance-optimization.md)
-**Purpose**: Performance targets, analysis, and optimization strategies  
-**Audience**: Engineers optimizing production orchestration systems  
+**Purpose**: Performance targets, analysis, and optimization strategies
+**Audience**: Engineers optimizing production orchestration systems
 **Key Value**: Concrete metrics and optimization techniques for high-scale performance
 
 **When to Read**:
@@ -59,8 +59,8 @@ The current production architecture uses **pgmq** for queue-based workflow orche
 - Planning capacity and scaling
 
 ### 🔗 [Ruby Integration Lessons](./ruby-integration-lessons.md)
-**Purpose**: FFI design patterns and hard-won insights from Ruby-Rust integration  
-**Audience**: Engineers implementing cross-language orchestration systems  
+**Purpose**: FFI design patterns and hard-won insights from Ruby-Rust integration
+**Audience**: Engineers implementing cross-language orchestration systems
 **Key Value**: Production-proven patterns for successful FFI integration
 
 **When to Read**:
@@ -132,6 +132,6 @@ Each consolidated document follows these standards:
 
 ---
 
-**Archive Purpose**: Preserve strategic insights while removing implementation complexity  
-**Maintenance Model**: Preserve unchanged, create new docs for current architecture  
+**Archive Purpose**: Preserve strategic insights while removing implementation complexity
+**Maintenance Model**: Preserve unchanged, create new docs for current architecture
 **Last Updated**: August 2025

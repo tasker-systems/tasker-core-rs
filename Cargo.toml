@@ -1,23 +1,24 @@
 [workspace]
 members = [
-    ".",                             # Current crate temporarily remains during migration
+    ".",                            # Current crate temporarily remains during migration
     "tasker-shared",
     "tasker-orchestration",
     "tasker-worker",
     "pgmq-notify",
-    "bindings/ruby/ext/tasker_core",
-    # "bindings/python",  # Future
-    # "bindings/wasm",    # Future
+    "workers/ruby/ext/tasker_core",
+    # "workers/rust",    # Future
+    # "workers/python",  # Future
+    # "workers/wasm",    # Future
 ]
 
 [package]
-name = "tasker-core-rs"
+name = "tasker-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 description = "High-performance Rust core for workflow orchestration, designed to complement the Rails Tasker engine"
 license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core-rs"
+repository = "https://github.com/tasker-systems/tasker-core"
 keywords = ["workflow", "orchestration", "task", "async", "performance"]
 categories = ["concurrency", "database", "web-programming"]
 readme = "README.md"

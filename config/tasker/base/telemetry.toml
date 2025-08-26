@@ -1,6 +1,6 @@
 [telemetry]
 enabled = false
-service_name = "tasker-core-rs"
+service_name = "tasker-core"
 sample_rate = 1.0
 
 [health]

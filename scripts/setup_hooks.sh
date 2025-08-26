@@ -92,9 +92,9 @@ echo "✅ Compilation check passed"
 
 # FFI Validation (Ruby bindings)
 echo "🔗 Checking FFI Ruby bindings..."
-if [ -d "bindings/ruby" ]; then
+if [ -d "workers/ruby" ]; then
     echo "🔧 Checking Ruby extension compilation..."
-    cd bindings/ruby
+    cd workers/ruby
     if command -v bundle &> /dev/null; then
         if [ -f "Gemfile" ]; then
             # Check if bundler is ready
@@ -106,7 +106,7 @@ if [ -d "bindings/ruby" ]; then
             # Check Ruby extension compilation
             if ! bundle exec rake compile > /dev/null 2>&1; then
                 echo "❌ Ruby extension compilation failed."
-                echo "   Run: cd bindings/ruby && bundle exec rake compile"
+                echo "   Run: cd workers/ruby && bundle exec rake compile"
                 exit 1
             fi
             echo "✅ Ruby extension compiles successfully"
@@ -163,14 +163,14 @@ echo "✅ Clippy checks passed"
 
 # FFI Comprehensive Testing (Ruby bindings)
 echo "🔗 Running FFI comprehensive tests..."
-if [ -d "bindings/ruby" ]; then
+if [ -d "workers/ruby" ]; then
     echo "🧪 Running Ruby gem CI checks..."
-    cd bindings/ruby
+    cd workers/ruby
     if [ -f "scripts/ci_check.sh" ]; then
         if ! ./scripts/ci_check.sh; then
             echo "❌ Ruby gem CI checks failed."
             echo "   This simulates what would happen in GitHub Actions"
-            echo "   Run: cd bindings/ruby && ./scripts/ci_check.sh"
+            echo "   Run: cd workers/ruby && ./scripts/ci_check.sh"
             exit 1
         fi
         echo "✅ Ruby gem CI checks passed"

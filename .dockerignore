@@ -60,7 +60,7 @@ scripts/dev_*
 scripts/local_*
 
 # Ruby bindings (not needed for server deployment)
-bindings/ruby/
+workers/ruby/
 
 # Cargo registry cache
 .cargo/registry/

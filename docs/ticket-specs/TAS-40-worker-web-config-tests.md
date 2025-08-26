@@ -1,8 +1,8 @@
 # TAS-40 Worker Web API, Configuration Cleanup, and Test Modernization Plan
 
-**Status**: Planning Phase - UPDATED with Critical Integration Components  
-**Priority**: High  
-**Estimated Duration**: 3-4 weeks (Updated from 2-3 weeks)  
+**Status**: Planning Phase - UPDATED with Critical Integration Components
+**Priority**: High
+**Estimated Duration**: 3-4 weeks (Updated from 2-3 weeks)
 **Dependencies**: TAS-40 Command Pattern (Complete), Orchestration Web API Contract
 
 ## Executive Summary
@@ -20,7 +20,7 @@ This plan ensures the worker system has proper observability, the configuration 
 The plan now includes four essential components identified for production-ready worker implementation:
 
 1. **OrchestrationApiClient**: reqwest-based HTTP client for task initialization via POST /v1/tasks
-2. **Worker Bootstrap System**: Robust initialization following orchestration patterns but without embedded context  
+2. **Worker Bootstrap System**: Robust initialization following orchestration patterns but without embedded context
 3. **Task Template Management**: Registry and namespace queue management for distributed worker operation with event-driven step processing
 4. **FFI Shared Components Cleanup**: Analysis and cleanup of obsolete tasker-orchestration/src/ffi/shared components
 
@@ -30,11 +30,11 @@ The plan now includes four essential components identified for production-ready 
 
 ## Phase 1: Worker Web API Implementation
 
-**Duration**: 1.5-2 weeks (Updated from 1 week)  
-**Template Reference**: `docs/ticket-specs/TAS-40-updated.md` lines 1146-1226  
-**Pattern Reference**: `tasker-orchestration/src/web/`  
-**API Reference**: `tasker-orchestration/src/web/handlers/tasks.rs` (POST /v1/tasks endpoint)  
-**Bootstrap Reference**: `bindings/ruby/lib/tasker_core/boot.rb` (Ruby bootstrap patterns)
+**Duration**: 1.5-2 weeks (Updated from 1 week)
+**Template Reference**: `docs/ticket-specs/TAS-40-updated.md` lines 1146-1226
+**Pattern Reference**: `tasker-orchestration/src/web/`
+**API Reference**: `tasker-orchestration/src/web/handlers/tasks.rs` (POST /v1/tasks endpoint)
+**Bootstrap Reference**: `workers/ruby/lib/tasker_core/boot.rb` (Ruby bootstrap patterns)
 
 ### 1.1 Core Web Module Structure
 
@@ -149,7 +149,7 @@ health_check_interval_seconds = 30
 
 ### 1.5 OrchestrationApiClient Implementation
 
-**Purpose**: HTTP client for task initialization via orchestration web API  
+**Purpose**: HTTP client for task initialization via orchestration web API
 **Pattern Reference**: `tasker-orchestration/tests/web/test_infrastructure.rs` (WebTestClient patterns)
 
 #### 1.5.1 Core Client Structure (`tasker-worker/src/orchestration/api_client.rs`)
@@ -174,7 +174,7 @@ impl OrchestrationApiClient {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
-        
+
         Ok(Self {
             client,
             base_url,
@@ -190,13 +190,13 @@ impl OrchestrationApiClient {
         task_request: TaskRequest,
     ) -> Result<TaskCreationResponse, ClientError> {
         let url = format!("{}/v1/tasks", self.base_url);
-        
+
         let mut request_builder = self.client.post(&url).json(&task_request);
-        
+
         if let Some(token) = &self.auth_token {
             request_builder = request_builder.bearer_auth(token);
         }
-        
+
         // Implement retry logic with exponential backoff
         self.execute_with_retry(request_builder).await
     }
@@ -244,8 +244,8 @@ impl OrchestrationApiClient {
 
 ### 1.6 Worker Bootstrap System
 
-**Purpose**: Robust worker initialization following orchestration patterns but without embedded context  
-**Pattern Reference**: `bindings/ruby/lib/tasker_core/boot.rb` and `tasker-orchestration/src/orchestration/core.rs`
+**Purpose**: Robust worker initialization following orchestration patterns but without embedded context
+**Pattern Reference**: `workers/ruby/lib/tasker_core/boot.rb` and `tasker-orchestration/src/orchestration/core.rs`
 
 #### 1.6.1 Bootstrap Sequence (`tasker-worker/src/bootstrap/mod.rs`)
 ```rust
@@ -266,25 +266,25 @@ impl WorkerBootstrap {
         // Step 1: Load configuration using ConfigManager (no embedded context)
         let config_manager = ConfigManager::load()?;
         let config = config_manager.config().clone();
-        
+
         // Step 2: Initialize database connection (queue operations only)
         let database_pool = Self::create_database_pool(&config).await?;
-        
+
         // Step 3: Discover and load task templates
         let task_template_registry = Self::initialize_task_templates(
             &database_pool,
             &config
         ).await?;
-        
+
         // Step 4: Initialize OrchestrationApiClient
         let api_client = Self::create_api_client(&config)?;
-        
+
         // Step 5: Initialize namespace queues
         Self::initialize_namespace_queues(
             &database_pool,
             &task_template_registry
         ).await?;
-        
+
         Ok(WorkerBootstrap {
             config,
             database_pool: Arc::new(database_pool),
@@ -309,14 +309,14 @@ impl WorkerBootstrap {
 - **Extensive Database Access**: Workers query database extensively and use SQL functions
 - **Step State Machine**: Workers claim steps via state machine transitions (step_state_machine.rs)
 - **Step Results**: Workers write step results through workflow_step.rs
-- **API-First**: Always uses OrchestrationApiClient for task initialization  
+- **API-First**: Always uses OrchestrationApiClient for task initialization
 - **Namespace Focus**: Bootstrap focuses on namespace queue management
 - **Distributed Architecture**: Designed for multi-worker coordination
 
 ### 1.7 Task Template Management
 
-**Purpose**: Registry and namespace queue management for distributed worker operation  
-**Shared Components**: Uses `tasker-shared/src/registry/task_handler_registry.rs` and `tasker-shared/src/models/core/task_template.rs`  
+**Purpose**: Registry and namespace queue management for distributed worker operation
+**Shared Components**: Uses `tasker-shared/src/registry/task_handler_registry.rs` and `tasker-shared/src/models/core/task_template.rs`
 **Event Pattern**: Uses `tasker-worker/src/command_processor.rs` event-driven architecture for non-blocking step execution
 
 #### 1.7.1 Task Template Registry (`tasker-worker/src/templates/registry.rs`)
@@ -343,18 +343,18 @@ impl WorkerTaskTemplateRegistry {
     pub async fn initialize(database_pool: PgPool) -> Result<Self, RegistryError> {
         // Use shared TaskHandlerRegistry for database operations
         let shared_registry = TaskHandlerRegistry::new(database_pool);
-        
+
         // Discover task templates from local config paths during bootstrapping
         // Register them via shared_registry to database
         // Track locally which ones this worker supports
-        
+
         Ok(Self {
             shared_registry,
             supported_templates: Arc::new(RwLock::new(HashMap::new())),
             namespace_queues: Arc::new(RwLock::new(HashMap::new())),
         })
     }
-    
+
     /// Check if worker can handle a step using task.rs:793 "for orchestration" pattern
     pub async fn can_handle_step(&self, step_message: &SimpleStepMessage) -> Result<bool, RegistryError> {
         // Use tasker_shared::models::core::task.rs:793 "for orchestration" pattern
@@ -362,16 +362,16 @@ impl WorkerTaskTemplateRegistry {
         // Extract task's namespace/name/version
         // Check if this combination is in local supported_templates
         let task = Task::find_by_uuid(&self.shared_registry.db_pool, step_message.task_uuid).await?;
-        
+
         let template_key = format!("{}/{}/{}", task.namespace, task.name, task.version);
         let supported = self.supported_templates
             .read()
             .unwrap()
             .contains_key(&template_key);
-        
+
         Ok(supported)
     }
-    
+
     /// Register task template from local config path
     pub async fn register_from_config(&self, config_path: &str) -> Result<(), RegistryError> {
         // Load TaskTemplate from config file
@@ -393,10 +393,10 @@ impl TaskTemplateRegistry {
     ) -> Result<(), RegistryError> {
         for namespace in discovered_namespaces {
             let queue_name = format!("{}_queue", namespace);
-            
+
             // Create queue if it doesn't exist
             pgmq_client.create_queue(&queue_name).await?;
-            
+
             // Register mapping
             self.namespace_queues
                 .write()
@@ -431,20 +431,20 @@ impl WorkerTaskService {
         if !self.template_registry.can_handle_step(&step_message).await? {
             return Ok(StepClaimResult::UnsupportedStep);
         }
-        
+
         // 2. Load WorkflowStep from database
         let workflow_step = WorkflowStep::find_by_uuid(
-            &self.database_pool, 
+            &self.database_pool,
             step_message.step_uuid
         ).await?;
-        
+
         // 3. Create step state machine for claiming
         let mut step_sm = StepStateMachine::new(
             workflow_step,
             self.database_pool.clone(),
             self.event_publisher.clone(),
         );
-        
+
         // 4. Transition to InProgress (claims the step atomically)
         match step_sm.transition(StepEvent::Start).await {
             Ok(_) => {
@@ -459,7 +459,7 @@ impl WorkerTaskService {
             Err(e) => Err(ServiceError::StepClaimError(e.to_string()))
         }
     }
-    
+
     /// Publish step execution event to in-process event system (non-blocking)
     /// Step handlers will receive this event and execute asynchronously
     async fn publish_step_execution_event(
@@ -469,19 +469,19 @@ impl WorkerTaskService {
         // Use in-process event publishing as described in TAS-40-command-pattern.md
         // This publishes to the event system where FFI handlers listen
         // Handlers execute asynchronously and publish completion events back
-        
+
         let event = StepExecutionEvent {
             step_uuid: step_message.step_uuid,
             task_uuid: step_message.task_uuid,
             step_payload: self.build_step_payload(step_message).await?,
             execution_context: self.build_execution_context(step_message).await?,
         };
-        
+
         self.event_publisher.publish_step_execution(event).await?;
-        
+
         Ok(())
     }
-    
+
     /// Handle step completion event from FFI handlers (event-driven)
     pub async fn handle_step_completion(
         &self,
@@ -489,25 +489,25 @@ impl WorkerTaskService {
     ) -> Result<(), ServiceError> {
         // Load WorkflowStep and transition to Complete via state machine
         let workflow_step = WorkflowStep::find_by_uuid(
-            &self.database_pool, 
+            &self.database_pool,
             completion_event.step_uuid
         ).await?;
-        
+
         let mut step_sm = StepStateMachine::new(
             workflow_step,
             self.database_pool.clone(),
             self.event_publisher.clone(),
         );
-        
+
         // Write step results and transition to Complete
         let event = if completion_event.success {
             StepEvent::Complete(completion_event.result)
         } else {
             StepEvent::Fail(completion_event.error)
         };
-        
+
         step_sm.transition(event).await?;
-        
+
         Ok(())
     }
 }
@@ -522,7 +522,7 @@ impl WorkerTaskService {
         // Get task template via shared registry
         let template = self.template_registry.shared_registry
             .get_task_template(namespace, task_name, "1.0.0").await?;
-        
+
         // Create TaskRequest using shared types
         let task_request = TaskRequest {
             namespace: namespace.to_string(),
@@ -531,7 +531,7 @@ impl WorkerTaskService {
             context,
             // ... other fields
         };
-        
+
         // Send to orchestration via API
         self.api_client.initialize_task(task_request).await
     }
@@ -613,14 +613,14 @@ The `WorkerTaskTemplateRegistry` should wrap this existing functionality rather 
 
 Create `tasker-worker/tests/web/` with expanded coverage:
 - Health endpoint tests
-- Metrics endpoint tests  
+- Metrics endpoint tests
 - Authentication tests (when enabled)
 - Load testing for high-throughput scenarios
 - **NEW**: OrchestrationApiClient integration tests
 - **NEW**: Task template registry tests with shared components
 - **NEW**: Bootstrap system tests
 - **NEW**: Step claiming and event publishing tests (non-blocking pattern)
-- **NEW**: Event-driven step completion handling tests  
+- **NEW**: Event-driven step completion handling tests
 - **NEW**: Integration with existing WorkerProcessor command pattern
 - **NEW**: Task template registry integration with step claiming
 - **NEW**: State machine integration tests (claiming, result writing via events)
@@ -633,8 +633,8 @@ Create `tasker-worker/tests/web/` with expanded coverage:
 
 ## Phase 2: Configuration Audit and Cleanup
 
-**Duration**: 1.5 weeks (Updated from 1 week)  
-**Current State**: Component-based TOML with environment overrides  
+**Duration**: 1.5 weeks (Updated from 1 week)
+**Current State**: Component-based TOML with environment overrides
 **Target State**: Clean configuration aligned with command pattern architecture **PLUS FFI shared components cleanup**
 
 ### 2.1 Configuration Files Analysis
@@ -659,7 +659,7 @@ Create `tasker-worker/tests/web/` with expanded coverage:
   command_buffer_size = 1000
   command_timeout_ms = 30000
   max_concurrent_commands = 100
-  
+
   [event_integration]
   publisher_buffer_size = 1000
   subscriber_buffer_size = 1000
@@ -728,7 +728,7 @@ pub struct EventsConfig {
 
 ### 2.4 FFI Shared Components Evaluation
 
-**Purpose**: Analysis and cleanup of `tasker-orchestration/src/ffi/shared` components  
+**Purpose**: Analysis and cleanup of `tasker-orchestration/src/ffi/shared` components
 **Target**: Remove obsolete FFI components, extract useful patterns for pure Rust worker
 
 #### 2.4.1 Components Analysis
@@ -807,7 +807,7 @@ impl WorkerDatabaseUtils {
         // Sequential database setup following ffi/shared patterns
         // But using pure Rust error handling and type safety
     }
-    
+
     pub async fn cleanup_test_environment(&self) -> Result<(), TestError> {
         // Test cleanup without FFI dependencies
     }
@@ -828,7 +828,7 @@ impl WorkerTestingFactory {
     pub async fn create_test_task_request(&self, namespace: &str) -> TaskRequest {
         // Create test TaskRequest without FFI types
     }
-    
+
     pub async fn create_test_namespace(&self, name: &str) -> Result<(), TestError> {
         // Create test namespace and queue
     }
@@ -838,7 +838,7 @@ impl WorkerTestingFactory {
 #### 2.4.3 FFI Cleanup Implementation Plan
 
 1. **Phase 2.4.1**: Create pure Rust worker testing utilities (2 days)
-2. **Phase 2.4.2**: Update worker tests to use new testing infrastructure (1 day)  
+2. **Phase 2.4.2**: Update worker tests to use new testing infrastructure (1 day)
 3. **Phase 2.4.3**: Delete obsolete FFI shared files (1 day)
 4. **Phase 2.4.4**: Update imports and module references (1 day)
 
@@ -846,8 +846,8 @@ impl WorkerTestingFactory {
 
 ## Phase 3: Test Suite Modernization
 
-**Duration**: 1-2 weeks  
-**Current State**: Mixed legacy and modern tests across three crates  
+**Duration**: 1-2 weeks
+**Current State**: Mixed legacy and modern tests across three crates
 **Target State**: Comprehensive test coverage aligned with command pattern architecture
 
 ### 3.1 Test Directory Analysis and Recommendations
@@ -919,8 +919,8 @@ tasker-worker/tests/
 
 ### 3.2 Root-Level Integration Tests (Future)
 
-**Location**: `tests/` (project root)  
-**Purpose**: Full system integration tests combining orchestration and worker  
+**Location**: `tests/` (project root)
+**Purpose**: Full system integration tests combining orchestration and worker
 **Status**: Deferred until event-driven architecture migration and pg_notify implementation complete
 
 **Planned Structure**:
@@ -1000,7 +1000,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
   // Pattern: Sequential database setup with safety checks
   async fn setup_worker_test_database(pool: &PgPool) -> Result<(), TestError> {
       // 1. Terminate existing connections
-      // 2. Drop and recreate schema  
+      // 2. Drop and recreate schema
       // 3. Run migrations
       // 4. Validate setup
   }
@@ -1013,7 +1013,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
   pub struct WorkerTestFactory {
       orchestration_core: Arc<OrchestrationCore>,
   }
-  
+
   impl WorkerTestFactory {
       pub async fn create_test_step_message(&self, input: TestStepInput) -> Result<StepMessage, TestError>
       pub async fn create_test_foundation(&self, namespace: &str) -> Result<TestFoundation, TestError>
@@ -1030,7 +1030,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
           // Validate database URL contains 'test'
           // Ensure test-specific configuration
       }
-      
+
       pub async fn cleanup_test_data(&self) -> Result<(), TestError> {
           // Clean tables in proper order
           // Reset sequences
@@ -1071,7 +1071,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
 **🆕 Advanced Worker Testing**
 - [ ] Create `tasker-worker/tests/integration/`
   - [ ] `step_claiming_tests.rs` - Step claiming and event publishing tests (non-blocking pattern)
-  - [ ] `event_driven_completion_tests.rs` - Event-driven step completion handling tests  
+  - [ ] `event_driven_completion_tests.rs` - Event-driven step completion handling tests
   - [ ] `worker_processor_integration_tests.rs` - Integration with existing WorkerProcessor command pattern
   - [ ] `state_machine_integration_tests.rs` - State machine integration tests (claiming, result writing via events)
   - [ ] `database_interaction_tests.rs` - Database interaction tests (SQL functions, step results via state transitions)
@@ -1083,7 +1083,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
 
 **Phase 3.1: Clean Up Obsolete Tests** (Days 1-2)
 - [ ] Remove obsolete orchestration tests from tasker-orchestration/tests
-- [ ] Update tasker-orchestration/tests/mod.rs module declarations  
+- [ ] Update tasker-orchestration/tests/mod.rs module declarations
 - [ ] Remove obsolete configuration tests
 - [ ] Update imports and references
 
@@ -1151,7 +1151,7 @@ Based on depth-and-breadth analysis of existing test suites, here's the detailed
 - Current component-based configuration system (Complete)
 - Event system implementation (Complete)
 - **NEW**: Orchestration Web API contract understanding (POST /v1/tasks endpoint)
-- **NEW**: Ruby bootstrap patterns analysis (bindings/ruby/lib/tasker_core/boot.rb)
+- **NEW**: Ruby bootstrap patterns analysis (workers/ruby/lib/tasker_core/boot.rb)
 - **NEW**: TaskRequest/TaskCreationResponse type definitions
 - **NEW**: Access to running orchestration instance for API client testing
 
@@ -1216,15 +1216,15 @@ After completion of this plan:
 
 ---
 
-**Document Version**: 2.0 - COMPREHENSIVE UPDATE  
-**Last Updated**: 2025-08-25  
-**Review Status**: Ready for Implementation with Critical Integration Components  
+**Document Version**: 2.0 - COMPREHENSIVE UPDATE
+**Last Updated**: 2025-08-25
+**Review Status**: Ready for Implementation with Critical Integration Components
 
 ## Changelog
 
 ### Version 2.0 - Critical Integration Components Added
 - **Added**: OrchestrationApiClient implementation (Section 1.5)
-- **Added**: Worker Bootstrap System (Section 1.6)  
+- **Added**: Worker Bootstrap System (Section 1.6)
 - **Added**: Task Template Management (Section 1.7)
 - **Added**: FFI Shared Components Evaluation and Cleanup (Section 2.4)
 - **Updated**: Timeline extended from 2-3 weeks to 3-4 weeks

@@ -134,7 +134,7 @@ validate_all_workspaces() {
     # Format: "path:name"
     local workspaces=(
         ".:Main Core"
-        "bindings/ruby/ext/tasker_core:Ruby Extension"
+        "workers/ruby/ext/tasker_core:Ruby Extension"
     )
 
     # Validate each workspace
@@ -186,7 +186,7 @@ auto_fix_formatting() {
 
     local workspaces=(
         ".:Main Core"
-        "bindings/ruby/ext/tasker_core:Ruby Extension"
+        "workers/ruby/ext/tasker_core:Ruby Extension"
     )
 
     for workspace_config in "${workspaces[@]}"; do

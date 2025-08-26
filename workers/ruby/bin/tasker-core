@@ -1,0 +1,193 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# TaskerCore CLI - Command line interface for TaskerCore diagnostics and utilities
+#
+# This executable provides access to TaskerCore's diagnostic and utility functions
+# without requiring a full application setup.
+#
+# Usage:
+#   bundle exec tasker-core diagnose          # Run full diagnostics
+#   bundle exec tasker-core diagnose config   # Check configuration only
+#   bundle exec tasker-core diagnose docs     # Generate documentation
+#   bundle exec tasker-core version           # Show version information
+
+require 'bundler/setup'
+require 'optparse'
+
+# Add lib directory to load path
+lib_path = File.expand_path('../lib', __dir__)
+$LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
+
+# Load environment variables if .env file exists
+begin
+  require 'dotenv'
+  env_file = File.expand_path('../../.env', __dir__)
+  Dotenv.load(env_file) if File.exist?(env_file)
+rescue LoadError
+  # dotenv not available, continue without it
+end
+
+def show_version
+  puts 'TaskerCore CLI'
+  puts 'Version: 1.0.0'
+  puts 'Rust Project: tasker-core'
+  puts "Ruby Bindings: #{RUBY_VERSION}"
+  puts
+end
+
+def show_help
+  puts <<~HELP
+    TaskerCore CLI - Diagnostics and Utilities
+
+    USAGE:
+        tasker-core <command> [options]
+
+    COMMANDS:
+        diagnose           Run comprehensive diagnostics
+        diagnose config    Check configuration only
+        diagnose docs      Generate configuration documentation
+        version            Show version information
+        help               Show this help message
+
+    GLOBAL OPTIONS:
+        -v, --verbose      Enable verbose output
+        -q, --quiet        Suppress non-essential output
+        -e, --env ENV      Set environment (development, test, production)
+        -h, --help         Show help
+
+    EXAMPLES:
+        # Run full diagnostic suite
+        bundle exec tasker-core diagnose
+
+        # Check only configuration
+        bundle exec tasker-core diagnose config
+
+        # Generate documentation
+        bundle exec tasker-core diagnose docs
+
+    ENVIRONMENT VARIABLES:
+        TASKER_ENV         Set TaskerCore environment
+        RAILS_ENV          Alternative environment setting
+        DATABASE_URL       Database connection string
+
+    For more information, visit: https://github.com/your-org/tasker-core
+  HELP
+end
+
+def setup_environment(options)
+  # Set environment if specified
+  ENV['TASKER_ENV'] = options[:environment] if options[:environment]
+
+  # Set logging level based on verbosity
+  if options[:verbose]
+    ENV['TASKER_LOG_LEVEL'] = 'DEBUG'
+  elsif options[:quiet]
+    ENV['TASKER_LOG_LEVEL'] = 'ERROR'
+  end
+end
+
+def load_tasker_core
+  require 'tasker_core'
+  require 'tasker_core/cli/diagnostics'
+  true
+rescue LoadError => e
+  puts '❌ Failed to load TaskerCore:'
+  puts "   #{e.message}"
+  puts
+  puts "Make sure you're in the correct directory and dependencies are installed:"
+  puts '   bundle install'
+  puts
+  false
+rescue StandardError => e
+  puts '❌ Error loading TaskerCore:'
+  puts "   #{e.class}: #{e.message}"
+  puts
+  if ENV['TASKER_LOG_LEVEL'] == 'DEBUG'
+    puts 'Backtrace:'
+    e.backtrace.first(10).each { |line| puts "   #{line}" }
+    puts
+  end
+  false
+end
+
+def run_diagnose_command(subcommand, options)
+  return false unless load_tasker_core
+
+  case subcommand
+  when 'config'
+    TaskerCore::CLI::Diagnostics.run_config_check
+  when 'docs'
+    TaskerCore::CLI::Diagnostics.generate_config_docs
+  else
+    TaskerCore::CLI::Diagnostics.run_full_diagnostics
+  end
+  true
+rescue StandardError => e
+  puts '❌ Diagnostics failed:'
+  puts "   #{e.class}: #{e.message}"
+  puts
+  if options[:verbose]
+    puts 'Backtrace:'
+    e.backtrace.first(15).each { |line| puts "   #{line}" }
+    puts
+  end
+  false
+end
+
+# Parse command line arguments
+options = {}
+subcommand = nil
+
+OptionParser.new do |opts|
+  opts.banner = 'Usage: tasker-core <command> [options]'
+
+  opts.on('-v', '--verbose', 'Enable verbose output') do
+    options[:verbose] = true
+  end
+
+  opts.on('-q', '--quiet', 'Suppress non-essential output') do
+    options[:quiet] = true
+  end
+
+  opts.on('-e', '--env ENV', 'Set environment') do |env|
+    options[:environment] = env
+  end
+
+  opts.on('-h', '--help', 'Show help') do
+    show_help
+    exit 0
+  end
+end.parse!
+
+# Extract command and subcommand
+command = ARGV.shift
+subcommand = ARGV.shift if command == 'diagnose'
+
+# Handle empty command
+if command.nil?
+  show_help
+  exit 1
+end
+
+# Setup environment based on options
+setup_environment(options)
+
+# Execute commands
+success = case command
+          when 'version'
+            show_version
+            true
+          when 'help', '--help', '-h'
+            show_help
+            true
+          when 'diagnose'
+            run_diagnose_command(subcommand, options)
+          else
+            puts "❌ Unknown command: #{command}"
+            puts
+            show_help
+            false
+          end
+
+exit success ? 0 : 1

@@ -208,7 +208,7 @@ pub trait AmqpExtensions: MessagingService {
 
     /// Check if provider supports push notifications (should always be true per TAS-43)
     fn supports_push_notifications(&self) -> bool { true }
-    
+
     /// Get notification channel pattern for this provider
     /// PGMQ: "pgmq_message_ready.{namespace}" (from pgmq-notify crate)
     /// AMQP: Direct consumer stream
@@ -1889,7 +1889,7 @@ impl BaseExecutor {
 Create Ruby-side abstraction matching the Rust traits:
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/message_service.rb
+# workers/ruby/lib/tasker_core/services/message_service.rb
 module TaskerCore
   module Services
     # Base message service interface
@@ -2024,7 +2024,7 @@ end
 ### 3.2 Provider-Specific Ruby Implementations
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/pgmq_message_service.rb
+# workers/ruby/lib/tasker_core/services/pgmq_message_service.rb
 module TaskerCore
   module Services
     class PgmqMessageService < MessageService
@@ -2109,7 +2109,7 @@ end
 ```
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/rabbitmq_message_service.rb
+# workers/ruby/lib/tasker_core/services/rabbitmq_message_service.rb
 module TaskerCore
   module Services
     class RabbitMqMessageService < MessageService
@@ -2827,7 +2827,7 @@ jobs:
 
 ### Overview
 
-The integration test suite in `bindings/ruby/spec/integration/` must validate that both PGMQ and RabbitMQ messaging providers deliver identical workflow execution behavior. This section defines the comprehensive strategy for ensuring provider compatibility without duplicating test code.
+The integration test suite in `workers/ruby/spec/integration/` must validate that both PGMQ and RabbitMQ messaging providers deliver identical workflow execution behavior. This section defines the comprehensive strategy for ensuring provider compatibility without duplicating test code.
 
 ### Test Matrix Strategy
 
@@ -3007,12 +3007,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake db:migrate
 
       - name: Compile Ruby Extension
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake compile
 
       - name: Run Integration Tests
@@ -3022,7 +3022,7 @@ jobs:
           RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/tasker
           TASKER_ENV: test
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rspec spec/integration/${{ matrix.test-suite }}_integration_spec.rb \
             --format documentation \
             --format RspecJunitFormatter --out results/${{ matrix.messaging-provider }}-${{ matrix.test-suite }}.xml
@@ -3032,7 +3032,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: test-results-${{ matrix.messaging-provider }}-${{ matrix.test-suite }}
-          path: bindings/ruby/results/*.xml
+          path: workers/ruby/results/*.xml
 ```
 
 ### Test Implementation Patterns

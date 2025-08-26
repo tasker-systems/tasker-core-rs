@@ -175,7 +175,7 @@ pub async fn run_continuous(&self) -> Result<ContinuousOrchestrationSummary> {
 
 ### Phase 3: Autonomous Worker Processing
 
-**Components**: Ruby Queue Workers (`bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`)
+**Components**: Ruby Queue Workers (`workers/ruby/lib/tasker_core/messaging/queue_worker.rb`)
 **Queues**: `{namespace}_queue` (e.g., `fulfillment_queue`, `inventory_queue`)
 
 ```ruby
@@ -319,10 +319,10 @@ Workers can provide rich metadata to orchestration for intelligent backoff decis
 
 | Component     | File                                                      | Purpose                                    |
 | ------------- | --------------------------------------------------------- | ------------------------------------------ |
-| QueueWorker   | `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb` | Base worker polling and message processing |
-| PgmqClient    | `bindings/ruby/lib/tasker_core/messaging/pgmq_client.rb`  | Ruby pgmq queue operations                 |
-| StepMessage   | `bindings/ruby/lib/tasker_core/types/step_message.rb`     | Step message type definitions              |
-| Step Handlers | `bindings/ruby/spec/handlers/examples/*/step_handlers/`   | Example business logic handlers            |
+| QueueWorker   | `workers/ruby/lib/tasker_core/messaging/queue_worker.rb` | Base worker polling and message processing |
+| PgmqClient    | `workers/ruby/lib/tasker_core/messaging/pgmq_client.rb`  | Ruby pgmq queue operations                 |
+| StepMessage   | `workers/ruby/lib/tasker_core/types/step_message.rb`     | Step message type definitions              |
+| Step Handlers | `workers/ruby/spec/handlers/examples/*/step_handlers/`   | Example business logic handlers            |
 
 ### Message Types
 

@@ -44,7 +44,7 @@ By putting the responsibility of persisting results of the step and the transiti
 ## System Analysis & Alignment
 
 ### Current System State (August 7, 2025)
-Based on analysis of the current tasker-core-rs implementation, this architectural change aligns well with the ongoing "Simple Message Implementation" phase:
+Based on analysis of the current tasker-core implementation, this architectural change aligns well with the ongoing "Simple Message Implementation" phase:
 
 **Current Strengths:**
 - ✅ **Workflow Pattern Standardization Complete**: All 20 step handlers across 5 workflows use consistent `sequence.get_results()` pattern
@@ -116,7 +116,7 @@ Since we're early in the project lifecycle, we can make breaking changes without
 - State constraint validation - Ensure transition tables accept `enqueued` as valid state
 
 #### 1.5 Update Ruby Constants
-**File**: `bindings/ruby/lib/tasker_core/constants.rb`
+**File**: `workers/ruby/lib/tasker_core/constants.rb`
 - Add `ENQUEUED = 'enqueued'` to `WorkflowStepStatuses` module
 - Update `STEP_TRANSITION_EVENT_MAP` with new transition mappings
 - Update validation arrays to include `enqueued` state
@@ -145,27 +145,27 @@ Since we're early in the project lifecycle, we can make breaking changes without
 **Objective**: Workers transition `enqueued → in_progress` and persist results directly
 
 #### 3.1 Add Worker State Transition Logic
-**File**: `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`
+**File**: `workers/ruby/lib/tasker_core/messaging/queue_worker.rb`
 - Add `claim_step_for_processing()` method to transition `enqueued → in_progress`
 - Add worker UUID and timestamp metadata to transition
 - Update `process_simple_step_message()` to claim step before processing
 - Add error handling for state transition failures
 
 #### 3.2 Add Result Persistence Logic
-**File**: `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`
+**File**: `workers/ruby/lib/tasker_core/messaging/queue_worker.rb`
 - Add `persist_step_results()` method to save results directly to database
 - Add `transition_step_to_complete()` for successful executions
 - Add `transition_step_to_retryable_error()` and `transition_step_to_permanent_error()` for failures
 - Update handler result processing to determine error type (retryable vs permanent)
 
 #### 3.3 Simplify Results Queue Messages
-**File**: `bindings/ruby/lib/tasker_core/messaging/queue_worker.rb`
+**File**: `workers/ruby/lib/tasker_core/messaging/queue_worker.rb`
 - Update `send_result_to_orchestration()` to send only completion signal
 - Remove result serialization from queue messages
 - Send simple message: `{step_uuid, task_uuid, completion_status}`
 
 #### 3.4 Add Step Handler Error Classification
-**File**: `bindings/ruby/lib/tasker_core/types/step_handler_call_result.rb`
+**File**: `workers/ruby/lib/tasker_core/types/step_handler_call_result.rb`
 - Add `error_type` field to distinguish retryable vs permanent errors
 - Add `max_retry_attempts` configuration
 - Add `backoff_metadata` for retry timing hints
@@ -197,14 +197,14 @@ Since we're early in the project lifecycle, we can make breaking changes without
 **Objective**: Ensure all integration tests pass with new state management
 
 #### 5.1 Update Integration Tests
-**Files**: `bindings/ruby/spec/integration/*_spec.rb`
+**Files**: `workers/ruby/spec/integration/*_spec.rb`
 - Update test expectations for new state transitions
 - Add test coverage for `enqueued` state
 - Add test coverage for worker state claiming
 - Add test coverage for direct result persistence
 
 #### 5.2 Update Factories
-**File**: `tasker-core-rs/tests/factories/`
+**File**: `tasker-core/tests/factories/`
 - Add `enqueued()` factory method for WorkflowStep
 - Update state transition factories
 - Add worker metadata factories for state transitions

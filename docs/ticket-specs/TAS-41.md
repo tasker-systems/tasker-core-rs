@@ -19,10 +19,10 @@ Create a standalone, production-ready Rust worker (`tasker-worker-rust/`) that l
 
 ## Current Ruby Workflow Patterns
 
-The Ruby implementation in `bindings/ruby/spec/handlers/examples/` provides these workflow patterns that must be replicated:
+The Ruby implementation in `workers/ruby/spec/handlers/examples/` provides these workflow patterns that must be replicated:
 
 ### Linear Workflow (`linear_workflow/`)
-- **Task Template**: `config/linear_workflow_handler.yaml` 
+- **Task Template**: `config/linear_workflow_handler.yaml`
 - **Handler**: Sequential step processing with dependency chains
 - **Steps**: `linear_step_1` → `linear_step_2` → `linear_step_3` → `linear_step_4`
 - **Pattern**: Simple sequential execution with step result passing
@@ -127,43 +127,43 @@ impl RustWorker {
     /// Create new Rust worker instance
     pub async fn new() -> Result<Self> {
         info!("🚀 Initializing RustWorker...");
-        
+
         // Initialize worker foundation
         let worker_core = Arc::new(WorkerCore::new().await?);
-        
+
         // Initialize handler registry with Rust implementations
         let handler_registry = Arc::new(HandlerRegistry::new().await?);
-        
+
         // Register native Rust execution with foundation
         worker_core.register_native_executor(Box::new(RustExecutor::new(
             handler_registry.clone()
         ))).await?;
-        
+
         info!("✅ RustWorker initialized successfully");
-        
+
         Ok(Self {
             worker_core,
             handler_registry,
         })
     }
-    
+
     /// Start the Rust worker
     pub async fn start(&self) -> Result<()> {
         info!("🔄 Starting RustWorker...");
-        
+
         // Start the worker foundation
         self.worker_core.start().await?;
-        
+
         info!("✅ RustWorker started successfully");
         Ok(())
     }
-    
+
     /// Graceful shutdown
     pub async fn shutdown(&self) -> Result<()> {
         info!("🛑 Shutting down RustWorker...");
-        
+
         self.worker_core.shutdown().await?;
-        
+
         info!("✅ RustWorker shutdown completed");
         Ok(())
     }
@@ -187,7 +187,7 @@ impl StepExecutor for RustExecutor {
         let handler = self.handler_registry
             .get_handler(&request.step_name)
             .ok_or_else(|| anyhow::anyhow!("No handler found for step: {}", request.step_name))?;
-        
+
         // Execute step with handler
         handler.execute(request).await
     }
@@ -222,32 +222,32 @@ pub struct HandlerRegistry {
 impl HandlerRegistry {
     pub async fn new() -> Result<Self> {
         let mut handlers: HashMap<String, Arc<dyn StepHandler>> = HashMap::new();
-        
+
         // Register all workflow handlers
         Self::register_linear_handlers(&mut handlers)?;
         Self::register_diamond_handlers(&mut handlers)?;
         Self::register_tree_handlers(&mut handlers)?;
         Self::register_mixed_dag_handlers(&mut handlers)?;
         Self::register_order_fulfillment_handlers(&mut handlers)?;
-        
+
         Ok(Self { handlers })
     }
-    
+
     pub fn get_handler(&self, step_name: &str) -> Option<Arc<dyn StepHandler>> {
         self.handlers.get(step_name).cloned()
     }
-    
+
     fn register_linear_handlers(handlers: &mut HashMap<String, Arc<dyn StepHandler>>) -> Result<()> {
         use crate::workflows::linear::*;
-        
+
         handlers.insert("linear_step_1".to_string(), Arc::new(LinearStep1Handler::new()));
         handlers.insert("linear_step_2".to_string(), Arc::new(LinearStep2Handler::new()));
         handlers.insert("linear_step_3".to_string(), Arc::new(LinearStep3Handler::new()));
         handlers.insert("linear_step_4".to_string(), Arc::new(LinearStep4Handler::new()));
-        
+
         Ok(())
     }
-    
+
     // Similar registration for other workflow types...
 }
 ```
@@ -275,7 +275,7 @@ impl HandlerUtils {
             duration_ms: 0, // Set by caller
         }
     }
-    
+
     /// Create error step result
     pub fn error_result(error_message: String, retryable: bool) -> StepExecutionResult {
         StepExecutionResult {
@@ -290,7 +290,7 @@ impl HandlerUtils {
             duration_ms: 0,
         }
     }
-    
+
     /// Extract sequence results by step name
     pub fn get_sequence_result(request: &StepExecutionRequest, step_name: &str) -> Option<Value> {
         // Parse sequence data to find results from previous steps
@@ -303,7 +303,7 @@ impl HandlerUtils {
         }
         None
     }
-    
+
     fn create_metadata() -> ExecutionMetadata {
         ExecutionMetadata {
             executed_at: chrono::Utc::now(),
@@ -318,22 +318,22 @@ impl HandlerUtils {
 macro_rules! create_step_handler {
     ($handler_name:ident, $step_name:expr, $description:expr, $execute_fn:expr) => {
         pub struct $handler_name;
-        
+
         impl $handler_name {
             pub fn new() -> Self {
                 Self
             }
         }
-        
+
         #[async_trait::async_trait]
         impl StepHandler for $handler_name {
             async fn execute(&self, request: StepExecutionRequest) -> Result<StepExecutionResult> {
                 let start_time = std::time::Instant::now();
-                
+
                 let result = $execute_fn(request).await;
-                
+
                 let duration_ms = start_time.elapsed().as_millis() as u64;
-                
+
                 match result {
                     Ok(mut success_result) => {
                         success_result.duration_ms = duration_ms;
@@ -346,11 +346,11 @@ macro_rules! create_step_handler {
                     }
                 }
             }
-            
+
             fn step_name(&self) -> &str {
                 $step_name
             }
-            
+
             fn description(&self) -> &str {
                 $description
             }
@@ -383,39 +383,39 @@ create_step_handler!(
             .get("even_number")
             .and_then(|v| v.as_i64())
             .unwrap_or(6);
-        
+
         let result_data = json!({
             "generated_value": even_number * 2,
             "step_1_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Generated by Rust linear step 1"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
 
-// Linear Step 2: Process data from step 1  
+// Linear Step 2: Process data from step 1
 create_step_handler!(
     LinearStep2Handler,
-    "linear_step_2", 
+    "linear_step_2",
     "Process data from linear step 1",
     |request: StepExecutionRequest| async move {
         // Get result from step 1
         let step_1_result = HandlerUtils::get_sequence_result(&request, "linear_step_1")
             .ok_or_else(|| anyhow::anyhow!("Missing result from linear_step_1"))?;
-        
+
         let generated_value = step_1_result
             .get("generated_value")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         let result_data = json!({
             "processed_value": generated_value + 10,
             "step_2_timestamp": chrono::Utc::now().to_rfc3339(),
             "previous_step_value": generated_value,
             "processing_info": "Processed by Rust linear step 2"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -429,19 +429,19 @@ create_step_handler!(
         // Get result from step 2
         let step_2_result = HandlerUtils::get_sequence_result(&request, "linear_step_2")
             .ok_or_else(|| anyhow::anyhow!("Missing result from linear_step_2"))?;
-        
+
         let processed_value = step_2_result
-            .get("processed_value") 
+            .get("processed_value")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         let result_data = json!({
             "transformed_value": processed_value * 3,
             "step_3_timestamp": chrono::Utc::now().to_rfc3339(),
             "transformation_applied": "multiply_by_3",
             "processing_info": "Transformed by Rust linear step 3"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -456,24 +456,24 @@ create_step_handler!(
         let step_1_result = HandlerUtils::get_sequence_result(&request, "linear_step_1");
         let step_2_result = HandlerUtils::get_sequence_result(&request, "linear_step_2");
         let step_3_result = HandlerUtils::get_sequence_result(&request, "linear_step_3");
-        
+
         let final_value = step_3_result
             .and_then(|r| r.get("transformed_value"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         let result_data = json!({
             "final_result": final_value,
             "workflow_summary": {
                 "step_1_executed": step_1_result.is_some(),
-                "step_2_executed": step_2_result.is_some(), 
+                "step_2_executed": step_2_result.is_some(),
                 "step_3_executed": step_3_result.is_some(),
                 "total_steps": 4
             },
             "completion_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Finalized by Rust linear step 4"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -498,7 +498,7 @@ create_step_handler!(
             .get("base_value")
             .and_then(|v| v.as_i64())
             .unwrap_or(10);
-        
+
         let result_data = json!({
             "branch_data": {
                 "value_for_b": base_value * 2,
@@ -507,7 +507,7 @@ create_step_handler!(
             "start_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Started by Rust diamond start"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -520,22 +520,22 @@ create_step_handler!(
     |request: StepExecutionRequest| async move {
         let start_result = HandlerUtils::get_sequence_result(&request, "diamond_start")
             .ok_or_else(|| anyhow::anyhow!("Missing result from diamond_start"))?;
-        
+
         let value_for_b = start_result
             .get("branch_data")
             .and_then(|d| d.get("value_for_b"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         // Simulate some processing time
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         let result_data = json!({
             "branch_b_result": value_for_b + 100,
             "branch_b_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Processed by Rust diamond branch B"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -543,27 +543,27 @@ create_step_handler!(
 // Diamond Branch C: Process branch C work (parallel to B)
 create_step_handler!(
     DiamondBranchCHandler,
-    "diamond_branch_c", 
+    "diamond_branch_c",
     "Process diamond workflow branch C",
     |request: StepExecutionRequest| async move {
         let start_result = HandlerUtils::get_sequence_result(&request, "diamond_start")
             .ok_or_else(|| anyhow::anyhow!("Missing result from diamond_start"))?;
-        
+
         let value_for_c = start_result
             .get("branch_data")
             .and_then(|d| d.get("value_for_c"))
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         // Simulate different processing time
         tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-        
+
         let result_data = json!({
             "branch_c_result": value_for_c * 2,
             "branch_c_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Processed by Rust diamond branch C"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -579,7 +579,7 @@ create_step_handler!(
             .ok_or_else(|| anyhow::anyhow!("Missing result from diamond_branch_b"))?;
         let branch_c_result = HandlerUtils::get_sequence_result(&request, "diamond_branch_c")
             .ok_or_else(|| anyhow::anyhow!("Missing result from diamond_branch_c"))?;
-        
+
         let b_value = branch_b_result
             .get("branch_b_result")
             .and_then(|v| v.as_i64())
@@ -588,7 +588,7 @@ create_step_handler!(
             .get("branch_c_result")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        
+
         let result_data = json!({
             "final_result": b_value + c_value,
             "branch_results": {
@@ -598,7 +598,7 @@ create_step_handler!(
             "end_timestamp": chrono::Utc::now().to_rfc3339(),
             "processing_info": "Combined by Rust diamond end"
         });
-        
+
         Ok(HandlerUtils::success_result(result_data))
     }
 );
@@ -625,7 +625,7 @@ step_templates:
     execution_environment: rust
     timeout_seconds: 30
     max_retries: 3
-    
+
   - name: linear_step_2
     description: Process data from linear step 1
     handler_class: LinearStep2Handler
@@ -634,7 +634,7 @@ step_templates:
     max_retries: 3
     dependencies:
       - linear_step_1
-      
+
   - name: linear_step_3
     description: Transform data from linear step 2
     handler_class: LinearStep3Handler
@@ -643,7 +643,7 @@ step_templates:
     max_retries: 3
     dependencies:
       - linear_step_2
-      
+
   - name: linear_step_4
     description: Finalize linear workflow
     handler_class: LinearStep4Handler
@@ -656,13 +656,13 @@ step_templates:
 workflow_steps:
   - step_template: linear_step_1
     context_key: even_number
-    
+
   - step_template: linear_step_2
     dependencies: ["linear_step_1"]
-    
+
   - step_template: linear_step_3
     dependencies: ["linear_step_2"]
-    
+
   - step_template: linear_step_4
     dependencies: ["linear_step_3"]
 ```
@@ -716,7 +716,7 @@ async fn test_linear_workflow_execution() -> Result<()> {
     // Initialize Rust worker
     let worker = RustWorker::new().await?;
     worker.start().await?;
-    
+
     // Create linear workflow task
     let task_request = TaskRequest {
         namespace: "linear_workflow".to_string(),
@@ -732,14 +732,14 @@ async fn test_linear_workflow_execution() -> Result<()> {
         priority: Some(5),
         claim_timeout_seconds: Some(300),
     };
-    
+
     // Submit task and wait for completion
     let task_result = submit_task_and_wait(&worker, task_request, Duration::from_secs(30)).await?;
-    
+
     // Verify final result
     assert_eq!(task_result.status, "completed");
     assert!(task_result.final_result.get("final_result").is_some());
-    
+
     worker.shutdown().await?;
     Ok(())
 }
@@ -749,7 +749,7 @@ async fn test_linear_workflow_execution() -> Result<()> {
 async fn test_diamond_workflow_execution() -> Result<()> {
     let worker = RustWorker::new().await?;
     worker.start().await?;
-    
+
     let task_request = TaskRequest {
         namespace: "diamond_workflow".to_string(),
         name: "parallel_processing".to_string(),
@@ -764,19 +764,19 @@ async fn test_diamond_workflow_execution() -> Result<()> {
         priority: Some(5),
         claim_timeout_seconds: Some(300),
     };
-    
+
     let start_time = std::time::Instant::now();
     let task_result = submit_task_and_wait(&worker, task_request, Duration::from_secs(30)).await?;
     let execution_time = start_time.elapsed();
-    
+
     // Verify parallel execution was efficient
     assert!(execution_time < Duration::from_secs(5));
     assert_eq!(task_result.status, "completed");
-    
+
     // Verify both branches were executed
     let final_result = task_result.final_result;
     assert!(final_result.get("branch_results").is_some());
-    
+
     worker.shutdown().await?;
     Ok(())
 }
@@ -786,10 +786,10 @@ async fn test_diamond_workflow_execution() -> Result<()> {
 async fn test_performance_target() -> Result<()> {
     let worker = RustWorker::new().await?;
     worker.start().await?;
-    
+
     let start_time = std::time::Instant::now();
     let mut tasks = Vec::new();
-    
+
     // Submit 100 linear workflow tasks
     for i in 0..100 {
         let task_request = TaskRequest {
@@ -806,26 +806,26 @@ async fn test_performance_target() -> Result<()> {
             priority: Some(5),
             claim_timeout_seconds: Some(300),
         };
-        
+
         tasks.push(submit_task(&worker, task_request).await?);
     }
-    
+
     // Wait for all tasks to complete
     for task in tasks {
         wait_for_task_completion(&worker, task.task_id, Duration::from_secs(60)).await?;
     }
-    
+
     let total_time = start_time.elapsed();
     let steps_processed = 100 * 4; // 4 steps per linear workflow
     let steps_per_second = steps_processed as f64 / total_time.as_secs_f64();
-    
+
     println!("Performance: {:.2} steps/second", steps_per_second);
-    
+
     // Verify we meet our 1000+ steps/second target
-    assert!(steps_per_second >= 1000.0, 
-           "Performance target not met: {:.2} steps/second < 1000", 
+    assert!(steps_per_second >= 1000.0,
+           "Performance target not met: {:.2} steps/second < 1000",
            steps_per_second);
-    
+
     worker.shutdown().await?;
     Ok(())
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**tasker-core-rs** is a high-performance Rust implementation of workflow orchestration, designed to complement the existing Ruby on Rails **Tasker** engine at `/Users/petetaylor/projects/tasker-systems/tasker-engine/`.
+**tasker-core** is a high-performance Rust implementation of workflow orchestration, designed to complement the existing Ruby on Rails **Tasker** engine at `/Users/petetaylor/projects/tasker-systems/tasker-engine/`.
 
 **Architecture**: PostgreSQL message queue (pgmq) based system where Rust handles orchestration coordination and Ruby workers process steps autonomously through queue polling. Features comprehensive executor pool management, health monitoring, auto-scaling, and race condition elimination.
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Core Problem Solved**: Multiple result processors attempting to finalize same task simultaneously
 - **Race Condition Elimination**: Atomic `claim_task_for_finalization` SQL function
-- **Dynamic Executor Pools**: Auto-scaling with threshold and rate-based algorithms  
+- **Dynamic Executor Pools**: Auto-scaling with threshold and rate-based algorithms
 - **Health Monitoring**: Context-aware monitoring with operational state integration
 - **Resource Validation**: Database connection and memory constraint validation
 - **Shutdown-Aware Monitoring**: Eliminates false alerts during planned shutdowns
@@ -96,7 +96,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Queue Design Pattern
 ```
 fulfillment_queue    - All fulfillment namespace steps
-inventory_queue      - All inventory namespace steps  
+inventory_queue      - All inventory namespace steps
 notifications_queue  - All notification namespace steps
 orchestration_step_results - Step completion results processing
 ```
@@ -130,7 +130,7 @@ orchestration_step_results - Step completion results processing
   - `src/orchestration/coordinator/operational_state.rs` - System state management with transition validation
   - `src/orchestration/finalization_claimer.rs` - Race-condition-free task finalization
 - **SQL Functions**: `migrations/20250818000001_add_finalization_claiming.sql` - Atomic finalization claiming
-- **Ruby Integration**: `bindings/ruby/ext/tasker_core/src/embedded_bridge.rs` - Enhanced FFI with shutdown coordination
+- **Ruby Integration**: `workers/ruby/ext/tasker_core/src/embedded_bridge.rs` - Enhanced FFI with shutdown coordination
 - **Configuration**: `config/tasker/base/orchestration.toml` - Comprehensive orchestration configuration
 
 ### TAS-34: Component-Based Configuration
@@ -186,7 +186,7 @@ cargo check --all-features                        # Fast compilation check
 
 ### Ruby Extension & Integration Tests
 ```bash
-cd bindings/ruby
+cd workers/ruby
 bundle install                                     # Install Ruby dependencies
 bundle exec rake compile                           # Compile Ruby extension
 
@@ -224,7 +224,7 @@ TASKER_ENV=production cargo run --example config_demo --all-features
 - **Claim Management**: Timeout handling, claim extension, and proper cleanup on errors
 - **Database Visibility**: Claims visible in database for debugging and operational monitoring
 
-#### Dynamic Executor Pool Management  
+#### Dynamic Executor Pool Management
 - **OrchestrationLoopCoordinator**: Complete coordinator system with subsystem management
 - **Auto-Scaling Algorithms**: Threshold-based and rate-based scaling with configurable policies
 - **Pool Management**: Dynamic pool creation, scaling, and lifecycle management
@@ -276,14 +276,14 @@ TASKER_ENV=production cargo run --example config_demo --all-features
 - Worker thread coordination and resource cleanup
 - Integration with TAS-37 coordinator system
 
-#### TAS-36: Auto-Scaling Algorithm Enhancement (Available) 
+#### TAS-36: Auto-Scaling Algorithm Enhancement (Available)
 **Specification**: See `docs/ticket-specs/TAS-36.md`
 - Advanced auto-scaling algorithms beyond threshold-based
 - Predictive scaling based on workload patterns
 - Resource optimization and cost management
 
 #### TAS-39: Health Check Integration (Available)
-**Specification**: See `docs/ticket-specs/TAS-39.md` 
+**Specification**: See `docs/ticket-specs/TAS-39.md`
 - Health check endpoint integration for load balancers
 - Kubernetes readiness and liveness probe support
 - Comprehensive system health reporting
@@ -302,7 +302,7 @@ TASKER_ENV=production cargo run --example config_demo --all-features
 # Core orchestration tests
 cargo test --all-features orchestration
 
-# Configuration system tests  
+# Configuration system tests
 cargo test --all-features config
 
 # Circuit breaker integration tests
@@ -327,7 +327,7 @@ cargo test --release --all-features -- --nocapture
 
 ## Related Projects
 
-- **tasker-engine/**: Production-ready Rails engine for workflow orchestration  
+- **tasker-engine/**: Production-ready Rails engine for workflow orchestration
 - **tasker-blog/**: GitBook documentation with real-world engineering stories
 
 ## Key Documentation
@@ -341,7 +341,7 @@ cargo test --release --all-features -- --nocapture
 
 ### Ticket Specifications (Available for Implementation)
 - **TAS-35**: `docs/ticket-specs/TAS-35.md` - Executor pool lifecycle management (detailed spec available)
-- **TAS-36**: `docs/ticket-specs/TAS-36.md` - Auto-scaling algorithm enhancement (detailed spec available)  
+- **TAS-36**: `docs/ticket-specs/TAS-36.md` - Auto-scaling algorithm enhancement (detailed spec available)
 - **TAS-39**: `docs/ticket-specs/TAS-39.md` - Health check integration (detailed spec available)
 
 ### Technical Documentation
@@ -384,7 +384,7 @@ cargo test --release --all-features -- --nocapture
 The system is now production-ready with comprehensive orchestration capabilities. Future enhancements can build on the solid foundation:
 
 1. **TAS-35 Executor Pool Lifecycle**: Enhanced pool management with graceful shutdown (specification ready)
-2. **TAS-36 Auto-Scaling Enhancement**: Advanced algorithms beyond threshold-based scaling (specification ready)  
+2. **TAS-36 Auto-Scaling Enhancement**: Advanced algorithms beyond threshold-based scaling (specification ready)
 3. **TAS-39 Health Check Integration**: Kubernetes and load balancer health check support (specification ready)
 4. **Simple Message Architecture**: Future simplification of message structures using UUID-based approach
 5. **Performance Optimization**: Benchmarking and optimization of critical paths
