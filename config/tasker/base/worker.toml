@@ -1,6 +1,8 @@
-# Worker-specific configuration component
-# Controls worker system behavior and resource management
+# TAS-40 Worker Configuration Component (Command Pattern Architecture)
+# Controls worker system behavior using event-driven step processing
+# Replaces polling-based executor pools with command pattern
 
+[worker]
 # Worker system identification
 worker_id = "worker-001"
 worker_type = "general"
@@ -8,33 +10,40 @@ worker_type = "general"
 # Namespaces this worker will process
 namespaces = ["fulfillment", "inventory", "notifications"]
 
-# Step processing configuration
-[step_processing]
+# Step processing configuration (command pattern)
+[worker.step_processing]
 claim_timeout_seconds = 300
 max_retries = 3
 retry_backoff_multiplier = 2.0
 heartbeat_interval_seconds = 30
 max_concurrent_steps = 100
 
-# Step executor pool configuration
-[step_executor_pool]
-initial_pool_size = 10
-max_pool_size = 50
-scale_up_threshold = 0.8
-scale_down_threshold = 0.2
-scale_up_increment = 5
-scale_down_increment = 2
-cooldown_seconds = 60
+# Event system configuration for command pattern
+[worker.event_system]
 
-# Result processor pool configuration
-[result_processor_pool]
-initial_pool_size = 5
-max_pool_size = 20
-result_persistence_timeout_seconds = 30
+# Event publisher for sending results back to orchestration
+[worker.event_system.publisher]
+endpoint = "tcp://localhost:5555"
 batch_size = 10
+timeout_ms = 5000
+max_retries = 3
+
+# Event subscriber for receiving step execution requests
+[worker.event_system.subscriber]
+endpoint = "tcp://localhost:5556"
+queue_names = ["fulfillment_queue", "inventory_queue", "notifications_queue"]
+prefetch_count = 10
+ack_timeout_seconds = 30
+
+# Event processing configuration
+[worker.event_system.processing]
+processor_threads = 4
+processing_timeout_ms = 30000
+deduplication_enabled = true
+deduplication_cache_size = 1000
 
 # Worker health monitoring
-[health_monitoring]
+[worker.health_monitoring]
 health_check_interval_seconds = 10
 metrics_collection_enabled = true
 performance_monitoring_enabled = true
@@ -43,14 +52,14 @@ error_rate_threshold = 0.05
 memory_usage_threshold_mb = 1024
 
 # Worker resource limits
-[resource_limits]
+[worker.resource_limits]
 max_memory_mb = 2048
 max_cpu_percent = 80
 max_database_connections = 50
 max_queue_connections = 20
 
-# Worker queue configuration
-[queue_config]
+# Queue configuration for message consumption
+[worker.queue_config]
 visibility_timeout_seconds = 30
 batch_size = 10
 polling_interval_ms = 100

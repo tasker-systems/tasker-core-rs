@@ -347,7 +347,6 @@ impl UnifiedConfigLoader {
     fn validate_component(&self, name: &str, config: &toml::Value) -> ConfigResult<()> {
         match name {
             "database" => self.validate_database_config(config),
-            "executor_pools" => self.validate_executor_pools_config(config),
             "pgmq" => self.validate_pgmq_config(config),
             "orchestration" => self.validate_orchestration_config(config),
             _ => {
@@ -437,87 +436,6 @@ impl UnifiedConfigLoader {
     }
 
     /// Validate executor pools configuration
-    fn validate_executor_pools_config(&self, config: &toml::Value) -> ConfigResult<()> {
-        let table = config.as_table().ok_or_else(|| {
-            ConfigurationError::validation_error(
-                "Executor pools configuration must be a TOML table",
-            )
-        })?;
-
-        // Check for required executor_pools section
-        if !table.contains_key("executor_pools") {
-            return Err(ConfigurationError::missing_required_field(
-                "executor_pools",
-                "executor pools configuration",
-            ));
-        }
-
-        // Validate individual executor pool configurations
-        if let Some(pools_section) = table.get("executor_pools") {
-            if let Some(pools_table) = pools_section.as_table() {
-                for (pool_name, pool_config) in pools_table {
-                    if pool_name != "coordinator" {
-                        // coordinator has different schema
-                        self.validate_single_executor_pool(pool_name, pool_config)?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validate a single executor pool configuration
-    fn validate_single_executor_pool(&self, name: &str, config: &toml::Value) -> ConfigResult<()> {
-        let pool_table = config.as_table().ok_or_else(|| {
-            ConfigurationError::validation_error(format!(
-                "Executor pool '{name}' configuration must be a TOML table"
-            ))
-        })?;
-
-        // Validate min/max executors
-        if let (Some(min_exec), Some(max_exec)) = (
-            pool_table.get("min_executors"),
-            pool_table.get("max_executors"),
-        ) {
-            let min_val = min_exec.as_integer().ok_or_else(|| {
-                ConfigurationError::invalid_value(
-                    "min_executors",
-                    min_exec.to_string(),
-                    "must be an integer",
-                )
-            })?;
-
-            let max_val = max_exec.as_integer().ok_or_else(|| {
-                ConfigurationError::invalid_value(
-                    "max_executors",
-                    max_exec.to_string(),
-                    "must be an integer",
-                )
-            })?;
-
-            if min_val < 0 || max_val < 0 {
-                return Err(ConfigurationError::validation_error(format!(
-                    "Executor pool '{name}' min/max executors must be non-negative"
-                )));
-            }
-
-            if min_val > max_val {
-                return Err(ConfigurationError::validation_error(format!(
-                    "Executor pool '{name}' min_executors ({min_val}) cannot exceed max_executors ({max_val})"
-                )));
-            }
-
-            if max_val > 100 {
-                warn!(
-                    "Executor pool '{}' max_executors ({}) is very high",
-                    name, max_val
-                );
-            }
-        }
-
-        Ok(())
-    }
 
     /// Validate PGMQ configuration
     fn validate_pgmq_config(&self, config: &toml::Value) -> ConfigResult<()> {
@@ -593,103 +511,29 @@ impl UnifiedConfigLoader {
         Self::new(&environment)
     }
 
-    /// Load configuration with resource constraint validation
+    /// Load configuration with component validation
     ///
-    /// This integrates with the resource validation system to ensure that
-    /// executor pool configurations don't exceed system limits.
-    pub fn load_with_resource_validation(&mut self) -> ConfigResult<ValidatedConfig> {
+    /// This provides comprehensive component validation for all loaded configuration.
+    pub fn load_with_validation(&mut self) -> ConfigResult<ValidatedConfig> {
         let all_configs = self.load_all_components()?;
 
         // Extract relevant configurations for validation
-        let database_config = all_configs.get("database").ok_or_else(|| {
+        all_configs.get("database").ok_or_else(|| {
             ConfigurationError::missing_required_field("database", "system configuration")
         })?;
-
-        let executor_pools_config = all_configs.get("executor_pools").ok_or_else(|| {
-            ConfigurationError::missing_required_field("executor_pools", "system configuration")
-        })?;
-
-        // Validate resource constraints
-        self.validate_resource_constraints(database_config, executor_pools_config)?;
 
         Ok(ValidatedConfig {
             configs: all_configs,
         })
     }
 
-    /// Load configuration directly as TaskerConfig with resource validation
+    /// Load configuration directly as TaskerConfig
     ///
     /// This is the preferred method for loading TOML configuration as it avoids
     /// unnecessary JSON conversion and directly produces the target structure.
     pub fn load_tasker_config(&mut self) -> ConfigResult<super::TaskerConfig> {
-        let validated_config = self.load_with_resource_validation()?;
+        let validated_config = self.load_with_validation()?;
         validated_config.to_tasker_config()
-    }
-
-    /// Validate resource constraints between database and executor configurations
-    fn validate_resource_constraints(
-        &self,
-        database_config: &toml::Value,
-        executor_pools_config: &toml::Value,
-    ) -> ConfigResult<()> {
-        // Extract database max connections
-        let max_connections = if let Some(db_section) = database_config.get("database") {
-            if let Some(pool_section) = db_section.get("pool") {
-                pool_section
-                    .get("max_connections")
-                    .and_then(|v| v.as_integer())
-                    .unwrap_or(30) // Default fallback
-            } else {
-                30
-            }
-        } else {
-            30
-        };
-
-        // Calculate total executor requirements
-        let mut total_max_executors = 0i64;
-        if let Some(pools_section) = executor_pools_config.get("executor_pools") {
-            if let Some(pools_table) = pools_section.as_table() {
-                for (pool_name, pool_config) in pools_table {
-                    if pool_name != "coordinator" {
-                        // Skip coordinator section
-                        if let Some(max_exec) = pool_config.get("max_executors") {
-                            if let Some(max_val) = max_exec.as_integer() {
-                                total_max_executors += max_val;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Validate that executor requirements don't exceed database connections
-        let connection_utilization = total_max_executors as f64 / max_connections as f64;
-
-        if total_max_executors > max_connections {
-            return Err(ConfigurationError::validation_error(format!(
-                "Resource constraint violation: requested {total_max_executors} executors but only {max_connections} database connections available. \
-                 Increase database pool size or reduce executor limits."
-            )));
-        }
-
-        if connection_utilization > 0.85 {
-            warn!(
-                "High resource utilization: {} executors will use {:.1}% of {} database connections",
-                total_max_executors,
-                connection_utilization * 100.0,
-                max_connections
-            );
-        }
-
-        info!(
-            "✅ Resource validation passed: {} executors, {} database connections ({:.1}% utilization)",
-            total_max_executors,
-            max_connections,
-            connection_utilization * 100.0
-        );
-
-        Ok(())
     }
 }
 
