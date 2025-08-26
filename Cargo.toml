@@ -25,6 +25,24 @@ readme = "README.md"
 [lib]
 path = "src/lib.rs"
 
+
+[dependencies]
+# Dependencies for integration tests
+tasker-shared = { path = "tasker-shared" }
+tasker-orchestration = { path = "tasker-orchestration" }
+tasker-worker = { path = "tasker-worker" }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+test-utils = [
+    "tasker-shared/test-utils",
+    "tasker-orchestration/test-utils",
+    "tasker-worker/test-utils",
+]
+
 [workspace.dependencies]
 # Async runtime and utilities
 tokio = { version = "1.46", features = ["full"] }
@@ -112,7 +130,6 @@ serial_test = "3.1"
 # Coverage tools (used in CI)
 cargo-llvm-cov = "0.6"
 criterion = { version = "0.5.1" }
-nextest = "0.1.1"
 # FFI support to be added in bindings and workers
 magnus = "0.7"
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }

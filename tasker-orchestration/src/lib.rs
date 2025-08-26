@@ -34,18 +34,15 @@
 //!
 //! ## Module Organization
 //!
-//! - [`models`] - Complete data layer with all Rails models
-//! - [`database`] - SQL function execution and database operations
-//! - [`state_machine`] - Task and step state management
-//! - [`config`] - Configuration management
-//! - [`error`] - Structured error handling
-//! - [`events`] - Event system foundation
-//! - [`orchestration`] - Workflow orchestration logic
-//! - [`messaging`] - PostgreSQL message queue (pgmq) integration
-//! - [`registry`] - Component registration and discovery
-//! - [`ffi`] - Multi-language FFI bindings
-//! - [`resilience`] - Circuit breaker patterns and fault tolerance
+//! - [`orchestration`] - Core workflow orchestration logic and components
 //! - [`web`] - REST API server (optional, requires `web-api` feature)
+//!
+//! Additional functionality provided by tasker-shared:
+//! - Models, database operations, configuration, error handling
+//! - PostgreSQL message queue (pgmq) integration
+//! - Circuit breaker patterns and fault tolerance
+//!
+//! Testing utilities are available in tasker-worker/src/testing for pure Rust testing patterns.
 //!
 //! ## Performance Targets
 //!

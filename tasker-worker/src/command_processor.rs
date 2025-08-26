@@ -832,11 +832,13 @@ impl WorkerProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dotenvy::dotenv;
 
-    #[tokio::test]
-    async fn test_worker_processor_creation() {
+    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    async fn test_worker_processor_creation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        dotenv().ok();
         let context = Arc::new(
-            SystemContext::new()
+            SystemContext::with_pool(pool)
                 .await
                 .expect("Failed to create context"),
         );
@@ -847,12 +849,15 @@ mod tests {
         assert!(processor.worker_id.contains("test_namespace"));
         assert_eq!(processor.stats.total_executed, 0);
         assert_eq!(processor.handlers.len(), 0);
+        
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_execute_step_with_simple_message() {
+    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    async fn test_execute_step_with_simple_message(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        dotenv().ok();
         let context = Arc::new(
-            SystemContext::new()
+            SystemContext::with_pool(pool)
                 .await
                 .expect("Failed to create context"),
         );
@@ -867,20 +872,22 @@ mod tests {
             ready_dependency_step_uuids: vec![],
         };
 
-        // Note: This test will fail without a real database connection
-        // In a real integration test environment, this would succeed
+        // With SQLx test providing a real database pool, this should work properly
         let result = processor.handle_execute_step(message).await;
 
-        // For unit test, we expect it to fail due to missing database
-        // In integration tests with DB, we'd assert success
+        // For now, we expect it to fail due to missing handler registration
+        // This is expected behavior - the test verifies the execution path works
         assert!(result.is_err());
         assert_eq!(processor.stats.total_executed, 1);
+        
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_get_worker_status() {
+    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    async fn test_get_worker_status(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        dotenv().ok();
         let context = Arc::new(
-            SystemContext::new()
+            SystemContext::with_pool(pool)
                 .await
                 .expect("Failed to create context"),
         );
@@ -893,5 +900,7 @@ mod tests {
         assert_eq!(status.status, "running");
         assert_eq!(status.steps_executed, 0);
         assert_eq!(status.registered_handlers.len(), 0);
+        
+        Ok(())
     }
 }

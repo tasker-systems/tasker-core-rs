@@ -956,6 +956,170 @@ tests/
 - Remove tests for obsolete configuration
 - Consolidate duplicate or overlapping tests
 
+### 3.4 Comprehensive Testing Analysis and Implementation Checklist
+
+Based on depth-and-breadth analysis of existing test suites, here's the detailed implementation plan:
+
+#### 3.4.1 tasker-orchestration/tests Analysis
+
+**✅ KEEP (High Value, Worker-Relevant)**
+- [ ] `unified_bootstrap_test.rs` - Tests OrchestrationCore initialization with configuration
+  - **Pattern Value**: Shows OrchestrationCore usage, circuit breaker testing, queue initialization
+  - **Action**: Reference for worker bootstrap patterns
+- [ ] `tas_37_finalization_race_condition_test.rs` - Race condition prevention testing
+  - **Pattern Value**: Uses SqlxFactory for test data, shows concurrent claiming tests
+  - **Action**: Adapt patterns for worker step claiming tests
+- [ ] `web/test_infrastructure.rs` + `web/test_analytics_endpoints.rs` + `web/test_openapi_documentation.rs`
+  - **Pattern Value**: Web test infrastructure, authentication testing, analytics endpoints
+  - **Action**: Adapt for worker web API implementation
+- [ ] `messaging/task_request_processor_test.rs`
+  - **Pattern Value**: PGMQ integration testing, task request handling
+  - **Action**: Update for command pattern messaging
+
+**🗑️ REMOVE (Obsolete Orchestration-Specific)**
+- [ ] Remove `complex_workflow_integration_test.rs` - Tests `WorkflowCoordinator`, `FrameworkIntegration`
+  - **Reason**: Worker uses command pattern, not complex orchestration
+- [ ] Remove `state_manager.rs` - Tests orchestration state management
+  - **Reason**: Worker has simpler state management through command pattern
+- [ ] Remove `task_initializer_test.rs` - Tests `TaskInitializer` component
+  - **Reason**: Task initialization moves to orchestration layer
+- [ ] Remove `configuration_integration_test.rs` + `config_integration_test.rs` + `integration_executor_toml_config.rs`
+  - **Reason**: These test obsolete executor pool configurations we removed
+
+**🔄 CHANGE (Modernize for Worker Patterns)**
+- [ ] Update `messaging/mod.rs` - Focus on worker-specific messaging (step processing, result publishing)
+- [ ] Modernize `web/` tests - Update `authenticated_tests.rs`, `unauthenticated_tests.rs` for worker endpoints
+- [ ] Update `mod.rs` - Remove references to deleted tests, add new worker-specific modules
+
+#### 3.4.2 FFI Shared Components Pattern Extraction
+
+**🔧 Extract Database Testing Patterns** (from `database_cleanup.rs`)
+- [ ] Create `tasker-worker/src/testing/database_utils.rs`
+- [ ] Implement sequential database setup with safety checks:
+  ```rust
+  // Pattern: Sequential database setup with safety checks
+  async fn setup_worker_test_database(pool: &PgPool) -> Result<(), TestError> {
+      // 1. Terminate existing connections
+      // 2. Drop and recreate schema  
+      // 3. Run migrations
+      // 4. Validate setup
+  }
+  ```
+
+**🏭 Extract Factory Patterns** (from `testing.rs`)
+- [ ] Create `tasker-worker/src/testing/factory.rs`
+- [ ] Implement worker-specific test factories:
+  ```rust
+  pub struct WorkerTestFactory {
+      orchestration_core: Arc<OrchestrationCore>,
+  }
+  
+  impl WorkerTestFactory {
+      pub async fn create_test_step_message(&self, input: TestStepInput) -> Result<StepMessage, TestError>
+      pub async fn create_test_foundation(&self, namespace: &str) -> Result<TestFoundation, TestError>
+  }
+  ```
+
+**🧪 Extract Test Environment Patterns** (from `test_database_management.rs`)
+- [ ] Create `tasker-worker/src/testing/environment.rs`
+- [ ] Implement environment safety validation:
+  ```rust
+  pub struct WorkerTestEnvironment {
+      pub fn validate_test_safety(&self) -> Result<(), TestError> {
+          // Check environment variables
+          // Validate database URL contains 'test'
+          // Ensure test-specific configuration
+      }
+      
+      pub async fn cleanup_test_data(&self) -> Result<(), TestError> {
+          // Clean tables in proper order
+          // Reset sequences
+          // Clear queues
+      }
+  }
+  ```
+
+#### 3.4.3 New Worker Testing Infrastructure
+
+**🆕 Worker Command Pattern Testing**
+- [ ] Create `tasker-worker/tests/command_processor/`
+  - [ ] `command_handling_tests.rs` - Test event-driven step processing
+  - [ ] `command_integration_tests.rs` - Test command pattern execution vs old executor pools
+  - [ ] `worker_health_monitoring_tests.rs` - Test worker health monitoring and resource limits
+
+**🆕 Worker Web API Testing** (TAS-40 Phase 1)
+- [ ] Create `tasker-worker/tests/web/`
+  - [ ] `health_endpoint_tests.rs` - Worker-specific health endpoints
+  - [ ] `metrics_endpoint_tests.rs` - Worker metrics and analytics
+  - [ ] `worker_status_tests.rs` - Worker status and configuration endpoints
+  - [ ] `orchestration_api_client_tests.rs` - OrchestrationApiClient integration tests
+  - [ ] `bootstrap_system_tests.rs` - Bootstrap system tests
+  - [ ] `task_template_registry_tests.rs` - Task template registry with shared components
+
+**🆕 Pure Rust Worker Testing Infrastructure**
+- [ ] Create `tasker-worker/tests/infrastructure/`
+  - [ ] `database_setup_tests.rs` - Database setup patterns (from `database_cleanup.rs`)
+  - [ ] `test_environment_tests.rs` - Test environment safety (from `test_database_management.rs`)
+  - [ ] `factory_pattern_tests.rs` - Factory patterns (from `testing.rs`)
+
+**🆕 Configuration Testing**
+- [ ] Create `tasker-worker/tests/config/`
+  - [ ] `command_pattern_config_tests.rs` - Test command pattern worker.toml configuration
+  - [ ] `event_system_config_tests.rs` - Test event system configuration
+  - [ ] `resource_limits_config_tests.rs` - Test resource limits and health monitoring config
+
+**🆕 Advanced Worker Testing**
+- [ ] Create `tasker-worker/tests/integration/`
+  - [ ] `step_claiming_tests.rs` - Step claiming and event publishing tests (non-blocking pattern)
+  - [ ] `event_driven_completion_tests.rs` - Event-driven step completion handling tests  
+  - [ ] `worker_processor_integration_tests.rs` - Integration with existing WorkerProcessor command pattern
+  - [ ] `state_machine_integration_tests.rs` - State machine integration tests (claiming, result writing via events)
+  - [ ] `database_interaction_tests.rs` - Database interaction tests (SQL functions, step results via state transitions)
+  - [ ] `task_initialization_tests.rs` - End-to-end task initialization tests
+  - [ ] `non_blocking_execution_tests.rs` - Validation of non-blocking step execution pattern
+  - [ ] `ffi_event_system_tests.rs` - FFI event system integration tests with existing WorkerProcessor
+
+#### 3.4.4 Implementation Priorities
+
+**Phase 3.1: Clean Up Obsolete Tests** (Days 1-2)
+- [ ] Remove obsolete orchestration tests from tasker-orchestration/tests
+- [ ] Update tasker-orchestration/tests/mod.rs module declarations  
+- [ ] Remove obsolete configuration tests
+- [ ] Update imports and references
+
+**Phase 3.2: Extract FFI Testing Patterns** (Days 3-4)
+- [ ] Create worker testing infrastructure inspired by FFI patterns
+- [ ] Implement database utilities, factory patterns, and environment validation
+- [ ] Test new infrastructure with basic worker scenarios
+
+**Phase 3.3: Create Worker Testing Suite** (Days 5-7)
+- [ ] Implement comprehensive worker command pattern tests
+- [ ] Create worker web API test suite
+- [ ] Add integration tests for new worker components
+- [ ] Implement performance and load tests
+
+**Phase 3.4: Validation and Documentation** (Days 8-9)
+- [ ] Run full test suite and ensure coverage
+- [ ] Document testing patterns and best practices
+- [ ] Create testing guides for future worker development
+
+#### 3.4.5 Success Metrics
+
+**Test Coverage Targets:**
+- [ ] Maintain >90% code coverage across all worker components
+- [ ] 100% API endpoint coverage for worker web API
+- [ ] Comprehensive integration test coverage for all worker scenarios
+
+**Performance Targets:**
+- [ ] Command processing tests validate <1ms command handling latency
+- [ ] Event system tests validate >10k events/sec throughput
+- [ ] Web API tests validate <100ms response times under load
+
+**Quality Targets:**
+- [ ] Zero flaky tests (consistent pass/fail behavior)
+- [ ] All tests run in <5 minutes total execution time
+- [ ] Test isolation verified (tests can run in any order)
+
 ---
 
 ## Implementation Timeline (Updated)

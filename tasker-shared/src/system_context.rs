@@ -1,4 +1,4 @@
-use crate::config::ConfigManager;
+use crate::config::{ConfigManager, TaskerConfig};
 use crate::messaging::{PgmqClient, PgmqClientTrait, ProtectedPgmqClient, UnifiedPgmqClient};
 use crate::registry::TaskHandlerRegistry;
 use crate::resilience::CircuitBreakerManager;
@@ -104,18 +104,7 @@ impl SystemContext {
         );
 
         // Create database connection pool with configuration
-        let database_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(config.database.pool.max_connections)
-            .min_connections(config.database.pool.min_connections)
-            .acquire_timeout(std::time::Duration::from_secs(
-                config.database.checkout_timeout,
-            ))
-            .max_lifetime(std::time::Duration::from_secs(
-                config.database.pool.max_lifetime_seconds,
-            ))
-            .idle_timeout(Some(std::time::Duration::from_secs(
-                config.database.reaping_frequency,
-            )))
+        let database_pool = Self::get_pg_pool_options(config)
             .connect(&database_url)
             .await
             .map_err(|e| {
@@ -130,18 +119,25 @@ impl SystemContext {
         Self::from_pool_and_config(database_pool, config_manager).await
     }
 
-    /// Internal constructor with full configuration support
-    ///
-    /// This method contains the unified bootstrap logic that creates all shared system
-    /// components with proper configuration passed to each component.
-    async fn from_pool_and_config(
+    fn get_pg_pool_options(config: &TaskerConfig) -> sqlx::postgres::PgPoolOptions {
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.database.pool.max_connections)
+            .min_connections(config.database.pool.min_connections)
+            .acquire_timeout(std::time::Duration::from_secs(
+                config.database.checkout_timeout,
+            ))
+            .max_lifetime(std::time::Duration::from_secs(
+                config.database.pool.max_lifetime_seconds,
+            ))
+            .idle_timeout(Some(std::time::Duration::from_secs(
+                config.database.reaping_frequency,
+            )))
+    }
+
+    async fn get_circuit_breaker_and_queue_client(
+        config: &TaskerConfig,
         database_pool: PgPool,
-        config_manager: Arc<ConfigManager>,
-    ) -> TaskerResult<Self> {
-        info!("🏗️ Creating system components with unified configuration");
-
-        let config = config_manager.config();
-
+    ) -> (Option<Arc<CircuitBreakerManager>>, Arc<UnifiedPgmqClient>) {
         // Circuit breaker configuration
         let circuit_breaker_config = if config.circuit_breakers.enabled {
             info!("🛡️ CORE: Circuit breakers enabled in configuration");
@@ -170,6 +166,23 @@ impl SystemContext {
             let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
             (None, Arc::new(UnifiedPgmqClient::Standard(standard_client)))
         };
+        (circuit_breaker_manager, message_client)
+    }
+
+    /// Internal constructor with full configuration support
+    ///
+    /// This method contains the unified bootstrap logic that creates all shared system
+    /// components with proper configuration passed to each component.
+    async fn from_pool_and_config(
+        database_pool: PgPool,
+        config_manager: Arc<ConfigManager>,
+    ) -> TaskerResult<Self> {
+        info!("🏗️ Creating system components with unified configuration");
+
+        let config = config_manager.config();
+
+        let (circuit_breaker_manager, message_client) =
+            Self::get_circuit_breaker_and_queue_client(config, database_pool.clone()).await;
 
         // Create task handler registry with configuration
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
@@ -222,5 +235,39 @@ impl SystemContext {
     /// Check if circuit breakers are enabled
     pub fn circuit_breakers_enabled(&self) -> bool {
         self.circuit_breaker_manager.is_some()
+    }
+
+    /// Create a minimal SystemContext for testing with provided database pool
+    ///
+    /// This bypasses full configuration loading and creates a basic context
+    /// suitable for unit tests that need database access.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn with_pool(database_pool: sqlx::PgPool) -> TaskerResult<Self> {
+        use uuid::Uuid;
+
+        let system_id = Uuid::new_v4();
+
+        // Create minimal default configuration for testing
+        // Auto-detect environment and load configuration
+        let config_manager = ConfigManager::load().map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
+        })?;
+
+        // Create standard PGMQ client (no circuit breaker for simplicity)
+        let message_client = Arc::new(UnifiedPgmqClient::Standard(
+            PgmqClient::new_with_pool(database_pool.clone()).await,
+        ));
+
+        // Create task handler registry
+        let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
+
+        Ok(Self {
+            system_id,
+            config_manager,
+            message_client,
+            database_pool,
+            task_handler_registry,
+            circuit_breaker_manager: None, // Disabled for testing
+        })
     }
 }

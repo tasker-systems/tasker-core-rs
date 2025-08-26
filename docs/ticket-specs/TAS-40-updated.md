@@ -1324,3 +1324,173 @@ async fn test_graceful_shutdown() -> Result<()> {
 - **Monitoring Gaps**: Comprehensive metrics and health checking from day one
 
 This foundation enables TAS-41 (pure Rust worker) and TAS-42 (simplified Ruby bindings) while providing a robust, scalable infrastructure for step execution across multiple binding languages.
+
+---
+
+## APPENDIX: Test Infrastructure Analysis and Migration Plan
+
+### Current Test Analysis (tasker-orchestration/tests - 20 files, 5,716 lines)
+
+Based on compilation failures and architecture changes, tests fall into clear categories:
+
+#### 🚨 REMOVE - Obsolete Architecture Tests (6 files, ~1,500 lines)
+**Reason**: Test removed/renamed components that no longer exist
+
+1. **`tests/mod.rs`** - References missing modules (`circuit_breaker`, `coordinator`)
+2. **`integration_executor_toml_config.rs`** - Tests removed `executor` module  
+3. **`unified_bootstrap_test.rs`** - Tests obsolete `OrchestrationCore` API
+4. **`configuration_integration_test.rs`** - Tests removed `WorkflowCoordinatorConfig`
+5. **`messaging/task_request_processor_test.rs`** - Tests removed `task_request_processor`
+6. **`task_initializer_test.rs`** - Tests removed `StepTemplate`, `HandlerConfiguration`
+
+#### ✅ KEEP - Core Architecture Tests (8 files, ~2,200 lines)
+**Reason**: Test current/stable orchestration features
+
+1. **`web/`** directory (8 files) - Web API tests still relevant
+   - `test_analytics_endpoints.rs` - Analytics API validation
+   - `authenticated_tests.rs` - JWT authentication  
+   - `tls_tests.rs` - HTTPS/TLS integration
+   - `resource_coordination_tests.rs` - Database pool coordination
+   - `test_infrastructure.rs` - Web test utilities
+   - `test_openapi_documentation.rs` - API documentation validation
+
+#### 🔄 MIGRATE - Architecture-Specific Tests (3 files, ~1,200 lines)  
+**Reason**: Valuable test patterns but need architecture updates
+
+1. **`tas_37_finalization_race_condition_test.rs`** - **MIGRATE TO tasker-worker**
+   - Tests finalization claiming (worker responsibility in command pattern)
+   - Uses excellent `#[sqlx::test]` patterns
+   - Race condition prevention still critical for workers
+
+2. **`complex_workflow_integration_test.rs`** - **MIGRATE TO tasker-worker**
+   - Tests workflow execution (worker responsibility in command pattern)
+   - Good integration test patterns with TaskInitializer → WorkerTaskInitializer
+   - End-to-end workflow validation patterns
+
+3. **`state_manager.rs`** - **EVALUATE FOR tasker-shared**
+   - State management patterns might be shared between orchestration and worker
+   - Could provide common state transition utilities
+
+#### 🔨 REWRITE - Command Pattern Tests (3 files, ~800 lines)
+**Reason**: Good test structure but need complete architectural pattern changes
+
+1. **`config_integration_test.rs`** - Update for component-based configuration  
+2. **`messaging/mod.rs`** - Update for pgmq-based messaging patterns
+3. Create new **`command_pattern_integration_test.rs`** - Test event-driven architecture
+
+### Migration Strategy Implementation
+
+#### Step 1: Clean House (Remove Obsolete Tests)
+```bash
+# Remove files that test deleted architecture components
+rm tasker-orchestration/tests/integration_executor_toml_config.rs      # executor module removed
+rm tasker-orchestration/tests/unified_bootstrap_test.rs                # OrchestrationCore API changed  
+rm tasker-orchestration/tests/configuration_integration_test.rs        # WorkflowCoordinatorConfig removed
+rm tasker-orchestration/tests/messaging/task_request_processor_test.rs # task_request_processor removed
+rm tasker-orchestration/tests/task_initializer_test.rs                 # StepTemplate/HandlerConfiguration removed
+
+# Fix tests/mod.rs to remove missing module references
+# Remove: pub mod circuit_breaker; pub mod coordinator;
+```
+
+#### Step 2: Migrate Worker-Specific Tests  
+```bash
+# Move tests that belong in tasker-worker (step processing, finalization, workflow execution)
+mv tasker-orchestration/tests/tas_37_finalization_race_condition_test.rs \
+   tasker-worker/tests/finalization_race_condition_test.rs
+
+mv tasker-orchestration/tests/complex_workflow_integration_test.rs \
+   tasker-worker/tests/workflow_integration_test.rs
+
+mv tasker-orchestration/tests/state_manager.rs \
+   tasker-shared/src/testing/state_manager.rs  # If shared patterns identified
+```
+
+#### Step 3: Create Command Pattern Tests
+```rust
+// tasker-orchestration/tests/command_pattern_integration_test.rs
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+async fn test_task_creation_command_flow(pool: PgPool) {
+    // Test: HTTP Request → TaskCreationCommand → Database → TaskCreatedEvent
+    // Verify orchestration system handles commands and events properly
+}
+
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]  
+async fn test_orchestration_worker_coordination(pool: PgPool) {
+    // Test: Orchestration enqueues step commands → Worker processes → Results flow back
+    // Verify end-to-end command pattern coordination
+}
+
+// tasker-worker/tests/worker_command_consumption_test.rs
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+async fn test_worker_consumes_step_commands(pool: PgPool) {
+    // Test: Worker polls step queue → Processes step command → Publishes result event
+    // Verify worker properly handles commands and publishes results
+}
+```
+
+#### Step 4: Update Remaining Tests for Architecture Changes
+```rust
+// Update imports throughout remaining test files:
+// OLD: use tasker_orchestration::orchestration::executor::*;
+// NEW: use tasker_orchestration::orchestration::command_processors::*;
+
+// OLD: use tasker_orchestration::orchestration::orchestration_loop::*;  
+// NEW: use tasker_orchestration::orchestration::event_loop::*;
+
+// Update API calls:
+// OLD: OrchestrationCore::new().await?
+// NEW: OrchestrationCore::new(context).await?
+
+// OLD: config.executor_pools()
+// NEW: config.command_processors()
+
+// OLD: TaskInitializer::for_testing()
+// NEW: CommandProcessor::for_testing() // In orchestration tests
+//      WorkerTaskInitializer::for_testing() // In worker tests
+```
+
+### Test Pattern Standardization
+
+All new and migrated tests must follow these patterns:
+
+```rust
+// tasker-worker tests
+use tasker_worker::testing::{WorkerTestFactory, WorkerTestDatabase};
+
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+async fn test_worker_functionality(pool: PgPool) {
+    let factory = WorkerTestFactory::new(Arc::new(pool.clone()));
+    let test_data = WorkerTestData::new("test_step_processing")
+        .build_with_factory(&factory)
+        .await?;
+    
+    // Test step processing logic
+    assert!(test_data.foundation().is_some());
+}
+
+// tasker-orchestration tests  
+#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+async fn test_orchestration_functionality(pool: PgPool) {
+    // Use simplified database patterns from tasker_shared::test_utils
+    let utils = tasker_shared::database::DatabaseConnection::from_pool(pool);
+    
+    // Test command pattern orchestration
+}
+```
+
+### Expected Outcomes After Migration
+
+#### Quantitative Results
+- **Reduced Test Files**: From 20 to ~14 files (6 removed, 3 migrated)
+- **Maintained Coverage**: Core functionality still tested, architecture-aligned
+- **Clean Compilation**: Zero architecture mismatch compilation errors
+- **Standard Patterns**: 100% of tests use `#[sqlx::test(migrator = "...")]` pattern
+
+#### Qualitative Benefits  
+- **Clear Responsibility Separation**: Orchestration tests focus on command pattern, worker tests focus on step processing
+- **Architecture Consistency**: Tests reflect actual command pattern architecture
+- **Maintainable**: Standard sqlx test patterns instead of complex custom database management
+- **Future-Ready**: Foundation supports TAS-41 (pure Rust worker) testing needs
+
+This comprehensive analysis provides the detailed foundation for implementing the test migration phase of TAS-40.

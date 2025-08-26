@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tasker_orchestration::orchestration::finalization_claimer::{
+use tasker_orchestration::orchestration::task_claim::finalization_claimer::{
     ClaimGuard, FinalizationClaimer, FinalizationClaimerConfig,
 };
 use tokio::time::timeout;

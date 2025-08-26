@@ -51,12 +51,17 @@ pub mod api_clients;
 pub mod bootstrap;
 pub mod command_processor;
 pub mod config;
+pub mod error;
 pub mod event_publisher;
 pub mod event_subscriber;
 pub mod health;
 pub mod task_template_manager;
 pub mod web;
 pub mod worker;
+
+// Testing infrastructure (only available in test builds or with test feature)
+#[cfg(any(test, feature = "test-utils"))]
+pub mod testing;
 
 pub use api_clients::OrchestrationApiClient;
 pub use bootstrap::{
@@ -65,6 +70,7 @@ pub use bootstrap::{
 pub use command_processor::{
     EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerProcessor, WorkerStatus,
 };
+pub use error::{WorkerError, Result};
 pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
 pub use event_subscriber::{
     CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,

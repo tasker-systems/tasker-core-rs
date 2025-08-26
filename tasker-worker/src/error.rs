@@ -39,7 +39,7 @@ pub enum WorkerError {
     Ffi(String),
 
     #[error("Shared component error: {0}")]
-    Shared(#[from] tasker_shared::error::TaskerError),
+    Shared(#[from] tasker_shared::errors::TaskerError),
 
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
