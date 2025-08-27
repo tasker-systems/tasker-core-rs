@@ -10,53 +10,41 @@ license = "MIT"
 name = "pgmq_notify"
 crate-type = ["rlib"]
 
+[[bin]]
+name = "pgmq-notify-cli"
+path = "src/bin/cli.rs"
+
 
 [dependencies]
+# Core async runtime
 tokio = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 
-# Database and ORM
-sqlx = { workspace = true, optional = true }
+# Database - sqlx for pg_notify support, pgmq for queue traits
+sqlx = { workspace = true }
 pgmq = { workspace = true }
-rust_decimal = { workspace = true }
-bigdecimal = { workspace = true }
-uuid = { workspace = true }
 
-# Serialization
+# Serialization - minimal for event payloads
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
-toml = { workspace = true }
 
-# Time and date handling
+# Time handling - for timestamps in events
 chrono = { workspace = true }
 
-# Error handling
+# Error handling 
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 
-# System information
-sysinfo = { workspace = true }
-
-# Logging and telemetry
+# Logging
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
-structured-logger = { workspace = true }
 
-# Configuration
-config = { workspace = true }
+# Pattern matching for namespace extraction
 regex = { workspace = true }
-dotenvy = { workspace = true } # For loading .env files
 
-# Random number generation
-fastrand = { workspace = true }
-
-# Development and testing
-criterion = { workspace = true, optional = true }
-rand = { workspace = true }
-workspace_tools = { workspace = true }
+# CLI tool dependencies
+clap = { version = "4.5", features = ["derive"] }
+toml = { workspace = true }
 
 [dev-dependencies]
 # Testing tools
@@ -73,4 +61,5 @@ serial_test = { workspace = true }
 cargo-llvm-cov = { workspace = true }
 
 [features]
-default = []
+default = ["sqlx-support"]
+sqlx-support = []  # Feature for sqlx::PgListener integration

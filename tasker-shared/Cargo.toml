@@ -18,6 +18,7 @@ futures = { workspace = true }
 # Database and ORM
 sqlx = { workspace = true }
 pgmq = { workspace = true }
+pgmq-notify = { workspace = true }
 rust_decimal = { workspace = true }
 bigdecimal = { workspace = true }
 uuid = { workspace = true }

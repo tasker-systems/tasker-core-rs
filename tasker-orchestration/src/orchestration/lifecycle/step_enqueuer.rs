@@ -114,7 +114,7 @@ pub struct StepEnqueuer {
 impl StepEnqueuer {
     /// Create a new step enqueuer instance (backward compatibility with standard client)
     pub async fn new(pool: PgPool, pgmq_client: PgmqClient) -> TaskerResult<Self> {
-        let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
+        let unified_client = UnifiedPgmqClient::new_standard(pgmq_client);
         Self::with_unified_client(pool, unified_client).await
     }
 
@@ -144,7 +144,7 @@ impl StepEnqueuer {
         pgmq_client: PgmqClient,
         config: StepEnqueuerConfig,
     ) -> TaskerResult<Self> {
-        let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
+        let unified_client = UnifiedPgmqClient::new_standard(pgmq_client);
         Self::with_unified_client_and_config(pool, unified_client, config).await
     }
 
@@ -425,24 +425,20 @@ impl StepEnqueuer {
         claimed_task: &ClaimedTask,
         viable_step: &ViableStep,
     ) -> TaskerResult<SimpleStepMessage> {
-        // Get task and step UUIDs from the database
+        // Get task and step UUIDs from the database - minimal message creation
         let task_uuid = self.get_task_uuid(claimed_task.task_uuid).await?;
         let step_uuid = self.get_step_uuid(viable_step.step_uuid).await?;
 
-        // Get ready dependency step UUIDs
-        let ready_dependency_step_uuids = self.get_ready_dependency_uuids(viable_step).await?;
-
+        // Create minimal SimpleStepMessage - workers will query dependencies as needed
         let simple_message = SimpleStepMessage {
             task_uuid,
             step_uuid,
-            ready_dependency_step_uuids,
         };
 
         debug!(
-            "✅ STEP_ENQUEUER: Created simple message - task_uuid: {}, step_uuid: {}, {} dependencies",
+            "✅ STEP_ENQUEUER: Created minimal message - task_uuid: {}, step_uuid: {} (dependencies queried by workers)",
             simple_message.task_uuid,
-            simple_message.step_uuid,
-            simple_message.ready_dependency_step_uuids.len()
+            simple_message.step_uuid
         );
 
         Ok(simple_message)
@@ -474,47 +470,9 @@ impl StepEnqueuer {
         Ok(row.workflow_step_uuid)
     }
 
-    /// Get UUIDs of ready dependency steps (all transitive dependencies)
-    async fn get_ready_dependency_uuids(
-        &self,
-        viable_step: &ViableStep,
-    ) -> TaskerResult<Vec<Uuid>> {
-        // Use our new SQL function to get ALL transitive dependencies
-        use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-        let executor = SqlFunctionExecutor::new(self.pool.clone());
-
-        let transitive_dependencies = executor
-            .get_step_transitive_dependencies(viable_step.step_uuid)
-            .await
-            .map_err(|e| {
-                TaskerError::DatabaseError(format!("Failed to fetch transitive dependencies: {e}"))
-            })?;
-
-        // Only include dependencies that are processed (completed)
-        let completed_dependencies: Vec<_> = transitive_dependencies
-            .into_iter()
-            .filter(|dep| dep.processed)
-            .collect();
-
-        // Get UUIDs for completed dependencies
-        let uuids = if completed_dependencies.is_empty() {
-            Vec::new()
-        } else {
-            completed_dependencies
-                .iter()
-                .map(|dep| dep.workflow_step_uuid)
-                .collect()
-        };
-
-        debug!(
-            "📋 STEP_ENQUEUER: Found {} transitive dependency UUIDs for step {} (from {} total transitive deps)",
-            uuids.len(),
-            viable_step.step_uuid,
-            completed_dependencies.len()
-        );
-
-        Ok(uuids)
-    }
+    // REMOVED: get_ready_dependency_uuids method - no longer needed
+    // Workers will query dependencies directly as needed
+    // This eliminates redundant database queries in orchestration layer
 
     /// Get task execution context for step processing
     #[allow(dead_code)]

@@ -102,6 +102,11 @@ impl OrchestrationCore {
         })
     }
 
+    /// Get command sender for external components
+    pub fn command_sender(&self) -> mpsc::Sender<OrchestrationCommand> {
+        self.command_sender.clone()
+    }
+
     /// Start the orchestration core
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!("Starting OrchestrationCore with command pattern architecture");

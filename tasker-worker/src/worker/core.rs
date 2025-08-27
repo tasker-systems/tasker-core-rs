@@ -1,11 +1,14 @@
 //! # TAS-40 WorkerCore with Command Pattern Integration
+//! # TAS-43 Event-Driven Message Processing Integration
 //!
 //! This module provides the main worker system core that integrates the
-//! TAS-40 command pattern architecture with worker-specific processing components.
+//! TAS-40 command pattern architecture with TAS-43 event-driven processing.
 //!
 //! ## Key Features
 //!
 //! - **Command Pattern Integration**: Uses WorkerProcessor for all worker operations
+//! - **Event-Driven Processing**: Real-time message processing via PostgreSQL LISTEN/NOTIFY
+//! - **Hybrid Reliability**: Event-driven with fallback polling for guaranteed message processing
 //! - **Step Execution**: Manages step message processing and result publishing
 //! - **TaskTemplate Management**: Local template caching and validation
 //! - **Orchestration API**: HTTP client for orchestration service communication
@@ -22,14 +25,18 @@ use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::api_clients::orchestration_client::{OrchestrationApiClient, OrchestrationApiConfig};
 use crate::command_processor::{WorkerCommand, WorkerProcessor, WorkerStatus};
+use crate::event_driven_processor::{
+    EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
+};
 use crate::health::WorkerHealthStatus;
 use crate::task_template_manager::TaskTemplateManager;
 
-/// TAS-40 Command Pattern WorkerCore
+/// TAS-40 Command Pattern WorkerCore with TAS-43 Event-Driven Integration
 ///
-/// Similar to OrchestrationCore but focused on worker-specific operations:
-/// - Processing step messages from queues
-/// - Executing step handlers
+/// Focused on worker-specific operations with real-time event processing:
+/// - Event-driven step message processing via PostgreSQL LISTEN/NOTIFY
+/// - Hybrid reliability with fallback polling for guaranteed processing
+/// - Command pattern integration for all worker operations
 /// - Publishing results back to orchestration
 /// - Managing local task template cache
 /// - Health monitoring and metrics
@@ -45,6 +52,9 @@ pub struct WorkerCore {
     #[allow(dead_code)]
     processor: Option<WorkerProcessor>,
 
+    /// Event-driven message processor for real-time message handling
+    event_driven_processor: Option<EventDrivenMessageProcessor>,
+
     /// Task template manager for local caching
     pub task_template_manager: Arc<TaskTemplateManager>,
 
@@ -56,6 +66,9 @@ pub struct WorkerCore {
 
     /// Core configuration
     pub core_id: Uuid,
+
+    /// Worker namespace for message filtering
+    pub namespace: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,12 +82,17 @@ pub enum WorkerCoreStatus {
 }
 
 impl WorkerCore {
-    /// Create new WorkerCore with command pattern integration
+    /// Create new WorkerCore with TAS-43 event-driven processing integration
     pub async fn new(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
+        namespace: String,
+        event_driven_enabled: Option<bool>,
     ) -> TaskerResult<Self> {
-        info!("Creating WorkerCore with TAS-40 command pattern integration");
+        info!(
+            namespace = %namespace,
+            "Creating WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
+        );
 
         // Create worker-specific components
         let task_template_manager = Arc::new(TaskTemplateManager::new(
@@ -90,17 +108,44 @@ impl WorkerCore {
             })?,
         );
 
-        // Create WorkerProcessor with command pattern - use a default namespace for now
-        // TODO: Make namespace configurable in WorkerCore constructor
-        let default_namespace = "default_worker".to_string();
+        // Create PGMQ client for message deletion
+        let pgmq_client = Arc::new(
+            tasker_shared::messaging::clients::pgmq_client::PgmqClient::new_with_pool(
+                context.database_pool().clone(),
+            )
+            .await,
+        );
+
+        // Create WorkerProcessor with command pattern and database operations capability
         let (mut processor, command_sender) = WorkerProcessor::new(
-            default_namespace,
+            namespace.clone(),
             context.clone(),
+            task_template_manager.clone(),
+            pgmq_client,
             1000, // Command buffer size
         );
 
         // Start the processor
         processor.start().await?;
+
+        // Create EventDrivenMessageProcessor for TAS-43 integration
+        let event_driven_config = EventDrivenConfig {
+            event_driven_enabled: event_driven_enabled.unwrap_or(true),
+            fallback_polling_interval: Duration::from_millis(500),
+            batch_size: 10,
+            visibility_timeout: Duration::from_secs(30),
+        };
+
+        let event_driven_processor = EventDrivenMessageProcessor::new(
+            event_driven_config,
+            context.clone(),
+            task_template_manager.clone(),
+            command_sender.clone(),
+        )
+        .await
+        .map_err(|e| {
+            TaskerError::WorkerError(format!("Failed to create event-driven processor: {e}"))
+        })?;
 
         let core_id = Uuid::now_v7();
 
@@ -108,37 +153,76 @@ impl WorkerCore {
             context,
             command_sender,
             processor: Some(processor),
+            event_driven_processor: Some(event_driven_processor),
             task_template_manager,
             orchestration_client,
             status: WorkerCoreStatus::Created,
             core_id,
+            namespace,
         })
     }
 
-    /// Start the worker core
+    /// Start the worker core with event-driven processing
     pub async fn start(&mut self) -> TaskerResult<()> {
-        info!("Starting WorkerCore with command pattern architecture");
+        info!(
+            namespace = %self.namespace,
+            "Starting WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
+        );
 
         self.status = WorkerCoreStatus::Starting;
 
-        // The processor is already started in new(), just update status
+        // Start event-driven message processor for real-time processing
+        if let Some(ref mut event_driven_processor) = self.event_driven_processor {
+            event_driven_processor.start().await.map_err(|e| {
+                TaskerError::WorkerError(format!("Failed to start event-driven processor: {e}"))
+            })?;
+
+            info!(
+                core_id = %self.core_id,
+                namespace = %self.namespace,
+                "Event-driven message processor started successfully"
+            );
+        }
+
+        // The WorkerProcessor is already started in new(), just update status
         self.status = WorkerCoreStatus::Running;
 
         info!(
             core_id = %self.core_id,
-            "WorkerCore started successfully with TAS-40 command pattern"
+            namespace = %self.namespace,
+            "WorkerCore started successfully with TAS-40 command pattern and TAS-43 event-driven integration"
         );
 
         Ok(())
     }
 
-    /// Stop the worker core
+    /// Stop the worker core and event-driven processing
     pub async fn stop(&mut self) -> TaskerResult<()> {
-        info!("Stopping WorkerCore");
+        info!(
+            namespace = %self.namespace,
+            "Stopping WorkerCore with event-driven processing"
+        );
 
         self.status = WorkerCoreStatus::Stopping;
 
-        // Send shutdown command to processor
+        // Stop event-driven message processor first
+        if let Some(ref mut event_driven_processor) = self.event_driven_processor {
+            if let Err(e) = event_driven_processor.stop().await {
+                warn!(
+                    core_id = %self.core_id,
+                    error = %e,
+                    "Failed to stop event-driven processor cleanly"
+                );
+            } else {
+                info!(
+                    core_id = %self.core_id,
+                    namespace = %self.namespace,
+                    "Event-driven message processor stopped successfully"
+                );
+            }
+        }
+
+        // Send shutdown command to worker processor
         let (resp_tx, resp_rx) = oneshot::channel();
         if let Err(e) = self
             .command_sender
@@ -157,22 +241,31 @@ impl WorkerCore {
 
         info!(
             core_id = %self.core_id,
+            namespace = %self.namespace,
             "WorkerCore stopped successfully"
         );
 
         Ok(())
     }
 
-    /// Get worker health status via command pattern
+    /// Get worker health status including event-driven processor status
     pub async fn get_health(&self) -> TaskerResult<WorkerHealthStatus> {
         // Use GetWorkerStatus to get worker information, then convert to health status
         let worker_status = self.get_processing_stats().await?;
 
+        // Get event-driven processor stats if available
+        let event_driven_connected = if let Some(ref processor) = self.event_driven_processor {
+            let stats = processor.get_stats().await;
+            stats.listener_connected && processor.is_running()
+        } else {
+            false
+        };
+
         // Convert WorkerStatus to WorkerHealthStatus
         Ok(WorkerHealthStatus {
             status: worker_status.status.clone(),
-            database_connected: true, // TODO: Could check actual DB connectivity
-            orchestration_api_reachable: true, // TODO: Could check actual API connectivity
+            database_connected: event_driven_connected, // Event-driven processor includes DB connectivity
+            orchestration_api_reachable: true,          // TODO: Could check actual API connectivity
             supported_namespaces: vec![worker_status.namespace.clone()],
             cached_templates: 0, // TODO: Get from task_template_manager
             total_messages_processed: worker_status.steps_executed,
@@ -198,23 +291,16 @@ impl WorkerCore {
     /// Process step message via command pattern
     pub async fn process_step_message(
         &self,
-        message: tasker_shared::messaging::message::SimpleStepMessage,
+        _message: tasker_shared::messaging::message::SimpleStepMessage,
     ) -> TaskerResult<tasker_shared::messaging::StepExecutionResult> {
-        let (resp_tx, resp_rx) = oneshot::channel();
+        let (_resp_tx, _resp_rx) =
+            oneshot::channel::<TaskerResult<tasker_shared::messaging::StepExecutionResult>>();
 
-        self.command_sender
-            .send(WorkerCommand::ExecuteStep {
-                message,
-                resp: resp_tx,
-            })
-            .await
-            .map_err(|e| {
-                TaskerError::WorkerError(format!("Failed to send step processing command: {e}"))
-            })?;
-
-        resp_rx
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("Step processing response error: {e}")))?
+        // TODO: This method needs to be updated to use TaskSequenceStep instead of SimpleStepMessage
+        // For now, we'll return an error to indicate this needs to be implemented properly
+        Err(TaskerError::WorkerError(
+            "process_step_message needs to be updated to use TaskSequenceStep pattern".to_string(),
+        ))
     }
 
     /// Refresh task template cache via command pattern
@@ -259,6 +345,29 @@ impl WorkerCore {
     /// Get the command sender for communicating with the worker processor
     pub fn command_sender(&self) -> &mpsc::Sender<WorkerCommand> {
         &self.command_sender
+    }
+
+    /// Get the worker namespace
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    /// Get event-driven processor statistics
+    pub async fn get_event_driven_stats(&self) -> Option<EventDrivenStats> {
+        if let Some(ref processor) = self.event_driven_processor {
+            Some(processor.get_stats().await)
+        } else {
+            None
+        }
+    }
+
+    /// Check if event-driven processing is enabled and running
+    pub fn is_event_driven_enabled(&self) -> bool {
+        if let Some(ref processor) = self.event_driven_processor {
+            processor.is_running()
+        } else {
+            false
+        }
     }
 }
 

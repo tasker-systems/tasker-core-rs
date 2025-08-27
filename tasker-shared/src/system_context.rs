@@ -159,12 +159,12 @@ impl SystemContext {
                     .await;
             (
                 Some(manager),
-                Arc::new(UnifiedPgmqClient::Protected(protected_client)),
+                Arc::new(UnifiedPgmqClient::new_protected(protected_client)),
             )
         } else {
             info!("📤 Circuit breakers disabled - using standard PgmqClient");
             let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
-            (None, Arc::new(UnifiedPgmqClient::Standard(standard_client)))
+            (None, Arc::new(UnifiedPgmqClient::new_standard(standard_client)))
         };
         (circuit_breaker_manager, message_client)
     }
@@ -254,7 +254,7 @@ impl SystemContext {
         })?;
 
         // Create standard PGMQ client (no circuit breaker for simplicity)
-        let message_client = Arc::new(UnifiedPgmqClient::Standard(
+        let message_client = Arc::new(UnifiedPgmqClient::new_standard(
             PgmqClient::new_with_pool(database_pool.clone()).await,
         ));
 

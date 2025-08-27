@@ -480,7 +480,6 @@ mod tests {
         let simple_message = SimpleStepMessage {
             step_uuid: Uuid::new_v4(),
             task_uuid: Uuid::new_v4(),
-            ready_dependency_step_uuids: vec![],
         };
 
         // Send simple step message

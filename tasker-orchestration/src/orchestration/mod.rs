@@ -10,6 +10,7 @@ pub mod config;
 pub mod core;
 pub mod error_classifier;
 pub mod errors;
+pub mod event_driven_coordinator;
 pub mod lifecycle;
 pub mod state_manager;
 pub mod system_events;
@@ -51,6 +52,9 @@ pub use command_processor::{
     SystemHealth, TaskFinalizationResult, TaskInitializeResult,
 };
 pub use core::{OrchestrationCore, OrchestrationCoreStatus};
+pub use event_driven_coordinator::{
+    EventDrivenCoordinatorConfig, EventDrivenCoordinatorStats, EventDrivenOrchestrationCoordinator,
+};
 
 // Re-export new components (to be implemented)
 pub use config::{

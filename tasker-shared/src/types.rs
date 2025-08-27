@@ -12,6 +12,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 use uuid::Uuid;
 
+use crate::models::task_template::StepDefinition;
+use crate::models::workflow_step::WorkflowStepWithName;
+
 // Import StepExecutionContext from step_handler module
 
 /// Result of task orchestration
@@ -271,10 +274,10 @@ pub struct StepEventPayload {
     pub step_uuid: Uuid,
     /// Human-readable step name from the task template
     pub step_name: String,
-    /// Handler class to execute (e.g., "OrderFulfillment::StepHandler::ProcessPayment")
-    pub handler_class: String,
+    /// Step definition from the task template
+    pub step_definition: StepDefinition,
     /// Step-specific payload/configuration from the task template
-    pub step_payload: serde_json::Value,
+    pub workflow_step: WorkflowStepWithName,
     /// Results from dependency steps, keyed by step name for easy lookup
     pub dependency_results: HashMap<String, serde_json::Value>,
     /// Execution context matching Ruby expectations (task, sequence, step structure)
@@ -339,8 +342,8 @@ impl StepEventPayload {
         task_uuid: Uuid,
         step_uuid: Uuid,
         step_name: String,
-        handler_class: String,
-        step_payload: serde_json::Value,
+        step_definition: StepDefinition,
+        workflow_step: WorkflowStepWithName,
         dependency_results: HashMap<String, serde_json::Value>,
         execution_context: serde_json::Value,
     ) -> Self {
@@ -348,8 +351,8 @@ impl StepEventPayload {
             task_uuid,
             step_uuid,
             step_name,
-            handler_class,
-            step_payload,
+            step_definition,
+            workflow_step,
             dependency_results,
             execution_context,
         }

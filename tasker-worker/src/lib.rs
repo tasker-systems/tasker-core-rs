@@ -22,7 +22,7 @@
 //! WorkerEventPublisher -> WorkerEventSystem -> FFI Handler (Ruby/Python/WASM)
 //!     ↑                                           ↓
 //! WorkerEventSubscriber <- WorkerEventSystem <- FFI Handler Completion
-//!     ↓                                           
+//!     ↓
 //! StepExecutionResult -> OrchestrationCore
 //! ```
 //!
@@ -39,7 +39,7 @@
 //! // Event publisher fires events to FFI handlers
 //! let event_publisher = WorkerEventPublisher::new(worker_id, namespace);
 //!
-//! // Event subscriber receives completions from FFI handlers  
+//! // Event subscriber receives completions from FFI handlers
 //! let event_subscriber = WorkerEventSubscriber::new(worker_id, namespace);
 //! let completion_receiver = event_subscriber.start_completion_listener();
 //!
@@ -52,9 +52,11 @@ pub mod bootstrap;
 pub mod command_processor;
 pub mod config;
 pub mod error;
+pub mod event_driven_processor;
 pub mod event_publisher;
 pub mod event_subscriber;
 pub mod health;
+pub mod step_claim;
 pub mod task_template_manager;
 pub mod web;
 pub mod worker;
@@ -70,13 +72,17 @@ pub use bootstrap::{
 pub use command_processor::{
     EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerProcessor, WorkerStatus,
 };
-pub use error::{WorkerError, Result};
+pub use error::{Result, WorkerError};
+pub use event_driven_processor::{
+    EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
+};
 pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
 pub use event_subscriber::{
     CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,
     WorkerEventSubscriberError, WorkerEventSubscriberStats,
 };
 pub use health::WorkerHealthStatus;
+pub use step_claim::{StepClaim, TaskSequenceStep};
 pub use task_template_manager::{
     CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
     WorkerTaskTemplateOperations,

@@ -16,7 +16,9 @@
 
 // Note: OrchestrationLoopCoordinator removed as part of TAS-40 command pattern migration
 // Bootstrap will be updated to use OrchestrationProcessor once implemented
-use crate::orchestration::OrchestrationCore;
+use crate::orchestration::{
+    EventDrivenCoordinatorConfig, EventDrivenOrchestrationCoordinator, OrchestrationCore,
+};
 use crate::web;
 use crate::web::state::{AppState, WebServerConfig};
 use std::sync::Arc;
@@ -30,6 +32,9 @@ use tracing::{error, info, warn};
 pub struct OrchestrationSystemHandle {
     /// Core orchestration system
     pub orchestration_core: Arc<OrchestrationCore>,
+    /// Event-driven coordination system (TAS-43)
+    pub event_driven_coordinator:
+        Option<Arc<tokio::sync::Mutex<EventDrivenOrchestrationCoordinator>>>,
     /// Web API state (optional)
     pub web_state: Option<Arc<AppState>>,
     /// Shutdown signal sender (Some when running, None when stopped)
@@ -46,6 +51,9 @@ impl OrchestrationSystemHandle {
     /// Create new orchestration system handle
     pub fn new(
         orchestration_core: Arc<OrchestrationCore>,
+        event_driven_coordinator: Option<
+            Arc<tokio::sync::Mutex<EventDrivenOrchestrationCoordinator>>,
+        >,
         web_state: Option<Arc<AppState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
@@ -54,6 +62,7 @@ impl OrchestrationSystemHandle {
     ) -> Self {
         Self {
             orchestration_core,
+            event_driven_coordinator,
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
@@ -68,12 +77,27 @@ impl OrchestrationSystemHandle {
     }
 
     /// Stop the orchestration system
-    pub fn stop(&mut self) -> TaskerResult<()> {
-        if let Some(sender) = self.shutdown_sender.take() {
-            sender.send(()).map_err(|_| {
-                TaskerError::OrchestrationError("Failed to send shutdown signal".to_string())
-            })?;
-            info!("🛑 Orchestration system shutdown requested");
+    pub async fn stop(&mut self) -> TaskerResult<()> {
+        if self.shutdown_sender.is_some() {
+            // Stop event-driven coordinator first
+            if let Some(ref coordinator) = self.event_driven_coordinator {
+                info!("🛑 Stopping event-driven orchestration coordinator");
+                coordinator.lock().await.stop().await.map_err(|e| {
+                    TaskerError::OrchestrationError(format!(
+                        "Failed to stop event-driven coordinator: {}",
+                        e
+                    ))
+                })?;
+            }
+
+            // Send shutdown signal
+            if let Some(sender) = self.shutdown_sender.take() {
+                sender.send(()).map_err(|_| {
+                    TaskerError::OrchestrationError("Failed to send shutdown signal".to_string())
+                })?;
+            }
+
+            info!("🛑 Orchestration system shutdown completed");
             Ok(())
         } else {
             warn!("Orchestration system already stopped");
@@ -125,6 +149,10 @@ pub struct BootstrapConfig {
     pub enable_web_api: bool,
     /// Web API configuration (bind address, etc.)
     pub web_config: Option<WebServerConfig>,
+    /// Enable event-driven orchestration coordination (TAS-43)
+    pub enable_event_driven_coordination: bool,
+    /// Event-driven coordinator configuration
+    pub event_driven_config: Option<EventDrivenCoordinatorConfig>,
 }
 
 impl Default for BootstrapConfig {
@@ -135,6 +163,8 @@ impl Default for BootstrapConfig {
             environment_override: None,
             enable_web_api: true,
             web_config: None,
+            enable_event_driven_coordination: true,
+            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
         }
     }
 }
@@ -151,6 +181,8 @@ impl BootstrapConfig {
             environment_override: Some(config_manager.environment().to_string()),
             enable_web_api: true,
             web_config: None, // Will be loaded from config manager
+            enable_event_driven_coordination: true,
+            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
         }
     }
 
@@ -162,6 +194,8 @@ impl BootstrapConfig {
             environment_override: Some("test".to_string()),
             enable_web_api: false, // Disable web API for testing
             web_config: None,
+            enable_event_driven_coordination: false, // Disable for deterministic testing
+            event_driven_config: None,
         }
     }
 }
@@ -256,6 +290,46 @@ impl OrchestrationBootstrap {
             None
         };
 
+        // Create event-driven coordinator if enabled (TAS-43)
+        let event_driven_coordinator = if config.enable_event_driven_coordination {
+            info!("BOOTSTRAP: Creating event-driven orchestration coordinator (TAS-43)");
+
+            let coordinator_config = config
+                .event_driven_config
+                .clone()
+                .unwrap_or_else(EventDrivenCoordinatorConfig::default);
+
+            let coordinator = EventDrivenOrchestrationCoordinator::new(
+                coordinator_config,
+                system_context.clone(),
+                orchestration_core.clone(),
+                orchestration_core.command_sender(),
+            )
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to create event-driven coordinator: {}",
+                    e
+                ))
+            })?;
+
+            let coordinator_arc = Arc::new(tokio::sync::Mutex::new(coordinator));
+
+            // Start the coordinator
+            coordinator_arc.lock().await.start().await.map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to start event-driven coordinator: {}",
+                    e
+                ))
+            })?;
+
+            info!("✅ BOOTSTRAP: Event-driven orchestration coordinator started successfully");
+            Some(coordinator_arc)
+        } else {
+            info!("BOOTSTRAP: Event-driven coordination disabled in configuration");
+            None
+        };
+
         // Create runtime handle
         let runtime_handle = tokio::runtime::Handle::current();
 
@@ -305,6 +379,7 @@ impl OrchestrationBootstrap {
 
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
+            event_driven_coordinator,
             web_state,
             shutdown_sender,
             runtime_handle,
@@ -330,6 +405,8 @@ impl OrchestrationBootstrap {
             environment_override: environment,
             enable_web_api,
             web_config: None, // Will be loaded from config manager
+            enable_event_driven_coordination: true,
+            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
         };
 
         Self::bootstrap(config).await
@@ -347,6 +424,8 @@ impl OrchestrationBootstrap {
             environment_override: Some("test".to_string()),
             enable_web_api: false, // Disable web API for testing by default
             web_config: None,
+            enable_event_driven_coordination: false, // Disable for deterministic testing
+            event_driven_config: None,
         };
 
         Self::bootstrap(config).await

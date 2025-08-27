@@ -43,6 +43,8 @@ use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+pub type StepDependencyResultMap = HashMap<String, JsonValue>;
+
 /// Result structure for get_step_transitive_dependencies SQL function
 ///
 /// Represents a single ancestor step in the transitive dependency chain,
@@ -186,7 +188,7 @@ impl StepTransitiveDependenciesQuery {
     pub async fn get_results_map(
         &self,
         step_uuid: Uuid,
-    ) -> Result<HashMap<String, JsonValue>, sqlx::Error> {
+    ) -> Result<StepDependencyResultMap, sqlx::Error> {
         let dependencies = self.get_completed_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()

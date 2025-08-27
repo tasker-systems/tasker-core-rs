@@ -139,7 +139,7 @@ impl WorkerEventSystem {
             task_uuid = %event.payload.task_uuid,
             step_uuid = %event.payload.step_uuid,
             step_name = %event.payload.step_name,
-            handler_class = %event.payload.handler_class,
+            handler_class = %event.payload.step_definition.handler.callable,
             "Publishing step execution event to FFI handlers"
         );
 

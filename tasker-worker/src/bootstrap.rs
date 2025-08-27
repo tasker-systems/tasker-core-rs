@@ -217,10 +217,24 @@ impl WorkerBootstrap {
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
         // Initialize WorkerCore with unified configuration
+        // Use first supported namespace or default
+        let namespace = config
+            .supported_namespaces
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "default_worker".to_string());
+
+        info!(
+            "BOOTSTRAP: Initializing WorkerCore for namespace: {}",
+            namespace
+        );
+
         let worker_core = Arc::new(
             WorkerCore::new(
                 system_context.clone(),
                 config.orchestration_api_config.clone(),
+                namespace,
+                Some(true), // Enable event-driven processing by default
             )
             .await?,
         );

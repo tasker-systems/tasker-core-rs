@@ -14,21 +14,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use tasker_shared::messaging::{
-    message::SimpleStepMessage, StepExecutionResult, StepHandlerCallResult,
-};
-use tasker_shared::models::core::{task::Task, workflow_step::WorkflowStep};
-use tasker_shared::models::orchestration::step_transitive_dependencies::StepTransitiveDependenciesQuery;
-use tasker_shared::registry::task_handler_registry::TaskHandlerRegistry;
+use pgmq::Message as PgmqMessage;
+use tasker_shared::messaging::clients::pgmq_client::PgmqClient;
+use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
+// Database models will be imported when implementing the actual database operations
 
 use crate::event_publisher::WorkerEventPublisher;
 use crate::event_subscriber::WorkerEventSubscriber;
 use crate::health::WorkerHealthStatus;
+use crate::step_claim::StepClaim;
+use crate::task_template_manager::TaskTemplateManager;
 
 /// Worker command responder type
 type CommandResponder<T> = oneshot::Sender<TaskerResult<T>>;
@@ -36,10 +37,11 @@ type CommandResponder<T> = oneshot::Sender<TaskerResult<T>>;
 /// Commands that can be sent to the WorkerProcessor
 #[derive(Debug)]
 pub enum WorkerCommand {
-    /// Execute a step using SimpleStepMessage from queue - database as API layer
+    /// Execute a step from raw SimpleStepMessage - handles database queries, claiming, and deletion
     ExecuteStep {
-        message: SimpleStepMessage,
-        resp: CommandResponder<StepExecutionResult>,
+        message: PgmqMessage<SimpleStepMessage>,
+        queue_name: String,
+        resp: CommandResponder<()>,
     },
     /// Get current worker status and statistics
     GetWorkerStatus {
@@ -52,9 +54,10 @@ pub enum WorkerCommand {
     },
     /// Execute step with event correlation for FFI handler tracking
     ExecuteStepWithCorrelation {
-        message: SimpleStepMessage,
+        message: PgmqMessage<SimpleStepMessage>,
+        queue_name: String,
         correlation_id: Uuid,
-        resp: CommandResponder<StepExecutionResult>,
+        resp: CommandResponder<()>,
     },
     /// Process step completion event from FFI handler (event-driven)
     ProcessStepCompletion {
@@ -127,9 +130,16 @@ pub struct WorkerProcessor {
     /// Worker identification
     worker_id: String,
     namespace: String,
+    processor_id: Uuid,
 
     /// System context for dependencies and database access
     context: Arc<SystemContext>,
+
+    /// Task template manager for metadata lookups
+    task_template_manager: Arc<TaskTemplateManager>,
+
+    /// PGMQ client for message deletion
+    pgmq_client: Arc<PgmqClient>,
 
     /// Command receiver
     command_receiver: Option<mpsc::Receiver<WorkerCommand>>,
@@ -155,21 +165,28 @@ impl WorkerProcessor {
     pub fn new(
         namespace: String,
         context: Arc<SystemContext>,
+        task_template_manager: Arc<TaskTemplateManager>,
+        pgmq_client: Arc<PgmqClient>,
         command_buffer_size: usize,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
         let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
         let worker_id = format!("worker_{}_{}", namespace, Uuid::new_v4());
+        let processor_id = Uuid::new_v4();
 
         info!(
             worker_id = %worker_id,
+            processor_id = %processor_id,
             namespace = %namespace,
-            "Creating WorkerProcessor with TAS-40 simple command pattern"
+            "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
         let processor = Self {
             worker_id: worker_id.clone(),
             namespace: namespace.clone(),
+            processor_id,
             context,
+            task_template_manager,
+            pgmq_client,
             command_receiver: Some(command_receiver),
             handlers: HashMap::new(),
             stats: StepExecutionStats {
@@ -306,18 +323,23 @@ impl WorkerProcessor {
     /// Handle individual worker command with event integration
     async fn handle_command(&mut self, command: WorkerCommand) -> bool {
         match command {
-            WorkerCommand::ExecuteStep { message, resp } => {
-                let result = self.handle_execute_step(message).await;
+            WorkerCommand::ExecuteStep {
+                message,
+                queue_name,
+                resp,
+            } => {
+                let result = self.handle_execute_step(message, queue_name).await;
                 let _ = resp.send(result);
                 true // Continue processing
             }
             WorkerCommand::ExecuteStepWithCorrelation {
                 message,
+                queue_name,
                 correlation_id,
                 resp,
             } => {
                 let result = self
-                    .handle_execute_step_with_correlation(message, correlation_id)
+                    .handle_execute_step_with_correlation(message, queue_name, correlation_id)
                     .await;
                 let _ = resp.send(result);
                 true // Continue processing
@@ -401,195 +423,116 @@ impl WorkerProcessor {
         Ok(())
     }
 
-    /// Execute step using SimpleStepMessage - database as API layer for data hydration
+    /// Execute step from raw SimpleStepMessage - handles database queries, claiming, and message deletion
     async fn handle_execute_step(
         &mut self,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<StepExecutionResult> {
+        message: PgmqMessage<SimpleStepMessage>,
+        queue_name: String,
+    ) -> TaskerResult<()> {
         let start_time = std::time::Instant::now();
+        let step_message = message.message;
 
         debug!(
             worker_id = %self.worker_id,
-            step_uuid = %message.step_uuid,
-            task_uuid = %message.task_uuid,
-            ready_dependencies = ?message.ready_dependency_step_uuids,
-            "Executing step using database as API layer"
+            processor_id = %self.processor_id,
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %step_message.task_uuid,
+            queue = %queue_name,
+            "Starting step execution with database operations, claiming, and message deletion"
         );
 
         self.stats.total_executed += 1;
 
-        // Get database connection from system context
-        let db_pool = self.context.database_pool();
+        // TODO: Implement full database operations, step claiming, and message deletion here
+        // This is where the database-heavy operations from event_driven_processor.rs lines 311-344 will be implemented
+        // For now, we'll implement a basic version to make compilation work
 
-        // 1. Fetch task data from database using task_uuid
-        let task = match Task::find_by_id(db_pool, message.task_uuid).await {
-            Ok(Some(task)) => task,
-            Ok(None) => {
-                return Err(TaskerError::WorkerError(format!(
-                    "Task not found: {}",
-                    message.task_uuid
-                )));
-            }
-            Err(e) => {
-                return Err(TaskerError::DatabaseError(format!(
-                    "Failed to fetch task: {e}"
-                )));
-            }
-        };
-
-        // 2. Fetch workflow step from database using step_uuid
-        let _workflow_step = match WorkflowStep::find_by_id(db_pool, message.step_uuid).await {
-            Ok(Some(step)) => step,
-            Ok(None) => {
-                return Err(TaskerError::WorkerError(format!(
-                    "Workflow step not found: {}",
-                    message.step_uuid
-                )));
-            }
-            Err(e) => {
-                return Err(TaskerError::DatabaseError(format!(
-                    "Failed to fetch workflow step: {e}"
-                )));
-            }
-        };
-
-        // 3. Get step name and handler information from task template
-        let task_namespace_name = task
-            .namespace_name(db_pool)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to get namespace: {e}")))?;
-        let task_name = task
-            .name(db_pool)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to get task name: {e}")))?;
-        let task_version = task
-            .version(db_pool)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to get task version: {e}")))?;
-
-        // 4. Use task_handler_registry to get task template and handler information
-        let registry = TaskHandlerRegistry::new(db_pool.clone());
-        let task_template = registry
-            .get_task_template(&task_namespace_name, &task_name, &task_version)
-            .await
-            .map_err(|e| TaskerError::WorkerError(format!("Failed to get task template: {e}")))?;
-
-        // 5. Get transitive dependencies and build execution context
-        let deps_query = StepTransitiveDependenciesQuery::new(db_pool.clone());
-        let dependency_results = deps_query
-            .get_results_map(message.step_uuid)
-            .await
-            .map_err(|e| {
-                TaskerError::DatabaseError(format!("Failed to get dependency results: {e}"))
-            })?;
-
-        // Find the step definition in the task template
-        let step_definition = task_template
-            .steps
-            .iter()
-            .find(|_step| {
-                // Match by named_step_uuid or by step name if we can get it
-                // For now, we'll use the first step as a mock
-                true // TODO: Implement proper step matching
-            })
-            .ok_or_else(|| {
-                TaskerError::WorkerError("Step definition not found in task template".to_string())
-            })?;
-
-        let step_name = &step_definition.name;
-        let handler_class = &step_definition.handler.callable;
-
-        debug!(
+        info!(
             worker_id = %self.worker_id,
-            step_name = %step_name,
-            handler_class = %handler_class,
-            dependencies_count = dependency_results.len(),
-            "Hydrated step execution context from database"
+            processor_id = %self.processor_id,
+            step_uuid = %step_message.step_uuid,
+            task_uuid = %step_message.task_uuid,
+            queue = %queue_name,
+            "Processing step message in command processor (database operations moved here)"
         );
 
-        // Fire step execution event to FFI handlers after database hydration
-        if let Some(ref event_publisher) = self.event_publisher {
-            match event_publisher
-                .fire_step_execution_event(
-                    task.task_uuid,
-                    message.step_uuid,
-                    step_name.clone(),
-                    handler_class.clone(),
-                    serde_json::json!({}), // TODO: Get actual step payload from configuration
-                    dependency_results.clone(),
-                    task.context
-                        .clone()
-                        .unwrap_or_else(|| serde_json::json!({})),
-                )
+        let step_claimer = StepClaim::new(
+            step_message.step_uuid,
+            step_message.task_uuid,
+            self.context.clone(),
+            self.task_template_manager.clone(),
+        );
+
+        let task_sequence_step = match step_claimer
+            .get_task_sequence_step_from_step_message(&step_message)
+            .await
+        {
+            Ok(step) => match step {
+                Some(step) => step,
+                None => {
+                    error!("Failed to get task sequence step");
+                    return Err(TaskerError::DatabaseError(format!(
+                        "Step not found for {}",
+                        step_message.step_uuid
+                    )));
+                }
+            },
+            Err(err) => {
+                error!("Failed to get task sequence step: {err}");
+                return Err(err);
+            }
+        };
+
+        let claimed = match step_claimer.try_claim_step(&task_sequence_step).await {
+            Ok(claimed) => claimed,
+            Err(err) => {
+                error!("Failed to claim step: {err}");
+                return Err(err);
+            }
+        };
+
+        if claimed {
+            match self
+                .context
+                .message_client
+                .delete_message(&queue_name, message.msg_id)
                 .await
             {
-                Ok(event) => {
-                    info!(
-                        worker_id = %self.worker_id,
-                        event_id = %event.event_id,
-                        step_name = %step_name,
-                        "Step execution event fired to FFI handlers"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        worker_id = %self.worker_id,
-                        error = %e,
-                        step_name = %step_name,
-                        "Failed to fire step execution event - continuing with direct execution"
-                    );
+                Ok(_) => (),
+                Err(err) => {
+                    error!("Failed to delete message: {err}");
+                    return Err(TaskerError::MessagingError(format!(
+                        "Failed to delete message: {err}"
+                    )));
                 }
             }
         }
 
-        // TODO: Integrate with Ruby step handler system
-        // For now, create a mock successful result using our Ruby-aligned types
-        let execution_time = start_time.elapsed().as_millis() as i64;
-
-        // Create result using Ruby StepHandlerCallResult pattern
-        let handler_result = StepHandlerCallResult::success(
-            serde_json::json!({
-                "step_name": step_name,
-                "handler_class": handler_class,
-                "task_context": task.context,
-                "dependency_results": dependency_results,
-                "executed_at": chrono::Utc::now().to_rfc3339(),
-                "message": message
-            }),
-            Some(std::collections::HashMap::from([
-                (
-                    "execution_time_ms".to_string(),
-                    serde_json::json!(execution_time),
-                ),
-                ("worker_id".to_string(), serde_json::json!(self.worker_id)),
-                ("namespace".to_string(), serde_json::json!(self.namespace)),
-                (
-                    "dependencies_used".to_string(),
-                    serde_json::json!(dependency_results.len()),
-                ),
-            ])),
-        );
-
-        // Convert to StepExecutionResult
-        let result = StepExecutionResult::success(
-            message.step_uuid,
-            handler_result.result().clone(),
-            execution_time,
-            Some(handler_result.metadata().clone()),
-        );
-
+        // Update statistics and return result
+        let execution_time = start_time.elapsed().as_millis() as u64;
         self.stats.total_succeeded += 1;
-        self.update_average_execution_time(execution_time);
+        self.stats.average_execution_time_ms = (self.stats.average_execution_time_ms
+            * (self.stats.total_executed as f64 - 1.0)
+            + execution_time as f64)
+            / self.stats.total_executed as f64;
 
-        info!(
-            worker_id = %self.worker_id,
-            step_uuid = %message.step_uuid,
-            step_name = %step_name,
-            execution_time_ms = execution_time,
-            "Step execution completed successfully using database API layer"
-        );
+        match &self.event_publisher {
+            Some(publisher) => match publisher
+                .fire_step_execution_event(&task_sequence_step)
+                .await
+            {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("Failed to fire step execution event: {err}");
+                    return Err(TaskerError::EventError(format!(
+                        "Failed to fire step execution event: {err}"
+                    )));
+                }
+            },
+            None => return Ok(()),
+        }
 
-        Ok(result)
+        Ok(())
     }
 
     /// Get worker status - simple status without complex metrics
@@ -662,29 +605,23 @@ impl WorkerProcessor {
     /// Execute step with correlation ID for event tracking
     async fn handle_execute_step_with_correlation(
         &mut self,
-        message: SimpleStepMessage,
-        correlation_id: Uuid,
-    ) -> TaskerResult<StepExecutionResult> {
-        debug!(
-            worker_id = %self.worker_id,
-            correlation_id = %correlation_id,
-            step_uuid = %message.step_uuid,
-            "Executing step with correlation tracking"
-        );
-
+        message: PgmqMessage<SimpleStepMessage>,
+        queue_name: String,
+        _correlation_id: Uuid,
+    ) -> TaskerResult<()> {
         // Use existing execute_step logic but with correlation ID for event publishing
-        let result = self.handle_execute_step(message).await?;
+        let result = self.handle_execute_step(message, queue_name).await?;
 
         // If event publisher is available, fire correlated event
         if let Some(ref _event_publisher) = self.event_publisher {
             // The event was already fired in handle_execute_step, but we could enhance
             // it with correlation tracking here if needed
-            debug!(
-                worker_id = %self.worker_id,
-                correlation_id = %correlation_id,
-                step_uuid = %result.step_uuid,
-                "Step executed with correlation tracking"
-            );
+            // debug!(
+            //     worker_id = %self.worker_id,
+            //     correlation_id = %correlation_id,
+            //     step_uuid = %result.step_uuid,
+            //     "Step executed with correlation tracking"
+            // );
         }
 
         Ok(result)
@@ -831,11 +768,16 @@ impl WorkerProcessor {
 
 #[cfg(test)]
 mod tests {
+    use crate::task_template_manager;
+
     use super::*;
     use dotenvy::dotenv;
+    use tasker_shared::scopes::task;
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_worker_processor_creation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_worker_processor_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         dotenv().ok();
         let context = Arc::new(
             SystemContext::with_pool(pool)
@@ -843,18 +785,30 @@ mod tests {
                 .expect("Failed to create context"),
         );
 
-        let (processor, _sender) = WorkerProcessor::new("test_namespace".to_string(), context, 100);
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let (processor, _sender) = WorkerProcessor::new(
+            "test_worker".to_string(),
+            "test_namespace".to_string(),
+            context,
+            task_template_manager,
+            100,
+        );
 
         assert_eq!(processor.namespace, "test_namespace");
         assert!(processor.worker_id.contains("test_namespace"));
         assert_eq!(processor.stats.total_executed, 0);
         assert_eq!(processor.handlers.len(), 0);
-        
+
         Ok(())
     }
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_execute_step_with_simple_message(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_execute_step_with_simple_message(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         dotenv().ok();
         let context = Arc::new(
             SystemContext::with_pool(pool)
@@ -862,24 +816,36 @@ mod tests {
                 .expect("Failed to create context"),
         );
 
-        let (mut processor, _sender) =
-            WorkerProcessor::new("test_namespace".to_string(), context, 100);
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let (processor, _sender) = WorkerProcessor::new(
+            "test_worker".to_string(),
+            "test_namespace".to_string(),
+            context,
+            task_template_manager,
+            100,
+        );
 
         // Create a SimpleStepMessage for testing
-        let message = SimpleStepMessage {
+        let step_message = SimpleStepMessage {
             task_uuid: Uuid::new_v4(),
             step_uuid: Uuid::new_v4(),
-            ready_dependency_step_uuids: vec![],
         };
 
+        let queue_name = format!("{}_{}", "test_worker", "test_namespace");
+
+        let message = PgmqMessage::<SimpleStepMessage>::new(queue_name, step_message);
+
         // With SQLx test providing a real database pool, this should work properly
-        let result = processor.handle_execute_step(message).await;
+        let result = processor.handle_execute_step(message, queue_name).await;
 
         // For now, we expect it to fail due to missing handler registration
         // This is expected behavior - the test verifies the execution path works
         assert!(result.is_err());
         assert_eq!(processor.stats.total_executed, 1);
-        
+
         Ok(())
     }
 
@@ -892,7 +858,17 @@ mod tests {
                 .expect("Failed to create context"),
         );
 
-        let (processor, _sender) = WorkerProcessor::new("test_namespace".to_string(), context, 100);
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
+            context.task_handler_registry.clone(),
+        ));
+
+        let (processor, _sender) = WorkerProcessor::new(
+            "test_worker".to_string(),
+            "test_namespace".to_string(),
+            context,
+            task_template_manager,
+            100,
+        );
 
         let status = processor.handle_get_worker_status().unwrap();
 
@@ -900,7 +876,7 @@ mod tests {
         assert_eq!(status.status, "running");
         assert_eq!(status.steps_executed, 0);
         assert_eq!(status.registered_handlers.len(), 0);
-        
+
         Ok(())
     }
 }

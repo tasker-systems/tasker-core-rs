@@ -974,16 +974,6 @@ impl WorkflowStep {
         Ok(steps)
     }
 
-    // ============================================================================
-    // RAILS INSTANCE METHODS (25+ methods)
-    // ============================================================================
-
-    /// Get state machine for this step (Rails: state_machine) - memoized
-    /// TODO: Implement StepStateMachine integration
-    pub fn state_machine(&self) -> StepStateMachine {
-        StepStateMachine::new(self.workflow_step_uuid)
-    }
-
     /// Get current step status via state machine (Rails: status)
     pub async fn status(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         // Delegate to state machine - for now use get_current_state
@@ -1351,87 +1341,6 @@ impl WorkflowStep {
     }
 }
 
-/// Step-level state machine wrapper for database-driven state management
-///
-/// This struct wraps the existing database-driven state management system
-/// to provide a state machine interface that matches the Rails state machine patterns.
-/// The actual state transitions are handled by the database transition tables.
-#[derive(Debug, Clone)]
-pub struct StepStateMachine {
-    pub workflow_step_uuid: Uuid,
-}
-
-impl StepStateMachine {
-    /// Create a new step state machine wrapper
-    pub fn new(workflow_step_uuid: Uuid) -> Self {
-        Self { workflow_step_uuid }
-    }
-
-    /// Get the current state of this step
-    ///
-    /// Queries the tasker_workflow_step_transitions table to find the most recent
-    /// state transition for this step. Returns "pending" if no transitions exist.
-    pub async fn current_state(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            SELECT to_state
-            FROM tasker_workflow_step_transitions
-            WHERE workflow_step_uuid = $1::uuid AND most_recent = true
-            ORDER BY sort_key DESC
-            LIMIT 1
-            "#,
-            self.workflow_step_uuid
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(result.map(|row| row.to_state))
-    }
-
-    /// Check if the step can transition to a specific state
-    ///
-    /// This is a placeholder for future state machine validation logic.
-    /// Currently returns true for all valid state names.
-    pub async fn can_transition_to(
-        &self,
-        _pool: &PgPool,
-        to_state: &str,
-    ) -> Result<bool, sqlx::Error> {
-        // Valid step states from the Rails state machine
-        let valid_states = [
-            "pending",
-            "wait_for_dependencies",
-            "in_progress",
-            "complete",
-            "error",
-            "failed",
-            "resolved_manually",
-        ];
-
-        Ok(valid_states.contains(&to_state))
-    }
-
-    /// Perform a state transition
-    ///
-    /// This would typically delegate to the existing state management system
-    /// that handles state transitions through the database transition tables.
-    pub async fn transition_to(
-        &self,
-        pool: &PgPool,
-        to_state: String,
-        _reason: Option<String>,
-    ) -> Result<bool, sqlx::Error> {
-        // For now, return success indicating the transition would be handled
-        // by the existing database transition system
-        let _current_state = self.current_state(pool).await?;
-        let _can_transition = self.can_transition_to(pool, &to_state).await?;
-
-        // This would integrate with the existing state transition logic
-        // For now, just validate that we have a valid state
-        self.can_transition_to(pool, &to_state).await
-    }
-}
-
 /// Task completion statistics (Rails class method return type)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskCompletionStats {
@@ -1487,5 +1396,50 @@ impl WorkflowStepWithName {
         .await?;
 
         Ok(steps)
+    }
+
+    pub async fn find_by_id(
+        pool: &PgPool,
+        id: Uuid,
+    ) -> Result<Option<WorkflowStepWithName>, sqlx::Error> {
+        let step = sqlx::query_as!(
+            WorkflowStepWithName,
+            r#"
+            SELECT ws.workflow_step_uuid, ws.task_uuid, ws.named_step_uuid, ns.name as name, ws.retryable, ws.retry_limit,
+                   ws.in_process, ws.processed, ws.processed_at, ws.attempts, ws.last_attempted_at,
+                   ws.backoff_request_seconds, ws.inputs, ws.results, ws.skippable, ws.created_at, ws.updated_at
+            FROM tasker_workflow_steps ws
+            INNER JOIN tasker_named_steps ns ON ws.named_step_uuid = ns.named_step_uuid
+            WHERE workflow_step_uuid = $1
+            "#,
+            id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(step)
+    }
+}
+
+impl From<WorkflowStepWithName> for WorkflowStep {
+    fn from(step: WorkflowStepWithName) -> Self {
+        WorkflowStep {
+            workflow_step_uuid: step.workflow_step_uuid,
+            task_uuid: step.task_uuid,
+            named_step_uuid: step.named_step_uuid,
+            retryable: step.retryable,
+            retry_limit: step.retry_limit,
+            in_process: step.in_process,
+            processed: step.processed,
+            processed_at: step.processed_at,
+            attempts: step.attempts,
+            last_attempted_at: step.last_attempted_at,
+            backoff_request_seconds: step.backoff_request_seconds,
+            inputs: step.inputs,
+            results: step.results,
+            skippable: step.skippable,
+            created_at: step.created_at,
+            updated_at: step.updated_at,
+        }
     }
 }

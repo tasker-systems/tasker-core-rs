@@ -62,9 +62,7 @@ pub struct SimpleStepMessage {
     pub task_uuid: Uuid,
     /// Step UUID from tasker_workflow_steps.step_uuid column
     pub step_uuid: Uuid,
-    /// UUIDs of dependency steps that are ready/completed for this step
-    /// Empty array means no dependencies or root step
-    pub ready_dependency_step_uuids: Vec<Uuid>,
+    // Removed ready_dependency_step_uuids - workers will query dependencies as needed
 }
 
 /// Execution context that provides (task, sequence, step) to handlers

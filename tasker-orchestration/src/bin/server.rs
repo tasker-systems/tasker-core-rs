@@ -53,6 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         environment_override,
         enable_web_api: true, // Always enable web API for server mode
         web_config: None,     // Will be loaded from config manager
+        enable_event_driven_coordination: true, // Enable TAS-43 event-driven coordination
+        event_driven_config: None, // Use default configuration
     };
 
     let mut orchestration_handle = OrchestrationBootstrap::bootstrap(bootstrap_config)
@@ -77,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stop orchestration system using handle (includes web server)
     info!("🔧 Stopping orchestration system...");
-    if let Err(e) = orchestration_handle.stop() {
+    if let Err(e) = orchestration_handle.stop().await {
         error!("Failed to stop orchestration cleanly: {}", e);
     } else {
         info!("✅ Orchestration system stopped");

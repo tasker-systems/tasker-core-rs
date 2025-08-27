@@ -41,9 +41,11 @@
 //! ).await?;
 //! ```
 
+use crate::step_claim::TaskSequenceStep;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventPublisher as SharedEventPublisher, WorkerEventSystem};
+
 use tasker_shared::types::{StepEventPayload, StepExecutionEvent};
 use tracing::{debug, error, info};
 use uuid::Uuid;
@@ -103,21 +105,28 @@ impl WorkerEventPublisher {
     /// hydrated all step context from the database using SimpleStepMessage UUIDs.
     pub async fn fire_step_execution_event(
         &self,
-        task_uuid: Uuid,
-        step_uuid: Uuid,
-        step_name: String,
-        handler_class: String,
-        step_payload: serde_json::Value,
-        dependency_results: HashMap<String, serde_json::Value>,
-        task_context: serde_json::Value,
+        task_sequence_step: &TaskSequenceStep,
     ) -> Result<StepExecutionEvent, WorkerEventError> {
+        let task_uuid = task_sequence_step.task.task.task_uuid;
+        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+        let step_name = task_sequence_step.workflow_step.name.clone();
+        let step_definition = task_sequence_step.step_definition.clone();
+        let workflow_step = task_sequence_step.workflow_step.clone();
+        let task_context = task_sequence_step
+            .task
+            .task
+            .context
+            .clone()
+            .unwrap_or(serde_json::json!({}));
+        let dependency_results = task_sequence_step.dependency_results.clone();
+
         debug!(
             worker_id = %self.worker_id,
             namespace = %self.namespace,
             task_uuid = %task_uuid,
             step_uuid = %step_uuid,
             step_name = %step_name,
-            handler_class = %handler_class,
+            callable = %step_definition.handler.callable,
             dependencies_count = dependency_results.len(),
             "Firing step execution event to FFI handlers"
         );
@@ -136,8 +145,8 @@ impl WorkerEventPublisher {
             task_uuid,
             step_uuid,
             step_name.clone(),
-            handler_class.clone(),
-            step_payload,
+            step_definition.clone(),
+            workflow_step,
             dependency_results.clone(),
             execution_context,
         );
@@ -157,7 +166,7 @@ impl WorkerEventPublisher {
                     worker_id = %self.worker_id,
                     event_id = %event_id,
                     step_name = %step_name,
-                    handler_class = %handler_class,
+                    callable = %step_definition.handler.callable,
                     "Step execution event fired successfully to FFI handlers"
                 );
                 Ok(event)
@@ -183,14 +192,21 @@ impl WorkerEventPublisher {
     pub async fn fire_step_execution_event_with_correlation(
         &self,
         correlation_id: Uuid,
-        task_uuid: Uuid,
-        step_uuid: Uuid,
-        step_name: String,
-        handler_class: String,
-        step_payload: serde_json::Value,
-        dependency_results: HashMap<String, serde_json::Value>,
-        task_context: serde_json::Value,
+        task_sequence_step: &TaskSequenceStep,
     ) -> Result<StepExecutionEvent, WorkerEventError> {
+        let task_uuid = task_sequence_step.task.task.task_uuid;
+        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
+        let step_name = task_sequence_step.workflow_step.name.clone();
+        let step_definition = task_sequence_step.step_definition.clone();
+        let workflow_step = task_sequence_step.workflow_step.clone();
+        let task_context = task_sequence_step
+            .task
+            .task
+            .context
+            .clone()
+            .unwrap_or(serde_json::json!({}));
+        let dependency_results = task_sequence_step.dependency_results.clone();
+
         debug!(
             worker_id = %self.worker_id,
             correlation_id = %correlation_id,
@@ -214,8 +230,8 @@ impl WorkerEventPublisher {
             task_uuid,
             step_uuid,
             step_name.clone(),
-            handler_class.clone(),
-            step_payload,
+            step_definition.clone(),
+            workflow_step,
             dependency_results,
             execution_context,
         );
@@ -223,7 +239,7 @@ impl WorkerEventPublisher {
         // Publish with correlation ID
         match self
             .shared_publisher
-            .publish_step_execution_with_correlation(correlation_id, payload)
+            .publish_step_execution_with_correlation(correlation_id, payload.clone())
             .await
         {
             Ok(()) => {
@@ -233,18 +249,7 @@ impl WorkerEventPublisher {
                     step_name = %step_name,
                     "Step execution event fired with correlation ID"
                 );
-                Ok(StepExecutionEvent::with_event_id(
-                    correlation_id,
-                    StepEventPayload::new(
-                        task_uuid,
-                        step_uuid,
-                        step_name,
-                        handler_class,
-                        serde_json::Value::Null,
-                        HashMap::new(),
-                        serde_json::Value::Null,
-                    ),
-                ))
+                Ok(StepExecutionEvent::with_event_id(correlation_id, payload))
             }
             Err(e) => {
                 error!(
@@ -358,6 +363,8 @@ pub enum WorkerEventError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use tasker_shared::models::task_template::StepDefinition;
+    use tasker_shared::models::Task;
 
     #[tokio::test]
     async fn test_worker_event_publisher_creation() {
@@ -378,7 +385,19 @@ mod tests {
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
         let step_name = "process_payment".to_string();
-        let handler_class = "OrderProcessing::PaymentHandler".to_string();
+        let step_definition = StepDefinition {
+            name: step_name.clone(),
+            description: None,
+            handler: tasker_shared::models::task_template::HandlerDefinition {
+                callable: "OrderProcessing::PaymentHandler".to_string(),
+                initialization: std::collections::HashMap::new(),
+            },
+            system_dependency: None,
+            dependencies: vec![],
+            timeout_seconds: None,
+            retry: None,
+            publishes_events: vec![],
+        };
         let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
         let dependency_results = HashMap::from([
             (
@@ -397,7 +416,7 @@ mod tests {
                 task_uuid,
                 step_uuid,
                 step_name.clone(),
-                handler_class.clone(),
+                step_definition.clone(),
                 step_payload.clone(),
                 dependency_results.clone(),
                 task_context.clone(),
@@ -409,7 +428,10 @@ mod tests {
 
         let event = result.unwrap();
         assert_eq!(event.payload.step_name, step_name);
-        assert_eq!(event.payload.handler_class, handler_class);
+        assert_eq!(
+            event.payload.step_definition.handler.callable,
+            "OrderProcessing::PaymentHandler"
+        );
         assert_eq!(event.payload.task_uuid, task_uuid);
         assert_eq!(event.payload.step_uuid, step_uuid);
     }
@@ -492,13 +514,27 @@ mod tests {
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
 
+        let step_definition = StepDefinition {
+            name: "test_step".to_string(),
+            description: None,
+            handler: tasker_shared::models::task_template::HandlerDefinition {
+                callable: "TestHandler".to_string(),
+                initialization: std::collections::HashMap::new(),
+            },
+            system_dependency: None,
+            dependencies: vec![],
+            timeout_seconds: None,
+            retry: None,
+            publishes_events: vec![],
+        };
+
         let result = publisher
             .fire_step_execution_event_with_correlation(
                 correlation_id,
                 task_uuid,
                 step_uuid,
                 "test_step".to_string(),
-                "TestHandler".to_string(),
+                step_definition,
                 serde_json::json!({"test": true}),
                 HashMap::new(),
                 serde_json::json!({"context": "test"}),
