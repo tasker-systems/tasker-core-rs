@@ -12,10 +12,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::models::task_template::StepDefinition;
-use crate::models::workflow_step::WorkflowStepWithName;
-
-// Import StepExecutionContext from step_handler module
+use crate::messaging::orchestration_messages::TaskSequenceStep;
 
 /// Result of task orchestration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,20 +265,9 @@ pub enum TaskOrchestrationResult {
 /// hydrates all necessary context from the database using SimpleStepMessage UUIDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepEventPayload {
-    /// Task UUID for the step being executed
     pub task_uuid: Uuid,
-    /// Workflow step UUID for the step being executed
     pub step_uuid: Uuid,
-    /// Human-readable step name from the task template
-    pub step_name: String,
-    /// Step definition from the task template
-    pub step_definition: StepDefinition,
-    /// Step-specific payload/configuration from the task template
-    pub workflow_step: WorkflowStepWithName,
-    /// Results from dependency steps, keyed by step name for easy lookup
-    pub dependency_results: HashMap<String, serde_json::Value>,
-    /// Execution context matching Ruby expectations (task, sequence, step structure)
-    pub execution_context: serde_json::Value,
+    pub task_sequence_step: TaskSequenceStep,
 }
 
 /// Event for step execution requests (Rust → FFI)
@@ -338,23 +324,11 @@ pub enum EventPayload {
 
 impl StepEventPayload {
     /// Create a new step event payload with all required context
-    pub fn new(
-        task_uuid: Uuid,
-        step_uuid: Uuid,
-        step_name: String,
-        step_definition: StepDefinition,
-        workflow_step: WorkflowStepWithName,
-        dependency_results: HashMap<String, serde_json::Value>,
-        execution_context: serde_json::Value,
-    ) -> Self {
+    pub fn new(task_uuid: Uuid, step_uuid: Uuid, task_sequence_step: TaskSequenceStep) -> Self {
         Self {
             task_uuid,
             step_uuid,
-            step_name,
-            step_definition,
-            workflow_step,
-            dependency_results,
-            execution_context,
+            task_sequence_step,
         }
     }
 }

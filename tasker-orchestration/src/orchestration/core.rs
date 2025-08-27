@@ -85,6 +85,7 @@ impl OrchestrationCore {
             task_request_processor,
             result_processor,
             finalization_claimer,
+            context.message_client(),
             1000, // Command buffer size
         );
 
@@ -331,7 +332,6 @@ impl std::fmt::Display for OrchestrationCoreStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[tokio::test]
     async fn test_orchestration_core_lifecycle() {

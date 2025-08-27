@@ -56,6 +56,7 @@ pub mod event_driven_processor;
 pub mod event_publisher;
 pub mod event_subscriber;
 pub mod health;
+pub mod orchestration_result_sender;
 pub mod step_claim;
 pub mod task_template_manager;
 pub mod web;
@@ -82,7 +83,9 @@ pub use event_subscriber::{
     WorkerEventSubscriberError, WorkerEventSubscriberStats,
 };
 pub use health::WorkerHealthStatus;
-pub use step_claim::{StepClaim, TaskSequenceStep};
+pub use orchestration_result_sender::OrchestrationResultSender;
+pub use step_claim::StepClaim;
+pub use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 pub use task_template_manager::{
     CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
     WorkerTaskTemplateOperations,

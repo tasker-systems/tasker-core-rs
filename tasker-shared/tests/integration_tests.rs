@@ -9,6 +9,7 @@
 //! - End-to-end scope validation with real data
 //! - DAG patterns: 3-4 step linear, 5-7 step diamond/tree
 
+use std::sync::Arc;
 use tasker_shared::models::factories::base::SqlxFactory;
 use tasker_shared::models::factories::core::{TaskFactory, WorkflowStepFactory};
 use tasker_shared::models::factories::foundation::{NamedTaskFactory, TaskNamespaceFactory};
@@ -817,8 +818,9 @@ async fn test_task_complete_flag_integration_with_state_transitions(
     assert!(!task_before.complete, "Task should initially be incomplete");
 
     // Create state machine and transition to complete
-    let event_publisher = EventPublisher::default();
-    let mut state_machine = TaskStateMachine::new(test_task.clone(), pool.clone(), event_publisher);
+    let event_publisher = Arc::new(EventPublisher::default());
+    let mut state_machine =
+        TaskStateMachine::new(test_task.clone(), pool.clone(), Some(event_publisher));
 
     // First transition to in_progress state
     let result = state_machine.transition(TaskEvent::Start).await;
@@ -894,8 +896,9 @@ async fn test_workflow_step_flags_integration_with_state_transitions(
     );
 
     // Create state machine
-    let event_publisher = EventPublisher::default();
-    let mut state_machine = StepStateMachine::new(test_step.clone(), pool.clone(), event_publisher);
+    let event_publisher = Arc::new(EventPublisher::default());
+    let mut state_machine =
+        StepStateMachine::new(test_step.clone(), pool.clone(), Some(event_publisher));
 
     // Transition to in_progress state
     let result = state_machine.transition(StepEvent::Start).await;

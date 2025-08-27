@@ -61,6 +61,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
@@ -124,10 +125,10 @@ impl StepEnqueuer {
         pgmq_client: UnifiedPgmqClient,
     ) -> TaskerResult<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = EventPublisher::new();
+        let event_publisher = Arc::new(EventPublisher::new());
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let state_manager = StateManager::new(sql_executor, event_publisher, pool.clone());
+        let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
 
         Ok(Self {
             viable_step_discovery,
@@ -155,7 +156,7 @@ impl StepEnqueuer {
         config: StepEnqueuerConfig,
     ) -> TaskerResult<Self> {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = EventPublisher::new();
+        let event_publisher = Arc::new(EventPublisher::new());
         let viable_step_discovery =
             ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
         let state_manager = StateManager::new(sql_executor, event_publisher, pool.clone());

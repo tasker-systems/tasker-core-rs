@@ -41,8 +41,7 @@
 //! ).await?;
 //! ```
 
-use crate::step_claim::TaskSequenceStep;
-use std::collections::HashMap;
+use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventPublisher as SharedEventPublisher, WorkerEventSystem};
 
@@ -109,47 +108,9 @@ impl WorkerEventPublisher {
     ) -> Result<StepExecutionEvent, WorkerEventError> {
         let task_uuid = task_sequence_step.task.task.task_uuid;
         let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
-        let step_name = task_sequence_step.workflow_step.name.clone();
-        let step_definition = task_sequence_step.step_definition.clone();
-        let workflow_step = task_sequence_step.workflow_step.clone();
-        let task_context = task_sequence_step
-            .task
-            .task
-            .context
-            .clone()
-            .unwrap_or(serde_json::json!({}));
-        let dependency_results = task_sequence_step.dependency_results.clone();
-
-        debug!(
-            worker_id = %self.worker_id,
-            namespace = %self.namespace,
-            task_uuid = %task_uuid,
-            step_uuid = %step_uuid,
-            step_name = %step_name,
-            callable = %step_definition.handler.callable,
-            dependencies_count = dependency_results.len(),
-            "Firing step execution event to FFI handlers"
-        );
-
-        // Create Ruby-compatible execution context
-        let execution_context = self.create_ffi_compatible_context(
-            task_uuid,
-            step_uuid,
-            &step_name,
-            &task_context,
-            &dependency_results,
-        );
 
         // Create step event payload with all hydrated context
-        let payload = StepEventPayload::new(
-            task_uuid,
-            step_uuid,
-            step_name.clone(),
-            step_definition.clone(),
-            workflow_step,
-            dependency_results.clone(),
-            execution_context,
-        );
+        let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step.clone());
 
         // Create the event
         let event = StepExecutionEvent::new(payload);
@@ -165,8 +126,8 @@ impl WorkerEventPublisher {
                 info!(
                     worker_id = %self.worker_id,
                     event_id = %event_id,
-                    step_name = %step_name,
-                    callable = %step_definition.handler.callable,
+                    step_name = %task_sequence_step.step_definition.name,
+                    callable = %task_sequence_step.step_definition.handler.callable,
                     "Step execution event fired successfully to FFI handlers"
                 );
                 Ok(event)
@@ -175,7 +136,7 @@ impl WorkerEventPublisher {
                 error!(
                     worker_id = %self.worker_id,
                     event_id = %event_id,
-                    step_name = %step_name,
+                    step_name = %task_sequence_step.step_definition.name,
                     error = %e,
                     "Failed to fire step execution event to FFI handlers"
                 );
@@ -196,45 +157,18 @@ impl WorkerEventPublisher {
     ) -> Result<StepExecutionEvent, WorkerEventError> {
         let task_uuid = task_sequence_step.task.task.task_uuid;
         let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
-        let step_name = task_sequence_step.workflow_step.name.clone();
-        let step_definition = task_sequence_step.step_definition.clone();
-        let workflow_step = task_sequence_step.workflow_step.clone();
-        let task_context = task_sequence_step
-            .task
-            .task
-            .context
-            .clone()
-            .unwrap_or(serde_json::json!({}));
-        let dependency_results = task_sequence_step.dependency_results.clone();
 
         debug!(
             worker_id = %self.worker_id,
             correlation_id = %correlation_id,
             task_uuid = %task_uuid,
             step_uuid = %step_uuid,
-            step_name = %step_name,
+            step_name = %task_sequence_step.step_definition.name,
             "Firing step execution event with correlation ID"
         );
 
-        // Create Ruby-compatible execution context
-        let execution_context = self.create_ffi_compatible_context(
-            task_uuid,
-            step_uuid,
-            &step_name,
-            &task_context,
-            &dependency_results,
-        );
-
         // Create step event payload
-        let payload = StepEventPayload::new(
-            task_uuid,
-            step_uuid,
-            step_name.clone(),
-            step_definition.clone(),
-            workflow_step,
-            dependency_results,
-            execution_context,
-        );
+        let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step.clone());
 
         // Publish with correlation ID
         match self
@@ -246,7 +180,7 @@ impl WorkerEventPublisher {
                 info!(
                     worker_id = %self.worker_id,
                     correlation_id = %correlation_id,
-                    step_name = %step_name,
+                    step_name = %task_sequence_step.step_definition.name,
                     "Step execution event fired with correlation ID"
                 );
                 Ok(StepExecutionEvent::with_event_id(correlation_id, payload))
@@ -277,58 +211,6 @@ impl WorkerEventPublisher {
             completion_subscribers: system_stats.step_completion_subscribers,
             total_events_tracked: system_stats.total_events_tracked,
         }
-    }
-
-    /// Create FFI-compatible execution context
-    ///
-    /// This creates the execution context structure that FFI step handlers expect,
-    /// based on the existing FFI StepHandlerCallResult and sequence patterns.
-    fn create_ffi_compatible_context(
-        &self,
-        task_uuid: Uuid,
-        step_uuid: Uuid,
-        step_name: &str,
-        task_context: &serde_json::Value,
-        dependency_results: &HashMap<String, serde_json::Value>,
-    ) -> serde_json::Value {
-        // Create sequence-like structure for dependency results
-        let sequence_data: Vec<serde_json::Value> = dependency_results
-            .iter()
-            .map(|(step_name, result)| {
-                serde_json::json!({
-                    "step_name": step_name,
-                    "result": result,
-                    "success": true // Assuming successful since they're in dependency_results
-                })
-            })
-            .collect();
-
-        // Create FFI-compatible execution context
-        serde_json::json!({
-            "task": {
-                "task_id": task_uuid,
-                "task_uuid": task_uuid,
-                "namespace": self.namespace,
-                "context": task_context,
-                "worker_id": self.worker_id
-            },
-            "sequence": sequence_data,
-            "step": {
-                "step_id": step_uuid,
-                "step_uuid": step_uuid,
-                "step_name": step_name,
-                "namespace": self.namespace
-            },
-            "worker": {
-                "worker_id": self.worker_id,
-                "namespace": self.namespace
-            },
-            "metadata": {
-                "execution_mode": "event_driven",
-                "architecture": "TAS-40_command_pattern",
-                "hydration_source": "database_api_layer"
-            }
-        })
     }
 }
 
@@ -363,8 +245,89 @@ pub enum WorkerEventError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use tasker_shared::models::task_template::StepDefinition;
-    use tasker_shared::models::Task;
+    use tasker_shared::models::task_template::{StepDefinition, HandlerDefinition, RetryConfiguration, BackoffStrategy};
+    use tasker_shared::models::task::{TaskForOrchestration, Task};
+    use tasker_shared::models::workflow_step::WorkflowStepWithName;
+    use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
+    use tasker_shared::models::orchestration::step_transitive_dependencies::StepDependencyResultMap;
+    use uuid::Uuid;
+
+    /// Helper function to create a test TaskSequenceStep for testing
+    fn create_test_task_sequence_step(
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        step_name: &str,
+        handler_class: &str,
+        step_payload: serde_json::Value,
+        dependency_results: StepDependencyResultMap,
+        task_context: serde_json::Value,
+    ) -> TaskSequenceStep {
+        TaskSequenceStep {
+            task: TaskForOrchestration {
+                task: Task {
+                    task_uuid,
+                    named_task_uuid: uuid::Uuid::new_v4(),
+                    complete: false,
+                    requested_at: chrono::Utc::now().naive_utc(),
+                    initiator: Some("test".to_string()),
+                    source_system: Some("test_system".to_string()),
+                    reason: Some("test_reason".to_string()),
+                    bypass_steps: None,
+                    tags: None,
+                    context: Some(task_context),
+                    identity_hash: "test_hash".to_string(),
+                    claimed_at: None,
+                    claimed_by: None,
+                    priority: 5,
+                    claim_timeout_seconds: 300,
+                    created_at: chrono::Utc::now().naive_utc(),
+                    updated_at: chrono::Utc::now().naive_utc(),
+                },
+                task_name: "test_task".to_string(),
+                task_version: "1.0.0".to_string(),
+                namespace_name: "test_namespace".to_string(),
+            },
+            workflow_step: WorkflowStepWithName {
+                workflow_step_uuid: step_uuid,
+                task_uuid,
+                named_step_uuid: uuid::Uuid::new_v4(),
+                name: step_name.to_string(),
+                retryable: false,
+                retry_limit: None,
+                in_process: false,
+                processed: false,
+                processed_at: None,
+                attempts: None,
+                last_attempted_at: None,
+                backoff_request_seconds: None,
+                inputs: Some(step_payload),
+                results: None,
+                skippable: false,
+                created_at: chrono::Utc::now().naive_utc(),
+                updated_at: chrono::Utc::now().naive_utc(),
+            },
+            dependency_results,
+            step_definition: StepDefinition {
+                name: step_name.to_string(),
+                description: Some(format!("Test step: {}", step_name)),
+                handler: HandlerDefinition {
+                    callable: handler_class.to_string(),
+                    initialization: HashMap::new(),
+                },
+                system_dependency: None,
+                dependencies: vec![],
+                timeout_seconds: Some(30),
+                retry: RetryConfiguration {
+                    retryable: false,
+                    limit: 1,
+                    backoff: BackoffStrategy::None,
+                    backoff_base_ms: None,
+                    max_backoff_ms: None,
+                },
+                publishes_events: vec![],
+            },
+        }
+    }
 
     #[tokio::test]
     async fn test_worker_event_publisher_creation() {
@@ -384,20 +347,7 @@ mod tests {
 
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
-        let step_name = "process_payment".to_string();
-        let step_definition = StepDefinition {
-            name: step_name.clone(),
-            description: None,
-            handler: tasker_shared::models::task_template::HandlerDefinition {
-                callable: "OrderProcessing::PaymentHandler".to_string(),
-                initialization: std::collections::HashMap::new(),
-            },
-            system_dependency: None,
-            dependencies: vec![],
-            timeout_seconds: None,
-            retry: None,
-            publishes_events: vec![],
-        };
+        let step_name = "process_payment";
         let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
         let dependency_results = HashMap::from([
             (
@@ -411,25 +361,27 @@ mod tests {
         ]);
         let task_context = serde_json::json!({"order_id": 12345});
 
+        let task_sequence_step = create_test_task_sequence_step(
+            task_uuid,
+            step_uuid,
+            step_name,
+            "OrderProcessing::PaymentHandler",
+            step_payload,
+            dependency_results,
+            task_context,
+        );
+
         let result = publisher
-            .fire_step_execution_event(
-                task_uuid,
-                step_uuid,
-                step_name.clone(),
-                step_definition.clone(),
-                step_payload.clone(),
-                dependency_results.clone(),
-                task_context.clone(),
-            )
+            .fire_step_execution_event(&task_sequence_step)
             .await;
 
         // Should succeed even with no subscribers
         assert!(result.is_ok());
 
         let event = result.unwrap();
-        assert_eq!(event.payload.step_name, step_name);
+        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
         assert_eq!(
-            event.payload.step_definition.handler.callable,
+            event.payload.task_sequence_step.step_definition.handler.callable,
             "OrderProcessing::PaymentHandler"
         );
         assert_eq!(event.payload.task_uuid, task_uuid);
@@ -437,7 +389,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ruby_compatible_context_creation() {
+    async fn test_step_event_payload_structure() {
         let publisher = WorkerEventPublisher::new(
             "test_worker_123".to_string(),
             "order_processing".to_string(),
@@ -458,51 +410,39 @@ mod tests {
             ),
         ]);
 
-        let context = publisher.create_ffi_compatible_context(
+        let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
+
+        let task_sequence_step = create_test_task_sequence_step(
             task_uuid,
             step_uuid,
             step_name,
-            &task_context,
-            &dependency_results,
+            "OrderProcessing::PaymentHandler",
+            step_payload,
+            dependency_results.clone(),
+            task_context.clone(),
         );
 
-        // Verify Ruby-compatible structure
-        assert!(context.get("task").is_some());
-        assert!(context.get("sequence").is_some());
-        assert!(context.get("step").is_some());
-        assert!(context.get("worker").is_some());
+        let result = publisher
+            .fire_step_execution_event(&task_sequence_step)
+            .await;
 
-        // Verify task structure
-        let task = &context["task"];
-        assert_eq!(
-            task["task_uuid"],
-            serde_json::Value::String(task_uuid.to_string())
-        );
-        assert_eq!(
-            task["namespace"],
-            serde_json::Value::String("order_processing".to_string())
-        );
-        assert_eq!(
-            task["worker_id"],
-            serde_json::Value::String("test_worker_123".to_string())
-        );
+        assert!(result.is_ok());
+        let event = result.unwrap();
 
-        // Verify sequence structure (dependency results)
-        let sequence = &context["sequence"];
-        assert!(sequence.is_array());
-        let sequence_array = sequence.as_array().unwrap();
-        assert_eq!(sequence_array.len(), 2);
+        // Verify the event payload has the correct structure for FFI
+        assert_eq!(event.payload.task_uuid, task_uuid);
+        assert_eq!(event.payload.step_uuid, step_uuid);
+        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
 
-        // Verify step structure
-        let step = &context["step"];
-        assert_eq!(
-            step["step_uuid"],
-            serde_json::Value::String(step_uuid.to_string())
-        );
-        assert_eq!(
-            step["step_name"],
-            serde_json::Value::String(step_name.to_string())
-        );
+        // Verify that the TaskSequenceStep has all the FFI-needed data
+        assert_eq!(event.payload.task_sequence_step.task.task.task_uuid, task_uuid);
+        assert_eq!(event.payload.task_sequence_step.workflow_step.workflow_step_uuid, step_uuid);
+        assert_eq!(event.payload.task_sequence_step.step_definition.handler.callable, "OrderProcessing::PaymentHandler");
+        
+        // Verify dependency results are preserved
+        assert_eq!(event.payload.task_sequence_step.dependency_results.len(), 2);
+        assert!(event.payload.task_sequence_step.dependency_results.contains_key("validate_order"));
+        assert!(event.payload.task_sequence_step.dependency_results.contains_key("check_inventory"));
     }
 
     #[tokio::test]
@@ -513,37 +453,31 @@ mod tests {
         let correlation_id = Uuid::new_v4();
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
+        let step_name = "test_step";
 
-        let step_definition = StepDefinition {
-            name: "test_step".to_string(),
-            description: None,
-            handler: tasker_shared::models::task_template::HandlerDefinition {
-                callable: "TestHandler".to_string(),
-                initialization: std::collections::HashMap::new(),
-            },
-            system_dependency: None,
-            dependencies: vec![],
-            timeout_seconds: None,
-            retry: None,
-            publishes_events: vec![],
-        };
+        let task_sequence_step = create_test_task_sequence_step(
+            task_uuid,
+            step_uuid,
+            step_name,
+            "TestHandler",
+            serde_json::json!({"test": true}),
+            HashMap::new(),
+            serde_json::json!({"context": "test"}),
+        );
 
         let result = publisher
             .fire_step_execution_event_with_correlation(
                 correlation_id,
-                task_uuid,
-                step_uuid,
-                "test_step".to_string(),
-                step_definition,
-                serde_json::json!({"test": true}),
-                HashMap::new(),
-                serde_json::json!({"context": "test"}),
+                &task_sequence_step,
             )
             .await;
 
         assert!(result.is_ok());
         let event = result.unwrap();
         assert_eq!(event.event_id, correlation_id);
+        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
+        assert_eq!(event.payload.task_uuid, task_uuid);
+        assert_eq!(event.payload.step_uuid, step_uuid);
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use sqlx::PgPool;
+use std::sync::Arc;
 
 /// Trait for implementing state transition actions
 #[async_trait]
@@ -26,11 +27,11 @@ pub trait StateAction<T> {
 
 /// Action to publish lifecycle events when state transitions occur
 pub struct PublishTransitionEventAction {
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
 }
 
 impl PublishTransitionEventAction {
-    pub fn new(event_publisher: EventPublisher) -> Self {
+    pub fn new(event_publisher: Arc<EventPublisher>) -> Self {
         Self { event_publisher }
     }
 }
@@ -285,11 +286,11 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
 
 /// Action to trigger next steps discovery when a step completes
 pub struct TriggerStepDiscoveryAction {
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
 }
 
 impl TriggerStepDiscoveryAction {
-    pub fn new(event_publisher: EventPublisher) -> Self {
+    pub fn new(event_publisher: Arc<EventPublisher>) -> Self {
         Self { event_publisher }
     }
 }

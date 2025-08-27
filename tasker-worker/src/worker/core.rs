@@ -108,20 +108,11 @@ impl WorkerCore {
             })?,
         );
 
-        // Create PGMQ client for message deletion
-        let pgmq_client = Arc::new(
-            tasker_shared::messaging::clients::pgmq_client::PgmqClient::new_with_pool(
-                context.database_pool().clone(),
-            )
-            .await,
-        );
-
         // Create WorkerProcessor with command pattern and database operations capability
         let (mut processor, command_sender) = WorkerProcessor::new(
             namespace.clone(),
             context.clone(),
             task_template_manager.clone(),
-            pgmq_client,
             1000, // Command buffer size
         );
 

@@ -246,7 +246,7 @@ impl TaskFinalizer {
         let mut state_machine = TaskStateMachine::new(
             task.clone(),
             self.pool.clone(),
-            self.event_publisher.clone(),
+            Some(Arc::new(self.event_publisher.clone())),
         );
 
         // Get current state
@@ -308,7 +308,7 @@ impl TaskFinalizer {
         let mut state_machine = TaskStateMachine::new(
             task.clone(),
             self.pool.clone(),
-            self.event_publisher.clone(),
+            Some(Arc::new(self.event_publisher.clone())),
         );
 
         // Transition to error state using state machine
@@ -347,7 +347,7 @@ impl TaskFinalizer {
         let mut state_machine = TaskStateMachine::new(
             task.clone(),
             self.pool.clone(),
-            self.event_publisher.clone(),
+            Some(Arc::new(self.event_publisher.clone())),
         );
 
         // Get current state to determine appropriate transition
@@ -566,7 +566,7 @@ impl TaskFinalizer {
         let mut state_machine = TaskStateMachine::new(
             task.clone(),
             self.pool.clone(),
-            self.event_publisher.clone(),
+            Some(Arc::new(self.event_publisher.clone())),
         );
 
         let current_state =

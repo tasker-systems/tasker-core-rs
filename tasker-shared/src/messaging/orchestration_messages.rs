@@ -10,21 +10,22 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::messaging::message::OrchestrationMetadata;
+use crate::models::core::task_request::TaskRequest;
+use crate::models::core::task_template::StepDefinition;
+use crate::models::core::{task::TaskForOrchestration, workflow_step::WorkflowStepWithName};
+use crate::models::orchestration::StepDependencyResultMap;
 
 /// Message for task requests sent to orchestration_task_requests queue
+///
+/// This message embeds the core TaskRequest domain model to ensure consistency
+/// and eliminate lossy conversions between messaging and domain representations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRequestMessage {
     /// Unique identifier for this request
     pub request_id: String,
-    /// Namespace for the task (e.g., "fulfillment", "inventory")
-    pub namespace: String,
-    /// Name of the task to execute
-    pub task_name: String,
-    /// Version of the task handler
-    pub task_version: String,
-    /// Input data for the task
-    pub input_data: serde_json::Value,
-    /// Request metadata
+    /// The core task request with all domain-specific fields
+    pub task_request: TaskRequest,
+    /// Messaging-specific metadata (creation time, routing info, etc.)
     pub metadata: TaskRequestMetadata,
 }
 
@@ -269,20 +270,11 @@ pub struct BatchResultMetadata {
 }
 
 impl TaskRequestMessage {
-    /// Create a new task request message
-    pub fn new(
-        namespace: String,
-        task_name: String,
-        task_version: String,
-        input_data: serde_json::Value,
-        requester: String,
-    ) -> Self {
+    /// Create a new task request message from a TaskRequest
+    pub fn new(task_request: TaskRequest, requester: String) -> Self {
         Self {
             request_id: uuid::Uuid::new_v4().to_string(),
-            namespace,
-            task_name,
-            task_version,
-            input_data,
+            task_request,
             metadata: TaskRequestMetadata {
                 requested_at: Utc::now(),
                 requester,
@@ -302,6 +294,21 @@ impl TaskRequestMessage {
     pub fn with_custom_metadata(mut self, key: String, value: serde_json::Value) -> Self {
         self.metadata.custom.insert(key, value);
         self
+    }
+
+    /// Get the embedded task request
+    pub fn task_request(&self) -> &TaskRequest {
+        &self.task_request
+    }
+
+    /// Get the embedded task request (mutable)
+    pub fn task_request_mut(&mut self) -> &mut TaskRequest {
+        &mut self.task_request
+    }
+
+    /// Get the request ID
+    pub fn request_id(&self) -> &str {
+        &self.request_id
     }
 }
 
@@ -457,6 +464,14 @@ impl StepResult {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSequenceStep {
+    pub task: TaskForOrchestration,
+    pub workflow_step: WorkflowStepWithName,
+    pub dependency_results: StepDependencyResultMap,
+    pub step_definition: StepDefinition,
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -465,18 +480,21 @@ mod tests {
 
     #[test]
     fn test_task_request_message_creation() {
-        let msg = TaskRequestMessage::new(
-            "fulfillment".to_string(),
-            "process_order".to_string(),
-            "1.0.0".to_string(),
-            json!({"order_id": 12345}),
-            "api_gateway".to_string(),
-        )
-        .with_priority(TaskPriority::High);
+        use crate::models::core::task_request::TaskRequest;
 
-        assert_eq!(msg.namespace, "fulfillment");
-        assert_eq!(msg.task_name, "process_order");
-        assert_eq!(msg.task_version, "1.0.0");
+        let task_request = TaskRequest::new("process_order".to_string(), "fulfillment".to_string())
+            .with_version("1.0.0".to_string())
+            .with_context(json!({"order_id": 12345}))
+            .with_initiator("api_gateway".to_string())
+            .with_source_system("test".to_string())
+            .with_reason("Test creation".to_string());
+
+        let msg = TaskRequestMessage::new(task_request, "api_gateway".to_string())
+            .with_priority(TaskPriority::High);
+
+        assert_eq!(msg.task_request.namespace, "fulfillment");
+        assert_eq!(msg.task_request.name, "process_order");
+        assert_eq!(msg.task_request.version, "1.0.0");
         assert!(matches!(msg.metadata.priority, TaskPriority::High));
         assert_eq!(msg.metadata.requester, "api_gateway");
     }
@@ -556,20 +574,26 @@ mod tests {
 
     #[test]
     fn test_message_serialization() {
-        let msg = TaskRequestMessage::new(
-            "test".to_string(),
-            "test_task".to_string(),
-            "1.0.0".to_string(),
-            json!({"data": "test"}),
-            "test_requester".to_string(),
-        );
+        use crate::models::core::task_request::TaskRequest;
+
+        let task_request = TaskRequest::new("test_task".to_string(), "test".to_string())
+            .with_version("1.0.0".to_string())
+            .with_context(json!({"data": "test"}))
+            .with_initiator("test_requester".to_string())
+            .with_source_system("test".to_string())
+            .with_reason("Test serialization".to_string());
+
+        let msg = TaskRequestMessage::new(task_request, "test_requester".to_string());
 
         let serialized = serde_json::to_string(&msg).expect("Should serialize");
         let deserialized: TaskRequestMessage =
             serde_json::from_str(&serialized).expect("Should deserialize");
 
-        assert_eq!(msg.namespace, deserialized.namespace);
-        assert_eq!(msg.task_name, deserialized.task_name);
+        assert_eq!(
+            msg.task_request.namespace,
+            deserialized.task_request.namespace
+        );
+        assert_eq!(msg.task_request.name, deserialized.task_request.name);
         assert_eq!(msg.request_id, deserialized.request_id);
     }
 }

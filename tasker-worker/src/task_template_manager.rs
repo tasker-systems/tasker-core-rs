@@ -666,8 +666,6 @@ impl WorkerTaskTemplateOperations for TaskTemplateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
-    use std::sync::Arc;
     use tasker_shared::{
         models::core::task_template::{HandlerDefinition, StepDefinition, TaskTemplate},
         registry::HandlerKey,
@@ -734,11 +732,6 @@ mod tests {
 
     #[test]
     fn test_template_validation() {
-        let config = TaskTemplateManagerConfig {
-            supported_namespaces: vec!["test_namespace".to_string()],
-            ..Default::default()
-        };
-
         // Create a mock registry (this would need a real database in practice)
         // For now, we'll just test the validation logic with a mock setup
         let template = create_test_template();

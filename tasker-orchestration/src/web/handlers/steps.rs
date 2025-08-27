@@ -13,7 +13,6 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::events::publisher::EventPublisher;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
 #[cfg(feature = "web-api")]
 use utoipa::ToSchema;
@@ -367,12 +366,12 @@ pub async fn resolve_step_manually(
             }
         };
 
-        // Create event publisher for state machine
-        let event_publisher = EventPublisher::new();
-
         // Initialize StepStateMachine for proper state transition
-        let mut step_state_machine =
-            StepStateMachine::new(step.clone(), db_pool.clone(), event_publisher);
+        let mut step_state_machine = StepStateMachine::new(
+            step.clone(),
+            db_pool.clone(),
+            Some(state.orchestration_core.context.event_publisher.clone()),
+        );
 
         // Attempt manual resolution using state machine
         match step_state_machine

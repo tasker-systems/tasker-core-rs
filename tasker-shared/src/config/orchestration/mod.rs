@@ -129,10 +129,7 @@ impl Default for OrchestrationConfig {
             enable_performance_logging: false,
             default_claim_timeout_seconds: 300,
             queues: QueueConfig {
-                task_requests: "task_requests_queue".to_string(),
-                task_processing: "task_processing_queue".to_string(),
-                batch_results: "batch_results_queue".to_string(),
-                step_results: "orchestration_step_results".to_string(),
+                orchestration_owned: super::queue::OrchestrationOwnedQueues::default(),
                 worker_queues: {
                     let mut queues = HashMap::new();
                     queues.insert("default".to_string(), "default_queue".to_string());

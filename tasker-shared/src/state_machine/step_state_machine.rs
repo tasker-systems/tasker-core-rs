@@ -12,19 +12,28 @@ use super::{
 use crate::events::publisher::EventPublisher;
 use crate::models::WorkflowStep;
 use sqlx::PgPool;
+use std::sync::Arc;
 
 /// Thread-safe workflow step state machine for individual step management
 #[derive(Clone)]
 pub struct StepStateMachine {
     step: WorkflowStep,
     pool: PgPool,
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
     persistence: StepTransitionPersistence,
 }
 
 impl StepStateMachine {
     /// Create a new step state machine instance
-    pub fn new(step: WorkflowStep, pool: PgPool, event_publisher: EventPublisher) -> Self {
+    pub fn new(
+        step: WorkflowStep,
+        pool: PgPool,
+        event_publisher: Option<Arc<EventPublisher>>,
+    ) -> Self {
+        let event_publisher = match event_publisher {
+            Some(publisher) => publisher,
+            None => Arc::new(EventPublisher::new()),
+        };
         Self {
             step,
             pool,

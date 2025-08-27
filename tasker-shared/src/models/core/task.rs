@@ -38,9 +38,17 @@
 //! - **State Queries**: Complex joins with task_transitions table
 //! - **Scope Queries**: Optimized with strategic indexes
 
+use crate::events::publisher::EventPublisher;
+use crate::scopes::ScopeBuilder;
+use crate::state_machine::{
+    events::{StepEvent, TaskEvent},
+    step_state_machine::StepStateMachine,
+    task_state_machine::TaskStateMachine,
+};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
+use std::sync::Arc;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -1224,16 +1232,6 @@ impl Task {
         }))
     }
 
-    // ============================================================================
-    // RAILS INSTANCE METHODS (15+ methods)
-    // ============================================================================
-
-    /// Get state machine for this task (Rails: state_machine) - memoized
-    /// TODO: Implement TaskStateMachine integration
-    pub fn state_machine(&self) -> TaskStateMachine {
-        TaskStateMachine::new(self.task_uuid)
-    }
-
     /// Get current task status via state machine (Rails: status)
     pub async fn status(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
         // Delegate to state machine - for now use get_current_state
@@ -1805,12 +1803,10 @@ impl Task {
     /// Returns `Ok(true)` if the task can be cancelled, `Ok(false)` if it cannot,
     /// or an error if state machine queries fail.
     pub async fn can_be_cancelled(&self, pool: &PgPool) -> Result<bool, sqlx::Error> {
-        use crate::events::publisher::EventPublisher;
-        use crate::state_machine::task_state_machine::TaskStateMachine;
-
         // Create event publisher and task state machine
-        let event_publisher = EventPublisher::new();
-        let task_state_machine = TaskStateMachine::new(self.clone(), pool.clone(), event_publisher);
+        let event_publisher = Arc::new(EventPublisher::new());
+        let task_state_machine =
+            TaskStateMachine::new(self.clone(), pool.clone(), Some(event_publisher));
 
         // Get current state and check if it's terminal
         let current_state = task_state_machine
@@ -1861,20 +1857,12 @@ impl Task {
     /// # }
     /// ```
     pub async fn cancel_task(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
-        use crate::events::publisher::EventPublisher;
-        use crate::scopes::ScopeBuilder;
-        use crate::state_machine::{
-            events::{StepEvent, TaskEvent},
-            step_state_machine::StepStateMachine,
-            task_state_machine::TaskStateMachine,
-        };
-
         // Create event publisher for state machine transitions
-        let event_publisher = EventPublisher::new();
+        let event_publisher = Arc::new(EventPublisher::new());
 
         // Step 1: Create task state machine and check if cancellation is valid
         let task_state_machine =
-            TaskStateMachine::new(self.clone(), pool.clone(), event_publisher.clone());
+            TaskStateMachine::new(self.clone(), pool.clone(), Some(event_publisher.clone()));
         let current_task_state = task_state_machine
             .current_state()
             .await
@@ -1897,7 +1885,7 @@ impl Task {
         // Note: Each state machine transition handles its own transaction internally
         for step in workflow_steps {
             let step_state_machine =
-                StepStateMachine::new(step, pool.clone(), event_publisher.clone());
+                StepStateMachine::new(step, pool.clone(), Some(event_publisher.clone()));
 
             // Get current step state
             let current_step_state = step_state_machine
@@ -1917,7 +1905,8 @@ impl Task {
 
         // Step 4: Cancel the task using state machine
         // Note: Task state machine transition handles its own transaction internally
-        let mut task_sm = TaskStateMachine::new(self.clone(), pool.clone(), event_publisher);
+        let mut task_sm =
+            TaskStateMachine::new(self.clone(), pool.clone(), Some(event_publisher.clone()));
         let _final_task_state = task_sm
             .transition(TaskEvent::Cancel)
             .await
@@ -1991,90 +1980,4 @@ impl Task {
             metadata.status.unwrap_or("unknown".to_string()),
         ))
     }
-}
-
-/// Task State Machine - Provides structured access to task state management
-///
-/// This wraps the existing database-driven state management system and provides
-/// a clean interface for state operations without complex state machine classes.
-#[derive(Debug, Clone)]
-pub struct TaskStateMachine {
-    pub task_uuid: Uuid,
-}
-
-impl TaskStateMachine {
-    /// Create a new state machine instance for a task
-    pub fn new(task_uuid: Uuid) -> Self {
-        Self { task_uuid }
-    }
-
-    /// Get the current state of the task
-    pub async fn current_state(&self, pool: &PgPool) -> Result<Option<String>, sqlx::Error> {
-        let row = sqlx::query!(
-            r#"
-            SELECT to_state
-            FROM tasker_task_transitions
-            WHERE task_uuid = $1 AND most_recent = true
-            ORDER BY sort_key DESC
-            LIMIT 1
-            "#,
-            self.task_uuid
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        Ok(row.map(|r| r.to_state))
-    }
-
-    /// Get the current status (same as current_state but with default)
-    pub async fn status(&self, pool: &PgPool) -> Result<String, sqlx::Error> {
-        match self.current_state(pool).await? {
-            Some(state) => Ok(state),
-            None => Ok("pending".to_string()),
-        }
-    }
-
-    /// Check if the task can transition to a given state
-    pub async fn can_transition_to(
-        &self,
-        _pool: &PgPool,
-        _to_state: &str,
-    ) -> Result<bool, sqlx::Error> {
-        // For now, return true since the existing system handles validation
-        // In a full implementation, this would check state machine rules
-        Ok(true)
-    }
-
-    /// Get all transitions for this task
-    pub async fn transitions(&self, pool: &PgPool) -> Result<Vec<TaskTransition>, sqlx::Error> {
-        let transitions = sqlx::query_as!(
-            TaskTransition,
-            r#"
-            SELECT task_uuid, from_state, to_state,
-                   metadata, sort_key, most_recent,
-                   created_at, updated_at
-            FROM tasker_task_transitions
-            WHERE task_uuid = $1::uuid
-            ORDER BY sort_key DESC
-            "#,
-            self.task_uuid
-        )
-        .fetch_all(pool)
-        .await?;
-
-        Ok(transitions)
-    }
-}
-
-/// Task transition record for state machine operations
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TaskTransition {
-    pub task_uuid: Uuid,
-    pub from_state: Option<String>,
-    pub to_state: String,
-    pub metadata: Option<serde_json::Value>,
-    pub sort_key: i32,
-    pub most_recent: bool,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
 }

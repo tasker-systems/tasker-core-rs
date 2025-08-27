@@ -369,7 +369,9 @@ struct MessageEventHandler {
     pgmq_notify_client: Arc<tokio::sync::Mutex<PgmqNotifyClient>>,
     command_sender: mpsc::Sender<WorkerCommand>,
     processor_id: Uuid,
+    #[allow(dead_code)]
     context: Arc<SystemContext>,
+    #[allow(dead_code)]
     task_template_manager: Arc<TaskTemplateManager>,
 }
 

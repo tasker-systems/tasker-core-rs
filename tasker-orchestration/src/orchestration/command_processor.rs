@@ -28,7 +28,10 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
+use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::models::WorkflowStep;
 use tasker_shared::{TaskerError, TaskerResult};
 
 /// Type alias for command response channels
@@ -53,6 +56,21 @@ pub enum OrchestrationCommand {
     /// Finalize a completed task - uses FinalizationClaimer for atomic operation
     FinalizeTask {
         task_uuid: Uuid,
+        resp: CommandResponder<TaskFinalizationResult>,
+    },
+    /// Process step result from message event - delegates full message lifecycle to worker
+    ProcessStepResultFromMessageEvent {
+        message_event: MessageReadyEvent,
+        resp: CommandResponder<StepProcessResult>,
+    },
+    /// Initialize task from message event - delegates full message lifecycle to worker
+    InitializeTaskFromMessageEvent {
+        message_event: MessageReadyEvent,
+        resp: CommandResponder<TaskInitializeResult>,
+    },
+    /// Finalize task from message event - delegates full message lifecycle to worker
+    FinalizeTaskFromMessageEvent {
+        message_event: MessageReadyEvent,
         resp: CommandResponder<TaskFinalizationResult>,
     },
     /// Get orchestration processing statistics
@@ -121,6 +139,7 @@ use tokio::task::JoinHandle;
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
+use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
 
 /// TAS-40 Command Pattern Orchestration Processor
@@ -141,6 +160,9 @@ pub struct OrchestrationProcessor {
     /// Sophisticated finalization claimer for atomic operations
     finalization_claimer: Arc<FinalizationClaimer>,
 
+    /// PGMQ client for message operations
+    pgmq_client: Arc<UnifiedPgmqClient>,
+
     /// Command receiver channel
     command_rx: Option<mpsc::Receiver<OrchestrationCommand>>,
 
@@ -158,6 +180,7 @@ impl OrchestrationProcessor {
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
         finalization_claimer: Arc<FinalizationClaimer>,
+        pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
         let (command_tx, command_rx) = mpsc::channel(buffer_size);
@@ -175,6 +198,7 @@ impl OrchestrationProcessor {
             task_request_processor,
             result_processor,
             finalization_claimer,
+            pgmq_client,
             command_rx: Some(command_rx),
             task_handle: None,
             stats,
@@ -190,72 +214,136 @@ impl OrchestrationProcessor {
         let task_request_processor = self.task_request_processor.clone();
         let result_processor = self.result_processor.clone();
         let finalization_claimer = self.finalization_claimer.clone();
+        let pgmq_client = self.pgmq_client.clone();
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
         })?;
 
         let handle = tokio::spawn(async move {
+            let handler = OrchestrationProcessorCommandHandler {
+                context: context.clone(),
+                stats: stats.clone(),
+                task_request_processor: task_request_processor.clone(),
+                result_processor: result_processor.clone(),
+                finalization_claimer: finalization_claimer.clone(),
+                pgmq_client: pgmq_client.clone(),
+            };
             while let Some(command) = command_rx.recv().await {
-                Self::process_command(
-                    &context,
-                    &stats,
-                    &task_request_processor,
-                    &result_processor,
-                    &finalization_claimer,
-                    command,
-                )
-                .await;
+                handler.process_command(command).await;
             }
         });
 
         self.task_handle = Some(handle);
         Ok(())
     }
+}
+
+pub struct OrchestrationProcessorCommandHandler {
+    context: Arc<SystemContext>,
+    stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
+    task_request_processor: Arc<TaskRequestProcessor>,
+    result_processor: Arc<OrchestrationResultProcessor>,
+    finalization_claimer: Arc<FinalizationClaimer>,
+    pgmq_client: Arc<UnifiedPgmqClient>,
+}
+
+impl OrchestrationProcessorCommandHandler {
+    pub fn new(
+        context: Arc<SystemContext>,
+        stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
+        task_request_processor: Arc<TaskRequestProcessor>,
+        result_processor: Arc<OrchestrationResultProcessor>,
+        finalization_claimer: Arc<FinalizationClaimer>,
+        pgmq_client: Arc<UnifiedPgmqClient>,
+    ) -> Self {
+        Self {
+            context,
+            stats,
+            task_request_processor,
+            result_processor,
+            finalization_claimer,
+            pgmq_client,
+        }
+    }
 
     /// Process individual commands (no polling) with sophisticated delegation
-    async fn process_command(
-        context: &Arc<SystemContext>,
-        stats: &Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
-        task_request_processor: &Arc<TaskRequestProcessor>,
-        result_processor: &Arc<OrchestrationResultProcessor>,
-        finalization_claimer: &Arc<FinalizationClaimer>,
-        command: OrchestrationCommand,
-    ) {
+    pub async fn process_command(&self, command: OrchestrationCommand) {
         match command {
             OrchestrationCommand::InitializeTask { request, resp } => {
-                let result = Self::handle_initialize_task(task_request_processor, request).await;
+                let result = self.handle_initialize_task(request).await;
                 if result.is_ok() {
-                    stats.write().unwrap().task_requests_processed += 1;
+                    self.stats.write().unwrap().task_requests_processed += 1;
                 } else {
-                    stats.write().unwrap().processing_errors += 1;
+                    self.stats.write().unwrap().processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
             OrchestrationCommand::ProcessStepResult { result, resp } => {
-                let process_result =
-                    Self::handle_process_step_result(result_processor, result).await;
+                let process_result = self.handle_process_step_result(result).await;
                 if process_result.is_ok() {
-                    stats.write().unwrap().step_results_processed += 1;
+                    self.stats.write().unwrap().step_results_processed += 1;
                 } else {
-                    stats.write().unwrap().processing_errors += 1;
+                    self.stats.write().unwrap().processing_errors += 1;
                 }
                 let _ = resp.send(process_result);
             }
             OrchestrationCommand::FinalizeTask { task_uuid, resp } => {
-                let result = Self::handle_finalize_task(finalization_claimer, task_uuid).await;
+                let result = self.handle_finalize_task(task_uuid).await;
                 if result.is_ok() {
-                    stats.write().unwrap().tasks_finalized += 1;
+                    self.stats.write().unwrap().tasks_finalized += 1;
                 } else {
-                    stats.write().unwrap().processing_errors += 1;
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::ProcessStepResultFromMessageEvent {
+                message_event,
+                resp,
+            } => {
+                let result = self
+                    .handle_step_result_from_message_event(message_event)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().step_results_processed += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::InitializeTaskFromMessageEvent {
+                message_event,
+                resp,
+            } => {
+                let result = self
+                    .handle_task_initialize_from_message_event(message_event)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().task_requests_processed += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::FinalizeTaskFromMessageEvent {
+                message_event,
+                resp,
+            } => {
+                let result = self
+                    .handle_task_finalize_from_message_event(message_event)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().tasks_finalized += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
                 }
                 let _ = resp.send(result);
             }
             OrchestrationCommand::GetProcessingStats { resp } => {
-                let stats_copy = stats.read().unwrap().clone();
+                let stats_copy = self.stats.read().unwrap().clone();
                 let _ = resp.send(Ok(stats_copy));
             }
             OrchestrationCommand::HealthCheck { resp } => {
-                let result = Self::handle_health_check(context).await;
+                let result = self.handle_health_check().await;
                 let _ = resp.send(result);
             }
             OrchestrationCommand::Shutdown { resp } => {
@@ -267,7 +355,7 @@ impl OrchestrationProcessor {
 
     /// Handle task initialization using sophisticated TaskRequestProcessor delegation
     async fn handle_initialize_task(
-        task_request_processor: &Arc<TaskRequestProcessor>,
+        &self,
         request: TaskRequestMessage,
     ) -> TaskerResult<TaskInitializeResult> {
         // TAS-40 Phase 2.2 - Sophisticated TaskRequestProcessor delegation
@@ -284,7 +372,8 @@ impl OrchestrationProcessor {
         })?;
 
         // Delegate to sophisticated TaskRequestProcessor
-        let task_uuid = task_request_processor
+        let task_uuid = self
+            .task_request_processor
             .process_task_request(&payload)
             .await
             .map_err(|e| {
@@ -299,7 +388,7 @@ impl OrchestrationProcessor {
 
     /// Handle step result processing using sophisticated OrchestrationResultProcessor delegation
     async fn handle_process_step_result(
-        result_processor: &Arc<OrchestrationResultProcessor>,
+        &self,
         step_result: StepExecutionResult,
     ) -> TaskerResult<StepProcessResult> {
         // TAS-40 Phase 2.2 - Sophisticated OrchestrationResultProcessor delegation
@@ -310,7 +399,7 @@ impl OrchestrationProcessor {
         // - Backoff calculations for intelligent retry coordination
 
         // Delegate to sophisticated OrchestrationResultProcessor
-        match result_processor.handle_step_result_with_metadata(
+        match self.result_processor.handle_step_result_with_metadata(
             step_result.step_uuid,
             step_result.status.clone(),
             step_result.metadata.execution_time_ms as u64,
@@ -335,10 +424,7 @@ impl OrchestrationProcessor {
     }
 
     /// Handle task finalization using sophisticated FinalizationClaimer delegation (atomic operation)
-    async fn handle_finalize_task(
-        finalization_claimer: &Arc<FinalizationClaimer>,
-        task_uuid: Uuid,
-    ) -> TaskerResult<TaskFinalizationResult> {
+    async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
         // TAS-40 Phase 2.2 - Sophisticated FinalizationClaimer delegation
         // Uses existing sophisticated FinalizationClaimer for atomic operations including:
         // - Atomic task claiming to prevent race conditions (TAS-37 solution)
@@ -347,7 +433,7 @@ impl OrchestrationProcessor {
         // - Comprehensive observability and audit trail
 
         // Attempt to claim the task for finalization using TAS-37 atomic claiming
-        match finalization_claimer.claim_task(task_uuid).await {
+        match self.finalization_claimer.claim_task(task_uuid).await {
             Ok(claim_result) => {
                 if claim_result.claimed {
                     // Successfully claimed task - proceed with finalization
@@ -355,19 +441,23 @@ impl OrchestrationProcessor {
                     // and then release the claim. For now, simulate successful finalization.
 
                     // Release the claim after successful finalization
-                    if let Err(release_err) = finalization_claimer.release_claim(task_uuid).await {
-                        tracing::warn!(
-                            task_uuid = %task_uuid,
-                            error = %release_err,
-                            "Failed to release finalization claim - claim will timeout naturally"
-                        );
+                    match self.finalization_claimer.release_claim(task_uuid).await {
+                        Ok(_) => Ok(TaskFinalizationResult::Success {
+                            task_uuid,
+                            final_status: "completed".to_string(),
+                            completion_time: Some(Utc::now()),
+                        }),
+                        Err(release_err) => {
+                            tracing::warn!(
+                                task_uuid = %task_uuid,
+                                error = %release_err,
+                                "Failed to release finalization claim - claim will timeout naturally"
+                            );
+                            Err(TaskerError::OrchestrationError(
+                                format!("Failed to release finalization claim, but will time out naturally, {release_err}")
+                            ))
+                        }
                     }
-
-                    Ok(TaskFinalizationResult::Success {
-                        task_uuid,
-                        final_status: "completed".to_string(),
-                        completion_time: Some(Utc::now()),
-                    })
                 } else {
                     // Could not claim task - already being processed by another processor
                     Ok(TaskFinalizationResult::NotClaimed {
@@ -389,11 +479,278 @@ impl OrchestrationProcessor {
         }
     }
 
+    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    async fn handle_step_result_from_message_event(
+        &self,
+        message_event: MessageReadyEvent,
+    ) -> TaskerResult<StepProcessResult> {
+
+        // Read the specific message by ID (the correct approach for event-driven processing)
+        let message = self
+            .pgmq_client
+            .read_specific_message::<serde_json::Value>(
+                &message_event.queue_name,
+                message_event.msg_id,
+                30, // visibility timeout
+            )
+            .await
+            .map_err(|e| {
+                TaskerError::MessagingError(format!(
+                    "Failed to read specific step result message {} from queue {}: {e}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?
+            .ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "Step result message {} not found in queue {}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?;
+
+        // Parse as SimpleStepMessage (only task_uuid and step_uuid)
+        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}")))?;
+
+        // Database hydration using tasker-shared WorkflowStep model
+        let workflow_step = WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
+            .ok_or_else(|| TaskerError::ValidationError(format!(
+                "WorkflowStep not found for step_uuid: {}", simple_message.step_uuid
+            )))?;
+
+        // Deserialize StepExecutionResult from results JSONB column 
+        let step_execution_result: StepExecutionResult = serde_json::from_value(
+            workflow_step
+                .results
+                .ok_or_else(|| TaskerError::ValidationError(format!(
+                    "No results found for step_uuid: {}", simple_message.step_uuid
+                )))?
+        ).map_err(|e| TaskerError::ValidationError(format!(
+            "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+        )))?;
+
+        // Delegate to existing step result processing logic
+        let result = self.handle_process_step_result(step_execution_result).await;
+
+        // Delete the message only if processing was successful
+        if result.is_ok() {
+            match self
+                .pgmq_client
+                .delete_message(&message_event.queue_name, message.msg_id)
+                .await
+            {
+                Ok(_) => (),
+                Err(e) => {
+                    tracing::warn!(
+                        msg_id = message.msg_id,
+                        queue = %message_event.queue_name,
+                        error = %e,
+                        "Failed to delete processed step result message"
+                    );
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Handle task initialization from message event - delegates full message lifecycle to worker
+    async fn handle_task_initialize_from_message_event(
+        &self,
+        message_event: MessageReadyEvent,
+    ) -> TaskerResult<TaskInitializeResult> {
+        tracing::debug!(
+            msg_id = message_event.msg_id,
+            queue = %message_event.queue_name,
+            "Processing task initialization from message event"
+        );
+
+        // Read the specific message by ID (the correct approach for event-driven processing)
+        let message = self
+            .pgmq_client
+            .read_specific_message::<serde_json::Value>(
+                &message_event.queue_name,
+                message_event.msg_id,
+                30, // visibility timeout
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    msg_id = message_event.msg_id,
+                    queue = %message_event.queue_name,
+                    error = %e,
+                    "Failed to read specific task request message from queue"
+                );
+                TaskerError::MessagingError(format!(
+                    "Failed to read specific task request message {} from queue {}: {e}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?
+            .ok_or_else(|| {
+                tracing::error!(
+                    msg_id = message_event.msg_id,
+                    queue = %message_event.queue_name,
+                    "Task request message not found in queue"
+                );
+                TaskerError::ValidationError(format!(
+                    "Task request message {} not found in queue {}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?;
+
+        tracing::debug!(
+            msg_id = message_event.msg_id,
+            queue = %message_event.queue_name,
+            "Successfully read specific task request message"
+        );
+
+        // Parse the task request message
+        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
+                tracing::error!(
+                    msg_id = message.msg_id,
+                    queue = %message_event.queue_name,
+                    error = %e,
+                    message_content = %message.message,
+                    "Failed to parse task request message"
+                );
+                TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
+            })?;
+
+        // Delegate to existing task initialization logic
+        let result = self.handle_initialize_task(task_request).await;
+
+        match &result {
+            Ok(_) => {
+                tracing::debug!(
+                    msg_id = message.msg_id,
+                    queue = %message_event.queue_name,
+                    "Task initialization successful, deleting message"
+                );
+                // Delete the message only if processing was successful
+                match self
+                    .pgmq_client
+                    .delete_message(&message_event.queue_name, message.msg_id)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::debug!(
+                            msg_id = message.msg_id,
+                            queue = %message_event.queue_name,
+                            "Successfully deleted processed task request message"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            msg_id = message.msg_id,
+                            queue = %message_event.queue_name,
+                            error = %e,
+                            "Failed to delete processed task request message"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    msg_id = message.msg_id,
+                    queue = %message_event.queue_name,
+                    error = %e,
+                    "Task initialization failed, keeping message in queue"
+                );
+            }
+        }
+
+        result
+    }
+
+    /// Handle task finalization from message event - delegates full message lifecycle to worker
+    async fn handle_task_finalize_from_message_event(
+        &self,
+        message_event: MessageReadyEvent,
+    ) -> TaskerResult<TaskFinalizationResult> {
+        // Read the specific message by ID (the correct approach for event-driven processing)
+        let message = self
+            .pgmq_client
+            .read_specific_message::<serde_json::Value>(
+                &message_event.queue_name,
+                message_event.msg_id,
+                30, // visibility timeout
+            )
+            .await
+            .map_err(|e| {
+                TaskerError::MessagingError(format!(
+                    "Failed to read specific finalization message {} from queue {}: {e}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?
+            .ok_or_else(|| {
+                TaskerError::OrchestrationError(format!(
+                    "Finalization message {} not found in queue {}",
+                    message_event.msg_id, message_event.queue_name
+                ))
+            })?;
+
+        // Parse the message to extract task_uuid
+        // For now, assume the message contains a task_uuid field directly
+        let task_uuid = message
+            .message
+            .get("task_uuid")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or_else(|| {
+                TaskerError::ValidationError(
+                    "Invalid or missing task_uuid in finalization message".to_string(),
+                )
+            })?;
+
+        // Delegate to existing task finalization logic
+        let result = self.handle_finalize_task(task_uuid).await;
+
+        // Delete the message only if processing was successful
+        if matches!(result, Ok(TaskFinalizationResult::Success { .. })) {
+            match self
+                .pgmq_client
+                .delete_message(&message_event.queue_name, message.msg_id)
+                .await
+            {
+                Ok(_) => (),
+                Err(e) => {
+                    tracing::warn!(
+                        msg_id = message.msg_id,
+                        queue = %message_event.queue_name,
+                        task_uuid = %task_uuid,
+                        error = %e,
+                        "Failed to delete processed finalization message"
+                    );
+                }
+            }
+        } else {
+            // Get error details from result
+            let error_msg = match &result {
+                Ok(TaskFinalizationResult::NotClaimed { reason, .. }) => format!("Not claimed: {}", reason),
+                Ok(TaskFinalizationResult::Failed { error }) => format!("Failed: {}", error),
+                Err(e) => format!("Error: {}", e),
+                _ => "Unknown finalization result".to_string(),
+            };
+            
+            tracing::warn!(
+                msg_id = message.msg_id,
+                queue = %message_event.queue_name,
+                task_uuid = %task_uuid,
+                result = %error_msg,
+                "Task finalization was not successful - keeping message in queue"
+            );
+        }
+
+        result
+    }
+
     /// Handle health check
-    async fn handle_health_check(context: &Arc<SystemContext>) -> TaskerResult<SystemHealth> {
+    async fn handle_health_check(&self) -> TaskerResult<SystemHealth> {
         // Check database connectivity
         let database_connected = match sqlx::query("SELECT 1")
-            .fetch_one(context.database_pool())
+            .fetch_one(self.context.database_pool())
             .await
         {
             Ok(_) => true,

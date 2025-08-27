@@ -1,14 +1,11 @@
 use crate::task_template_manager::TaskTemplateManager;
 use std::sync::Arc;
-use tasker_shared::events::EventPublisher;
-use tasker_shared::messaging::message::SimpleStepMessage;
-use tasker_shared::models::{
-    orchestration::{StepDependencyResultMap, StepTransitiveDependenciesQuery},
-    task::{Task, TaskForOrchestration},
-    task_template::StepDefinition,
-    workflow_step::WorkflowStepWithName,
+use tasker_shared::messaging::{
+    message::SimpleStepMessage, orchestration_messages::TaskSequenceStep,
 };
-use tasker_shared::registry::TaskHandlerRegistry;
+use tasker_shared::models::{
+    orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
+};
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
@@ -16,7 +13,7 @@ use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 use uuid::Uuid;
 
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error};
 
 #[derive(Clone)]
 pub struct StepClaim {
@@ -149,11 +146,10 @@ impl StepClaim {
         let db_pool = self.context.database_pool();
 
         // Create a state machine for this step
-        let event_publisher = EventPublisher::new();
         let mut state_machine = StepStateMachine::new(
             task_sequence_step.workflow_step.clone().into(),
             db_pool.clone(),
-            event_publisher,
+            Some(self.context.event_publisher.clone()),
         );
 
         // Try to transition the step to in_progress (claiming it)
@@ -214,12 +210,4 @@ impl StepClaim {
             }
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct TaskSequenceStep {
-    pub task: TaskForOrchestration,
-    pub workflow_step: WorkflowStepWithName,
-    pub dependency_results: StepDependencyResultMap,
-    pub step_definition: StepDefinition,
 }

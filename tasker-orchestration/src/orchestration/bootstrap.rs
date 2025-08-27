@@ -446,6 +446,7 @@ impl OrchestrationBootstrap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_bootstrap_config_default() {
@@ -453,6 +454,18 @@ mod tests {
         assert!(config.namespaces.is_empty());
         assert!(config.auto_start_processors);
         assert!(config.environment_override.is_none());
+        assert!(config.enable_web_api);
+        assert!(config.enable_event_driven_coordination);
+        assert!(config.event_driven_config.is_some());
+
+        // Check default event-driven config
+        let event_config = config.event_driven_config.unwrap();
+        assert_eq!(event_config.namespace, "orchestration");
+        assert!(event_config.event_driven_enabled);
+        assert_eq!(
+            event_config.fallback_polling_interval,
+            Duration::from_millis(500)
+        );
     }
 
     #[tokio::test]
@@ -483,10 +496,87 @@ mod tests {
             environment_override: Some("test".to_string()),
             enable_web_api: true,
             web_config: None,
+            enable_event_driven_coordination: true,
+            event_driven_config: Some(EventDrivenCoordinatorConfig {
+                namespace: "test".to_string(),
+                event_driven_enabled: false, // Disable for testing
+                fallback_polling_interval: Duration::from_millis(100),
+                batch_size: 5,
+                queues: tasker_shared::config::QueueConfig {
+                    orchestration_owned: tasker_shared::config::OrchestrationOwnedQueues::default(),
+                    worker_queues: std::collections::HashMap::new(),
+                    settings: tasker_shared::config::QueueSettings {
+                        visibility_timeout_seconds: 30,
+                        message_retention_seconds: 604800,
+                        dead_letter_queue_enabled: true,
+                        max_receive_count: 3,
+                    },
+                },
+                visibility_timeout: Duration::from_secs(10),
+            }),
         };
 
         assert_eq!(config.namespaces.len(), 1);
         assert!(!config.auto_start_processors);
         assert_eq!(config.environment_override, Some("test".to_string()));
+        assert!(config.enable_event_driven_coordination);
+        assert!(config.event_driven_config.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_config_for_testing() {
+        // Test the testing-specific bootstrap configuration
+        let config = BootstrapConfig::for_executor_testing(vec!["test".to_string()]);
+
+        assert_eq!(config.namespaces, vec!["test".to_string()]);
+        assert!(!config.auto_start_processors); // Manual control for testing
+        assert_eq!(config.environment_override, Some("test".to_string()));
+        assert!(!config.enable_web_api); // Disabled for testing
+        assert!(!config.enable_event_driven_coordination); // Disabled for deterministic testing
+        assert!(config.event_driven_config.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_config_from_config_manager() {
+        // Test creating bootstrap config from config manager
+        // Save existing DATABASE_URL if any
+        let original_database_url = std::env::var("DATABASE_URL").ok();
+
+        // Set a dummy DATABASE_URL for the test
+        std::env::set_var("DATABASE_URL", "postgresql://test:test@localhost:5432/test_db");
+
+        let config_manager = match ConfigManager::load_from_env("test") {
+            Ok(manager) => manager,
+            Err(err) => {
+                // Restore original DATABASE_URL before panicking
+                if let Some(url) = original_database_url {
+                    std::env::set_var("DATABASE_URL", url);
+                } else {
+                    std::env::remove_var("DATABASE_URL");
+                }
+                panic!("Failed to load config manager: {err}")
+            },
+        };
+        let config = BootstrapConfig::from_config_manager(
+            &config_manager,
+            vec!["namespace1".to_string(), "namespace2".to_string()],
+        );
+
+        assert_eq!(config.namespaces.len(), 2);
+        assert!(config.auto_start_processors);
+        assert_eq!(
+            config.environment_override,
+            Some(config_manager.environment().to_string())
+        );
+        assert!(config.enable_web_api);
+        assert!(config.enable_event_driven_coordination);
+        assert!(config.event_driven_config.is_some());
+
+        // Restore original DATABASE_URL
+        if let Some(url) = original_database_url {
+            std::env::set_var("DATABASE_URL", url);
+        } else {
+            std::env::remove_var("DATABASE_URL");
+        }
     }
 }

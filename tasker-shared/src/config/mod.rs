@@ -57,7 +57,10 @@ pub use orchestration::{
     OrchestrationSystemConfig,
 };
 pub use query_cache::{CacheTypeConfig, QueryCacheConfig};
-pub use queue::{QueueConfig, QueueSettings};
+pub use queue::{OrchestrationOwnedQueues, QueueConfig, QueueSettings};
+
+pub mod queue_classification;
+pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
 pub use state::OperationalStateConfig;
 pub use worker::{
     EventSystemConfig, HealthMonitoringConfig, ResourceLimitsConfig, StepProcessingConfig,
@@ -660,10 +663,7 @@ impl Default for TaskerConfig {
                 enable_performance_logging: false,
                 default_claim_timeout_seconds: 300,
                 queues: QueueConfig {
-                    task_requests: "task_requests_queue".to_string(),
-                    task_processing: "task_processing_queue".to_string(),
-                    batch_results: "batch_results_queue".to_string(),
-                    step_results: "orchestration_step_results".to_string(),
+                    orchestration_owned: OrchestrationOwnedQueues::default(),
                     worker_queues: {
                         let mut queues = HashMap::new();
                         queues.insert("default".to_string(), "default_queue".to_string());

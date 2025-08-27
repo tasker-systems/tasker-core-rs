@@ -18,16 +18,18 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pgmq::Message as PgmqMessage;
-use tasker_shared::messaging::clients::pgmq_client::PgmqClient;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
+use tasker_shared::models::WorkflowStep;
+use tasker_shared::state_machine::events::StepEvent;
+use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
-// Database models will be imported when implementing the actual database operations
 
 use crate::event_publisher::WorkerEventPublisher;
 use crate::event_subscriber::WorkerEventSubscriber;
 use crate::health::WorkerHealthStatus;
+use crate::orchestration_result_sender::OrchestrationResultSender;
 use crate::step_claim::StepClaim;
 use crate::task_template_manager::TaskTemplateManager;
 
@@ -138,9 +140,6 @@ pub struct WorkerProcessor {
     /// Task template manager for metadata lookups
     task_template_manager: Arc<TaskTemplateManager>,
 
-    /// PGMQ client for message deletion
-    pgmq_client: Arc<PgmqClient>,
-
     /// Command receiver
     command_receiver: Option<mpsc::Receiver<WorkerCommand>>,
 
@@ -158,6 +157,9 @@ pub struct WorkerProcessor {
 
     /// Event subscriber for receiving completion events from FFI handlers
     event_subscriber: Option<WorkerEventSubscriber>,
+
+    /// Orchestration result sender for step completion notifications
+    orchestration_result_sender: OrchestrationResultSender,
 }
 
 impl WorkerProcessor {
@@ -166,7 +168,6 @@ impl WorkerProcessor {
         namespace: String,
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
-        pgmq_client: Arc<PgmqClient>,
         command_buffer_size: usize,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
         let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
@@ -180,13 +181,19 @@ impl WorkerProcessor {
             "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
+        // Create OrchestrationResultSender with config-driven queue names
+        let orchestration_result_sender = OrchestrationResultSender::new(
+            context.message_client(),
+            context.config_manager.config().orchestration.queues.clone(),
+            "orchestration".to_string(), // Default orchestration namespace for proper queue prefixing
+        );
+
         let processor = Self {
             worker_id: worker_id.clone(),
             namespace: namespace.clone(),
             processor_id,
             context,
             task_template_manager,
-            pgmq_client,
             command_receiver: Some(command_receiver),
             handlers: HashMap::new(),
             stats: StepExecutionStats {
@@ -198,6 +205,7 @@ impl WorkerProcessor {
             start_time: std::time::Instant::now(),
             event_publisher: None,
             event_subscriber: None,
+            orchestration_result_sender,
         };
 
         (processor, command_sender)
@@ -299,13 +307,21 @@ impl WorkerProcessor {
                                 "Received step completion from FFI handler"
                             );
 
-                            // TODO: Forward completion to orchestration via command pattern
-                            // This would integrate with OrchestrationCore.process_step_result()
-                            info!(
-                                worker_id = %self.worker_id,
-                                step_uuid = %step_result.step_uuid,
-                                "Step completion processed (TODO: forward to orchestration)"
-                            );
+                            // Forward completion to orchestration via handle_send_step_result
+                            if let Err(e) = self.handle_send_step_result(step_result.clone()).await {
+                                error!(
+                                    worker_id = %self.worker_id,
+                                    step_uuid = %step_result.step_uuid,
+                                    error = %e,
+                                    "Failed to forward step completion to orchestration"
+                                );
+                            } else {
+                                info!(
+                                    worker_id = %self.worker_id,
+                                    step_uuid = %step_result.step_uuid,
+                                    "Step completion forwarded to orchestration successfully"
+                                );
+                            }
                         }
                         None => {
                             warn!(worker_id = %self.worker_id, "FFI completion channel closed");
@@ -443,10 +459,6 @@ impl WorkerProcessor {
 
         self.stats.total_executed += 1;
 
-        // TODO: Implement full database operations, step claiming, and message deletion here
-        // This is where the database-heavy operations from event_driven_processor.rs lines 311-344 will be implemented
-        // For now, we'll implement a basic version to make compilation work
-
         info!(
             worker_id = %self.worker_id,
             processor_id = %self.processor_id,
@@ -582,21 +594,59 @@ impl WorkerProcessor {
         Ok(health_status)
     }
 
-    /// Send step result to orchestration - integration with command pattern
-    async fn handle_send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()> {
+    /// Send step result to orchestration - complete implementation with StepStateMachine
+    async fn handle_send_step_result(&self, step_result: StepExecutionResult) -> TaskerResult<()> {
         debug!(
             worker_id = %self.worker_id,
-            step_uuid = %result.step_uuid,
-            success = result.success,
-            "Sending step result to orchestration"
+            step_uuid = %step_result.step_uuid,
+            success = step_result.success,
+            "Processing step result with state machine integration"
         );
 
-        // TODO: Integrate with OrchestrationCore command pattern
-        // This would send the result via OrchestrationCore::process_step_result()
+        let db_pool = self.context.database_pool();
+
+        // 1. Load WorkflowStep from database using tasker-shared model
+        let workflow_step = WorkflowStep::find_by_id(&db_pool, step_result.step_uuid)
+            .await
+            .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
+            .ok_or_else(|| {
+                TaskerError::WorkerError(format!("Step not found: {}", step_result.step_uuid))
+            })?;
+
+        // 2. Use StepStateMachine for proper state transition with results persistence
+        let mut state_machine = StepStateMachine::new(
+            workflow_step,
+            db_pool.clone(),
+            Some(self.context.event_publisher.clone()),
+        );
+
+        // 3. Transition using proper StepEvent with result data
+        let step_event = if step_result.success {
+            StepEvent::Complete(Some(serde_json::to_value(&step_result.result)?))
+        } else {
+            let error_message = step_result
+                .error
+                .as_ref()
+                .map(|e| e.message.clone())
+                .unwrap_or_else(|| "Unknown error".to_string());
+            StepEvent::Fail(error_message)
+        };
+
+        // 4. Execute atomic state transition (includes result persistence via UpdateStepResultsAction)
+        let final_state = state_machine.transition(step_event).await.map_err(|e| {
+            TaskerError::StateTransitionError(format!("Step transition failed: {e}"))
+        })?;
+
+        // 5. Send SimpleStepMessage to orchestration queue using config-driven helper
+        self.orchestration_result_sender
+            .send_completion(state_machine.task_uuid(), step_result.step_uuid)
+            .await?;
+
         info!(
             worker_id = %self.worker_id,
-            step_uuid = %result.step_uuid,
-            "Step result sent to orchestration (TODO: integrate with OrchestrationCore)"
+            step_uuid = %step_result.step_uuid,
+            final_state = %final_state,
+            "Step result processed and sent to orchestration successfully"
         );
 
         Ok(())
@@ -768,11 +818,9 @@ impl WorkerProcessor {
 
 #[cfg(test)]
 mod tests {
-    use crate::task_template_manager;
 
     use super::*;
     use dotenvy::dotenv;
-    use tasker_shared::scopes::task;
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
     async fn test_worker_processor_creation(
@@ -790,7 +838,6 @@ mod tests {
         ));
 
         let (processor, _sender) = WorkerProcessor::new(
-            "test_worker".to_string(),
             "test_namespace".to_string(),
             context,
             task_template_manager,
@@ -820,8 +867,7 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (processor, _sender) = WorkerProcessor::new(
-            "test_worker".to_string(),
+        let (mut processor, _sender) = WorkerProcessor::new(
             "test_namespace".to_string(),
             context,
             task_template_manager,
@@ -836,7 +882,13 @@ mod tests {
 
         let queue_name = format!("{}_{}", "test_worker", "test_namespace");
 
-        let message = PgmqMessage::<SimpleStepMessage>::new(queue_name, step_message);
+        let message = PgmqMessage::<SimpleStepMessage> {
+            msg_id: 1,
+            message: step_message,
+            vt: chrono::Utc::now(),
+            read_ct: 1,
+            enqueued_at: chrono::Utc::now(),
+        };
 
         // With SQLx test providing a real database pool, this should work properly
         let result = processor.handle_execute_step(message, queue_name).await;
@@ -863,7 +915,6 @@ mod tests {
         ));
 
         let (processor, _sender) = WorkerProcessor::new(
-            "test_worker".to_string(),
             "test_namespace".to_string(),
             context,
             task_template_manager,

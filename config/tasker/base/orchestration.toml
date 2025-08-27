@@ -19,6 +19,13 @@ task_processing = "task_processing_queue"
 batch_results = "batch_results_queue"
 step_results = "orchestration_step_results"
 
+# Queue type classifications for orchestration-owned queues
+# These must have orchestration namespace prefix if not already present
+[orchestration.queues.orchestration_owned]
+step_results = "orchestration_step_results"
+task_requests = "orchestration_task_requests"
+task_finalizations = "orchestration_task_finalizations"
+
 [orchestration.embedded_orchestrator]
 auto_start = false
 namespaces = [ "default", "fulfillment", "inventory", "notifications",]

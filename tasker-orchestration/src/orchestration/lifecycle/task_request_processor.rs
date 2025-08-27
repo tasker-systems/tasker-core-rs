@@ -7,7 +7,6 @@
 use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use std::sync::Arc;
 use tasker_shared::messaging::{PgmqClientTrait, TaskRequestMessage, UnifiedPgmqClient};
-use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::registry::TaskHandlerRegistry;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
@@ -167,9 +166,9 @@ impl TaskRequestProcessor {
 
         info!(
             request_id = %request.request_id,
-            namespace = %request.namespace,
-            task_name = %request.task_name,
-            task_version = %request.task_version,
+            namespace = %request.task_request.namespace,
+            task_name = %request.task_request.name,
+            task_version = %request.task_request.version,
             msg_id = msg_id,
             "Processing task request"
         );
@@ -180,8 +179,8 @@ impl TaskRequestProcessor {
             Err(validation_error) => {
                 warn!(
                     request_id = %request.request_id,
-                    namespace = %request.namespace,
-                    task_name = %request.task_name,
+                    namespace = %request.task_request.namespace,
+                    task_name = %request.task_request.name,
                     error = %validation_error,
                     "Task request validation failed"
                 );
@@ -192,13 +191,10 @@ impl TaskRequestProcessor {
 
     /// Handle a validated task request by creating task (ready for SQL-based discovery)
     async fn handle_valid_task_request(&self, request: &TaskRequestMessage) -> TaskerResult<()> {
-        // Convert TaskRequestMessage to TaskRequest for proper initialization
-        let task_request = self.convert_message_to_task_request(request)?;
-
-        // Create the task using the proper TaskInitializer with full workflow setup
+        // Use the embedded TaskRequest directly - no conversion needed
         let initialization_result = self
             .task_initializer
-            .create_task_from_request(task_request)
+            .create_task_from_request(request.task_request.clone())
             .await
             .map_err(|e| {
                 TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
@@ -207,8 +203,8 @@ impl TaskRequestProcessor {
         info!(
             request_id = %request.request_id,
             task_uuid = %initialization_result.task_uuid,
-            namespace = %request.namespace,
-            task_name = %request.task_name,
+            namespace = %request.task_request.namespace,
+            task_name = %request.task_request.name,
             step_count = initialization_result.step_count,
             "Task validated and created - ready for SQL-based discovery"
         );
@@ -219,9 +215,9 @@ impl TaskRequestProcessor {
     /// Validate a task request using the task handler registry
     async fn validate_task_request(&self, request: &TaskRequestMessage) -> TaskerResult<()> {
         debug!(
-            namespace = %request.namespace,
-            task_name = %request.task_name,
-            task_version = %request.task_version,
+            namespace = %request.task_request.namespace,
+            task_name = %request.task_request.name,
+            task_version = %request.task_request.version,
             "Validating task request"
         );
 
@@ -229,58 +225,27 @@ impl TaskRequestProcessor {
         match self
             .task_handler_registry
             .get_task_template(
-                &request.namespace,
-                &request.task_name,
-                &request.task_version,
+                &request.task_request.namespace,
+                &request.task_request.name,
+                &request.task_request.version,
             )
             .await
         {
             Ok(_template) => {
                 debug!(
-                    namespace = %request.namespace,
-                    task_name = %request.task_name,
+                    namespace = %request.task_request.namespace,
+                    task_name = %request.task_request.name,
                     "Task request validation successful"
                 );
                 Ok(())
             }
             Err(e) => Err(TaskerError::ValidationError(format!(
                 "Task validation failed for {}/{}/{}: {}",
-                request.namespace, request.task_name, request.task_version, e
+                request.task_request.namespace, request.task_request.name, request.task_request.version, e
             ))),
         }
     }
 
-    /// Convert TaskRequestMessage to TaskRequest for proper initialization
-    fn convert_message_to_task_request(
-        &self,
-        request: &TaskRequestMessage,
-    ) -> TaskerResult<TaskRequest> {
-        debug!(
-            request_id = %request.request_id,
-            namespace = %request.namespace,
-            task_name = %request.task_name,
-            "Converting message to TaskRequest for proper initialization"
-        );
-
-        // Convert the messaging format to the core model format
-        let task_request = TaskRequest::new(request.task_name.clone(), request.namespace.clone())
-            .with_version(request.task_version.clone())
-            .with_context(request.input_data.clone())
-            .with_initiator(request.metadata.requester.clone())
-            .with_source_system("task_request_processor".to_string())
-            .with_reason(format!("Task request {}", request.request_id))
-            .with_priority(request.metadata.priority.into())
-            .with_claim_timeout_seconds(300); // Default 5 minutes for task claims
-
-        info!(
-            request_id = %request.request_id,
-            namespace = %request.namespace,
-            task_name = %request.task_name,
-            "TaskRequest converted successfully for proper initialization"
-        );
-
-        Ok(task_request)
-    }
 
     /// Process a task request directly using TaskInitializer (bypassing message queues)
     /// This is the preferred method for direct task creation with proper initialization
@@ -293,21 +258,18 @@ impl TaskRequestProcessor {
 
         info!(
             request_id = %request.request_id,
-            namespace = %request.namespace,
-            task_name = %request.task_name,
+            namespace = %request.task_request.namespace,
+            task_name = %request.task_request.name,
             "Processing task request directly with proper initialization"
         );
 
         // Validate the task using the task handler registry
         self.validate_task_request(&request).await?;
 
-        // Convert TaskRequestMessage to TaskRequest for proper initialization
-        let task_request = self.convert_message_to_task_request(&request)?;
-
-        // Create the task using the proper TaskInitializer with full workflow setup
+        // Use the embedded TaskRequest directly - no conversion needed
         let initialization_result = self
             .task_initializer
-            .create_task_from_request(task_request)
+            .create_task_from_request(request.task_request.clone())
             .await
             .map_err(|e| {
                 TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
@@ -357,20 +319,23 @@ mod tests {
 
     #[test]
     fn test_task_request_message_parsing() {
-        let request = TaskRequestMessage::new(
-            "fulfillment".to_string(),
-            "process_order".to_string(),
-            "1.0.0".to_string(),
-            json!({"order_id": 12345}),
-            "api_gateway".to_string(),
-        );
+        use tasker_shared::models::core::task_request::TaskRequest;
+        
+        let task_request = TaskRequest::new("process_order".to_string(), "fulfillment".to_string())
+            .with_version("1.0.0".to_string())
+            .with_context(json!({"order_id": 12345}))
+            .with_initiator("api_gateway".to_string())
+            .with_source_system("test".to_string())
+            .with_reason("Test parsing".to_string());
+            
+        let request = TaskRequestMessage::new(task_request, "api_gateway".to_string());
 
         let serialized = serde_json::to_value(&request).unwrap();
         let parsed: TaskRequestMessage = serde_json::from_value(serialized).unwrap();
 
-        assert_eq!(parsed.namespace, "fulfillment");
-        assert_eq!(parsed.task_name, "process_order");
-        assert_eq!(parsed.task_version, "1.0.0");
+        assert_eq!(parsed.task_request.namespace, "fulfillment");
+        assert_eq!(parsed.task_request.name, "process_order");
+        assert_eq!(parsed.task_request.version, "1.0.0");
         assert_eq!(parsed.metadata.requester, "api_gateway");
     }
 }

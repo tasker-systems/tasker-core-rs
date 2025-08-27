@@ -1,4 +1,5 @@
 use crate::config::{ConfigManager, TaskerConfig};
+use crate::events::EventPublisher;
 use crate::messaging::{PgmqClient, PgmqClientTrait, ProtectedPgmqClient, UnifiedPgmqClient};
 use crate::registry::TaskHandlerRegistry;
 use crate::resilience::CircuitBreakerManager;
@@ -35,6 +36,9 @@ pub struct SystemContext {
 
     /// Circuit breaker manager (optional)
     pub circuit_breaker_manager: Option<Arc<CircuitBreakerManager>>,
+
+    /// Event publisher
+    pub event_publisher: Arc<EventPublisher>,
 }
 
 impl std::fmt::Debug for SystemContext {
@@ -164,7 +168,10 @@ impl SystemContext {
         } else {
             info!("📤 Circuit breakers disabled - using standard PgmqClient");
             let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
-            (None, Arc::new(UnifiedPgmqClient::new_standard(standard_client)))
+            (
+                None,
+                Arc::new(UnifiedPgmqClient::new_standard(standard_client)),
+            )
         };
         (circuit_breaker_manager, message_client)
     }
@@ -190,6 +197,8 @@ impl SystemContext {
         // Create system instance ID
         let system_id = Uuid::now_v7();
 
+        let event_publisher = Arc::new(EventPublisher::new());
+
         info!("✅ SystemContext components created successfully");
 
         Ok(Self {
@@ -199,6 +208,7 @@ impl SystemContext {
             database_pool,
             task_handler_registry,
             circuit_breaker_manager,
+            event_publisher,
         })
     }
 
@@ -261,6 +271,8 @@ impl SystemContext {
         // Create task handler registry
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new(database_pool.clone()));
 
+        let event_publisher = Arc::new(EventPublisher::new());
+
         Ok(Self {
             system_id,
             config_manager,
@@ -268,6 +280,7 @@ impl SystemContext {
             database_pool,
             task_handler_registry,
             circuit_breaker_manager: None, // Disabled for testing
+            event_publisher,
         })
     }
 }

@@ -47,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tasker_shared::config::task_config_finder::TaskConfigFinder;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::events::EventPublisher;
@@ -96,7 +97,7 @@ impl Default for TaskInitializationConfig {
 pub struct TaskInitializer {
     pool: PgPool,
     config: TaskInitializationConfig,
-    event_publisher: Option<EventPublisher>,
+    event_publisher: Option<Arc<EventPublisher>>,
     state_manager: Option<StateManager>,
     registry: Option<std::sync::Arc<tasker_shared::registry::TaskHandlerRegistry>>,
     task_config_finder: Option<TaskConfigFinder>,
@@ -128,7 +129,7 @@ impl TaskInitializer {
     }
 
     /// Create a TaskInitializer with orchestration event publisher
-    pub fn with_orchestration_events(pool: PgPool, event_publisher: EventPublisher) -> Self {
+    pub fn with_orchestration_events(pool: PgPool, event_publisher: Arc<EventPublisher>) -> Self {
         Self {
             pool,
             config: TaskInitializationConfig::default(),
@@ -143,7 +144,7 @@ impl TaskInitializer {
     pub fn with_config_and_orchestration_events(
         pool: PgPool,
         config: TaskInitializationConfig,
-        event_publisher: EventPublisher,
+        event_publisher: Arc<EventPublisher>,
     ) -> Self {
         Self {
             pool,
@@ -159,7 +160,7 @@ impl TaskInitializer {
     pub fn with_state_manager(
         pool: PgPool,
         config: TaskInitializationConfig,
-        event_publisher: EventPublisher,
+        event_publisher: Arc<EventPublisher>,
     ) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
         let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
@@ -178,7 +179,7 @@ impl TaskInitializer {
     pub fn with_state_manager_and_registry(
         pool: PgPool,
         config: TaskInitializationConfig,
-        event_publisher: EventPublisher,
+        event_publisher: Arc<EventPublisher>,
         registry: std::sync::Arc<tasker_shared::registry::TaskHandlerRegistry>,
     ) -> Self {
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
@@ -196,8 +197,8 @@ impl TaskInitializer {
 
     /// Create a TaskInitializer for testing with filesystem-based configuration loading
     pub fn for_testing(pool: PgPool) -> Self {
-        let config_manager = std::sync::Arc::new(ConfigurationManager::new());
-        let registry = std::sync::Arc::new(tasker_shared::registry::TaskHandlerRegistry::new(
+        let config_manager = Arc::new(ConfigurationManager::new());
+        let registry = Arc::new(tasker_shared::registry::TaskHandlerRegistry::new(
             pool.clone(),
         ));
         let task_config_finder = TaskConfigFinder::new(config_manager, registry);
@@ -690,7 +691,7 @@ impl TaskInitializer {
         } else {
             // Create a temporary StateManager for this operation
             let sql_executor = SqlFunctionExecutor::new(self.pool.clone());
-            let event_publisher = EventPublisher::new();
+            let event_publisher = Arc::new(EventPublisher::new());
             StateManager::new(sql_executor, event_publisher, self.pool.clone())
         };
 

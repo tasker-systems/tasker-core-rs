@@ -138,8 +138,8 @@ impl WorkerEventSystem {
             event_id = %event.event_id,
             task_uuid = %event.payload.task_uuid,
             step_uuid = %event.payload.step_uuid,
-            step_name = %event.payload.step_name,
-            handler_class = %event.payload.step_definition.handler.callable,
+            step_name = %event.payload.task_sequence_step.workflow_step.name,
+            handler_class = %event.payload.task_sequence_step.step_definition.handler.callable,
             "Publishing step execution event to FFI handlers"
         );
 
@@ -273,7 +273,7 @@ impl WorkerEventSystem {
             event_id: event.event_id,
             task_uuid: event.payload.task_uuid,
             step_uuid: event.payload.step_uuid,
-            step_name: event.payload.step_name.clone(),
+            step_name: event.payload.task_sequence_step.step_definition.name.clone(),
             published_at: chrono::Utc::now(),
             completed_at: None,
             success: None,
@@ -409,6 +409,86 @@ pub enum WorkerEventError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use crate::messaging::orchestration_messages::TaskSequenceStep;
+    use crate::models::core::{task::{TaskForOrchestration, Task}, workflow_step::WorkflowStepWithName, task_template::{StepDefinition, HandlerDefinition, RetryConfiguration, BackoffStrategy}};
+    use crate::models::orchestration::StepDependencyResultMap;
+
+    /// Helper function to create a test TaskSequenceStep
+    fn create_test_task_sequence_step(
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        step_name: &str,
+        handler_class: &str,
+        step_payload: serde_json::Value,
+        dependency_results: StepDependencyResultMap,
+        task_context: serde_json::Value,
+    ) -> TaskSequenceStep {
+        TaskSequenceStep {
+            task: TaskForOrchestration {
+                task: Task {
+                    task_uuid,
+                    named_task_uuid: uuid::Uuid::new_v4(),
+                    complete: false,
+                    requested_at: chrono::Utc::now().naive_utc(),
+                    initiator: Some("test".to_string()),
+                    source_system: Some("test_system".to_string()),
+                    reason: Some("test_reason".to_string()),
+                    bypass_steps: None,
+                    tags: None,
+                    context: Some(task_context),
+                    identity_hash: "test_hash".to_string(),
+                    claimed_at: None,
+                    claimed_by: None,
+                    priority: 5,
+                    claim_timeout_seconds: 300,
+                    created_at: chrono::Utc::now().naive_utc(),
+                    updated_at: chrono::Utc::now().naive_utc(),
+                },
+                task_name: "test_task".to_string(),
+                task_version: "1.0.0".to_string(),
+                namespace_name: "test_namespace".to_string(),
+            },
+            workflow_step: WorkflowStepWithName {
+                workflow_step_uuid: step_uuid,
+                task_uuid,
+                named_step_uuid: uuid::Uuid::new_v4(),
+                name: step_name.to_string(),
+                retryable: false,
+                retry_limit: None,
+                in_process: false,
+                processed: false,
+                processed_at: None,
+                attempts: None,
+                last_attempted_at: None,
+                backoff_request_seconds: None,
+                inputs: Some(step_payload),
+                results: None,
+                skippable: false,
+                created_at: chrono::Utc::now().naive_utc(),
+                updated_at: chrono::Utc::now().naive_utc(),
+            },
+            dependency_results,
+            step_definition: StepDefinition {
+                name: step_name.to_string(),
+                description: Some(format!("Test step: {}", step_name)),
+                handler: HandlerDefinition {
+                    callable: handler_class.to_string(),
+                    initialization: HashMap::new(),
+                },
+                system_dependency: None,
+                dependencies: vec![],
+                timeout_seconds: Some(30),
+                retry: RetryConfiguration {
+                    retryable: false,
+                    limit: 1,
+                    backoff: BackoffStrategy::None,
+                    backoff_base_ms: None,
+                    max_backoff_ms: None,
+                },
+                publishes_events: vec![],
+            },
+        }
+    }
 
     #[tokio::test]
     async fn test_worker_event_system_creation() {
@@ -427,19 +507,25 @@ mod tests {
         let subscriber = event_system.create_subscriber();
         let mut receiver = subscriber.subscribe_to_step_executions();
 
-        let payload = StepEventPayload::new(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            "test_step".to_string(),
-            "TestHandler".to_string(),
-            serde_json::json!({"test": true}),
-            HashMap::new(),
-            serde_json::json!({
-                "task": {"task_id": 123},
-                "sequence": [],
-                "step": {"step_id": 456}
-            }),
+        let task_uuid = Uuid::new_v4();
+        let step_uuid = Uuid::new_v4();
+        let step_name = "test_step";
+        let handler_class = "TestHandler";
+        let step_payload = serde_json::json!({"test": true});
+        let dependency_results = StepDependencyResultMap::new();
+        let task_context = serde_json::json!({"context": "test"});
+
+        let task_sequence_step = create_test_task_sequence_step(
+            task_uuid,
+            step_uuid,
+            step_name,
+            handler_class,
+            step_payload,
+            dependency_results,
+            task_context,
         );
+
+        let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step);
 
         // Publish event
         let result = publisher.publish_step_execution(payload.clone()).await;
@@ -447,8 +533,10 @@ mod tests {
 
         // Receive event
         let received_event = receiver.recv().await.unwrap();
-        assert_eq!(received_event.payload.step_name, payload.step_name);
-        assert_eq!(received_event.payload.handler_class, payload.handler_class);
+        assert_eq!(received_event.payload.task_uuid, task_uuid);
+        assert_eq!(received_event.payload.step_uuid, step_uuid);
+        assert_eq!(received_event.payload.task_sequence_step.step_definition.name, step_name);
+        assert_eq!(received_event.payload.task_sequence_step.step_definition.handler.callable, handler_class);
     }
 
     #[tokio::test]
@@ -485,15 +573,25 @@ mod tests {
         let event_system = WorkerEventSystem::with_config(config);
 
         // Create and publish execution event
-        let payload = StepEventPayload::new(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            "test_step".to_string(),
-            "TestHandler".to_string(),
-            serde_json::json!({"test": true}),
-            HashMap::new(),
-            serde_json::json!({"task": {"task_id": 123}}),
+        let task_uuid = Uuid::new_v4();
+        let step_uuid = Uuid::new_v4();
+        let step_name = "test_step";
+        let handler_class = "TestHandler";
+        let step_payload = serde_json::json!({"test": true});
+        let dependency_results = StepDependencyResultMap::new();
+        let task_context = serde_json::json!({"task": {"task_id": 123}});
+
+        let task_sequence_step = create_test_task_sequence_step(
+            task_uuid,
+            step_uuid,
+            step_name,
+            handler_class,
+            step_payload,
+            dependency_results,
+            task_context,
         );
+
+        let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step);
 
         let execution_event = StepExecutionEvent::new(payload);
         let event_id = execution_event.event_id;
@@ -545,15 +643,25 @@ mod tests {
 
         // Add some correlations by tracking events
         for _ in 0..10 {
-            let payload = StepEventPayload::new(
-                Uuid::new_v4(),
-                Uuid::new_v4(),
-                "test_step".to_string(),
-                "TestHandler".to_string(),
-                serde_json::json!({"test": true}),
-                HashMap::new(),
-                serde_json::json!({"task": {"task_id": 123}}),
+            let task_uuid = Uuid::new_v4();
+            let step_uuid = Uuid::new_v4();
+            let step_name = "test_step";
+            let handler_class = "TestHandler";
+            let step_payload = serde_json::json!({"test": true});
+            let dependency_results = StepDependencyResultMap::new();
+            let task_context = serde_json::json!({"task": {"task_id": 123}});
+
+            let task_sequence_step = create_test_task_sequence_step(
+                task_uuid,
+                step_uuid,
+                step_name,
+                handler_class,
+                step_payload,
+                dependency_results,
+                task_context,
             );
+
+            let payload = StepEventPayload::new(task_uuid, step_uuid, task_sequence_step);
             let event = StepExecutionEvent::new(payload);
             let _ = event_system.publish_step_execution(event).await;
         }

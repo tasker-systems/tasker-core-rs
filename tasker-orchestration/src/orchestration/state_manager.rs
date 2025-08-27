@@ -93,7 +93,7 @@ pub struct StateEvaluationResult {
 #[derive(Clone)]
 pub struct StateManager {
     sql_executor: SqlFunctionExecutor,
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
     pool: sqlx::PgPool,
     /// Cache of active state machines to avoid recreation
     task_state_machines: Arc<Mutex<HashMap<Uuid, TaskStateMachine>>>,
@@ -104,7 +104,7 @@ impl StateManager {
     /// Create new state manager instance
     pub fn new(
         sql_executor: SqlFunctionExecutor,
-        event_publisher: EventPublisher,
+        event_publisher: Arc<EventPublisher>,
         pool: sqlx::PgPool,
     ) -> Self {
         Self {
@@ -533,7 +533,9 @@ impl StateManager {
             let machine = TaskStateMachine::new(
                 task,
                 self.pool.clone(),
-                tasker_shared::events::publisher::EventPublisher::default(),
+                Some(Arc::new(
+                    tasker_shared::events::publisher::EventPublisher::default(),
+                )),
             );
 
             // Store in cache for future use
@@ -568,11 +570,8 @@ impl StateManager {
                 expected_states: vec!["pending".to_string(), "in_progress".to_string()],
             })?;
 
-            let machine = StepStateMachine::new(
-                step,
-                self.pool.clone(),
-                tasker_shared::events::publisher::EventPublisher::default(),
-            );
+            let machine =
+                StepStateMachine::new(step, self.pool.clone(), Some(self.event_publisher.clone()));
 
             // Store in cache for future use
             step_machines.insert(step_uuid, machine.clone());

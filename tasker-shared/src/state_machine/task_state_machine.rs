@@ -12,6 +12,7 @@ use super::{
 use crate::events::publisher::EventPublisher;
 use crate::models::Task;
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Thread-safe task state machine for lifecycle management
@@ -19,13 +20,17 @@ use uuid::Uuid;
 pub struct TaskStateMachine {
     task: Task,
     pool: PgPool,
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
     persistence: TaskTransitionPersistence,
 }
 
 impl TaskStateMachine {
     /// Create a new task state machine instance
-    pub fn new(task: Task, pool: PgPool, event_publisher: EventPublisher) -> Self {
+    pub fn new(task: Task, pool: PgPool, event_publisher: Option<Arc<EventPublisher>>) -> Self {
+        let event_publisher = match event_publisher {
+            Some(publisher) => publisher,
+            None => Arc::new(EventPublisher::new()),
+        };
         Self {
             task,
             pool,

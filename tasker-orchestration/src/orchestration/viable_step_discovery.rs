@@ -40,6 +40,7 @@
 
 use sqlx::types::Uuid;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::{DiscoveryError, OrchestrationResult};
 use tasker_shared::events::{EventPublisher, ViableStep as EventsViableStep};
@@ -49,7 +50,7 @@ use tracing::{debug, info, instrument, warn};
 /// High-performance step readiness discovery engine
 pub struct ViableStepDiscovery {
     sql_executor: SqlFunctionExecutor,
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
     pool: sqlx::PgPool,
 }
 
@@ -57,7 +58,7 @@ impl ViableStepDiscovery {
     /// Create new step discovery instance
     pub fn new(
         sql_executor: SqlFunctionExecutor,
-        event_publisher: EventPublisher,
+        event_publisher: Arc<EventPublisher>,
         pool: sqlx::PgPool,
     ) -> Self {
         Self {

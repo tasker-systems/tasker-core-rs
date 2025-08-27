@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::sync::Arc;
 use tasker_orchestration::orchestration::state_manager::{
     StateEntityType, StateHealthSummary, StateManager, StateTransitionEvent, StateTransitionRequest,
 };
@@ -32,7 +33,7 @@ fn test_state_health_summary_calculations() {
 #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
 async fn test_state_manager_creation(pool: sqlx::PgPool) {
     let sql_executor = SqlFunctionExecutor::new(pool.clone());
-    let event_publisher = EventPublisher::new();
+    let event_publisher = Arc::new(EventPublisher::new());
     let state_manager = StateManager::new(sql_executor, event_publisher, pool);
 
     // Test that we can create the StateManager successfully
