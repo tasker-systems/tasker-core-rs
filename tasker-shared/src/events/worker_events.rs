@@ -273,7 +273,12 @@ impl WorkerEventSystem {
             event_id: event.event_id,
             task_uuid: event.payload.task_uuid,
             step_uuid: event.payload.step_uuid,
-            step_name: event.payload.task_sequence_step.step_definition.name.clone(),
+            step_name: event
+                .payload
+                .task_sequence_step
+                .step_definition
+                .name
+                .clone(),
             published_at: chrono::Utc::now(),
             completed_at: None,
             success: None,
@@ -408,10 +413,14 @@ pub enum WorkerEventError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::messaging::orchestration_messages::TaskSequenceStep;
-    use crate::models::core::{task::{TaskForOrchestration, Task}, workflow_step::WorkflowStepWithName, task_template::{StepDefinition, HandlerDefinition, RetryConfiguration, BackoffStrategy}};
+    use crate::models::core::{
+        task::{Task, TaskForOrchestration},
+        task_template::{BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition},
+        workflow_step::WorkflowStepWithName,
+    };
     use crate::models::orchestration::StepDependencyResultMap;
+    use std::collections::HashMap;
 
     /// Helper function to create a test TaskSequenceStep
     fn create_test_task_sequence_step(
@@ -535,8 +544,23 @@ mod tests {
         let received_event = receiver.recv().await.unwrap();
         assert_eq!(received_event.payload.task_uuid, task_uuid);
         assert_eq!(received_event.payload.step_uuid, step_uuid);
-        assert_eq!(received_event.payload.task_sequence_step.step_definition.name, step_name);
-        assert_eq!(received_event.payload.task_sequence_step.step_definition.handler.callable, handler_class);
+        assert_eq!(
+            received_event
+                .payload
+                .task_sequence_step
+                .step_definition
+                .name,
+            step_name
+        );
+        assert_eq!(
+            received_event
+                .payload
+                .task_sequence_step
+                .step_definition
+                .handler
+                .callable,
+            handler_class
+        );
     }
 
     #[tokio::test]

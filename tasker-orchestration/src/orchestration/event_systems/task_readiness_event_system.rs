@@ -17,17 +17,17 @@ use uuid::Uuid;
 
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
-use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 use crate::orchestration::{
-    OrchestrationCore,
-    command_processor::{OrchestrationCommand, TaskReadinessResult},  // TAS-43: Command pattern integration
+    command_processor::{OrchestrationCommand, TaskReadinessResult}, // TAS-43: Command pattern integration
     task_readiness::{
         // coordinator and enhanced_coordinator imports removed - TAS-43 uses command pattern
-        events::{TaskReadinessEvent, ReadinessTrigger},  // Added ReadinessTrigger import
-        fallback_poller::{ReadinessFallbackPoller, ReadinessFallbackConfig},
+        events::{ReadinessTrigger, TaskReadinessEvent}, // Added ReadinessTrigger import
+        fallback_poller::{ReadinessFallbackConfig, ReadinessFallbackPoller},
         listener::{TaskReadinessListener, TaskReadinessNotification},
     },
+    OrchestrationCore,
 };
+use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
@@ -39,33 +39,32 @@ use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 pub struct TaskReadinessEventSystem {
     /// System identifier
     system_id: String,
-    
+
     /// Current deployment mode
     deployment_mode: DeploymentMode,
-    
+
     // Coordinators removed - TAS-43 uses command pattern instead of direct coordination
-    
     /// Fallback poller for hybrid mode
     fallback_poller: Option<ReadinessFallbackPoller>,
-    
+
     /// System context
     context: Arc<SystemContext>,
-    
+
     /// Orchestration core
     orchestration_core: Arc<OrchestrationCore>,
-    
+
     /// System configuration
     config: TaskReadinessEventSystemConfig,
-    
+
     /// Runtime statistics
     statistics: Arc<TaskReadinessStatistics>,
-    
+
     /// System running state
     is_running: AtomicBool,
-    
+
     /// Startup timestamp
     started_at: Option<Instant>,
-    
+
     /// Command sender for orchestration commands (TAS-43)
     command_sender: mpsc::Sender<OrchestrationCommand>,
 }
@@ -137,10 +136,10 @@ impl Clone for TaskReadinessStatistics {
             tasks_claimed: AtomicU64::new(self.tasks_claimed.load(Ordering::Relaxed)),
             tasks_enqueued: AtomicU64::new(self.tasks_enqueued.load(Ordering::Relaxed)),
             last_processing_time: std::sync::Mutex::new(
-                self.last_processing_time.lock().unwrap().clone()
+                self.last_processing_time.lock().unwrap().clone(),
             ),
             processing_latencies: std::sync::Mutex::new(
-                self.processing_latencies.lock().unwrap().clone()
+                self.processing_latencies.lock().unwrap().clone(),
             ),
         }
     }
@@ -150,23 +149,23 @@ impl EventSystemStatistics for TaskReadinessStatistics {
     fn events_processed(&self) -> u64 {
         self.events_processed.load(Ordering::Relaxed)
     }
-    
+
     fn events_failed(&self) -> u64 {
         self.events_failed.load(Ordering::Relaxed)
     }
-    
+
     fn processing_rate(&self) -> f64 {
         let latencies = self.processing_latencies.lock().unwrap();
         if latencies.is_empty() {
             return 0.0;
         }
-        
+
         // Calculate events per second based on recent latencies
         let recent_latencies: Vec<_> = latencies.iter().rev().take(100).collect();
         if recent_latencies.is_empty() {
             return 0.0;
         }
-        
+
         let total_time: Duration = recent_latencies.iter().copied().sum();
         if total_time.as_secs_f64() > 0.0 {
             recent_latencies.len() as f64 / total_time.as_secs_f64()
@@ -174,38 +173,38 @@ impl EventSystemStatistics for TaskReadinessStatistics {
             0.0
         }
     }
-    
+
     fn average_latency_ms(&self) -> f64 {
         let latencies = self.processing_latencies.lock().unwrap();
         if latencies.is_empty() {
             return 0.0;
         }
-        
+
         let sum: Duration = latencies.iter().sum();
         sum.as_millis() as f64 / latencies.len() as f64
     }
-    
+
     fn deployment_mode_score(&self) -> f64 {
         // Score based on success rate and task processing efficiency
         let total_events = self.events_processed() + self.events_failed();
         if total_events == 0 {
             return 1.0; // No events yet, assume perfect
         }
-        
+
         let success_rate = self.events_processed() as f64 / total_events as f64;
         let tasks_claimed = self.tasks_claimed.load(Ordering::Relaxed);
         let tasks_enqueued = self.tasks_enqueued.load(Ordering::Relaxed);
-        
+
         // Factor in task processing efficiency
         let task_efficiency = if tasks_claimed > 0 {
             tasks_enqueued as f64 / tasks_claimed as f64
         } else {
             1.0
         };
-        
+
         let latency = self.average_latency_ms();
         let latency_score = if latency > 0.0 { 10.0 / latency } else { 1.0 };
-        
+
         // Combine success rate, task efficiency, and latency
         (success_rate + task_efficiency.min(1.0) + latency_score.min(1.0)) / 3.0
     }
@@ -217,7 +216,7 @@ impl TaskReadinessEventSystem {
         config: TaskReadinessEventSystemConfig,
         context: Arc<SystemContext>,
         orchestration_core: Arc<OrchestrationCore>,
-        command_sender: mpsc::Sender<OrchestrationCommand>,  // TAS-43: Command pattern integration
+        command_sender: mpsc::Sender<OrchestrationCommand>, // TAS-43: Command pattern integration
     ) -> TaskerResult<Self> {
         info!(
             system_id = %config.system_id,
@@ -237,14 +236,14 @@ impl TaskReadinessEventSystem {
             statistics: Arc::new(TaskReadinessStatistics::default()),
             is_running: AtomicBool::new(false),
             started_at: None,
-            command_sender,  // TAS-43: Command pattern integration
+            command_sender, // TAS-43: Command pattern integration
         })
     }
 
     // coordinator_config method removed - TAS-43 uses command pattern instead of coordinators
-    
+
     // enhanced_coordinator_config method removed - TAS-43 uses command pattern instead of coordinators
-    
+
     /// Convert to ReadinessFallbackConfig for fallback poller
     fn fallback_config(&self) -> ReadinessFallbackConfig {
         ReadinessFallbackConfig {
@@ -252,15 +251,15 @@ impl TaskReadinessEventSystem {
             polling_interval: self.config.fallback_polling_interval,
             batch_size: self.config.max_concurrent_tasks as u32,
             age_threshold: std::time::Duration::from_secs(5), // Default age threshold
-            max_age: std::time::Duration::from_secs(3600), // 1 hour max age
+            max_age: std::time::Duration::from_secs(3600),    // 1 hour max age
         }
     }
-    
+
     /// Record event processing latency
     fn record_latency(&self, latency: Duration) {
         let mut latencies = self.statistics.processing_latencies.lock().unwrap();
         latencies.push(latency);
-        
+
         // Keep only recent latencies (last 1000)
         if latencies.len() > 1000 {
             latencies.drain(0..500); // Remove oldest half
@@ -290,7 +289,7 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
     async fn start(&mut self) -> Result<(), DeploymentModeError> {
         if self.is_running() {
             return Err(DeploymentModeError::ConfigurationError {
-                message: "TaskReadinessEventSystem is already running".to_string()
+                message: "TaskReadinessEventSystem is already running".to_string(),
             });
         }
 
@@ -310,11 +309,11 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     self.context.clone(),
                     self.command_sender.clone(),
                 );
-                
+
                 fallback_poller.start().await?;
                 self.fallback_poller = Some(fallback_poller);
-            },
-            
+            }
+
             DeploymentMode::Hybrid => {
                 // Create fallback poller for hybrid reliability - sends commands
                 // Event-driven coordination is handled by UnifiedEventCoordinator at bootstrap level
@@ -324,16 +323,16 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     self.context.clone(),
                     self.command_sender.clone(),
                 );
-                
+
                 fallback_poller.start().await?;
                 self.fallback_poller = Some(fallback_poller);
-            },
-            
+            }
+
             DeploymentMode::EventDrivenOnly => {
                 // Pure event-driven mode
                 // Event coordination handled by UnifiedEventCoordinator at bootstrap level
                 // No fallback poller needed
-            },
+            }
         }
 
         self.is_running.store(true, Ordering::Relaxed);
@@ -396,16 +395,17 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
             TaskReadinessEvent::TaskReady(task_ready_event) => {
                 // TAS-43: Convert TaskReadyEvent to ProcessTaskReadiness command
                 // This implements the command pattern architecture where events are converted to commands
-                
+
                 let triggered_by_str = match task_ready_event.triggered_by {
                     ReadinessTrigger::StepTransition => "step_transition",
-                    ReadinessTrigger::TaskStart => "task_start", 
+                    ReadinessTrigger::TaskStart => "task_start",
                     ReadinessTrigger::FallbackPolling => "fallback_polling",
                     ReadinessTrigger::Manual => "manual",
-                }.to_string();
+                }
+                .to_string();
 
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
-                
+
                 let command = OrchestrationCommand::ProcessTaskReadiness {
                     task_uuid: task_ready_event.task_uuid,
                     namespace: task_ready_event.namespace.clone(),
@@ -434,8 +434,8 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                         error = %e,
                         "Failed to send ProcessTaskReadiness command"
                     );
-                    return Err(DeploymentModeError::ConfigurationError { 
-                        message: format!("Command send failed: {}", e) 
+                    return Err(DeploymentModeError::ConfigurationError {
+                        message: format!("Command send failed: {}", e),
                     });
                 }
 
@@ -450,11 +450,15 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                             processing_time_ms = result.processing_time_ms,
                             "ProcessTaskReadiness command completed successfully"
                         );
-                        
+
                         // Track statistics
-                        self.statistics.tasks_claimed.fetch_add(1, Ordering::Relaxed);
-                        self.statistics.tasks_enqueued.fetch_add(result.steps_enqueued as u64, Ordering::Relaxed);
-                    },
+                        self.statistics
+                            .tasks_claimed
+                            .fetch_add(1, Ordering::Relaxed);
+                        self.statistics
+                            .tasks_enqueued
+                            .fetch_add(result.steps_enqueued as u64, Ordering::Relaxed);
+                    }
                     Ok(Err(e)) => {
                         error!(
                             system_id = %self.system_id,
@@ -462,10 +466,10 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                             error = %e,
                             "ProcessTaskReadiness command failed"
                         );
-                        return Err(DeploymentModeError::ConfigurationError { 
-                            message: format!("Command processing failed: {}", e) 
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("Command processing failed: {}", e),
                         });
-                    },
+                    }
                     Err(e) => {
                         error!(
                             system_id = %self.system_id,
@@ -473,13 +477,13 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                             error = %e,
                             "Failed to receive ProcessTaskReadiness command response"
                         );
-                        return Err(DeploymentModeError::ConfigurationError { 
-                            message: format!("Command response failed: {}", e) 
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("Command response failed: {}", e),
                         });
-                    },
+                    }
                 }
-            },
-            
+            }
+
             TaskReadinessEvent::TaskStateChange(task_state_change_event) => {
                 debug!(
                     system_id = %self.system_id,
@@ -488,8 +492,8 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     task_state = %task_state_change_event.task_state,
                     "Task state change event received"
                 );
-            },
-            
+            }
+
             TaskReadinessEvent::NamespaceCreated(namespace_created_event) => {
                 debug!(
                     system_id = %self.system_id,
@@ -497,8 +501,8 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     namespace_name = %namespace_created_event.namespace_name,
                     "Namespace created event received"
                 );
-            },
-            
+            }
+
             TaskReadinessEvent::Unknown { channel, payload } => {
                 debug!(
                     system_id = %self.system_id,
@@ -506,12 +510,14 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     payload = %payload,
                     "Unknown task readiness event received"
                 );
-            },
+            }
         }
 
         let latency = start_time.elapsed();
         self.record_latency(latency);
-        self.statistics.events_processed.fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .events_processed
+            .fetch_add(1, Ordering::Relaxed);
 
         debug!(
             system_id = %self.system_id,
@@ -525,7 +531,7 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
     async fn health_check(&self) -> Result<DeploymentModeHealthStatus, DeploymentModeError> {
         if !self.is_running() {
             return Err(DeploymentModeError::HealthCheckFailed {
-                details: "TaskReadinessEventSystem is not running".to_string()
+                details: "TaskReadinessEventSystem is not running".to_string(),
             });
         }
 
@@ -536,20 +542,21 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                     // Check if poller is healthy
                     if !fallback_poller.is_running() {
                         return Err(DeploymentModeError::HealthCheckFailed {
-                            details: "Fallback poller is not running".to_string()
+                            details: "Fallback poller is not running".to_string(),
                         });
                     }
                 }
-            },
-            
+            }
+
             DeploymentMode::Hybrid | DeploymentMode::EventDrivenOnly => {
                 // TAS-43: Check command channel health instead of coordinator
                 if self.command_sender.is_closed() {
                     return Err(DeploymentModeError::HealthCheckFailed {
-                        details: "Command channel is closed - cannot send orchestration commands".to_string()
+                        details: "Command channel is closed - cannot send orchestration commands"
+                            .to_string(),
                     });
                 }
-                
+
                 // For hybrid mode, also check fallback poller
                 if self.deployment_mode == DeploymentMode::Hybrid {
                     if let Some(fallback_poller) = &self.fallback_poller {
@@ -561,7 +568,7 @@ impl EventDrivenSystem for TaskReadinessEventSystem {
                         }
                     }
                 }
-            },
+            }
         }
 
         // Check processing health based on statistics

@@ -71,7 +71,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
     async fn create_queue(&self, queue_name: &str) -> MessagingResult<()> {
         match &self.inner {
             UnifiedPgmqClientInner::Standard(client) => client.create_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => client.create_queue(queue_name).await.map_err(|e| e.into()),
+            UnifiedPgmqClientInner::Protected(client) => {
+                client.create_queue(queue_name).await.map_err(|e| e.into())
+            }
         }
     }
 
@@ -81,7 +83,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         message: &PgmqStepMessage,
     ) -> MessagingResult<i64> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.send_message(queue_name, message).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.send_message(queue_name, message).await
+            }
             UnifiedPgmqClientInner::Protected(client) => client
                 .send_message(queue_name, message)
                 .await
@@ -95,7 +99,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         message: &T,
     ) -> MessagingResult<i64> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.send_json_message(queue_name, message).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.send_json_message(queue_name, message).await
+            }
             UnifiedPgmqClientInner::Protected(client) => client
                 .send_json_message(queue_name, message)
                 .await
@@ -124,7 +130,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
 
     async fn delete_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.delete_message(queue_name, message_id).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.delete_message(queue_name, message_id).await
+            }
             UnifiedPgmqClientInner::Protected(client) => client
                 .delete_message(queue_name, message_id)
                 .await
@@ -134,7 +142,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
 
     async fn archive_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.archive_message(queue_name, message_id).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.archive_message(queue_name, message_id).await
+            }
             UnifiedPgmqClientInner::Protected(client) => client
                 .archive_message(queue_name, message_id)
                 .await
@@ -145,27 +155,35 @@ impl PgmqClientTrait for UnifiedPgmqClient {
     async fn purge_queue(&self, queue_name: &str) -> MessagingResult<u64> {
         match &self.inner {
             UnifiedPgmqClientInner::Standard(client) => client.purge_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => client.purge_queue(queue_name).await.map_err(|e| e.into()),
+            UnifiedPgmqClientInner::Protected(client) => {
+                client.purge_queue(queue_name).await.map_err(|e| e.into())
+            }
         }
     }
 
     async fn drop_queue(&self, queue_name: &str) -> MessagingResult<()> {
         match &self.inner {
             UnifiedPgmqClientInner::Standard(client) => client.drop_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => client.drop_queue(queue_name).await.map_err(|e| e.into()),
+            UnifiedPgmqClientInner::Protected(client) => {
+                client.drop_queue(queue_name).await.map_err(|e| e.into())
+            }
         }
     }
 
     async fn queue_metrics(&self, queue_name: &str) -> MessagingResult<QueueMetrics> {
         match &self.inner {
             UnifiedPgmqClientInner::Standard(client) => client.queue_metrics(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => client.queue_metrics(queue_name).await.map_err(|e| e.into()),
+            UnifiedPgmqClientInner::Protected(client) => {
+                client.queue_metrics(queue_name).await.map_err(|e| e.into())
+            }
         }
     }
 
     async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> MessagingResult<()> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.initialize_namespace_queues(namespaces).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.initialize_namespace_queues(namespaces).await
+            }
             UnifiedPgmqClientInner::Protected(client) => client
                 .initialize_namespace_queues(namespaces)
                 .await
@@ -179,7 +197,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         step_message: PgmqStepMessage,
     ) -> MessagingResult<i64> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.enqueue_step(namespace, step_message).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.enqueue_step(namespace, step_message).await
+            }
             UnifiedPgmqClientInner::Protected(client) => {
                 // ProtectedPgmqClient now implements the trait method directly
                 client.enqueue_step(namespace, step_message).await
@@ -210,7 +230,9 @@ impl PgmqClientTrait for UnifiedPgmqClient {
 
     async fn complete_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()> {
         match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.complete_message(namespace, message_id).await,
+            UnifiedPgmqClientInner::Standard(client) => {
+                client.complete_message(namespace, message_id).await
+            }
             UnifiedPgmqClientInner::Protected(client) => {
                 // ProtectedPgmqClient now implements the trait method directly
                 client.complete_message(namespace, message_id).await
@@ -286,24 +308,28 @@ impl UnifiedPgmqClient {
             client
                 .read_specific_message::<T>(queue_name, message_id, visibility_timeout)
                 .await
-                .map_err(|e| MessagingError::database_connection(format!(
-                    "Failed to read specific message: {e}"
-                )))
+                .map_err(|e| {
+                    MessagingError::database_connection(format!(
+                        "Failed to read specific message: {e}"
+                    ))
+                })
         } else {
             // Fallback to standard batch reading and filtering
             let messages = self
                 .read_messages(queue_name, Some(visibility_timeout), Some(1))
                 .await?;
-            
+
             // Find the specific message by ID
             for msg in messages {
                 if msg.msg_id == message_id {
                     // Deserialize the message
-                    let typed_message: T = serde_json::from_value(msg.message.clone())
-                        .map_err(|e| MessagingError::message_deserialization(format!(
-                            "Failed to deserialize message: {e}"
-                        )))?;
-                    
+                    let typed_message: T =
+                        serde_json::from_value(msg.message.clone()).map_err(|e| {
+                            MessagingError::message_deserialization(format!(
+                                "Failed to deserialize message: {e}"
+                            ))
+                        })?;
+
                     return Ok(Some(pgmq::types::Message {
                         msg_id: msg.msg_id,
                         vt: msg.vt,
@@ -313,7 +339,7 @@ impl UnifiedPgmqClient {
                     }));
                 }
             }
-            
+
             Ok(None)
         }
     }

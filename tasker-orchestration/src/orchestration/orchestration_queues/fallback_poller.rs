@@ -326,35 +326,38 @@ impl OrchestrationFallbackPoller {
                         );
 
                     let command_result = match classified_message {
-                        tasker_shared::config::ConfigDrivenMessageEvent::StepResults(event) => {
+                        tasker_shared::config::ConfigDrivenMessageEvent::StepResults(_event) => {
                             stats.step_results_processed.fetch_add(1, Ordering::Relaxed);
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
-                                .send(OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                                    message_event: event,
+                                .send(OrchestrationCommand::ProcessStepResultFromMessage {
+                                    queue_name: queue_name.to_string(),
+                                    message: message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await
                         }
-                        tasker_shared::config::ConfigDrivenMessageEvent::TaskRequests(event) => {
+                        tasker_shared::config::ConfigDrivenMessageEvent::TaskRequests(_event) => {
                             stats
                                 .task_requests_processed
                                 .fetch_add(1, Ordering::Relaxed);
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
-                                .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
-                                    message_event: event,
+                                .send(OrchestrationCommand::InitializeTaskFromMessage {
+                                    queue_name: queue_name.to_string(),
+                                    message: message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await
                         }
                         tasker_shared::config::ConfigDrivenMessageEvent::TaskFinalizations(
-                            event,
+                            _event,
                         ) => {
                             let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
                             command_sender
-                                .send(OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                                    message_event: event,
+                                .send(OrchestrationCommand::FinalizeTaskFromMessage {
+                                    queue_name: queue_name.to_string(),
+                                    message: message.clone(),
                                     resp: resp_tx,
                                 })
                                 .await

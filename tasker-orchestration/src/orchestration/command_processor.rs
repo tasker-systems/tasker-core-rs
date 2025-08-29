@@ -25,9 +25,11 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tasker_shared::config::queue;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use pgmq::Message as PgmqMessage;
 use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
@@ -58,6 +60,24 @@ pub enum OrchestrationCommand {
         task_uuid: Uuid,
         resp: CommandResponder<TaskFinalizationResult>,
     },
+    /// Process step result from message - delegates full message lifecycle to worker
+    ProcessStepResultFromMessage {
+        queue_name: String,
+        message: PgmqMessage,
+        resp: CommandResponder<StepProcessResult>,
+    },
+    /// Initialize task from message - delegates full message lifecycle to worker
+    InitializeTaskFromMessage {
+        queue_name: String,
+        message: PgmqMessage,
+        resp: CommandResponder<TaskInitializeResult>,
+    },
+    /// Finalize task from message - delegates full message lifecycle to worker
+    FinalizeTaskFromMessage {
+        queue_name: String,
+        message: PgmqMessage,
+        resp: CommandResponder<TaskFinalizationResult>,
+    },
     /// Process step result from message event - delegates full message lifecycle to worker
     ProcessStepResultFromMessageEvent {
         message_event: MessageReadyEvent,
@@ -80,10 +100,10 @@ pub enum OrchestrationCommand {
         namespace: String,
         priority: i32,
         ready_steps: i32,
-        triggered_by: String,  // "step_transition", "task_start", "fallback_polling"
-        step_uuid: Option<Uuid>,  // Present for step_transition triggers
-        step_state: Option<String>,  // Present for step_transition triggers
-        task_state: Option<String>,  // Present for task_start triggers
+        triggered_by: String, // "step_transition", "task_start", "fallback_polling"
+        step_uuid: Option<Uuid>, // Present for step_transition triggers
+        step_state: Option<String>, // Present for step_transition triggers
+        task_state: Option<String>, // Present for task_start triggers
         resp: CommandResponder<TaskReadinessResult>,
     },
     /// Get orchestration processing statistics
@@ -100,9 +120,10 @@ pub enum OrchestrationCommand {
 
 /// Result types matching existing orchestration patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskInitializeResult {
-    pub task_uuid: Uuid,
-    pub message: String,
+pub enum TaskInitializeResult {
+    Success { task_uuid: Uuid, message: String },
+    Failed { error: String },
+    Skipped { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +165,7 @@ pub struct OrchestrationProcessingStats {
     pub task_requests_processed: u64,
     pub step_results_processed: u64,
     pub tasks_finalized: u64,
-    pub tasks_ready_processed: u64,  // TAS-43: Task readiness events processed
+    pub tasks_ready_processed: u64, // TAS-43: Task readiness events processed
     pub processing_errors: u64,
     pub current_queue_sizes: HashMap<String, i64>,
 }
@@ -162,8 +183,8 @@ use tokio::task::JoinHandle;
 
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
+use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
@@ -219,7 +240,7 @@ impl OrchestrationProcessor {
             task_requests_processed: 0,
             step_results_processed: 0,
             tasks_finalized: 0,
-            tasks_ready_processed: 0,  // TAS-43: Task readiness events processed
+            tasks_ready_processed: 0, // TAS-43: Task readiness events processed
             processing_errors: 0,
             current_queue_sizes: HashMap::new(),
         }));
@@ -278,7 +299,7 @@ pub struct OrchestrationProcessorCommandHandler {
     task_request_processor: Arc<TaskRequestProcessor>,
     result_processor: Arc<OrchestrationResultProcessor>,
     finalization_claimer: Arc<FinalizationClaimer>,
-    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,  // TAS-43: Added for atomic task claiming and step enqueueing
+    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
 }
 
@@ -375,6 +396,51 @@ impl OrchestrationProcessorCommandHandler {
                 }
                 let _ = resp.send(result);
             }
+            OrchestrationCommand::ProcessStepResultFromMessage {
+                queue_name,
+                message,
+                resp,
+            } => {
+                let result = self
+                    .handle_step_result_from_message(&queue_name, message)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().step_results_processed += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::InitializeTaskFromMessage {
+                queue_name,
+                message,
+                resp,
+            } => {
+                let result = self
+                    .handle_task_initialize_from_message(&queue_name, message)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().task_requests_processed += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::FinalizeTaskFromMessage {
+                queue_name,
+                message,
+                resp,
+            } => {
+                let result = self
+                    .handle_task_finalize_from_message(&queue_name, message)
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().tasks_finalized += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
             OrchestrationCommand::ProcessTaskReadiness {
                 task_uuid,
                 namespace,
@@ -447,7 +513,7 @@ impl OrchestrationProcessorCommandHandler {
                 TaskerError::OrchestrationError(format!("Task initialization failed: {e}"))
             })?;
 
-        Ok(TaskInitializeResult {
+        Ok(TaskInitializeResult::Success {
             task_uuid,
             message: format!("Task initialized successfully via TaskRequestProcessor delegation - ready for SQL-based discovery"),
         })
@@ -630,6 +696,69 @@ impl OrchestrationProcessorCommandHandler {
         result
     }
 
+    /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
+    async fn handle_step_result_from_message(
+        &self,
+        queue_name: &str,
+        message: PgmqMessage,
+    ) -> TaskerResult<StepProcessResult> {
+        // Parse as SimpleStepMessage (only task_uuid and step_uuid)
+        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
+                TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
+            })?;
+
+        // Database hydration using tasker-shared WorkflowStep model
+        let workflow_step =
+            WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
+                .await
+                .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
+                .ok_or_else(|| {
+                    TaskerError::ValidationError(format!(
+                        "WorkflowStep not found for step_uuid: {}",
+                        simple_message.step_uuid
+                    ))
+                })?;
+
+        // Deserialize StepExecutionResult from results JSONB column
+        let step_execution_result: StepExecutionResult =
+            serde_json::from_value(workflow_step.results.ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "No results found for step_uuid: {}",
+                    simple_message.step_uuid
+                ))
+            })?)
+            .map_err(|e| {
+                TaskerError::ValidationError(format!(
+                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+                ))
+            })?;
+
+        // Delegate to existing step result processing logic
+        let result = self.handle_process_step_result(step_execution_result).await;
+
+        // Delete the message only if processing was successful
+        if result.is_ok() {
+            match self
+                .pgmq_client
+                .delete_message(queue_name, message.msg_id)
+                .await
+            {
+                Ok(_) => (),
+                Err(e) => {
+                    tracing::warn!(
+                        msg_id = message.msg_id,
+                        queue = %queue_name,
+                        error = %e,
+                        "Failed to delete processed step result message"
+                    );
+                }
+            }
+        }
+
+        result
+    }
+
     /// Handle task initialization from message event - delegates full message lifecycle to worker
     async fn handle_task_initialize_from_message_event(
         &self,
@@ -739,6 +868,77 @@ impl OrchestrationProcessorCommandHandler {
         result
     }
 
+    /// Handle task initialization from message event - delegates full message lifecycle to worker
+    async fn handle_task_initialize_from_message(
+        &self,
+        queue_name: &str,
+        message: PgmqMessage,
+    ) -> TaskerResult<TaskInitializeResult> {
+        tracing::debug!(
+            msg_id = message.msg_id,
+            queue = %queue_name,
+            "Processing task initialization from message event"
+        );
+
+        // Parse the task request message
+        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
+                tracing::error!(
+                    msg_id = message.msg_id,
+                    queue = %queue_name,
+                    error = %e,
+                    message_content = %message.message,
+                    "Failed to parse task request message"
+                );
+                TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
+            })?;
+
+        // Delegate to existing task initialization logic
+        let result = self.handle_initialize_task(task_request).await;
+
+        match &result {
+            Ok(_) => {
+                tracing::debug!(
+                    msg_id = message.msg_id,
+                    queue = %queue_name,
+                    "Task initialization successful, deleting message"
+                );
+                // Delete the message only if processing was successful
+                match self
+                    .pgmq_client
+                    .delete_message(queue_name, message.msg_id)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::debug!(
+                            msg_id = message.msg_id,
+                            queue = %queue_name,
+                            "Successfully deleted processed task request message"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            msg_id = message.msg_id,
+                            queue = %queue_name,
+                            error = %e,
+                            "Failed to delete processed task request message"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    msg_id = message.msg_id,
+                    queue = %queue_name,
+                    error = %e,
+                    "Task initialization failed, keeping message in queue"
+                );
+            }
+        }
+
+        result
+    }
+
     /// Handle task finalization from message event - delegates full message lifecycle to worker
     async fn handle_task_finalize_from_message_event(
         &self,
@@ -823,8 +1023,71 @@ impl OrchestrationProcessorCommandHandler {
         result
     }
 
+    /// Handle task finalization from message event - delegates full message lifecycle to worker
+    async fn handle_task_finalize_from_message(
+        &self,
+        queue_name: &str,
+        message: PgmqMessage,
+    ) -> TaskerResult<TaskFinalizationResult> {
+        // Parse the message to extract task_uuid
+        // For now, assume the message contains a task_uuid field directly
+        let task_uuid = message
+            .message
+            .get("task_uuid")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or_else(|| {
+                TaskerError::ValidationError(
+                    "Invalid or missing task_uuid in finalization message".to_string(),
+                )
+            })?;
+
+        // Delegate to existing task finalization logic
+        let result = self.handle_finalize_task(task_uuid).await;
+
+        // Delete the message only if processing was successful
+        if matches!(result, Ok(TaskFinalizationResult::Success { .. })) {
+            match self
+                .pgmq_client
+                .delete_message(queue_name, message.msg_id)
+                .await
+            {
+                Ok(_) => (),
+                Err(e) => {
+                    tracing::warn!(
+                        msg_id = message.msg_id,
+                        queue = %queue_name,
+                        task_uuid = %task_uuid,
+                        error = %e,
+                        "Failed to delete processed finalization message"
+                    );
+                }
+            }
+        } else {
+            // Get error details from result
+            let error_msg = match &result {
+                Ok(TaskFinalizationResult::NotClaimed { reason, .. }) => {
+                    format!("Not claimed: {}", reason)
+                }
+                Ok(TaskFinalizationResult::Failed { error }) => format!("Failed: {}", error),
+                Err(e) => format!("Error: {}", e),
+                _ => "Unknown finalization result".to_string(),
+            };
+
+            tracing::warn!(
+                msg_id = message.msg_id,
+                queue = %queue_name,
+                task_uuid = %task_uuid,
+                result = %error_msg,
+                "Task finalization was not successful - keeping message in queue"
+            );
+        }
+
+        result
+    }
+
     /// Handle task readiness processing - converts readiness event to ClaimedTask and delegates to step enqueueing
-    /// 
+    ///
     /// This is the core TAS-43 implementation that:
     /// 1. Creates a synthetic ClaimedTask from the task readiness parameters
     /// 2. Delegates to task_claim_step_enqueuer.process_claimed_task() for atomic step enqueueing

@@ -20,13 +20,13 @@ use tracing::{error, info, warn};
 pub enum TestEnvironmentError {
     #[error("Environment validation failed: {0}")]
     ValidationError(String),
-    
+
     #[error("Safety check failed: {0}")]
     SafetyError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Resource error: {0}")]
     ResourceError(String),
 }
@@ -46,7 +46,7 @@ impl WorkerTestEnvironment {
     /// Create and validate test environment
     pub fn new() -> Result<Self, TestEnvironmentError> {
         let mut env_vars = HashMap::new();
-        
+
         // Collect relevant environment variables
         for (key, value) in env::vars() {
             if key.starts_with("TASKER_")
@@ -59,28 +59,28 @@ impl WorkerTestEnvironment {
                 env_vars.insert(key, value);
             }
         }
-        
+
         // Get database URL
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgresql://tasker:tasker@localhost/tasker_rust_test".to_string()
         });
-        
+
         // Check CI environment
         let is_ci = env::var("CI").is_ok() || env::var("GITHUB_ACTIONS").is_ok();
-        
+
         let mut env = Self {
             environment_vars: env_vars,
             database_url: database_url.clone(),
             is_ci,
             is_safe: false,
         };
-        
+
         // Validate safety
         env.is_safe = env.validate_test_safety_internal()?;
-        
+
         Ok(env)
     }
-    
+
     /// Validate test environment safety
     pub fn validate_test_safety(&self) -> Result<(), TestEnvironmentError> {
         if !self.is_safe {
@@ -88,10 +88,10 @@ impl WorkerTestEnvironment {
                 "Test environment is not safe".to_string(),
             ));
         }
-        
+
         Ok(())
     }
-    
+
     /// Internal safety validation
     fn validate_test_safety_internal(&self) -> Result<bool, TestEnvironmentError> {
         // Check 1: Database URL must contain 'test'
@@ -100,14 +100,12 @@ impl WorkerTestEnvironment {
                 "🚨 SAFETY: Database URL does not contain 'test': {}",
                 self.database_url
             );
-            return Err(TestEnvironmentError::SafetyError(
-                format!(
-                    "Database URL must contain 'test' for safety. Found: {}",
-                    self.database_url
-                ),
-            ));
+            return Err(TestEnvironmentError::SafetyError(format!(
+                "Database URL must contain 'test' for safety. Found: {}",
+                self.database_url
+            )));
         }
-        
+
         // Check 2: Database URL must NOT contain production keywords
         let danger_keywords = ["production", "prod", "live", "main", "primary"];
         for keyword in &danger_keywords {
@@ -116,23 +114,24 @@ impl WorkerTestEnvironment {
                     "🚨 SAFETY: Database URL contains dangerous keyword '{}': {}",
                     keyword, self.database_url
                 );
-                return Err(TestEnvironmentError::SafetyError(
-                    format!("Database URL contains dangerous keyword: {}", keyword),
-                ));
+                return Err(TestEnvironmentError::SafetyError(format!(
+                    "Database URL contains dangerous keyword: {}",
+                    keyword
+                )));
             }
         }
-        
+
         // Check 3: Environment must indicate test mode
         let is_test_env = self.get_env("TASKER_ENV") == Some("test".to_string())
             || self.get_env("RAILS_ENV") == Some("test".to_string())
             || self.get_env("APP_ENV") == Some("test".to_string())
             || self.get_env("TEST_ENV").is_some()
             || self.is_ci;
-        
+
         if !is_test_env {
             warn!("⚠️ Environment does not indicate test mode");
             warn!("  Set TASKER_ENV=test or RAILS_ENV=test for safety");
-            
+
             // In CI, this is an error
             if self.is_ci {
                 return Err(TestEnvironmentError::SafetyError(
@@ -140,58 +139,58 @@ impl WorkerTestEnvironment {
                 ));
             }
         }
-        
+
         // Check 4: Validate worker-specific test configuration
         if let Some(worker_env) = self.get_env("WORKER_ENV") {
             if worker_env != "test" {
                 warn!("WORKER_ENV is set but not to 'test': {}", worker_env);
             }
         }
-        
+
         info!("✅ Test environment safety validation passed");
         info!("  Database: {}", self.database_url);
         info!("  CI: {}", self.is_ci);
         info!("  Test mode: {}", is_test_env);
-        
+
         Ok(true)
     }
-    
+
     /// Get environment variable value
     pub fn get_env(&self, key: &str) -> Option<String> {
         self.environment_vars.get(key).cloned()
     }
-    
+
     /// Check if running in CI
     pub fn is_ci(&self) -> bool {
         self.is_ci
     }
-    
+
     /// Get database URL
     pub fn database_url(&self) -> &str {
         &self.database_url
     }
-    
+
     /// Create test-specific environment overrides
     pub fn create_test_overrides(&self) -> HashMap<String, String> {
         let mut overrides = HashMap::new();
-        
+
         // Force test environment
         overrides.insert("TASKER_ENV".to_string(), "test".to_string());
         overrides.insert("WORKER_ENV".to_string(), "test".to_string());
-        
+
         // Disable external integrations in tests
         overrides.insert("DISABLE_EXTERNAL_API".to_string(), "true".to_string());
         overrides.insert("DISABLE_NOTIFICATIONS".to_string(), "true".to_string());
-        
+
         // Use test-specific configuration
         overrides.insert(
             "TASKER_CONFIG_ROOT".to_string(),
             "config/tasker/test".to_string(),
         );
-        
+
         overrides
     }
-    
+
     /// Apply test environment overrides
     pub fn apply_overrides(&self) {
         let overrides = self.create_test_overrides();
@@ -213,12 +212,12 @@ impl TestSafetyValidator {
             environment: WorkerTestEnvironment::new()?,
         })
     }
-    
+
     /// Validate database safety for destructive operations
     pub fn validate_destructive_operations(&self) -> Result<(), TestEnvironmentError> {
         // Extra safety for operations that drop schemas or truncate tables
         self.environment.validate_test_safety()?;
-        
+
         // Additional check: require explicit TEST_ALLOW_DESTRUCTIVE flag
         if !self.environment.is_ci() {
             if self.environment.get_env("TEST_ALLOW_DESTRUCTIVE") != Some("true".to_string()) {
@@ -227,14 +226,14 @@ impl TestSafetyValidator {
                 ));
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate worker test configuration
     pub fn validate_worker_config(&self) -> Result<(), TestEnvironmentError> {
         self.environment.validate_test_safety()?;
-        
+
         // Check for worker-specific test configuration
         let config_root = self.environment.get_env("TASKER_CONFIG_ROOT");
         if let Some(root) = config_root {
@@ -242,10 +241,10 @@ impl TestSafetyValidator {
                 warn!("Config root does not indicate test configuration: {}", root);
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get validated environment
     pub fn environment(&self) -> &WorkerTestEnvironment {
         &self.environment
@@ -261,17 +260,19 @@ impl TestEnvironmentSetup {
         let env = WorkerTestEnvironment::new()?;
         env.validate_test_safety()?;
         env.apply_overrides();
-        
+
         info!("🧪 Test environment setup complete");
-        
+
         Ok(env)
     }
-    
+
     /// Setup with custom database URL
-    pub async fn setup_with_database(database_url: &str) -> Result<WorkerTestEnvironment, TestEnvironmentError> {
+    pub async fn setup_with_database(
+        database_url: &str,
+    ) -> Result<WorkerTestEnvironment, TestEnvironmentError> {
         // Override DATABASE_URL
         env::set_var("DATABASE_URL", database_url);
-        
+
         Self::setup().await
     }
 }
@@ -279,45 +280,45 @@ impl TestEnvironmentSetup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_safe_database_url_validation() {
         env::set_var("DATABASE_URL", "postgresql://localhost/test_db");
         env::set_var("TASKER_ENV", "test");
-        
+
         let result = WorkerTestEnvironment::new();
         assert!(result.is_ok());
-        
+
         let env = result.unwrap();
         assert!(env.is_safe);
     }
-    
+
     #[test]
     fn test_unsafe_database_url_rejection() {
         env::set_var("DATABASE_URL", "postgresql://localhost/production_db");
-        
+
         let result = WorkerTestEnvironment::new();
         assert!(result.is_err());
-        
+
         if let Err(e) = result {
             assert!(matches!(e, TestEnvironmentError::SafetyError(_)));
         }
     }
-    
+
     #[test]
     fn test_danger_keyword_detection() {
         env::set_var("DATABASE_URL", "postgresql://localhost/test_prod_replica");
-        
+
         let result = WorkerTestEnvironment::new();
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_environment_overrides() {
         let env = WorkerTestEnvironment::new();
         if let Ok(env) = env {
             let overrides = env.create_test_overrides();
-            
+
             assert_eq!(overrides.get("TASKER_ENV"), Some(&"test".to_string()));
             assert_eq!(overrides.get("WORKER_ENV"), Some(&"test".to_string()));
             assert_eq!(

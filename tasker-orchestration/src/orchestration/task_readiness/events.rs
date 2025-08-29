@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Config-driven task readiness event classification (similar to ConfigDrivenMessageEvent)
-/// 
+///
 /// Uses exhaustive enum matching with config-driven classification to avoid hardcoded
 /// string matching patterns, following the same approach as ConfigDrivenMessageEvent::classify
 #[derive(Debug, Clone)]
@@ -24,7 +24,7 @@ pub enum TaskReadinessEvent {
 }
 
 /// Task ready event from database triggers
-/// 
+///
 /// Represents a task that has become ready for step processing due to step transitions
 /// or task state changes. This is the primary event type for event-driven coordination.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,7 +143,7 @@ impl NamespaceCreatedEvent {
 }
 
 /// Config-driven classifier for task readiness events
-/// 
+///
 /// Similar to tasker_shared::config::QueueClassifier but for pg_notify channels.
 /// Uses configuration-driven classification to avoid hardcoded string matching,
 /// following the same patterns as ConfigDrivenMessageEvent::classify.
@@ -154,7 +154,7 @@ pub struct ReadinessEventClassifier {
 }
 
 /// Configuration for task readiness notification channels
-/// 
+///
 /// Provides configurable channel names and patterns for PostgreSQL LISTEN/NOTIFY
 /// events, enabling environment-specific customization while maintaining type safety.
 #[derive(Debug, Clone)]
@@ -195,7 +195,7 @@ impl ReadinessEventClassifier {
     }
 
     /// Classify PostgreSQL notification into typed event
-    /// 
+    ///
     /// Similar to ConfigDrivenMessageEvent::classify pattern from event_driven_coordinator.rs,
     /// this method uses exhaustive enum matching based on configuration rather than
     /// hardcoded string matching. This provides type safety and configuration flexibility.
@@ -210,8 +210,8 @@ impl ReadinessEventClassifier {
                         payload: payload.to_string(),
                     },
                 }
-            },
-            
+            }
+
             // Global task state change channel
             ch if ch == self.config.task_state_change_channel => {
                 match TaskStateChangeEvent::from_pg_notify_payload(payload) {
@@ -221,8 +221,8 @@ impl ReadinessEventClassifier {
                         payload: payload.to_string(),
                     },
                 }
-            },
-            
+            }
+
             // Namespace creation channel
             ch if ch == self.config.namespace_created_channel => {
                 match NamespaceCreatedEvent::from_pg_notify_payload(payload) {
@@ -232,8 +232,8 @@ impl ReadinessEventClassifier {
                         payload: payload.to_string(),
                     },
                 }
-            },
-            
+            }
+
             // Namespace-specific task ready channels (task_ready.namespace_name)
             ch if self.is_namespace_task_ready_channel(ch) => {
                 match TaskReadyEvent::from_pg_notify_payload(payload) {
@@ -243,8 +243,8 @@ impl ReadinessEventClassifier {
                         payload: payload.to_string(),
                     },
                 }
-            },
-            
+            }
+
             // Namespace-specific state change channels (task_state_change.namespace_name)
             ch if self.is_namespace_state_change_channel(ch) => {
                 match TaskStateChangeEvent::from_pg_notify_payload(payload) {
@@ -254,8 +254,8 @@ impl ReadinessEventClassifier {
                         payload: payload.to_string(),
                     },
                 }
-            },
-            
+            }
+
             // Unknown channel - log for monitoring but don't crash
             _ => TaskReadinessEvent::Unknown {
                 channel: channel.to_string(),
@@ -265,21 +265,21 @@ impl ReadinessEventClassifier {
     }
 
     /// Check if channel matches namespace-specific task ready pattern
-    /// 
+    ///
     /// Pattern matching for channels like "task_ready.fulfillment", "task_ready.inventory", etc.
     fn is_namespace_task_ready_channel(&self, channel: &str) -> bool {
         channel.starts_with("task_ready.") && channel.len() > "task_ready.".len()
     }
 
     /// Check if channel matches namespace-specific state change pattern  
-    /// 
+    ///
     /// Pattern matching for channels like "task_state_change.fulfillment", etc.
     fn is_namespace_state_change_channel(&self, channel: &str) -> bool {
         channel.starts_with("task_state_change.") && channel.len() > "task_state_change.".len()
     }
 
     /// Extract namespace from namespace-specific channel
-    /// 
+    ///
     /// Returns the namespace portion from channels like "task_ready.namespace_name"
     pub fn extract_namespace_from_channel(&self, channel: &str) -> Option<String> {
         if self.is_namespace_task_ready_channel(channel) {
@@ -292,7 +292,7 @@ impl ReadinessEventClassifier {
     }
 
     /// Get all channel names to listen to for a namespace
-    /// 
+    ///
     /// Returns the channels that should be listened to for comprehensive
     /// event coverage for a specific namespace
     pub fn get_namespace_channels(&self, namespace: &str) -> Vec<String> {
@@ -303,7 +303,7 @@ impl ReadinessEventClassifier {
     }
 
     /// Get all global channel names to listen to
-    /// 
+    ///
     /// Returns the global channels that provide events across all namespaces
     pub fn get_global_channels(&self) -> Vec<String> {
         vec![
@@ -356,7 +356,7 @@ mod tests {
 
         // Test global task ready channel classification
         let task_ready_payload = r#"{"task_uuid":"123e4567-e89b-12d3-a456-426614174000","namespace":"test","priority":1,"ready_steps":2,"triggered_by":"step_transition"}"#;
-        
+
         let event = classifier.classify("task_ready", task_ready_payload);
         match event {
             TaskReadinessEvent::TaskReady(task_event) => {
@@ -366,7 +366,7 @@ mod tests {
             _ => panic!("Expected TaskReady event"),
         }
 
-        // Test namespace-specific channel classification  
+        // Test namespace-specific channel classification
         let namespace_event = classifier.classify("task_ready.fulfillment", task_ready_payload);
         match namespace_event {
             TaskReadinessEvent::TaskReady(task_event) => {
@@ -469,7 +469,8 @@ mod tests {
 
         // Test serialization
         let json = serde_json::to_string(&event).expect("Should serialize");
-        let parsed: NamespaceCreatedEvent = serde_json::from_str(&json).expect("Should deserialize");
+        let parsed: NamespaceCreatedEvent =
+            serde_json::from_str(&json).expect("Should deserialize");
         assert_eq!(parsed.namespace_name, event.namespace_name);
         assert_eq!(parsed.triggered_by, event.triggered_by);
     }
@@ -486,13 +487,13 @@ mod tests {
         for trigger in triggers {
             let json = serde_json::to_string(&trigger).expect("Should serialize");
             let parsed: ReadinessTrigger = serde_json::from_str(&json).expect("Should deserialize");
-            
+
             // Match on both to ensure they're the same variant
             match (trigger, parsed) {
-                (ReadinessTrigger::StepTransition, ReadinessTrigger::StepTransition) => {},
-                (ReadinessTrigger::TaskStart, ReadinessTrigger::TaskStart) => {},
-                (ReadinessTrigger::FallbackPolling, ReadinessTrigger::FallbackPolling) => {},
-                (ReadinessTrigger::Manual, ReadinessTrigger::Manual) => {},
+                (ReadinessTrigger::StepTransition, ReadinessTrigger::StepTransition) => {}
+                (ReadinessTrigger::TaskStart, ReadinessTrigger::TaskStart) => {}
+                (ReadinessTrigger::FallbackPolling, ReadinessTrigger::FallbackPolling) => {}
+                (ReadinessTrigger::Manual, ReadinessTrigger::Manual) => {}
                 _ => panic!("Serialization/deserialization mismatch"),
             }
         }

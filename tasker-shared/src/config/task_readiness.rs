@@ -40,10 +40,10 @@ pub struct TaskReadinessConfig {
 pub enum DeploymentMode {
     /// Use only traditional polling-based orchestration
     PollingOnly,
-    
+
     /// Use hybrid approach: event-driven with polling fallback (recommended)
     Hybrid,
-    
+
     /// Use only event-driven orchestration
     EventDrivenOnly,
 }
@@ -406,8 +406,16 @@ impl TaskReadinessConfig {
     /// Generate namespace-specific channel name
     pub fn namespace_channel(&self, base_channel: &str, namespace: &str) -> String {
         match base_channel {
-            "task_ready" => self.notification.namespace_patterns.task_ready.replace("{namespace}", namespace),
-            "task_state_change" => self.notification.namespace_patterns.task_state_change.replace("{namespace}", namespace),
+            "task_ready" => self
+                .notification
+                .namespace_patterns
+                .task_ready
+                .replace("{namespace}", namespace),
+            "task_state_change" => self
+                .notification
+                .namespace_patterns
+                .task_state_change
+                .replace("{namespace}", namespace),
             _ => format!("{}.{}", base_channel, namespace),
         }
     }
@@ -435,7 +443,9 @@ impl TaskReadinessConfig {
 
         // Validate timeout values
         if self.enhanced_settings.startup_timeout_seconds == 0 {
-            return Err("enhanced_settings.startup_timeout_seconds must be greater than 0".to_string());
+            return Err(
+                "enhanced_settings.startup_timeout_seconds must be greater than 0".to_string(),
+            );
         }
 
         if self.coordinator.operation_timeout_ms == 0 {
@@ -443,17 +453,29 @@ impl TaskReadinessConfig {
         }
 
         // Validate percentages
-        if self.enhanced_settings.rollback_threshold_percent < 0.0 || self.enhanced_settings.rollback_threshold_percent > 100.0 {
-            return Err("enhanced_settings.rollback_threshold_percent must be between 0.0 and 100.0".to_string());
+        if self.enhanced_settings.rollback_threshold_percent < 0.0
+            || self.enhanced_settings.rollback_threshold_percent > 100.0
+        {
+            return Err(
+                "enhanced_settings.rollback_threshold_percent must be between 0.0 and 100.0"
+                    .to_string(),
+            );
         }
 
-        if self.event_channel.backoff.jitter_percent < 0.0 || self.event_channel.backoff.jitter_percent > 1.0 {
-            return Err("event_channel.backoff.jitter_percent must be between 0.0 and 1.0".to_string());
+        if self.event_channel.backoff.jitter_percent < 0.0
+            || self.event_channel.backoff.jitter_percent > 1.0
+        {
+            return Err(
+                "event_channel.backoff.jitter_percent must be between 0.0 and 1.0".to_string(),
+            );
         }
 
         // Validate backoff configuration
         if self.event_channel.backoff.initial_delay_ms > self.event_channel.backoff.max_delay_ms {
-            return Err("event_channel.backoff.initial_delay_ms cannot be greater than max_delay_ms".to_string());
+            return Err(
+                "event_channel.backoff.initial_delay_ms cannot be greater than max_delay_ms"
+                    .to_string(),
+            );
         }
 
         if self.event_channel.backoff.multiplier <= 1.0 {
@@ -462,7 +484,10 @@ impl TaskReadinessConfig {
 
         // Validate age thresholds
         if self.fallback_polling.age_threshold_seconds > self.fallback_polling.max_age_seconds {
-            return Err("fallback_polling.age_threshold_seconds cannot be greater than max_age_seconds".to_string());
+            return Err(
+                "fallback_polling.age_threshold_seconds cannot be greater than max_age_seconds"
+                    .to_string(),
+            );
         }
 
         Ok(())
@@ -476,7 +501,7 @@ mod tests {
     #[test]
     fn test_default_configuration() {
         let config = TaskReadinessConfig::default();
-        
+
         assert!(config.enabled);
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
         assert!(config.enhanced_settings.metrics_enabled);
@@ -488,7 +513,7 @@ mod tests {
     #[test]
     fn test_duration_conversions() {
         let config = TaskReadinessConfig::default();
-        
+
         assert_eq!(config.startup_timeout(), Duration::from_secs(30));
         assert_eq!(config.polling_interval(), Duration::from_millis(2000));
         assert_eq!(config.age_threshold(), Duration::from_secs(5));
@@ -497,23 +522,29 @@ mod tests {
     #[test]
     fn test_namespace_channel_generation() {
         let config = TaskReadinessConfig::default();
-        
-        assert_eq!(config.namespace_channel("task_ready", "fulfillment"), "task_ready.fulfillment");
-        assert_eq!(config.namespace_channel("task_state_change", "inventory"), "task_state_change.inventory");
+
+        assert_eq!(
+            config.namespace_channel("task_ready", "fulfillment"),
+            "task_ready.fulfillment"
+        );
+        assert_eq!(
+            config.namespace_channel("task_state_change", "inventory"),
+            "task_state_change.inventory"
+        );
     }
 
     #[test]
     fn test_deployment_mode_flags() {
         let mut config = TaskReadinessConfig::default();
-        
+
         config.deployment_mode = DeploymentMode::Hybrid;
         assert!(config.is_event_driven_enabled());
         assert!(config.is_fallback_polling_enabled());
-        
+
         config.deployment_mode = DeploymentMode::PollingOnly;
         assert!(!config.is_event_driven_enabled());
         assert!(!config.is_fallback_polling_enabled());
-        
+
         config.deployment_mode = DeploymentMode::EventDrivenOnly;
         assert!(config.is_event_driven_enabled());
         assert!(!config.is_fallback_polling_enabled());
@@ -522,22 +553,22 @@ mod tests {
     #[test]
     fn test_configuration_validation() {
         let mut config = TaskReadinessConfig::default();
-        
+
         // Valid configuration should pass
         assert!(config.validate().is_ok());
-        
+
         // Invalid buffer size
         config.event_channel.buffer_size = 0;
         assert!(config.validate().is_err());
         config.event_channel.buffer_size = 1000;
-        
+
         // Invalid rollback threshold
         config.enhanced_settings.rollback_threshold_percent = -1.0;
         assert!(config.validate().is_err());
         config.enhanced_settings.rollback_threshold_percent = 101.0;
         assert!(config.validate().is_err());
         config.enhanced_settings.rollback_threshold_percent = 5.0;
-        
+
         // Invalid backoff configuration
         config.event_channel.backoff.initial_delay_ms = 5000;
         config.event_channel.backoff.max_delay_ms = 1000;
@@ -547,16 +578,19 @@ mod tests {
     #[test]
     fn test_serde_serialization() {
         let config = TaskReadinessConfig::default();
-        
+
         // Test serialization
         let serialized = toml::to_string(&config).expect("Failed to serialize config");
         assert!(!serialized.is_empty());
-        
+
         // Test deserialization
-        let deserialized: TaskReadinessConfig = toml::from_str(&serialized)
-            .expect("Failed to deserialize config");
-        
+        let deserialized: TaskReadinessConfig =
+            toml::from_str(&serialized).expect("Failed to deserialize config");
+
         assert_eq!(config.deployment_mode, deserialized.deployment_mode);
-        assert_eq!(config.enhanced_settings.metrics_enabled, deserialized.enhanced_settings.metrics_enabled);
+        assert_eq!(
+            config.enhanced_settings.metrics_enabled,
+            deserialized.enhanced_settings.metrics_enabled
+        );
     }
 }

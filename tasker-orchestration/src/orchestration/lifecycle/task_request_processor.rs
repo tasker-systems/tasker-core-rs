@@ -241,11 +241,13 @@ impl TaskRequestProcessor {
             }
             Err(e) => Err(TaskerError::ValidationError(format!(
                 "Task validation failed for {}/{}/{}: {}",
-                request.task_request.namespace, request.task_request.name, request.task_request.version, e
+                request.task_request.namespace,
+                request.task_request.name,
+                request.task_request.version,
+                e
             ))),
         }
     }
-
 
     /// Process a task request directly using TaskInitializer (bypassing message queues)
     /// This is the preferred method for direct task creation with proper initialization
@@ -320,14 +322,14 @@ mod tests {
     #[test]
     fn test_task_request_message_parsing() {
         use tasker_shared::models::core::task_request::TaskRequest;
-        
+
         let task_request = TaskRequest::new("process_order".to_string(), "fulfillment".to_string())
             .with_version("1.0.0".to_string())
             .with_context(json!({"order_id": 12345}))
             .with_initiator("api_gateway".to_string())
             .with_source_system("test".to_string())
             .with_reason("Test parsing".to_string());
-            
+
         let request = TaskRequestMessage::new(task_request, "api_gateway".to_string());
 
         let serialized = serde_json::to_value(&request).unwrap();

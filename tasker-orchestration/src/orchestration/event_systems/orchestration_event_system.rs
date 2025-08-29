@@ -548,6 +548,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
         match event {
             OrchestrationQueueEvent::StepResult(message_ready_event) => {
+                let msg_id = message_ready_event.msg_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::ProcessStepResultFromMessageEvent {
@@ -559,7 +560,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 if let Err(e) = self.command_sender.send(command).await {
                     error!(
                         system_id = %self.system_id,
-                        step_uuid = %message_ready_event.step_uuid,
+                        msg_id = %msg_id,
                         error = %e,
                         "Failed to send ProcessStepResult command"
                     );
@@ -578,8 +579,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::StepProcessResult::Success { message } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     message = %message,
                                     "ProcessStepResultFromMessageEvent command completed successfully"
                                 );
@@ -590,8 +590,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::StepProcessResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     error = %error,
                                     "ProcessStepResultFromMessageEvent command failed"
                                 );
@@ -603,8 +602,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::StepProcessResult::Skipped { reason } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     reason = %reason,
                                     "ProcessStepResultFromMessageEvent command skipped"
                                 );
@@ -616,7 +614,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Ok(Err(e)) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "ProcessStepResultFromMessageEvent command failed"
                         );
@@ -630,7 +628,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Err(e) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "Failed to receive ProcessStepResultFromMessageEvent command response"
                         );
@@ -645,6 +643,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             }
 
             OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
+                let msg_id = message_ready_event.msg_id.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::InitializeTaskFromMessageEvent {
@@ -656,7 +655,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 if let Err(e) = self.command_sender.send(command).await {
                     error!(
                         system_id = %self.system_id,
-                        step_uuid = %message_ready_event.step_uuid,
+                        msg_id = %msg_id,
                         error = %e,
                         "Failed to send InitializeTaskFromMessageEvent command"
                     );
@@ -672,11 +671,11 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 match command_rx.await {
                     Ok(Ok(result)) => {
                         match result {
-                            crate::orchestration::command_processor::TaskInitializeResult::Success { message } => {
+                            crate::orchestration::command_processor::TaskInitializeResult::Success { task_uuid, message } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
+                                    task_uuid = %task_uuid,
                                     message = %message,
                                     "InitializeTaskFromMessageEvent command completed successfully"
                                 );
@@ -687,8 +686,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::TaskInitializeResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     error = %error,
                                     "InitializeTaskFromMessageEvent command failed"
                                 );
@@ -700,8 +698,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::TaskInitializeResult::Skipped { reason } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     reason = %reason,
                                     "InitializeTaskFromMessageEvent command skipped"
                                 );
@@ -713,7 +710,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Ok(Err(e)) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "InitializeTaskFromMessageEvent command failed"
                         );
@@ -727,7 +724,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Err(e) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "Failed to receive InitializeTaskFromMessageEvent command response"
                         );
@@ -742,6 +739,8 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             }
 
             OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
+                let msg_id = message_ready_event.msg_id.clone();
+                let namespace = message_ready_event.namespace.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::FinalizeTaskFromMessageEvent {
@@ -753,7 +752,8 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 if let Err(e) = self.command_sender.send(command).await {
                     error!(
                         system_id = %self.system_id,
-                        step_uuid = %message_ready_event.step_uuid,
+                        msg_id = %msg_id,
+                        namespace = %namespace,
                         error = %e,
                         "Failed to send FinalizeTaskFromMessageEvent command"
                     );
@@ -772,11 +772,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::TaskFinalizationResult::Success { task_uuid, final_status, completion_time } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     task_uuid_completed = %task_uuid,
                                     final_status = %final_status,
-                                    completion_time = %completion_time,
                                     "FinalizeTaskFromMessageEvent command completed successfully"
                                 );
 
@@ -786,8 +784,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                             crate::orchestration::command_processor::TaskFinalizationResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     error = %error,
                                     "FinalizeTaskFromMessageEvent command failed"
                                 );
@@ -796,13 +793,13 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     message: format!("Task Finalization failed: {}", error)
                                 });
                             },
-                            crate::orchestration::command_processor::TaskFinalizationResult::Skipped { reason } => {
+                            crate::orchestration::command_processor::TaskFinalizationResult::NotClaimed { reason, already_claimed_by } => {
                                 debug!(
                                     system_id = %self.system_id,
-                                    step_uuid = %message_ready_event.step_uuid,
-                                    task_uuid = %message_ready_event.task_uuid,
+                                    msg_id = %msg_id,
                                     reason = %reason,
-                                    "FinalizeTaskFromMessageEvent command skipped"
+                                    already_claimed_by = %already_claimed_by.unwrap_or(String::from("Unknown")),
+                                    "FinalizeTaskFromMessageEvent command not claimed"
                                 );
                                 // Still count as successful operation
                                 self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
@@ -812,7 +809,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Ok(Err(e)) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "InitializeTaskFromMessageEvent command failed"
                         );
@@ -826,7 +823,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                     Err(e) => {
                         error!(
                             system_id = %self.system_id,
-                            step_uuid = %message_ready_event.step_uuid,
+                            msg_id = %msg_id,
                             error = %e,
                             "Failed to receive InitializeTaskFromMessageEvent command response"
                         );
@@ -997,148 +994,124 @@ impl OrchestrationEventSystem {
         statistics: &Arc<OrchestrationStatistics>,
     ) {
         match notification {
-            OrchestrationNotification::Event(event) => {
-                match event {
-                    OrchestrationQueueEvent::StepResult(step_result_event) => {
-                        debug!(
-                            task_uuid = %step_result_event.task_uuid,
-                            step_uuid = %step_result_event.step_uuid,
-                            namespace = %step_result_event.namespace,
-                            execution_result = %step_result_event.execution_result,
-                            "Processing step result event from orchestration queue"
-                        );
+            OrchestrationNotification::Event(event) => match event {
+                OrchestrationQueueEvent::StepResult(message_ready_event) => {
+                    let msg_id = message_ready_event.msg_id.clone();
+                    let namespace = message_ready_event.namespace.clone();
 
-                        // Create StepExecutionResult from the event
-                        let step_execution_result = StepExecutionResult {
-                            step_uuid: step_result_event.step_uuid,
-                            success: step_result_event.execution_result == "completed"
-                                || step_result_event.execution_result == "success",
-                            result: step_result_event
-                                .result_payload
-                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
-                            metadata: StepExecutionMetadata {
-                                execution_time_ms: 0,
-                                handler_version: None,
-                                retryable: true,
-                                completed_at: step_result_event
-                                    .completed_at
-                                    .as_ref()
-                                    .and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok())
-                                    .unwrap_or_else(chrono::Utc::now),
-                                worker_id: None,
-                                worker_hostname: None,
-                                started_at: None,
-                                custom: HashMap::new(),
-                                error_code: None,
-                                error_type: None,
-                                context: HashMap::new(),
-                            },
-                            status: step_result_event.execution_result.clone(),
-                            error: None,
-                            orchestration_metadata: None,
-                        };
+                    debug!(
+                        msg_id = %msg_id,
+                        namespace = %namespace,
+                        "Processing step result event from orchestration queue"
+                    );
 
-                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
 
-                        match command_sender
-                            .send(OrchestrationCommand::ProcessStepResult {
-                                result: step_execution_result,
-                                resp: resp_tx,
-                            })
-                            .await
-                        {
-                            Ok(_) => {
-                                statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    task_uuid = %step_result_event.task_uuid,
-                                    step_uuid = %step_result_event.step_uuid,
-                                    error = %e,
-                                    "Failed to send ProcessStepResult command"
-                                );
-                                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                            }
+                    match command_sender
+                        .send(OrchestrationCommand::ProcessStepResultFromMessageEvent {
+                            message_event: message_ready_event,
+                            resp: resp_tx,
+                        })
+                        .await
+                    {
+                        Ok(_) => {
+                            statistics
+                                .operations_coordinated
+                                .fetch_add(1, Ordering::Relaxed);
                         }
-                    }
-
-                    OrchestrationQueueEvent::TaskRequest(task_request_event) => {
-                        debug!(
-                            task_uuid = %task_request_event.task_uuid,
-                            namespace = %task_request_event.namespace,
-                            task_name = %task_request_event.task_name,
-                            task_version = %task_request_event.task_version,
-                            priority = %task_request_event.priority,
-                            "Processing task request event from orchestration queue"
-                        );
-
-                        // Create message event for task request processing
-                        let message_event = pgmq_notify::MessageReadyEvent {
-                            msg_id: 0, // Will be filled by actual message processing
-                            queue_name: format!("orchestration_task_requests"),
-                            namespace: task_request_event.namespace.clone(),
-                            ready_at: chrono::Utc::now(),
-                            metadata: std::collections::HashMap::new(),
-                            visibility_timeout_seconds: Some(30),
-                        };
-
-                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-
-                        match command_sender
-                            .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
-                                message_event,
-                                resp: resp_tx,
-                            })
-                            .await
-                        {
-                            Ok(_) => {
-                                statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    task_uuid = %task_request_event.task_uuid,
-                                    namespace = %task_request_event.namespace,
-                                    error = %e,
-                                    "Failed to send InitializeTaskFromMessageEvent command"
-                                );
-                                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                            }
+                        Err(e) => {
+                            warn!(
+                                msg_id = %msg_id,
+                                error = %e,
+                                "Failed to send ProcessStepResult command"
+                            );
+                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
                         }
-                    }
-
-                    OrchestrationQueueEvent::TaskFinalization(queue_mgmt_event) => {
-                        // Handle queue management events (creation, deletion, etc.)
-                        debug!(
-                            queue = %queue_mgmt_event.queue_name,
-                            operation = %queue_mgmt_event.operation,
-                            namespace = ?queue_mgmt_event.namespace,
-                            timestamp = ?queue_mgmt_event.timestamp,
-                            "Received queue management event"
-                        );
-
-                        // For now, just track as an operation coordinated
-                        statistics
-                            .operations_coordinated
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-
-                    OrchestrationQueueEvent::Unknown {
-                        queue_name,
-                        payload,
-                    } => {
-                        warn!(
-                            queue = %queue_name,
-                            payload = %payload,
-                            "Received unknown orchestration queue event"
-                        );
-                        statistics.events_failed.fetch_add(1, Ordering::Relaxed);
                     }
                 }
-            }
+
+                OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
+                    let msg_id = message_ready_event.msg_id.clone();
+                    let namespace = message_ready_event.namespace.clone();
+                    debug!(
+                        msg_id = %msg_id,
+                        namespace = %namespace,
+                        "Processing task request event from orchestration queue"
+                    );
+
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+
+                    match command_sender
+                        .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
+                            message_event: message_ready_event,
+                            resp: resp_tx,
+                        })
+                        .await
+                    {
+                        Ok(_) => {
+                            statistics
+                                .operations_coordinated
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            warn!(
+                                msg_id = %msg_id,
+                                namespace = %namespace,
+                                error = %e,
+                                "Failed to send InitializeTaskFromMessageEvent command"
+                            );
+                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+
+                OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
+                    let msg_id = message_ready_event.msg_id.clone();
+                    let namespace = message_ready_event.namespace.clone();
+                    debug!(
+                        msg_id = %msg_id,
+                        namespace = %namespace,
+                        "Processing task request event from orchestration queue"
+                    );
+
+                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+
+                    match command_sender
+                        .send(OrchestrationCommand::FinalizeTaskFromMessageEvent {
+                            message_event: message_ready_event,
+                            resp: resp_tx,
+                        })
+                        .await
+                    {
+                        Ok(_) => {
+                            statistics
+                                .operations_coordinated
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            warn!(
+                                msg_id = %msg_id,
+                                namespace = %namespace,
+                                error = %e,
+                                "Failed to send FinalizeTaskFromMessageEvent command"
+                            );
+                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+
+                OrchestrationQueueEvent::Unknown {
+                    queue_name,
+                    payload,
+                } => {
+                    warn!(
+                        queue = %queue_name,
+                        payload = %payload,
+                        "Received unknown orchestration queue event"
+                    );
+                    statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                }
+            },
 
             OrchestrationNotification::ConnectionError(error_msg) => {
                 error!(

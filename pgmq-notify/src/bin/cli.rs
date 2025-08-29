@@ -1,14 +1,14 @@
 //! CLI tool for generating PGMQ notification migration files
 //!
-//! This tool generates SQL migration files with customizable PGMQ notification 
+//! This tool generates SQL migration files with customizable PGMQ notification
 //! triggers based on configuration parameters.
 
+use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use pgmq_notify::PgmqNotifyConfig;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use chrono::Utc;
 
 #[derive(Parser)]
 #[command(name = "pgmq-notify-cli")]
@@ -32,23 +32,23 @@ struct GenerateMigrationArgs {
     /// Output directory for migration file
     #[arg(short, long, default_value = "migrations")]
     output_dir: PathBuf,
-    
+
     /// Configuration file path (optional)
     #[arg(short, long)]
     config: Option<PathBuf>,
-    
+
     /// Queue naming pattern regex
     #[arg(long, default_value = r"(?P<namespace>\w+)_queue")]
     queue_pattern: String,
-    
+
     /// Channel prefix for notifications
     #[arg(long)]
     channel_prefix: Option<String>,
-    
+
     /// Migration name
     #[arg(short, long, default_value = "add_pgmq_notifications")]
     name: String,
-    
+
     /// Include rollback (DOWN migration)
     #[arg(long, default_value_t = true)]
     include_rollback: bool,
@@ -147,13 +147,13 @@ fn generate_migration(args: GenerateMigrationArgs) -> Result<(), Box<dyn std::er
 fn validate_config(args: ValidateConfigArgs) -> Result<(), Box<dyn std::error::Error>> {
     let config_content = fs::read_to_string(args.config)?;
     let cli_config: CliConfig = toml::from_str(&config_content)?;
-    
+
     // Convert to PgmqNotifyConfig for validation
     let mut pgmq_config = PgmqNotifyConfig::new()
         .with_queue_naming_pattern(&cli_config.queue_naming_pattern)
         .with_max_payload_size(cli_config.max_payload_size)
         .with_metadata_included(cli_config.include_metadata);
-    
+
     if let Some(ref prefix) = cli_config.channels_prefix {
         pgmq_config = pgmq_config.with_channels_prefix(prefix.clone());
     }
@@ -176,25 +176,30 @@ fn validate_config(args: ValidateConfigArgs) -> Result<(), Box<dyn std::error::E
 
 fn generate_migration_sql(config: &CliConfig) -> Result<String, Box<dyn std::error::Error>> {
     // Convert regex pattern for PostgreSQL
-    let pg_pattern = config.queue_naming_pattern
+    let pg_pattern = config
+        .queue_naming_pattern
         .replace("(?P<namespace>", "(")
         .replace(")", ")");
-    
+
     // Build channel names
     let queue_created_channel = match &config.channels_prefix {
         Some(prefix) => format!("{}.pgmq_queue_created", prefix),
         None => "pgmq_queue_created".to_string(),
     };
-    
+
     let message_ready_channel_template = match &config.channels_prefix {
         Some(prefix) => format!("{}.pgmq_message_ready", prefix),
         None => "pgmq_message_ready".to_string(),
     };
-    
-    let global_message_ready_channel = message_ready_channel_template.clone();
-    let namespace_message_ready_channel = format!("{}.' || namespace_name || '", message_ready_channel_template);
 
-    let migration_sql = format!(r#"-- Migration: Add PGMQ Notification Triggers
+    let global_message_ready_channel = message_ready_channel_template.clone();
+    let namespace_message_ready_channel = format!(
+        "{}.' || namespace_name || '",
+        message_ready_channel_template
+    );
+
+    let migration_sql = format!(
+        r#"-- Migration: Add PGMQ Notification Triggers
 -- Generated at: {}
 -- Configuration:
 --   Queue pattern: {}
@@ -404,7 +409,7 @@ mod tests {
     fn test_migration_sql_generation() {
         let config = CliConfig::default();
         let sql = generate_migration_sql(&config).unwrap();
-        
+
         assert!(sql.contains("CREATE OR REPLACE FUNCTION pgmq_notify_queue_created()"));
         assert!(sql.contains("CREATE OR REPLACE FUNCTION pgmq_notify_message_ready()"));
         assert!(sql.contains("pgmq_queue_created"));
@@ -417,7 +422,7 @@ mod tests {
             channels_prefix: Some("app1".to_string()),
             ..Default::default()
         };
-        
+
         let sql = generate_migration_sql(&config).unwrap();
         assert!(sql.contains("app1.pgmq_queue_created"));
         assert!(sql.contains("app1.pgmq_message_ready"));

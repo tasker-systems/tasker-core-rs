@@ -31,13 +31,13 @@ use crate::deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealt
 pub trait EventDrivenSystem: Send + Sync {
     /// Unique identifier for this event system instance
     type SystemId: Send + Sync + Clone + fmt::Display + fmt::Debug;
-    
+
     /// Event type that this system processes
     type Event: Send + Sync + Clone + fmt::Debug;
-    
+
     /// Configuration type for this event system
     type Config: Send + Sync + Clone;
-    
+
     /// Statistics type for monitoring this system
     type Statistics: EventSystemStatistics + Send + Sync + Clone;
 
@@ -91,24 +91,28 @@ pub trait EventDrivenSystem: Send + Sync {
 pub trait EventSystemStatistics: fmt::Debug + Clone {
     /// Total events processed successfully
     fn events_processed(&self) -> u64;
-    
+
     /// Total events that failed processing
     fn events_failed(&self) -> u64;
-    
+
     /// Current event processing rate (events/second)
     fn processing_rate(&self) -> f64;
-    
+
     /// Average event processing latency in milliseconds
     fn average_latency_ms(&self) -> f64;
-    
+
     /// Current deployment mode effectiveness score (0.0-1.0)
     /// Higher scores indicate better performance/reliability for the current deployment mode
     fn deployment_mode_score(&self) -> f64;
-    
+
     /// Get success rate (0.0-1.0)
     fn success_rate(&self) -> f64 {
         let total = self.events_processed() + self.events_failed();
-        if total == 0 { 1.0 } else { self.events_processed() as f64 / total as f64 }
+        if total == 0 {
+            1.0
+        } else {
+            self.events_processed() as f64 / total as f64
+        }
     }
 }
 
@@ -146,42 +150,40 @@ impl Default for EventSystemBaseConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EventSystemNotification {
     /// System started successfully
-    Started { 
-        system_id: String, 
-        deployment_mode: DeploymentMode 
+    Started {
+        system_id: String,
+        deployment_mode: DeploymentMode,
     },
     /// System stopped gracefully
-    Stopped { 
-        system_id: String 
-    },
+    Stopped { system_id: String },
     /// Event processed successfully
-    EventProcessed { 
-        system_id: String, 
-        event_type: String, 
-        latency_ms: u64 
+    EventProcessed {
+        system_id: String,
+        event_type: String,
+        latency_ms: u64,
     },
     /// Event processing failed
-    EventFailed { 
-        system_id: String, 
-        event_type: String, 
-        error: String 
+    EventFailed {
+        system_id: String,
+        event_type: String,
+        error: String,
     },
     /// Health check passed
-    HealthCheckPassed { 
+    HealthCheckPassed {
         system_id: String,
         status: DeploymentModeHealthStatus,
     },
     /// Health check failed (potential rollback trigger)
-    HealthCheckFailed { 
-        system_id: String, 
+    HealthCheckFailed {
+        system_id: String,
         status: DeploymentModeHealthStatus,
-        error: String 
+        error: String,
     },
     /// Deployment mode changed
-    DeploymentModeChanged { 
-        system_id: String, 
-        from: DeploymentMode, 
-        to: DeploymentMode 
+    DeploymentModeChanged {
+        system_id: String,
+        from: DeploymentMode,
+        to: DeploymentMode,
     },
 }
 
@@ -196,20 +198,28 @@ pub struct SystemStatistics {
 }
 
 impl EventSystemStatistics for SystemStatistics {
-    fn events_processed(&self) -> u64 { self.events_processed }
-    fn events_failed(&self) -> u64 { self.events_failed }
-    fn processing_rate(&self) -> f64 { self.processing_rate }
-    fn average_latency_ms(&self) -> f64 { self.average_latency_ms }
-    fn deployment_mode_score(&self) -> f64 { self.deployment_mode_score }
+    fn events_processed(&self) -> u64 {
+        self.events_processed
+    }
+    fn events_failed(&self) -> u64 {
+        self.events_failed
+    }
+    fn processing_rate(&self) -> f64 {
+        self.processing_rate
+    }
+    fn average_latency_ms(&self) -> f64 {
+        self.average_latency_ms
+    }
+    fn deployment_mode_score(&self) -> f64 {
+        self.deployment_mode_score
+    }
 }
 
 /// Factory trait for creating event-driven systems
 #[async_trait]
 pub trait EventSystemFactory<T: EventDrivenSystem> {
     /// Create a new event system instance
-    async fn create_system(
-        config: T::Config,
-    ) -> Result<T, DeploymentModeError>;
+    async fn create_system(config: T::Config) -> Result<T, DeploymentModeError>;
 }
 
 /// Event context for providing additional information during event processing
@@ -312,13 +322,13 @@ mod tests {
         };
 
         assert!(!system.is_running());
-        
+
         system.start().await.unwrap();
         assert!(system.is_running());
-        
+
         let health = system.health_check().await.unwrap();
         assert_eq!(health, DeploymentModeHealthStatus::Healthy);
-        
+
         system.stop().await.unwrap();
         assert!(!system.is_running());
     }

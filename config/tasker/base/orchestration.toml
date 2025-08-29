@@ -6,7 +6,13 @@ cycle_interval_ms = 250
 task_request_polling_interval_ms = 250
 task_request_visibility_timeout_seconds = 300
 task_request_batch_size = 10
-active_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics",]
+active_namespaces = [
+    "fulfillment",
+    "inventory",
+    "notifications",
+    "payments",
+    "analytics",
+]
 max_concurrent_orchestrators = 3
 enable_performance_logging = false
 default_claim_timeout_seconds = 300
@@ -18,6 +24,8 @@ task_requests = "task_requests_queue"
 task_processing = "task_processing_queue"
 batch_results = "batch_results_queue"
 step_results = "orchestration_step_results"
+orchestration_namespace = "orchestration"
+worker_namespace = "worker"
 
 # Queue type classifications for orchestration-owned queues
 # These must have orchestration namespace prefix if not already present
@@ -28,7 +36,7 @@ task_finalizations = "orchestration_task_finalizations"
 
 [orchestration.embedded_orchestrator]
 auto_start = false
-namespaces = [ "default", "fulfillment", "inventory", "notifications",]
+namespaces = ["default", "fulfillment", "inventory", "notifications"]
 shutdown_timeout_seconds = 30
 
 [orchestration.queues.worker_queues]

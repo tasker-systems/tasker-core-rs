@@ -287,6 +287,8 @@ async fn test_corrected_worker_orchestration_integration(
             dead_letter_queue_enabled: true,
             max_receive_count: 3,
         },
+        orchestration_namespace: "orchestration".to_string(),
+        worker_namespace: "worker".to_string(),
     };
 
     // Ensure the step results queue exists for testing

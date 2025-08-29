@@ -1,7 +1,7 @@
 //! # Worker Database Testing Utilities
 //!
 //! Simplified database utilities for worker testing using standard sqlx patterns.
-//! 
+//!
 //! ## Recommended Usage
 //!
 //! For most tests, use the standard sqlx approach:
@@ -32,7 +32,7 @@ pub enum TestDatabaseError {
 }
 
 /// Simplified worker database utilities for testing
-/// 
+///
 /// This is a thin wrapper around standard sqlx testing patterns.
 /// For most cases, use `#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]` instead.
 #[derive(Clone, Debug)]
@@ -42,7 +42,7 @@ pub struct WorkerDatabaseUtils {
 
 impl WorkerDatabaseUtils {
     /// Create new database utils from existing pool
-    /// 
+    ///
     /// Prefer using `tasker_shared::test_utils::setup_test_db()` or `#[sqlx::test]` instead.
     pub fn from_pool(pool: PgPool) -> Self {
         Self {
@@ -57,7 +57,7 @@ impl WorkerDatabaseUtils {
 }
 
 /// Convenience wrapper for test database lifecycle
-/// 
+///
 /// This provides a simple way to get a test database with migrations applied.
 /// For individual tests, prefer using `#[sqlx::test]` instead.
 pub struct WorkerTestDatabase {
@@ -68,7 +68,7 @@ impl WorkerTestDatabase {
     /// Create a test database using standard sqlx patterns
     pub async fn create() -> Result<Self, TestDatabaseError> {
         let pool = tasker_shared::test_utils::setup_test_db().await;
-        
+
         Ok(Self {
             utils: WorkerDatabaseUtils::from_pool(pool),
         })

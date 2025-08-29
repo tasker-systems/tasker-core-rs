@@ -90,8 +90,6 @@ pub use orchestration_queues::{
     // Focused components that replace EventDrivenOrchestrationCoordinator
     OrchestrationQueueEvent,
     OrchestrationQueueListener,
-    StepResultEvent,
-    TaskRequestEvent,
 };
 
 // Re-export unified event-driven patterns from tasker-shared

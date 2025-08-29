@@ -40,7 +40,7 @@ pub struct OrchestrationQueueListener {
     /// Connection state
     is_connected: bool,
     /// Statistics
-    stats: OrchestrationListenerStats,
+    stats: Arc<OrchestrationListenerStats>,
 }
 
 /// Configuration for orchestration queue listener
@@ -134,7 +134,7 @@ impl OrchestrationQueueListener {
             event_sender,
             pgmq_listener: None,
             is_connected: false,
-            stats: OrchestrationListenerStats::default(),
+            stats: Arc::new(OrchestrationListenerStats::default()),
         })
     }
 
@@ -176,12 +176,7 @@ impl OrchestrationQueueListener {
             self.context.clone(),
             self.event_sender.clone(),
             self.listener_id,
-            self.stats.events_received.clone(),
-            self.stats.step_results_processed.clone(),
-            self.stats.task_requests_processed.clone(),
-            self.stats.queue_management_processed.clone(),
-            self.stats.unknown_events.clone(),
-            self.stats.connection_errors.clone(),
+            self.stats.clone(),
         );
 
         // Start listening with the event handler in background task
@@ -269,12 +264,7 @@ struct OrchestrationEventHandler {
     /// Listener identifier
     listener_id: Uuid,
     /// Statistics counters (shared with listener)
-    events_received: Arc<AtomicU64>,
-    step_results_processed: Arc<AtomicU64>,
-    task_requests_processed: Arc<AtomicU64>,
-    queue_management_processed: Arc<AtomicU64>,
-    unknown_events: Arc<AtomicU64>,
-    connection_errors: Arc<AtomicU64>,
+    stats: Arc<OrchestrationListenerStats>,
     /// Config-driven queue classifier for replacing hardcoded string matching
     queue_classifier: tasker_shared::config::QueueClassifier,
 }
@@ -285,12 +275,7 @@ impl OrchestrationEventHandler {
         context: Arc<SystemContext>,
         event_sender: mpsc::Sender<OrchestrationNotification>,
         listener_id: Uuid,
-        events_received: Arc<AtomicU64>,
-        step_results_processed: Arc<AtomicU64>,
-        task_requests_processed: Arc<AtomicU64>,
-        queue_management_processed: Arc<AtomicU64>,
-        unknown_events: Arc<AtomicU64>,
-        connection_errors: Arc<AtomicU64>,
+        stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
         // Create queue classifier from config to replace hardcoded string matching
         let queue_classifier = tasker_shared::config::QueueClassifier::new(
@@ -307,12 +292,7 @@ impl OrchestrationEventHandler {
             context,
             event_sender,
             listener_id,
-            events_received,
-            step_results_processed,
-            task_requests_processed,
-            queue_management_processed,
-            unknown_events,
-            connection_errors,
+            stats,
             queue_classifier,
         }
     }
@@ -337,7 +317,7 @@ impl PgmqEventHandler for OrchestrationEventHandler {
                 );
 
                 // Increment events received counter
-                self.events_received.fetch_add(1, Ordering::Relaxed);
+                self.stats.events_received.fetch_add(1, Ordering::Relaxed);
 
                 // Classify the message event using config-driven classification
                 let queue_name = msg_event.queue_name.clone();
@@ -357,19 +337,24 @@ impl PgmqEventHandler for OrchestrationEventHandler {
                 // Convert to unified orchestration notification and send to event system
                 let notification = match classified_event {
                     tasker_shared::config::ConfigDrivenMessageEvent::StepResults(event) => {
-                        self.step_results_processed.fetch_add(1, Ordering::Relaxed);
+                        self.stats
+                            .step_results_processed
+                            .fetch_add(1, Ordering::Relaxed);
 
                         OrchestrationNotification::Event(OrchestrationQueueEvent::StepResult(event))
                     }
                     tasker_shared::config::ConfigDrivenMessageEvent::TaskRequests(event) => {
-                        self.task_requests_processed.fetch_add(1, Ordering::Relaxed);
+                        self.stats
+                            .task_requests_processed
+                            .fetch_add(1, Ordering::Relaxed);
 
                         OrchestrationNotification::Event(OrchestrationQueueEvent::TaskRequest(
                             event,
                         ))
                     }
                     tasker_shared::config::ConfigDrivenMessageEvent::TaskFinalizations(event) => {
-                        self.queue_management_processed
+                        self.stats
+                            .queue_management_processed
                             .fetch_add(1, Ordering::Relaxed);
 
                         OrchestrationNotification::Event(OrchestrationQueueEvent::TaskFinalization(
@@ -390,7 +375,7 @@ impl PgmqEventHandler for OrchestrationEventHandler {
                         return Ok(());
                     }
                     tasker_shared::config::ConfigDrivenMessageEvent::Unknown(event) => {
-                        self.unknown_events.fetch_add(1, Ordering::Relaxed);
+                        self.stats.unknown_events.fetch_add(1, Ordering::Relaxed);
                         warn!(
                             listener_id = %self.listener_id,
                             queue = %event.queue_name,
@@ -442,7 +427,7 @@ impl PgmqEventHandler for OrchestrationEventHandler {
             "Failed to parse PGMQ notification in orchestration listener"
         );
 
-        self.connection_errors.fetch_add(1, Ordering::Relaxed);
+        self.stats.connection_errors.fetch_add(1, Ordering::Relaxed);
 
         let notification = OrchestrationNotification::ConnectionError(format!(
             "Parse error on channel {}: {}",
@@ -465,7 +450,7 @@ impl PgmqEventHandler for OrchestrationEventHandler {
             "PGMQ notification connection error in orchestration listener"
         );
 
-        self.connection_errors.fetch_add(1, Ordering::Relaxed);
+        self.stats.connection_errors.fetch_add(1, Ordering::Relaxed);
 
         let notification =
             OrchestrationNotification::ConnectionError(format!("Connection error: {}", error));

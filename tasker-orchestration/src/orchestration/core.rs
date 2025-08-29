@@ -324,9 +324,12 @@ impl OrchestrationCore {
     async fn create_task_claim_step_enqueuer(
         context: &Arc<SystemContext>,
     ) -> TaskerResult<Arc<TaskClaimStepEnqueuer>> {
-        info!("Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration");
+        info!(
+            "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
+        );
 
-        let config = TaskClaimStepEnqueuerConfig::from_config_manager(context.config_manager.as_ref());
+        let config =
+            TaskClaimStepEnqueuerConfig::from_config_manager(context.config_manager.as_ref());
         let orchestrator_id = format!("orchestration_core_{}", uuid::Uuid::new_v4());
 
         let enqueuer = TaskClaimStepEnqueuer::with_unified_client(
@@ -334,7 +337,8 @@ impl OrchestrationCore {
             context.message_client.clone(),
             orchestrator_id,
             config,
-        ).await?;
+        )
+        .await?;
 
         Ok(Arc::new(enqueuer))
     }

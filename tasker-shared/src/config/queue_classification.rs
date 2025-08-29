@@ -2,7 +2,7 @@ use super::queue::OrchestrationOwnedQueues;
 use serde::{Deserialize, Serialize};
 
 /// Configuration-driven queue classification for message routing and processing
-/// 
+///
 /// This replaces hardcoded string matching with enum-based patterns grounded in
 /// orchestration.toml configuration, ensuring exhaustive pattern matching and
 /// consistency between orchestration and worker components.
@@ -29,7 +29,10 @@ pub struct QueueClassifier {
 
 impl QueueClassifier {
     /// Create a new queue classifier from orchestration configuration
-    pub fn new(orchestration_owned: OrchestrationOwnedQueues, orchestration_namespace: String) -> Self {
+    pub fn new(
+        orchestration_owned: OrchestrationOwnedQueues,
+        orchestration_namespace: String,
+    ) -> Self {
         Self {
             orchestration_owned,
             orchestration_namespace,
@@ -37,7 +40,7 @@ impl QueueClassifier {
     }
 
     /// Classify a queue name based on configuration instead of hardcoded patterns
-    /// 
+    ///
     /// This method provides exhaustive pattern matching grounded in configuration
     /// to replace scattered string matching throughout the codebase.
     pub fn classify(&self, queue_name: &str) -> QueueType {
@@ -45,11 +48,11 @@ impl QueueClassifier {
         if self.is_step_results_queue(queue_name) {
             return QueueType::StepResults;
         }
-        
+
         if self.is_task_requests_queue(queue_name) {
             return QueueType::TaskRequests;
         }
-        
+
         if self.is_task_finalizations_queue(queue_name) {
             return QueueType::TaskFinalizations;
         }
@@ -106,13 +109,13 @@ impl QueueClassifier {
     }
 
     /// Ensure queue name has proper orchestration namespace prefix
-    /// 
+    ///
     /// If the configured queue name doesn't start with the orchestration namespace,
     /// this method returns the properly prefixed name. This addresses the user's
     /// concern about enforcing namespace prefixing for orchestration-owned queues.
     pub fn ensure_orchestration_prefix(&self, configured_queue_name: &str) -> String {
         let expected_prefix = format!("{}_", self.orchestration_namespace);
-        
+
         if configured_queue_name.starts_with(&expected_prefix) {
             configured_queue_name.to_string()
         } else {
@@ -122,7 +125,7 @@ impl QueueClassifier {
 }
 
 /// Configuration-driven message classification for event handling
-/// 
+///
 /// This enum replaces the hardcoded MessageReadyEventKind in event_driven_coordinator.rs
 /// with a configuration-grounded approach that supports exhaustive pattern matching.
 #[derive(Debug)]
@@ -179,14 +182,14 @@ mod tests {
             task_requests: "orchestration_task_requests".to_string(),
             task_finalizations: "orchestration_task_finalizations".to_string(),
         };
-        
+
         QueueClassifier::new(orchestration_owned, "orchestration".to_string())
     }
 
     #[test]
     fn test_step_results_classification() {
         let classifier = create_test_classifier();
-        
+
         assert_eq!(
             classifier.classify("orchestration_step_results"),
             QueueType::StepResults
@@ -196,7 +199,7 @@ mod tests {
     #[test]
     fn test_task_requests_classification() {
         let classifier = create_test_classifier();
-        
+
         assert_eq!(
             classifier.classify("orchestration_task_requests"),
             QueueType::TaskRequests
@@ -206,12 +209,12 @@ mod tests {
     #[test]
     fn test_worker_namespace_classification() {
         let classifier = create_test_classifier();
-        
+
         assert_eq!(
             classifier.classify("fulfillment_queue"),
             QueueType::WorkerNamespace("fulfillment".to_string())
         );
-        
+
         assert_eq!(
             classifier.classify("inventory_queue"),
             QueueType::WorkerNamespace("inventory".to_string())
@@ -221,13 +224,13 @@ mod tests {
     #[test]
     fn test_unknown_classification() {
         let classifier = create_test_classifier();
-        
+
         // "random_queue" should be classified as a worker namespace since it follows the pattern {namespace}_queue
         assert_eq!(
             classifier.classify("random_queue"),
             QueueType::WorkerNamespace("random".to_string())
         );
-        
+
         // Test with a truly unknown pattern that doesn't match any rules
         assert_eq!(
             classifier.classify("truly_unknown_pattern"),
@@ -238,13 +241,13 @@ mod tests {
     #[test]
     fn test_orchestration_prefix_enforcement() {
         let classifier = create_test_classifier();
-        
+
         // Already has prefix - should return unchanged
         assert_eq!(
             classifier.ensure_orchestration_prefix("orchestration_step_results"),
             "orchestration_step_results"
         );
-        
+
         // Missing prefix - should add it
         assert_eq!(
             classifier.ensure_orchestration_prefix("step_results"),
@@ -256,13 +259,13 @@ mod tests {
     fn test_config_driven_message_event() {
         let classifier = create_test_classifier();
         let test_event = "test_message";
-        
+
         let classified = ConfigDrivenMessageEvent::classify(
             test_event,
             "orchestration_step_results",
-            &classifier
+            &classifier,
         );
-        
+
         match classified {
             ConfigDrivenMessageEvent::StepResults(event) => assert_eq!(event, test_event),
             _ => panic!("Expected StepResults classification"),

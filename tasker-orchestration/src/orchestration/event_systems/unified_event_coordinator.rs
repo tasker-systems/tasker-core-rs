@@ -18,16 +18,13 @@ use uuid::Uuid;
 
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
-use tasker_shared::DeploymentMode;
-use crate::orchestration::{
-    command_processor::OrchestrationCommand,
-    OrchestrationCore,
-};
-use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 use super::{
-    OrchestrationEventSystem, OrchestrationEventSystemConfig,
-    TaskReadinessEventSystem, TaskReadinessEventSystemConfig,
+    OrchestrationEventSystem, OrchestrationEventSystemConfig, TaskReadinessEventSystem,
+    TaskReadinessEventSystemConfig,
 };
+use crate::orchestration::{command_processor::OrchestrationCommand, OrchestrationCore};
+use tasker_shared::DeploymentMode;
+use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
 /// Unified coordinator demonstrating EventDrivenSystem pattern reuse
 ///
@@ -38,16 +35,16 @@ use super::{
 pub struct UnifiedEventCoordinator {
     /// Coordinator identifier
     coordinator_id: Uuid,
-    
+
     /// Orchestration event system
     orchestration_system: Option<OrchestrationEventSystem>,
-    
+
     /// Task readiness event system  
     task_readiness_system: Option<TaskReadinessEventSystem>,
-    
+
     /// System context
     context: Arc<SystemContext>,
-    
+
     /// Configuration
     config: UnifiedCoordinatorConfig,
 }
@@ -57,19 +54,19 @@ pub struct UnifiedEventCoordinator {
 pub struct UnifiedCoordinatorConfig {
     /// Coordinator identifier
     pub coordinator_id: String,
-    
+
     /// Deployment mode for both systems (unified approach)
     pub deployment_mode: DeploymentMode,
-    
+
     /// Enable orchestration event coordination
     pub orchestration_enabled: bool,
-    
+
     /// Enable task readiness event coordination
     pub task_readiness_enabled: bool,
-    
+
     /// Orchestration system configuration
     pub orchestration_config: OrchestrationEventSystemConfig,
-    
+
     /// Task readiness system configuration  
     pub task_readiness_config: TaskReadinessEventSystemConfig,
 }
@@ -89,22 +86,26 @@ impl Default for UnifiedCoordinatorConfig {
 
 impl UnifiedCoordinatorConfig {
     /// Create configuration from ConfigManager (TAS-43)
-    /// 
+    ///
     /// Loads deployment mode and task readiness configuration from TOML configuration
     /// to drive the behavior of the unified event coordination system.
     pub fn from_config_manager(
         config_manager: &tasker_shared::config::ConfigManager,
     ) -> TaskerResult<Self> {
         let config = config_manager.config();
-        
+
         // Access task readiness configuration directly from TaskerConfig struct
         let task_readiness_config = &config.task_readiness;
 
         // Use deployment mode directly from configuration
         let deployment_mode = match task_readiness_config.deployment_mode {
-            tasker_shared::config::TaskReadinessDeploymentMode::PollingOnly => DeploymentMode::PollingOnly,
+            tasker_shared::config::TaskReadinessDeploymentMode::PollingOnly => {
+                DeploymentMode::PollingOnly
+            }
             tasker_shared::config::TaskReadinessDeploymentMode::Hybrid => DeploymentMode::Hybrid,
-            tasker_shared::config::TaskReadinessDeploymentMode::EventDrivenOnly => DeploymentMode::EventDrivenOnly,
+            tasker_shared::config::TaskReadinessDeploymentMode::EventDrivenOnly => {
+                DeploymentMode::EventDrivenOnly
+            }
         };
 
         // Determine what systems to enable based on deployment mode
@@ -141,7 +142,7 @@ impl UnifiedEventCoordinator {
         orchestration_command_sender: mpsc::Sender<OrchestrationCommand>,
     ) -> TaskerResult<Self> {
         let coordinator_id = Uuid::new_v4();
-        
+
         info!(
             coordinator_id = %coordinator_id,
             deployment_mode = ?config.deployment_mode,
@@ -157,13 +158,16 @@ impl UnifiedEventCoordinator {
             let mut orchestration_config = config.orchestration_config.clone();
             orchestration_config.deployment_mode = config.deployment_mode.clone();
             orchestration_config.system_id = format!("{}-orchestration", config.coordinator_id);
-            
-            Some(OrchestrationEventSystem::new(
-                orchestration_config,
-                context.clone(),
-                orchestration_core.clone(),
-                orchestration_command_sender,
-            ).await?)
+
+            Some(
+                OrchestrationEventSystem::new(
+                    orchestration_config,
+                    context.clone(),
+                    orchestration_core.clone(),
+                    orchestration_command_sender,
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -173,19 +177,19 @@ impl UnifiedEventCoordinator {
             let mut task_readiness_config = config.task_readiness_config.clone();
             task_readiness_config.deployment_mode = config.deployment_mode.clone();
             task_readiness_config.system_id = format!("{}-task-readiness", config.coordinator_id);
-            
+
             // TODO TAS-43: TaskReadinessEventSystem now requires command_sender parameter
             // This will be fixed when UnifiedEventCoordinator is wired into bootstrap
             // with access to the CommandProcessor's command_sender channel
-            
+
             // Some(TaskReadinessEventSystem::new(
             //     task_readiness_config,
             //     context.clone(),
             //     orchestration_core.clone(),
             //     command_sender,  // Need to pass this from bootstrap
             // ).await?)
-            
-            None  // Temporarily disabled until bootstrap integration
+
+            None // Temporarily disabled until bootstrap integration
         } else {
             None
         };
@@ -217,10 +221,11 @@ impl UnifiedEventCoordinator {
         if let Some(orchestration_system) = &mut self.orchestration_system {
             orchestration_system.start().await.map_err(|e| {
                 TaskerError::OrchestrationError(format!(
-                    "Failed to start orchestration event system: {}", e
+                    "Failed to start orchestration event system: {}",
+                    e
                 ))
             })?;
-            
+
             info!(
                 coordinator_id = %self.coordinator_id,
                 system_id = %orchestration_system.system_id(),
@@ -233,10 +238,11 @@ impl UnifiedEventCoordinator {
         if let Some(task_readiness_system) = &mut self.task_readiness_system {
             task_readiness_system.start().await.map_err(|e| {
                 TaskerError::OrchestrationError(format!(
-                    "Failed to start task readiness event system: {}", e
+                    "Failed to start task readiness event system: {}",
+                    e
                 ))
             })?;
-            
+
             info!(
                 coordinator_id = %self.coordinator_id,
                 system_id = %task_readiness_system.system_id(),
@@ -293,7 +299,7 @@ impl UnifiedEventCoordinator {
             match orchestration_system.health_check().await {
                 Ok(_) => {
                     report.orchestration_statistics = Some(orchestration_system.statistics());
-                },
+                }
                 Err(e) => {
                     warn!(
                         coordinator_id = %self.coordinator_id,
@@ -302,7 +308,7 @@ impl UnifiedEventCoordinator {
                     );
                     report.orchestration_healthy = false;
                     report.overall_healthy = false;
-                },
+                }
             }
         }
 
@@ -311,7 +317,7 @@ impl UnifiedEventCoordinator {
             match task_readiness_system.health_check().await {
                 Ok(_) => {
                     report.task_readiness_statistics = Some(task_readiness_system.statistics());
-                },
+                }
                 Err(e) => {
                     warn!(
                         coordinator_id = %self.coordinator_id,
@@ -320,7 +326,7 @@ impl UnifiedEventCoordinator {
                     );
                     report.task_readiness_healthy = false;
                     report.overall_healthy = false;
-                },
+                }
             }
         }
 

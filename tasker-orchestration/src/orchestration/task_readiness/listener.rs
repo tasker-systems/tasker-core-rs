@@ -4,17 +4,17 @@
 //! connection management, automatic reconnection, and event classification using
 //! the config-driven approach from events.rs.
 
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use tasker_shared::{TaskerResult, TaskerError};
 use super::events::*;
+use tasker_shared::{TaskerError, TaskerResult};
 
 /// PostgreSQL listener for task readiness notifications
-/// 
+///
 /// Manages PostgreSQL LISTEN/NOTIFY connections with automatic reconnection,
 /// error handling, and config-driven event classification. Provides a unified
 /// interface for receiving all types of task readiness events.
@@ -34,7 +34,7 @@ pub struct TaskReadinessListener {
 }
 
 /// Unified notification enum for all task readiness events
-/// 
+///
 /// Wraps the classified TaskReadinessEvent with connection error handling.
 /// This provides a single channel interface for all event types and errors.
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ pub enum TaskReadinessNotification {
 
 impl TaskReadinessListener {
     /// Create new task readiness listener with config-driven classification
-    /// 
+    ///
     /// The listener uses the provided event classifier for config-driven event
     /// parsing and classification, following the same patterns as ConfigDrivenMessageEvent.
     pub async fn new(
@@ -72,11 +72,16 @@ impl TaskReadinessListener {
         pool: PgPool,
         event_sender: mpsc::Sender<TaskReadinessNotification>,
     ) -> TaskerResult<Self> {
-        Self::new(pool, event_sender, TaskReadinessNotificationConfig::default()).await
+        Self::new(
+            pool,
+            event_sender,
+            TaskReadinessNotificationConfig::default(),
+        )
+        .await
     }
 
     /// Connect to PostgreSQL and start listening to global channels
-    /// 
+    ///
     /// Establishes the PostgreSQL LISTEN connection and subscribes to the core
     /// global channels (task_ready, task_state_change, namespace_created).
     /// Individual namespaces can be added later with listen_for_namespace().
@@ -85,16 +90,18 @@ impl TaskReadinessListener {
 
         let mut listener = sqlx::postgres::PgListener::connect_with(&self.pool)
             .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to connect listener: {}", e)))?;
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!("Failed to connect listener: {}", e))
+            })?;
 
         // Listen to global channels configured via the classifier
         let global_channels = self.event_classifier.get_global_channels();
-        
+
         for channel in global_channels {
             listener.listen(&channel).await.map_err(|e| {
                 TaskerError::DatabaseError(format!("Failed to listen to {}: {}", channel, e))
             })?;
-            
+
             self.listened_channels.insert(channel.clone(), true);
             debug!("Now listening to global channel: {}", channel);
         }
@@ -107,53 +114,56 @@ impl TaskReadinessListener {
     }
 
     /// Listen for specific namespace events
-    /// 
+    ///
     /// Adds namespace-specific channels (task_ready.namespace, task_state_change.namespace)
     /// to the listener. This enables namespace-specific event filtering and processing.
     pub async fn listen_for_namespace(&mut self, namespace: &str) -> TaskerResult<()> {
         if let Some(ref mut listener) = self.listener {
             let namespace_channels = self.event_classifier.get_namespace_channels(namespace);
-            
+
             for channel in namespace_channels {
                 if !self.listened_channels.contains_key(&channel) {
                     listener.listen(&channel).await.map_err(|e| {
-                        TaskerError::DatabaseError(format!("Failed to listen to {}: {}", channel, e))
+                        TaskerError::DatabaseError(format!(
+                            "Failed to listen to {}: {}",
+                            channel, e
+                        ))
                     })?;
-                    
+
                     self.listened_channels.insert(channel.clone(), true);
                     debug!("Now listening for namespace channel: {}", channel);
                 }
             }
-            
+
             info!("Added namespace listening: {}", namespace);
         } else {
             return Err(TaskerError::ValidationError(
                 "Cannot add namespace: listener not connected".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Stop listening for specific namespace events
-    /// 
+    ///
     /// Removes namespace-specific channels from the listener. Note that SQLx doesn't
     /// provide an "unlisten" method, so this just tracks that we're no longer interested
     /// in events from this namespace.
     pub async fn stop_listening_for_namespace(&mut self, namespace: &str) -> TaskerResult<()> {
         let namespace_channels = self.event_classifier.get_namespace_channels(namespace);
-        
+
         for channel in namespace_channels {
             self.listened_channels.remove(&channel);
             debug!("Stopped tracking namespace channel: {}", channel);
         }
-        
+
         info!("Stopped namespace listening: {}", namespace);
         Ok(())
     }
 
     /// Start listening loop with automatic reconnection
-    /// 
+    ///
     /// This is the main event loop that receives PostgreSQL notifications and
     /// sends classified events via the event channel. It handles connection errors
     /// with automatic reconnection attempts.
@@ -178,7 +188,8 @@ impl TaskReadinessListener {
                         notification.channel()
                     );
 
-                    let event = Self::parse_notification_static(&event_classifier, notification).await;
+                    let event =
+                        Self::parse_notification_static(&event_classifier, notification).await;
                     if let Err(e) = event_sender.send(event).await {
                         error!("Failed to send task readiness event: {}", e);
                         break;
@@ -186,7 +197,7 @@ impl TaskReadinessListener {
                 }
                 Err(e) => {
                     error!("PostgreSQL listener error: {}", e);
-                    
+
                     // Send connection error event
                     let error_event = TaskReadinessNotification::ConnectionError(format!("{}", e));
                     if event_sender.send(error_event).await.is_err() {
@@ -197,7 +208,7 @@ impl TaskReadinessListener {
                     // SQLx will attempt auto-reconnect on next recv()
                     // Send reconnected event if successful
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    
+
                     // Test if we're reconnected by trying to receive again
                     match listener.recv().await {
                         Ok(notification) => {
@@ -206,9 +217,11 @@ impl TaskReadinessListener {
                             if event_sender.send(reconnect_event).await.is_err() {
                                 break;
                             }
-                            
+
                             // Process the notification we just received
-                            let event = Self::parse_notification_static(&event_classifier, notification).await;
+                            let event =
+                                Self::parse_notification_static(&event_classifier, notification)
+                                    .await;
                             if event_sender.send(event).await.is_err() {
                                 break;
                             }
@@ -226,7 +239,7 @@ impl TaskReadinessListener {
     }
 
     /// Parse PostgreSQL notification into classified event using config-driven classification
-    /// 
+    ///
     /// Uses the ReadinessEventClassifier to parse the notification channel and payload
     /// into typed events, following the same pattern as ConfigDrivenMessageEvent::classify
     /// from event_driven_coordinator.rs.
@@ -242,7 +255,7 @@ impl TaskReadinessListener {
         // Use config-driven classification (no hardcoded string matching)
         // This follows the same exhaustive enum matching pattern as ConfigDrivenMessageEvent
         let classified_event = event_classifier.classify(channel, payload);
-        
+
         debug!(
             channel = channel,
             event_type = ?classified_event,
@@ -260,7 +273,7 @@ impl TaskReadinessListener {
     }
 
     /// Disconnect listener gracefully
-    /// 
+    ///
     /// Closes the PostgreSQL LISTEN connection and cleans up resources.
     /// The listener can be reconnected later with connect().
     pub async fn disconnect(&mut self) -> TaskerResult<()> {
@@ -268,7 +281,7 @@ impl TaskReadinessListener {
             // SQLx listener doesn't have explicit disconnect, dropping closes connection
             drop(listener);
         }
-        
+
         self.is_connected = false;
         self.listened_channels.clear();
         info!("Task readiness listener disconnected");
@@ -317,16 +330,18 @@ mod tests {
     use tokio::time::{sleep, timeout, Duration};
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_listener_connection(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_listener_connection(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, _rx) = mpsc::channel(100);
         let notification_config = TaskReadinessNotificationConfig::default();
         let mut listener = TaskReadinessListener::new(pool, tx, notification_config).await?;
 
         assert!(!listener.is_connected());
-        
+
         listener.connect().await?;
         assert!(listener.is_connected());
-        
+
         // Check that global channels are being listened to
         let channels = listener.get_listened_channels();
         assert!(channels.contains(&"task_ready".to_string()));
@@ -340,36 +355,41 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_namespace_listening(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_namespace_listening(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, _rx) = mpsc::channel(100);
         let mut listener = TaskReadinessListener::new_with_defaults(pool, tx).await?;
-        
+
         listener.connect().await?;
-        
+
         // Add namespace listening
         listener.listen_for_namespace("fulfillment").await?;
-        
+
         let channels = listener.get_listened_channels();
         assert!(channels.contains(&"task_ready.fulfillment".to_string()));
         assert!(channels.contains(&"task_state_change.fulfillment".to_string()));
-        
+
         // Remove namespace listening
         listener.stop_listening_for_namespace("fulfillment").await?;
-        
+
         let channels_after = listener.get_listened_channels();
         assert!(!channels_after.contains(&"task_ready.fulfillment".to_string()));
         assert!(!channels_after.contains(&"task_state_change.fulfillment".to_string()));
-        
+
         listener.disconnect().await?;
         Ok(())
     }
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_notification_parsing(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_notification_parsing(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
         let notification_config = TaskReadinessNotificationConfig::default();
-        let mut listener = TaskReadinessListener::new(pool.clone(), tx, notification_config).await?;
-        
+        let mut listener =
+            TaskReadinessListener::new(pool.clone(), tx, notification_config).await?;
+
         listener.connect().await?;
 
         // Send a test notification
@@ -385,13 +405,18 @@ mod tests {
         });
 
         // Wait for notification
-        let notification = timeout(Duration::from_secs(5), rx.recv()).await?.ok_or("No notification received")?;
-        
+        let notification = timeout(Duration::from_secs(5), rx.recv())
+            .await?
+            .ok_or("No notification received")?;
+
         match notification {
             TaskReadinessNotification::Event(TaskReadinessEvent::TaskReady(event)) => {
                 assert_eq!(event.namespace, "test");
                 assert_eq!(event.ready_steps, 2);
-                assert!(matches!(event.triggered_by, ReadinessTrigger::StepTransition));
+                assert!(matches!(
+                    event.triggered_by,
+                    ReadinessTrigger::StepTransition
+                ));
             }
             _ => panic!("Expected TaskReady notification"),
         }
@@ -403,10 +428,12 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_multiple_notification_types(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_multiple_notification_types(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, mut rx) = mpsc::channel(100);
         let mut listener = TaskReadinessListener::new_with_defaults(pool.clone(), tx).await?;
-        
+
         listener.connect().await?;
 
         // Start listening in background
@@ -430,10 +457,12 @@ mod tests {
         // Wait for both notifications
         let mut task_ready_received = false;
         let mut state_change_received = false;
-        
+
         while !task_ready_received || !state_change_received {
-            let notification = timeout(Duration::from_secs(5), rx.recv()).await?.ok_or("No notification received")?;
-            
+            let notification = timeout(Duration::from_secs(5), rx.recv())
+                .await?
+                .ok_or("No notification received")?;
+
             match notification {
                 TaskReadinessNotification::Event(TaskReadinessEvent::TaskReady(_)) => {
                     task_ready_received = true;
@@ -464,7 +493,7 @@ mod tests {
             channels_count: 0,
             listened_channels: vec![],
         };
-        
+
         assert!(!stats.is_connected);
         assert_eq!(stats.channels_count, 0);
         assert_eq!(stats.listened_channels.len(), 0);

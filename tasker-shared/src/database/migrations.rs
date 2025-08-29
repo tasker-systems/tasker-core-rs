@@ -33,15 +33,15 @@ pub struct MigrationStatus {
 }
 
 /// Simplified migration utilities that delegate to standard sqlx patterns
-/// 
+///
 /// This is a compatibility wrapper around standard sqlx migration patterns.
-/// For most cases, use `#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]` 
+/// For most cases, use `#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]`
 /// or `tasker_shared::test_utils::setup_test_db()` instead.
 pub struct DatabaseMigrations;
 
 impl DatabaseMigrations {
     /// Run all migrations using standard sqlx migrator
-    /// 
+    ///
     /// This delegates to the standard MIGRATOR from tasker_shared::test_utils.
     pub async fn run_all(pool: &PgPool) -> Result<(), sqlx::Error> {
         crate::test_utils::MIGRATOR
@@ -51,13 +51,13 @@ impl DatabaseMigrations {
     }
 
     /// Check migration status by examining core tables
-    /// 
+    ///
     /// Returns a simple status indicating if migrations are needed.
     pub async fn check_status(pool: &PgPool) -> Result<MigrationStatus, sqlx::Error> {
         // Check if core tables exist to determine if schema is set up
         let core_tables = vec![
             "tasker_tasks",
-            "tasker_workflow_steps", 
+            "tasker_workflow_steps",
             "tasker_task_namespaces",
             "tasker_named_tasks",
             "tasker_named_steps",

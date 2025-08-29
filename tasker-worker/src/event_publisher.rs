@@ -41,9 +41,9 @@
 //! ).await?;
 //! ```
 
-use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventPublisher as SharedEventPublisher, WorkerEventSystem};
+use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 
 use tasker_shared::types::{StepEventPayload, StepExecutionEvent};
 use tracing::{debug, error, info};
@@ -245,11 +245,13 @@ pub enum WorkerEventError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use tasker_shared::models::task_template::{StepDefinition, HandlerDefinition, RetryConfiguration, BackoffStrategy};
-    use tasker_shared::models::task::{TaskForOrchestration, Task};
-    use tasker_shared::models::workflow_step::WorkflowStepWithName;
     use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
     use tasker_shared::models::orchestration::step_transitive_dependencies::StepDependencyResultMap;
+    use tasker_shared::models::task::{Task, TaskForOrchestration};
+    use tasker_shared::models::task_template::{
+        BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition,
+    };
+    use tasker_shared::models::workflow_step::WorkflowStepWithName;
     use uuid::Uuid;
 
     /// Helper function to create a test TaskSequenceStep for testing
@@ -379,9 +381,17 @@ mod tests {
         assert!(result.is_ok());
 
         let event = result.unwrap();
-        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
         assert_eq!(
-            event.payload.task_sequence_step.step_definition.handler.callable,
+            event.payload.task_sequence_step.step_definition.name,
+            step_name
+        );
+        assert_eq!(
+            event
+                .payload
+                .task_sequence_step
+                .step_definition
+                .handler
+                .callable,
             "OrderProcessing::PaymentHandler"
         );
         assert_eq!(event.payload.task_uuid, task_uuid);
@@ -432,17 +442,46 @@ mod tests {
         // Verify the event payload has the correct structure for FFI
         assert_eq!(event.payload.task_uuid, task_uuid);
         assert_eq!(event.payload.step_uuid, step_uuid);
-        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
+        assert_eq!(
+            event.payload.task_sequence_step.step_definition.name,
+            step_name
+        );
 
         // Verify that the TaskSequenceStep has all the FFI-needed data
-        assert_eq!(event.payload.task_sequence_step.task.task.task_uuid, task_uuid);
-        assert_eq!(event.payload.task_sequence_step.workflow_step.workflow_step_uuid, step_uuid);
-        assert_eq!(event.payload.task_sequence_step.step_definition.handler.callable, "OrderProcessing::PaymentHandler");
-        
+        assert_eq!(
+            event.payload.task_sequence_step.task.task.task_uuid,
+            task_uuid
+        );
+        assert_eq!(
+            event
+                .payload
+                .task_sequence_step
+                .workflow_step
+                .workflow_step_uuid,
+            step_uuid
+        );
+        assert_eq!(
+            event
+                .payload
+                .task_sequence_step
+                .step_definition
+                .handler
+                .callable,
+            "OrderProcessing::PaymentHandler"
+        );
+
         // Verify dependency results are preserved
         assert_eq!(event.payload.task_sequence_step.dependency_results.len(), 2);
-        assert!(event.payload.task_sequence_step.dependency_results.contains_key("validate_order"));
-        assert!(event.payload.task_sequence_step.dependency_results.contains_key("check_inventory"));
+        assert!(event
+            .payload
+            .task_sequence_step
+            .dependency_results
+            .contains_key("validate_order"));
+        assert!(event
+            .payload
+            .task_sequence_step
+            .dependency_results
+            .contains_key("check_inventory"));
     }
 
     #[tokio::test]
@@ -466,16 +505,16 @@ mod tests {
         );
 
         let result = publisher
-            .fire_step_execution_event_with_correlation(
-                correlation_id,
-                &task_sequence_step,
-            )
+            .fire_step_execution_event_with_correlation(correlation_id, &task_sequence_step)
             .await;
 
         assert!(result.is_ok());
         let event = result.unwrap();
         assert_eq!(event.event_id, correlation_id);
-        assert_eq!(event.payload.task_sequence_step.step_definition.name, step_name);
+        assert_eq!(
+            event.payload.task_sequence_step.step_definition.name,
+            step_name
+        );
         assert_eq!(event.payload.task_uuid, task_uuid);
         assert_eq!(event.payload.step_uuid, step_uuid);
     }

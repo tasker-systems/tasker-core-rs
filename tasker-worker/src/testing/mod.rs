@@ -15,5 +15,5 @@ pub mod factory;
 
 // Re-export commonly used testing utilities
 pub use database_utils::{WorkerDatabaseUtils, WorkerTestDatabase};
-pub use environment::{WorkerTestEnvironment, TestSafetyValidator};
-pub use factory::{WorkerTestFactory, WorkerTestData};
+pub use environment::{TestSafetyValidator, WorkerTestEnvironment};
+pub use factory::{WorkerTestData, WorkerTestFactory};

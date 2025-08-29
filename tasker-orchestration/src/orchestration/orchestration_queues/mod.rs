@@ -12,7 +12,7 @@
 //! ## Deployment Mode Support
 //!
 //! - **PollingOnly**: Only fallback_poller active
-//! - **Hybrid**: listener (primary) + fallback_poller (backup) 
+//! - **Hybrid**: listener (primary) + fallback_poller (backup)
 //! - **EventDrivenOnly**: Only listener active
 //!
 //! ## Integration
@@ -21,17 +21,15 @@
 //! architectural patterns as task_readiness components for consistent modularity.
 
 pub mod events;
-pub mod fallback_poller; 
+pub mod fallback_poller;
 pub mod listener;
 
 // Re-export key types for external usage
-pub use events::{
-    OrchestrationQueueEvent, StepResultEvent, TaskRequestEvent,
-};
+pub use events::OrchestrationQueueEvent;
 pub use fallback_poller::{
     OrchestrationFallbackPoller, OrchestrationPollerConfig, OrchestrationPollerStats,
 };
 pub use listener::{
-    OrchestrationQueueListener, OrchestrationListenerConfig, OrchestrationListenerStats,
-    OrchestrationNotification,
+    OrchestrationListenerConfig, OrchestrationListenerStats, OrchestrationNotification,
+    OrchestrationQueueListener,
 };

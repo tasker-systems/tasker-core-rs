@@ -204,12 +204,10 @@ mod tests {
 
     #[test]
     fn test_event_common_methods() {
-        let queue_event = PgmqNotifyEvent::QueueCreated(
-            QueueCreatedEvent::new("test_queue", "test")
-        );
-        let message_event = PgmqNotifyEvent::MessageReady(
-            MessageReadyEvent::new(456, "test_queue", "test")
-        );
+        let queue_event =
+            PgmqNotifyEvent::QueueCreated(QueueCreatedEvent::new("test_queue", "test"));
+        let message_event =
+            PgmqNotifyEvent::MessageReady(MessageReadyEvent::new(456, "test_queue", "test"));
 
         assert_eq!(queue_event.namespace(), "test");
         assert_eq!(queue_event.queue_name(), "test_queue");
@@ -226,8 +224,7 @@ mod tests {
     #[test]
     fn test_event_serialization() {
         let event = PgmqNotifyEvent::QueueCreated(
-            QueueCreatedEvent::new("orders_queue", "orders")
-                .add_metadata("created_by", "system")
+            QueueCreatedEvent::new("orders_queue", "orders").add_metadata("created_by", "system"),
         );
 
         let json = serde_json::to_string(&event).unwrap();
@@ -246,7 +243,10 @@ mod tests {
             .with_metadata(metadata)
             .add_metadata("single_key", "single_value");
 
-        assert_eq!(event.metadata.get("single_key"), Some(&"single_value".to_string()));
+        assert_eq!(
+            event.metadata.get("single_key"),
+            Some(&"single_value".to_string())
+        );
         assert_eq!(event.metadata.get("key1"), Some(&"value1".to_string()));
         assert_eq!(event.metadata.get("key2"), Some(&"value2".to_string()));
     }

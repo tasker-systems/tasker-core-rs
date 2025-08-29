@@ -132,7 +132,7 @@ impl PgmqNotifyConfig {
     /// Extract namespace from queue name using the configured pattern
     pub fn extract_namespace(&self, queue_name: &str) -> Result<String> {
         let regex = self.compiled_pattern()?;
-        
+
         if let Some(captures) = regex.captures(queue_name) {
             if let Some(namespace_match) = captures.name("namespace") {
                 return Ok(namespace_match.as_str().to_string());
@@ -189,21 +189,20 @@ mod tests {
     #[test]
     fn test_namespace_extraction() {
         let config = PgmqNotifyConfig::default();
-        
+
         assert_eq!(config.extract_namespace("orders_queue").unwrap(), "orders");
-        assert_eq!(config.extract_namespace("inventory_queue").unwrap(), "inventory");
+        assert_eq!(
+            config.extract_namespace("inventory_queue").unwrap(),
+            "inventory"
+        );
         assert_eq!(config.extract_namespace("no_match").unwrap(), "default");
     }
 
     #[test]
     fn test_channel_naming() {
-        let config = PgmqNotifyConfig::new()
-            .with_channels_prefix("app1");
-        
-        assert_eq!(
-            config.queue_created_channel(),
-            "app1.pgmq_queue_created"
-        );
+        let config = PgmqNotifyConfig::new().with_channels_prefix("app1");
+
+        assert_eq!(config.queue_created_channel(), "app1.pgmq_queue_created");
         assert_eq!(
             config.message_ready_channel("orders"),
             "app1.pgmq_message_ready.orders"
@@ -213,13 +212,11 @@ mod tests {
     #[test]
     fn test_validation() {
         // Invalid regex
-        let config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern("[invalid");
+        let config = PgmqNotifyConfig::new().with_queue_naming_pattern("[invalid");
         assert!(config.validate().is_err());
 
         // Payload size gets capped, so validation passes
-        let config = PgmqNotifyConfig::new()
-            .with_max_payload_size(10000);
+        let config = PgmqNotifyConfig::new().with_max_payload_size(10000);
         assert!(config.validate().is_ok());
         assert_eq!(config.max_payload_size, 7800); // Should be capped
 

@@ -171,29 +171,29 @@ CREATE TRIGGER namespace_creation_notification
     EXECUTE FUNCTION notify_namespace_created();
 
 -- Index optimizations for trigger performance
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_step_transitions_task_ready
+CREATE INDEX IF NOT EXISTS idx_workflow_step_transitions_task_ready
 ON tasker_workflow_step_transitions (workflow_step_uuid, to_state, created_at)
 WHERE to_state IN ('enqueued', 'complete', 'error', 'resolved_manually');
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_task_transitions_state_changes
+CREATE INDEX IF NOT EXISTS idx_task_transitions_state_changes
 ON tasker_task_transitions (task_uuid, to_state, created_at)
 WHERE to_state IN ('in_progress', 'complete', 'error', 'cancelled');
 
 -- Add comments for documentation
-COMMENT ON FUNCTION notify_task_ready_on_step_transition() IS 
+COMMENT ON FUNCTION notify_task_ready_on_step_transition() IS
 'TAS-43: Triggers pg_notify when step transitions affect task readiness. Uses existing get_task_execution_context() for consistency.';
 
-COMMENT ON FUNCTION notify_task_state_change() IS 
+COMMENT ON FUNCTION notify_task_state_change() IS
 'TAS-43: Triggers pg_notify on task state changes for completion, error, and new task processing.';
 
-COMMENT ON FUNCTION notify_namespace_created() IS 
+COMMENT ON FUNCTION notify_namespace_created() IS
 'TAS-43: Triggers pg_notify when new namespaces are created for dynamic coordinator spawning.';
 
-COMMENT ON TRIGGER task_ready_on_step_transition ON tasker_workflow_step_transitions IS 
+COMMENT ON TRIGGER task_ready_on_step_transition ON tasker_workflow_step_transitions IS
 'TAS-43: Event-driven task readiness detection via PostgreSQL LISTEN/NOTIFY';
 
-COMMENT ON TRIGGER task_state_change_notification ON tasker_task_transitions IS 
+COMMENT ON TRIGGER task_state_change_notification ON tasker_task_transitions IS
 'TAS-43: Task state change notifications for completion and error handling';
 
-COMMENT ON TRIGGER namespace_creation_notification ON tasker_task_namespaces IS 
+COMMENT ON TRIGGER namespace_creation_notification ON tasker_task_namespaces IS
 'TAS-43: Namespace creation notifications for dynamic coordinator management';

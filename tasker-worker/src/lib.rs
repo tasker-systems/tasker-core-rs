@@ -85,9 +85,9 @@ pub use event_subscriber::{
 pub use health::WorkerHealthStatus;
 pub use orchestration_result_sender::OrchestrationResultSender;
 pub use step_claim::StepClaim;
-pub use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 pub use task_template_manager::{
     CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
     WorkerTaskTemplateOperations,
 };
+pub use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 pub use worker::{WorkerCore, WorkerCoreStatus};
