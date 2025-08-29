@@ -10,11 +10,13 @@ pub mod config;
 pub mod core;
 pub mod error_classifier;
 pub mod errors;
-pub mod event_driven_coordinator;
+pub mod event_systems;
 pub mod lifecycle;
+pub mod orchestration_queues;
 pub mod state_manager;
 pub mod system_events;
 pub mod task_claim;
+pub mod task_readiness;
 pub mod types;
 pub mod viable_step_discovery;
 
@@ -52,9 +54,54 @@ pub use command_processor::{
     SystemHealth, TaskFinalizationResult, TaskInitializeResult,
 };
 pub use core::{OrchestrationCore, OrchestrationCoreStatus};
-pub use event_driven_coordinator::{
-    EventDrivenCoordinatorConfig, EventDrivenCoordinatorStats, EventDrivenOrchestrationCoordinator,
+// Re-export TAS-43 Unified Event System components from event_systems namespace
+pub use event_systems::{
+    OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationEventSystemConfig,
+    OrchestrationStatistics, TaskReadinessEventSystem, TaskReadinessEventSystemConfig,
+    TaskReadinessStatistics, UnifiedCoordinatorConfig, UnifiedEventCoordinator,
+    UnifiedHealthReport,
 };
+
+// Re-export TAS-43 Task Readiness components
+pub use task_readiness::{
+    FallbackPollerStats,
+    NamespaceCreatedEvent,
+    // Core task readiness functionality (database event specific)
+    // Note: Coordinators removed - use TaskReadinessEventSystem from event_systems module instead
+    ReadinessEventClassifier,
+    ReadinessFallbackPoller,
+    ReadinessTrigger,
+    TaskReadinessEvent,
+    TaskReadinessListener,
+    TaskReadinessListenerStats,
+    TaskReadinessNotification,
+    TaskReadyEvent,
+    TaskStateChangeEvent,
+};
+
+// Re-export TAS-43 Orchestration Queue components
+pub use orchestration_queues::{
+    OrchestrationFallbackPoller,
+    OrchestrationListenerConfig,
+    OrchestrationListenerStats,
+    OrchestrationPollerConfig,
+    OrchestrationPollerStats,
+    // Core orchestration queue functionality (queue event specific)
+    // Focused components that replace EventDrivenOrchestrationCoordinator
+    OrchestrationQueueEvent,
+    OrchestrationQueueListener,
+    StepResultEvent,
+    TaskRequestEvent,
+};
+
+// Re-export unified event-driven patterns from tasker-shared
+pub use tasker_shared::{
+    DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus, EventDrivenSystem,
+    EventSystemStatistics, SystemStatistics,
+};
+
+// Re-export configuration types from tasker-shared for convenience
+pub use tasker_shared::config::{ReadinessFallbackConfig, TaskReadinessNotificationConfig};
 
 // Re-export new components (to be implemented)
 pub use config::{

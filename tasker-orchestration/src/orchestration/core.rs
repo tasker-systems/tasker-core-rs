@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use tasker_shared::config::orchestration::TaskClaimStepEnqueuerConfig;
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -26,6 +27,7 @@ use crate::orchestration::command_processor::{
     SystemHealth, TaskFinalizationResult, TaskInitializeResult,
 };
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
+use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
 use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
 use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
@@ -78,6 +80,7 @@ impl OrchestrationCore {
         let task_request_processor = Self::create_task_request_processor(&context).await?;
         let result_processor = Self::create_result_processor(&context).await?;
         let finalization_claimer = Self::create_finalization_claimer(&context).await?;
+        let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
 
         // Create OrchestrationProcessor with sophisticated delegation
         let (mut processor, command_sender) = OrchestrationProcessor::new(
@@ -85,6 +88,7 @@ impl OrchestrationCore {
             task_request_processor,
             result_processor,
             finalization_claimer,
+            task_claim_step_enqueuer,
             context.message_client(),
             1000, // Command buffer size
         );
@@ -314,6 +318,25 @@ impl OrchestrationCore {
             processor_id,
             config,
         )))
+    }
+
+    /// Create sophisticated TaskClaimStepEnqueuer for delegation
+    async fn create_task_claim_step_enqueuer(
+        context: &Arc<SystemContext>,
+    ) -> TaskerResult<Arc<TaskClaimStepEnqueuer>> {
+        info!("Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration");
+
+        let config = TaskClaimStepEnqueuerConfig::from_config_manager(context.config_manager.as_ref());
+        let orchestrator_id = format!("orchestration_core_{}", uuid::Uuid::new_v4());
+
+        let enqueuer = TaskClaimStepEnqueuer::with_unified_client(
+            context.database_pool.clone(),
+            context.message_client.clone(),
+            orchestrator_id,
+            config,
+        ).await?;
+
+        Ok(Arc::new(enqueuer))
     }
 }
 

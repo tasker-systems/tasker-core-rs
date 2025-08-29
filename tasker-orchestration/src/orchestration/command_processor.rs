@@ -29,8 +29,8 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use pgmq_notify::MessageReadyEvent;
-use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::messaging::message::SimpleStepMessage;
+use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::{TaskerError, TaskerResult};
 
@@ -73,6 +73,19 @@ pub enum OrchestrationCommand {
         message_event: MessageReadyEvent,
         resp: CommandResponder<TaskFinalizationResult>,
     },
+    /// Process task readiness event from PostgreSQL LISTEN/NOTIFY (TAS-43)
+    /// Delegates to TaskClaimStepEnqueuer for atomic task claiming and step enqueueing
+    ProcessTaskReadiness {
+        task_uuid: Uuid,
+        namespace: String,
+        priority: i32,
+        ready_steps: i32,
+        triggered_by: String,  // "step_transition", "task_start", "fallback_polling"
+        step_uuid: Option<Uuid>,  // Present for step_transition triggers
+        step_state: Option<String>,  // Present for step_transition triggers
+        task_state: Option<String>,  // Present for task_start triggers
+        resp: CommandResponder<TaskReadinessResult>,
+    },
     /// Get orchestration processing statistics
     GetProcessingStats {
         resp: CommandResponder<OrchestrationProcessingStats>,
@@ -99,6 +112,17 @@ pub enum StepProcessResult {
     Skipped { reason: String },
 }
 
+/// Result of processing a task readiness event (TAS-43)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskReadinessResult {
+    pub task_uuid: Uuid,
+    pub namespace: String,
+    pub steps_enqueued: usize,
+    pub steps_discovered: usize,
+    pub triggered_by: String,
+    pub processing_time_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskFinalizationResult {
     Success {
@@ -120,6 +144,7 @@ pub struct OrchestrationProcessingStats {
     pub task_requests_processed: u64,
     pub step_results_processed: u64,
     pub tasks_finalized: u64,
+    pub tasks_ready_processed: u64,  // TAS-43: Task readiness events processed
     pub processing_errors: u64,
     pub current_queue_sizes: HashMap<String, i64>,
 }
@@ -138,6 +163,7 @@ use tokio::task::JoinHandle;
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
+use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
 use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::system_context::SystemContext;
@@ -160,6 +186,9 @@ pub struct OrchestrationProcessor {
     /// Sophisticated finalization claimer for atomic operations
     finalization_claimer: Arc<FinalizationClaimer>,
 
+    /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing
+    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+
     /// PGMQ client for message operations
     pgmq_client: Arc<UnifiedPgmqClient>,
 
@@ -180,6 +209,7 @@ impl OrchestrationProcessor {
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
         finalization_claimer: Arc<FinalizationClaimer>,
+        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
         pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
@@ -189,6 +219,7 @@ impl OrchestrationProcessor {
             task_requests_processed: 0,
             step_results_processed: 0,
             tasks_finalized: 0,
+            tasks_ready_processed: 0,  // TAS-43: Task readiness events processed
             processing_errors: 0,
             current_queue_sizes: HashMap::new(),
         }));
@@ -198,6 +229,7 @@ impl OrchestrationProcessor {
             task_request_processor,
             result_processor,
             finalization_claimer,
+            task_claim_step_enqueuer,
             pgmq_client,
             command_rx: Some(command_rx),
             task_handle: None,
@@ -214,6 +246,7 @@ impl OrchestrationProcessor {
         let task_request_processor = self.task_request_processor.clone();
         let result_processor = self.result_processor.clone();
         let finalization_claimer = self.finalization_claimer.clone();
+        let task_claim_step_enqueuer = self.task_claim_step_enqueuer.clone();
         let pgmq_client = self.pgmq_client.clone();
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
             TaskerError::OrchestrationError("Processor already started".to_string())
@@ -221,12 +254,13 @@ impl OrchestrationProcessor {
 
         let handle = tokio::spawn(async move {
             let handler = OrchestrationProcessorCommandHandler {
-                context: context.clone(),
-                stats: stats.clone(),
-                task_request_processor: task_request_processor.clone(),
-                result_processor: result_processor.clone(),
-                finalization_claimer: finalization_claimer.clone(),
-                pgmq_client: pgmq_client.clone(),
+                context: context,
+                stats: stats,
+                task_request_processor: task_request_processor,
+                result_processor: result_processor,
+                finalization_claimer: finalization_claimer,
+                task_claim_step_enqueuer: task_claim_step_enqueuer,
+                pgmq_client: pgmq_client,
             };
             while let Some(command) = command_rx.recv().await {
                 handler.process_command(command).await;
@@ -244,6 +278,7 @@ pub struct OrchestrationProcessorCommandHandler {
     task_request_processor: Arc<TaskRequestProcessor>,
     result_processor: Arc<OrchestrationResultProcessor>,
     finalization_claimer: Arc<FinalizationClaimer>,
+    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,  // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
 }
 
@@ -254,6 +289,7 @@ impl OrchestrationProcessorCommandHandler {
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
         finalization_claimer: Arc<FinalizationClaimer>,
+        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
         pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> Self {
         Self {
@@ -262,6 +298,7 @@ impl OrchestrationProcessorCommandHandler {
             task_request_processor,
             result_processor,
             finalization_claimer,
+            task_claim_step_enqueuer,
             pgmq_client,
         }
     }
@@ -333,6 +370,36 @@ impl OrchestrationProcessorCommandHandler {
                     .await;
                 if result.is_ok() {
                     self.stats.write().unwrap().tasks_finalized += 1;
+                } else {
+                    self.stats.write().unwrap().processing_errors += 1;
+                }
+                let _ = resp.send(result);
+            }
+            OrchestrationCommand::ProcessTaskReadiness {
+                task_uuid,
+                namespace,
+                priority,
+                ready_steps,
+                triggered_by,
+                step_uuid,
+                step_state,
+                task_state,
+                resp,
+            } => {
+                let result = self
+                    .handle_process_task_readiness(
+                        task_uuid,
+                        namespace,
+                        priority,
+                        ready_steps,
+                        triggered_by,
+                        step_uuid,
+                        step_state,
+                        task_state,
+                    )
+                    .await;
+                if result.is_ok() {
+                    self.stats.write().unwrap().tasks_ready_processed += 1;
                 } else {
                     self.stats.write().unwrap().processing_errors += 1;
                 }
@@ -484,7 +551,6 @@ impl OrchestrationProcessorCommandHandler {
         &self,
         message_event: MessageReadyEvent,
     ) -> TaskerResult<StepProcessResult> {
-
         // Read the specific message by ID (the correct approach for event-driven processing)
         let message = self
             .pgmq_client
@@ -509,26 +575,35 @@ impl OrchestrationProcessorCommandHandler {
 
         // Parse as SimpleStepMessage (only task_uuid and step_uuid)
         let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}")))?;
+            .map_err(|e| {
+                TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
+            })?;
 
         // Database hydration using tasker-shared WorkflowStep model
-        let workflow_step = WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
-            .await
-            .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
-            .ok_or_else(|| TaskerError::ValidationError(format!(
-                "WorkflowStep not found for step_uuid: {}", simple_message.step_uuid
-            )))?;
+        let workflow_step =
+            WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
+                .await
+                .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
+                .ok_or_else(|| {
+                    TaskerError::ValidationError(format!(
+                        "WorkflowStep not found for step_uuid: {}",
+                        simple_message.step_uuid
+                    ))
+                })?;
 
-        // Deserialize StepExecutionResult from results JSONB column 
-        let step_execution_result: StepExecutionResult = serde_json::from_value(
-            workflow_step
-                .results
-                .ok_or_else(|| TaskerError::ValidationError(format!(
-                    "No results found for step_uuid: {}", simple_message.step_uuid
-                )))?
-        ).map_err(|e| TaskerError::ValidationError(format!(
-            "Failed to deserialize StepExecutionResult from results JSONB: {e}"
-        )))?;
+        // Deserialize StepExecutionResult from results JSONB column
+        let step_execution_result: StepExecutionResult =
+            serde_json::from_value(workflow_step.results.ok_or_else(|| {
+                TaskerError::ValidationError(format!(
+                    "No results found for step_uuid: {}",
+                    simple_message.step_uuid
+                ))
+            })?)
+            .map_err(|e| {
+                TaskerError::ValidationError(format!(
+                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
+                ))
+            })?;
 
         // Delegate to existing step result processing logic
         let result = self.handle_process_step_result(step_execution_result).await;
@@ -728,12 +803,14 @@ impl OrchestrationProcessorCommandHandler {
         } else {
             // Get error details from result
             let error_msg = match &result {
-                Ok(TaskFinalizationResult::NotClaimed { reason, .. }) => format!("Not claimed: {}", reason),
+                Ok(TaskFinalizationResult::NotClaimed { reason, .. }) => {
+                    format!("Not claimed: {}", reason)
+                }
                 Ok(TaskFinalizationResult::Failed { error }) => format!("Failed: {}", error),
                 Err(e) => format!("Error: {}", e),
                 _ => "Unknown finalization result".to_string(),
             };
-            
+
             tracing::warn!(
                 msg_id = message.msg_id,
                 queue = %message_event.queue_name,
@@ -744,6 +821,73 @@ impl OrchestrationProcessorCommandHandler {
         }
 
         result
+    }
+
+    /// Handle task readiness processing - converts readiness event to ClaimedTask and delegates to step enqueueing
+    /// 
+    /// This is the core TAS-43 implementation that:
+    /// 1. Creates a synthetic ClaimedTask from the task readiness parameters
+    /// 2. Delegates to task_claim_step_enqueuer.process_claimed_task() for atomic step enqueueing
+    /// 3. Returns processing metrics for observability
+    async fn handle_process_task_readiness(
+        &self,
+        task_uuid: Uuid,
+        namespace: String,
+        priority: i32,
+        ready_steps: i32,
+        triggered_by: String,
+        step_uuid: Option<Uuid>,
+        step_state: Option<String>,
+        task_state: Option<String>,
+    ) -> TaskerResult<TaskReadinessResult> {
+        let start_time = std::time::Instant::now();
+
+        tracing::debug!(
+            task_uuid = %task_uuid,
+            namespace = %namespace,
+            priority = priority,
+            ready_steps = ready_steps,
+            triggered_by = %triggered_by,
+            "Processing task readiness event via command pattern"
+        );
+
+        // Use TaskClaimStepEnqueuer for atomic task claiming and step enqueueing
+        // This uses the batch processing approach to ensure atomic claiming
+        let process_result = match self.task_claim_step_enqueuer.process_batch().await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!(
+                    task_uuid = %task_uuid,
+                    namespace = %namespace,
+                    error = %e,
+                    "Failed to process task readiness via TaskClaimStepEnqueuer"
+                );
+                return Err(e);
+            }
+        };
+
+        let processing_time_ms = start_time.elapsed().as_millis() as u64;
+
+        // Log the successful processing
+        tracing::info!(
+            task_uuid = %task_uuid,
+            namespace = %namespace,
+            priority = priority,
+            ready_steps = ready_steps,
+            steps_enqueued = process_result.total_steps_enqueued,
+            processing_time_ms = processing_time_ms,
+            triggered_by = %triggered_by,
+            "Task readiness processed successfully via TaskClaimStepEnqueuer"
+        );
+
+        Ok(TaskReadinessResult {
+            task_uuid,
+            namespace,
+            steps_enqueued: process_result.total_steps_enqueued,
+            steps_discovered: process_result.total_steps_discovered,
+            processing_time_ms,
+            triggered_by,
+        })
     }
 
     /// Handle health check

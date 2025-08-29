@@ -1,0 +1,42 @@
+# TAS-43 Task Readiness Configuration - Development Environment
+# Development-specific overrides for task readiness system
+
+[task_readiness]
+# Use hybrid mode for development testing
+deployment_mode = "hybrid"
+
+[task_readiness.enhanced_settings]
+# Shorter timeouts for development
+startup_timeout_seconds = 15
+shutdown_timeout_seconds = 5
+
+# Enable detailed metrics in development
+metrics_enabled = true
+
+# Lower rollback threshold for testing rollback mechanisms
+rollback_threshold_percent = 2.0
+
+[task_readiness.notification.connection]
+# More aggressive connection checks in development
+health_check_interval_seconds = 10
+max_connection_retries = 5
+
+[task_readiness.fallback_polling]
+# More frequent polling for development testing
+polling_interval_ms = 1000
+age_threshold_seconds = 2
+batch_size = 20
+
+[task_readiness.event_channel]
+# Smaller buffer for development
+buffer_size = 500
+
+[task_readiness.error_handling]
+# Lower error thresholds for development testing
+max_consecutive_errors = 5
+error_rate_threshold_per_minute = 2
+
+[task_readiness.error_handling.circuit_breaker]
+# More sensitive circuit breaker for development
+failure_threshold = 3
+recovery_timeout_seconds = 15

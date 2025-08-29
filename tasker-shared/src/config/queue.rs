@@ -10,6 +10,8 @@ pub struct QueueConfig {
     pub worker_queues: HashMap<String, String>,
     /// Queue settings for visibility timeout, retention, etc.
     pub settings: QueueSettings,
+    pub orchestration_namespace: String,
+    pub worker_namespace: String,
 }
 
 /// Configuration for orchestration-owned queues used in message classification
@@ -55,6 +57,8 @@ impl Default for QueueConfig {
             orchestration_owned: OrchestrationOwnedQueues::default(),
             worker_queues: HashMap::new(),
             settings: QueueSettings::default(),
+            orchestration_namespace: "orchestration".to_string(),
+            worker_namespace: "worker".to_string(),
         }
     }
 }

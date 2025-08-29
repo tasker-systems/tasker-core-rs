@@ -52,9 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auto_start_processors: true,
         environment_override,
         enable_web_api: true, // Always enable web API for server mode
-        web_config: None,     // Will be loaded from config manager
-        enable_event_driven_coordination: true, // Enable TAS-43 event-driven coordination
-        event_driven_config: None, // Use default configuration
     };
 
     let mut orchestration_handle = OrchestrationBootstrap::bootstrap(bootstrap_config)

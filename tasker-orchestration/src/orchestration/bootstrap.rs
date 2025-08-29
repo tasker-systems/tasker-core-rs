@@ -17,7 +17,8 @@
 // Note: OrchestrationLoopCoordinator removed as part of TAS-40 command pattern migration
 // Bootstrap will be updated to use OrchestrationProcessor once implemented
 use crate::orchestration::{
-    EventDrivenCoordinatorConfig, EventDrivenOrchestrationCoordinator, OrchestrationCore,
+    event_systems::{UnifiedCoordinatorConfig, UnifiedEventCoordinator},
+    OrchestrationCore,
 };
 use crate::web;
 use crate::web::state::{AppState, WebServerConfig};
@@ -33,8 +34,7 @@ pub struct OrchestrationSystemHandle {
     /// Core orchestration system
     pub orchestration_core: Arc<OrchestrationCore>,
     /// Event-driven coordination system (TAS-43)
-    pub event_driven_coordinator:
-        Option<Arc<tokio::sync::Mutex<EventDrivenOrchestrationCoordinator>>>,
+    pub unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
     /// Web API state (optional)
     pub web_state: Option<Arc<AppState>>,
     /// Shutdown signal sender (Some when running, None when stopped)
@@ -51,9 +51,7 @@ impl OrchestrationSystemHandle {
     /// Create new orchestration system handle
     pub fn new(
         orchestration_core: Arc<OrchestrationCore>,
-        event_driven_coordinator: Option<
-            Arc<tokio::sync::Mutex<EventDrivenOrchestrationCoordinator>>,
-        >,
+        unified_event_coordinator: Option<Arc<tokio::sync::Mutex<UnifiedEventCoordinator>>>,
         web_state: Option<Arc<AppState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
@@ -62,7 +60,7 @@ impl OrchestrationSystemHandle {
     ) -> Self {
         Self {
             orchestration_core,
-            event_driven_coordinator,
+            unified_event_coordinator,
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
@@ -79,12 +77,12 @@ impl OrchestrationSystemHandle {
     /// Stop the orchestration system
     pub async fn stop(&mut self) -> TaskerResult<()> {
         if self.shutdown_sender.is_some() {
-            // Stop event-driven coordinator first
-            if let Some(ref coordinator) = self.event_driven_coordinator {
-                info!("🛑 Stopping event-driven orchestration coordinator");
+            // Stop unified event coordinator first
+            if let Some(ref coordinator) = self.unified_event_coordinator {
+                info!("🛑 Stopping unified event coordinator");
                 coordinator.lock().await.stop().await.map_err(|e| {
                     TaskerError::OrchestrationError(format!(
-                        "Failed to stop event-driven coordinator: {}",
+                        "Failed to stop unified event coordinator: {}",
                         e
                     ))
                 })?;
@@ -147,12 +145,6 @@ pub struct BootstrapConfig {
     pub environment_override: Option<String>,
     /// Whether to start web API server
     pub enable_web_api: bool,
-    /// Web API configuration (bind address, etc.)
-    pub web_config: Option<WebServerConfig>,
-    /// Enable event-driven orchestration coordination (TAS-43)
-    pub enable_event_driven_coordination: bool,
-    /// Event-driven coordinator configuration
-    pub event_driven_config: Option<EventDrivenCoordinatorConfig>,
 }
 
 impl Default for BootstrapConfig {
@@ -162,9 +154,6 @@ impl Default for BootstrapConfig {
             auto_start_processors: true,
             environment_override: None,
             enable_web_api: true,
-            web_config: None,
-            enable_event_driven_coordination: true,
-            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
         }
     }
 }
@@ -180,22 +169,6 @@ impl BootstrapConfig {
             auto_start_processors: true, // Default for most use cases
             environment_override: Some(config_manager.environment().to_string()),
             enable_web_api: true,
-            web_config: None, // Will be loaded from config manager
-            enable_event_driven_coordination: true,
-            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
-        }
-    }
-
-    /// Create BootstrapConfig for executor testing with YAML-driven configuration
-    pub fn for_executor_testing(namespaces: Vec<String>) -> Self {
-        Self {
-            namespaces,
-            auto_start_processors: false, // Manual control for testing executors
-            environment_override: Some("test".to_string()),
-            enable_web_api: false, // Disable web API for testing
-            web_config: None,
-            enable_event_driven_coordination: false, // Disable for deterministic testing
-            event_driven_config: None,
         }
     }
 }
@@ -290,45 +263,39 @@ impl OrchestrationBootstrap {
             None
         };
 
-        // Create event-driven coordinator if enabled (TAS-43)
-        let event_driven_coordinator = if config.enable_event_driven_coordination {
-            info!("BOOTSTRAP: Creating event-driven orchestration coordinator (TAS-43)");
-
-            let coordinator_config = config
-                .event_driven_config
-                .clone()
-                .unwrap_or_else(EventDrivenCoordinatorConfig::default);
-
-            let coordinator = EventDrivenOrchestrationCoordinator::new(
-                coordinator_config,
-                system_context.clone(),
-                orchestration_core.clone(),
-                orchestration_core.command_sender(),
-            )
-            .await
-            .map_err(|e| {
-                TaskerError::OrchestrationError(format!(
-                    "Failed to create event-driven coordinator: {}",
+        let coordinator_config = UnifiedCoordinatorConfig::from_config_manager(&config_manager)
+                .map_err(|e| {
+                    warn!(error = %e, "Failed to load UnifiedCoordinatorConfig from configuration, using defaults");
                     e
-                ))
-            })?;
+                })
+                .unwrap_or_else(|_| UnifiedCoordinatorConfig::default());
 
-            let coordinator_arc = Arc::new(tokio::sync::Mutex::new(coordinator));
+        let coordinator = UnifiedEventCoordinator::new(
+            coordinator_config,
+            system_context.clone(),
+            orchestration_core.clone(),
+            orchestration_core.command_sender(),
+        )
+        .await
+        .map_err(|e| {
+            TaskerError::OrchestrationError(format!(
+                "Failed to create unified event coordinator: {}",
+                e
+            ))
+        })?;
 
-            // Start the coordinator
-            coordinator_arc.lock().await.start().await.map_err(|e| {
-                TaskerError::OrchestrationError(format!(
-                    "Failed to start event-driven coordinator: {}",
-                    e
-                ))
-            })?;
+        let coordinator_arc = Arc::new(tokio::sync::Mutex::new(coordinator));
 
-            info!("✅ BOOTSTRAP: Event-driven orchestration coordinator started successfully");
-            Some(coordinator_arc)
-        } else {
-            info!("BOOTSTRAP: Event-driven coordination disabled in configuration");
-            None
-        };
+        // Start the coordinator
+        coordinator_arc.lock().await.start().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!(
+                "Failed to start unified event coordinator: {}",
+                e
+            ))
+        })?;
+
+        info!("✅ BOOTSTRAP: Unified event coordinator started successfully");
+        let unified_event_coordinator = Some(coordinator_arc);
 
         // Create runtime handle
         let runtime_handle = tokio::runtime::Handle::current();
@@ -379,7 +346,7 @@ impl OrchestrationBootstrap {
 
         let handle = OrchestrationSystemHandle::new(
             orchestration_core,
-            event_driven_coordinator,
+            unified_event_coordinator,
             web_state,
             shutdown_sender,
             runtime_handle,
@@ -404,9 +371,6 @@ impl OrchestrationBootstrap {
             auto_start_processors: true,
             environment_override: environment,
             enable_web_api,
-            web_config: None, // Will be loaded from config manager
-            enable_event_driven_coordination: true,
-            event_driven_config: Some(EventDrivenCoordinatorConfig::default()),
         };
 
         Self::bootstrap(config).await
@@ -423,30 +387,15 @@ impl OrchestrationBootstrap {
             auto_start_processors: true,
             environment_override: Some("test".to_string()),
             enable_web_api: false, // Disable web API for testing by default
-            web_config: None,
-            enable_event_driven_coordination: false, // Disable for deterministic testing
-            event_driven_config: None,
         };
 
         Self::bootstrap(config).await
     }
-
-    // TODO: TAS-40 - Replace with OrchestrationProcessor startup method
-    // This method will be reimplemented once OrchestrationProcessor is created
-    /*
-    async fn start_coordinator(
-        coordinator: Arc<OrchestrationLoopCoordinator>,
-        shutdown_receiver: oneshot::Receiver<()>,
-    ) -> TaskerResult<()> {
-        // Implementation removed - will be replaced with command pattern startup
-    }
-    */
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[tokio::test]
     async fn test_bootstrap_config_default() {
@@ -455,17 +404,6 @@ mod tests {
         assert!(config.auto_start_processors);
         assert!(config.environment_override.is_none());
         assert!(config.enable_web_api);
-        assert!(config.enable_event_driven_coordination);
-        assert!(config.event_driven_config.is_some());
-
-        // Check default event-driven config
-        let event_config = config.event_driven_config.unwrap();
-        assert_eq!(event_config.namespace, "orchestration");
-        assert!(event_config.event_driven_enabled);
-        assert_eq!(
-            event_config.fallback_polling_interval,
-            Duration::from_millis(500)
-        );
     }
 
     #[tokio::test]
@@ -495,45 +433,11 @@ mod tests {
             auto_start_processors: false, // Don't auto-start for testing
             environment_override: Some("test".to_string()),
             enable_web_api: true,
-            web_config: None,
-            enable_event_driven_coordination: true,
-            event_driven_config: Some(EventDrivenCoordinatorConfig {
-                namespace: "test".to_string(),
-                event_driven_enabled: false, // Disable for testing
-                fallback_polling_interval: Duration::from_millis(100),
-                batch_size: 5,
-                queues: tasker_shared::config::QueueConfig {
-                    orchestration_owned: tasker_shared::config::OrchestrationOwnedQueues::default(),
-                    worker_queues: std::collections::HashMap::new(),
-                    settings: tasker_shared::config::QueueSettings {
-                        visibility_timeout_seconds: 30,
-                        message_retention_seconds: 604800,
-                        dead_letter_queue_enabled: true,
-                        max_receive_count: 3,
-                    },
-                },
-                visibility_timeout: Duration::from_secs(10),
-            }),
         };
 
         assert_eq!(config.namespaces.len(), 1);
         assert!(!config.auto_start_processors);
         assert_eq!(config.environment_override, Some("test".to_string()));
-        assert!(config.enable_event_driven_coordination);
-        assert!(config.event_driven_config.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_config_for_testing() {
-        // Test the testing-specific bootstrap configuration
-        let config = BootstrapConfig::for_executor_testing(vec!["test".to_string()]);
-
-        assert_eq!(config.namespaces, vec!["test".to_string()]);
-        assert!(!config.auto_start_processors); // Manual control for testing
-        assert_eq!(config.environment_override, Some("test".to_string()));
-        assert!(!config.enable_web_api); // Disabled for testing
-        assert!(!config.enable_event_driven_coordination); // Disabled for deterministic testing
-        assert!(config.event_driven_config.is_none());
     }
 
     #[tokio::test]
@@ -543,7 +447,10 @@ mod tests {
         let original_database_url = std::env::var("DATABASE_URL").ok();
 
         // Set a dummy DATABASE_URL for the test
-        std::env::set_var("DATABASE_URL", "postgresql://test:test@localhost:5432/test_db");
+        std::env::set_var(
+            "DATABASE_URL",
+            "postgresql://test:test@localhost:5432/test_db",
+        );
 
         let config_manager = match ConfigManager::load_from_env("test") {
             Ok(manager) => manager,
@@ -555,7 +462,7 @@ mod tests {
                     std::env::remove_var("DATABASE_URL");
                 }
                 panic!("Failed to load config manager: {err}")
-            },
+            }
         };
         let config = BootstrapConfig::from_config_manager(
             &config_manager,
@@ -569,8 +476,6 @@ mod tests {
             Some(config_manager.environment().to_string())
         );
         assert!(config.enable_web_api);
-        assert!(config.enable_event_driven_coordination);
-        assert!(config.event_driven_config.is_some());
 
         // Restore original DATABASE_URL
         if let Some(url) = original_database_url {

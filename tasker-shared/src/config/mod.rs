@@ -37,6 +37,7 @@ pub mod query_cache;
 pub mod queue;
 pub mod state;
 pub mod task_config_finder;
+pub mod task_readiness;
 pub mod unified_loader;
 pub mod worker;
 
@@ -65,6 +66,16 @@ pub use state::OperationalStateConfig;
 pub use worker::{
     EventSystemConfig, HealthMonitoringConfig, ResourceLimitsConfig, StepProcessingConfig,
     WorkerConfig,
+};
+
+// TAS-43 Task Readiness System exports
+pub use task_readiness::{
+    BackoffConfig as TaskReadinessBackoffConfig,
+    CircuitBreakerConfig as TaskReadinessCircuitBreakerConfig, ConnectionConfig,
+    DeploymentMode as TaskReadinessDeploymentMode, EnhancedCoordinatorSettings,
+    ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
+    ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
+    TaskReadinessNotificationConfig,
 };
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
@@ -124,6 +135,9 @@ pub struct TaskerConfig {
 
     /// Circuit breaker configuration for resilience patterns
     pub circuit_breakers: CircuitBreakerConfig,
+
+    /// Task readiness event-driven system configuration (TAS-43)
+    pub task_readiness: TaskReadinessConfig,
 
     /// Worker configuration (TAS-40)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -675,6 +689,8 @@ impl Default for TaskerConfig {
                         dead_letter_queue_enabled: true,
                         max_receive_count: 3,
                     },
+                    orchestration_namespace: "orchestration".to_string(),
+                    worker_namespace: "worker".to_string(),
                 },
                 embedded_orchestrator: EmbeddedOrchestratorConfig {
                     auto_start: false,
@@ -719,6 +735,7 @@ impl Default for TaskerConfig {
                     configs
                 },
             },
+            task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
             worker: None, // Optional, only populated when TOML contains worker configuration
             web: None,    // Optional, only populated when TOML contains web configuration
         }

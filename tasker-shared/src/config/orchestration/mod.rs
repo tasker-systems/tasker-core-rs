@@ -142,6 +142,8 @@ impl Default for OrchestrationConfig {
                     dead_letter_queue_enabled: true,
                     max_receive_count: 3,
                 },
+                orchestration_namespace: "orchestration".to_string(),
+                worker_namespace: "worker".to_string(),
             },
             embedded_orchestrator: EmbeddedOrchestratorConfig {
                 auto_start: false,

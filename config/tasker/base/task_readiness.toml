@@ -1,0 +1,142 @@
+# TAS-43 Task Readiness Configuration
+# Event-driven task readiness system configuration for <10ms orchestration latency
+
+[task_readiness]
+# Enable task readiness event-driven coordination
+enabled = true
+
+# Deployment mode for event coordination behavior
+# Options: "polling_only", "hybrid", "event_driven_only"
+deployment_mode = "hybrid"
+
+# Enhanced coordinator settings
+[task_readiness.enhanced_settings]
+# Coordinator startup timeout in seconds
+startup_timeout_seconds = 30
+
+# Coordinator shutdown timeout in seconds  
+shutdown_timeout_seconds = 10
+
+# Enable metrics collection for TAS-43 vs TAS-37 comparison
+metrics_enabled = true
+
+# Rollback threshold - error rate percentage that triggers rollback consideration
+rollback_threshold_percent = 5.0
+
+# PostgreSQL LISTEN/NOTIFY configuration
+[task_readiness.notification]
+# Global channels for all task readiness events
+global_channels = [
+    "task_ready",
+    "task_state_change", 
+    "namespace_created"
+]
+
+# Namespace-specific channel patterns
+# Pattern: "{base_channel}.{namespace}" 
+[task_readiness.notification.namespace_patterns]
+task_ready = "task_ready.{namespace}"
+task_state_change = "task_state_change.{namespace}"
+
+# Event classification configuration
+[task_readiness.notification.event_classification]
+# Maximum payload size for PostgreSQL NOTIFY (8KB limit)
+max_payload_size_bytes = 8000
+
+# Timeout for parsing notification payloads
+parse_timeout_ms = 100
+
+# Connection and reliability settings
+[task_readiness.notification.connection]
+# Connection retry attempts before failing
+max_connection_retries = 3
+
+# Delay between connection retry attempts in seconds
+connection_retry_delay_seconds = 2
+
+# Connection health check interval in seconds  
+health_check_interval_seconds = 30
+
+# Automatic reconnection on connection loss
+auto_reconnect = true
+
+# Fallback polling configuration for hybrid reliability
+[task_readiness.fallback_polling]
+# Enable fallback polling as safety net
+enabled = true
+
+# Polling interval in milliseconds for checking missed events
+polling_interval_ms = 2000
+
+# Age threshold in seconds - only check tasks older than this
+age_threshold_seconds = 5
+
+# Maximum age in seconds - don't check tasks older than this (prevent excessive load)
+max_age_seconds = 3600
+
+# Batch size for each polling query
+batch_size = 50
+
+# Maximum concurrent polling operations
+max_concurrent_pollers = 2
+
+# Event channel configuration  
+[task_readiness.event_channel]
+# Buffer size for task readiness event channels
+buffer_size = 1000
+
+# Channel timeout in milliseconds when sending events
+send_timeout_ms = 1000
+
+# Maximum number of event processing retries
+max_retries = 3
+
+# Backoff configuration for event processing failures
+[task_readiness.event_channel.backoff]
+# Initial backoff delay in milliseconds
+initial_delay_ms = 100
+
+# Maximum backoff delay in milliseconds  
+max_delay_ms = 5000
+
+# Backoff multiplier for exponential backoff
+multiplier = 2.0
+
+# Maximum jitter percentage (0.0 to 1.0)
+jitter_percent = 0.1
+
+# Task readiness coordinator configuration
+[task_readiness.coordinator]
+# Coordinator instance identifier prefix
+instance_id_prefix = "task_readiness"
+
+# Maximum number of concurrent task processing operations
+max_concurrent_operations = 100
+
+# Operation timeout in milliseconds
+operation_timeout_ms = 5000
+
+# Statistics collection interval in seconds
+stats_interval_seconds = 60
+
+# Error handling configuration
+[task_readiness.error_handling]
+# Maximum consecutive errors before coordinator shutdown
+max_consecutive_errors = 10
+
+# Error rate threshold for triggering alerts (errors per minute)
+error_rate_threshold_per_minute = 5
+
+# Circuit breaker configuration for database operations
+[task_readiness.error_handling.circuit_breaker]
+# Enable circuit breaker for database operations  
+enabled = true
+
+# Failure threshold before opening circuit
+failure_threshold = 5
+
+# Recovery timeout in seconds
+recovery_timeout_seconds = 30
+
+# Half-open max calls for testing recovery
+half_open_max_calls = 3

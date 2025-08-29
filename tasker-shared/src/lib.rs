@@ -83,7 +83,9 @@
 pub mod config;
 pub mod constants;
 pub mod database;
+pub mod deployment;
 pub mod errors;
+pub mod event_driven;
 pub mod events;
 pub mod logging;
 pub mod messaging;
@@ -106,9 +108,16 @@ pub use constants::{
     status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
     ReenqueueReason, WorkflowEdgeType,
 };
+
+// Re-export shared event-driven and deployment abstractions
 pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
+};
+pub use deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
+pub use event_driven::{
+    EventContext, EventDrivenSystem, EventSystemBaseConfig, EventSystemFactory,
+    EventSystemNotification, EventSystemStatistics, SystemStatistics,
 };
 
 pub use errors::{

@@ -480,6 +480,12 @@ impl From<crate::events::PublishError> for OrchestrationError {
     }
 }
 
+impl From<crate::deployment::DeploymentModeError> for TaskerError {
+    fn from(error: crate::deployment::DeploymentModeError) -> Self {
+        TaskerError::OrchestrationError(format!("DeploymentModeError: {}", error))
+    }
+}
+
 /// Convert `Box<dyn Error>` patterns to OrchestrationError for legacy compatibility
 impl From<Box<dyn std::error::Error + Send + Sync>> for OrchestrationError {
     fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {

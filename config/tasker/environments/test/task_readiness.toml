@@ -1,0 +1,58 @@
+# TAS-43 Task Readiness Configuration - Test Environment
+# Test-specific overrides for task readiness system
+
+[task_readiness]
+# Start with polling only for test stability, can be overridden by specific tests
+deployment_mode = "polling_only"
+
+[task_readiness.enhanced_settings]
+# Very short timeouts for test speed
+startup_timeout_seconds = 5
+shutdown_timeout_seconds = 2
+
+# Enable metrics for test validation
+metrics_enabled = true
+
+# Very low rollback threshold for testing rollback logic
+rollback_threshold_percent = 1.0
+
+[task_readiness.notification.connection]
+# Fast connection handling for tests
+health_check_interval_seconds = 5
+max_connection_retries = 2
+connection_retry_delay_seconds = 1
+
+[task_readiness.fallback_polling]
+# Fast polling for test speed
+polling_interval_ms = 500
+age_threshold_seconds = 1
+max_age_seconds = 300  # 5 minutes max for tests
+batch_size = 10
+
+[task_readiness.event_channel]
+# Small buffer for tests
+buffer_size = 100
+send_timeout_ms = 500
+
+[task_readiness.event_channel.backoff]
+# Fast backoff for test speed
+initial_delay_ms = 50
+max_delay_ms = 1000
+multiplier = 1.5
+
+[task_readiness.coordinator]
+# Test-specific coordinator settings
+max_concurrent_operations = 20
+operation_timeout_ms = 2000
+stats_interval_seconds = 10
+
+[task_readiness.error_handling]
+# Very low error thresholds for test validation
+max_consecutive_errors = 3
+error_rate_threshold_per_minute = 1
+
+[task_readiness.error_handling.circuit_breaker]
+# Fast circuit breaker for tests
+failure_threshold = 2
+recovery_timeout_seconds = 5
+half_open_max_calls = 1
