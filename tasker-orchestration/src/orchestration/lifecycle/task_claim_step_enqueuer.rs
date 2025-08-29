@@ -65,6 +65,7 @@ use crate::orchestration::{
     task_claim::task_claimer::{ClaimedTask, TaskClaimer},
 };
 use chrono::{DateTime, Utc};
+use pgmq_notify::PgmqClient;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -72,7 +73,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::TaskClaimStepEnqueuerConfig;
 use tasker_shared::config::TaskerConfig;
-use tasker_shared::messaging::PgmqClient;
 use tasker_shared::TaskerResult;
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};

@@ -7,7 +7,6 @@
 //! ## Structure
 //!
 //! - `unified_client.rs` - Main abstraction trait and enum for backend switching
-//! - `pgmq_client.rs` - PostgreSQL Message Queue (pgmq) implementation
 //! - `protected_pgmq_client.rs` - Circuit breaker protected pgmq client
 //! - `in_memory_client.rs` - In-memory implementation for testing
 //!
@@ -15,6 +14,8 @@
 //!
 //! ```rust
 //! use crate::messaging::clients::{UnifiedMessageClient, MessageClient};
+//! // NOTE: PgmqClient is now located in pgmq-notify crate
+//! use pgmq_notify::PgmqClient;
 //!
 //! // Create a client based on your needs
 //! let client = UnifiedMessageClient::new_in_memory(); // For testing
@@ -26,16 +27,18 @@
 //! ```
 
 pub mod in_memory_client;
-pub mod pgmq_client;
-pub mod protected_pgmq_client;
+pub mod tasker_pgmq_client;
 pub mod traits;
 pub mod types;
 pub mod unified_client;
 
 // Re-export the main types for convenience
 pub use in_memory_client::{InMemoryClient, InMemoryMessage, InMemoryQueue};
-pub use pgmq_client::PgmqClient;
-pub use protected_pgmq_client::{ProtectedPgmqClient, ProtectedPgmqError};
-pub use traits::PgmqClientTrait;
-pub use types::{ClientStatus, PgmqStepMessage, PgmqStepMessageMetadata, QueueMetrics};
-pub use unified_client::{MessageClient, UnifiedMessageClient};
+// NOTE: PgmqClient is now imported from pgmq-notify crate with our extensions
+pub use pgmq_notify::PgmqClient;
+pub use traits::{MessageClient, PgmqClientTrait};
+// Types are now re-exported from both pgmq-notify and our extensions in types.rs
+pub use types::{
+    ClientStatus, PgmqStepMessage, PgmqStepMessageMetadata, QueueMetrics, TaskerPgmqClientExt,
+};
+pub use unified_client::UnifiedMessageClient;

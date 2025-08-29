@@ -57,6 +57,7 @@ use crate::orchestration::{
     state_manager::StateManager, task_claim::task_claimer::ClaimedTask,
     viable_step_discovery::ViableStepDiscovery,
 };
+use pgmq_notify::PgmqClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -67,7 +68,7 @@ use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::events::EventPublisher;
 use tasker_shared::messaging::message::SimpleStepMessage;
-use tasker_shared::messaging::{PgmqClient, PgmqClientTrait, UnifiedPgmqClient};
+use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::types::ViableStep;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};

@@ -242,6 +242,72 @@ impl From<Box<dyn std::error::Error + Send + Sync>> for MessagingError {
     }
 }
 
+// Conversion from pgmq-notify errors to our more detailed error types
+impl From<pgmq_notify::PgmqNotifyError> for MessagingError {
+    fn from(err: pgmq_notify::PgmqNotifyError) -> Self {
+        match err {
+            pgmq_notify::PgmqNotifyError::Database(sqlx_err) => sqlx_err.into(),
+            pgmq_notify::PgmqNotifyError::Serialization(json_err) => json_err.into(),
+            pgmq_notify::PgmqNotifyError::Configuration { message } => {
+                MessagingError::configuration("pgmq-notify", message)
+            }
+            pgmq_notify::PgmqNotifyError::InvalidChannel { channel } => {
+                MessagingError::configuration(
+                    "pgmq-notify",
+                    format!("Invalid channel: {}", channel),
+                )
+            }
+            pgmq_notify::PgmqNotifyError::InvalidPattern { pattern } => {
+                MessagingError::configuration(
+                    "pgmq-notify",
+                    format!("Invalid pattern: {}", pattern),
+                )
+            }
+            pgmq_notify::PgmqNotifyError::NotConnected => {
+                MessagingError::database_connection("pgmq-notify listener not connected")
+            }
+            pgmq_notify::PgmqNotifyError::AlreadyListening { channel } => {
+                MessagingError::configuration(
+                    "pgmq-notify",
+                    format!("Already listening to channel: {}", channel),
+                )
+            }
+            pgmq_notify::PgmqNotifyError::Regex(regex_err) => {
+                MessagingError::configuration("pgmq-notify", format!("Regex error: {}", regex_err))
+            }
+            pgmq_notify::PgmqNotifyError::Generic(err) => {
+                MessagingError::internal(format!("pgmq-notify error: {}", err))
+            }
+            pgmq_notify::PgmqNotifyError::Messaging(msg_err) => {
+                // This is a bit recursive, but should handle the conversion
+                MessagingError::internal(format!("pgmq-notify messaging error: {}", msg_err))
+            }
+            pgmq_notify::PgmqNotifyError::Pgmq(pgmq_err) => {
+                MessagingError::internal(format!("PGMQ error via pgmq-notify: {}", pgmq_err))
+            }
+        }
+    }
+}
+
+// Conversion from pgmq-notify MessagingError to our MessagingError
+impl From<pgmq_notify::MessagingError> for MessagingError {
+    fn from(err: pgmq_notify::MessagingError) -> Self {
+        match err {
+            pgmq_notify::MessagingError::Database(sqlx_err) => sqlx_err.into(),
+            pgmq_notify::MessagingError::Serialization(json_err) => json_err.into(),
+            pgmq_notify::MessagingError::Pgmq(msg) => {
+                MessagingError::internal(format!("PGMQ error: {}", msg))
+            }
+            pgmq_notify::MessagingError::Configuration(msg) => {
+                MessagingError::configuration("pgmq", msg)
+            }
+            pgmq_notify::MessagingError::Generic(msg) => {
+                MessagingError::internal(format!("pgmq-notify: {}", msg))
+            }
+        }
+    }
+}
+
 /// Result type alias for messaging operations
 pub type MessagingResult<T> = Result<T, MessagingError>;
 

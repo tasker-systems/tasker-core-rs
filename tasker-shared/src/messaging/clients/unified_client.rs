@@ -45,68 +45,10 @@ use crate::messaging::{
 };
 use crate::TaskerResult;
 
-use super::{in_memory_client::InMemoryClient, pgmq_client::PgmqClient};
-
-/// Abstraction over multiple message queue backends
-///
-/// This trait defines the core messaging operations needed for workflow orchestration.
-/// All message queue backends (PGMQ, RabbitMQ, etc.) must implement this interface.
-#[async_trait]
-pub trait MessageClient: Send + Sync {
-    /// Send a step execution message to the appropriate namespace queue
-    async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()>;
-
-    /// Send a simple step message (UUID-based) to namespace queue
-    async fn send_simple_step_message(
-        &self,
-        namespace: &str,
-        message: SimpleStepMessage,
-    ) -> TaskerResult<()>;
-
-    /// Claim/receive step messages from a namespace queue (worker operation)
-    async fn receive_step_messages(
-        &self,
-        namespace: &str,
-        limit: i32,
-        visibility_timeout: i32,
-    ) -> TaskerResult<Vec<StepMessage>>;
-
-    /// Send step execution result back to orchestration
-    async fn send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()>;
-
-    /// Send task request for initialization
-    async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()>;
-
-    /// Receive task requests (orchestration operation)
-    async fn receive_task_requests(&self, limit: i32) -> TaskerResult<Vec<TaskRequestMessage>>;
-
-    /// Send step result message to orchestration
-    async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()>;
-
-    /// Receive step result messages (orchestration operation)
-    async fn receive_step_result_messages(
-        &self,
-        limit: i32,
-    ) -> TaskerResult<Vec<StepResultMessage>>;
-
-    /// Initialize queues for given namespaces
-    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> TaskerResult<()>;
-
-    /// Create a specific queue
-    async fn create_queue(&self, queue_name: &str) -> TaskerResult<()>;
-
-    /// Delete/acknowledge a processed message
-    async fn delete_message(&self, queue_name: &str, message_id: i64) -> TaskerResult<()>;
-
-    /// Get queue metrics and statistics
-    async fn get_queue_metrics(&self, queue_name: &str) -> TaskerResult<QueueMetrics>;
-
-    /// Get client type for debugging/observability
-    fn client_type(&self) -> &'static str;
-
-    /// Get client-specific configuration/status
-    async fn get_client_status(&self) -> TaskerResult<ClientStatus>;
-}
+use super::in_memory_client::InMemoryClient;
+use super::traits::MessageClient;
+use super::TaskerPgmqClientExt;
+use pgmq_notify::PgmqClient;
 
 /// Unified message client supporting multiple backends
 ///
@@ -126,7 +68,9 @@ pub enum UnifiedMessageClient {
 impl MessageClient for UnifiedMessageClient {
     async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()> {
         match self {
-            Self::Pgmq(client) => client.send_step_message(namespace, message).await,
+            Self::Pgmq(client) => {
+                MessageClient::send_step_message(client.as_ref(), namespace, message).await
+            }
             Self::RabbitMq(client) => client.send_step_message(namespace, message).await,
             Self::InMemory(client) => client.send_step_message(namespace, message).await,
         }
@@ -263,7 +207,10 @@ impl MessageClient for UnifiedMessageClient {
 
     async fn get_client_status(&self) -> TaskerResult<ClientStatus> {
         match self {
-            Self::Pgmq(client) => client.get_client_status().await,
+            Self::Pgmq(client) => client
+                .get_client_status()
+                .await
+                .map_err(|e| crate::TaskerError::MessagingError(e.to_string())),
             Self::RabbitMq(client) => client.get_client_status().await,
             Self::InMemory(client) => client.get_client_status().await,
         }
@@ -433,6 +380,191 @@ impl MessageClient for RabbitMqClient {
             connected: false,
             connection_info: HashMap::new(),
             last_activity: None,
+        })
+    }
+}
+
+// MessageClient implementation for PgmqClient (pgmq-notify unified client)
+#[async_trait]
+impl MessageClient for PgmqClient {
+    async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()> {
+        // Convert StepMessage to PgmqStepMessage
+        let pgmq_message = super::types::PgmqStepMessage {
+            step_uuid: message.step_uuid,
+            task_uuid: message.task_uuid,
+            namespace: namespace.to_string(),
+            step_name: message.step_name.clone(),
+            step_payload: message.step_payload.clone(),
+            metadata: super::types::PgmqStepMessageMetadata {
+                enqueued_at: chrono::Utc::now(),
+                retry_count: 0,
+                max_retries: 3,
+                timeout_seconds: Some((message.metadata.timeout_ms / 1000) as i64),
+            },
+        };
+
+        let queue_name = format!("{}_queue", namespace);
+        TaskerPgmqClientExt::send_step_message(self, &queue_name, &pgmq_message)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to send step message: {}", e))
+            })?;
+        Ok(())
+    }
+
+    async fn send_simple_step_message(
+        &self,
+        namespace: &str,
+        message: SimpleStepMessage,
+    ) -> TaskerResult<()> {
+        // Convert SimpleStepMessage to a basic JSON message
+        let queue_name = format!("{}_queue", namespace);
+        self.send_json_message(&queue_name, &message)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to send simple message: {}", e))
+            })?;
+        Ok(())
+    }
+
+    async fn receive_step_messages(
+        &self,
+        namespace: &str,
+        limit: i32,
+        visibility_timeout: i32,
+    ) -> TaskerResult<Vec<StepMessage>> {
+        let queue_name = format!("{}_queue", namespace);
+        let messages = self
+            .read_messages(&queue_name, Some(visibility_timeout), Some(limit))
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to receive messages: {}", e))
+            })?;
+
+        // Convert pgmq messages to StepMessage
+        let mut step_messages = Vec::new();
+        for msg in messages {
+            // Parse the message as StepMessage directly
+            if let Ok(step_msg) = serde_json::from_value::<StepMessage>(msg.message) {
+                step_messages.push(step_msg);
+            }
+        }
+
+        Ok(step_messages)
+    }
+
+    async fn send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()> {
+        self.send_json_message("orchestration_step_results", &result)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
+            })?;
+        Ok(())
+    }
+
+    async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()> {
+        self.send_json_message("task_requests", &request)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to send task request: {}", e))
+            })?;
+        Ok(())
+    }
+
+    async fn receive_task_requests(&self, limit: i32) -> TaskerResult<Vec<TaskRequestMessage>> {
+        let messages = self
+            .read_messages("task_requests", Some(30), Some(limit))
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!(
+                    "Failed to receive task requests: {}",
+                    e
+                ))
+            })?;
+
+        let mut requests = Vec::new();
+        for msg in messages {
+            if let Ok(request) = serde_json::from_value::<TaskRequestMessage>(msg.message) {
+                requests.push(request);
+            }
+        }
+
+        Ok(requests)
+    }
+
+    async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()> {
+        self.send_json_message("orchestration_step_results", &result)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
+            })?;
+        Ok(())
+    }
+
+    async fn receive_step_result_messages(
+        &self,
+        limit: i32,
+    ) -> TaskerResult<Vec<StepResultMessage>> {
+        let messages = self
+            .read_messages("orchestration_step_results", Some(30), Some(limit))
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to receive step results: {}", e))
+            })?;
+
+        let mut results = Vec::new();
+        for msg in messages {
+            if let Ok(result) = serde_json::from_value::<StepResultMessage>(msg.message) {
+                results.push(result);
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> TaskerResult<()> {
+        self.initialize_namespace_queues(namespaces)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!(
+                    "Failed to initialize namespace queues: {}",
+                    e
+                ))
+            })
+    }
+
+    async fn create_queue(&self, queue_name: &str) -> TaskerResult<()> {
+        self.create_queue(queue_name).await.map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to create queue: {}", e))
+        })
+    }
+
+    async fn delete_message(&self, queue_name: &str, message_id: i64) -> TaskerResult<()> {
+        self.delete_message(queue_name, message_id)
+            .await
+            .map_err(|e| {
+                crate::TaskerError::MessagingError(format!("Failed to delete message: {}", e))
+            })
+    }
+
+    async fn get_queue_metrics(&self, queue_name: &str) -> TaskerResult<QueueMetrics> {
+        let metrics = self.queue_metrics(queue_name).await.map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to get queue metrics: {}", e))
+        })?;
+        Ok(metrics.into())
+    }
+
+    fn client_type(&self) -> &'static str {
+        "pgmq"
+    }
+
+    async fn get_client_status(&self) -> TaskerResult<ClientStatus> {
+        // Create a basic ClientStatus since PgmqClient doesn't have a get_client_status method
+        Ok(ClientStatus {
+            client_type: "pgmq".to_string(),
+            connected: true, // Assume connected if we can reach this method
+            connection_info: HashMap::new(),
+            last_activity: Some(chrono::Utc::now()),
         })
     }
 }

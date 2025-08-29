@@ -11,9 +11,10 @@ pub mod orchestration_messages;
 pub mod step_handler_result;
 
 pub use clients::{
-    traits::PgmqClientTrait, ClientStatus, MessageClient, PgmqClient, PgmqStepMessage,
-    PgmqStepMessageMetadata, ProtectedPgmqClient, QueueMetrics, UnifiedMessageClient,
+    traits::PgmqClientTrait, MessageClient, PgmqClient, TaskerPgmqClientExt, UnifiedMessageClient,
 };
+// Import tasker-specific types (which re-export and extend pgmq-notify types)
+pub use clients::types::{ClientStatus, PgmqStepMessage, PgmqStepMessageMetadata, QueueMetrics};
 pub use errors::{MessagingError, MessagingResult};
 pub use execution_types::{
     StepBatchRequest, StepBatchResponse, StepExecutionError, StepExecutionMetadata,
@@ -25,34 +26,19 @@ pub use step_handler_result::{
     StepHandlerCallResult, StepHandlerErrorResult, StepHandlerSuccessResult,
 };
 
-use pgmq_notify::client::PgmqNotifyClient;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-/// Unified PGMQ client that can be either standard or circuit-breaker protected
+/// Unified PGMQ client with pgmq-notify capabilities
 ///
 /// Enhanced with pgmq-notify capabilities for event-driven message processing.
 /// This provides both standard PGMQ operations and notification-based specific message reading.
 pub struct UnifiedPgmqClient {
-    /// The underlying PGMQ client (standard or protected)
-    inner: UnifiedPgmqClientInner,
-    /// Enhanced notify client for specific message reading (optional)
-    notify_client: Option<Arc<Mutex<PgmqNotifyClient>>>,
-}
-
-#[derive(Debug, Clone)]
-enum UnifiedPgmqClientInner {
-    /// Standard PGMQ client (no circuit breaker protection)
-    Standard(PgmqClient),
-    /// Circuit breaker protected PGMQ client
-    Protected(ProtectedPgmqClient),
+    /// The underlying PGMQ client from pgmq-notify
+    client: PgmqClient,
 }
 
 impl std::fmt::Debug for UnifiedPgmqClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnifiedPgmqClient")
-            .field("inner", &self.inner)
-            .field("notify_client_enabled", &self.notify_client.is_some())
+            .field("has_notify", &self.client.has_notify_capabilities())
             .finish()
     }
 }
@@ -60,8 +46,7 @@ impl std::fmt::Debug for UnifiedPgmqClient {
 impl Clone for UnifiedPgmqClient {
     fn clone(&self) -> Self {
         Self {
-            inner: self.inner.clone(),
-            notify_client: None, // Don't clone the notify client to avoid complexity
+            client: self.client.clone(),
         }
     }
 }
@@ -69,12 +54,10 @@ impl Clone for UnifiedPgmqClient {
 #[async_trait::async_trait]
 impl PgmqClientTrait for UnifiedPgmqClient {
     async fn create_queue(&self, queue_name: &str) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.create_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => {
-                client.create_queue(queue_name).await.map_err(|e| e.into())
-            }
-        }
+        self.client
+            .create_queue(queue_name)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn send_message(
@@ -82,15 +65,8 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         queue_name: &str,
         message: &PgmqStepMessage,
     ) -> MessagingResult<i64> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.send_message(queue_name, message).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .send_message(queue_name, message)
-                .await
-                .map_err(|e| e.into()),
-        }
+        // Use the extension trait method to send step messages directly
+        TaskerPgmqClientExt::send_step_message(&self.client, queue_name, message).await
     }
 
     async fn send_json_message<T: serde::Serialize + Clone + Send + Sync>(
@@ -98,15 +74,10 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         queue_name: &str,
         message: &T,
     ) -> MessagingResult<i64> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.send_json_message(queue_name, message).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .send_json_message(queue_name, message)
-                .await
-                .map_err(|e| e.into()),
-        }
+        self.client
+            .send_json_message(queue_name, message)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn read_messages(
@@ -115,80 +86,55 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         visibility_timeout: Option<i32>,
         qty: Option<i32>,
     ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client
-                    .read_messages(queue_name, visibility_timeout, qty)
-                    .await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .read_messages(queue_name, visibility_timeout, qty)
-                .await
-                .map_err(|e| e.into()),
-        }
+        self.client
+            .read_messages(queue_name, visibility_timeout, qty)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn delete_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.delete_message(queue_name, message_id).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .delete_message(queue_name, message_id)
-                .await
-                .map_err(|e| e.into()),
-        }
+        self.client
+            .delete_message(queue_name, message_id)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn archive_message(&self, queue_name: &str, message_id: i64) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.archive_message(queue_name, message_id).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .archive_message(queue_name, message_id)
-                .await
-                .map_err(|e| e.into()),
-        }
+        self.client
+            .archive_message(queue_name, message_id)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn purge_queue(&self, queue_name: &str) -> MessagingResult<u64> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.purge_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => {
-                client.purge_queue(queue_name).await.map_err(|e| e.into())
-            }
-        }
+        self.client
+            .purge_queue(queue_name)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn drop_queue(&self, queue_name: &str) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.drop_queue(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => {
-                client.drop_queue(queue_name).await.map_err(|e| e.into())
-            }
-        }
+        self.client
+            .drop_queue(queue_name)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn queue_metrics(&self, queue_name: &str) -> MessagingResult<QueueMetrics> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => client.queue_metrics(queue_name).await,
-            UnifiedPgmqClientInner::Protected(client) => {
-                client.queue_metrics(queue_name).await.map_err(|e| e.into())
-            }
-        }
+        let metrics = self
+            .client
+            .queue_metrics(queue_name)
+            .await
+            .map_err(MessagingError::from)?;
+        // Since we're now re-exporting QueueMetrics from pgmq-notify, no conversion needed
+        Ok(metrics)
     }
 
     async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.initialize_namespace_queues(namespaces).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => client
-                .initialize_namespace_queues(namespaces)
-                .await
-                .map_err(|e| e.into()),
-        }
+        self.client
+            .initialize_namespace_queues(namespaces)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn enqueue_step(
@@ -196,15 +142,8 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         namespace: &str,
         step_message: PgmqStepMessage,
     ) -> MessagingResult<i64> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.enqueue_step(namespace, step_message).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => {
-                // ProtectedPgmqClient now implements the trait method directly
-                client.enqueue_step(namespace, step_message).await
-            }
-        }
+        // Use the extension trait method to enqueue step messages directly
+        TaskerPgmqClientExt::enqueue_step_message(&self.client, namespace, step_message).await
     }
 
     async fn process_namespace_queue(
@@ -213,81 +152,49 @@ impl PgmqClientTrait for UnifiedPgmqClient {
         visibility_timeout: Option<i32>,
         batch_size: i32,
     ) -> MessagingResult<Vec<pgmq::types::Message<serde_json::Value>>> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client
-                    .process_namespace_queue(namespace, visibility_timeout, batch_size)
-                    .await
-            }
-            UnifiedPgmqClientInner::Protected(client) => {
-                // ProtectedPgmqClient now implements the trait method directly
-                client
-                    .process_namespace_queue(namespace, visibility_timeout, batch_size)
-                    .await
-            }
-        }
+        self.client
+            .process_namespace_queue(namespace, visibility_timeout, batch_size)
+            .await
+            .map_err(MessagingError::from)
     }
 
     async fn complete_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()> {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => {
-                client.complete_message(namespace, message_id).await
-            }
-            UnifiedPgmqClientInner::Protected(client) => {
-                // ProtectedPgmqClient now implements the trait method directly
-                client.complete_message(namespace, message_id).await
-            }
-        }
+        self.client
+            .complete_message(namespace, message_id)
+            .await
+            .map_err(MessagingError::from)
     }
 }
 
 impl UnifiedPgmqClient {
-    /// Create a new UnifiedPgmqClient with standard PGMQ client
+    /// Create a new UnifiedPgmqClient from database URL
+    pub async fn new(database_url: &str) -> Result<Self, MessagingError> {
+        let client = PgmqClient::new(database_url)
+            .await
+            .map_err(MessagingError::from)?;
+        Ok(Self { client })
+    }
+
+    /// Create a new UnifiedPgmqClient with configuration
+    pub async fn new_with_config(
+        database_url: &str,
+        config: pgmq_notify::PgmqNotifyConfig,
+    ) -> Result<Self, MessagingError> {
+        let client = PgmqClient::new_with_config(database_url, config)
+            .await
+            .map_err(MessagingError::from)?;
+        Ok(Self { client })
+    }
+
+    /// Create a new UnifiedPgmqClient with existing pool
+    pub async fn new_with_pool(pool: sqlx::PgPool) -> Self {
+        let client = PgmqClient::new_with_pool(pool).await;
+        Self { client }
+    }
+
+    /// Create from an existing PgmqClient (for backward compatibility)
     pub fn new_standard(client: PgmqClient) -> Self {
-        Self {
-            inner: UnifiedPgmqClientInner::Standard(client),
-            notify_client: None,
-        }
-    }
-
-    /// Create a new UnifiedPgmqClient with circuit-breaker protected client
-    pub fn new_protected(client: ProtectedPgmqClient) -> Self {
-        Self {
-            inner: UnifiedPgmqClientInner::Protected(client),
-            notify_client: None,
-        }
-    }
-
-    /// Create a new UnifiedPgmqClient with standard client and notify capabilities
-    pub async fn new_standard_with_notify(
-        client: PgmqClient,
-        database_url: &str,
-    ) -> Result<Self, pgmq_notify::PgmqNotifyError> {
-        let notify_config = pgmq_notify::PgmqNotifyConfig::new();
-        let notify_client = Arc::new(Mutex::new(
-            PgmqNotifyClient::new(database_url, notify_config).await?,
-        ));
-
-        Ok(Self {
-            inner: UnifiedPgmqClientInner::Standard(client),
-            notify_client: Some(notify_client),
-        })
-    }
-
-    /// Create a new UnifiedPgmqClient with protected client and notify capabilities
-    pub async fn new_protected_with_notify(
-        client: ProtectedPgmqClient,
-        database_url: &str,
-    ) -> Result<Self, pgmq_notify::PgmqNotifyError> {
-        let notify_config = pgmq_notify::PgmqNotifyConfig::new();
-        let notify_client = Arc::new(Mutex::new(
-            PgmqNotifyClient::new(database_url, notify_config).await?,
-        ));
-
-        Ok(Self {
-            inner: UnifiedPgmqClientInner::Protected(client),
-            notify_client: Some(notify_client),
-        })
+        Self { client }
     }
 
     /// Read a specific message by ID from a queue using pgmq-notify capabilities
@@ -303,57 +210,21 @@ impl UnifiedPgmqClient {
     where
         T: serde::de::DeserializeOwned + Send + Sync,
     {
-        if let Some(ref notify_client) = self.notify_client {
-            let mut client = notify_client.lock().await;
-            client
-                .read_specific_message::<T>(queue_name, message_id, visibility_timeout)
-                .await
-                .map_err(|e| {
-                    MessagingError::database_connection(format!(
-                        "Failed to read specific message: {e}"
-                    ))
-                })
-        } else {
-            // Fallback to standard batch reading and filtering
-            let messages = self
-                .read_messages(queue_name, Some(visibility_timeout), Some(1))
-                .await?;
-
-            // Find the specific message by ID
-            for msg in messages {
-                if msg.msg_id == message_id {
-                    // Deserialize the message
-                    let typed_message: T =
-                        serde_json::from_value(msg.message.clone()).map_err(|e| {
-                            MessagingError::message_deserialization(format!(
-                                "Failed to deserialize message: {e}"
-                            ))
-                        })?;
-
-                    return Ok(Some(pgmq::types::Message {
-                        msg_id: msg.msg_id,
-                        vt: msg.vt,
-                        read_ct: msg.read_ct,
-                        enqueued_at: msg.enqueued_at,
-                        message: typed_message,
-                    }));
-                }
-            }
-
-            Ok(None)
-        }
+        self.client
+            .read_specific_message::<T>(queue_name, message_id, visibility_timeout)
+            .await
+            .map_err(MessagingError::from)
     }
 
     /// Check if this client has notify capabilities
     pub fn has_notify_capabilities(&self) -> bool {
-        self.notify_client.is_some()
+        self.client.has_notify_capabilities()
     }
 
     /// Clone the inner client type (for backward compatibility)
     pub fn clone_inner(&self) -> UnifiedPgmqClient {
-        match &self.inner {
-            UnifiedPgmqClientInner::Standard(client) => Self::new_standard(client.clone()),
-            UnifiedPgmqClientInner::Protected(client) => Self::new_protected(client.clone()),
+        Self {
+            client: self.client.clone(),
         }
     }
 }

@@ -65,13 +65,15 @@ pub mod emitter;
 pub mod error;
 pub mod events;
 pub mod listener;
+pub mod types;
 
 // Re-export main types for trigger-based usage (recommended)
-pub use client::{PgmqNotifyClient, PgmqNotifyClientFactory};
+pub use client::{PgmqClient, PgmqNotifyClient, PgmqNotifyClientFactory};
 pub use config::PgmqNotifyConfig;
 pub use error::{PgmqNotifyError, Result};
 pub use events::{MessageReadyEvent, PgmqNotifyEvent, QueueCreatedEvent};
 pub use listener::PgmqNotifyListener;
+pub use types::{ClientStatus, MessagingError, QueueMetrics};
 
 // Legacy application-level emitters (for advanced use cases only)
 // Most users should use database triggers instead

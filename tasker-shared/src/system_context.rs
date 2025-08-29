@@ -1,9 +1,10 @@
 use crate::config::{ConfigManager, TaskerConfig};
 use crate::events::EventPublisher;
-use crate::messaging::{PgmqClient, PgmqClientTrait, ProtectedPgmqClient, UnifiedPgmqClient};
+use crate::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use crate::registry::TaskHandlerRegistry;
 use crate::resilience::CircuitBreakerManager;
 use crate::{TaskerError, TaskerResult};
+use pgmq_notify::PgmqClient;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::info;
@@ -151,28 +152,18 @@ impl SystemContext {
             None
         };
 
-        // Create circuit breaker manager if enabled
-        let (circuit_breaker_manager, message_client): (
-            Option<Arc<CircuitBreakerManager>>,
-            Arc<UnifiedPgmqClient>,
-        ) = if let Some(cb_config) = circuit_breaker_config {
-            info!("🛡️ Circuit breakers enabled - creating ProtectedPgmqClient with configuration");
-            let manager = Arc::new(CircuitBreakerManager::from_config(&cb_config));
-            let protected_client =
-                ProtectedPgmqClient::new_with_pool_and_config(database_pool.clone(), &cb_config)
-                    .await;
-            (
-                Some(manager),
-                Arc::new(UnifiedPgmqClient::new_protected(protected_client)),
-            )
+        // Create circuit breaker manager if enabled (deprecated - circuit breakers are now redundant with sqlx)
+        let circuit_breaker_manager = if let Some(cb_config) = circuit_breaker_config {
+            info!("🛡️ Circuit breaker configuration found but ignored - sqlx provides this functionality");
+            Some(Arc::new(CircuitBreakerManager::from_config(&cb_config)))
         } else {
-            info!("📤 Circuit breakers disabled - using standard PgmqClient");
-            let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
-            (
-                None,
-                Arc::new(UnifiedPgmqClient::new_standard(standard_client)),
-            )
+            info!("📤 Using standard PgmqClient with sqlx connection pooling");
+            None
         };
+
+        // Create unified client with sqlx pool (which handles retries, timeouts, etc.)
+        let standard_client = PgmqClient::new_with_pool(database_pool.clone()).await;
+        let message_client = Arc::new(UnifiedPgmqClient::new_standard(standard_client));
         (circuit_breaker_manager, message_client)
     }
 

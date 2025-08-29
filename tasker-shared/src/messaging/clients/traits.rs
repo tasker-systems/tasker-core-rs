@@ -1,10 +1,17 @@
-use crate::messaging::clients::types::{PgmqStepMessage, QueueMetrics};
+use crate::messaging::{
+    clients::types::{ClientStatus, PgmqStepMessage, QueueMetrics},
+    execution_types::StepExecutionResult,
+    message::{SimpleStepMessage, StepMessage},
+    orchestration_messages::{StepResultMessage, TaskRequestMessage},
+};
+use crate::TaskerResult;
+
 use crate::messaging::errors::MessagingResult;
 /// Unified trait for PGMQ client operations
 ///
 /// Provides a common interface for both standard PgmqClient and circuit breaker
 /// protected ProtectedPgmqClient, allowing seamless switching based on configuration.
-use async_trait;
+use async_trait::async_trait;
 use pgmq::types::Message as PgmqMessage;
 use serde::Serialize;
 
@@ -70,4 +77,65 @@ pub trait PgmqClientTrait: Send + Sync {
 
     /// Complete message processing (delete from queue)
     async fn complete_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()>;
+}
+
+/// Abstraction over multiple message queue backends
+///
+/// This trait defines the core messaging operations needed for workflow orchestration.
+/// All message queue backends (PGMQ, RabbitMQ, etc.) must implement this interface.
+#[async_trait]
+pub trait MessageClient: Send + Sync {
+    /// Send a step execution message to the appropriate namespace queue
+    async fn send_step_message(&self, namespace: &str, message: StepMessage) -> TaskerResult<()>;
+
+    /// Send a simple step message (UUID-based) to namespace queue
+    async fn send_simple_step_message(
+        &self,
+        namespace: &str,
+        message: SimpleStepMessage,
+    ) -> TaskerResult<()>;
+
+    /// Claim/receive step messages from a namespace queue (worker operation)
+    async fn receive_step_messages(
+        &self,
+        namespace: &str,
+        limit: i32,
+        visibility_timeout: i32,
+    ) -> TaskerResult<Vec<StepMessage>>;
+
+    /// Send step execution result back to orchestration
+    async fn send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()>;
+
+    /// Send task request for initialization
+    async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()>;
+
+    /// Receive task requests (orchestration operation)
+    async fn receive_task_requests(&self, limit: i32) -> TaskerResult<Vec<TaskRequestMessage>>;
+
+    /// Send step result message to orchestration
+    async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()>;
+
+    /// Receive step result messages (orchestration operation)
+    async fn receive_step_result_messages(
+        &self,
+        limit: i32,
+    ) -> TaskerResult<Vec<StepResultMessage>>;
+
+    /// Initialize queues for given namespaces
+    async fn initialize_namespace_queues(&self, namespaces: &[&str]) -> TaskerResult<()>;
+
+    /// Create a specific queue
+    async fn create_queue(&self, queue_name: &str) -> TaskerResult<()>;
+
+    /// Delete/acknowledge a processed message
+    async fn delete_message(&self, queue_name: &str, message_id: i64) -> TaskerResult<()>;
+
+    /// Get queue metrics and statistics
+    async fn get_queue_metrics(&self, queue_name: &str) -> TaskerResult<QueueMetrics>;
+
+    /// Get client type for debugging/observability
+    fn client_type(&self) -> &'static str;
+
+    /// Get client-specific configuration/status
+    async fn get_client_status(&self) -> TaskerResult<ClientStatus>;
 }

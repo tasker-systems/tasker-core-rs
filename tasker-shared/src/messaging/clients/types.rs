@@ -1,42 +1,13 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use std::collections::HashMap;
-use uuid::Uuid;
+//! Tasker-specific messaging types and compatibility layer
+//!
+//! This module re-exports types from both pgmq-notify (for generic functionality) and
+//! the tasker_pgmq_client module (for tasker-specific types and methods) to provide
+//! a unified API surface for messaging operations.
 
-/// Queue message for step execution (pgmq-rs version)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PgmqStepMessage {
-    pub step_uuid: Uuid,
-    pub task_uuid: Uuid,
-    pub namespace: String,
-    pub step_name: String,
-    pub step_payload: serde_json::Value,
-    pub metadata: PgmqStepMessageMetadata,
-}
+/// Re-export generic types from pgmq-notify for API compatibility
+pub use pgmq_notify::{ClientStatus, QueueMetrics};
 
-/// Metadata for step messages (pgmq-rs version)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PgmqStepMessageMetadata {
-    pub enqueued_at: DateTime<Utc>,
-    pub retry_count: i32,
-    pub max_retries: i32,
-    pub timeout_seconds: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct QueueMetrics {
-    pub queue_name: String,
-    pub message_count: i64,
-    pub consumer_count: Option<i32>,
-    pub oldest_message_age_seconds: Option<i64>,
-}
-
-/// Client status for health checks and monitoring
-#[derive(Debug, Clone)]
-pub struct ClientStatus {
-    pub client_type: String,
-    pub connected: bool,
-    pub connection_info: HashMap<String, JsonValue>,
-    pub last_activity: Option<chrono::DateTime<chrono::Utc>>,
-}
+/// Re-export tasker-specific types and trait from the extension module
+pub use super::tasker_pgmq_client::{
+    PgmqStepMessage, PgmqStepMessageMetadata, TaskerPgmqClientExt,
+};

@@ -14,10 +14,10 @@
 use crate::api_clients::orchestration_client::{
     OrchestrationApiClient, OrchestrationApiConfig, TaskCreationResponse,
 };
+use pgmq_notify::PgmqClient;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tasker_shared::messaging::PgmqClient;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::{NamedStep, NamedTask, TaskNamespace, WorkflowStep};
 use uuid::Uuid;

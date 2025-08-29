@@ -31,6 +31,7 @@ serde_json = { workspace = true }
 
 # Time handling - for timestamps in events
 chrono = { workspace = true }
+uuid = { workspace = true }
 
 # Error handling 
 thiserror = { workspace = true }

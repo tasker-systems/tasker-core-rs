@@ -36,8 +36,8 @@ use crate::messaging::{
 use crate::TaskerResult;
 
 use super::{
+    traits::MessageClient,
     types::{ClientStatus, QueueMetrics},
-    unified_client::MessageClient,
 };
 
 /// Message wrapper for in-memory storage with metadata

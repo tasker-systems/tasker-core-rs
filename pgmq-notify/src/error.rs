@@ -1,5 +1,6 @@
 //! Error types for pgmq-notify
 
+use crate::types::MessagingError;
 use thiserror::Error;
 
 /// Result type for pgmq-notify operations
@@ -43,6 +44,14 @@ pub enum PgmqNotifyError {
     /// Generic error for compatibility
     #[error("Generic error: {0}")]
     Generic(#[from] anyhow::Error),
+
+    /// Messaging error for compatibility with tasker-shared
+    #[error("Messaging error: {0}")]
+    Messaging(#[from] MessagingError),
+
+    /// PGMQ error from underlying library
+    #[error("PGMQ error: {0}")]
+    Pgmq(#[from] pgmq::errors::PgmqError),
 }
 
 impl PgmqNotifyError {
