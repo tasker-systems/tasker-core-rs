@@ -639,61 +639,8 @@ impl OrchestrationProcessorCommandHandler {
                 ))
             })?;
 
-        // Parse as SimpleStepMessage (only task_uuid and step_uuid)
-        let simple_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
-                TaskerError::ValidationError(format!("Invalid SimpleStepMessage format: {e}"))
-            })?;
-
-        // Database hydration using tasker-shared WorkflowStep model
-        let workflow_step =
-            WorkflowStep::find_by_id(self.context.database_pool(), simple_message.step_uuid)
-                .await
-                .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
-                .ok_or_else(|| {
-                    TaskerError::ValidationError(format!(
-                        "WorkflowStep not found for step_uuid: {}",
-                        simple_message.step_uuid
-                    ))
-                })?;
-
-        // Deserialize StepExecutionResult from results JSONB column
-        let step_execution_result: StepExecutionResult =
-            serde_json::from_value(workflow_step.results.ok_or_else(|| {
-                TaskerError::ValidationError(format!(
-                    "No results found for step_uuid: {}",
-                    simple_message.step_uuid
-                ))
-            })?)
-            .map_err(|e| {
-                TaskerError::ValidationError(format!(
-                    "Failed to deserialize StepExecutionResult from results JSONB: {e}"
-                ))
-            })?;
-
-        // Delegate to existing step result processing logic
-        let result = self.handle_process_step_result(step_execution_result).await;
-
-        // Delete the message only if processing was successful
-        if result.is_ok() {
-            match self
-                .pgmq_client
-                .delete_message(&message_event.queue_name, message.msg_id)
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    tracing::warn!(
-                        msg_id = message.msg_id,
-                        queue = %message_event.queue_name,
-                        error = %e,
-                        "Failed to delete processed step result message"
-                    );
-                }
-            }
-        }
-
-        result
+        self.handle_step_result_from_message(&message_event.queue_name, message)
+            .await
     }
 
     /// Handle step result processing from message event - SimpleStepMessage approach with database hydration
@@ -809,63 +756,8 @@ impl OrchestrationProcessorCommandHandler {
             "Successfully read specific task request message"
         );
 
-        // Parse the task request message
-        let task_request: TaskRequestMessage = serde_json::from_value(message.message.clone())
-            .map_err(|e| {
-                tracing::error!(
-                    msg_id = message.msg_id,
-                    queue = %message_event.queue_name,
-                    error = %e,
-                    message_content = %message.message,
-                    "Failed to parse task request message"
-                );
-                TaskerError::ValidationError(format!("Invalid task request message format: {e}"))
-            })?;
-
-        // Delegate to existing task initialization logic
-        let result = self.handle_initialize_task(task_request).await;
-
-        match &result {
-            Ok(_) => {
-                tracing::debug!(
-                    msg_id = message.msg_id,
-                    queue = %message_event.queue_name,
-                    "Task initialization successful, deleting message"
-                );
-                // Delete the message only if processing was successful
-                match self
-                    .pgmq_client
-                    .delete_message(&message_event.queue_name, message.msg_id)
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::debug!(
-                            msg_id = message.msg_id,
-                            queue = %message_event.queue_name,
-                            "Successfully deleted processed task request message"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            msg_id = message.msg_id,
-                            queue = %message_event.queue_name,
-                            error = %e,
-                            "Failed to delete processed task request message"
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(
-                    msg_id = message.msg_id,
-                    queue = %message_event.queue_name,
-                    error = %e,
-                    "Task initialization failed, keeping message in queue"
-                );
-            }
-        }
-
-        result
+        self.handle_task_initialize_from_message(&message_event.queue_name, message)
+            .await
     }
 
     /// Handle task initialization from message event - delegates full message lifecycle to worker
@@ -966,61 +858,8 @@ impl OrchestrationProcessorCommandHandler {
                 ))
             })?;
 
-        // Parse the message to extract task_uuid
-        // For now, assume the message contains a task_uuid field directly
-        let task_uuid = message
-            .message
-            .get("task_uuid")
-            .and_then(|v| v.as_str())
-            .and_then(|s| Uuid::parse_str(s).ok())
-            .ok_or_else(|| {
-                TaskerError::ValidationError(
-                    "Invalid or missing task_uuid in finalization message".to_string(),
-                )
-            })?;
-
-        // Delegate to existing task finalization logic
-        let result = self.handle_finalize_task(task_uuid).await;
-
-        // Delete the message only if processing was successful
-        if matches!(result, Ok(TaskFinalizationResult::Success { .. })) {
-            match self
-                .pgmq_client
-                .delete_message(&message_event.queue_name, message.msg_id)
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    tracing::warn!(
-                        msg_id = message.msg_id,
-                        queue = %message_event.queue_name,
-                        task_uuid = %task_uuid,
-                        error = %e,
-                        "Failed to delete processed finalization message"
-                    );
-                }
-            }
-        } else {
-            // Get error details from result
-            let error_msg = match &result {
-                Ok(TaskFinalizationResult::NotClaimed { reason, .. }) => {
-                    format!("Not claimed: {}", reason)
-                }
-                Ok(TaskFinalizationResult::Failed { error }) => format!("Failed: {}", error),
-                Err(e) => format!("Error: {}", e),
-                _ => "Unknown finalization result".to_string(),
-            };
-
-            tracing::warn!(
-                msg_id = message.msg_id,
-                queue = %message_event.queue_name,
-                task_uuid = %task_uuid,
-                result = %error_msg,
-                "Task finalization was not successful - keeping message in queue"
-            );
-        }
-
-        result
+        self.handle_task_finalize_from_message(&message_event.queue_name, message)
+            .await
     }
 
     /// Handle task finalization from message event - delegates full message lifecycle to worker
