@@ -18,6 +18,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pgmq::Message as PgmqMessage;
+use pgmq_notify::MessageReadyEvent;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, StepExecutionResult};
 use tasker_shared::models::WorkflowStep;
@@ -26,12 +27,12 @@ use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
-use crate::event_publisher::WorkerEventPublisher;
-use crate::event_subscriber::WorkerEventSubscriber;
+use super::event_publisher::WorkerEventPublisher;
+use super::event_subscriber::WorkerEventSubscriber;
+use super::orchestration_result_sender::OrchestrationResultSender;
+use super::step_claim::StepClaim;
+use super::task_template_manager::TaskTemplateManager;
 use crate::health::WorkerHealthStatus;
-use crate::orchestration_result_sender::OrchestrationResultSender;
-use crate::step_claim::StepClaim;
-use crate::task_template_manager::TaskTemplateManager;
 
 /// Worker command responder type
 type CommandResponder<T> = oneshot::Sender<TaskerResult<T>>;
@@ -87,6 +88,17 @@ pub enum WorkerCommand {
     },
     /// Shutdown the worker processor
     Shutdown { resp: CommandResponder<()> },
+    /// Execute step from PgmqMessage - TAS-43 event system integration
+    ExecuteStepFromMessage {
+        queue_name: String,
+        message: PgmqMessage,
+        resp: CommandResponder<()>,
+    },
+    /// Execute step from MessageReadyEvent - TAS-43 event system integration
+    ExecuteStepFromEvent {
+        message_event: pgmq_notify::MessageReadyEvent,
+        resp: CommandResponder<()>,
+    },
 }
 
 /// Worker status information
@@ -400,6 +412,25 @@ impl WorkerProcessor {
             }
             WorkerCommand::HealthCheck { resp } => {
                 let result = self.handle_health_check();
+                let _ = resp.send(result);
+                true // Continue processing
+            }
+            WorkerCommand::ExecuteStepFromMessage {
+                queue_name,
+                message,
+                resp,
+            } => {
+                let result = self
+                    .handle_execute_step_from_message(queue_name, message)
+                    .await;
+                let _ = resp.send(result);
+                true // Continue processing
+            }
+            WorkerCommand::ExecuteStepFromEvent {
+                message_event,
+                resp,
+            } => {
+                let result = self.handle_execute_step_from_event(message_event).await;
                 let _ = resp.send(result);
                 true // Continue processing
             }
@@ -812,6 +843,85 @@ impl WorkerProcessor {
                 self.stats.average_execution_time_ms * (self.stats.total_executed - 1) as f64;
             self.stats.average_execution_time_ms =
                 (total_time + execution_time as f64) / self.stats.total_executed as f64;
+        }
+    }
+
+    /// Execute step from PgmqMessage - TAS-43 event system integration
+    /// This handles the direct message passing pattern to avoid visibility timeout race conditions
+    async fn handle_execute_step_from_message(
+        &mut self,
+        queue_name: String,
+        message: PgmqMessage,
+    ) -> TaskerResult<()> {
+        debug!(
+            worker_id = %self.worker_id,
+            msg_id = message.msg_id,
+            queue_name = %queue_name,
+            "Processing step from direct message (TAS-43 event system)"
+        );
+
+        // Deserialize the message payload as SimpleStepMessage
+        let step_message: SimpleStepMessage = serde_json::from_value(message.message.clone())
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to deserialize step message: {}", e))
+            })?;
+
+        // Create PgmqMessage<SimpleStepMessage> for existing handler
+        let typed_message = PgmqMessage {
+            msg_id: message.msg_id,
+            message: step_message,
+            vt: message.vt,
+            read_ct: message.read_ct,
+            enqueued_at: message.enqueued_at,
+        };
+
+        // Delegate to existing handle_execute_step logic
+        self.handle_execute_step(typed_message, queue_name).await
+    }
+
+    /// Execute step from MessageReadyEvent - TAS-43 event system integration
+    /// This handles the event-driven message processing from pgmq-notify
+    async fn handle_execute_step_from_event(
+        &mut self,
+        message_event: MessageReadyEvent,
+    ) -> TaskerResult<()> {
+        debug!(
+            worker_id = %self.worker_id,
+            msg_id = message_event.msg_id,
+            queue_name = %message_event.queue_name,
+            namespace = %message_event.namespace,
+            "Processing step from event (TAS-43 pgmq-notify event)"
+        );
+
+        // Read the specific message from the queue using the message ID
+        let message = self
+            .context
+            .message_client
+            .read_specific_message::<SimpleStepMessage>(
+                &message_event.queue_name,
+                message_event.msg_id,
+                message_event.visibility_timeout_seconds.unwrap_or(30),
+            )
+            .await
+            .map_err(|e| {
+                TaskerError::MessagingError(format!("Failed to read specific message: {}", e))
+            })?;
+
+        match message {
+            Some(msg) => {
+                // Delegate to existing handle_execute_step logic
+                self.handle_execute_step(msg, message_event.queue_name)
+                    .await
+            }
+            None => {
+                warn!(
+                    worker_id = %self.worker_id,
+                    msg_id = message_event.msg_id,
+                    queue_name = %message_event.queue_name,
+                    "Message not found when processing event (may have been processed already)"
+                );
+                Ok(())
+            }
         }
     }
 }

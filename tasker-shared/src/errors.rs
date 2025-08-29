@@ -59,6 +59,12 @@ impl From<serde_json::Error> for TaskerError {
     }
 }
 
+impl From<crate::messaging::MessagingError> for TaskerError {
+    fn from(error: crate::messaging::MessagingError) -> Self {
+        TaskerError::MessagingError(error.to_string())
+    }
+}
+
 pub type TaskerResult<T> = anyhow::Result<T, TaskerError>;
 pub type OrchestrationResult<T> = anyhow::Result<T, OrchestrationError>;
 
@@ -480,8 +486,8 @@ impl From<crate::events::PublishError> for OrchestrationError {
     }
 }
 
-impl From<crate::deployment::DeploymentModeError> for TaskerError {
-    fn from(error: crate::deployment::DeploymentModeError) -> Self {
+impl From<crate::event_system::deployment::DeploymentModeError> for TaskerError {
+    fn from(error: crate::event_system::deployment::DeploymentModeError) -> Self {
         TaskerError::OrchestrationError(format!("DeploymentModeError: {}", error))
     }
 }

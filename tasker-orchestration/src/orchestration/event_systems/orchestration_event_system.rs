@@ -8,11 +8,9 @@
 //! integration with the EventSystemManager.
 
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tasker_shared::messaging::{StepExecutionMetadata, StepExecutionResult};
 use tasker_shared::{system_context::SystemContext, TaskerResult};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};

@@ -14,8 +14,8 @@ use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 use crate::{
-    task_template_manager::{CacheStats, WorkerTaskTemplateOperations},
     web::{response_types::ErrorResponse, state::WorkerWebState},
+    worker::task_template_manager::{CacheStats, WorkerTaskTemplateOperations},
 };
 use tasker_shared::{models::core::task_template::ResolvedTaskTemplate, types::HandlerMetadata};
 

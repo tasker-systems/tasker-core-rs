@@ -1,8 +1,10 @@
 # Docker ignore file for tasker-server
 # Excludes unnecessary files from Docker build context
+#
 
 # Rust build artifacts
 target/
+**/target/ # Important for workspaces to ignore member targets
 **/*.rs.bk
 *.pdb
 

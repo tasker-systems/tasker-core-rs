@@ -1,64 +1,72 @@
-//! # tasker-worker: TAS-40 Simple Worker Command Pattern
+//! # tasker-worker: TAS-40/TAS-43 Command Pattern with Event-Driven Processing
 //!
-//! This crate provides a simple command pattern worker system that replaces
-//! complex executor pools, auto-scaling coordinators, and polling systems
-//! with pure tokio command processing and declarative FFI event integration.
+//! This crate provides a comprehensive worker system that combines the TAS-40 command
+//! pattern with TAS-43 event-driven processing architecture. Features multiple deployment
+//! modes, robust reliability patterns, and seamless integration with orchestration systems.
 //!
 //! ## Key Features
 //!
-//! - **Simple Command Pattern**: ~100 lines vs 1000+ lines of complex worker system
-//! - **No Polling**: Pure command-driven architecture with tokio channels
-//! - **Declarative FFI Integration**: Event-driven communication with Ruby/Python/WASM
-//! - **Database-as-API**: Workers hydrate context from SimpleStepMessage UUIDs
-//! - **Bidirectional Events**: Worker → FFI execution requests, FFI → Worker completions
-//! - **Ruby Integration**: Uses Ruby-aligned StepHandlerCallResult types
-//! - **Orchestration Integration**: Simple command-based communication
+//! - **TAS-43 Event-Driven Processing**: Real-time PostgreSQL LISTEN/NOTIFY with fallback polling
+//! - **Multiple Deployment Modes**: PollingOnly, EventDrivenOnly, Hybrid (recommended)
+//! - **TAS-40 Command Pattern**: Unified command-driven architecture with tokio channels
+//! - **Reliability-First Design**: Hybrid mode ensures no message loss with dual processing
+//! - **Configuration-Driven**: TOML-based configuration with environment-specific overrides
+//! - **FFI Integration**: Event-driven communication with Ruby/Python/WASM
+//! - **Database-as-API**: Workers hydrate context from step message UUIDs
+//! - **Orchestration Integration**: Seamless communication with orchestration systems
 //!
-//! ## Architecture
+//! ## TAS-43 Event-Driven Architecture
 //!
 //! ```text
-//! WorkerProcessor -> tokio::mpsc -> Command Handlers -> Database Hydration
-//!     ↓                                                        ↓
-//! WorkerEventPublisher -> WorkerEventSystem -> FFI Handler (Ruby/Python/WASM)
-//!     ↑                                           ↓
-//! WorkerEventSubscriber <- WorkerEventSystem <- FFI Handler Completion
-//!     ↓
-//! StepExecutionResult -> OrchestrationCore
+//! ┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────────┐
+//! │ WorkerBootstrap │───▶│  WorkerEventSystem   │───▶│   WorkerProcessor   │
+//! │  (Config-Driven)│    │   (TAS-43 Core)     │    │   (TAS-40 Commands) │
+//! └─────────────────┘    └──────────────────────┘    └─────────────────────┘
+//!                               │                               │
+//!                               ▼                               ▼
+//!                        ┌─────────────────┐            ┌──────────────────┐
+//!                        │ PostgreSQL      │            │ Step Handlers    │
+//!                        │ LISTEN/NOTIFY   │            │ (Ruby/Python)    │
+//!                        │ + Fallback Poll │            │                  │
+//!                        └─────────────────┘            └──────────────────┘
 //! ```
 //!
-//! ## Event-Driven Integration Example
+//! ## Usage Example
 //!
 //! ```rust
-//! use tasker_worker::{WorkerProcessor, WorkerEventPublisher, WorkerEventSubscriber};
-//! use tasker_shared::system_context::SystemContext;
+//! use tasker_worker::{WorkerBootstrap, WorkerBootstrapConfig};
 //!
-//! // Create worker with event integration
-//! let context = SystemContext::new().await?;
-//! let (mut processor, sender) = WorkerProcessor::new("namespace".to_string(), context, 100);
-//!
-//! // Event publisher fires events to FFI handlers
-//! let event_publisher = WorkerEventPublisher::new(worker_id, namespace);
-//!
-//! // Event subscriber receives completions from FFI handlers
-//! let event_subscriber = WorkerEventSubscriber::new(worker_id, namespace);
-//! let completion_receiver = event_subscriber.start_completion_listener();
-//!
-//! // Processor integrates both command and event channels
-//! processor.start_with_events(completion_receiver).await?;
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // TAS-43 Event-Driven Worker with Configuration
+//!     let config = WorkerBootstrapConfig {
+//!         worker_id: "worker-001".to_string(),
+//!         supported_namespaces: vec!["payments".to_string(), "inventory".to_string()],
+//!         enable_web_api: true,
+//!         event_driven_enabled: true,  // TAS-43 Event-Driven Processing
+//!         deployment_mode_hint: Some("Hybrid".to_string()), // Reliability mode
+//!         ..Default::default()
+//!     };
+//!     
+//!     let mut worker_handle = WorkerBootstrap::bootstrap(config).await?;
+//!     
+//!     // Worker system is now running with:
+//!     // - Real-time PostgreSQL LISTEN/NOTIFY
+//!     // - Fallback polling for reliability
+//!     // - Command pattern step processing
+//!     // - Configuration-driven deployment modes
+//!     
+//!     // Graceful shutdown
+//!     worker_handle.stop()?;
+//!     Ok(())
+//! }
 //! ```
 
 pub mod api_clients;
 pub mod bootstrap;
-pub mod command_processor;
 pub mod config;
 pub mod error;
-pub mod event_driven_processor;
-pub mod event_publisher;
-pub mod event_subscriber;
 pub mod health;
-pub mod orchestration_result_sender;
-pub mod step_claim;
-pub mod task_template_manager;
 pub mod web;
 pub mod worker;
 
@@ -70,24 +78,9 @@ pub use api_clients::OrchestrationApiClient;
 pub use bootstrap::{
     WorkerBootstrap, WorkerBootstrapConfig, WorkerSystemHandle, WorkerSystemStatus,
 };
-pub use command_processor::{
-    EventIntegrationStatus, StepExecutionStats, WorkerCommand, WorkerProcessor, WorkerStatus,
-};
+
 pub use error::{Result, WorkerError};
-pub use event_driven_processor::{
-    EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
-};
-pub use event_publisher::{WorkerEventError, WorkerEventPublisher, WorkerEventPublisherStats};
-pub use event_subscriber::{
-    CorrelatedCompletionListener, CorrelatedStepResult, WorkerEventSubscriber,
-    WorkerEventSubscriberError, WorkerEventSubscriberStats,
-};
+
 pub use health::WorkerHealthStatus;
-pub use orchestration_result_sender::OrchestrationResultSender;
-pub use step_claim::StepClaim;
-pub use task_template_manager::{
-    CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
-    WorkerTaskTemplateOperations,
-};
 pub use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
 pub use worker::{WorkerCore, WorkerCoreStatus};

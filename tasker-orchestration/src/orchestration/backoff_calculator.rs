@@ -274,11 +274,12 @@ impl BackoffCalculator {
             return delay_seconds;
         }
 
-        let mut rng = rand::rng();
-        let jitter = rng.random_range(0..=jitter_range);
+        // Use thread_rng() which is properly RAII-compliant
+        let mut rng = rand::thread_rng();
+        let jitter = rng.gen_range(0..=jitter_range);
 
         // Add or subtract jitter randomly
-        if rng.random_bool(0.5) {
+        if rng.gen_bool(0.5) {
             delay_seconds.saturating_add(jitter)
         } else {
             delay_seconds.saturating_sub(jitter)

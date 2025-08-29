@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging first
     logging::init_structured_logging();
 
-    info!("🚀 Starting Tasker Worker Server...");
+    info!("🚀 Starting Tasker Worker Server with TAS-43 Event-Driven Architecture...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));
     info!(
         "   Build Mode: {}",
@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Release"
         }
     );
+    info!("   Architecture: TAS-43 Event-Driven Processing with Hybrid Deployment Mode");
 
     // Get environment override from env var
     let environment_override = env::var("TASKER_ENV").ok();
@@ -65,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| format!("Failed to bootstrap worker: {e}"))?;
 
-    info!("🎉 Worker Server started successfully!");
+    info!("🎉 Worker Server started successfully with TAS-43 Event-Driven Architecture!");
 
     if worker_handle.web_state.is_some() {
         info!("   Web API: Running");
@@ -77,6 +78,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "   Supported namespaces: {:?}",
         worker_handle.worker_config.supported_namespaces
+    );
+    info!(
+        "   Event-driven processing: {}",
+        if worker_handle.worker_config.event_driven_enabled {
+            "Enabled"
+        } else {
+            "Disabled"
+        }
+    );
+    info!(
+        "   Deployment mode: {}",
+        worker_handle
+            .worker_config
+            .deployment_mode_hint
+            .as_deref()
+            .unwrap_or("Default")
     );
     info!("   Press Ctrl+C to shutdown gracefully");
 

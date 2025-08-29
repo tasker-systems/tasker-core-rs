@@ -3,7 +3,7 @@
 //! Contains shared state for the worker web API including database connections,
 //! configuration, and metrics tracking.
 
-use crate::task_template_manager::TaskTemplateManager;
+use crate::worker::task_template_manager::{CacheStats, TaskTemplateManager};
 use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
@@ -143,7 +143,7 @@ impl WorkerWebState {
     }
 
     /// Get task template manager statistics
-    pub fn template_cache_stats(&self) -> crate::task_template_manager::CacheStats {
+    pub fn template_cache_stats(&self) -> CacheStats {
         self.task_template_manager.cache_stats()
     }
 

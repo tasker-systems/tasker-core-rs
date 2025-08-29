@@ -1,4 +1,5 @@
-# TAS-40 Worker Configuration Component (Command Pattern Architecture)
+# TAS-40 Worker Configuration Component (Command Pattern Architecture) 
+# TAS-43 Event-Driven Processing with Deployment Mode Support
 # Controls worker system behavior using event-driven step processing
 # Replaces polling-based executor pools with command pattern
 
@@ -10,6 +11,16 @@ worker_type = "general"
 # Namespaces this worker will process
 namespaces = ["fulfillment", "inventory", "notifications"]
 
+# TAS-43 Event-Driven Processing Configuration
+[worker.event_driven]
+# Enable event-driven processing (vs polling-only mode)
+enabled = true
+# Deployment mode: "PollingOnly", "EventDrivenOnly", or "Hybrid" (recommended)
+deployment_mode = "Hybrid"
+# Health monitoring for event system
+health_monitoring_enabled = true
+health_check_interval_seconds = 30
+
 # Step processing configuration (command pattern)
 [worker.step_processing]
 claim_timeout_seconds = 300
@@ -18,8 +29,31 @@ retry_backoff_multiplier = 2.0
 heartbeat_interval_seconds = 30
 max_concurrent_steps = 100
 
+# TAS-43 Event-Driven Listener Configuration (PostgreSQL LISTEN/NOTIFY)
+[worker.listener]
+# Retry configuration for listener connection failures
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+health_check_interval_seconds = 60
+batch_processing = true
+connection_timeout_seconds = 10
+
+# TAS-43 Fallback Poller Configuration (reliability backup)
+[worker.fallback_poller]
+enabled = true
+polling_interval_ms = 500
+batch_size = 10
+age_threshold_seconds = 2
+max_age_hours = 12
+visibility_timeout_seconds = 30
+
 # Event system configuration for command pattern
 [worker.event_system]
+# Maximum concurrent message processors
+max_concurrent_processors = 10
+# Processing timeout for individual messages
+processing_timeout_seconds = 30
 
 # Event publisher for sending results back to orchestration
 [worker.event_system.publisher]

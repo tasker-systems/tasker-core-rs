@@ -83,9 +83,8 @@
 pub mod config;
 pub mod constants;
 pub mod database;
-pub mod deployment;
 pub mod errors;
-pub mod event_driven;
+pub mod event_system;
 pub mod events;
 pub mod logging;
 pub mod messaging;
@@ -114,10 +113,13 @@ pub use database::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
 };
-pub use deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
-pub use event_driven::{
-    EventContext, EventDrivenSystem, EventSystemBaseConfig, EventSystemFactory,
-    EventSystemNotification, EventSystemStatistics, SystemStatistics,
+
+pub use event_system::{
+    deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus},
+    event_driven::{
+        EventContext, EventDrivenSystem, EventSystemBaseConfig, EventSystemFactory,
+        EventSystemNotification, EventSystemStatistics, SystemStatistics,
+    },
 };
 
 pub use errors::{

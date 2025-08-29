@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tasker_orchestration::orchestration::lifecycle::task_initializer::TaskInitializer;
 use tasker_shared::{messaging::message::SimpleStepMessage, system_context::SystemContext};
 use tasker_worker::{
-    command_processor::WorkerProcessor,
-    task_template_manager::TaskTemplateManager,
     testing::factory::{WorkerTestData, WorkerTestFactory},
+    worker::command_processor::WorkerProcessor,
+    worker::task_template_manager::TaskTemplateManager,
 };
 
 /// Test that orchestration and worker components can be initialized together
@@ -298,7 +298,7 @@ async fn test_corrected_worker_orchestration_integration(
         .await
         .map_err(|e| format!("Failed to create queue: {e}"))?;
 
-    let orchestration_result_sender = tasker_worker::OrchestrationResultSender::new(
+    let orchestration_result_sender = tasker_worker::worker::OrchestrationResultSender::new(
         context.message_client.clone(),
         queue_config.clone(),
         "orchestration".to_string(),

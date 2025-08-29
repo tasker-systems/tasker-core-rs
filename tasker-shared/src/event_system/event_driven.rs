@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
 
-use crate::deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
+use super::deployment::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
 /// Unified trait for all event-driven systems
 ///
@@ -261,7 +261,7 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct MockEvent {
-        data: String,
+        _data: String,
     }
 
     #[async_trait]

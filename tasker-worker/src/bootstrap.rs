@@ -135,23 +135,23 @@ pub struct WorkerBootstrapConfig {
     pub orchestration_api_config: OrchestrationApiConfig,
     /// Environment override (None = auto-detect)
     pub environment_override: Option<String>,
+    /// TAS-43 Event-driven processing configuration
+    pub event_driven_enabled: bool,
+    /// TAS-43 Deployment mode preference (for future configuration-driven control)
+    pub deployment_mode_hint: Option<String>,
 }
 
 impl Default for WorkerBootstrapConfig {
     fn default() -> Self {
         Self {
             worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces: vec![
-                "linear_workflow".to_string(),
-                "order_fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-                "payments".to_string(),
-            ],
+            supported_namespaces: vec!["default".to_string()],
             enable_web_api: true,
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
             environment_override: None,
+            event_driven_enabled: true, // TAS-43: Enable event-driven processing by default
+            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Default to hybrid mode
         }
     }
 }
@@ -170,6 +170,8 @@ impl WorkerBootstrapConfig {
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
             environment_override: Some(config_manager.environment().to_string()),
+            event_driven_enabled: true, // TAS-43: Enable event-driven processing for config-managed workers
+            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Configuration-driven workers use hybrid mode
         }
     }
 
@@ -182,6 +184,8 @@ impl WorkerBootstrapConfig {
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
             environment_override: Some("test".to_string()),
+            event_driven_enabled: true, // TAS-43: Enable event-driven processing for testing
+            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Testing uses hybrid mode for comprehensive coverage
         }
     }
 }
@@ -216,7 +220,7 @@ impl WorkerBootstrap {
         // Initialize system context
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
-        // Initialize WorkerCore with unified configuration
+        // Initialize WorkerCore with unified configuration and TAS-43 event system
         // Use first supported namespace or default
         let namespace = config
             .supported_namespaces
@@ -225,7 +229,7 @@ impl WorkerBootstrap {
             .unwrap_or_else(|| "default_worker".to_string());
 
         info!(
-            "BOOTSTRAP: Initializing WorkerCore for namespace: {}",
+            "BOOTSTRAP: Initializing WorkerCore for namespace: {} with TAS-43 WorkerEventSystem integration",
             namespace
         );
 
@@ -233,13 +237,15 @@ impl WorkerBootstrap {
             WorkerCore::new(
                 system_context.clone(),
                 config.orchestration_api_config.clone(),
-                namespace,
-                Some(true), // Enable event-driven processing by default
+                namespace.clone(),
+                Some(true), // Enable event-driven processing by default - delegates to WorkerEventSystem
             )
             .await?,
         );
 
-        info!("✅ BOOTSTRAP: WorkerCore initialized with unified configuration");
+        info!("✅ BOOTSTRAP: WorkerCore initialized with TAS-43 WorkerEventSystem architecture",);
+        info!("   - Event-driven processing enabled with deployment modes support",);
+        info!("   - Fallback polling for reliability and hybrid deployment mode",);
 
         // Initialize namespace queues if needed
         if !config.supported_namespaces.is_empty() {
@@ -377,65 +383,6 @@ impl WorkerBootstrap {
 
         info!("🎉 BOOTSTRAP: Unified worker system bootstrap completed successfully");
         Ok(handle)
-    }
-
-    /// Quick bootstrap for embedded/testing scenarios
-    ///
-    /// Simplified bootstrap method optimized for embedded mode and testing.
-    pub async fn bootstrap_embedded(
-        supported_namespaces: Vec<String>,
-    ) -> TaskerResult<WorkerSystemHandle> {
-        info!("🚀 BOOTSTRAP: Starting embedded worker system");
-
-        let config = WorkerBootstrapConfig {
-            worker_id: format!("embedded-worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces,
-            enable_web_api: true,
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
-            environment_override: None, // Let it detect environment
-        };
-
-        // Use unified bootstrap
-        Self::bootstrap(config).await
-    }
-
-    /// Bootstrap for standalone deployment
-    ///
-    /// Full-featured bootstrap method for standalone deployments with custom configuration.
-    pub async fn bootstrap_standalone(
-        environment: Option<String>,
-        supported_namespaces: Vec<String>,
-        enable_web_api: bool,
-    ) -> TaskerResult<WorkerSystemHandle> {
-        let config = WorkerBootstrapConfig {
-            worker_id: format!("standalone-worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces,
-            enable_web_api,
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
-            environment_override: environment,
-        };
-
-        Self::bootstrap(config).await
-    }
-
-    /// Bootstrap for testing scenarios
-    ///
-    /// Testing-optimized bootstrap with automatic test environment detection.
-    pub async fn bootstrap_testing(
-        supported_namespaces: Vec<String>,
-    ) -> TaskerResult<WorkerSystemHandle> {
-        let config = WorkerBootstrapConfig {
-            worker_id: format!("test-worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces,
-            enable_web_api: false, // Disable web API for testing by default
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
-            environment_override: Some("test".to_string()),
-        };
-
-        Self::bootstrap(config).await
     }
 }
 
