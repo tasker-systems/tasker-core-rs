@@ -14,26 +14,19 @@ deployment_mode = "hybrid"
 # Coordinator startup timeout in seconds
 startup_timeout_seconds = 30
 
-# Coordinator shutdown timeout in seconds  
+# Coordinator shutdown timeout in seconds
 shutdown_timeout_seconds = 10
 
 # Enable metrics collection for TAS-43 vs TAS-37 comparison
 metrics_enabled = true
 
-# Rollback threshold - error rate percentage that triggers rollback consideration
-rollback_threshold_percent = 5.0
-
 # PostgreSQL LISTEN/NOTIFY configuration
 [task_readiness.notification]
 # Global channels for all task readiness events
-global_channels = [
-    "task_ready",
-    "task_state_change", 
-    "namespace_created"
-]
+global_channels = ["task_ready", "task_state_change", "namespace_created"]
 
 # Namespace-specific channel patterns
-# Pattern: "{base_channel}.{namespace}" 
+# Pattern: "{base_channel}.{namespace}"
 [task_readiness.notification.namespace_patterns]
 task_ready = "task_ready.{namespace}"
 task_state_change = "task_state_change.{namespace}"
@@ -54,7 +47,7 @@ max_connection_retries = 3
 # Delay between connection retry attempts in seconds
 connection_retry_delay_seconds = 2
 
-# Connection health check interval in seconds  
+# Connection health check interval in seconds
 health_check_interval_seconds = 30
 
 # Automatic reconnection on connection loss
@@ -80,7 +73,7 @@ batch_size = 50
 # Maximum concurrent polling operations
 max_concurrent_pollers = 2
 
-# Event channel configuration  
+# Event channel configuration
 [task_readiness.event_channel]
 # Buffer size for task readiness event channels
 buffer_size = 1000
@@ -96,7 +89,7 @@ max_retries = 3
 # Initial backoff delay in milliseconds
 initial_delay_ms = 100
 
-# Maximum backoff delay in milliseconds  
+# Maximum backoff delay in milliseconds
 max_delay_ms = 5000
 
 # Backoff multiplier for exponential backoff
@@ -127,16 +120,6 @@ max_consecutive_errors = 10
 # Error rate threshold for triggering alerts (errors per minute)
 error_rate_threshold_per_minute = 5
 
-# Circuit breaker configuration for database operations
-[task_readiness.error_handling.circuit_breaker]
-# Enable circuit breaker for database operations  
-enabled = true
-
-# Failure threshold before opening circuit
-failure_threshold = 5
-
-# Recovery timeout in seconds
-recovery_timeout_seconds = 30
-
-# Half-open max calls for testing recovery
-half_open_max_calls = 3
+# NOTE: Circuit breaker configuration has been consolidated to circuit_breakers.toml
+# All circuit breaker settings are now managed centrally under:
+# [circuit_breakers.component_configs.task_readiness]

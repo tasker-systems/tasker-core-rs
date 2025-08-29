@@ -25,7 +25,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tasker_shared::config::queue;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 

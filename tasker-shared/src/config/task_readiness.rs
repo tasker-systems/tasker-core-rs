@@ -54,7 +54,7 @@ pub struct EnhancedCoordinatorSettings {
     /// Coordinator startup timeout in seconds
     pub startup_timeout_seconds: u64,
 
-    /// Coordinator shutdown timeout in seconds  
+    /// Coordinator shutdown timeout in seconds
     pub shutdown_timeout_seconds: u64,
 
     /// Enable metrics collection for TAS-43 vs TAS-37 comparison
@@ -187,6 +187,9 @@ pub struct TaskReadinessCoordinatorConfig {
 }
 
 /// Error handling configuration
+///
+/// TAS-43: Circuit breaker configuration has been consolidated to circuit_breakers.toml
+/// and is accessed through the centralized CircuitBreakerConfig in TaskerConfig
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ErrorHandlingConfig {
     /// Maximum consecutive errors before coordinator shutdown
@@ -194,25 +197,8 @@ pub struct ErrorHandlingConfig {
 
     /// Error rate threshold for triggering alerts (errors per minute)
     pub error_rate_threshold_per_minute: u32,
-
-    /// Circuit breaker configuration for database operations
-    pub circuit_breaker: CircuitBreakerConfig,
-}
-
-/// Circuit breaker configuration for database operations
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CircuitBreakerConfig {
-    /// Enable circuit breaker for database operations
-    pub enabled: bool,
-
-    /// Failure threshold before opening circuit
-    pub failure_threshold: u32,
-
-    /// Recovery timeout in seconds
-    pub recovery_timeout_seconds: u64,
-
-    /// Half-open max calls for testing recovery
-    pub half_open_max_calls: u32,
+    // NOTE: Circuit breaker configuration moved to centralized circuit_breakers.toml
+    // Access via TaskerConfig.circuit_breakers.component_configs["task_readiness"]
 }
 
 impl Default for TaskReadinessConfig {
@@ -336,18 +322,7 @@ impl Default for ErrorHandlingConfig {
         Self {
             max_consecutive_errors: 10,
             error_rate_threshold_per_minute: 5,
-            circuit_breaker: CircuitBreakerConfig::default(),
-        }
-    }
-}
-
-impl Default for CircuitBreakerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            failure_threshold: 5,
-            recovery_timeout_seconds: 30,
-            half_open_max_calls: 3,
+            // TAS-43: Circuit breaker configuration now handled centrally via TaskerConfig.circuit_breakers
         }
     }
 }
@@ -396,11 +371,6 @@ impl TaskReadinessConfig {
     /// Get health check interval as Duration
     pub fn health_check_interval(&self) -> Duration {
         Duration::from_secs(self.notification.connection.health_check_interval_seconds)
-    }
-
-    /// Get circuit breaker recovery timeout as Duration
-    pub fn circuit_breaker_recovery_timeout(&self) -> Duration {
-        Duration::from_secs(self.error_handling.circuit_breaker.recovery_timeout_seconds)
     }
 
     /// Generate namespace-specific channel name

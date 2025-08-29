@@ -273,20 +273,20 @@ impl TaskClaimStepEnqueuer {
 
         debug!(
             "🔄 ORCHESTRATION_LOOP: Starting cycle - orchestrator_id: {}, tasks_per_cycle: {}, namespace_filter: {:?}",
-            self.orchestrator_id, self.config.tasks_per_cycle, self.config.namespace_filter
+            self.orchestrator_id, self.config.max_batch_size, self.config.namespace_filter
         );
 
         // PHASE 1: Claim ready tasks with priority fairness
         let claim_start = Instant::now();
         debug!(
             "🎯 ORCHESTRATION_LOOP: Attempting to claim {} ready tasks",
-            self.config.tasks_per_cycle
+            self.config.max_batch_size
         );
 
         let claimed_tasks = self
             .task_claimer
             .claim_ready_tasks(
-                self.config.tasks_per_cycle,
+                self.config.max_batch_size,
                 self.config.namespace_filter.as_deref(),
             )
             .await?;
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     fn test_orchestration_loop_config_defaults() {
         let config = TaskClaimStepEnqueuerConfig::default();
-        assert_eq!(config.tasks_per_cycle, 5);
+        assert_eq!(config.max_batch_size, 5);
         assert_eq!(config.cycle_interval, Duration::from_secs(1));
         assert!(config.namespace_filter.is_none());
         assert!(config.max_cycles.is_none());

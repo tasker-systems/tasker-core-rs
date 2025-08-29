@@ -156,7 +156,7 @@ async fn test_corrected_worker_orchestration_integration(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use serde_json::json;
     use tasker_shared::{
-        config::queue::QueueConfig,
+        config::QueuesConfig,
         messaging::{PgmqClientTrait, StepExecutionResult},
         models::WorkflowStep,
         state_machine::{events::StepEvent, step_state_machine::StepStateMachine},
@@ -274,34 +274,25 @@ async fn test_corrected_worker_orchestration_integration(
     println!("   Task UUID: {}", state_machine.task_uuid());
 
     // 4. Test OrchestrationResultSender with config-driven queue names
-    let queue_config = QueueConfig {
-        orchestration_owned: tasker_shared::config::OrchestrationOwnedQueues {
-            step_results: "orchestration_step_results".to_string(), // From orchestration.toml
-            task_requests: "orchestration_task_requests".to_string(),
-            task_finalizations: "orchestration_task_finalizations".to_string(),
-        },
-        worker_queues: std::collections::HashMap::new(),
-        settings: tasker_shared::config::queue::QueueSettings {
-            visibility_timeout_seconds: 30,
-            message_retention_seconds: 604800,
-            dead_letter_queue_enabled: true,
-            max_receive_count: 3,
-        },
-        orchestration_namespace: "orchestration".to_string(),
-        worker_namespace: "worker".to_string(),
-    };
+    let mut queues_config = tasker_shared::config::QueuesConfig::default();
+    // Override orchestration queue names to match test expectations
+    queues_config.orchestration_queues.step_results =
+        "orchestration_step_results_queue".to_string();
+    queues_config.orchestration_queues.task_requests =
+        "orchestration_task_requests_queue".to_string();
+    queues_config.orchestration_queues.task_finalizations =
+        "orchestration_task_finalizations_queue".to_string();
 
     // Ensure the step results queue exists for testing
     context
         .message_client
-        .create_queue(&queue_config.orchestration_owned.step_results)
+        .create_queue(&queues_config.orchestration_queues.step_results)
         .await
         .map_err(|e| format!("Failed to create queue: {e}"))?;
 
     let orchestration_result_sender = tasker_worker::worker::OrchestrationResultSender::new(
         context.message_client.clone(),
-        queue_config.clone(),
-        "orchestration".to_string(),
+        &queues_config,
     );
 
     // 5. Test SimpleStepMessage sending (simulating worker completion notification)
@@ -312,14 +303,14 @@ async fn test_corrected_worker_orchestration_integration(
 
     println!(
         "✅ SimpleStepMessage sent to orchestration queue: {}",
-        queue_config.orchestration_owned.step_results
+        queues_config.orchestration_queues.step_results
     );
 
     // 6. Verify the message was sent by reading it back
     let messages = context
         .message_client
         .read_messages(
-            &queue_config.orchestration_owned.step_results,
+            &queues_config.orchestration_queues.step_results,
             Some(30),
             Some(1),
         )
@@ -379,7 +370,7 @@ async fn test_corrected_worker_orchestration_integration(
     context
         .message_client
         .delete_message(
-            &queue_config.orchestration_owned.step_results,
+            &queues_config.orchestration_queues.step_results,
             message.msg_id,
         )
         .await

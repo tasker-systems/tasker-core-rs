@@ -223,15 +223,8 @@ impl OrchestrationFallbackPoller {
             polling_errors: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             last_poll_at: self.stats.last_poll_at.clone(),
         };
-        let classifier = tasker_shared::config::QueueClassifier::new(
-            self.context
-                .config_manager
-                .config()
-                .orchestration
-                .queues
-                .orchestration_owned
-                .clone(),
-            config.namespace.clone(),
+        let classifier = tasker_shared::config::QueueClassifier::from_queues_config(
+            &self.context.config_manager.config().queues,
         );
 
         tokio::spawn(async move {
@@ -244,9 +237,18 @@ impl OrchestrationFallbackPoller {
             let mut interval = tokio::time::interval(config.polling_interval);
 
             let monitored_queues = vec![
-                classifier.ensure_orchestration_prefix("orchestration_step_results"),
-                classifier.ensure_orchestration_prefix("orchestration_task_requests"),
-                classifier.ensure_orchestration_prefix("orchestration_task_finalizations"),
+                classifier.ensure_queue_name_well_structured(
+                    "orchestration_step_results_queue",
+                    "orchestration",
+                ),
+                classifier.ensure_queue_name_well_structured(
+                    "orchestration_task_requests_queue",
+                    "orchestration",
+                ),
+                classifier.ensure_queue_name_well_structured(
+                    "orchestration_task_finalizations_queue",
+                    "orchestration",
+                ),
             ];
 
             loop {

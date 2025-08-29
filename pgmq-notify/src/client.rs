@@ -504,9 +504,11 @@ pub use PgmqClientFactory as PgmqNotifyClientFactory;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dotenvy::dotenv;
 
     #[tokio::test]
     async fn test_pgmq_client_creation() {
+        dotenv().ok();
         // This test requires a PostgreSQL database with pgmq extension
         // Skip in CI or when database is not available
         if std::env::var("TEST_DATABASE_URL").is_err() {
@@ -521,6 +523,7 @@ mod tests {
 
     #[test]
     fn test_namespace_extraction() {
+        dotenv().ok();
         let config = PgmqNotifyConfig::new().with_queue_naming_pattern(r"(?P<namespace>\w+)_queue");
 
         // Test the pattern matching directly without needing a full client
@@ -542,6 +545,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shared_pool_pattern() {
+        dotenv().ok();
         // Skip test if no database URL provided
         if std::env::var("TEST_DATABASE_URL").is_err() {
             println!("Skipping shared pool test - no TEST_DATABASE_URL provided");

@@ -1,11 +1,5 @@
 [orchestration]
 mode = "distributed"
-task_requests_queue_name = "task_requests_queue"
-tasks_per_cycle = 5
-cycle_interval_ms = 250
-task_request_polling_interval_ms = 250
-task_request_visibility_timeout_seconds = 300
-task_request_batch_size = 10
 active_namespaces = [
     "fulfillment",
     "inventory",
@@ -19,37 +13,8 @@ default_claim_timeout_seconds = 300
 enable_heartbeat = true
 heartbeat_interval_ms = 5000
 
-[orchestration.queues]
-task_requests = "task_requests_queue"
-task_processing = "task_processing_queue"
-batch_results = "batch_results_queue"
-step_results = "orchestration_step_results"
-orchestration_namespace = "orchestration"
-worker_namespace = "worker"
-
-# Queue type classifications for orchestration-owned queues
-# These must have orchestration namespace prefix if not already present
-[orchestration.queues.orchestration_owned]
-step_results = "orchestration_step_results"
-task_requests = "orchestration_task_requests"
-task_finalizations = "orchestration_task_finalizations"
-
-[orchestration.embedded_orchestrator]
-auto_start = false
-namespaces = ["default", "fulfillment", "inventory", "notifications"]
-shutdown_timeout_seconds = 30
-
-[orchestration.queues.worker_queues]
-default = "default_queue"
-fulfillment = "fulfillment_queue"
-inventory = "inventory_queue"
-notifications = "notifications_queue"
-
-[orchestration.queues.settings]
-visibility_timeout_seconds = 30
-message_retention_seconds = 604800
-dead_letter_queue_enabled = true
-max_receive_count = 3
+# Note: Queue configuration has been moved to config/tasker/base/queues.toml
+# The orchestration system now references the centralized queue configuration
 
 [orchestration.operational_state]
 enable_shutdown_aware_monitoring = true
@@ -60,3 +25,12 @@ graceful_shutdown_timeout_seconds = 30
 emergency_shutdown_timeout_seconds = 5
 enable_transition_logging = true
 transition_log_level = "INFO"
+
+[orchestration.event_systems]
+system_id = "orchestration-event-system"
+deployment_mode = "Hybrid"
+namespace = "orchestration"
+fallback_polling_interval_seconds = 5
+batch_size = 10
+visibility_timeout_seconds = 30
+health_check_interval_seconds = 30

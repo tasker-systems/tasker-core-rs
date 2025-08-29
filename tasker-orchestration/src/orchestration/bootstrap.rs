@@ -1,7 +1,6 @@
 //! # Unified Orchestration Bootstrap System
 //!
 //! Provides a unified way to bootstrap the orchestration system across all deployment modes:
-//! - Embedded mode (Ruby FFI)
 //! - Standalone deployment
 //! - Docker containers
 //! - Testing environments

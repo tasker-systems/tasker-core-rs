@@ -1,0 +1,15 @@
+# Development Environment Queue Configuration Overrides
+
+[queues]
+# Development-specific namespaces including test workflows
+default_namespaces = [ "dev_default", "dev_fulfillment", "dev_inventory", "dev_notifications", "linear_workflow", "tree_workflow"]
+
+# Development-specific backend settings for PGMQ
+[queues.pgmq]
+poll_interval_ms = 200
+shutdown_timeout_seconds = 10
+max_retries = 2
+
+# Override universal queue settings for development
+default_visibility_timeout_seconds = 60
+default_batch_size = 3

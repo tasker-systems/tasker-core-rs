@@ -162,12 +162,11 @@ mod tests {
 
         config.orchestration.mode = "test".to_string();
         config.orchestration.active_namespaces = vec!["test".to_string()];
-        config.orchestration.max_concurrent_orchestrators = 5;
 
-        config.pgmq.poll_interval_ms = 1000;
-        config.pgmq.visibility_timeout_seconds = 30;
-        config.pgmq.batch_size = 10;
-        config.pgmq.max_retries = 3;
+        config.queues.pgmq.poll_interval_ms = 1000;
+        config.queues.default_visibility_timeout_seconds = 30;
+        config.queues.default_batch_size = 10;
+        config.queues.pgmq.max_retries = 3;
 
         config
     }

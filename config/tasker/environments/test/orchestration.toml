@@ -1,19 +1,15 @@
 [orchestration]
-mode = "embedded"
-tasks_per_cycle = 1
-cycle_interval_ms = 50
-task_request_polling_interval_ms = 50
-task_request_visibility_timeout_seconds = 10
-task_request_batch_size = 1
-max_concurrent_orchestrators = 1
+mode = "distributed"
 enable_performance_logging = true
-default_claim_timeout_seconds = 30
-active_namespaces = [ "test_fulfillment", "test_inventory", "test_notifications", "linear_workflow", "tree_workflow", "mixed_dag_workflow",]
+active_namespaces = [
+    "test_fulfillment",
+    "test_inventory",
+    "test_notifications",
+    "linear_workflow",
+    "tree_workflow",
+    "mixed_dag_workflow",
+]
 heartbeat_interval_ms = 1000
-
-[orchestration.embedded_orchestrator]
-auto_start = true
-shutdown_timeout_seconds = 2
 
 [orchestration.queues.settings]
 visibility_timeout_seconds = 10

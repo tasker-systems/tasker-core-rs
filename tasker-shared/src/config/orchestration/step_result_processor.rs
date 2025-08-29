@@ -30,36 +30,31 @@ impl Default for StepResultProcessorConfig {
 }
 
 impl StepResultProcessorConfig {
-    /// Create StepResultProcessorConfig from ConfigManager
+    /// Create StepResultProcessorConfig from ConfigManager using new queues.toml configuration
     pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
         let config = config_manager.config();
 
         Self {
-            step_results_queue_name: config
-                .orchestration
-                .queues
-                .orchestration_owned
-                .step_results
-                .clone(),
-            batch_size: config.pgmq.batch_size as i32,
-            visibility_timeout_seconds: config.pgmq.visibility_timeout_seconds as i32,
-            polling_interval_seconds: config.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: config.pgmq.max_retries as i32,
+            // Use the new queues config for step results queue name
+            step_results_queue_name: config.queues.step_results_queue_name(),
+            // Use queues config for all queue-related settings
+            batch_size: config.queues.default_batch_size as i32,
+            visibility_timeout_seconds: config.queues.default_visibility_timeout_seconds as i32,
+            polling_interval_seconds: config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
+            max_processing_attempts: config.queues.pgmq.max_retries as i32,
         }
     }
 
     pub fn from_tasker_config(tasker_config: &TaskerConfig) -> Self {
         Self {
-            step_results_queue_name: tasker_config
-                .orchestration
-                .queues
-                .orchestration_owned
-                .step_results
-                .clone(),
-            batch_size: tasker_config.pgmq.batch_size as i32,
-            visibility_timeout_seconds: tasker_config.pgmq.visibility_timeout_seconds as i32,
-            polling_interval_seconds: tasker_config.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
-            max_processing_attempts: tasker_config.pgmq.max_retries as i32,
+            // Use the new queues config for step results queue name
+            step_results_queue_name: tasker_config.queues.step_results_queue_name(),
+            // Use queues config for all queue-related settings
+            batch_size: tasker_config.queues.default_batch_size as i32,
+            visibility_timeout_seconds: tasker_config.queues.default_visibility_timeout_seconds
+                as i32,
+            polling_interval_seconds: tasker_config.queues.pgmq.poll_interval_ms / 1000, // Convert ms to seconds
+            max_processing_attempts: tasker_config.queues.pgmq.max_retries as i32,
         }
     }
 }

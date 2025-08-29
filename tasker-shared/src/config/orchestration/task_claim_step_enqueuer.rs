@@ -9,7 +9,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskClaimStepEnqueuerConfig {
     /// Number of tasks to claim per cycle
-    pub tasks_per_cycle: i32,
+    pub max_batch_size: i32,
     /// Namespace filter (None = all namespaces)
     pub namespace_filter: Option<String>,
     /// Continuous run interval
@@ -31,7 +31,7 @@ pub struct TaskClaimStepEnqueuerConfig {
 impl Default for TaskClaimStepEnqueuerConfig {
     fn default() -> Self {
         Self {
-            tasks_per_cycle: 5,
+            max_batch_size: 5,
             namespace_filter: None,
             cycle_interval: Duration::from_secs(1),
             max_cycles: None,
@@ -49,27 +49,17 @@ impl TaskClaimStepEnqueuerConfig {
     pub fn from_config_manager(config_manager: &crate::config::ConfigManager) -> Self {
         let config = config_manager.config();
 
-        Self {
-            tasks_per_cycle: config.orchestration.tasks_per_cycle as i32,
-            namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            cycle_interval: config.orchestration.cycle_interval(),
-            max_cycles: None, // No direct mapping in config, keep as runtime parameter
-            enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: config.orchestration.enable_heartbeat,
-            task_claimer_config: TaskClaimerConfig::from_config_manager(config_manager),
-            step_enqueuer_config: StepEnqueuerConfig::from_config_manager(config_manager),
-            step_result_processor_config: StepResultProcessorConfig::from_tasker_config(&config),
-        }
+        Self::from_tasker_config(config)
     }
 
     pub fn from_tasker_config(config: &TaskerConfig) -> Self {
         Self {
-            tasks_per_cycle: config.orchestration.tasks_per_cycle as i32,
+            max_batch_size: config.task_claimer.max_batch_size,
             namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            cycle_interval: config.orchestration.cycle_interval(),
+            cycle_interval: config.task_claimer.cycle_interval(),
             max_cycles: None, // No direct mapping in config, keep as runtime parameter
             enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: config.orchestration.enable_heartbeat,
+            enable_heartbeat: config.task_claimer.enable_heartbeat,
             task_claimer_config: TaskClaimerConfig::from_tasker_config(config),
             step_enqueuer_config: StepEnqueuerConfig::from_tasker_config(config),
             step_result_processor_config: StepResultProcessorConfig::from_tasker_config(config),

@@ -35,14 +35,15 @@ pub mod manager;
 pub mod orchestration;
 pub mod query_cache;
 pub mod queue;
+pub mod queues;
 pub mod state;
 pub mod task_config_finder;
 pub mod task_readiness;
 pub mod unified_loader;
+pub mod web;
 pub mod worker;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
 
 // Primary exports - TAS-34 Unified Configuration System
@@ -54,11 +55,15 @@ pub use circuit_breaker::{
 };
 pub use error::{ConfigResult, ConfigurationError};
 pub use orchestration::{
-    EmbeddedOrchestratorConfig, ExecutorConfig, ExecutorType, OrchestrationConfig,
-    OrchestrationSystemConfig,
+    event_systems::OrchestrationEventSystemConfig, task_claimer::TaskClaimerConfig, ExecutorConfig,
+    ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
 };
 pub use query_cache::{CacheTypeConfig, QueryCacheConfig};
 pub use queue::{OrchestrationOwnedQueues, QueueConfig, QueueSettings};
+pub use queues::{
+    OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
+    WorkerQueuesConfig,
+};
 
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
@@ -68,10 +73,11 @@ pub use worker::{
     WorkerConfig,
 };
 
+pub use web::*;
+
 // TAS-43 Task Readiness System exports
 pub use task_readiness::{
-    BackoffConfig as TaskReadinessBackoffConfig,
-    CircuitBreakerConfig as TaskReadinessCircuitBreakerConfig, ConnectionConfig,
+    BackoffConfig as TaskReadinessBackoffConfig, ConnectionConfig,
     DeploymentMode as TaskReadinessDeploymentMode, EnhancedCoordinatorSettings,
     ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
     ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
@@ -127,8 +133,9 @@ pub struct TaskerConfig {
     /// Query caching configuration - reuse existing QueryCacheConfig
     pub query_cache: QueryCacheConfig,
 
-    /// PGMQ (PostgreSQL Message Queue) configuration
-    pub pgmq: PgmqConfig,
+    /// Queue system configuration with backend abstraction (TAS-43)
+    /// Note: PGMQ configuration is now handled within queues.pgmq
+    pub queues: QueuesConfig,
 
     /// Orchestration system configuration
     pub orchestration: OrchestrationConfig,
@@ -138,6 +145,9 @@ pub struct TaskerConfig {
 
     /// Task readiness event-driven system configuration (TAS-43)
     pub task_readiness: TaskReadinessConfig,
+
+    /// Task claimer configuration (TAS-43)
+    pub task_claimer: TaskClaimerConfig,
 
     /// Worker configuration (TAS-40)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -493,52 +503,6 @@ impl Default for CacheConfig {
     }
 }
 
-/// PGMQ (PostgreSQL Message Queue) configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PgmqConfig {
-    pub poll_interval_ms: u64,
-    pub visibility_timeout_seconds: u64,
-    pub batch_size: u32,
-    pub max_retries: u32,
-    pub default_namespaces: Vec<String>,
-    pub queue_naming_pattern: String,
-    // New constants unification fields
-    pub max_batch_size: u32, // Replaces Ruby MAX_MESSAGE_COUNT constant
-    pub shutdown_timeout_seconds: u64, // Replaces Ruby FALLBACK_SHUTDOWN_TIMEOUT constant
-}
-
-impl PgmqConfig {
-    /// Get poll interval as Duration
-    pub fn poll_interval(&self) -> Duration {
-        Duration::from_millis(self.poll_interval_ms)
-    }
-
-    /// Get visibility timeout as Duration
-    pub fn visibility_timeout(&self) -> Duration {
-        Duration::from_secs(self.visibility_timeout_seconds)
-    }
-
-    /// Generate queue name for a namespace
-    pub fn queue_name_for_namespace(&self, namespace: &str) -> String {
-        self.queue_naming_pattern.replace("{namespace}", namespace)
-    }
-}
-
-impl Default for PgmqConfig {
-    fn default() -> Self {
-        Self {
-            poll_interval_ms: 1000,
-            visibility_timeout_seconds: 60,
-            queue_naming_pattern: "{namespace}_queue".to_string(),
-            shutdown_timeout_seconds: 10,
-            max_batch_size: 10,
-            batch_size: 10,
-            max_retries: 3,
-            default_namespaces: vec!["default".to_string()],
-        }
-    }
-}
-
 impl Default for TaskerConfig {
     /// Create a safe fallback configuration with minimal defaults
     /// Used when configuration loading fails completely
@@ -654,49 +618,13 @@ impl Default for TaskerConfig {
                 max_size: 10000,
             },
             query_cache: QueryCacheConfig::for_development(),
-            pgmq: PgmqConfig {
-                poll_interval_ms: 250,
-                visibility_timeout_seconds: 30,
-                batch_size: 5,
-                max_retries: 3,
-                default_namespaces: vec!["default".to_string()],
-                queue_naming_pattern: "{namespace}_queue".to_string(),
-                max_batch_size: 100,
-                shutdown_timeout_seconds: 30,
-            },
+            queues: QueuesConfig::default(),
             orchestration: OrchestrationConfig {
-                mode: "embedded".to_string(),
-                task_requests_queue_name: "task_requests_queue".to_string(),
-                tasks_per_cycle: 5,
-                cycle_interval_ms: 250,
-                task_request_polling_interval_ms: 250,
-                task_request_visibility_timeout_seconds: 300,
-                task_request_batch_size: 10,
+                mode: "distributed".to_string(),
                 active_namespaces: vec!["default".to_string()],
-                max_concurrent_orchestrators: 1,
                 enable_performance_logging: false,
-                default_claim_timeout_seconds: 300,
-                queues: QueueConfig {
-                    orchestration_owned: OrchestrationOwnedQueues::default(),
-                    worker_queues: {
-                        let mut queues = HashMap::new();
-                        queues.insert("default".to_string(), "default_queue".to_string());
-                        queues
-                    },
-                    settings: QueueSettings {
-                        visibility_timeout_seconds: 30,
-                        message_retention_seconds: 604800,
-                        dead_letter_queue_enabled: true,
-                        max_receive_count: 3,
-                    },
-                    orchestration_namespace: "orchestration".to_string(),
-                    worker_namespace: "worker".to_string(),
-                },
-                embedded_orchestrator: EmbeddedOrchestratorConfig {
-                    auto_start: false,
-                    namespaces: vec!["default".to_string()],
-                    shutdown_timeout_seconds: 30,
-                },
+                event_systems: OrchestrationEventSystemConfig::default(),
+                // Queue configuration now comes from centralized QueuesConfig
                 enable_heartbeat: true,
                 heartbeat_interval_ms: 5000,
                 operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
@@ -736,6 +664,7 @@ impl Default for TaskerConfig {
                 },
             },
             task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
+            task_claimer: TaskClaimerConfig::default(),     // TAS-44 Task Claimer System
             worker: None, // Optional, only populated when TOML contains worker configuration
             web: None,    // Optional, only populated when TOML contains web configuration
         }
@@ -776,10 +705,10 @@ impl TaskerConfig {
             ));
         }
 
-        // PGMQ configuration validation
-        if self.pgmq.batch_size == 0 {
+        // Queue configuration validation (via centralized queues configuration)
+        if self.queues.default_batch_size == 0 {
             return Err(ConfigurationError::invalid_value(
-                "pgmq.batch_size",
+                "queues.default_batch_size",
                 "0",
                 "batch size must be greater than 0",
             ));
@@ -850,12 +779,12 @@ impl TaskerConfig {
 
     /// Get PGMQ shutdown timeout as Duration
     pub fn pgmq_shutdown_timeout(&self) -> Duration {
-        Duration::from_secs(self.pgmq.shutdown_timeout_seconds)
+        Duration::from_secs(self.queues.pgmq.shutdown_timeout_seconds)
     }
 
-    /// Get PGMQ maximum batch size
+    /// Get queue maximum batch size
     pub fn pgmq_max_batch_size(&self) -> u32 {
-        self.pgmq.max_batch_size
+        self.queues.max_batch_size
     }
 
     /// Validate cross-language configuration consistency between Rust and Ruby
@@ -901,19 +830,19 @@ impl TaskerConfig {
             ));
         }
 
-        // Check pgmq.visibility_timeout_seconds
-        if self.pgmq.visibility_timeout_seconds != visibility_timeout {
+        // Check queues.default_visibility_timeout_seconds
+        if self.queues.default_visibility_timeout_seconds as u64 != visibility_timeout {
             inconsistencies.push(format!(
-                "pgmq.visibility_timeout_seconds: Rust={}, Ruby Expected={}",
-                self.pgmq.visibility_timeout_seconds, visibility_timeout
+                "queues.default_visibility_timeout_seconds: Rust={}, Ruby Expected={}",
+                self.queues.default_visibility_timeout_seconds, visibility_timeout
             ));
         }
 
-        // Check pgmq.batch_size
-        if self.pgmq.batch_size != batch_size {
+        // Check queues.default_batch_size
+        if self.queues.default_batch_size != batch_size {
             inconsistencies.push(format!(
-                "pgmq.batch_size: Rust={}, Ruby Expected={}",
-                self.pgmq.batch_size, batch_size
+                "queues.default_batch_size: Rust={}, Ruby Expected={}",
+                self.queues.default_batch_size, batch_size
             ));
         }
 
@@ -956,18 +885,18 @@ impl TaskerConfig {
                     ));
                 }
 
-                if self.pgmq.poll_interval_ms < 100 {
+                if self.queues.pgmq.poll_interval_ms < 100 {
                     warnings.push(format!(
-                        "pgmq.poll_interval_ms={}ms is very low, may cause high CPU usage in tests",
-                        self.pgmq.poll_interval_ms
+                        "queues.pgmq.poll_interval_ms={}ms is very low, may cause high CPU usage in tests",
+                        self.queues.pgmq.poll_interval_ms
                     ));
                 }
             }
             "production" => {
-                if self.pgmq.poll_interval_ms < 200 {
+                if self.queues.pgmq.poll_interval_ms < 200 {
                     warnings.push(format!(
-                        "pgmq.poll_interval_ms={}ms is low for production, may cause high CPU usage",
-                        self.pgmq.poll_interval_ms
+                        "queues.pgmq.poll_interval_ms={}ms is low for production, may cause high CPU usage",
+                        self.queues.pgmq.poll_interval_ms
                     ));
                 }
 
@@ -987,10 +916,10 @@ impl TaskerConfig {
             }
             "development" => {
                 // Development warnings are generally less strict
-                if self.pgmq.poll_interval_ms < 100 {
+                if self.queues.pgmq.poll_interval_ms < 100 {
                     warnings.push(format!(
-                        "pgmq.poll_interval_ms={}ms is low for development, may impact debugging experience",
-                        self.pgmq.poll_interval_ms
+                        "queues.pgmq.poll_interval_ms={}ms is low for development, may impact debugging experience",
+                        self.queues.pgmq.poll_interval_ms
                     ));
                 }
             }
@@ -1011,374 +940,6 @@ impl TaskerConfig {
         }
 
         warnings
-    }
-}
-
-// Legacy TaskTemplate types removed - use crate::models::core::task_template::TaskTemplate instead
-
-/// Web API configuration for TAS-28 Axum Web API
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebConfig {
-    /// Whether the web API is enabled
-    pub enabled: bool,
-
-    /// Address to bind the web server to
-    pub bind_address: String,
-
-    /// Request timeout in milliseconds
-    pub request_timeout_ms: u64,
-
-    /// Maximum request size in megabytes
-    pub max_request_size_mb: u64,
-
-    /// TLS configuration
-    pub tls: WebTlsConfig,
-
-    /// Database pool configuration for web API
-    pub database_pools: WebDatabasePoolsConfig,
-
-    /// CORS configuration
-    pub cors: WebCorsConfig,
-
-    /// Authentication configuration
-    pub auth: WebAuthConfig,
-
-    /// Rate limiting configuration
-    pub rate_limiting: WebRateLimitConfig,
-
-    /// Resilience configuration
-    pub resilience: WebResilienceConfig,
-
-    /// Resource monitoring configuration
-    pub resource_monitoring: WebResourceMonitoringConfig,
-}
-
-/// Web API TLS configuration
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct WebTlsConfig {
-    /// Whether TLS is enabled
-    pub enabled: bool,
-
-    /// Path to TLS certificate file
-    pub cert_path: String,
-
-    /// Path to TLS private key file
-    pub key_path: String,
-}
-
-/// Web API database pools configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebDatabasePoolsConfig {
-    /// Web API dedicated pool size
-    pub web_api_pool_size: u32,
-
-    /// Web API maximum connections
-    pub web_api_max_connections: u32,
-
-    /// Web API connection timeout in seconds
-    pub web_api_connection_timeout_seconds: u64,
-
-    /// Web API idle timeout in seconds
-    pub web_api_idle_timeout_seconds: u64,
-
-    /// Whether to coordinate with orchestration pool
-    pub coordinate_with_orchestration_pool: bool,
-
-    /// Maximum total connections hint for resource coordination
-    pub max_total_connections_hint: u32,
-}
-
-/// Web API CORS configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebCorsConfig {
-    /// Whether CORS is enabled
-    pub enabled: bool,
-
-    /// Allowed origins
-    pub allowed_origins: Vec<String>,
-
-    /// Allowed methods
-    pub allowed_methods: Vec<String>,
-
-    /// Allowed headers
-    pub allowed_headers: Vec<String>,
-
-    /// Max age in seconds
-    #[serde(default = "default_cors_max_age")]
-    pub max_age_seconds: u64,
-}
-
-fn default_cors_max_age() -> u64 {
-    86400 // 24 hours
-}
-
-/// Web API authentication configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebAuthConfig {
-    /// Whether authentication is enabled
-    pub enabled: bool,
-
-    /// JWT issuer
-    pub jwt_issuer: String,
-
-    /// JWT audience
-    pub jwt_audience: String,
-
-    /// JWT token expiry in hours
-    pub jwt_token_expiry_hours: u64,
-
-    /// JWT private key
-    pub jwt_private_key: String,
-
-    /// JWT public key
-    pub jwt_public_key: String,
-
-    /// API key for testing (use env var WEB_API_KEY in production)
-    pub api_key: String,
-
-    /// API key header name
-    pub api_key_header: String,
-
-    /// Route-specific authentication configuration
-    #[serde(default)]
-    pub protected_routes: HashMap<String, RouteAuthConfig>,
-}
-
-/// Authentication configuration for a specific route
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RouteAuthConfig {
-    /// Type of authentication required ("bearer", "api_key")
-    pub auth_type: String,
-
-    /// Whether authentication is required for this route
-    pub required: bool,
-}
-
-/// Web API rate limiting configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebRateLimitConfig {
-    /// Whether rate limiting is enabled
-    pub enabled: bool,
-
-    /// Requests per minute
-    pub requests_per_minute: u32,
-
-    /// Burst size
-    pub burst_size: u32,
-
-    /// Whether to apply limits per client
-    pub per_client_limit: bool,
-}
-
-/// Web API resilience configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebResilienceConfig {
-    /// Whether circuit breaker is enabled
-    pub circuit_breaker_enabled: bool,
-
-    /// Request timeout in seconds
-    pub request_timeout_seconds: u64,
-
-    /// Maximum concurrent requests
-    pub max_concurrent_requests: u32,
-}
-
-/// Web API resource monitoring configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WebResourceMonitoringConfig {
-    /// Whether to report pool usage to health monitor
-    pub report_pool_usage_to_health_monitor: bool,
-
-    /// Pool usage warning threshold (0.0-1.0)
-    pub pool_usage_warning_threshold: f64,
-
-    /// Pool usage critical threshold (0.0-1.0)
-    pub pool_usage_critical_threshold: f64,
-}
-
-impl Default for WebConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            bind_address: "0.0.0.0:8080".to_string(),
-            request_timeout_ms: 30000,
-            max_request_size_mb: 16,
-            tls: WebTlsConfig::default(),
-            database_pools: WebDatabasePoolsConfig::default(),
-            cors: WebCorsConfig::default(),
-            auth: WebAuthConfig::default(),
-            rate_limiting: WebRateLimitConfig::default(),
-            resilience: WebResilienceConfig::default(),
-            resource_monitoring: WebResourceMonitoringConfig::default(),
-        }
-    }
-}
-
-impl Default for WebDatabasePoolsConfig {
-    fn default() -> Self {
-        Self {
-            web_api_pool_size: 10,
-            web_api_max_connections: 15,
-            web_api_connection_timeout_seconds: 30,
-            web_api_idle_timeout_seconds: 600,
-            coordinate_with_orchestration_pool: true,
-            max_total_connections_hint: 45,
-        }
-    }
-}
-
-impl Default for WebCorsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            allowed_origins: vec!["*".to_string()],
-            allowed_methods: vec![
-                "GET".to_string(),
-                "POST".to_string(),
-                "PUT".to_string(),
-                "DELETE".to_string(),
-                "PATCH".to_string(),
-                "OPTIONS".to_string(),
-            ],
-            allowed_headers: vec!["*".to_string()],
-            max_age_seconds: 86400,
-        }
-    }
-}
-
-impl WebAuthConfig {
-    /// Check if a route requires authentication
-    pub fn route_requires_auth(&self, method: &str, path: &str) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let route_key = format!("{method} {path}");
-
-        // Check exact match first
-        if let Some(config) = self.protected_routes.get(&route_key) {
-            return config.required;
-        }
-
-        // Check for pattern matches (basic support for path parameters)
-        for (pattern, config) in &self.protected_routes {
-            if config.required && self.route_matches_pattern(&route_key, pattern) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Get authentication type for a route
-    pub fn auth_type_for_route(&self, method: &str, path: &str) -> Option<String> {
-        if !self.enabled {
-            return None;
-        }
-
-        let route_key = format!("{method} {path}");
-
-        // Check exact match first
-        if let Some(config) = self.protected_routes.get(&route_key) {
-            if config.required {
-                return Some(config.auth_type.clone());
-            }
-        }
-
-        // Check for pattern matches
-        for (pattern, config) in &self.protected_routes {
-            if config.required && self.route_matches_pattern(&route_key, pattern) {
-                return Some(config.auth_type.clone());
-            }
-        }
-
-        None
-    }
-
-    /// Simple pattern matching for route paths with parameters
-    /// Supports basic {param} patterns like "/v1/tasks/{task_uuid}"
-    fn route_matches_pattern(&self, route: &str, pattern: &str) -> bool {
-        let route_parts: Vec<&str> = route.split_whitespace().collect();
-        let pattern_parts: Vec<&str> = pattern.split_whitespace().collect();
-
-        if route_parts.len() != 2 || pattern_parts.len() != 2 {
-            return false;
-        }
-
-        // Method must match exactly
-        if route_parts[0] != pattern_parts[0] {
-            return false;
-        }
-
-        // Path matching with parameter support
-        let route_path_segments: Vec<&str> = route_parts[1].split('/').collect();
-        let pattern_path_segments: Vec<&str> = pattern_parts[1].split('/').collect();
-
-        if route_path_segments.len() != pattern_path_segments.len() {
-            return false;
-        }
-
-        for (route_segment, pattern_segment) in
-            route_path_segments.iter().zip(pattern_path_segments.iter())
-        {
-            // If pattern segment is a parameter (starts and ends with {}), it matches any value
-            if pattern_segment.starts_with('{') && pattern_segment.ends_with('}') {
-                continue;
-            }
-            // Otherwise, segments must match exactly
-            if route_segment != pattern_segment {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-impl Default for WebAuthConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            jwt_issuer: "tasker-core".to_string(),
-            jwt_audience: "tasker-api".to_string(),
-            jwt_token_expiry_hours: 24,
-            jwt_private_key: String::new(),
-            jwt_public_key: String::new(),
-            api_key: String::new(),
-            api_key_header: "X-API-Key".to_string(),
-            protected_routes: HashMap::new(),
-        }
-    }
-}
-
-impl Default for WebRateLimitConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            requests_per_minute: 1000,
-            burst_size: 100,
-            per_client_limit: true,
-        }
-    }
-}
-
-impl Default for WebResilienceConfig {
-    fn default() -> Self {
-        Self {
-            circuit_breaker_enabled: true,
-            request_timeout_seconds: 30,
-            max_concurrent_requests: 100,
-        }
-    }
-}
-
-impl Default for WebResourceMonitoringConfig {
-    fn default() -> Self {
-        Self {
-            report_pool_usage_to_health_monitor: true,
-            pool_usage_warning_threshold: 0.75,
-            pool_usage_critical_threshold: 0.90,
-        }
     }
 }
 

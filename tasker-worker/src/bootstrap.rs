@@ -158,17 +158,21 @@ impl Default for WorkerBootstrapConfig {
 
 impl WorkerBootstrapConfig {
     /// Create WorkerBootstrapConfig from ConfigManager for configuration-driven bootstrap
+    ///
+    /// TAS-43: This method replaces ::default() usage with proper configuration loading
     pub fn from_config_manager(
         config_manager: &ConfigManager,
         worker_id: String,
         supported_namespaces: Vec<String>,
     ) -> Self {
+        let config = config_manager.config();
+
         Self {
             worker_id,
             supported_namespaces,
-            enable_web_api: true, // Default for most use cases
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
+            enable_web_api: config.web.as_ref().map(|w| w.enabled).unwrap_or(true), // TAS-43: Load from web configuration or default to enabled
+            web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
+            orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
             environment_override: Some(config_manager.environment().to_string()),
             event_driven_enabled: true, // TAS-43: Enable event-driven processing for config-managed workers
             deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Configuration-driven workers use hybrid mode

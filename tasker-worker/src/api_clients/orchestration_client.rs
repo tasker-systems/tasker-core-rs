@@ -43,6 +43,38 @@ impl Default for OrchestrationApiConfig {
     }
 }
 
+impl OrchestrationApiConfig {
+    /// Create OrchestrationApiConfig from TaskerConfig with proper configuration loading
+    ///
+    /// TAS-43: This method replaces ::default() usage with configuration-driven setup
+    pub fn from_tasker_config(config: &tasker_shared::config::TaskerConfig) -> Self {
+        // Handle optional web configuration with sensible defaults
+        let (base_url, timeout_ms) = match &config.web {
+            Some(web_config) => (
+                format!("http://{}", web_config.bind_address),
+                web_config.request_timeout_ms,
+            ),
+            None => {
+                // Fallback to default when web configuration is not present
+                let default_config = Self::default();
+                (default_config.base_url, default_config.timeout_ms)
+            }
+        };
+
+        Self {
+            base_url,
+            timeout_ms,
+            max_retries: 3, // TODO: Load from configuration when orchestration API config is available
+            auth_token: if config.auth.authentication_enabled {
+                Some("worker-token".to_string()) // TODO: Load from auth configuration
+            } else {
+                None
+            },
+            circuit_breaker_enabled: config.circuit_breakers.enabled,
+        }
+    }
+}
+
 /// Response from the orchestration API task creation endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskCreationResponse {

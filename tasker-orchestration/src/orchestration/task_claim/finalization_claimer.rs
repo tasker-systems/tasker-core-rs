@@ -92,9 +92,9 @@ impl FinalizationClaimerConfig {
         let config = config_manager.config();
 
         Self {
-            default_timeout_seconds: config.orchestration.default_claim_timeout_seconds as i32,
-            enable_heartbeat: config.orchestration.enable_heartbeat,
-            heartbeat_interval_seconds: config.orchestration.heartbeat_interval().as_secs(),
+            default_timeout_seconds: config.task_claimer.default_claim_timeout as i32,
+            enable_heartbeat: config.task_claimer.enable_heartbeat,
+            heartbeat_interval_seconds: config.task_claimer.heartbeat_interval().as_secs(),
         }
     }
 }

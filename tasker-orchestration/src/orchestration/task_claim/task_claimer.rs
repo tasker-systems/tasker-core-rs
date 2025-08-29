@@ -335,7 +335,7 @@ mod tests {
         let config = TaskClaimerConfig::default();
         assert_eq!(config.max_batch_size, 10);
         assert_eq!(config.default_claim_timeout, 300);
-        assert_eq!(config.heartbeat_interval, Duration::from_secs(60));
+        assert_eq!(config.heartbeat_interval(), Duration::from_secs(60));
         assert!(config.enable_heartbeat);
     }
 

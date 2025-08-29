@@ -27,8 +27,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_configuration() {
-        let config = TaskerConfig::default();
+    fn test_configuration_loading() {
+        // TAS-43: Replace ::default() usage with proper configuration loading
+        let config_manager = ConfigurationManager::new();
+        let config = config_manager.config();
+
+        // Test basic configuration structure is loaded
         assert!(!config.auth.authentication_enabled);
         assert_eq!(config.auth.strategy, "none");
         assert!(!config.database.enable_secondary_database);
@@ -38,6 +42,11 @@ mod tests {
         );
         assert_eq!(config.backoff.max_backoff_seconds, 300);
         assert!(config.backoff.jitter_enabled);
+
+        // TAS-43: Test that queues configuration is properly loaded
+        assert!(!config.queues.orchestration_namespace.is_empty());
+        assert!(!config.queues.worker_namespace.is_empty());
+        assert_eq!(config.queues.backend, "pgmq");
     }
 
     #[test]

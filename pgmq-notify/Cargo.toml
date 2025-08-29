@@ -33,7 +33,7 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 
-# Error handling 
+# Error handling
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 
@@ -57,10 +57,11 @@ mockall = { workspace = true }
 factori = { workspace = true }
 url = { workspace = true }
 serial_test = { workspace = true }
+dotenvy = { workspace = true }
 
 # Coverage tools (used in CI)
 cargo-llvm-cov = { workspace = true }
 
 [features]
 default = ["sqlx-support"]
-sqlx-support = []  # Feature for sqlx::PgListener integration
+sqlx-support = []          # Feature for sqlx::PgListener integration

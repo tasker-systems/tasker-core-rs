@@ -258,6 +258,7 @@ struct OrchestrationEventHandler {
     /// Configuration
     config: OrchestrationListenerConfig,
     /// System context for database and messaging operations
+    #[allow(dead_code)] // will be used in the future
     context: Arc<SystemContext>,
     /// Event sender for orchestration notifications
     event_sender: mpsc::Sender<OrchestrationNotification>,
@@ -278,13 +279,8 @@ impl OrchestrationEventHandler {
         stats: Arc<OrchestrationListenerStats>,
     ) -> Self {
         // Create queue classifier from config to replace hardcoded string matching
-        let queue_classifier = tasker_shared::config::QueueClassifier::new(
-            tasker_shared::config::OrchestrationOwnedQueues {
-                step_results: "orchestration_step_results".to_string(),
-                task_requests: "orchestration_task_requests".to_string(),
-                task_finalizations: "orchestration_task_finalizations".to_string(),
-            },
-            config.namespace.clone(),
+        let queue_classifier = tasker_shared::config::QueueClassifier::from_queues_config(
+            &context.config_manager.config().queues,
         );
 
         Self {

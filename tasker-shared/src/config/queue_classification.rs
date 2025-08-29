@@ -1,4 +1,5 @@
 use super::queue::OrchestrationOwnedQueues;
+use super::queues::{OrchestrationQueuesConfig, QueuesConfig};
 use serde::{Deserialize, Serialize};
 
 /// Configuration-driven queue classification for message routing and processing
@@ -25,6 +26,7 @@ pub enum QueueType {
 pub struct QueueClassifier {
     orchestration_owned: OrchestrationOwnedQueues,
     orchestration_namespace: String,
+    worker_namespace: String,
 }
 
 impl QueueClassifier {
@@ -32,10 +34,28 @@ impl QueueClassifier {
     pub fn new(
         orchestration_owned: OrchestrationOwnedQueues,
         orchestration_namespace: String,
+        worker_namespace: String,
     ) -> Self {
         Self {
             orchestration_owned,
             orchestration_namespace,
+            worker_namespace,
+        }
+    }
+
+    /// Create a new queue classifier from the new centralized queues configuration
+    pub fn from_queues_config(config: &QueuesConfig) -> Self {
+        // Convert from new config to old structure for compatibility
+        let orchestration_owned = OrchestrationOwnedQueues {
+            step_results: config.orchestration_queues.step_results.clone(),
+            task_requests: config.orchestration_queues.task_requests.clone(),
+            task_finalizations: config.orchestration_queues.task_finalizations.clone(),
+        };
+
+        Self {
+            orchestration_owned,
+            orchestration_namespace: config.orchestration_namespace.clone(),
+            worker_namespace: config.worker_namespace.clone(),
         }
     }
 
@@ -57,7 +77,7 @@ impl QueueClassifier {
             return QueueType::TaskFinalizations;
         }
 
-        // Check for worker namespace queues (pattern: {namespace}_queue)
+        // Check for worker namespace queues (pattern: {namespace}_{name}_queue)
         if let Some(namespace) = self.extract_worker_namespace(queue_name) {
             return QueueType::WorkerNamespace(namespace);
         }
@@ -75,18 +95,24 @@ impl QueueClassifier {
         queue_name == self.orchestration_owned.task_requests
     }
 
-    /// Check if queue name matches configured task finalizations queue  
+    /// Check if queue name matches configured task finalizations queue
     fn is_task_finalizations_queue(&self, queue_name: &str) -> bool {
         queue_name == self.orchestration_owned.task_finalizations
     }
 
-    /// Extract namespace from worker queue name (e.g., "fulfillment_queue" -> Some("fulfillment"))
+    /// Extract namespace from worker queue name (e.g., "worker_fulfillment_queue" -> Some("fulfillment"))
     fn extract_worker_namespace(&self, queue_name: &str) -> Option<String> {
         if queue_name.ends_with("_queue") {
-            let namespace = &queue_name[..queue_name.len() - "_queue".len()];
-            // Ensure it's not one of our orchestration queues
+            let without_queue_suffix = &queue_name[..queue_name.len() - "_queue".len()];
+
+            // Check if it's a worker namespace queue (pattern: worker_{name}_queue)
+            if let Some(name) = without_queue_suffix.strip_prefix("worker_") {
+                return Some(name.to_string());
+            }
+
+            // Legacy support: handle old pattern {namespace}_queue for backwards compatibility
             if !queue_name.starts_with(&self.orchestration_namespace) {
-                return Some(namespace.to_string());
+                return Some(without_queue_suffix.to_string());
             }
         }
         None
@@ -113,14 +139,30 @@ impl QueueClassifier {
     /// If the configured queue name doesn't start with the orchestration namespace,
     /// this method returns the properly prefixed name. This addresses the user's
     /// concern about enforcing namespace prefixing for orchestration-owned queues.
-    pub fn ensure_orchestration_prefix(&self, configured_queue_name: &str) -> String {
-        let expected_prefix = format!("{}_", self.orchestration_namespace);
+    pub fn ensure_queue_name_well_structured(
+        &self,
+        configured_queue_name: &str,
+        context: &str,
+    ) -> String {
+        let expected_prefix = match context {
+            "orchestration" => format!("{}_", self.orchestration_namespace),
+            "worker" => format!("{}_", self.worker_namespace),
+            _ => "".to_string(),
+        };
 
-        if configured_queue_name.starts_with(&expected_prefix) {
-            configured_queue_name.to_string()
-        } else {
-            format!("{}{}", expected_prefix, configured_queue_name)
+        let expected_suffix = "_queue";
+
+        let mut target_queue_name = configured_queue_name.to_string();
+
+        if !configured_queue_name.starts_with(&expected_prefix) {
+            target_queue_name = format!("{}{}", expected_prefix, configured_queue_name);
         }
+
+        if !configured_queue_name.ends_with(expected_suffix) {
+            target_queue_name = format!("{}{}", target_queue_name, expected_suffix);
+        }
+
+        target_queue_name
     }
 }
 
@@ -178,12 +220,16 @@ mod tests {
 
     fn create_test_classifier() -> QueueClassifier {
         let orchestration_owned = OrchestrationOwnedQueues {
-            step_results: "orchestration_step_results".to_string(),
-            task_requests: "orchestration_task_requests".to_string(),
-            task_finalizations: "orchestration_task_finalizations".to_string(),
+            step_results: "orchestration_step_results_queue".to_string(),
+            task_requests: "orchestration_task_requests_queue".to_string(),
+            task_finalizations: "orchestration_task_finalizations_queue".to_string(),
         };
 
-        QueueClassifier::new(orchestration_owned, "orchestration".to_string())
+        QueueClassifier::new(
+            orchestration_owned,
+            "orchestration".to_string(),
+            "worker".to_string(),
+        )
     }
 
     #[test]
@@ -191,7 +237,7 @@ mod tests {
         let classifier = create_test_classifier();
 
         assert_eq!(
-            classifier.classify("orchestration_step_results"),
+            classifier.classify("orchestration_step_results_queue"),
             QueueType::StepResults
         );
     }
@@ -201,7 +247,7 @@ mod tests {
         let classifier = create_test_classifier();
 
         assert_eq!(
-            classifier.classify("orchestration_task_requests"),
+            classifier.classify("orchestration_task_requests_queue"),
             QueueType::TaskRequests
         );
     }
@@ -210,14 +256,21 @@ mod tests {
     fn test_worker_namespace_classification() {
         let classifier = create_test_classifier();
 
+        // Test new worker namespace pattern: worker_{name}_queue
         assert_eq!(
-            classifier.classify("fulfillment_queue"),
+            classifier.classify("worker_fulfillment_queue"),
             QueueType::WorkerNamespace("fulfillment".to_string())
         );
 
         assert_eq!(
-            classifier.classify("inventory_queue"),
+            classifier.classify("worker_inventory_queue"),
             QueueType::WorkerNamespace("inventory".to_string())
+        );
+
+        // Test legacy support for backward compatibility
+        assert_eq!(
+            classifier.classify("fulfillment_queue"),
+            QueueType::WorkerNamespace("fulfillment".to_string())
         );
     }
 
@@ -244,14 +297,21 @@ mod tests {
 
         // Already has prefix - should return unchanged
         assert_eq!(
-            classifier.ensure_orchestration_prefix("orchestration_step_results"),
-            "orchestration_step_results"
+            classifier
+                .ensure_queue_name_well_structured("orchestration_step_results", "orchestration"),
+            "orchestration_step_results_queue"
         );
 
         // Missing prefix - should add it
         assert_eq!(
-            classifier.ensure_orchestration_prefix("step_results"),
-            "orchestration_step_results"
+            classifier.ensure_queue_name_well_structured("step_results_queue", "orchestration"),
+            "orchestration_step_results_queue"
+        );
+
+        // Missing prefix and suffix - should add it
+        assert_eq!(
+            classifier.ensure_queue_name_well_structured("step_results", "orchestration"),
+            "orchestration_step_results_queue"
         );
     }
 
@@ -262,7 +322,7 @@ mod tests {
 
         let classified = ConfigDrivenMessageEvent::classify(
             test_event,
-            "orchestration_step_results",
+            "orchestration_step_results_queue",
             &classifier,
         );
 

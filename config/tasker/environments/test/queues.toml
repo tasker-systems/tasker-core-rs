@@ -1,0 +1,15 @@
+# Test Environment Queue Configuration Overrides
+
+[queues]
+# Test-specific namespaces including all workflow test patterns
+default_namespaces = [ "test_default", "test_fulfillment", "test_inventory", "test_notifications", "linear_workflow", "tree_workflow", "mixed_dag_workflow"]
+
+# Test-specific backend settings for PGMQ (fast testing)
+[queues.pgmq]
+poll_interval_ms = 100
+shutdown_timeout_seconds = 2
+max_retries = 1
+
+# Override universal queue settings for test
+default_visibility_timeout_seconds = 10
+default_batch_size = 1

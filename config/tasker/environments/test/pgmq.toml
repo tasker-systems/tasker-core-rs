@@ -1,7 +1,0 @@
-[pgmq]
-poll_interval_ms = 100
-visibility_timeout_seconds = 10
-batch_size = 1
-max_retries = 1
-shutdown_timeout_seconds = 2
-default_namespaces = [ "test_default", "test_fulfillment", "test_inventory", "test_notifications", "linear_workflow", "tree_workflow", "mixed_dag_workflow",]

@@ -193,11 +193,10 @@ impl WorkerProcessor {
             "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
-        // Create OrchestrationResultSender with config-driven queue names
+        // Create OrchestrationResultSender with centralized queues configuration
         let orchestration_result_sender = OrchestrationResultSender::new(
             context.message_client(),
-            context.config_manager.config().orchestration.queues.clone(),
-            "orchestration".to_string(), // Default orchestration namespace for proper queue prefixing
+            &context.config_manager.config().queues,
         );
 
         let processor = Self {

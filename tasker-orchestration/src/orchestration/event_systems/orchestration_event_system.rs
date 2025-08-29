@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tasker_shared::config::orchestration::event_systems::OrchestrationEventSystemConfig;
 use tasker_shared::{system_context::SystemContext, TaskerResult};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -66,45 +67,6 @@ pub struct OrchestrationEventSystem {
 
     /// Startup timestamp
     started_at: Option<Instant>,
-}
-
-/// Configuration for orchestration event system
-#[derive(Debug, Clone)]
-pub struct OrchestrationEventSystemConfig {
-    /// System identifier
-    pub system_id: String,
-    /// Deployment mode (determines event-driven behavior)
-    pub deployment_mode: DeploymentMode,
-    /// Namespace for orchestration
-    pub namespace: String,
-    /// Fallback polling interval
-    pub fallback_polling_interval: Duration,
-    /// Message batch size for polling
-    pub batch_size: u32,
-    /// Queue configuration
-    pub queues: tasker_shared::config::QueueConfig,
-    /// Visibility timeout for messages
-    pub visibility_timeout: Duration,
-    /// Health check interval
-    pub health_check_interval: Duration,
-    /// Max concurrent processors
-    pub max_concurrent_processors: usize,
-}
-
-impl Default for OrchestrationEventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "orchestration-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            namespace: "orchestration".to_string(),
-            fallback_polling_interval: Duration::from_secs(5),
-            batch_size: 10,
-            queues: tasker_shared::config::QueueConfig::default(),
-            visibility_timeout: Duration::from_secs(30),
-            health_check_interval: Duration::from_secs(30),
-            max_concurrent_processors: 10,
-        }
-    }
 }
 
 /// Runtime statistics for orchestration event system
@@ -299,8 +261,8 @@ impl OrchestrationEventSystem {
             ],
             retry_interval: Duration::from_secs(5),
             max_retry_attempts: 10,
-            event_timeout: self.config.visibility_timeout,
-            health_check_interval: self.config.health_check_interval,
+            event_timeout: self.config.visibility_timeout(),
+            health_check_interval: self.config.health_check_interval(),
         }
     }
 
@@ -308,7 +270,7 @@ impl OrchestrationEventSystem {
     fn poller_config(&self) -> OrchestrationPollerConfig {
         OrchestrationPollerConfig {
             enabled: true, // Always enabled when instantiated
-            polling_interval: self.config.fallback_polling_interval,
+            polling_interval: self.config.fallback_polling_interval(),
             batch_size: self.config.batch_size,
             age_threshold: Duration::from_secs(5), // Only poll messages >5 seconds old
             max_age: Duration::from_secs(24 * 60 * 60), // Don't poll messages >24 hours old
@@ -317,7 +279,7 @@ impl OrchestrationEventSystem {
                 "orchestration_task_requests".to_string(),
             ],
             namespace: self.config.namespace.clone(),
-            visibility_timeout: self.config.visibility_timeout,
+            visibility_timeout: self.config.visibility_timeout(),
         }
     }
 

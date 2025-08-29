@@ -22,15 +22,14 @@
 //! - `DeploymentMode` for PollingOnly/Hybrid/EventDrivenOnly configuration
 //! - `EventDrivenSystem` trait for unified lifecycle management
 //! - `EventSystemStatistics` for consistent monitoring
-
+pub use tasker_shared::config::OrchestrationEventSystemConfig;
 pub mod orchestration_event_system;
 pub mod task_readiness_event_system;
 pub mod unified_event_coordinator;
 
 // Re-export key types for external usage
 pub use orchestration_event_system::{
-    OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationEventSystemConfig,
-    OrchestrationStatistics,
+    OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationStatistics,
 };
 pub use task_readiness_event_system::{
     TaskReadinessEventSystem, TaskReadinessEventSystemConfig, TaskReadinessStatistics,

@@ -2556,6 +2556,7 @@ dependencies = [
  "cargo-llvm-cov",
  "chrono",
  "clap",
+ "dotenvy",
  "factori",
  "futures",
  "insta",

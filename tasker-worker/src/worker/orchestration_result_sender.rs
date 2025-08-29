@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::debug;
 use uuid::Uuid;
 
-use tasker_shared::config::{QueueClassifier, QueueConfig};
+use tasker_shared::config::{QueueClassifier, QueuesConfig};
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
 use tasker_shared::{TaskerError, TaskerResult};
@@ -22,16 +22,9 @@ pub struct OrchestrationResultSender {
 
 impl OrchestrationResultSender {
     /// Create new sender with PGMQ client and queue configuration
-    pub fn new(
-        pgmq_client: Arc<UnifiedPgmqClient>,
-        queue_config: QueueConfig,
-        orchestration_namespace: String,
-    ) -> Self {
-        // Create queue classifier for config-driven queue naming
-        let queue_classifier = QueueClassifier::new(
-            queue_config.orchestration_owned.clone(),
-            orchestration_namespace,
-        );
+    pub fn new(pgmq_client: Arc<UnifiedPgmqClient>, queues_config: &QueuesConfig) -> Self {
+        // Create queue classifier for config-driven queue naming using the new config
+        let queue_classifier = QueueClassifier::from_queues_config(&queues_config);
 
         Self {
             pgmq_client,
@@ -59,9 +52,10 @@ impl OrchestrationResultSender {
         };
 
         // Use config-driven queue name with namespace prefixing
-        let queue_name = self
-            .queue_classifier
-            .ensure_orchestration_prefix(self.queue_classifier.step_results_queue_name());
+        let queue_name = self.queue_classifier.ensure_queue_name_well_structured(
+            self.queue_classifier.step_results_queue_name(),
+            "orchestration",
+        );
 
         self.pgmq_client
             .send_json_message(&queue_name, &message)
@@ -82,49 +76,41 @@ impl OrchestrationResultSender {
 
     /// Get the configured orchestration step results queue name with proper prefixing
     pub fn step_results_queue(&self) -> String {
-        self.queue_classifier
-            .ensure_orchestration_prefix(self.queue_classifier.step_results_queue_name())
+        self.queue_classifier.ensure_queue_name_well_structured(
+            self.queue_classifier.step_results_queue_name(),
+            "orchestration",
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use dotenvy::dotenv;
+
     use super::*;
+    use tasker_shared::config::ConfigManager;
 
     #[test]
     fn test_orchestration_result_sender_creation() {
-        // This test verifies the OrchestrationResultSender can be created with proper config-driven queue classification
-        let queue_config = QueueConfig {
-            orchestration_owned: tasker_shared::config::OrchestrationOwnedQueues {
-                step_results: "orchestration_step_results".to_string(),
-                task_requests: "orchestration_task_requests".to_string(),
-                task_finalizations: "orchestration_task_finalizations".to_string(),
-            },
-            worker_queues: std::collections::HashMap::new(),
-            settings: tasker_shared::config::queue::QueueSettings {
-                visibility_timeout_seconds: 30,
-                message_retention_seconds: 604800,
-                dead_letter_queue_enabled: true,
-                max_receive_count: 3,
-            },
-            orchestration_namespace: "orchestration".to_string(),
-            worker_namespace: "worker".to_string(),
-        };
+        dotenv().ok();
+        let config_manager = ConfigManager::load_from_env("test").unwrap();
+        let tasker_config = config_manager.config();
+        let queue_config = tasker_config.queues.clone();
 
         // Test that queue classifier ensures proper orchestration namespace prefixing
-        let queue_classifier = QueueClassifier::new(
-            queue_config.orchestration_owned.clone(),
-            "orchestration".to_string(),
-        );
+        let queue_classifier = QueueClassifier::from_queues_config(&queue_config);
 
         // Verify that step_results queue gets proper prefix if needed
-        let step_results_queue = queue_classifier
-            .ensure_orchestration_prefix(&queue_config.orchestration_owned.step_results);
-        assert_eq!(step_results_queue, "orchestration_step_results");
+        let step_results_queue = queue_classifier.ensure_queue_name_well_structured(
+            &queue_config.orchestration_queues.step_results,
+            "orchestration",
+        );
+        assert_eq!(step_results_queue, "orchestration_step_results_queue");
 
         // Test namespace prefix enforcement
-        let non_prefixed_queue = queue_classifier.ensure_orchestration_prefix("step_results");
-        assert_eq!(non_prefixed_queue, "orchestration_step_results");
+        let non_prefixed_queue =
+            queue_classifier.ensure_queue_name_well_structured("step_results", "orchestration");
+        assert_eq!(non_prefixed_queue, "orchestration_step_results_queue");
 
         // Note: Would need a mock UnifiedPgmqClient for full unit testing
         // Integration tests will use real PGMQ client with test database
