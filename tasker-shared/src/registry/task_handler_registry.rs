@@ -38,9 +38,11 @@ use crate::models::core::{
     named_task::NamedTask, task_namespace::TaskNamespace, task_request::TaskRequest,
     task_template::TaskTemplate,
 };
+use crate::system_context::SystemContext;
 use crate::types::HandlerMetadata;
 use chrono::Utc;
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Key for handler lookup in the registry
@@ -106,7 +108,9 @@ pub struct TaskHandlerRegistry {
     /// Database connection pool for persistent storage
     db_pool: PgPool,
     /// Event publisher for notifications
-    event_publisher: Option<EventPublisher>,
+    event_publisher: Option<Arc<EventPublisher>>,
+    /// Search paths from TaskTemplateConfig
+    search_paths: Option<Vec<String>>,
 }
 
 impl TaskHandlerRegistry {
@@ -115,14 +119,31 @@ impl TaskHandlerRegistry {
         Self {
             db_pool,
             event_publisher: None,
+            search_paths: None,
         }
     }
 
     /// Create a new registry with database connection and event publisher
-    pub fn with_event_publisher(db_pool: PgPool, event_publisher: EventPublisher) -> Self {
+    pub fn with_event_publisher(db_pool: PgPool, event_publisher: Arc<EventPublisher>) -> Self {
         Self {
             db_pool,
             event_publisher: Some(event_publisher),
+            search_paths: None,
+        }
+    }
+
+    pub fn with_system_context(context: Arc<SystemContext>) -> Self {
+        Self {
+            db_pool: context.database_pool().clone(),
+            event_publisher: Some(context.event_publisher.clone()),
+            search_paths: Some(
+                context
+                    .config_manager
+                    .config()
+                    .task_templates
+                    .search_paths
+                    .clone(),
+            ),
         }
     }
 
@@ -556,6 +577,7 @@ impl Clone for TaskHandlerRegistry {
         Self {
             db_pool: self.db_pool.clone(),
             event_publisher: self.event_publisher.clone(),
+            search_paths: self.search_paths.clone(),
         }
     }
 }

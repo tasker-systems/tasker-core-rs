@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use tasker_shared::models::dependent_system::DependentSystem;
 use tasker_shared::models::named_step::{NamedStep, NewNamedStep};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test system first
     let system = DependentSystem::find_or_create_by_name(&pool, "test_system").await?;
@@ -56,7 +56,7 @@ async fn test_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_unique_constraint(pool: PgPool) -> sqlx::Result<()> {
     let system = DependentSystem::find_or_create_by_name(&pool, "test_system_unique").await?;
 

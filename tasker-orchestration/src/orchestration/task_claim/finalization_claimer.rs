@@ -46,7 +46,8 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use std::sync::Arc;
+use tasker_shared::{config::ConfigManager, SystemContext};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -88,7 +89,7 @@ impl Default for FinalizationClaimerConfig {
 
 impl FinalizationClaimerConfig {
     /// Create configuration from ConfigManager
-    pub fn from_config_manager(config_manager: &tasker_shared::config::ConfigManager) -> Self {
+    pub fn from_config_manager(config_manager: Arc<ConfigManager>) -> Self {
         let config = config_manager.config();
 
         Self {
@@ -105,29 +106,17 @@ impl FinalizationClaimerConfig {
 /// Uses database-level claiming with timeout management and comprehensive metrics.
 #[derive(Clone)]
 pub struct FinalizationClaimer {
-    pool: PgPool,
+    context: Arc<SystemContext>,
     processor_id: String,
     config: FinalizationClaimerConfig,
 }
 
 impl FinalizationClaimer {
     /// Create a new finalization claimer with default configuration
-    pub fn new(pool: PgPool, processor_id: String) -> Self {
+    pub fn new(context: Arc<SystemContext>, processor_id: String) -> Self {
+        let config = FinalizationClaimerConfig::from_config_manager(context.config_manager.clone());
         Self {
-            pool,
-            processor_id,
-            config: FinalizationClaimerConfig::default(),
-        }
-    }
-
-    /// Create a new finalization claimer with custom configuration
-    pub fn with_config(
-        pool: PgPool,
-        processor_id: String,
-        config: FinalizationClaimerConfig,
-    ) -> Self {
-        Self {
-            pool,
+            context,
             processor_id,
             config,
         }
@@ -151,7 +140,7 @@ impl FinalizationClaimer {
         .bind(task_uuid)
         .bind(&self.processor_id)
         .bind(self.config.default_timeout_seconds)
-        .fetch_one(&self.pool)
+        .fetch_one(self.context.database_pool())
         .await?;
 
         // Record metrics (TODO: Add proper metrics integration)
@@ -203,7 +192,7 @@ impl FinalizationClaimer {
         let released = sqlx::query_scalar::<_, bool>("SELECT release_finalization_claim($1, $2)")
             .bind(task_uuid)
             .bind(&self.processor_id)
-            .fetch_one(&self.pool)
+            .fetch_one(self.context.database_pool())
             .await?;
 
         // Record metrics (TODO: Add proper metrics integration)

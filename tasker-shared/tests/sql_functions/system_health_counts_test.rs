@@ -206,7 +206,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_returns_structured_health_counts_data(pool: PgPool) -> sqlx::Result<()> {
         // Create test data
         create_test_workflows_for_health_counts(&pool).await?;
@@ -235,7 +235,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_returns_consistent_results_across_multiple_calls(
         pool: PgPool,
     ) -> sqlx::Result<()> {
@@ -255,7 +255,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_validates_task_counts_are_reasonable(pool: PgPool) -> sqlx::Result<()> {
         // Create test data
         create_test_workflows_for_health_counts(&pool).await?;
@@ -289,7 +289,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_validates_step_counts_are_reasonable(pool: PgPool) -> sqlx::Result<()> {
         // Create test data
         create_test_workflows_for_health_counts(&pool).await?;
@@ -315,7 +315,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_validates_retry_related_counts_are_consistent(pool: PgPool) -> sqlx::Result<()> {
         // Create test data
         create_test_workflows_for_health_counts(&pool).await?;
@@ -341,7 +341,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_validates_database_connection_metrics(pool: PgPool) -> sqlx::Result<()> {
         let result = SystemHealthCounts::get_current(&pool).await?.unwrap();
 
@@ -361,7 +361,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_handles_empty_database_correctly(pool: PgPool) -> sqlx::Result<()> {
         // Clear all test data in proper foreign key order
         sqlx::query!("DELETE FROM tasker_workflow_step_transitions")
@@ -395,7 +395,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_health_score_calculations(pool: PgPool) -> sqlx::Result<()> {
         // Create healthy system
         create_test_workflows_for_health_counts(&pool).await?;
@@ -421,7 +421,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_performance_with_larger_dataset(pool: PgPool) -> sqlx::Result<()> {
         use std::time::Instant;
 
@@ -443,7 +443,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_concurrent_execution(pool: PgPool) -> sqlx::Result<()> {
         use tokio::task;
 

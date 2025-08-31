@@ -1,5 +1,5 @@
 use super::queue::OrchestrationOwnedQueues;
-use super::queues::{OrchestrationQueuesConfig, QueuesConfig};
+use super::queues::QueuesConfig;
 use serde::{Deserialize, Serialize};
 
 /// Configuration-driven queue classification for message routing and processing

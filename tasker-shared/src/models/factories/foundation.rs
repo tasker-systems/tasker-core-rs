@@ -345,7 +345,7 @@ mod tests {
     use super::*;
     use sqlx::PgPool;
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_namespace_factory(pool: PgPool) -> FactoryResult<()> {
         let namespace = TaskNamespaceFactory::new()
             .with_name("test_namespace")
@@ -359,7 +359,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_system_factory(pool: PgPool) -> FactoryResult<()> {
         let system = DependentSystemFactory::new()
             .with_name("test_api")
@@ -373,7 +373,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_common_foundations_creation(pool: PgPool) -> FactoryResult<()> {
         let namespaces = TaskNamespaceFactory::create_common_namespaces(&pool).await?;
         let systems = DependentSystemFactory::create_common_systems(&pool).await?;

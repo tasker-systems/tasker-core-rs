@@ -209,6 +209,24 @@ impl WorkerBootstrap {
     /// # Returns
     /// Handle for managing the worker system lifecycle
     pub async fn bootstrap(config: WorkerBootstrapConfig) -> TaskerResult<WorkerSystemHandle> {
+        Self::bootstrap_with_event_system(config, None).await
+    }
+
+    /// Bootstrap worker system with external event system
+    ///
+    /// This method allows Rust workers to provide their own global event system
+    /// to ensure proper event coordination between WorkerProcessor and handlers.
+    ///
+    /// # Arguments
+    /// * `config` - Bootstrap configuration including namespaces and options
+    /// * `event_system` - Optional external event system for cross-component coordination
+    ///
+    /// # Returns
+    /// Handle for managing the worker system lifecycle
+    pub async fn bootstrap_with_event_system(
+        config: WorkerBootstrapConfig,
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+    ) -> TaskerResult<WorkerSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified worker system bootstrap");
 
         let config_manager = ConfigManager::load().map_err(|e| {
@@ -238,11 +256,12 @@ impl WorkerBootstrap {
         );
 
         let worker_core = Arc::new(
-            WorkerCore::new(
+            WorkerCore::new_with_event_system(
                 system_context.clone(),
                 config.orchestration_api_config.clone(),
                 namespace.clone(),
                 Some(true), // Enable event-driven processing by default - delegates to WorkerEventSystem
+                event_system, // Use provided event system for cross-component coordination
             )
             .await?,
         );

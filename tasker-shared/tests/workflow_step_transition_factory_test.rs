@@ -10,7 +10,7 @@ use tasker_shared::models::factories::core::WorkflowStepFactory;
 use tasker_shared::models::factories::states::WorkflowStepTransitionFactory;
 use tasker_shared::models::WorkflowStepTransition;
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_basic_transition_creation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // Create a workflow step first
     let workflow_step = WorkflowStepFactory::new()
@@ -40,7 +40,7 @@ async fn test_basic_transition_creation(pool: PgPool) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_transition_with_error_metadata(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -66,7 +66,7 @@ async fn test_transition_with_error_metadata(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_transition_with_execution_duration(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -96,7 +96,7 @@ async fn test_transition_with_execution_duration(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_retry_transition(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("retry_step")
@@ -119,7 +119,7 @@ async fn test_retry_transition(pool: PgPool) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_manual_resolution_transition(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("manual_step")
@@ -143,7 +143,7 @@ async fn test_manual_resolution_transition(pool: PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("sequenced_step")
@@ -178,7 +178,7 @@ async fn test_transition_most_recent_flag(pool: PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_complete_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("lifecycle_step")
@@ -215,7 +215,7 @@ async fn test_complete_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_failed_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("failed_step")
@@ -250,7 +250,7 @@ async fn test_failed_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_retry_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("retry_step")
@@ -290,7 +290,7 @@ async fn test_retry_lifecycle_factory(pool: PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_custom_metadata_preservation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let workflow_step = WorkflowStepFactory::new()
         .with_named_step("custom_metadata_step")
@@ -340,7 +340,7 @@ async fn test_custom_metadata_preservation(pool: PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_invalid_workflow_step_uuid_error(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -356,7 +356,7 @@ async fn test_invalid_workflow_step_uuid_error(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_database_integration_with_scopes(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

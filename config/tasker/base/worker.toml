@@ -1,4 +1,4 @@
-# TAS-40 Worker Configuration Component (Command Pattern Architecture) 
+# TAS-40 Worker Configuration Component (Command Pattern Architecture)
 # TAS-43 Event-Driven Processing with Deployment Mode Support
 # Controls worker system behavior using event-driven step processing
 # Replaces polling-based executor pools with command pattern

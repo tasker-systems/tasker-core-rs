@@ -67,9 +67,19 @@ workspace_tools = { workspace = true }
 
 # Web API testing and API Integration
 reqwest = { workspace = true }
-utoipa = { workspace = true }
+
+axum = { workspace = true, optional = true }
+axum-extra = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+rsa = { workspace = true, optional = true }
+# OpenAPI documentation
+utoipa = { workspace = true, optional = true }
+utoipa-swagger-ui = { workspace = true, optional = true }
 
 [dev-dependencies]
+tasker-core = { path = "../", package = "tasker-core" }
 # Testing tools
 tokio-test = { workspace = true }
 tempfile = { workspace = true }
@@ -84,8 +94,18 @@ serial_test = { workspace = true }
 cargo-llvm-cov = { workspace = true }
 
 [features]
-default = ["postgres", "test-utils"]
+default = ["postgres", "test-utils", "web-api"]
 postgres = ["sqlx/postgres"]
+web-api = [
+    "axum",
+    "axum-extra",
+    "tower",
+    "tower-http",
+    "jsonwebtoken",
+    "rsa",
+    "utoipa",
+    "utoipa-swagger-ui",
+]
 
 benchmarks = ["criterion"]
 test-utils = []

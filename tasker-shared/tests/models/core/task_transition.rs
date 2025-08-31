@@ -8,7 +8,7 @@ use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 use tasker_shared::models::task_transition::{NewTaskTransition, TaskTransition};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = TaskNamespace::create(
@@ -125,7 +125,7 @@ async fn test_task_transition_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_task_transition_status_tracking(pool: PgPool) -> sqlx::Result<()> {
     // Create minimal test dependencies
     let namespace = TaskNamespace::create(

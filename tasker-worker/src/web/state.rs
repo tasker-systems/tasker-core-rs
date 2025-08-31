@@ -45,23 +45,22 @@ impl WorkerWebConfig {
     /// TAS-43: This method replaces ::default() usage with configuration-driven setup
     pub fn from_tasker_config(config: &TaskerConfig) -> Self {
         // Handle optional web configuration with sensible defaults
-        match &config.web {
-            Some(web_config) => Self {
-                enabled: web_config.enabled,
-                bind_address: web_config.bind_address.clone(),
-                request_timeout_ms: web_config.request_timeout_ms,
-                authentication_enabled: config.auth.authentication_enabled,
-                cors_enabled: web_config.cors.enabled,
-                metrics_enabled: true, // TODO: Load from web configuration when available
-                health_check_interval_seconds: 30, // TODO: Load from web configuration when available
-            },
-            None => {
-                // Fallback to defaults when web configuration is not present
-                let default_config = Self::default();
+        let worker_config = config.worker.clone();
+        match worker_config {
+            Some(worker_config) => {
+                let web_config = worker_config.web;
                 Self {
-                    authentication_enabled: config.auth.authentication_enabled, // Use auth config when available
-                    ..default_config
+                    enabled: web_config.enabled,
+                    bind_address: web_config.bind_address.clone(),
+                    request_timeout_ms: web_config.request_timeout_ms,
+                    authentication_enabled: config.auth.authentication_enabled,
+                    cors_enabled: web_config.cors.enabled,
+                    metrics_enabled: true, // TODO: Load from web configuration when available
+                    health_check_interval_seconds: 30, // TODO: Load from web configuration when available
                 }
+            }
+            None => {
+                panic!("Worker web configuration is missing")
             }
         }
     }

@@ -8,56 +8,20 @@
 
 use axum::extract::{Path, State};
 use axum::Json;
-use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
-#[cfg(feature = "web-api")]
-use utoipa::ToSchema;
+
 // StepReadinessStatus is used through SqlFunctionExecutor, removing unused direct import
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::response_types::{ApiError, ApiResult};
-use crate::web::state::{AppState, DbOperationType};
+use crate::web::state::AppState;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::StateMachineError;
-
-/// Manual step resolution request
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct ManualResolutionRequest {
-    pub resolution_data: serde_json::Value,
-    pub resolved_by: String,
-    pub reason: String,
-}
-
-/// Step details response with readiness information
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct StepResponse {
-    pub step_uuid: String,
-    pub task_uuid: String,
-    pub name: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub completed_at: Option<String>,
-    pub results: Option<serde_json::Value>,
-
-    // StepReadinessStatus fields
-    pub current_state: String,
-    pub dependencies_satisfied: bool,
-    pub retry_eligible: bool,
-    pub ready_for_execution: bool,
-    pub total_parents: i32,
-    pub completed_parents: i32,
-    pub attempts: i32,
-    pub retry_limit: i32,
-    pub last_failure_at: Option<String>,
-    pub next_retry_at: Option<String>,
-    pub last_attempted_at: Option<String>,
-}
+use tasker_shared::types::api::{ManualResolutionRequest, StepResponse};
+use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps
 #[cfg_attr(feature = "web-api", utoipa::path(

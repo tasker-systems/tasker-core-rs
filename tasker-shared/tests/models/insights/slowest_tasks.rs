@@ -3,7 +3,7 @@ use sqlx::{types::BigDecimal, PgPool};
 use tasker_shared::models::insights::slowest_tasks::{SlowestTasks, SlowestTasksFilter};
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_slowest_tasks(pool: PgPool) -> sqlx::Result<()> {
     // For now, just test that the function exists and doesn't panic
     // TODO: Add proper test data using factories in future branch
@@ -31,7 +31,7 @@ async fn test_get_slowest_tasks(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_slowest_tasks_with_filters(pool: PgPool) -> sqlx::Result<()> {
     // Test with custom filter
     let filter = SlowestTasksFilter {
@@ -56,7 +56,7 @@ async fn test_get_slowest_tasks_with_filters(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_slowest_since(pool: PgPool) -> sqlx::Result<()> {
     // Test getting tasks since 1 hour ago
     let since = DateTime::parse_from_rfc3339("2023-12-01T10:00:00Z")

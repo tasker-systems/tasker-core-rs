@@ -20,13 +20,11 @@
 //! - [`response_types`] - Web-specific error types and responses
 //! - [`circuit_breaker`] - Database circuit breaker implementation
 
-pub mod auth;
 pub mod circuit_breaker;
 pub mod extractors;
 pub mod handlers;
 pub mod middleware;
 pub mod openapi;
-pub mod response_types;
 pub mod routes;
 pub mod state;
 

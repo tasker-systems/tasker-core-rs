@@ -4,11 +4,11 @@
 //! Protects against database connection failures and query timeouts without
 //! interfering with the orchestration system's PGMQ operations.
 
-use crate::web::response_types::{ApiError, ApiResult};
 use crate::web::state::AppState;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tasker_shared::types::web::{ApiError, ApiResult};
 use tracing::{debug, warn};
 
 /// Circuit breaker states

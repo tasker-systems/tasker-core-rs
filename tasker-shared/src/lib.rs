@@ -92,12 +92,9 @@ pub mod models;
 pub mod registry;
 pub mod resilience;
 pub mod scopes;
-pub mod services;
 pub mod sql_functions;
 pub mod state_machine;
 pub mod system_context;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
 pub mod types;
 pub mod utils;
 pub mod validation;
@@ -134,3 +131,6 @@ pub use messaging::{
 
 pub use registry::TaskHandlerRegistry;
 pub use system_context::SystemContext;
+pub use types::base::{
+    HandlerMetadata, StepEventPayload, StepExecutionCompletionEvent, StepExecutionEvent,
+};

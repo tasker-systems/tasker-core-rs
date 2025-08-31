@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, warn};
 
-use crate::web::state::AuthConfig;
+use super::web::AuthConfig;
 
 /// JWT authentication errors
 #[derive(Error, Debug)]

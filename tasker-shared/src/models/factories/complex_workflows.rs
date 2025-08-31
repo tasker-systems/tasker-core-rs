@@ -688,7 +688,7 @@ mod tests {
     use super::*;
     use sqlx::PgPool;
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_linear_workflow(pool: PgPool) -> FactoryResult<()> {
         let (task_uuid, step_uuids) = ComplexWorkflowFactory::new().linear().create(&pool).await?;
 
@@ -712,7 +712,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_diamond_workflow(pool: PgPool) -> FactoryResult<()> {
         let (task_uuid, step_uuids) = ComplexWorkflowFactory::new()
             .diamond()
@@ -739,7 +739,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_parallel_merge_workflow(pool: PgPool) -> FactoryResult<()> {
         let (task_uuid, step_uuids) = ComplexWorkflowFactory::new()
             .parallel_merge()
@@ -766,7 +766,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_tree_workflow(pool: PgPool) -> FactoryResult<()> {
         let (task_uuid, step_uuids) = ComplexWorkflowFactory::new().tree().create(&pool).await?;
 
@@ -790,7 +790,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_mixed_dag_workflow(pool: PgPool) -> FactoryResult<()> {
         let (task_uuid, step_uuids) = ComplexWorkflowFactory::new()
             .mixed_dag()
@@ -817,7 +817,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_create_workflow_batch(pool: PgPool) -> FactoryResult<()> {
         let results = ComplexWorkflowBatchFactory::new()
             .with_size(10)

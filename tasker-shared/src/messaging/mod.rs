@@ -8,7 +8,7 @@ pub mod errors;
 pub mod execution_types;
 pub mod message;
 pub mod orchestration_messages;
-pub mod step_handler_result;
+// Removed unused step_handler_result module - legacy code that was never used in production
 
 pub use clients::{
     traits::PgmqClientTrait, MessageClient, PgmqClient, TaskerPgmqClientExt, UnifiedMessageClient,
@@ -22,9 +22,7 @@ pub use execution_types::{
 };
 pub use message::{StepMessage, StepMessageMetadata};
 pub use orchestration_messages::*;
-pub use step_handler_result::{
-    StepHandlerCallResult, StepHandlerErrorResult, StepHandlerSuccessResult,
-};
+// Removed unused step_handler_result exports - use StepExecutionResult instead
 
 /// Unified PGMQ client with pgmq-notify capabilities
 ///

@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_task_namespace_crud(pool: PgPool) -> sqlx::Result<()> {
     // Test creation
     let unique_name = "test_namespace".to_string();

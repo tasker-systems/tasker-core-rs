@@ -9,7 +9,7 @@ use axum::response::Response;
 use tracing::debug;
 
 use crate::web::state::AppState;
-use crate::web::state::SystemOperationalState;
+use tasker_shared::types::web::SystemOperationalState;
 
 /// Operational state middleware
 ///

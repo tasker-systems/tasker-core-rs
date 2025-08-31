@@ -11,9 +11,6 @@ use uuid::Uuid;
 
 use crate::messaging::message::OrchestrationMetadata;
 use crate::models::core::task_request::TaskRequest;
-use crate::models::core::task_template::StepDefinition;
-use crate::models::core::{task::TaskForOrchestration, workflow_step::WorkflowStepWithName};
-use crate::models::orchestration::StepDependencyResultMap;
 
 /// Message for task requests sent to orchestration_task_requests queue
 ///
@@ -462,14 +459,6 @@ impl StepResult {
             execution_duration_ms,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskSequenceStep {
-    pub task: TaskForOrchestration,
-    pub workflow_step: WorkflowStepWithName,
-    pub dependency_results: StepDependencyResultMap,
-    pub step_definition: StepDefinition,
 }
 
 #[cfg(test)]

@@ -4,54 +4,12 @@
 
 use axum::extract::State;
 use axum::Json;
-use serde::Serialize;
 use std::collections::HashMap;
 use tracing::{debug, error};
 
-use crate::web::response_types::ApiError;
 use crate::web::state::AppState;
-
-#[cfg(feature = "web-api")]
-use utoipa::ToSchema;
-
-/// Basic health check response
-#[derive(Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct HealthResponse {
-    status: String,
-    timestamp: String,
-}
-
-/// Detailed health check response
-#[derive(Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct DetailedHealthResponse {
-    status: String,
-    timestamp: String,
-    checks: HashMap<String, HealthCheck>,
-    info: HealthInfo,
-}
-
-/// Individual health check result
-#[derive(Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct HealthCheck {
-    status: String,
-    message: Option<String>,
-    duration_ms: u64,
-}
-
-/// System information for detailed health
-#[derive(Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct HealthInfo {
-    version: String,
-    environment: String,
-    operational_state: String,
-    web_database_pool_size: u32,
-    orchestration_database_pool_size: u32,
-    circuit_breaker_state: String,
-}
+use tasker_shared::types::api::{DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse};
+use tasker_shared::types::web::ApiError;
 
 /// Basic health check endpoint: GET /health
 ///

@@ -54,6 +54,7 @@ use tasker_shared::events::publisher::EventPublisher;
 use tasker_shared::events::types::{Event, OrchestrationEvent, TaskResult};
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
+use tasker_shared::system_context::SystemContext;
 
 /// Result of task finalization operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,66 +111,29 @@ pub struct TaskExecutionContext {
 /// integration for intelligent decision making.
 #[derive(Clone)]
 pub struct TaskFinalizer {
-    pool: PgPool,
+    context: Arc<SystemContext>,
     sql_executor: SqlFunctionExecutor,
-    event_publisher: EventPublisher,
     task_enqueuer: Arc<TaskEnqueuer>,
-    tasker_config: TaskerConfig,
 }
 
 impl TaskFinalizer {
     /// Create a new TaskFinalizer
-    pub fn new(pool: PgPool, tasker_config: TaskerConfig) -> Self {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = EventPublisher::with_capacity(1000); // 1000 event capacity
-        let task_enqueuer = Arc::new(TaskEnqueuer::with_event_publisher(
-            pool.clone(),
-            event_publisher.clone(),
-        ));
+    pub fn new(context: Arc<SystemContext>) -> Self {
+        let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
+        let task_enqueuer = Arc::new(TaskEnqueuer::new(context.clone()));
         Self {
-            pool,
+            context,
             sql_executor,
-            event_publisher,
             task_enqueuer,
-            tasker_config,
         }
     }
 
-    /// Create a new TaskFinalizer with custom event publisher
-    pub fn with_event_publisher(
-        pool: PgPool,
-        tasker_config: TaskerConfig,
-        event_publisher: EventPublisher,
-    ) -> Self {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let task_enqueuer = Arc::new(TaskEnqueuer::with_event_publisher(
-            pool.clone(),
-            event_publisher.clone(),
-        ));
-        Self {
-            pool,
-            sql_executor,
-            event_publisher,
-            task_enqueuer,
-            tasker_config,
-        }
-    }
-
-    /// Create a new TaskFinalizer with custom components
-    pub fn with_components(
-        pool: PgPool,
-        event_publisher: EventPublisher,
-        task_enqueuer: TaskEnqueuer,
-        tasker_config: TaskerConfig,
-    ) -> Self {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        Self {
-            pool,
-            sql_executor,
-            event_publisher,
-            task_enqueuer: Arc::new(task_enqueuer),
-            tasker_config,
-        }
+    pub fn get_state_machine_for_task(&self, task: &Task) -> TaskStateMachine {
+        TaskStateMachine::new(
+            task.clone(),
+            self.context.database_pool().clone(),
+            Some(self.context.event_publisher.clone()),
+        )
     }
 
     /// Check if the task is blocked by errors
@@ -223,7 +187,7 @@ impl TaskFinalizer {
         task_uuid: Uuid,
         synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        let task = Task::find_by_id(&self.pool, task_uuid).await?;
+        let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
         let Some(task) = task else {
             return Err(FinalizationError::TaskNotFound { task_uuid });
         };
@@ -243,11 +207,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = TaskStateMachine::new(
-            task.clone(),
-            self.pool.clone(),
-            Some(Arc::new(self.event_publisher.clone())),
-        );
+        let mut state_machine = self.get_state_machine_for_task(&task);
 
         // Get current state
         let current_state =
@@ -281,7 +241,7 @@ impl TaskFinalizer {
             })?;
 
         // Update the task complete flag (this might be redundant if the state machine action handles it)
-        task.mark_complete(&self.pool).await?;
+        task.mark_complete(self.context.database_pool()).await?;
 
         // Publish completion event
         self.publish_task_completed(task_uuid, &context).await?;
@@ -305,11 +265,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = TaskStateMachine::new(
-            task.clone(),
-            self.pool.clone(),
-            Some(Arc::new(self.event_publisher.clone())),
-        );
+        let mut state_machine = self.get_state_machine_for_task(&task);
 
         // Transition to error state using state machine
         let error_message = "Steps in error state".to_string();
@@ -344,11 +300,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = TaskStateMachine::new(
-            task.clone(),
-            self.pool.clone(),
-            Some(Arc::new(self.event_publisher.clone())),
-        );
+        let mut state_machine = self.get_state_machine_for_task(&task);
 
         // Get current state to determine appropriate transition
         let current_state =
@@ -563,11 +515,7 @@ impl TaskFinalizer {
         );
 
         // Use state machine to transition to in_progress if needed
-        let mut state_machine = TaskStateMachine::new(
-            task.clone(),
-            self.pool.clone(),
-            Some(Arc::new(self.event_publisher.clone())),
-        );
+        let mut state_machine = self.get_state_machine_for_task(&task);
 
         let current_state =
             state_machine
@@ -715,23 +663,24 @@ impl TaskFinalizer {
     /// These delays are typically shorter (0-45 seconds) compared to step retry delays
     /// which use exponential backoff (1-300 seconds).
     fn calculate_reenqueue_delay(&self, context: &Option<TaskExecutionContext>) -> u64 {
+        let tasker_config = self.context.config_manager.config();
         let Some(context) = context else {
             // Use default reenqueue delay from configuration
-            return self.tasker_config.backoff.default_reenqueue_delay as u64;
+            return tasker_config.backoff.default_reenqueue_delay as u64;
         };
 
         match context.execution_status.as_str() {
             "has_ready_steps" | "execute_ready_steps" => {
-                self.tasker_config.backoff.reenqueue_delays.has_ready_steps
+                tasker_config.backoff.reenqueue_delays.has_ready_steps
             }
             "waiting_for_dependencies" => {
-                self.tasker_config
+                tasker_config
                     .backoff
                     .reenqueue_delays
                     .waiting_for_dependencies
             }
-            "processing" => self.tasker_config.backoff.reenqueue_delays.processing,
-            _ => self.tasker_config.backoff.default_reenqueue_delay as u64,
+            "processing" => tasker_config.backoff.reenqueue_delays.processing,
+            _ => tasker_config.backoff.default_reenqueue_delay as u64,
         }
     }
 
@@ -783,7 +732,7 @@ impl TaskFinalizer {
         use serde_json::json;
 
         // Publish generic event for task finalization started
-        self.event_publisher
+        self.context.event_publisher
             .publish(
                 "task.finalization.started",
                 json!({
@@ -808,7 +757,7 @@ impl TaskFinalizer {
         use serde_json::json;
 
         // Publish generic event for task finalization completed
-        self.event_publisher
+        self.context.event_publisher
             .publish(
                 "task.finalization.completed",
                 json!({
@@ -836,7 +785,8 @@ impl TaskFinalizer {
             completed_at: chrono::Utc::now(),
         });
 
-        self.event_publisher
+        self.context
+            .event_publisher
             .publish_event(event)
             .await
             .map_err(|e| {
@@ -846,7 +796,8 @@ impl TaskFinalizer {
             })?;
 
         // Also publish generic event for broader observability
-        self.event_publisher
+        self.context
+            .event_publisher
             .publish(
                 "task.completed",
                 json!({
@@ -879,7 +830,8 @@ impl TaskFinalizer {
             completed_at: chrono::Utc::now(),
         });
 
-        self.event_publisher
+        self.context
+            .event_publisher
             .publish_event(event)
             .await
             .map_err(|e| {
@@ -889,7 +841,8 @@ impl TaskFinalizer {
             })?;
 
         // Also publish generic event for broader observability
-        self.event_publisher
+        self.context
+            .event_publisher
             .publish(
                 "task.failed",
                 json!({
@@ -917,7 +870,8 @@ impl TaskFinalizer {
         use serde_json::json;
 
         // Publish generic event for task pending transition
-        self.event_publisher
+        self.context
+            .event_publisher
             .publish(
                 "task.pending_transition",
                 json!({

@@ -1,0 +1,75 @@
+[package]
+name = "tasker-worker-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust worker demonstration for tasker-worker foundation"
+authors = ["TAS-41 Implementation"]
+
+[dependencies]
+# Core tasker dependencies
+tasker-worker = { path = "../../tasker-worker" }
+tasker-shared = { path = "../../tasker-shared" }
+
+# Async runtime and utilities
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling and utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Other utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+# Testing utilities
+tokio-test = { workspace = true }
+tasker-orchestration = { path = "../../tasker-orchestration" }
+tasker-core = { path = "../../", package = "tasker-core" }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+
+[[bin]]
+name = "rust-worker"
+path = "src/main.rs"
+
+[lib]
+name = "tasker_worker_rust"
+path = "src/lib.rs"
+
+# Integration test targets
+[[test]]
+name = "linear_workflow_integration"
+path = "tests/integration/linear_workflow_integration.rs"
+
+[[test]]
+name = "diamond_workflow_integration"
+path = "tests/integration/diamond_workflow_integration.rs"
+
+[[test]]
+name = "tree_workflow_integration"
+path = "tests/integration/tree_workflow_integration.rs"
+
+[[test]]
+name = "mixed_dag_workflow_integration"
+path = "tests/integration/mixed_dag_workflow_integration.rs"
+
+[[test]]
+name = "order_fulfillment_integration"
+path = "tests/integration/order_fulfillment_integration.rs"
+
+[[test]]
+name = "performance_benchmarks"
+path = "tests/integration/performance_benchmarks.rs"

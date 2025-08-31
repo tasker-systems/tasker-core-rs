@@ -16,15 +16,16 @@
 //!
 //! This enables autonomous Ruby workers with database-driven coordination.
 
-use sqlx::PgPool;
-use uuid::Uuid;
-
+use std::sync::Arc;
 use tasker_shared::errors::OrchestrationResult;
+use tasker_shared::system_context::SystemContext;
+use uuid::Uuid;
 
 use crate::orchestration::{
     backoff_calculator::{BackoffCalculator, BackoffContext},
     lifecycle::task_finalizer::TaskFinalizer,
     task_claim::finalization_claimer::FinalizationClaimer,
+    BackoffCalculatorConfig,
 };
 use tasker_shared::messaging::message::OrchestrationMetadata;
 use tasker_shared::models::core::workflow_step::WorkflowStep;
@@ -49,58 +50,25 @@ pub struct OrchestrationResultProcessor {
     task_finalizer: TaskFinalizer,
     backoff_calculator: BackoffCalculator,
     finalization_claimer: FinalizationClaimer,
-    pool: PgPool,
+    context: Arc<SystemContext>,
     processor_id: String,
 }
 
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
-    pub fn new(task_finalizer: TaskFinalizer, pool: PgPool) -> Self {
-        let backoff_calculator = BackoffCalculator::with_defaults(pool.clone());
+    pub fn new(task_finalizer: TaskFinalizer, context: Arc<SystemContext>) -> Self {
+        let backoff_config =
+            BackoffCalculatorConfig::from_config_manager(context.config_manager.clone());
+        let backoff_calculator =
+            BackoffCalculator::new(backoff_config, context.database_pool().clone());
         let processor_id = FinalizationClaimer::generate_processor_id("orchestration");
-        let finalization_claimer = FinalizationClaimer::new(pool.clone(), processor_id.clone());
+        let finalization_claimer = FinalizationClaimer::new(context.clone(), processor_id.clone());
 
         Self {
             task_finalizer,
             backoff_calculator,
             finalization_claimer,
-            pool,
-            processor_id,
-        }
-    }
-
-    /// Create a new orchestration result processor with custom backoff calculator
-    pub fn with_backoff_calculator(
-        task_finalizer: TaskFinalizer,
-        backoff_calculator: BackoffCalculator,
-        pool: PgPool,
-    ) -> Self {
-        let processor_id = FinalizationClaimer::generate_processor_id("orchestration");
-        let finalization_claimer = FinalizationClaimer::new(pool.clone(), processor_id.clone());
-
-        Self {
-            task_finalizer,
-            backoff_calculator,
-            finalization_claimer,
-            pool,
-            processor_id,
-        }
-    }
-
-    /// Create a new orchestration result processor with custom components
-    pub fn with_components(
-        task_finalizer: TaskFinalizer,
-        backoff_calculator: BackoffCalculator,
-        finalization_claimer: FinalizationClaimer,
-        pool: PgPool,
-    ) -> Self {
-        let processor_id = finalization_claimer.processor_id().to_string();
-
-        Self {
-            task_finalizer,
-            backoff_calculator,
-            finalization_claimer,
-            pool,
+            context,
             processor_id,
         }
     }
@@ -181,7 +149,9 @@ impl OrchestrationResultProcessor {
 
         // TAS-37: Use finalization claiming to prevent race conditions
         if matches!(status.as_str(), "success" | "failed") {
-            if let Ok(Some(workflow_step)) = WorkflowStep::find_by_id(&self.pool, step_uuid).await {
+            if let Ok(Some(workflow_step)) =
+                WorkflowStep::find_by_id(self.context.database_pool(), step_uuid).await
+            {
                 // Try to claim the task for finalization
                 match self
                     .finalization_claimer

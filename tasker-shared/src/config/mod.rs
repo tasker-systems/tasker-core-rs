@@ -37,7 +37,6 @@ pub mod query_cache;
 pub mod queue;
 pub mod queues;
 pub mod state;
-pub mod task_config_finder;
 pub mod task_readiness;
 pub mod unified_loader;
 pub mod web;
@@ -68,17 +67,13 @@ pub use queues::{
 pub mod queue_classification;
 pub use queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};
 pub use state::OperationalStateConfig;
-pub use worker::{
-    EventSystemConfig, HealthMonitoringConfig, ResourceLimitsConfig, StepProcessingConfig,
-    WorkerConfig,
-};
+pub use worker::{EventSystemConfig, HealthMonitoringConfig, StepProcessingConfig, WorkerConfig};
 
 pub use web::*;
 
 // TAS-43 Task Readiness System exports
 pub use task_readiness::{
-    BackoffConfig as TaskReadinessBackoffConfig, ConnectionConfig,
-    DeploymentMode as TaskReadinessDeploymentMode, EnhancedCoordinatorSettings,
+    BackoffConfig as TaskReadinessBackoffConfig, ConnectionConfig, EnhancedCoordinatorSettings,
     ErrorHandlingConfig, EventChannelConfig, EventClassificationConfig, NamespacePatterns,
     ReadinessFallbackConfig, TaskReadinessConfig, TaskReadinessCoordinatorConfig,
     TaskReadinessNotificationConfig,
@@ -86,7 +81,6 @@ pub use task_readiness::{
 
 // Compatibility wrapper (thin wrapper around UnifiedConfigLoader)
 pub use manager::ConfigManager;
-pub use task_config_finder::TaskConfigFinder;
 
 /// Root configuration structure for component-based config system
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -100,17 +94,11 @@ pub struct TaskerConfig {
     /// Telemetry and monitoring settings
     pub telemetry: TelemetryConfig,
 
-    /// Task processing engine configuration
-    pub engine: EngineConfig,
-
     /// TaskTemplate discovery configuration
     pub task_templates: TaskTemplatesConfig,
 
     /// Health monitoring configuration
     pub health: HealthConfig,
-
-    /// Dependency graph processing settings
-    pub dependency_graph: DependencyGraphConfig,
 
     /// System-wide settings
     pub system: SystemConfig,
@@ -120,18 +108,6 @@ pub struct TaskerConfig {
 
     /// Task execution settings
     pub execution: ExecutionConfig,
-
-    /// Task reenqueue configuration
-    pub reenqueue: ReenqueueConfig,
-
-    /// Event processing configuration
-    pub events: EventsConfig,
-
-    /// Caching configuration
-    pub cache: CacheConfig,
-
-    /// Query caching configuration - reuse existing QueryCacheConfig
-    pub query_cache: QueryCacheConfig,
 
     /// Queue system configuration with backend abstraction (TAS-43)
     /// Note: PGMQ configuration is now handled within queues.pgmq
@@ -339,14 +315,6 @@ pub struct AlertThresholds {
     pub queue_depth: f64,
 }
 
-/// Dependency graph processing configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DependencyGraphConfig {
-    pub max_depth: u32,
-    pub cycle_detection_enabled: bool,
-    pub optimization_enabled: bool,
-}
-
 /// System-wide configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemConfig {
@@ -449,60 +417,6 @@ impl ExecutionConfig {
     }
 }
 
-/// Task reenqueue configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ReenqueueConfig {
-    pub has_ready_steps: u64,
-    pub waiting_for_dependencies: u64,
-    pub processing: u64,
-}
-
-impl Default for ReenqueueConfig {
-    fn default() -> Self {
-        Self {
-            has_ready_steps: 10,
-            waiting_for_dependencies: 5,
-            processing: 3,
-        }
-    }
-}
-
-/// Event processing configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EventsConfig {
-    pub batch_size: u32,
-    pub enabled: bool,
-    pub batch_timeout_ms: u64,
-}
-
-impl Default for EventsConfig {
-    fn default() -> Self {
-        Self {
-            batch_size: 100,
-            enabled: true,
-            batch_timeout_ms: 5000,
-        }
-    }
-}
-
-/// Caching configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CacheConfig {
-    pub enabled: bool,
-    pub ttl_seconds: u64,
-    pub max_size: u32,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            ttl_seconds: 3600,
-            max_size: 1000,
-        }
-    }
-}
-
 impl Default for TaskerConfig {
     /// Create a safe fallback configuration with minimal defaults
     /// Used when configuration loading fails completely
@@ -545,14 +459,6 @@ impl Default for TaskerConfig {
                 service_name: "tasker-core".to_string(),
                 sample_rate: 1.0,
             },
-            engine: EngineConfig {
-                task_handler_directory: "tasks".to_string(),
-                task_config_directory: "tasker/tasks".to_string(),
-                identity_strategy: "default".to_string(),
-                custom_events_directories: vec!["config/tasker/events".to_string()],
-                default_module_namespace: None,
-                identity_strategy_class: None,
-            },
             task_templates: TaskTemplatesConfig {
                 search_paths: vec!["config/task_templates/*.{yml,yaml}".to_string()],
             },
@@ -563,11 +469,6 @@ impl Default for TaskerConfig {
                     error_rate: 0.05,
                     queue_depth: 1000.0,
                 },
-            },
-            dependency_graph: DependencyGraphConfig {
-                max_depth: 50,
-                cycle_detection_enabled: true,
-                optimization_enabled: true,
             },
             system: SystemConfig {
                 default_dependent_system: "default".to_string(),
@@ -602,22 +503,6 @@ impl Default for TaskerConfig {
                 max_workflow_steps: 1000,
                 connection_timeout_seconds: 10,
             },
-            reenqueue: ReenqueueConfig {
-                has_ready_steps: 1,
-                waiting_for_dependencies: 5,
-                processing: 2,
-            },
-            events: EventsConfig {
-                batch_size: 100,
-                enabled: true,
-                batch_timeout_ms: 1000,
-            },
-            cache: CacheConfig {
-                enabled: true,
-                ttl_seconds: 3600,
-                max_size: 10000,
-            },
-            query_cache: QueryCacheConfig::for_development(),
             queues: QueuesConfig::default(),
             orchestration: OrchestrationConfig {
                 mode: "distributed".to_string(),
@@ -745,13 +630,6 @@ impl TaskerConfig {
         self.execution.environment == "production"
     }
 
-    // New accessor methods for constants unification
-
-    /// Get maximum dependency depth
-    pub fn max_dependency_depth(&self) -> usize {
-        self.dependency_graph.max_depth as usize
-    }
-
     /// Get maximum workflow steps
     pub fn max_workflow_steps(&self) -> usize {
         self.execution.max_workflow_steps as usize
@@ -785,161 +663,6 @@ impl TaskerConfig {
     /// Get queue maximum batch size
     pub fn pgmq_max_batch_size(&self) -> u32 {
         self.queues.max_batch_size
-    }
-
-    /// Validate cross-language configuration consistency between Rust and Ruby
-    ///
-    /// This ensures that both Ruby and Rust sides use the same configuration values
-    /// for critical system parameters that affect orchestration behavior.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if configuration is consistent, otherwise returns a `ConfigurationError`
-    /// listing the inconsistencies found.
-    pub fn validate_ruby_rust_consistency(&self) -> Result<(), ConfigurationError> {
-        let mut inconsistencies = Vec::new();
-
-        // Define expected Ruby-compatible defaults that should match
-        let dependency_depth: u32 = 50;
-        let max_steps: u32 = 1000;
-        let max_retries: u32 = 3;
-        let visibility_timeout: u64 = 30;
-        let batch_size: u32 = 5;
-
-        // Check dependency_graph.max_depth
-        if self.dependency_graph.max_depth != dependency_depth {
-            inconsistencies.push(format!(
-                "dependency_graph.max_depth: Rust={}, Ruby Expected={}",
-                self.dependency_graph.max_depth, dependency_depth
-            ));
-        }
-
-        // Check execution.max_workflow_steps
-        if self.execution.max_workflow_steps != max_steps {
-            inconsistencies.push(format!(
-                "execution.max_workflow_steps: Rust={}, Ruby Expected={}",
-                self.execution.max_workflow_steps, max_steps
-            ));
-        }
-
-        // Check execution.max_retries
-        if self.execution.max_retries != max_retries {
-            inconsistencies.push(format!(
-                "execution.max_retries: Rust={}, Ruby Expected={}",
-                self.execution.max_retries, max_retries
-            ));
-        }
-
-        // Check queues.default_visibility_timeout_seconds
-        if self.queues.default_visibility_timeout_seconds as u64 != visibility_timeout {
-            inconsistencies.push(format!(
-                "queues.default_visibility_timeout_seconds: Rust={}, Ruby Expected={}",
-                self.queues.default_visibility_timeout_seconds, visibility_timeout
-            ));
-        }
-
-        // Check queues.default_batch_size
-        if self.queues.default_batch_size != batch_size {
-            inconsistencies.push(format!(
-                "queues.default_batch_size: Rust={}, Ruby Expected={}",
-                self.queues.default_batch_size, batch_size
-            ));
-        }
-
-        if !inconsistencies.is_empty() {
-            return Err(ConfigurationError::invalid_value(
-                "cross_language_consistency",
-                inconsistencies.join(", "),
-                "Ruby and Rust configuration values must match for consistent behavior",
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Get configuration warnings for potential cross-language issues
-    ///
-    /// This provides non-fatal warnings about configuration that might cause
-    /// issues in cross-language coordination between Ruby and Rust components.
-    ///
-    /// # Returns
-    ///
-    /// Vector of warning messages describing potential configuration issues.
-    pub fn cross_language_configuration_warnings(&self) -> Vec<String> {
-        let mut warnings = Vec::new();
-
-        // Check for environment-specific concerns
-        match self.execution.environment.as_str() {
-            "test" => {
-                if self.dependency_graph.max_depth > 20 {
-                    warnings.push(format!(
-                        "dependency_graph.max_depth={} is high for test environment, may slow test execution",
-                        self.dependency_graph.max_depth
-                    ));
-                }
-
-                if self.execution.max_workflow_steps > 500 {
-                    warnings.push(format!(
-                        "execution.max_workflow_steps={} is high for test environment, may cause test timeouts",
-                        self.execution.max_workflow_steps
-                    ));
-                }
-
-                if self.queues.pgmq.poll_interval_ms < 100 {
-                    warnings.push(format!(
-                        "queues.pgmq.poll_interval_ms={}ms is very low, may cause high CPU usage in tests",
-                        self.queues.pgmq.poll_interval_ms
-                    ));
-                }
-            }
-            "production" => {
-                if self.queues.pgmq.poll_interval_ms < 200 {
-                    warnings.push(format!(
-                        "queues.pgmq.poll_interval_ms={}ms is low for production, may cause high CPU usage",
-                        self.queues.pgmq.poll_interval_ms
-                    ));
-                }
-
-                if self.execution.max_retries < 2 {
-                    warnings.push(format!(
-                        "execution.max_retries={} is low for production, may cause permanent failures for transient errors",
-                        self.execution.max_retries
-                    ));
-                }
-
-                if self.execution.max_workflow_steps > 10000 {
-                    warnings.push(format!(
-                        "execution.max_workflow_steps={} is very high, may cause memory issues",
-                        self.execution.max_workflow_steps
-                    ));
-                }
-            }
-            "development" => {
-                // Development warnings are generally less strict
-                if self.queues.pgmq.poll_interval_ms < 100 {
-                    warnings.push(format!(
-                        "queues.pgmq.poll_interval_ms={}ms is low for development, may impact debugging experience",
-                        self.queues.pgmq.poll_interval_ms
-                    ));
-                }
-            }
-            _ => {
-                warnings.push(format!(
-                    "Unknown environment '{}', configuration validation may not be accurate",
-                    self.execution.environment
-                ));
-            }
-        }
-
-        // Check for missing configuration that Ruby expects
-        if self.system.version != "0.1.0" {
-            warnings.push(format!(
-                "system.version='{}' differs from expected Ruby version '0.1.0', may cause version mismatch issues",
-                self.system.version
-            ));
-        }
-
-        warnings
     }
 }
 

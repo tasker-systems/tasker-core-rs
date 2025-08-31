@@ -54,5 +54,8 @@ dotenvy = { workspace = true }
 # Project root detection
 workspace_tools = { workspace = true }
 
+[dev-dependencies]
+tasker-core = { path = "../../../../", package = "tasker-core" }
+
 [features]
 default = []

@@ -329,7 +329,7 @@ mod tests {
     use super::*;
     use tokio::time::{sleep, timeout, Duration};
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_listener_connection(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -354,7 +354,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_namespace_listening(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -381,7 +381,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_notification_parsing(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -427,7 +427,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_multiple_notification_types(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

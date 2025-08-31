@@ -53,9 +53,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tasker_shared::events::publisher::EventPublisher;
 use tasker_shared::models::Task;
+use tasker_shared::system_context::SystemContext;
 
 /// Priority levels for task enqueuing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -270,13 +272,13 @@ pub trait EnqueueHandler: Send + Sync {
 /// queue operations.
 #[derive(Debug, Clone)]
 pub struct EventBasedEnqueueHandler {
-    event_publisher: EventPublisher,
+    event_publisher: Arc<EventPublisher>,
     handler_id: String,
 }
 
 impl EventBasedEnqueueHandler {
     /// Create a new event-based handler
-    pub fn new(event_publisher: EventPublisher) -> Self {
+    pub fn new(event_publisher: Arc<EventPublisher>) -> Self {
         Self {
             event_publisher,
             handler_id: "event_based".to_string(),
@@ -284,7 +286,7 @@ impl EventBasedEnqueueHandler {
     }
 
     /// Create with custom handler ID
-    pub fn with_id<S: Into<String>>(event_publisher: EventPublisher, handler_id: S) -> Self {
+    pub fn with_id<S: Into<String>>(event_publisher: Arc<EventPublisher>, handler_id: S) -> Self {
         Self {
             event_publisher,
             handler_id: handler_id.into(),
@@ -433,36 +435,23 @@ impl EnqueueHandler for DirectEnqueueHandler {
 
 /// Main task enqueuer that orchestrates different handlers
 pub struct TaskEnqueuer {
-    event_publisher: EventPublisher,
+    context: Arc<SystemContext>,
     handlers: Vec<Box<dyn EnqueueHandler>>,
     default_handler: String,
 }
 
 impl TaskEnqueuer {
     /// Create a new task enqueuer with default handlers
-    pub fn new(pool: PgPool) -> Self {
-        let event_publisher = EventPublisher::with_capacity(1000);
+    pub fn new(context: Arc<SystemContext>) -> Self {
         let handlers: Vec<Box<dyn EnqueueHandler>> = vec![
-            Box::new(EventBasedEnqueueHandler::new(event_publisher.clone())),
-            Box::new(DirectEnqueueHandler::new(pool.clone())),
+            Box::new(EventBasedEnqueueHandler::new(
+                context.event_publisher.clone(),
+            )),
+            Box::new(DirectEnqueueHandler::new(context.database_pool().clone())),
         ];
 
         Self {
-            event_publisher,
-            handlers,
-            default_handler: "EventBasedEnqueueHandler".to_string(),
-        }
-    }
-
-    /// Create with custom event publisher
-    pub fn with_event_publisher(pool: PgPool, event_publisher: EventPublisher) -> Self {
-        let handlers: Vec<Box<dyn EnqueueHandler>> = vec![
-            Box::new(EventBasedEnqueueHandler::new(event_publisher.clone())),
-            Box::new(DirectEnqueueHandler::new(pool.clone())),
-        ];
-
-        Self {
-            event_publisher,
+            context,
             handlers,
             default_handler: "EventBasedEnqueueHandler".to_string(),
         }
@@ -502,11 +491,6 @@ impl TaskEnqueuer {
     /// List available handlers
     pub fn available_handlers(&self) -> Vec<&'static str> {
         self.handlers.iter().map(|h| h.handler_name()).collect()
-    }
-
-    /// Get the event publisher for framework integration
-    pub fn event_publisher(&self) -> &EventPublisher {
-        &self.event_publisher
     }
 }
 

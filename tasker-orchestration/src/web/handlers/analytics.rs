@@ -6,103 +6,17 @@ use axum::extract::{Query, State};
 use axum::Json;
 use bigdecimal::ToPrimitive;
 use chrono::{Duration, Utc};
-use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-#[allow(unused_imports)]
-use crate::web::response_types::{ApiError, ApiResult};
-use crate::web::state::{AppState, DbOperationType};
+use crate::web::state::AppState;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-
-#[cfg(feature = "web-api")]
-use utoipa::ToSchema;
-
-/// Query parameters for performance metrics
-#[derive(Debug, Deserialize)]
-pub struct MetricsQuery {
-    /// Number of hours to look back (default: 24)
-    pub hours: Option<u32>,
-}
-
-/// Query parameters for bottleneck analysis
-#[derive(Debug, Deserialize)]
-pub struct BottleneckQuery {
-    /// Maximum number of slow steps to return (default: 10)
-    pub limit: Option<i32>,
-    /// Minimum number of executions for inclusion (default: 5)
-    pub min_executions: Option<i32>,
-}
-
-/// Performance metrics response
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct PerformanceMetrics {
-    pub total_tasks: i64,
-    pub active_tasks: i64,
-    pub completed_tasks: i64,
-    pub failed_tasks: i64,
-    pub completion_rate: f64,
-    pub error_rate: f64,
-    pub average_task_duration_seconds: f64,
-    pub average_step_duration_seconds: f64,
-    pub tasks_per_hour: i64,
-    pub steps_per_hour: i64,
-    pub system_health_score: f64,
-    pub analysis_period_start: String,
-    pub calculated_at: String,
-}
-
-/// Bottleneck analysis response
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct BottleneckAnalysis {
-    pub slow_steps: Vec<SlowStepInfo>,
-    pub slow_tasks: Vec<SlowTaskInfo>,
-    pub resource_utilization: ResourceUtilization,
-    pub recommendations: Vec<String>,
-}
-
-/// Information about slow-performing steps
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct SlowStepInfo {
-    pub step_name: String,
-    pub average_duration_seconds: f64,
-    pub max_duration_seconds: f64,
-    pub execution_count: i32,
-    pub error_count: i32,
-    pub error_rate: f64,
-    pub last_executed_at: Option<String>,
-}
-
-/// Information about slow-performing tasks
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct SlowTaskInfo {
-    pub task_name: String,
-    pub average_duration_seconds: f64,
-    pub max_duration_seconds: f64,
-    pub execution_count: i32,
-    pub average_step_count: f64,
-    pub error_count: i32,
-    pub error_rate: f64,
-    pub last_executed_at: Option<String>,
-}
-
-/// Resource utilization metrics
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct ResourceUtilization {
-    pub database_connections_active: i64,
-    pub database_connections_max: i64,
-    pub database_pool_utilization: f64,
-    pub pending_steps: i64,
-    pub in_progress_steps: i64,
-    pub error_steps: i64,
-    pub retryable_error_steps: i64,
-    pub exhausted_retry_steps: i64,
-}
+use tasker_shared::types::api::{
+    BottleneckAnalysis, BottleneckQuery, MetricsQuery, PerformanceMetrics, ResourceUtilization,
+    SlowStepInfo, SlowTaskInfo,
+};
+#[allow(unused_imports)]
+use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// Get performance metrics: GET /v1/analytics/performance
 #[cfg_attr(feature = "web-api", utoipa::path(

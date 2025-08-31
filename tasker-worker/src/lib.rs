@@ -47,15 +47,15 @@
 //!         deployment_mode_hint: Some("Hybrid".to_string()), // Reliability mode
 //!         ..Default::default()
 //!     };
-//!     
+//!
 //!     let mut worker_handle = WorkerBootstrap::bootstrap(config).await?;
-//!     
+//!
 //!     // Worker system is now running with:
 //!     // - Real-time PostgreSQL LISTEN/NOTIFY
 //!     // - Fallback polling for reliability
 //!     // - Command pattern step processing
 //!     // - Configuration-driven deployment modes
-//!     
+//!
 //!     // Graceful shutdown
 //!     worker_handle.stop()?;
 //!     Ok(())
@@ -82,5 +82,5 @@ pub use bootstrap::{
 pub use error::{Result, WorkerError};
 
 pub use health::WorkerHealthStatus;
-pub use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
+pub use tasker_shared::types::TaskSequenceStep;
 pub use worker::{WorkerCore, WorkerCoreStatus};

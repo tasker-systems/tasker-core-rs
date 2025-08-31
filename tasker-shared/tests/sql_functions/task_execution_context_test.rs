@@ -60,7 +60,7 @@ mod tests {
         Ok((task_uuid, step_uuids))
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_for_pending_task(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
@@ -81,7 +81,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_all_complete(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
@@ -107,7 +107,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_with_failures(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
@@ -143,7 +143,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_with_retry_eligible_failures(
         pool: PgPool,
     ) -> sqlx::Result<()> {
@@ -191,7 +191,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_with_in_progress(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
@@ -225,7 +225,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_diamond_workflow(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().diamond()).await?;
@@ -254,7 +254,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_tree_workflow(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().tree()).await?;
@@ -271,7 +271,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_mixed_dag(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().mixed_dag())
@@ -289,7 +289,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_task_execution_context_helper_methods(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, _) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;
@@ -307,7 +307,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_execution_status_determination(pool: PgPool) -> sqlx::Result<()> {
         // Test various scenarios for execution status
 
@@ -360,7 +360,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_backoff_timing_information(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_task_with_initial_state(&pool, ComplexWorkflowFactory::new().linear()).await?;

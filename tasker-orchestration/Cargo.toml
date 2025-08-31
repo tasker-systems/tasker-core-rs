@@ -96,6 +96,7 @@ mockall = { workspace = true }
 factori = { workspace = true }
 url = { workspace = true }
 serial_test = { workspace = true }
+tasker-core = { path = "../", package = "tasker-core" }
 
 # Coverage tools (used in CI)
 cargo-llvm-cov = { workspace = true }

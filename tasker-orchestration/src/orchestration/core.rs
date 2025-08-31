@@ -17,7 +17,6 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use tasker_shared::config::orchestration::TaskClaimStepEnqueuerConfig;
 use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -33,9 +32,7 @@ use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig,
 };
-use crate::orchestration::task_claim::finalization_claimer::{
-    FinalizationClaimer, FinalizationClaimerConfig,
-};
+use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
@@ -276,7 +273,7 @@ impl OrchestrationCore {
         info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
 
         let config = TaskRequestProcessorConfig::default();
-        let task_initializer = Arc::new(TaskInitializer::new(context.database_pool.clone()));
+        let task_initializer = Arc::new(TaskInitializer::new(context.clone()));
 
         Ok(Arc::new(TaskRequestProcessor::new(
             context.message_client.clone(),
@@ -292,14 +289,11 @@ impl OrchestrationCore {
     ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
         info!("Creating sophisticated OrchestrationResultProcessor for command pattern delegation");
 
-        let task_finalizer = TaskFinalizer::new(
-            context.database_pool.clone(),
-            context.config_manager.config().clone(),
-        );
+        let task_finalizer = TaskFinalizer::new(context.clone());
 
         Ok(Arc::new(OrchestrationResultProcessor::new(
             task_finalizer,
-            context.database_pool.clone(),
+            context.clone(),
         )))
     }
 
@@ -309,14 +303,11 @@ impl OrchestrationCore {
     ) -> TaskerResult<Arc<FinalizationClaimer>> {
         info!("Creating sophisticated FinalizationClaimer for command pattern delegation");
 
-        let config =
-            FinalizationClaimerConfig::from_config_manager(context.config_manager.as_ref());
         let processor_id = FinalizationClaimer::generate_processor_id("orchestration_core");
 
-        Ok(Arc::new(FinalizationClaimer::with_config(
-            context.database_pool.clone(),
+        Ok(Arc::new(FinalizationClaimer::new(
+            context.clone(),
             processor_id,
-            config,
         )))
     }
 
@@ -328,17 +319,9 @@ impl OrchestrationCore {
             "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
         );
 
-        let config =
-            TaskClaimStepEnqueuerConfig::from_config_manager(context.config_manager.as_ref());
         let orchestrator_id = format!("orchestration_core_{}", uuid::Uuid::new_v4());
 
-        let enqueuer = TaskClaimStepEnqueuer::with_unified_client(
-            context.database_pool.clone(),
-            context.message_client.clone(),
-            orchestrator_id,
-            config,
-        )
-        .await?;
+        let enqueuer = TaskClaimStepEnqueuer::new(context.clone(), orchestrator_id).await?;
 
         Ok(Arc::new(enqueuer))
     }

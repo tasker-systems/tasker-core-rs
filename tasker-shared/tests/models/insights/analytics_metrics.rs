@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tasker_shared::models::insights::AnalyticsMetrics;
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_analytics_metrics(pool: PgPool) -> sqlx::Result<()> {
     // Test getting current metrics
     let metrics = AnalyticsMetrics::get_current(&pool).await?;
@@ -30,7 +30,7 @@ async fn test_get_analytics_metrics(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_analytics_since_timestamp(pool: PgPool) -> sqlx::Result<()> {
     // Test getting metrics since 1 hour ago
     let since = "2024-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();

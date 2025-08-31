@@ -7,82 +7,19 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::response_types::{ApiError, ApiResult};
-use crate::web::state::{AppState, DbOperationType};
+use crate::web::state::AppState;
 use tasker_shared::database::sql_functions::{
     SqlFunctionExecutor, StepReadinessStatus, TaskExecutionContext,
 };
 use tasker_shared::models::core::task::{PaginationInfo, Task, TaskListQuery};
 use tasker_shared::models::core::task_request::TaskRequest;
-#[cfg(feature = "web-api")]
-use utoipa::ToSchema;
-
-// Note: Using TaskRequest from src/models/core/task_request.rs instead of duplicate struct
-
-/// Response for successful task creation
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct TaskCreationResponse {
-    pub task_uuid: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub estimated_completion: Option<DateTime<Utc>>,
-    /// Number of workflow steps created for this task
-    pub step_count: usize,
-    /// Mapping of step names to their workflow step UUIDs
-    pub step_mapping: HashMap<String, String>,
-    /// Handler configuration name used (if any)
-    pub handler_config_name: Option<String>,
-}
-
-/// Task details response with execution context and step readiness information
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct TaskResponse {
-    pub task_uuid: String,
-    pub name: String,
-    pub namespace: String,
-    pub version: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-    pub context: serde_json::Value,
-    pub initiator: String,
-    pub source_system: String,
-    pub reason: String,
-    pub priority: Option<i32>,
-    pub tags: Option<Vec<String>>,
-
-    // Execution context fields from TaskExecutionContext
-    pub total_steps: i64,
-    pub pending_steps: i64,
-    pub in_progress_steps: i64,
-    pub completed_steps: i64,
-    pub failed_steps: i64,
-    pub ready_steps: i64,
-    pub execution_status: String,
-    pub recommended_action: String,
-    pub completion_percentage: f64,
-    pub health_status: String,
-
-    // Step readiness information
-    pub steps: Vec<StepReadinessStatus>,
-}
-
-/// Task list response with pagination
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct TaskListResponse {
-    pub tasks: Vec<TaskResponse>,
-    pub pagination: PaginationInfo,
-}
+use tasker_shared::types::api::{TaskCreationResponse, TaskListResponse, TaskResponse};
+use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// Create a new task: POST /v1/tasks
 ///

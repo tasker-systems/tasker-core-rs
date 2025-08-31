@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::{QueuesConfig, WebConfig};
+
 /// Worker configuration for TAS-40 command pattern architecture
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WorkerConfig {
@@ -24,11 +26,15 @@ pub struct WorkerConfig {
     /// Worker health monitoring
     pub health_monitoring: HealthMonitoringConfig,
 
-    /// Worker resource limits
-    pub resource_limits: ResourceLimitsConfig,
-
     /// Queue configuration for message consumption
-    pub queue_config: QueueConfig,
+    /// Note: This field is populated from the main queues configuration, not from TOML
+    #[serde(skip)]
+    pub queues: QueuesConfig,
+
+    /// Web configuration for worker
+    /// Note: This field is populated from the main web configuration, not from TOML
+    #[serde(skip)]
+    pub web: WebConfig,
 }
 
 /// Step processing configuration for command pattern architecture
@@ -133,50 +139,17 @@ pub struct HealthMonitoringConfig {
     pub memory_usage_threshold_mb: usize,
 }
 
-/// Worker resource limits configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ResourceLimitsConfig {
-    /// Maximum memory usage (MB)
-    pub max_memory_mb: usize,
-
-    /// Maximum CPU usage percentage
-    pub max_cpu_percent: u8,
-
-    /// Maximum database connections
-    pub max_database_connections: usize,
-
-    /// Maximum queue connections
-    pub max_queue_connections: usize,
-}
-
-/// Queue configuration for message consumption
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct QueueConfig {
-    /// Message visibility timeout (seconds)
-    pub visibility_timeout_seconds: u64,
-
-    /// Batch size for message consumption
-    pub batch_size: usize,
-
-    /// Polling interval (ms)
-    pub polling_interval_ms: u64,
-}
-
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             worker_id: "worker-001".to_string(),
             worker_type: "general".to_string(),
-            namespaces: vec![
-                "fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-            ],
+            namespaces: vec!["default".to_string()],
             step_processing: StepProcessingConfig::default(),
             event_system: EventSystemConfig::default(),
             health_monitoring: HealthMonitoringConfig::default(),
-            resource_limits: ResourceLimitsConfig::default(),
-            queue_config: QueueConfig::default(),
+            queues: QueuesConfig::default(),
+            web: WebConfig::default(),
         }
     }
 }
@@ -249,27 +222,6 @@ impl Default for HealthMonitoringConfig {
     }
 }
 
-impl Default for ResourceLimitsConfig {
-    fn default() -> Self {
-        Self {
-            max_memory_mb: 2048,
-            max_cpu_percent: 80,
-            max_database_connections: 50,
-            max_queue_connections: 20,
-        }
-    }
-}
-
-impl Default for QueueConfig {
-    fn default() -> Self {
-        Self {
-            visibility_timeout_seconds: 30,
-            batch_size: 10,
-            polling_interval_ms: 100,
-        }
-    }
-}
-
 impl WorkerConfig {
     /// Validate worker configuration
     pub fn validate(&self) -> Result<(), String> {
@@ -287,10 +239,6 @@ impl WorkerConfig {
 
         if self.step_processing.max_concurrent_steps == 0 {
             return Err("max_concurrent_steps must be greater than 0".to_string());
-        }
-
-        if self.resource_limits.max_memory_mb == 0 {
-            return Err("max_memory_mb must be greater than 0".to_string());
         }
 
         Ok(())

@@ -11,15 +11,14 @@
 //! - Database-backed test data persistence
 //! - Namespace and queue setup for testing
 
-use crate::api_clients::orchestration_client::{
-    OrchestrationApiClient, OrchestrationApiConfig, TaskCreationResponse,
-};
+use crate::api_clients::orchestration_client::{OrchestrationApiClient, OrchestrationApiConfig};
 use pgmq_notify::PgmqClient;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::{NamedStep, NamedTask, TaskNamespace, WorkflowStep};
+use tasker_shared::types::api::TaskCreationResponse;
 use uuid::Uuid;
 
 /// Test-specific error type for factory operations

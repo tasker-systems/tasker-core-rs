@@ -17,7 +17,6 @@ pub mod state_manager;
 pub mod system_events;
 pub mod task_claim;
 pub mod task_readiness;
-pub mod types;
 pub mod viable_step_discovery;
 
 pub use tasker_shared::config::orchestration::{
@@ -44,7 +43,7 @@ pub use lifecycle::task_finalizer::{
     FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
 pub use lifecycle::task_initializer::{
-    TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
+    TaskInitializationError, TaskInitializationResult, TaskInitializer,
 };
 pub use viable_step_discovery::ViableStepDiscovery;
 
@@ -57,9 +56,8 @@ pub use core::{OrchestrationCore, OrchestrationCoreStatus};
 // Re-export TAS-43 Unified Event System components from event_systems namespace
 pub use event_systems::{
     OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationEventSystemConfig,
-    OrchestrationStatistics, TaskReadinessEventSystem, TaskReadinessEventSystemConfig,
-    TaskReadinessStatistics, UnifiedCoordinatorConfig, UnifiedEventCoordinator,
-    UnifiedHealthReport,
+    OrchestrationStatistics, TaskReadinessEventSystem, TaskReadinessStatistics,
+    UnifiedCoordinatorConfig, UnifiedEventCoordinator, UnifiedHealthReport,
 };
 
 // Re-export TAS-43 Task Readiness components
@@ -103,8 +101,7 @@ pub use tasker_shared::config::{ReadinessFallbackConfig, TaskReadinessNotificati
 
 // Re-export new components (to be implemented)
 pub use config::{
-    BackoffConfig, ConfigurationManager, DatabaseConfig, EventConfig, ExecutionConfig,
-    ReenqueueDelays, TaskerConfig, TelemetryConfig,
+    BackoffConfig, DatabaseConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig, TelemetryConfig,
 };
 pub use error_classifier::{
     ErrorCategory, ErrorClassification, ErrorClassifier, ErrorClassifierConfig, ErrorContext,
@@ -122,4 +119,3 @@ pub use task_claim::finalization_claimer::{
 };
 pub use task_claim::task_claimer::{ClaimedTask, TaskClaimer};
 pub use tasker_shared::events::EventPublisher;
-pub use types::*;

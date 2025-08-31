@@ -1,0 +1,184 @@
+# TaskTemplate Configuration - Native Rust Implementation
+#
+# Linear Workflow Pattern with Native Rust Step Handlers
+# Demonstrates sequential mathematical operations using compiled Rust handlers
+#
+# Template: linear_workflow/mathematical_sequence:1.0.0
+# Implementation: Native Rust with tasker-worker-rust
+# Created: 2025-08-29 (TAS-41 Implementation)
+#
+# Mathematical Pattern:
+# Input (even number) → Square → Square → Square → Square
+# Final result: input^(2^4) = input^8
+# Example: 6 → 36 → 1,296 → 1,679,616 → 2,821,109,907,456
+#
+---
+:name: mathematical_sequence
+:namespace_name: linear_workflow
+:version: 1.0.0
+:description: "Sequential mathematical operations using native Rust handlers: input → square → square → square → square (input^8)"
+:metadata:
+  :author: TAS-41 Native Rust Implementation
+  :tags:
+    - namespace:linear_workflow
+    - pattern:linear
+    - dependencies:simple
+    - implementation:rust
+    - performance:native
+    - type_safety:compile_time
+  :documentation_url: 
+  :created_at: "2025-08-29T00:00:00Z"
+  :updated_at: "2025-08-29T00:00:00Z"
+  :notes: "Native Rust implementation providing compile-time type safety and zero-overhead abstractions"
+:task_handler:
+  :callable: tasker_worker_rust::step_handlers::RustStepHandler
+  :initialization:
+    input_validation:
+      required_fields:
+        - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 100
+    expected_results:
+      linear_step_1: "input²"
+      linear_step_2: "(input²)²" 
+      linear_step_3: "((input²)²)²"
+      linear_step_4: "(((input²)²)²)²"
+      final_pattern: "input^8"
+    performance_notes:
+      - "Native Rust execution with zero-overhead abstractions"
+      - "Compile-time type checking eliminates runtime errors"
+      - "Memory safety without garbage collection overhead"
+:system_dependencies:
+  :primary: default
+  :secondary: []
+:domain_events: []
+:input_schema:
+  type: object
+  required:
+    - even_number
+  properties:
+    even_number:
+      type: integer
+      minimum: 2
+      maximum: 100
+      description: "Even number for mathematical sequence"
+:steps:
+  - :name: linear_step_1
+    :description: "Square the initial even number (Step 1: n → n²)"
+    :handler:
+      :callable: tasker_worker_rust::step_handlers::linear_workflow::LinearStep1Handler
+      :initialization:
+        operation: square
+        step_number: 1
+        description: "Square the input number (n²)"
+        pattern: "input → input²"
+    :system_dependency:
+    :dependencies: []
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: linear_step_2
+    :description: "Square the result from step 1 (Step 2: n² → n⁴)"
+    :handler:
+      :callable: tasker_worker_rust::step_handlers::linear_workflow::LinearStep2Handler
+      :initialization:
+        operation: square
+        step_number: 2
+        description: "Square the step 1 result ((n²)²)"
+        pattern: "input² → (input²)²"
+    :system_dependency:
+    :dependencies:
+      - linear_step_1
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: linear_step_3
+    :description: "Square the result from step 2 (Step 3: n⁴ → n⁸)"
+    :handler:
+      :callable: tasker_worker_rust::step_handlers::linear_workflow::LinearStep3Handler
+      :initialization:
+        operation: square
+        step_number: 3
+        description: "Square the step 2 result (((n²)²)²)"
+        pattern: "(input²)² → ((input²)²)²"
+    :system_dependency:
+    :dependencies:
+      - linear_step_2
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: linear_step_4
+    :description: "Square the result from step 3 for final result (Step 4: n⁸ → n¹⁶)"
+    :handler:
+      :callable: tasker_worker_rust::step_handlers::linear_workflow::LinearStep4Handler
+      :initialization:
+        operation: square
+        step_number: 4
+        description: "Square the step 3 result for final calculation"
+        pattern: "((input²)²)² → (((input²)²)²)²"
+        final_result: "input^8"
+    :system_dependency:
+    :dependencies:
+      - linear_step_3
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+:environments:
+  test:
+    :steps:
+      - :name: linear_step_1
+        :timeout_seconds: 10
+        :retry:
+          :limit: 2
+      - :name: linear_step_2
+        :timeout_seconds: 10
+        :retry:
+          :limit: 2
+      - :name: linear_step_3
+        :timeout_seconds: 10
+        :retry:
+          :limit: 2
+      - :name: linear_step_4
+        :timeout_seconds: 10
+        :retry:
+          :limit: 2
+  development:
+    :steps:
+      - :name: linear_step_1
+        :handler:
+          :initialization:
+            debug_mode: true
+      - :name: linear_step_2
+        :handler:
+          :initialization:
+            debug_mode: true
+      - :name: linear_step_3
+        :handler:
+          :initialization:
+            debug_mode: true
+      - :name: linear_step_4
+        :handler:
+          :initialization:
+            debug_mode: true

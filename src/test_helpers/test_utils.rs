@@ -8,6 +8,7 @@
 //!
 //! Uses sqlx::migrate! macro for simple, reliable test database setup.
 
+use dotenvy::dotenv;
 use sqlx::PgPool;
 use std::env;
 
@@ -65,14 +66,14 @@ mod tests {
 ///
 /// This replaces our complex custom migration system with sqlx's built-in support.
 /// Use this in tests with: #[sqlx::test(migrator = "MIGRATOR")]
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../migrations");
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 /// Set up test database pool with migrations applied
 ///
-/// Alternative to #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")] macro for cases where you need manual setup.
+/// Alternative to #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")] macro for cases where you need manual setup.
 pub async fn setup_test_db() -> PgPool {
     // Load .env file for tests
-    dotenvy::dotenv().ok();
+    dotenv().ok();
 
     let database_url = get_test_database_url();
 

@@ -34,15 +34,6 @@ fn config_has_expected_defaults() {
     assert!(config.backoff.jitter_enabled);
     assert_eq!(config.backoff.backoff_multiplier, 2.0);
 
-    // Reenqueue delays
-    assert_eq!(config.reenqueue.has_ready_steps, 1);
-    assert_eq!(config.reenqueue.waiting_for_dependencies, 5);
-    assert_eq!(config.reenqueue.processing, 2);
-
-    // Events config
-    assert_eq!(config.events.batch_size, 100);
-    assert!(config.events.enabled);
-
     // Telemetry config
     assert!(!config.telemetry.enabled);
     assert_eq!(config.telemetry.sample_rate, 1.0);

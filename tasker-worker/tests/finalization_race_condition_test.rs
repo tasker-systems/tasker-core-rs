@@ -8,6 +8,7 @@ use std::time::Duration;
 use tasker_orchestration::orchestration::task_claim::finalization_claimer::{
     ClaimGuard, FinalizationClaimer, FinalizationClaimerConfig,
 };
+use tasker_shared::SystemContext;
 use tokio::time::timeout;
 
 // Import the factory system for clean test data creation
@@ -15,7 +16,7 @@ use tasker_shared::models::factories::base::SqlxFactory;
 use tasker_shared::models::factories::core::TaskFactory;
 
 /// Test basic claiming functionality using the finalization claiming SQL functions
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_basic_finalization_claiming(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -27,8 +28,10 @@ async fn test_basic_finalization_claiming(
         .create(&pool)
         .await?;
 
+    let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+
     // Create finalization claimer
-    let claimer = FinalizationClaimer::new(pool.clone(), "test_processor_1".to_string());
+    let claimer = FinalizationClaimer::new(context.clone(), "test_processor_1".to_string());
 
     // Test claiming attempt
     let claim_result = claimer
@@ -55,29 +58,26 @@ async fn test_basic_finalization_claiming(
 }
 
 /// Test race condition prevention with multiple processors
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_race_condition_prevention(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pool = Arc::new(pool);
-
     // Create a task using the factory system
     let task = TaskFactory::new()
         .with_namespace("tas_37_race_test")
         .with_initiator("race_test_processor")
         .with_context(serde_json::json!({"test": "TAS-37 race condition prevention"}))
-        .create(pool.as_ref())
+        .create(&pool)
         .await?;
 
+    let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+
     // Create multiple processors
-    let processor1 =
-        FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_1".to_string());
+    let processor1 = FinalizationClaimer::new(context.clone(), "test_processor_1".to_string());
 
-    let processor2 =
-        FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_2".to_string());
+    let processor2 = FinalizationClaimer::new(context.clone(), "test_processor_2".to_string());
 
-    let processor3 =
-        FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_3".to_string());
+    let processor3 = FinalizationClaimer::new(context.clone(), "test_processor_3".to_string());
 
     let task_uuid = task.task_uuid;
 
@@ -129,17 +129,17 @@ async fn test_race_condition_prevention(
             // Clean up any claims that might have succeeded
             if r1.claimed {
                 let releaser =
-                    FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_1".to_string());
+                    FinalizationClaimer::new(context.clone(), "test_processor_1".to_string());
                 let _ = releaser.release_claim(task_uuid).await;
             }
             if r2.claimed {
                 let releaser =
-                    FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_2".to_string());
+                    FinalizationClaimer::new(context.clone(), "test_processor_2".to_string());
                 let _ = releaser.release_claim(task_uuid).await;
             }
             if r3.claimed {
                 let releaser =
-                    FinalizationClaimer::new(pool.as_ref().clone(), "test_processor_3".to_string());
+                    FinalizationClaimer::new(context.clone(), "test_processor_3".to_string());
                 let _ = releaser.release_claim(task_uuid).await;
             }
         }
@@ -152,7 +152,7 @@ async fn test_race_condition_prevention(
 }
 
 /// Test claim timeout and expiration
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_claim_timeout_expiration(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -171,10 +171,11 @@ async fn test_claim_timeout_expiration(
         heartbeat_interval_seconds: 10,
     };
 
-    let claimer1 =
-        FinalizationClaimer::with_config(pool.clone(), "test_processor_1".to_string(), config);
+    let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
 
-    let claimer2 = FinalizationClaimer::new(pool.clone(), "test_processor_2".to_string());
+    let claimer1 = FinalizationClaimer::new(context.clone(), "test_processor_1".to_string());
+
+    let claimer2 = FinalizationClaimer::new(context.clone(), "test_processor_2".to_string());
 
     // First processor attempts to claim (should fail - no completed steps)
     let claim_result1 = claimer1
@@ -206,7 +207,7 @@ async fn test_claim_timeout_expiration(
 }
 
 /// Test claim guard RAII functionality
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_claim_guard_automatic_release(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -218,9 +219,11 @@ async fn test_claim_guard_automatic_release(
         .create(&pool)
         .await?;
 
-    let claimer1 = FinalizationClaimer::new(pool.clone(), "test_processor_1".to_string());
+    let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
 
-    let claimer2 = FinalizationClaimer::new(pool.clone(), "test_processor_2".to_string());
+    let claimer1 = FinalizationClaimer::new(context.clone(), "test_processor_1".to_string());
+
+    let claimer2 = FinalizationClaimer::new(context.clone(), "test_processor_2".to_string());
 
     // Use claim guard in a scope that ends
     {

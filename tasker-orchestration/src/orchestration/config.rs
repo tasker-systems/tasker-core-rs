@@ -12,15 +12,13 @@ pub use tasker_shared::config::orchestration::{
 // Re-export shared types instead of redefining them
 pub use tasker_shared::config::orchestration::OrchestrationConfig;
 pub use tasker_shared::config::{
-    AuthConfig, BackoffConfig, CacheConfig, DatabaseConfig, DatabasePoolConfig,
-    DependencyGraphConfig, EngineConfig, ExecutionConfig, HealthConfig, ReenqueueDelays,
-    SystemConfig, TaskTemplatesConfig, TaskerConfig, TelemetryConfig,
+    AuthConfig, BackoffConfig, ConfigManager, DatabaseConfig, DatabasePoolConfig, EngineConfig,
+    ExecutionConfig, HealthConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig,
+    TaskerConfig, TelemetryConfig,
 };
 // Use canonical TaskTemplate from models instead of legacy config types
 pub use tasker_shared::errors::{OrchestrationError, OrchestrationResult};
 pub use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
-pub type EventConfig = tasker_shared::config::EventsConfig;
-pub type ConfigurationManager = tasker_shared::config::ConfigManager;
 
 #[cfg(test)]
 mod tests {
@@ -29,7 +27,7 @@ mod tests {
     #[test]
     fn test_configuration_loading() {
         // TAS-43: Replace ::default() usage with proper configuration loading
-        let config_manager = ConfigurationManager::new();
+        let config_manager = ConfigManager::new();
         let config = config_manager.config();
 
         // Test basic configuration structure is loaded
@@ -51,7 +49,7 @@ mod tests {
 
     #[test]
     fn test_configuration_manager_creation() {
-        let config_manager = ConfigurationManager::new();
+        let config_manager = ConfigManager::new();
         // Environment can be overridden by TASKER_ENV, so just verify it's not empty
         assert!(!config_manager.environment().is_empty());
         assert!(!config_manager.system_config().auth.authentication_enabled);

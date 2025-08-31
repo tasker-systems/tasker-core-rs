@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::task_annotation::{NewTaskAnnotation, TaskAnnotation};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(
@@ -98,7 +98,7 @@ async fn test_task_annotation_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_json_operations(pool: PgPool) -> sqlx::Result<()> {
     // Create minimal test data
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(

@@ -20,10 +20,11 @@ use crate::orchestration::{
     OrchestrationCore,
 };
 use crate::web;
-use crate::web::state::{AppState, WebServerConfig};
+use crate::web::state::AppState;
 use std::sync::Arc;
 use tasker_shared::config::ConfigManager;
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::types::web::WebServerConfig;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
@@ -197,10 +198,6 @@ impl OrchestrationBootstrap {
         info!(
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
             config_manager.environment()
-        );
-        info!(
-            "🛡️ BOOTSTRAP: Circuit breakers enabled: {}",
-            config_manager.config().circuit_breakers.enabled
         );
 
         // Initialize system context

@@ -1,19 +1,22 @@
 //! # Orchestration API Client
 //!
-//! HTTP client for communicating with the tasker-orchestration web API.
-//! Used by workers to delegate task initialization and coordinate with the orchestration layer.
+//! Comprehensive HTTP client for communicating with the tasker-orchestration web API.
+//! Provides methods for all available endpoints including tasks, workflow steps, handlers,
+//! analytics, and health monitoring.
 
-use chrono::{DateTime, Utc};
 use reqwest::{Client, Url};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{
     errors::{TaskerError, TaskerResult},
-    models::core::task_request::TaskRequest,
+    models::core::{task::TaskListQuery, task_request::TaskRequest},
+    types::api::{
+        BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo, HealthResponse,
+        ManualResolutionRequest, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepResponse,
+        TaskCreationResponse, TaskListResponse, TaskResponse,
+    },
 };
 
 /// Configuration for the orchestration API client
@@ -27,8 +30,6 @@ pub struct OrchestrationApiConfig {
     pub max_retries: u32,
     /// API authentication token (if required)
     pub auth_token: Option<String>,
-    /// Enable circuit breaker protection
-    pub circuit_breaker_enabled: bool,
 }
 
 impl Default for OrchestrationApiConfig {
@@ -38,7 +39,6 @@ impl Default for OrchestrationApiConfig {
             timeout_ms: 30000,
             max_retries: 3,
             auth_token: None,
-            circuit_breaker_enabled: true,
         }
     }
 }
@@ -70,35 +70,8 @@ impl OrchestrationApiConfig {
             } else {
                 None
             },
-            circuit_breaker_enabled: config.circuit_breakers.enabled,
         }
     }
-}
-
-/// Response from the orchestration API task creation endpoint
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskCreationResponse {
-    pub task_uuid: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub estimated_completion: Option<DateTime<Utc>>,
-    pub step_count: usize,
-    pub step_mapping: HashMap<String, String>,
-    pub handler_config_name: Option<String>,
-}
-
-/// Task status response from orchestration API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskStatusResponse {
-    pub task_uuid: String,
-    pub name: String,
-    pub namespace: String,
-    pub version: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-    pub progress: Option<String>,
 }
 
 /// HTTP client for communicating with the orchestration system
@@ -241,10 +214,10 @@ impl OrchestrationApiClient {
         }
     }
 
-    /// Get task status via the orchestration API
+    /// Get task via the orchestration API
     ///
     /// GET /v1/tasks/{task_uuid}
-    pub async fn get_task_status(&self, task_uuid: Uuid) -> TaskerResult<TaskStatusResponse> {
+    pub async fn get_task(&self, task_uuid: Uuid) -> TaskerResult<TaskResponse> {
         let url = self
             .base_url
             .join(&format!("/v1/tasks/{}", task_uuid))
@@ -263,7 +236,7 @@ impl OrchestrationApiClient {
         })?;
 
         if response.status().is_success() {
-            let task_status = response.json::<TaskStatusResponse>().await.map_err(|e| {
+            let task_status = response.json::<TaskResponse>().await.map_err(|e| {
                 TaskerError::OrchestrationError(format!(
                     "Failed to parse task status response: {}",
                     e
@@ -327,6 +300,469 @@ impl OrchestrationApiClient {
     pub fn timeout_ms(&self) -> u64 {
         self.config.timeout_ms
     }
+
+    // ===================================================================================
+    // TASKS API METHODS
+    // ===================================================================================
+
+    /// List tasks with pagination and filtering
+    ///
+    /// GET /v1/tasks
+    pub async fn list_tasks(&self, query: &TaskListQuery) -> TaskerResult<TaskListResponse> {
+        let mut url = self.base_url.join("/v1/tasks").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        // Build query parameters
+        let mut query_pairs = url.query_pairs_mut();
+        query_pairs.append_pair("page", &query.page.to_string());
+        query_pairs.append_pair("per_page", &query.per_page.to_string());
+
+        if let Some(ref namespace) = query.namespace {
+            query_pairs.append_pair("namespace", namespace);
+        }
+        if let Some(ref status) = query.status {
+            query_pairs.append_pair("status", status);
+        }
+        if let Some(ref initiator) = query.initiator {
+            query_pairs.append_pair("initiator", initiator);
+        }
+        if let Some(ref source_system) = query.source_system {
+            query_pairs.append_pair("source_system", source_system);
+        }
+        drop(query_pairs);
+
+        debug!(url = %url, "Listing tasks via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "list tasks").await
+    }
+
+    /// Cancel a task
+    ///
+    /// DELETE /v1/tasks/{task_uuid}
+    pub async fn cancel_task(&self, task_uuid: Uuid) -> TaskerResult<()> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/tasks/{}", task_uuid))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            "Canceling task via orchestration API"
+        );
+
+        let response = self.client.delete(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        if response.status().is_success() {
+            info!(task_uuid = %task_uuid, "Successfully canceled task");
+            Ok(())
+        } else {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!(status = %status, error = %error_text, "Failed to cancel task");
+            Err(TaskerError::OrchestrationError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )))
+        }
+    }
+
+    // ===================================================================================
+    // WORKFLOW STEPS API METHODS
+    // ===================================================================================
+
+    /// List workflow steps for a task
+    ///
+    /// GET /v1/tasks/{task_uuid}/workflow_steps
+    pub async fn list_task_steps(&self, task_uuid: Uuid) -> TaskerResult<Vec<StepResponse>> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/tasks/{}/workflow_steps", task_uuid))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            "Listing task steps via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "list task steps").await
+    }
+
+    /// Get a specific workflow step
+    ///
+    /// GET /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}
+    pub async fn get_step(&self, task_uuid: Uuid, step_uuid: Uuid) -> TaskerResult<StepResponse> {
+        let url = self
+            .base_url
+            .join(&format!(
+                "/v1/tasks/{}/workflow_steps/{}",
+                task_uuid, step_uuid
+            ))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            step_uuid = %step_uuid,
+            "Getting step via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get step").await
+    }
+
+    /// Manually resolve a workflow step
+    ///
+    /// PATCH /v1/tasks/{task_uuid}/workflow_steps/{step_uuid}
+    pub async fn resolve_step_manually(
+        &self,
+        task_uuid: Uuid,
+        step_uuid: Uuid,
+        request: ManualResolutionRequest,
+    ) -> TaskerResult<StepResponse> {
+        let url = self
+            .base_url
+            .join(&format!(
+                "/v1/tasks/{}/workflow_steps/{}",
+                task_uuid, step_uuid
+            ))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            task_uuid = %task_uuid,
+            step_uuid = %step_uuid,
+            resolved_by = %request.resolved_by,
+            "Manually resolving step via orchestration API"
+        );
+
+        let response = self
+            .client
+            .patch(url.clone())
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+            })?;
+
+        self.handle_response(response, "resolve step manually")
+            .await
+    }
+
+    // ===================================================================================
+    // HANDLERS API METHODS
+    // ===================================================================================
+
+    /// List all available namespaces
+    ///
+    /// GET /v1/handlers
+    pub async fn list_namespaces(&self) -> TaskerResult<Vec<NamespaceInfo>> {
+        let url = self.base_url.join("/v1/handlers").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Listing namespaces via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "list namespaces").await
+    }
+
+    /// List handlers in a specific namespace
+    ///
+    /// GET /v1/handlers/{namespace}
+    pub async fn list_namespace_handlers(&self, namespace: &str) -> TaskerResult<Vec<HandlerInfo>> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/handlers/{}", namespace))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            namespace = %namespace,
+            "Listing namespace handlers via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "list namespace handlers")
+            .await
+    }
+
+    /// Get information about a specific handler
+    ///
+    /// GET /v1/handlers/{namespace}/{name}
+    pub async fn get_handler_info(&self, namespace: &str, name: &str) -> TaskerResult<HandlerInfo> {
+        let url = self
+            .base_url
+            .join(&format!("/v1/handlers/{}/{}", namespace, name))
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        debug!(
+            url = %url,
+            namespace = %namespace,
+            handler_name = %name,
+            "Getting handler info via orchestration API"
+        );
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get handler info").await
+    }
+
+    // ===================================================================================
+    // ANALYTICS API METHODS
+    // ===================================================================================
+
+    /// Get performance metrics
+    ///
+    /// GET /v1/analytics/performance
+    pub async fn get_performance_metrics(
+        &self,
+        query: Option<&MetricsQuery>,
+    ) -> TaskerResult<PerformanceMetrics> {
+        let mut url = self
+            .base_url
+            .join("/v1/analytics/performance")
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        // Add query parameters if provided
+        if let Some(metrics_query) = query {
+            let mut query_pairs = url.query_pairs_mut();
+            if let Some(hours) = metrics_query.hours {
+                query_pairs.append_pair("hours", &hours.to_string());
+            }
+            drop(query_pairs);
+        }
+
+        debug!(url = %url, "Getting performance metrics via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get performance metrics")
+            .await
+    }
+
+    /// Get bottleneck analysis
+    ///
+    /// GET /v1/analytics/bottlenecks
+    pub async fn get_bottlenecks(
+        &self,
+        query: Option<&BottleneckQuery>,
+    ) -> TaskerResult<BottleneckAnalysis> {
+        let mut url = self
+            .base_url
+            .join("/v1/analytics/bottlenecks")
+            .map_err(|e| {
+                TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+            })?;
+
+        // Add query parameters if provided
+        if let Some(bottleneck_query) = query {
+            let mut query_pairs = url.query_pairs_mut();
+            if let Some(limit) = bottleneck_query.limit {
+                query_pairs.append_pair("limit", &limit.to_string());
+            }
+            if let Some(min_executions) = bottleneck_query.min_executions {
+                query_pairs.append_pair("min_executions", &min_executions.to_string());
+            }
+            drop(query_pairs);
+        }
+
+        debug!(url = %url, "Getting bottleneck analysis via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get bottleneck analysis")
+            .await
+    }
+
+    // ===================================================================================
+    // HEALTH API METHODS
+    // ===================================================================================
+
+    /// Get basic health status
+    ///
+    /// GET /health
+    pub async fn get_basic_health(&self) -> TaskerResult<HealthResponse> {
+        let url = self.base_url.join("/health").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Getting basic health via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get basic health").await
+    }
+
+    /// Get detailed health status
+    ///
+    /// GET /health/detailed
+    pub async fn get_detailed_health(&self) -> TaskerResult<DetailedHealthResponse> {
+        let url = self.base_url.join("/health/detailed").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Getting detailed health via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "get detailed health").await
+    }
+
+    /// Check readiness probe (Kubernetes readiness)
+    ///
+    /// GET /ready
+    pub async fn readiness_probe(&self) -> TaskerResult<HealthResponse> {
+        let url = self.base_url.join("/ready").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Checking readiness probe via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "readiness probe").await
+    }
+
+    /// Check liveness probe (Kubernetes liveness)
+    ///
+    /// GET /live
+    pub async fn liveness_probe(&self) -> TaskerResult<HealthResponse> {
+        let url = self.base_url.join("/live").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Checking liveness probe via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        self.handle_response(response, "liveness probe").await
+    }
+
+    /// Get Prometheus metrics
+    ///
+    /// GET /metrics
+    pub async fn get_prometheus_metrics(&self) -> TaskerResult<String> {
+        let url = self.base_url.join("/metrics").map_err(|e| {
+            TaskerError::ConfigurationError(format!("Failed to construct URL: {}", e))
+        })?;
+
+        debug!(url = %url, "Getting Prometheus metrics via orchestration API");
+
+        let response = self.client.get(url.clone()).send().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to send request: {}", e))
+        })?;
+
+        if response.status().is_success() {
+            let metrics_text = response.text().await.map_err(|e| {
+                TaskerError::OrchestrationError(format!("Failed to parse metrics response: {}", e))
+            })?;
+
+            debug!("Successfully retrieved Prometheus metrics");
+            Ok(metrics_text)
+        } else {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!(status = %status, error = %error_text, "Failed to get Prometheus metrics");
+            Err(TaskerError::OrchestrationError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )))
+        }
+    }
+
+    // ===================================================================================
+    // UTILITY METHODS
+    // ===================================================================================
+
+    /// Handle HTTP response with proper error handling and deserialization
+    async fn handle_response<T>(
+        &self,
+        response: reqwest::Response,
+        operation: &str,
+    ) -> TaskerResult<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        if response.status().is_success() {
+            let result = response.json::<T>().await.map_err(|e| {
+                TaskerError::OrchestrationError(format!(
+                    "Failed to parse {} response: {}",
+                    operation, e
+                ))
+            })?;
+
+            debug!("Successfully completed operation: {}", operation);
+            Ok(result)
+        } else {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            error!(status = %status, error = %error_text, "Failed operation: {}", operation);
+            Err(TaskerError::OrchestrationError(format!(
+                "HTTP {}: {}",
+                status, error_text
+            )))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -341,7 +777,6 @@ mod tests {
         assert_eq!(config.timeout_ms, 30000);
         assert_eq!(config.max_retries, 3);
         assert!(config.auth_token.is_none());
-        assert!(config.circuit_breaker_enabled);
     }
 
     #[test]
@@ -360,6 +795,20 @@ mod tests {
         let client = OrchestrationApiClient::new(config);
         assert!(client.is_err());
     }
+
+    #[test]
+    fn test_orchestration_client_creation_with_auth() {
+        let config = OrchestrationApiConfig {
+            auth_token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        let client = OrchestrationApiClient::new(config);
+        assert!(client.is_ok());
+    }
+
+    // ===================================================================================
+    // DESERIALIZATION TESTS
+    // ===================================================================================
 
     #[tokio::test]
     async fn test_task_creation_response_deserialization() {
@@ -381,5 +830,264 @@ mod tests {
         assert_eq!(response.status, "initialized");
         assert_eq!(response.step_count, 3);
         assert_eq!(response.step_mapping.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_task_response_deserialization() {
+        let json_response = json!({
+            "task_uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "name": "test_task",
+            "namespace": "test",
+            "version": "1.0.0",
+            "status": "pending",
+            "created_at": "2023-12-01T12:00:00Z",
+            "updated_at": "2023-12-01T12:00:00Z",
+            "completed_at": null,
+            "context": {},
+            "initiator": "test_user",
+            "source_system": "test_system",
+            "reason": "test_reason",
+            "priority": 1,
+            "tags": ["test"],
+            "total_steps": 3,
+            "pending_steps": 3,
+            "in_progress_steps": 0,
+            "completed_steps": 0,
+            "failed_steps": 0,
+            "ready_steps": 1,
+            "execution_status": "pending",
+            "recommended_action": "wait",
+            "completion_percentage": 0.0,
+            "health_status": "healthy",
+            "steps": []
+        });
+
+        let response: TaskResponse = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.task_uuid, "123e4567-e89b-12d3-a456-426614174000");
+        assert_eq!(response.name, "test_task");
+        assert_eq!(response.namespace, "test");
+        assert_eq!(response.total_steps, 3);
+    }
+
+    #[tokio::test]
+    async fn test_step_response_deserialization() {
+        let json_response = json!({
+            "step_uuid": "step-uuid-123",
+            "task_uuid": "task-uuid-123",
+            "name": "test_step",
+            "created_at": "2023-12-01T12:00:00Z",
+            "updated_at": "2023-12-01T12:00:00Z",
+            "completed_at": null,
+            "results": null,
+            "current_state": "pending",
+            "dependencies_satisfied": true,
+            "retry_eligible": true,
+            "ready_for_execution": true,
+            "total_parents": 0,
+            "completed_parents": 0,
+            "attempts": 0,
+            "retry_limit": 3,
+            "last_failure_at": null,
+            "next_retry_at": null,
+            "last_attempted_at": null
+        });
+
+        let response: StepResponse = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.step_uuid, "step-uuid-123");
+        assert_eq!(response.task_uuid, "task-uuid-123");
+        assert_eq!(response.name, "test_step");
+        assert_eq!(response.current_state, "pending");
+    }
+
+    #[tokio::test]
+    async fn test_handler_info_deserialization() {
+        let json_response = json!({
+            "name": "test_handler",
+            "namespace": "test",
+            "version": "1.0.0",
+            "description": "Test handler",
+            "step_templates": ["step1", "step2"]
+        });
+
+        let response: HandlerInfo = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.name, "test_handler");
+        assert_eq!(response.namespace, "test");
+        assert_eq!(response.step_templates.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_namespace_info_deserialization() {
+        let json_response = json!({
+            "name": "test",
+            "description": "Test namespace",
+            "handler_count": 5
+        });
+
+        let response: NamespaceInfo = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.name, "test");
+        assert_eq!(response.handler_count, 5);
+    }
+
+    #[tokio::test]
+    async fn test_performance_metrics_deserialization() {
+        let json_response = json!({
+            "total_tasks": 100,
+            "active_tasks": 10,
+            "completed_tasks": 85,
+            "failed_tasks": 5,
+            "completion_rate": 0.85,
+            "error_rate": 0.05,
+            "average_task_duration_seconds": 120.5,
+            "average_step_duration_seconds": 30.2,
+            "tasks_per_hour": 50,
+            "steps_per_hour": 200,
+            "system_health_score": 0.95,
+            "analysis_period_start": "2023-12-01T00:00:00Z",
+            "calculated_at": "2023-12-01T12:00:00Z"
+        });
+
+        let response: PerformanceMetrics = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.total_tasks, 100);
+        assert_eq!(response.completion_rate, 0.85);
+    }
+
+    #[tokio::test]
+    async fn test_health_response_deserialization() {
+        let json_response = json!({
+            "status": "healthy",
+            "timestamp": "2023-12-01T12:00:00Z"
+        });
+
+        let response: HealthResponse = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.status, "healthy");
+    }
+
+    #[tokio::test]
+    async fn test_detailed_health_response_deserialization() {
+        let json_response = json!({
+            "status": "healthy",
+            "timestamp": "2023-12-01T12:00:00Z",
+            "checks": {
+                "database": {
+                    "status": "healthy",
+                    "message": null,
+                    "duration_ms": 5
+                }
+            },
+            "info": {
+                "version": "1.0.0",
+                "environment": "test",
+                "operational_state": "normal",
+                "web_database_pool_size": 10,
+                "orchestration_database_pool_size": 20,
+                "circuit_breaker_state": "closed"
+            }
+        });
+
+        let response: DetailedHealthResponse = serde_json::from_value(json_response).unwrap();
+        assert_eq!(response.status, "healthy");
+        assert_eq!(response.info.version, "1.0.0");
+        assert!(response.checks.contains_key("database"));
+    }
+
+    // ===================================================================================
+    // QUERY PARAMETER TESTS
+    // ===================================================================================
+
+    #[test]
+    fn test_task_list_query_default() {
+        let query = TaskListQuery::default();
+        assert_eq!(query.page, 1);
+        assert_eq!(query.per_page, 25);
+        assert!(query.namespace.is_none());
+        assert!(query.status.is_none());
+    }
+
+    #[test]
+    fn test_manual_resolution_request_serialization() {
+        let request = ManualResolutionRequest {
+            resolution_data: json!({"result": "success"}),
+            resolved_by: "admin".to_string(),
+            reason: "Manual intervention required".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&request).unwrap();
+        assert!(serialized.contains("resolution_data"));
+        assert!(serialized.contains("resolved_by"));
+        assert!(serialized.contains("reason"));
+    }
+
+    // ===================================================================================
+    // URL CONSTRUCTION TESTS
+    // ===================================================================================
+
+    #[test]
+    fn test_base_url_construction() {
+        let config = OrchestrationApiConfig::default();
+        let client = OrchestrationApiClient::new(config).unwrap();
+        assert_eq!(client.base_url(), "http://localhost:8080");
+    }
+
+    #[test]
+    fn test_timeout_configuration() {
+        let config = OrchestrationApiConfig {
+            timeout_ms: 60000,
+            ..Default::default()
+        };
+        let client = OrchestrationApiClient::new(config).unwrap();
+        assert_eq!(client.timeout_ms(), 60000);
+    }
+
+    // ===================================================================================
+    // CONFIGURATION TESTS
+    // ===================================================================================
+
+    #[test]
+    fn test_config_from_tasker_config_with_auth() {
+        use tasker_shared::config::{AuthConfig, TaskerConfig};
+
+        let auth_config = AuthConfig {
+            authentication_enabled: true,
+            strategy: "default".to_string(),
+            current_user_method: "default".to_string(),
+            authenticate_user_method: "default".to_string(),
+            authorization_enabled: false,
+            authorization_coordinator_class: "default".to_string(),
+            authenticator_class: None,
+            user_class: None,
+        };
+
+        let tasker_config = TaskerConfig {
+            auth: auth_config,
+            ..Default::default()
+        };
+
+        let api_config = OrchestrationApiConfig::from_tasker_config(&tasker_config);
+        assert!(api_config.auth_token.is_some());
+        assert_eq!(api_config.auth_token.unwrap(), "worker-token");
+    }
+
+    #[test]
+    fn test_config_from_tasker_config_no_auth() {
+        use tasker_shared::config::{AuthConfig, TaskerConfig};
+
+        let auth_config = AuthConfig {
+            authentication_enabled: false,
+            strategy: "default".to_string(),
+            current_user_method: "default".to_string(),
+            authenticate_user_method: "default".to_string(),
+            authorization_enabled: false,
+            authorization_coordinator_class: "default".to_string(),
+            authenticator_class: None,
+            user_class: None,
+        };
+
+        let tasker_config = TaskerConfig {
+            auth: auth_config,
+            ..Default::default()
+        };
+
+        let api_config = OrchestrationApiConfig::from_tasker_config(&tasker_config);
+        assert!(api_config.auth_token.is_none());
     }
 }

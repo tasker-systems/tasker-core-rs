@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::insights::SystemHealthCounts;
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_system_health_counts(pool: PgPool) -> sqlx::Result<()> {
     // Test getting current system health counts
     let health = SystemHealthCounts::get_current(&pool).await?;
@@ -28,7 +28,7 @@ async fn test_get_system_health_counts(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_get_health_summary(pool: PgPool) -> sqlx::Result<()> {
     // Test getting health summary
     let summary = SystemHealthCounts::get_health_summary(&pool).await?;

@@ -224,15 +224,21 @@ impl WorkerProcessor {
 
     /// Enable event integration for FFI communication
     pub fn enable_event_integration(&mut self) {
+        self.enable_event_integration_with_system(None);
+    }
+
+    /// Enable event integration with specific event system
+    pub fn enable_event_integration_with_system(&mut self, event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>) {
         info!(
             worker_id = %self.worker_id,
             namespace = %self.namespace,
             "Enabling event integration for FFI communication"
         );
 
-        // Create shared WorkerEventSystem for proper cross-component communication
-        let shared_event_system =
-            std::sync::Arc::new(tasker_shared::events::WorkerEventSystem::new());
+        // Use provided event system or create new one
+        let shared_event_system = event_system.unwrap_or_else(|| {
+            std::sync::Arc::new(tasker_shared::events::WorkerEventSystem::new())
+        });
 
         // Create publisher and subscriber with shared event system
         let event_publisher = WorkerEventPublisher::with_event_system(
@@ -252,7 +258,12 @@ impl WorkerProcessor {
 
     /// Start processing worker commands with event integration
     pub async fn start_with_events(&mut self) -> TaskerResult<()> {
-        self.enable_event_integration();
+        self.start_with_events_and_system(None).await
+    }
+
+    /// Start processing worker commands with specific event system
+    pub async fn start_with_events_and_system(&mut self, event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>) -> TaskerResult<()> {
+        self.enable_event_integration_with_system(event_system);
 
         // Start completion listener if event subscriber is enabled
         let completion_receiver = if let Some(ref subscriber) = self.event_subscriber {
@@ -931,7 +942,7 @@ mod tests {
     use super::*;
     use dotenvy::dotenv;
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_worker_processor_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -961,7 +972,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_execute_step_with_simple_message(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1010,7 +1021,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_get_worker_status(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         dotenv().ok();
         let context = Arc::new(

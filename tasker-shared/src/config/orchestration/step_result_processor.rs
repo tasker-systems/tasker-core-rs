@@ -20,7 +20,7 @@ pub struct StepResultProcessorConfig {
 impl Default for StepResultProcessorConfig {
     fn default() -> Self {
         Self {
-            step_results_queue_name: "orchestration_step_results".to_string(),
+            step_results_queue_name: "orchestration_step_results_queue".to_string(),
             batch_size: 10,
             visibility_timeout_seconds: 300, // 5 minutes
             polling_interval_seconds: 1,

@@ -65,17 +65,13 @@ use crate::orchestration::{
     task_claim::task_claimer::{ClaimedTask, TaskClaimer},
 };
 use chrono::{DateTime, Utc};
-use pgmq_notify::PgmqClient;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::TaskClaimStepEnqueuerConfig;
-use tasker_shared::config::TaskerConfig;
-use tasker_shared::TaskerResult;
-use tokio::time::sleep;
-use tracing::{debug, error, info, instrument, warn};
+use tasker_shared::{SystemContext, TaskerResult};
+use tracing::{debug, info, instrument, warn};
 
 /// Result of a single orchestration cycle
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,64 +194,25 @@ pub struct TaskClaimStepEnqueuer {
 
 impl TaskClaimStepEnqueuer {
     /// Create a new orchestration loop
-    pub async fn new(
-        pool: PgPool,
-        pgmq_client: PgmqClient,
-        orchestrator_id: String,
-        tasker_config: TaskerConfig,
-    ) -> TaskerResult<Self> {
-        let config = TaskClaimStepEnqueuerConfig::from_tasker_config(&tasker_config);
-        Self::with_config(pool, pgmq_client, orchestrator_id, config).await
-    }
-
-    /// Create a new orchestration loop with unified client (supports circuit breakers)
-    pub async fn with_unified_client(
-        pool: PgPool,
-        unified_client: Arc<tasker_shared::messaging::UnifiedPgmqClient>,
-        orchestrator_id: String,
-        config: TaskClaimStepEnqueuerConfig,
-    ) -> TaskerResult<Self> {
-        let task_claimer = TaskClaimer::with_config(
-            pool.clone(),
-            orchestrator_id.clone(),
-            config.task_claimer_config.clone(),
-        );
-
-        // StepEnqueuer now accepts UnifiedPgmqClient directly
-        let step_enqueuer = StepEnqueuer::with_unified_client_and_config(
-            pool.clone(),
-            unified_client.as_ref().clone(),
-            config.step_enqueuer_config.clone(),
-        )
-        .await?;
-
-        Ok(Self {
-            task_claimer,
-            step_enqueuer,
-            orchestrator_id,
-            config,
-        })
+    pub async fn new(context: Arc<SystemContext>, orchestrator_id: String) -> TaskerResult<Self> {
+        let config =
+            TaskClaimStepEnqueuerConfig::from_tasker_config(context.config_manager.config());
+        Self::with_config(context, orchestrator_id, config).await
     }
 
     /// Create a new orchestration loop with custom configuration
     pub async fn with_config(
-        pool: PgPool,
-        pgmq_client: PgmqClient,
+        context: Arc<SystemContext>,
         orchestrator_id: String,
         config: TaskClaimStepEnqueuerConfig,
     ) -> TaskerResult<Self> {
         let task_claimer = TaskClaimer::with_config(
-            pool.clone(),
+            context.database_pool().clone(),
             orchestrator_id.clone(),
             config.task_claimer_config.clone(),
         );
 
-        let step_enqueuer = StepEnqueuer::with_config(
-            pool.clone(),
-            pgmq_client.clone(),
-            config.step_enqueuer_config.clone(),
-        )
-        .await?;
+        let step_enqueuer = StepEnqueuer::new(context.clone()).await?;
 
         Ok(Self {
             task_claimer,

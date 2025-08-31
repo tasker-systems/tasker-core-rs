@@ -23,15 +23,12 @@ use tasker_worker::{
 };
 
 /// Test that orchestration and worker components can be initialized together
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_orchestration_to_worker_task_flow(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared system context
     let context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
-
-    // Set up orchestration components
-    let _task_initializer = TaskInitializer::for_testing(context.database_pool().clone());
 
     // Set up worker components
     let worker_factory = WorkerTestFactory::new(Arc::new(pool.clone()));
@@ -45,7 +42,7 @@ async fn test_orchestration_to_worker_task_flow(
 
     // Create necessary dependencies for WorkerProcessor
     use tasker_shared::registry::TaskHandlerRegistry;
-    let task_handler_registry = Arc::new(TaskHandlerRegistry::new(context.database_pool().clone()));
+    let task_handler_registry = Arc::new(TaskHandlerRegistry::with_system_context(context.clone()));
     let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry.clone()));
 
     // Create worker processor for the test namespace
@@ -76,7 +73,7 @@ async fn test_orchestration_to_worker_task_flow(
 }
 
 /// Test error handling across orchestration/worker boundaries
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_cross_package_error_handling(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -123,7 +120,7 @@ async fn test_cross_package_error_handling(
 }
 
 /// Test message queue integration between orchestration and worker
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_message_queue_integration(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -150,7 +147,7 @@ async fn test_message_queue_integration(
 }
 
 /// Test end-to-end worker→orchestration integration with corrected StepExecutionResult approach
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_corrected_worker_orchestration_integration(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

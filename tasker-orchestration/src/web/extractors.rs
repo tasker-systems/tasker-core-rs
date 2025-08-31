@@ -9,10 +9,12 @@ use axum::http::request::Parts;
 use sqlx::PgPool;
 use tracing::debug;
 
-use crate::web::auth::WorkerClaims;
 use crate::web::middleware::request_id::RequestId;
-use crate::web::response_types::ApiError;
-use crate::web::state::{AppState, DbOperationType};
+use crate::web::state::AppState;
+use tasker_shared::types::{
+    auth::WorkerClaims,
+    web::{ApiError, DbOperationType},
+};
 
 /// Database connection extractor with smart pool selection
 pub struct DatabaseConnection {

@@ -89,6 +89,17 @@ impl WorkerCore {
         namespace: String,
         event_driven_enabled: Option<bool>,
     ) -> TaskerResult<Self> {
+        Self::new_with_event_system(context, orchestration_config, namespace, event_driven_enabled, None).await
+    }
+
+    /// Create new WorkerCore with external event system
+    pub async fn new_with_event_system(
+        context: Arc<SystemContext>,
+        orchestration_config: OrchestrationApiConfig,
+        namespace: String,
+        event_driven_enabled: Option<bool>,
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+    ) -> TaskerResult<Self> {
         info!(
             namespace = %namespace,
             "Creating WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
@@ -116,8 +127,12 @@ impl WorkerCore {
             1000, // Command buffer size
         );
 
-        // Start the processor
-        processor.start().await?;
+        // Start the processor with event integration
+        if let Some(ref event_system) = event_system {
+            processor.start_with_events_and_system(Some(event_system.clone())).await?;
+        } else {
+            processor.start_with_events().await?;
+        }
 
         // Create EventDrivenMessageProcessor for TAS-43 integration
         let event_driven_config = EventDrivenConfig {

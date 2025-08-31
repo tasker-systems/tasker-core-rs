@@ -8,7 +8,7 @@ use tasker_shared::models::Task;
 use tasker_shared::scopes::ScopeBuilder;
 
 /// Test demonstrating basic scope functionality
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 #[allow(clippy::overly_complex_bool_expr)] // Testing that exists() returns a boolean type
 async fn test_basic_scope_functionality(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // Simple query that should always work

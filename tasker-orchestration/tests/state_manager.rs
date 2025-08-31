@@ -30,7 +30,7 @@ fn test_state_health_summary_calculations() {
     assert_eq!(summary.step_completion_percentage(), 40.0);
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_state_manager_creation(pool: sqlx::PgPool) {
     let sql_executor = SqlFunctionExecutor::new(pool.clone());
     let event_publisher = Arc::new(EventPublisher::new());

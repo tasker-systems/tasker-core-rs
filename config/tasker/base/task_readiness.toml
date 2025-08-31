@@ -120,6 +120,14 @@ max_consecutive_errors = 10
 # Error rate threshold for triggering alerts (errors per minute)
 error_rate_threshold_per_minute = 5
 
-# NOTE: Circuit breaker configuration has been consolidated to circuit_breakers.toml
-# All circuit breaker settings are now managed centrally under:
-# [circuit_breakers.component_configs.task_readiness]
+[task_readiness.event_system]
+system_id = "task-readiness-event-system"
+deployment_mode = "Hybrid"
+namespaces = ["orchestration"]
+event_driven_enabled = true
+max_concurrent_tasks = 10
+claim_timeout_seconds = 30
+backoff_delay_milliseconds = 100
+fallback_polling_interval_seconds = 30
+health_check_interval_seconds = 30
+performance_monitoring_enabled = true

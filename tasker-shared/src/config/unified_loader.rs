@@ -581,7 +581,7 @@ impl ValidatedConfig {
         }
 
         // Deserialize directly from TOML to TaskerConfig
-        let tasker_config: TaskerConfig =
+        let mut tasker_config: TaskerConfig =
             toml::Value::Table(combined_config)
                 .try_into()
                 .map_err(|e| {
@@ -591,7 +591,29 @@ impl ValidatedConfig {
                     )
                 })?;
 
+        // Post-processing hydration: populate skipped fields that are shared across components
+        self.hydrate_worker_config(&mut tasker_config)?;
+
         Ok(tasker_config)
+    }
+
+    /// Hydrate worker configuration with shared components
+    ///
+    /// Populates the `#[serde(skip)]` fields in WorkerConfig with values from
+    /// the main configuration components (queues, web, etc.)
+    fn hydrate_worker_config(&self, config: &mut super::TaskerConfig) -> ConfigResult<()> {
+        if let Some(ref mut worker_config) = config.worker {
+            // Populate queues from main queues configuration
+            worker_config.queues = config.queues.clone();
+            
+            // Populate web from main web configuration if available
+            if let Some(ref web_config) = config.web {
+                worker_config.web = web_config.clone();
+            }
+            // If no web config, keep the default from WorkerConfig::default()
+        }
+        
+        Ok(())
     }
 
     /// Convert to legacy format for backward compatibility

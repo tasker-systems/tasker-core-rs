@@ -9,11 +9,9 @@
 //! - `factory` - Test data factories for creating worker test objects
 //! - `environment` - Test environment validation and safety checks
 
-pub mod database_utils;
 pub mod environment;
 pub mod factory;
 
 // Re-export commonly used testing utilities
-pub use database_utils::{WorkerDatabaseUtils, WorkerTestDatabase};
 pub use environment::{TestSafetyValidator, WorkerTestEnvironment};
 pub use factory::{WorkerTestData, WorkerTestFactory};

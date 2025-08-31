@@ -1,79 +1,18 @@
-//! # Orchestration Types
+//! # Base Shared Types
 //!
-//! Core types and data structures used throughout the orchestration system.
+//! Core types and data structures used throughout the Tasker system.
 //!
 //! This module provides the fundamental types that are shared across all orchestration
 //! components, including task results, step results, handler metadata, and configuration
 //! structures.
 
+use crate::models::core::task_template::StepDefinition;
+use crate::models::core::{task::TaskForOrchestration, workflow_step::WorkflowStepWithName};
+use crate::models::orchestration::StepDependencyResultMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
 use uuid::Uuid;
-
-use crate::messaging::orchestration_messages::TaskSequenceStep;
-
-/// Result of task orchestration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TaskResult {
-    /// Task completed successfully
-    Complete(TaskCompletionInfo),
-    /// Task failed due to step failures
-    Error(TaskErrorInfo),
-    /// Task should be re-queued immediately
-    ReenqueueImmediate,
-    /// Task should be re-queued after delay
-    ReenqueueDelayed(Duration),
-}
-
-/// Information about a completed task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskCompletionInfo {
-    pub task_uuid: Uuid,
-    pub steps_executed: usize,
-    pub total_execution_time_ms: u64,
-    pub completed_at: DateTime<Utc>,
-    pub step_results: Vec<StepResult>,
-}
-
-/// Information about a failed task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskErrorInfo {
-    pub task_uuid: Uuid,
-    pub error_message: String,
-    pub error_code: Option<String>,
-    pub failed_steps: Vec<i64>,
-    pub failed_at: DateTime<Utc>,
-}
-
-/// Result of step execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepResult {
-    pub step_uuid: Uuid,
-    pub status: StepStatus,
-    pub output: serde_json::Value,
-    pub execution_duration: Duration,
-    pub error_message: Option<String>,
-    pub retry_after: Option<Duration>,
-    pub error_code: Option<String>,
-    pub error_context: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Status of step execution
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum StepStatus {
-    /// Step completed successfully
-    Completed,
-    /// Step failed with error
-    Failed,
-    /// Step is retrying
-    Retrying,
-    /// Step was skipped
-    Skipped,
-    /// Step is in progress (published but not yet completed)
-    InProgress,
-}
 
 /// A step that is ready for execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,130 +69,6 @@ pub struct RetryPolicy {
     pub max_delay_ms: u64,
     pub backoff_multiplier: f64,
     pub jitter: bool,
-}
-
-/// Orchestration event types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OrchestrationEvent {
-    /// Task orchestration started
-    TaskOrchestrationStarted {
-        task_uuid: Uuid,
-        framework: String,
-        started_at: DateTime<Utc>,
-    },
-    /// Viable steps discovered
-    ViableStepsDiscovered {
-        task_uuid: Uuid,
-        step_count: usize,
-        steps: Vec<ViableStep>,
-    },
-    /// Task orchestration completed
-    TaskOrchestrationCompleted {
-        task_uuid: Uuid,
-        result: TaskResult,
-        completed_at: DateTime<Utc>,
-    },
-    /// Step execution started
-    StepExecutionStarted {
-        step_uuid: Uuid,
-        task_uuid: Uuid,
-        step_name: String,
-        started_at: DateTime<Utc>,
-    },
-    /// Step execution completed
-    StepExecutionCompleted {
-        step_uuid: Uuid,
-        task_uuid: Uuid,
-        result: StepResult,
-        completed_at: DateTime<Utc>,
-    },
-    /// Handler registered
-    HandlerRegistered {
-        key: String,
-        metadata: HandlerMetadata,
-        registered_at: DateTime<Utc>,
-    },
-}
-
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        Self {
-            max_attempts: 3,
-            base_delay_ms: 1000,
-            max_delay_ms: 30000,
-            backoff_multiplier: 2.0,
-            jitter: true,
-        }
-    }
-}
-
-impl TaskResult {
-    /// Check if task completed successfully
-    pub fn is_success(&self) -> bool {
-        matches!(self, TaskResult::Complete(_))
-    }
-
-    /// Check if task failed
-    pub fn is_error(&self) -> bool {
-        matches!(self, TaskResult::Error(_))
-    }
-
-    /// Check if task should be re-queued
-    pub fn should_requeue(&self) -> bool {
-        matches!(
-            self,
-            TaskResult::ReenqueueImmediate | TaskResult::ReenqueueDelayed(_)
-        )
-    }
-}
-
-impl StepResult {
-    /// Check if step completed successfully
-    pub fn is_success(&self) -> bool {
-        self.status == StepStatus::Completed
-    }
-
-    /// Check if step failed
-    pub fn is_failure(&self) -> bool {
-        self.status == StepStatus::Failed
-    }
-
-    /// Check if step should be retried
-    pub fn should_retry(&self) -> bool {
-        self.status == StepStatus::Retrying
-    }
-}
-
-/// Result of task orchestration - Updated for fire-and-forget ZeroMQ architecture
-#[derive(Debug)]
-pub enum TaskOrchestrationResult {
-    /// Task completed successfully (from async result processing)
-    Complete {
-        task_uuid: Uuid,
-        steps_completed: usize,
-        total_execution_time_ms: u64,
-    },
-    /// Task failed due to step failures (from async result processing)
-    Failed {
-        task_uuid: Uuid,
-        error: String,
-        failed_steps: Vec<i64>,
-    },
-    /// Fire-and-forget: Steps published to ZeroMQ, execution continuing asynchronously
-    Published {
-        task_uuid: Uuid,
-        viable_steps_discovered: usize,
-        steps_published: usize,
-        batch_id: Option<String>,
-        publication_time_ms: u64,
-        next_poll_delay_ms: u64,
-    },
-    /// Task is blocked waiting for dependencies
-    Blocked {
-        task_uuid: Uuid,
-        blocking_reason: String,
-        viable_steps_checked: usize,
-    },
 }
 
 // ===== TAS-40 Worker-FFI Event System Types =====
@@ -404,5 +219,157 @@ impl StepExecutionCompletionEvent {
             metadata,
             error_message,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSequenceStep {
+    pub task: TaskForOrchestration,
+    pub workflow_step: WorkflowStepWithName,
+    pub dependency_results: StepDependencyResultMap,
+    pub step_definition: StepDefinition,
+}
+
+impl TaskSequenceStep {
+    /// Get a field from the task context with automatic type conversion
+    ///
+    /// This method provides ergonomic access to task context fields, automatically
+    /// deserializing the JSON value to the requested type T.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Get a string field
+    /// let order_id: String = step_data.get_context_field("order_id")?;
+    ///
+    /// // Get a numeric field
+    /// let quantity: i32 = step_data.get_context_field("quantity")?;
+    ///
+    /// // Get a complex object
+    /// let user_info: UserInfo = step_data.get_context_field("user")?;
+    /// ```
+    pub fn get_context_field<T>(&self, field_name: &str) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let context = self
+            .task
+            .task
+            .context
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task context is None"))?;
+
+        let field_value = context
+            .get(field_name)
+            .ok_or_else(|| anyhow::anyhow!("Context field '{}' not found", field_name))?;
+
+        serde_json::from_value(field_value.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize field '{}': {}", field_name, e))
+    }
+
+    /// Get a field from the task context as a raw JSON value
+    ///
+    /// This method provides direct access to context fields as serde_json::Value
+    /// for cases where you need to inspect the raw JSON or handle dynamic types.
+    pub fn get_context_field_raw(
+        &self,
+        field_name: &str,
+    ) -> Result<&serde_json::Value, anyhow::Error> {
+        let context = self
+            .task
+            .task
+            .context
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task context is None"))?;
+
+        context
+            .get(field_name)
+            .ok_or_else(|| anyhow::anyhow!("Context field '{}' not found", field_name))
+    }
+
+    /// Get the result of a dependency step with automatic type conversion
+    ///
+    /// This method provides ergonomic access to previous step results, automatically
+    /// deserializing the JSON result to the requested type T.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Get a simple value result
+    /// let calculated_value: i64 = step_data.get_dependency_result("calculate_step")?;
+    ///
+    /// // Get a complex result object
+    /// let validation_result: ValidationResult = step_data.get_dependency_result("validate_step")?;
+    /// ```
+    pub fn get_dependency_result<T>(&self, step_name: &str) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let step_result = self.dependency_results.get(step_name).ok_or_else(|| {
+            anyhow::anyhow!("Dependency result for step '{}' not found", step_name)
+        })?;
+
+        serde_json::from_value(step_result.clone()).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to deserialize result from step '{}': {}",
+                step_name,
+                e
+            )
+        })
+    }
+
+    /// Get the result of a dependency step as a raw JSON value
+    ///
+    /// This method provides direct access to step results as serde_json::Value
+    /// for cases where you need to inspect the raw JSON or handle dynamic result types.
+    pub fn get_dependency_result_raw(
+        &self,
+        step_name: &str,
+    ) -> Result<&serde_json::Value, anyhow::Error> {
+        self.dependency_results
+            .get(step_name)
+            .ok_or_else(|| anyhow::anyhow!("Dependency result for step '{}' not found", step_name))
+    }
+
+    /// Check if a context field exists
+    pub fn has_context_field(&self, field_name: &str) -> bool {
+        self.task
+            .task
+            .context
+            .as_ref()
+            .map(|context| {
+                if let serde_json::Value::Object(map) = context {
+                    map.contains_key(field_name)
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
+    }
+
+    /// Check if a dependency result exists
+    pub fn has_dependency_result(&self, step_name: &str) -> bool {
+        self.dependency_results.contains_key(step_name)
+    }
+
+    /// Get all context field names
+    pub fn get_context_field_names(&self) -> Vec<String> {
+        self.task
+            .task
+            .context
+            .as_ref()
+            .map(|context| {
+                if let serde_json::Value::Object(map) = context {
+                    map.keys().cloned().collect()
+                } else {
+                    Vec::new()
+                }
+            })
+            .unwrap_or_default()
+    }
+
+    /// Get all dependency result step names
+    pub fn get_dependency_step_names(&self) -> Vec<String> {
+        self.dependency_results.keys().cloned().collect()
     }
 }

@@ -371,7 +371,7 @@ impl TreeWorkflowScenario {
 // INTEGRATION TESTS - LINEAR WORKFLOW
 // =============================================================================
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_linear_workflow_scope_integration(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -427,7 +427,7 @@ async fn test_linear_workflow_scope_integration(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_linear_workflow_with_state_transitions(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -500,7 +500,7 @@ async fn test_linear_workflow_with_state_transitions(
 // INTEGRATION TESTS - DIAMOND WORKFLOW
 // =============================================================================
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_diamond_workflow_scope_integration(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -564,7 +564,7 @@ async fn test_diamond_workflow_scope_integration(
 // INTEGRATION TESTS - TREE WORKFLOW
 // =============================================================================
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_tree_workflow_scope_integration(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -633,7 +633,7 @@ async fn test_tree_workflow_scope_integration(
 // INTEGRATION TESTS - CROSS-SCENARIO SCOPES
 // =============================================================================
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_cross_scenario_namespace_and_task_scopes(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -696,7 +696,7 @@ async fn test_cross_scenario_namespace_and_task_scopes(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_comprehensive_state_transition_scenarios(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -792,7 +792,7 @@ async fn test_comprehensive_state_transition_scenarios(
 // =============================================================================
 
 /// Test that Task.complete is properly updated when state transitions occur
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_task_complete_flag_integration_with_state_transitions(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -863,7 +863,7 @@ async fn test_task_complete_flag_integration_with_state_transitions(
 }
 
 /// Test that WorkflowStep boolean flags are properly updated when state transitions occur
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_workflow_step_flags_integration_with_state_transitions(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

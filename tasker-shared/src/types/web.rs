@@ -1,0 +1,553 @@
+//! # Web API Error Types
+//!
+//! Defines error types specific to the web API and their HTTP response conversions.
+//! Leverages thiserror for structured error handling and Axum's IntoResponse for HTTP conversion.
+
+use crate::config::{ConfigManager, WebConfig};
+use crate::TaskerResult;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::json;
+use thiserror::Error;
+use tracing::{debug, error, info};
+
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
+/// Web API specific errors with HTTP status code mappings
+#[derive(Error, Debug)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
+pub enum ApiError {
+    #[error("Resource not found")]
+    NotFound,
+
+    #[error("Access denied")]
+    Forbidden,
+
+    #[error("Authentication required")]
+    Unauthorized,
+
+    #[error("Invalid request: {message}")]
+    BadRequest { message: String },
+
+    #[error("Service temporarily unavailable")]
+    ServiceUnavailable,
+
+    #[error("Request timeout")]
+    Timeout,
+
+    #[error("Circuit breaker is open")]
+    CircuitBreakerOpen,
+
+    #[error("Database operation failed: {operation}")]
+    DatabaseError { operation: String },
+
+    #[error("JWT authentication failed: {reason}")]
+    AuthenticationError { reason: String },
+
+    #[error("Authorization failed: {reason}")]
+    AuthorizationError { reason: String },
+
+    #[error("Invalid UUID format: {uuid}")]
+    InvalidUuid { uuid: String },
+
+    #[error("JSON serialization/deserialization error")]
+    JsonError,
+
+    #[error("Internal server error")]
+    Internal,
+}
+
+impl ApiError {
+    /// Create a BadRequest error with a custom message
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::BadRequest {
+            message: message.into(),
+        }
+    }
+
+    /// Create a DatabaseError with operation context
+    pub fn database_error(operation: impl Into<String>) -> Self {
+        Self::DatabaseError {
+            operation: operation.into(),
+        }
+    }
+
+    /// Create an AuthenticationError with reason
+    pub fn auth_error(reason: impl Into<String>) -> Self {
+        Self::AuthenticationError {
+            reason: reason.into(),
+        }
+    }
+
+    /// Create an AuthorizationError with reason
+    pub fn authorization_error(reason: impl Into<String>) -> Self {
+        Self::AuthorizationError {
+            reason: reason.into(),
+        }
+    }
+
+    /// Create an InvalidUuid error
+    pub fn invalid_uuid(uuid: impl Into<String>) -> Self {
+        Self::InvalidUuid { uuid: uuid.into() }
+    }
+
+    pub fn internal_server_error(_message: impl Into<String>) -> Self {
+        Self::Internal
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status_code, error_code, message) = match &self {
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found"),
+
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "FORBIDDEN", "Access denied"),
+
+            ApiError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "Authentication required",
+            ),
+
+            ApiError::BadRequest { message } => {
+                (StatusCode::BAD_REQUEST, "BAD_REQUEST", message.as_str())
+            }
+
+            ApiError::ServiceUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable",
+            ),
+
+            ApiError::Timeout => (StatusCode::REQUEST_TIMEOUT, "TIMEOUT", "Request timeout"),
+
+            ApiError::CircuitBreakerOpen => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CIRCUIT_BREAKER_OPEN",
+                "Service temporarily unavailable",
+            ),
+
+            ApiError::DatabaseError { operation } => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                operation.as_str(),
+            ),
+
+            ApiError::AuthenticationError { reason } => (
+                StatusCode::UNAUTHORIZED,
+                "AUTHENTICATION_FAILED",
+                reason.as_str(),
+            ),
+
+            ApiError::AuthorizationError { reason } => (
+                StatusCode::FORBIDDEN,
+                "AUTHORIZATION_FAILED",
+                reason.as_str(),
+            ),
+
+            ApiError::InvalidUuid { uuid } => {
+                (StatusCode::BAD_REQUEST, "INVALID_UUID", uuid.as_str())
+            }
+
+            ApiError::JsonError => (StatusCode::BAD_REQUEST, "JSON_ERROR", "Invalid JSON format"),
+
+            ApiError::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Internal server error",
+            ),
+        };
+
+        let error_response = json!({
+            "error": {
+                "code": error_code,
+                "message": message
+            }
+        });
+
+        (status_code, Json(error_response)).into_response()
+    }
+}
+
+/// Convert sqlx errors to API errors
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
+        match err {
+            sqlx::Error::RowNotFound => ApiError::NotFound,
+            sqlx::Error::Database(_) => ApiError::database_error("Database operation failed"),
+            sqlx::Error::PoolTimedOut => ApiError::Timeout,
+            _ => ApiError::database_error("Database error"),
+        }
+    }
+}
+
+/// Convert UUID parse errors to API errors
+impl From<uuid::Error> for ApiError {
+    fn from(_: uuid::Error) -> Self {
+        ApiError::invalid_uuid("Invalid UUID format")
+    }
+}
+
+/// Convert JSON errors to API errors
+impl From<serde_json::Error> for ApiError {
+    fn from(_: serde_json::Error) -> Self {
+        ApiError::JsonError
+    }
+}
+
+/// Convert JWT errors to API errors
+#[cfg(feature = "web-api")]
+impl From<jsonwebtoken::errors::Error> for ApiError {
+    fn from(err: jsonwebtoken::errors::Error) -> Self {
+        match err.kind() {
+            jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                ApiError::auth_error("Invalid JWT token")
+            }
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                ApiError::auth_error("Token has expired")
+            }
+            jsonwebtoken::errors::ErrorKind::InvalidAudience => {
+                ApiError::auth_error("Invalid token audience")
+            }
+            jsonwebtoken::errors::ErrorKind::InvalidIssuer => {
+                ApiError::auth_error("Invalid token issuer")
+            }
+            _ => ApiError::auth_error("Authentication failed"),
+        }
+    }
+}
+
+/// Result type alias for web API operations
+pub type ApiResult<T> = Result<T, ApiError>;
+
+/// Database operation types for smart pool selection
+#[derive(Debug, Clone, Copy)]
+pub enum DbOperationType {
+    /// Write operations that need dedicated pool (task creation, cancellation)
+    WebWrite,
+    /// High-priority web operations requiring dedicated resources
+    WebCritical,
+    /// Read-only operations that can use shared orchestration pool
+    ReadOnly,
+    /// Analytics and reporting queries
+    Analytics,
+}
+
+/// Web server configuration from TOML components
+#[derive(Debug, Clone)]
+pub struct WebServerConfig {
+    pub enabled: bool,
+    pub bind_address: String,
+    pub request_timeout_ms: u64,
+    pub max_request_size_mb: u64,
+
+    pub database_pools: DatabasePoolConfig,
+    pub cors: CorsConfig,
+    pub auth: AuthConfig,
+    pub rate_limiting: RateLimitConfig,
+    pub resilience: ResilienceConfig,
+}
+
+/// Database pool configuration for web operations
+#[derive(Debug, Clone)]
+pub struct DatabasePoolConfig {
+    pub web_api_pool_size: u32,
+    pub web_api_max_connections: u32,
+    pub web_api_connection_timeout_seconds: u64,
+    pub web_api_idle_timeout_seconds: u64,
+}
+
+/// CORS configuration
+#[derive(Debug, Clone)]
+pub struct CorsConfig {
+    pub enabled: bool,
+    pub allowed_origins: Vec<String>,
+    pub allowed_methods: Vec<String>,
+    pub allowed_headers: Vec<String>,
+}
+
+/// Authentication configuration
+#[derive(Debug, Clone)]
+pub struct AuthConfig {
+    pub enabled: bool,
+    pub jwt_private_key: String,
+    pub jwt_public_key: String,
+    pub jwt_token_expiry_hours: u64,
+    pub jwt_issuer: String,
+    pub jwt_audience: String,
+    pub api_key_header: String,
+    pub protected_routes: std::collections::HashMap<String, RouteAuthConfig>,
+}
+
+/// Authentication configuration for a specific route
+#[derive(Debug, Clone)]
+pub struct RouteAuthConfig {
+    /// Type of authentication required ("bearer", "api_key")
+    pub auth_type: String,
+
+    /// Whether authentication is required for this route
+    pub required: bool,
+}
+
+impl AuthConfig {
+    /// Check if a route requires authentication
+    pub fn route_requires_auth(&self, method: &str, path: &str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            return config.required;
+        }
+
+        // Check for pattern matches (basic support for path parameters)
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Get authentication type for a route
+    pub fn auth_type_for_route(&self, method: &str, path: &str) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        let route_key = format!("{method} {path}");
+
+        // Check exact match first
+        if let Some(config) = self.protected_routes.get(&route_key) {
+            if config.required {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        // Check for pattern matches
+        for (pattern, config) in &self.protected_routes {
+            if config.required && self.route_matches_pattern(&route_key, pattern) {
+                return Some(config.auth_type.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Simple pattern matching for route paths with parameters
+    /// Supports basic {param} patterns like "/v1/tasks/{task_uuid}"
+    fn route_matches_pattern(&self, route: &str, pattern: &str) -> bool {
+        let route_parts: Vec<&str> = route.split_whitespace().collect();
+        let pattern_parts: Vec<&str> = pattern.split_whitespace().collect();
+
+        if route_parts.len() != 2 || pattern_parts.len() != 2 {
+            return false;
+        }
+
+        // Method must match exactly
+        if route_parts[0] != pattern_parts[0] {
+            return false;
+        }
+
+        // Path matching with parameter support
+        let route_path_segments: Vec<&str> = route_parts[1].split('/').collect();
+        let pattern_path_segments: Vec<&str> = pattern_parts[1].split('/').collect();
+
+        if route_path_segments.len() != pattern_path_segments.len() {
+            return false;
+        }
+
+        for (route_segment, pattern_segment) in
+            route_path_segments.iter().zip(pattern_path_segments.iter())
+        {
+            // If pattern segment is a parameter (starts and ends with {}), it matches any value
+            if pattern_segment.starts_with('{') && pattern_segment.ends_with('}') {
+                continue;
+            }
+            // Otherwise, segments must match exactly
+            if route_segment != pattern_segment {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Rate limiting configuration
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    pub enabled: bool,
+    pub requests_per_minute: u32,
+    pub burst_size: u32,
+    pub per_client_limit: bool,
+}
+
+/// Resilience configuration
+#[derive(Debug, Clone)]
+pub struct ResilienceConfig {
+    pub circuit_breaker_enabled: bool,
+    pub request_timeout_seconds: u64,
+    pub max_concurrent_requests: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SystemOperationalState {
+    Normal,
+    GracefulShutdown,
+    Emergency,
+    Stopped,
+    Startup,
+}
+
+impl WebServerConfig {
+    /// Create WebServerConfig directly from TOML config for testing
+    #[cfg(feature = "test-utils")]
+    pub fn from_toml_config(web_config: &WebConfig) -> ApiResult<Self> {
+        info!(
+            "Loading web server configuration from TOML: enabled={}, bind_address={}",
+            web_config.enabled, web_config.bind_address
+        );
+
+        Ok(WebServerConfig {
+            enabled: web_config.enabled,
+            bind_address: web_config.bind_address.clone(),
+            request_timeout_ms: web_config.request_timeout_ms,
+            max_request_size_mb: web_config.max_request_size_mb,
+            database_pools: DatabasePoolConfig {
+                web_api_pool_size: web_config.database_pools.web_api_pool_size,
+                web_api_max_connections: web_config.database_pools.web_api_max_connections,
+                web_api_connection_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_connection_timeout_seconds,
+                web_api_idle_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_idle_timeout_seconds,
+            },
+            cors: CorsConfig {
+                enabled: web_config.cors.enabled,
+                allowed_origins: web_config.cors.allowed_origins.clone(),
+                allowed_methods: web_config.cors.allowed_methods.clone(),
+                allowed_headers: web_config.cors.allowed_headers.clone(),
+            },
+            auth: AuthConfig {
+                enabled: web_config.auth.enabled,
+                jwt_issuer: web_config.auth.jwt_issuer.clone(),
+                jwt_audience: web_config.auth.jwt_audience.clone(),
+                jwt_token_expiry_hours: web_config.auth.jwt_token_expiry_hours,
+                jwt_private_key: web_config.auth.jwt_private_key.clone(),
+                jwt_public_key: web_config.auth.jwt_public_key.clone(),
+                api_key_header: web_config.auth.api_key_header.clone(),
+                protected_routes: web_config
+                    .auth
+                    .protected_routes
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            RouteAuthConfig {
+                                auth_type: v.auth_type.clone(),
+                                required: v.required,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+            rate_limiting: RateLimitConfig {
+                enabled: web_config.rate_limiting.enabled,
+                requests_per_minute: web_config.rate_limiting.requests_per_minute,
+                burst_size: web_config.rate_limiting.burst_size,
+                per_client_limit: web_config.rate_limiting.per_client_limit,
+            },
+            resilience: ResilienceConfig {
+                circuit_breaker_enabled: web_config.resilience.circuit_breaker_enabled,
+                request_timeout_seconds: web_config.resilience.request_timeout_seconds,
+                max_concurrent_requests: web_config.resilience.max_concurrent_requests,
+            },
+        })
+    }
+
+    /// Create WebServerConfig from ConfigManager TOML configuration
+    ///
+    /// Loads configuration from the component-based TOML system with
+    /// environment-specific overrides.
+    pub fn from_config_manager(config_manager: &ConfigManager) -> TaskerResult<Option<Self>> {
+        let config = config_manager.config();
+
+        // Check if web API is enabled
+        if !config.web_enabled() {
+            debug!("Web API is disabled in configuration");
+            return Ok(None);
+        }
+
+        let web_config = config.web_config();
+
+        info!(
+            "Loading web server configuration from TOML: enabled={}, bind_address={}",
+            web_config.enabled, web_config.bind_address
+        );
+
+        Ok(Some(WebServerConfig {
+            enabled: web_config.enabled,
+            bind_address: web_config.bind_address,
+            request_timeout_ms: web_config.request_timeout_ms,
+            max_request_size_mb: web_config.max_request_size_mb,
+            database_pools: DatabasePoolConfig {
+                web_api_pool_size: web_config.database_pools.web_api_pool_size,
+                web_api_max_connections: web_config.database_pools.web_api_max_connections,
+                web_api_connection_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_connection_timeout_seconds,
+                web_api_idle_timeout_seconds: web_config
+                    .database_pools
+                    .web_api_idle_timeout_seconds,
+            },
+            cors: CorsConfig {
+                enabled: web_config.cors.enabled,
+                allowed_origins: web_config.cors.allowed_origins,
+                allowed_methods: web_config.cors.allowed_methods,
+                allowed_headers: web_config.cors.allowed_headers,
+            },
+            auth: AuthConfig {
+                enabled: web_config.auth.enabled,
+                jwt_issuer: web_config.auth.jwt_issuer,
+                jwt_audience: web_config.auth.jwt_audience,
+                jwt_token_expiry_hours: web_config.auth.jwt_token_expiry_hours,
+                jwt_private_key: web_config.auth.jwt_private_key,
+                jwt_public_key: web_config.auth.jwt_public_key,
+                api_key_header: web_config.auth.api_key_header,
+                protected_routes: web_config
+                    .auth
+                    .protected_routes
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            RouteAuthConfig {
+                                auth_type: v.auth_type.clone(),
+                                required: v.required,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+            rate_limiting: RateLimitConfig {
+                enabled: web_config.rate_limiting.enabled,
+                requests_per_minute: web_config.rate_limiting.requests_per_minute,
+                burst_size: web_config.rate_limiting.burst_size,
+                per_client_limit: web_config.rate_limiting.per_client_limit,
+            },
+            resilience: ResilienceConfig {
+                circuit_breaker_enabled: web_config.resilience.circuit_breaker_enabled,
+                request_timeout_seconds: web_config.resilience.request_timeout_seconds,
+                max_concurrent_requests: web_config.resilience.max_concurrent_requests,
+            },
+        }))
+    }
+}

@@ -2,12 +2,12 @@
 
 ## Executive Summary
 
-Create a standalone, production-ready Rust worker (`tasker-worker-rust/`) that leverages the worker foundation from TAS-40 to implement step handlers in pure Rust. This worker will replicate all workflow patterns currently tested in Ruby while demonstrating the foundation's language-agnostic capabilities and achieving 1000+ steps/second performance targets.
+Create a standalone, production-ready Rust worker (`workers/rust`) that leverages the worker foundation from TAS-40 to implement step handlers in pure Rust. This worker will replicate all workflow patterns currently tested in Ruby while demonstrating the foundation's language-agnostic capabilities and achieving 1000+ steps/second performance targets.
 
 ## Context and Dependencies
 
 ### Prerequisites
-- **TAS-40 Complete**: Worker foundation (`tasker-worker-foundation/`) must be implemented
+- **TAS-40 Complete**: Worker foundation (`tasker-worker`) must be implemented
 - **Workspace Structure**: Multi-workspace architecture established per TAS-40-preamble
 - **Shared Components**: `tasker-shared/` workspace with common models and configuration
 
@@ -58,8 +58,8 @@ The Ruby implementation in `workers/ruby/spec/handlers/examples/` provides these
 #### 1.1 Create Rust Worker Workspace
 ```bash
 # Create workspace structure
-mkdir -p tasker-worker-rust/{src,config,tests,docker}
-cd tasker-worker-rust
+mkdir -p workers/rust/{src,config,tests,docker}
+cd workers/rust
 
 # Initialize Cargo.toml
 cat > Cargo.toml << EOF
@@ -69,7 +69,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tasker-worker-foundation = { path = "../tasker-worker-foundation" }
+tasker-worker = { path = "../tasker-worker" }
 tasker-shared = { path = "../tasker-shared" }
 tokio = { workspace = true }
 serde = { workspace = true }

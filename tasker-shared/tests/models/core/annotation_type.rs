@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::annotation_type::{AnnotationType, NewAnnotationType};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_annotation_type_crud(pool: PgPool) -> sqlx::Result<()> {
     // Test annotation type creation
     let new_type = NewAnnotationType {
@@ -82,7 +82,7 @@ async fn test_annotation_type_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_annotation_type_constraints(pool: PgPool) -> sqlx::Result<()> {
     // Create first annotation type
     let new_type = NewAnnotationType {
@@ -106,7 +106,7 @@ async fn test_annotation_type_constraints(pool: PgPool) -> sqlx::Result<()> {
 // Example of parametrized testing with rstest
 // Note: rstest and sqlx::test can't be combined directly,
 // so we create separate test functions
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_annotation_type_bug_report(pool: PgPool) -> sqlx::Result<()> {
     let new_type = NewAnnotationType {
         name: "bug_report".to_string(),
@@ -123,7 +123,7 @@ async fn test_annotation_type_bug_report(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_annotation_type_feature_request(pool: PgPool) -> sqlx::Result<()> {
     let new_type = NewAnnotationType {
         name: "feature_request".to_string(),

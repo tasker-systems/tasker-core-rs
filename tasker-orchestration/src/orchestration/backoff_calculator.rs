@@ -26,6 +26,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tasker_shared::config::ConfigManager;
 use uuid::Uuid;
 
 /// Configuration for backoff calculation behavior
@@ -57,7 +59,7 @@ impl Default for BackoffCalculatorConfig {
 
 impl BackoffCalculatorConfig {
     /// Create BackoffCalculatorConfig from ConfigManager
-    pub fn from_config_manager(config_manager: &tasker_shared::config::ConfigManager) -> Self {
+    pub fn from_config_manager(config_manager: Arc<ConfigManager>) -> Self {
         let config = config_manager.config();
 
         // Use the first default backoff value as base delay, or fallback to 1 second
@@ -274,12 +276,11 @@ impl BackoffCalculator {
             return delay_seconds;
         }
 
-        // Use thread_rng() which is properly RAII-compliant
-        let mut rng = rand::thread_rng();
-        let jitter = rng.gen_range(0..=jitter_range);
+        let mut rng = rand::rng();
+        let jitter = rng.random_range(0..=jitter_range);
 
         // Add or subtract jitter randomly
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             delay_seconds.saturating_add(jitter)
         } else {
             delay_seconds.saturating_sub(jitter)

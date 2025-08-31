@@ -43,7 +43,7 @@
 
 use std::sync::Arc;
 use tasker_shared::events::{WorkerEventPublisher as SharedEventPublisher, WorkerEventSystem};
-use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
+use tasker_shared::types::TaskSequenceStep;
 
 use tasker_shared::types::{StepEventPayload, StepExecutionEvent};
 use tracing::{debug, error, info};
@@ -245,13 +245,13 @@ pub enum WorkerEventError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use tasker_shared::messaging::orchestration_messages::TaskSequenceStep;
     use tasker_shared::models::orchestration::step_transitive_dependencies::StepDependencyResultMap;
     use tasker_shared::models::task::{Task, TaskForOrchestration};
     use tasker_shared::models::task_template::{
         BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition,
     };
     use tasker_shared::models::workflow_step::WorkflowStepWithName;
+    use tasker_shared::types::TaskSequenceStep;
     use uuid::Uuid;
 
     /// Helper function to create a test TaskSequenceStep for testing

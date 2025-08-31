@@ -12,7 +12,7 @@ use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     // Test valid transitions
     let sm = create_test_step_state_machine(pool);
@@ -47,7 +47,7 @@ async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
 
@@ -64,7 +64,7 @@ async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_step_completion_with_results(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
     let results = json!({"processed": 42, "status": "success"});

@@ -41,18 +41,18 @@
 //! # }
 //! ```
 
-use crate::orchestration::config::ConfigurationManager;
 use crate::orchestration::state_manager::StateManager;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::types::Uuid;
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tasker_shared::config::task_config_finder::TaskConfigFinder;
 use tasker_shared::database::SqlFunctionExecutor;
-use tasker_shared::events::EventPublisher;
 use tasker_shared::logging;
+use tasker_shared::models::core::task_template::TaskTemplate;
 use tasker_shared::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
+use tasker_shared::registry::TaskHandlerRegistry;
+use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerError;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -69,147 +69,31 @@ pub struct TaskInitializationResult {
     pub handler_config_name: Option<String>,
 }
 
-/// Configuration for task initialization
-#[derive(Debug, Clone)]
-pub struct TaskInitializationConfig {
-    /// Default system ID for named steps
-    pub default_system_id: i32,
-    /// Whether to create initial state transitions
-    pub initialize_state_machine: bool,
-    /// Event metadata to include in transitions
-    pub event_metadata: Option<serde_json::Value>,
-}
-
-impl Default for TaskInitializationConfig {
-    fn default() -> Self {
-        Self {
-            default_system_id: 1,
-            initialize_state_machine: true,
-            event_metadata: Some(serde_json::json!({
-                "created_by": "task_initializer",
-                "initialization": true
-            })),
-        }
-    }
-}
-
 /// Atomic task creation with proper transaction safety
 pub struct TaskInitializer {
-    pool: PgPool,
-    config: TaskInitializationConfig,
-    event_publisher: Option<Arc<EventPublisher>>,
+    context: Arc<SystemContext>,
     state_manager: Option<StateManager>,
-    registry: Option<std::sync::Arc<tasker_shared::registry::TaskHandlerRegistry>>,
-    task_config_finder: Option<TaskConfigFinder>,
 }
 
 impl TaskInitializer {
     /// Create a new TaskInitializer
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(context: Arc<SystemContext>) -> Self {
         Self {
-            pool,
-            config: TaskInitializationConfig::default(),
-            event_publisher: None,
+            context,
             state_manager: None,
-            registry: None,
-            task_config_finder: None,
-        }
-    }
-
-    /// Create a TaskInitializer with custom configuration
-    pub fn with_config(pool: PgPool, config: TaskInitializationConfig) -> Self {
-        Self {
-            pool,
-            config,
-            event_publisher: None,
-            state_manager: None,
-            registry: None,
-            task_config_finder: None,
-        }
-    }
-
-    /// Create a TaskInitializer with orchestration event publisher
-    pub fn with_orchestration_events(pool: PgPool, event_publisher: Arc<EventPublisher>) -> Self {
-        Self {
-            pool,
-            config: TaskInitializationConfig::default(),
-            event_publisher: Some(event_publisher),
-            state_manager: None,
-            registry: None,
-            task_config_finder: None,
-        }
-    }
-
-    /// Create a TaskInitializer with both config and orchestration event publisher
-    pub fn with_config_and_orchestration_events(
-        pool: PgPool,
-        config: TaskInitializationConfig,
-        event_publisher: Arc<EventPublisher>,
-    ) -> Self {
-        Self {
-            pool,
-            config,
-            event_publisher: Some(event_publisher),
-            state_manager: None,
-            registry: None,
-            task_config_finder: None,
         }
     }
 
     /// Create a TaskInitializer with StateManager for proper state handling
-    pub fn with_state_manager(
-        pool: PgPool,
-        config: TaskInitializationConfig,
-        event_publisher: Arc<EventPublisher>,
-    ) -> Self {
+    pub fn with_state_manager(context: Arc<SystemContext>) -> Self {
+        let pool = context.database_pool().clone();
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
+        let state_manager =
+            StateManager::new(sql_executor, context.event_publisher.clone(), pool.clone());
 
         Self {
-            pool,
-            config,
-            event_publisher: Some(event_publisher),
+            context,
             state_manager: Some(state_manager),
-            registry: None,
-            task_config_finder: None,
-        }
-    }
-
-    /// Create a TaskInitializer with StateManager and Registry for FFI integration
-    pub fn with_state_manager_and_registry(
-        pool: PgPool,
-        config: TaskInitializationConfig,
-        event_publisher: Arc<EventPublisher>,
-        registry: std::sync::Arc<tasker_shared::registry::TaskHandlerRegistry>,
-    ) -> Self {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
-
-        Self {
-            pool,
-            config,
-            event_publisher: Some(event_publisher),
-            state_manager: Some(state_manager),
-            registry: Some(registry),
-            task_config_finder: None,
-        }
-    }
-
-    /// Create a TaskInitializer for testing with filesystem-based configuration loading
-    pub fn for_testing(pool: PgPool) -> Self {
-        let config_manager = Arc::new(ConfigurationManager::new());
-        let registry = Arc::new(tasker_shared::registry::TaskHandlerRegistry::new(
-            pool.clone(),
-        ));
-        let task_config_finder = TaskConfigFinder::new(config_manager, registry);
-
-        Self {
-            pool,
-            config: TaskInitializationConfig::default(),
-            event_publisher: None,
-            state_manager: None,
-            registry: None,
-            task_config_finder: Some(task_config_finder),
         }
     }
 
@@ -239,7 +123,7 @@ impl TaskInitializer {
         info!(task_name = %task_request.name, "Starting task initialization");
 
         // Use SQLx transaction for atomicity
-        let mut tx = self.pool.begin().await.map_err(|e| {
+        let mut tx = self.context.database_pool().begin().await.map_err(|e| {
             logging::log_error(
                 "TaskInitializer",
                 "create_task_from_request",
@@ -332,31 +216,21 @@ impl TaskInitializer {
             )),
         );
 
-        // Initialize state machine if requested
-        if self.config.initialize_state_machine {
-            // Create initial database transitions within the transaction
-            self.create_initial_state_transitions_in_tx(&mut tx, task_uuid, &step_mapping)
-                .await?;
-        }
+        // Create initial database transitions within the transaction
+        self.create_initial_state_transitions_in_tx(&mut tx, task_uuid, &step_mapping)
+            .await?;
 
         // Commit transaction
         tx.commit().await.map_err(|e| {
             TaskInitializationError::Database(format!("Failed to commit transaction: {e}"))
         })?;
 
-        // ISSUE RESOLVED: State machine initialization updated to avoid in_process=true
-        // Initialize StateManager-based state machines after transaction commit
-        // The method has been fixed to only create state machines without setting in_process=true
-        if self.config.initialize_state_machine {
-            self.initialize_state_machines_post_transaction(task_uuid, &step_mapping)
-                .await?;
-        }
+        self.initialize_state_machines_post_transaction(task_uuid, &step_mapping)
+            .await?;
 
         // Publish initialization event if publisher available
-        if let Some(ref publisher) = self.event_publisher {
-            self.publish_task_initialized(task_uuid, step_count, &task_name, publisher)
-                .await?;
-        }
+        self.publish_task_initialized(task_uuid, step_count, &task_name)
+            .await?;
 
         let result = TaskInitializationResult {
             task_uuid,
@@ -432,12 +306,12 @@ impl TaskInitializer {
         namespace_name: &str,
     ) -> Result<tasker_shared::models::TaskNamespace, TaskInitializationError> {
         // Try to find existing namespace first
-        if let Some(existing) =
-            tasker_shared::models::TaskNamespace::find_by_name(&self.pool, namespace_name)
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!("Failed to query namespace: {e}"))
-                })?
+        if let Some(existing) = tasker_shared::models::TaskNamespace::find_by_name(
+            &self.context.database_pool(),
+            namespace_name,
+        )
+        .await
+        .map_err(|e| TaskInitializationError::Database(format!("Failed to query namespace: {e}")))?
         {
             return Ok(existing);
         }
@@ -448,11 +322,14 @@ impl TaskInitializer {
             description: Some(format!("Auto-created namespace for {namespace_name}")),
         };
 
-        let namespace = tasker_shared::models::TaskNamespace::create(&self.pool, new_namespace)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::Database(format!("Failed to create namespace: {e}"))
-            })?;
+        let namespace = tasker_shared::models::TaskNamespace::create(
+            &self.context.database_pool(),
+            new_namespace,
+        )
+        .await
+        .map_err(|e| {
+            TaskInitializationError::Database(format!("Failed to create namespace: {e}"))
+        })?;
 
         Ok(namespace)
     }
@@ -465,7 +342,7 @@ impl TaskInitializer {
     ) -> Result<tasker_shared::models::NamedTask, TaskInitializationError> {
         // Try to find existing named task first
         let existing_task = tasker_shared::models::NamedTask::find_by_name_version_namespace(
-            &self.pool,
+            &self.context.database_pool(),
             &task_request.name,
             &task_request.version,
             task_namespace_uuid,
@@ -488,11 +365,12 @@ impl TaskInitializer {
             configuration: None,
         };
 
-        let named_task = tasker_shared::models::NamedTask::create(&self.pool, new_named_task)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::Database(format!("Failed to create named task: {e}"))
-            })?;
+        let named_task =
+            tasker_shared::models::NamedTask::create(&self.context.database_pool(), new_named_task)
+                .await
+                .map_err(|e| {
+                    TaskInitializationError::Database(format!("Failed to create named task: {e}"))
+                })?;
 
         Ok(named_task)
     }
@@ -525,14 +403,15 @@ impl TaskInitializer {
 
         for step_definition in &task_template.steps {
             // Create or find named step using transaction
-            let named_steps = NamedStep::find_by_name(&self.pool, &step_definition.name)
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!(
-                        "Failed to search for NamedStep '{}': {}",
-                        step_definition.name, e
-                    ))
-                })?;
+            let named_steps =
+                NamedStep::find_by_name(&self.context.database_pool(), &step_definition.name)
+                    .await
+                    .map_err(|e| {
+                        TaskInitializationError::Database(format!(
+                            "Failed to search for NamedStep '{}': {}",
+                            step_definition.name, e
+                        ))
+                    })?;
 
             let named_step = if let Some(existing_step) = named_steps.first() {
                 existing_step.clone()
@@ -541,7 +420,7 @@ impl TaskInitializer {
                 let system_name = "tasker_core_rust"; // Use a consistent system name for Rust core
                 NamedStep::find_or_create_by_name_with_transaction(
                     tx,
-                    &self.pool,
+                    &self.context.database_pool(),
                     &step_definition.name,
                     system_name,
                 )
@@ -643,7 +522,7 @@ impl TaskInitializer {
             task_uuid,
             to_state: "pending".to_string(),
             from_state: None,
-            metadata: self.config.event_metadata.clone(),
+            metadata: Some(json!({"initial_state": "pending", "from_service": "task_initializer"})),
         };
 
         tasker_shared::models::TaskTransition::create_with_transaction(tx, new_task_transition)
@@ -661,7 +540,9 @@ impl TaskInitializer {
                     workflow_step_uuid,
                     to_state: "pending".to_string(),
                     from_state: None,
-                    metadata: self.config.event_metadata.clone(),
+                    metadata: Some(
+                        json!({"initial_state": "pending", "from_service": "task_initializer"}),
+                    ),
                 };
 
             tasker_shared::models::WorkflowStepTransition::create_with_transaction(
@@ -690,9 +571,12 @@ impl TaskInitializer {
             manager.clone()
         } else {
             // Create a temporary StateManager for this operation
-            let sql_executor = SqlFunctionExecutor::new(self.pool.clone());
-            let event_publisher = Arc::new(EventPublisher::new());
-            StateManager::new(sql_executor, event_publisher, self.pool.clone())
+            let sql_executor = SqlFunctionExecutor::new(self.context.database_pool().clone());
+            StateManager::new(
+                sql_executor,
+                self.context.event_publisher.clone(),
+                self.context.database_pool().clone(),
+            )
         };
 
         // Initialize task state machine by evaluating its state
@@ -748,38 +632,27 @@ impl TaskInitializer {
     async fn load_task_template(
         &self,
         task_request: &TaskRequest,
-    ) -> Result<tasker_shared::models::core::task_template::TaskTemplate, TaskInitializationError>
-    {
+    ) -> Result<TaskTemplate, TaskInitializationError> {
         // Try registry first if available
-        if let Some(registry) = &self.registry {
-            match self.load_from_registry(task_request, registry).await {
-                Ok(config) => return Ok(config),
-                Err(e) => {
-                    debug!("Registry loading failed, trying filesystem fallback: {}", e);
-                }
+        match self
+            .load_from_registry(task_request, self.context.task_handler_registry.clone())
+            .await
+        {
+            Ok(config) => return Ok(config),
+            Err(e) => {
+                Err(TaskInitializationError::ConfigurationNotFound(
+                    format!("Unable to load task template: {e}, request parameters: name {}, namespace {}, version {}", task_request.name, task_request.namespace, task_request.version)
+                ))
             }
         }
-
-        // Fall back to filesystem configuration using TaskConfigFinder
-        if let Some(task_config_finder) = &self.task_config_finder {
-            return self
-                .load_from_filesystem(task_request, task_config_finder)
-                .await;
-        }
-
-        // No configuration source available
-        Err(TaskInitializationError::ConfigurationNotFound(
-            "No TaskHandlerRegistry or TaskConfigFinder available - TaskInitializer must be created with configuration support".to_string()
-        ))
     }
 
     /// Load configuration from registry
     async fn load_from_registry(
         &self,
         task_request: &TaskRequest,
-        registry: &tasker_shared::registry::TaskHandlerRegistry,
-    ) -> Result<tasker_shared::models::core::task_template::TaskTemplate, TaskInitializationError>
-    {
+        registry: Arc<TaskHandlerRegistry>,
+    ) -> Result<TaskTemplate, TaskInitializationError> {
         // Use the namespace and name directly from the TaskRequest
         let namespace = &task_request.namespace;
         let name = &task_request.name;
@@ -798,9 +671,7 @@ impl TaskInitializer {
         if let Some(config_json) = metadata.config_schema {
             // The database now stores the full TaskTemplate structure directly
             // Deserialize as TaskTemplate (new format) and return directly
-            match serde_json::from_value::<tasker_shared::models::core::task_template::TaskTemplate>(
-                config_json.clone(),
-            ) {
+            match serde_json::from_value::<TaskTemplate>(config_json.clone()) {
                 Ok(task_template) => {
                     // Return TaskTemplate directly - no more legacy conversion!
                     if task_template.steps.is_empty() {
@@ -828,45 +699,12 @@ impl TaskInitializer {
         }
     }
 
-    /// Load configuration from filesystem using TaskConfigFinder
-    async fn load_from_filesystem(
-        &self,
-        task_request: &TaskRequest,
-        task_config_finder: &TaskConfigFinder,
-    ) -> Result<tasker_shared::models::core::task_template::TaskTemplate, TaskInitializationError>
-    {
-        let namespace = &task_request.namespace;
-        let name = &task_request.name;
-        let version = &task_request.version;
-
-        // Find the task template using TaskConfigFinder
-        let task_template = task_config_finder
-            .find_task_template(namespace, name, version)
-            .await
-            .map_err(|e| {
-                TaskInitializationError::ConfigurationNotFound(format!(
-                    "Failed to load task template from filesystem for {namespace}/{name}/{version}: {e}"
-                ))
-            })?;
-
-        // Return TaskTemplate directly - no more legacy conversion!
-        if task_template.steps.is_empty() {
-            return Err(TaskInitializationError::ConfigurationNotFound(format!(
-                "Empty steps array in task template for {}/{}. Cannot create workflow steps without step definitions.",
-                task_template.namespace_name, task_template.name
-            )));
-        }
-
-        Ok(task_template)
-    }
-
     /// Publish task initialization event
     async fn publish_task_initialized(
         &self,
         _task_uuid: Uuid,
         _step_count: usize,
         _task_name: &str,
-        _publisher: &EventPublisher,
     ) -> Result<(), TaskInitializationError> {
         // TODO: Implement event publishing once EventPublisher interface is finalized
         Ok(())
@@ -912,14 +750,6 @@ mod tests {
             .with_initiator("test_user".to_string())
             .with_source_system("test_system".to_string())
             .with_reason("Unit test".to_string())
-    }
-
-    #[test]
-    fn test_task_initialization_config_default() {
-        let config = TaskInitializationConfig::default();
-        assert_eq!(config.default_system_id, 1);
-        assert!(config.initialize_state_machine);
-        assert!(config.event_metadata.is_some());
     }
 
     #[test]

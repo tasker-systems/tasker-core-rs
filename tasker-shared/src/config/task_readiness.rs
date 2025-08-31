@@ -3,6 +3,7 @@
 //! Configuration types for the TAS-43 Event-Driven Task Readiness system,
 //! providing structured configuration for all task readiness components.
 
+use crate::event_system::DeploymentMode;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ pub struct TaskReadinessConfig {
     pub enabled: bool,
 
     /// Deployment mode for event coordination behavior
-    pub deployment_mode: DeploymentMode,
+    pub event_system: TaskReadinessEventSystemConfig,
 
     /// Enhanced coordinator specific settings
     pub enhanced_settings: EnhancedCoordinatorSettings,
@@ -32,20 +33,6 @@ pub struct TaskReadinessConfig {
 
     /// Error handling configuration
     pub error_handling: ErrorHandlingConfig,
-}
-
-/// Deployment modes for event coordination behavior
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeploymentMode {
-    /// Use only traditional polling-based orchestration
-    PollingOnly,
-
-    /// Use hybrid approach: event-driven with polling fallback (recommended)
-    Hybrid,
-
-    /// Use only event-driven orchestration
-    EventDrivenOnly,
 }
 
 /// Enhanced coordinator specific settings
@@ -201,11 +188,53 @@ pub struct ErrorHandlingConfig {
     // Access via TaskerConfig.circuit_breakers.component_configs["task_readiness"]
 }
 
+/// Configuration for task readiness event system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskReadinessEventSystemConfig {
+    /// System identifier
+    pub system_id: String,
+    /// Deployment mode
+    pub deployment_mode: DeploymentMode,
+    /// Namespaces to coordinate (empty = all)
+    pub namespaces: Vec<String>,
+    /// Event-driven coordination enabled
+    pub event_driven_enabled: bool,
+    /// Maximum concurrent task processors
+    pub max_concurrent_tasks: usize,
+    /// Task claiming timeout
+    pub claim_timeout: Duration,
+    /// Backoff delay when no tasks ready
+    pub backoff_delay: Duration,
+    /// Fallback polling interval for hybrid mode
+    pub fallback_polling_interval: Duration,
+    /// Health check interval
+    pub health_check_interval: Duration,
+    /// Enable performance monitoring
+    pub performance_monitoring_enabled: bool,
+}
+
+impl Default for TaskReadinessEventSystemConfig {
+    fn default() -> Self {
+        Self {
+            system_id: "task-readiness-event-system".to_string(),
+            deployment_mode: DeploymentMode::Hybrid,
+            namespaces: vec![], // Empty = all namespaces
+            event_driven_enabled: true,
+            max_concurrent_tasks: 10,
+            claim_timeout: Duration::from_secs(30),
+            backoff_delay: Duration::from_millis(100),
+            fallback_polling_interval: Duration::from_secs(5),
+            health_check_interval: Duration::from_secs(30),
+            performance_monitoring_enabled: true,
+        }
+    }
+}
+
 impl Default for TaskReadinessConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            deployment_mode: DeploymentMode::Hybrid,
+            event_system: TaskReadinessEventSystemConfig::default(),
             enhanced_settings: EnhancedCoordinatorSettings::default(),
             notification: TaskReadinessNotificationConfig::default(),
             fallback_polling: ReadinessFallbackConfig::default(),
@@ -392,12 +421,12 @@ impl TaskReadinessConfig {
 
     /// Check if task readiness is enabled for the deployment mode
     pub fn is_event_driven_enabled(&self) -> bool {
-        self.enabled && self.deployment_mode != DeploymentMode::PollingOnly
+        self.enabled && self.event_system.deployment_mode != DeploymentMode::PollingOnly
     }
 
     /// Check if fallback polling should be enabled
     pub fn is_fallback_polling_enabled(&self) -> bool {
-        self.fallback_polling.enabled && self.deployment_mode == DeploymentMode::Hybrid
+        self.fallback_polling.enabled && self.event_system.deployment_mode == DeploymentMode::Hybrid
     }
 
     /// Validate configuration for consistency
@@ -473,7 +502,6 @@ mod tests {
         let config = TaskReadinessConfig::default();
 
         assert!(config.enabled);
-        assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
         assert!(config.enhanced_settings.metrics_enabled);
         assert_eq!(config.enhanced_settings.rollback_threshold_percent, 5.0);
         assert!(config.notification.connection.auto_reconnect);
@@ -501,23 +529,6 @@ mod tests {
             config.namespace_channel("task_state_change", "inventory"),
             "task_state_change.inventory"
         );
-    }
-
-    #[test]
-    fn test_deployment_mode_flags() {
-        let mut config = TaskReadinessConfig::default();
-
-        config.deployment_mode = DeploymentMode::Hybrid;
-        assert!(config.is_event_driven_enabled());
-        assert!(config.is_fallback_polling_enabled());
-
-        config.deployment_mode = DeploymentMode::PollingOnly;
-        assert!(!config.is_event_driven_enabled());
-        assert!(!config.is_fallback_polling_enabled());
-
-        config.deployment_mode = DeploymentMode::EventDrivenOnly;
-        assert!(config.is_event_driven_enabled());
-        assert!(!config.is_fallback_polling_enabled());
     }
 
     #[test]
@@ -557,7 +568,6 @@ mod tests {
         let deserialized: TaskReadinessConfig =
             toml::from_str(&serialized).expect("Failed to deserialize config");
 
-        assert_eq!(config.deployment_mode, deserialized.deployment_mode);
         assert_eq!(
             config.enhanced_settings.metrics_enabled,
             deserialized.enhanced_settings.metrics_enabled

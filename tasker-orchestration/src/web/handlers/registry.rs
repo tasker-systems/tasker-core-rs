@@ -4,36 +4,13 @@
 
 use axum::extract::{Path, State};
 use axum::Json;
-use serde::Serialize;
 use tracing::info;
 
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
-use crate::web::response_types::{ApiError, ApiResult};
-use crate::web::state::{AppState, DbOperationType};
+use crate::web::state::AppState;
 use tasker_shared::models::{NamedTask, TaskNamespace};
-
-#[cfg(feature = "web-api")]
-use utoipa::ToSchema;
-
-/// Namespace information
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct NamespaceInfo {
-    pub name: String,
-    pub description: Option<String>,
-    pub handler_count: u32,
-}
-
-/// Handler information
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "web-api", derive(ToSchema))]
-pub struct HandlerInfo {
-    pub name: String,
-    pub namespace: String,
-    pub version: String,
-    pub description: Option<String>,
-    pub step_templates: Vec<String>,
-}
+use tasker_shared::types::api::{HandlerInfo, NamespaceInfo};
+use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List available namespaces: GET /v1/handlers
 #[cfg_attr(feature = "web-api", utoipa::path(

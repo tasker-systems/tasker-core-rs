@@ -1,8 +1,6 @@
 use super::task_template_manager::TaskTemplateManager;
 use std::sync::Arc;
-use tasker_shared::messaging::{
-    message::SimpleStepMessage, orchestration_messages::TaskSequenceStep,
-};
+use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::models::{
     orchestration::StepTransitiveDependenciesQuery, task::Task, workflow_step::WorkflowStepWithName,
 };
@@ -10,6 +8,7 @@ use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::types::TaskSequenceStep;
 use tasker_shared::{TaskerError, TaskerResult};
 use uuid::Uuid;
 

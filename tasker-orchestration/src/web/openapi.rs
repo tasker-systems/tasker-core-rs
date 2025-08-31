@@ -6,7 +6,7 @@
 use utoipa::OpenApi;
 
 // Re-export ApiError from the errors module so OpenAPI annotations can find it
-pub use crate::web::response_types::ApiError;
+pub use tasker_shared::types::web::ApiError;
 
 // Import all the actual types used in handlers
 use tasker_shared::database::sql_functions::{StepReadinessStatus, TaskExecutionContext};
@@ -15,15 +15,13 @@ use tasker_shared::models::core::task_request::TaskRequest;
 
 // Import all handler response types
 use crate::web::handlers;
-use crate::web::handlers::analytics::{
-    BottleneckAnalysis, PerformanceMetrics, ResourceUtilization, SlowStepInfo, SlowTaskInfo,
+
+use tasker_shared::types::api::{
+    BottleneckAnalysis, DetailedHealthResponse, HandlerInfo, HealthCheck, HealthInfo,
+    HealthResponse, ManualResolutionRequest, NamespaceInfo, PerformanceMetrics,
+    ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepResponse, TaskCreationResponse,
+    TaskListResponse, TaskResponse,
 };
-use crate::web::handlers::health::{
-    DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse,
-};
-use crate::web::handlers::registry::{HandlerInfo, NamespaceInfo};
-use crate::web::handlers::steps::{ManualResolutionRequest, StepResponse};
-use crate::web::handlers::tasks::{TaskCreationResponse, TaskListResponse, TaskResponse};
 
 /// Main OpenAPI specification for the Tasker Web API
 #[derive(OpenApi)]

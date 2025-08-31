@@ -31,6 +31,8 @@ use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthSta
 
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
+use tasker_shared::config::task_readiness::TaskReadinessEventSystemConfig;
+
 /// Database-level event system for task readiness coordination
 ///
 /// This system handles task readiness notifications through PostgreSQL LISTEN/NOTIFY,
@@ -67,48 +69,6 @@ pub struct TaskReadinessEventSystem {
 
     /// Command sender for orchestration commands (TAS-43)
     command_sender: mpsc::Sender<OrchestrationCommand>,
-}
-
-/// Configuration for task readiness event system
-#[derive(Debug, Clone)]
-pub struct TaskReadinessEventSystemConfig {
-    /// System identifier
-    pub system_id: String,
-    /// Deployment mode
-    pub deployment_mode: DeploymentMode,
-    /// Namespaces to coordinate (empty = all)
-    pub namespaces: Vec<String>,
-    /// Event-driven coordination enabled
-    pub event_driven_enabled: bool,
-    /// Maximum concurrent task processors
-    pub max_concurrent_tasks: usize,
-    /// Task claiming timeout
-    pub claim_timeout: Duration,
-    /// Backoff delay when no tasks ready
-    pub backoff_delay: Duration,
-    /// Fallback polling interval for hybrid mode
-    pub fallback_polling_interval: Duration,
-    /// Health check interval
-    pub health_check_interval: Duration,
-    /// Enable performance monitoring
-    pub performance_monitoring_enabled: bool,
-}
-
-impl Default for TaskReadinessEventSystemConfig {
-    fn default() -> Self {
-        Self {
-            system_id: "task-readiness-event-system".to_string(),
-            deployment_mode: DeploymentMode::Hybrid,
-            namespaces: vec![], // Empty = all namespaces
-            event_driven_enabled: true,
-            max_concurrent_tasks: 10,
-            claim_timeout: Duration::from_secs(30),
-            backoff_delay: Duration::from_millis(100),
-            fallback_polling_interval: Duration::from_secs(5),
-            health_check_interval: Duration::from_secs(30),
-            performance_monitoring_enabled: true,
-        }
-    }
 }
 
 /// Runtime statistics for task readiness event system

@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::dependent_system::{DependentSystem, NewDependentSystem};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_dependent_system_crud(pool: PgPool) -> sqlx::Result<()> {
     // Test creation
     let new_system = NewDependentSystem {
@@ -61,7 +61,7 @@ async fn test_dependent_system_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_dependent_system_unique_constraints(pool: PgPool) -> sqlx::Result<()> {
     // Create first dependent system
     let new_system = NewDependentSystem {
@@ -82,7 +82,7 @@ async fn test_dependent_system_unique_constraints(pool: PgPool) -> sqlx::Result<
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_dependent_system_comprehensive_functionality(pool: PgPool) -> sqlx::Result<()> {
     // Test list_all (should work even with empty database)
     let initial_systems = DependentSystem::list_all(&pool).await?;

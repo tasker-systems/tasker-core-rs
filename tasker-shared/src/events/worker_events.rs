@@ -413,13 +413,13 @@ pub enum WorkerEventError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messaging::orchestration_messages::TaskSequenceStep;
     use crate::models::core::{
         task::{Task, TaskForOrchestration},
         task_template::{BackoffStrategy, HandlerDefinition, RetryConfiguration, StepDefinition},
         workflow_step::WorkflowStepWithName,
     };
     use crate::models::orchestration::StepDependencyResultMap;
+    use crate::types::TaskSequenceStep;
     use std::collections::HashMap;
 
     /// Helper function to create a test TaskSequenceStep

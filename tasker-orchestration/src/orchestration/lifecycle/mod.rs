@@ -20,9 +20,7 @@ pub use task_enqueuer::{
     EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
 };
 pub use task_finalizer::{TaskExecutionContext, TaskFinalizer};
-pub use task_initializer::{
-    TaskInitializationConfig, TaskInitializationError, TaskInitializationResult, TaskInitializer,
-};
+pub use task_initializer::{TaskInitializationError, TaskInitializationResult, TaskInitializer};
 pub use task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig, TaskRequestProcessorStats,
 };

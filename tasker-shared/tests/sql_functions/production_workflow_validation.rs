@@ -81,7 +81,7 @@ mod production_validation_tests {
     }
 
     /// Test complete linear workflow execution from start to finish
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_complete_linear_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         let start_time = Instant::now();
         let (task_uuid, step_uuids) =
@@ -154,7 +154,7 @@ mod production_validation_tests {
     }
 
     /// Test diamond workflow with parallel branch execution
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_diamond_workflow_parallel_execution(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_production_task(&pool, WorkflowPattern::Diamond).await?;
@@ -220,7 +220,7 @@ mod production_validation_tests {
     }
 
     /// Test error handling and retry mechanisms in production scenario
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_production_error_handling_and_retry(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_production_task(&pool, WorkflowPattern::Linear).await?;
@@ -302,7 +302,7 @@ mod production_validation_tests {
     }
 
     /// Test complex tree workflow with multiple dependency levels
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_complex_tree_workflow_execution(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) = create_production_task(&pool, WorkflowPattern::Tree).await?;
 
@@ -365,7 +365,7 @@ mod production_validation_tests {
     }
 
     /// Test mixed DAG workflow with complex dependencies
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_mixed_dag_workflow_complex_dependencies(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_production_task(&pool, WorkflowPattern::MixedDAG).await?;
@@ -437,7 +437,7 @@ mod production_validation_tests {
     }
 
     /// Test performance characteristics with multiple concurrent workflows
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_concurrent_workflow_performance(pool: PgPool) -> sqlx::Result<()> {
         let start_time = Instant::now();
         let mut task_uuids = Vec::new();
@@ -491,7 +491,7 @@ mod production_validation_tests {
     }
 
     /// Test workflow with exhausted retries and failure scenarios
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_production_failure_scenarios(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_production_task(&pool, WorkflowPattern::Linear).await?;
@@ -564,7 +564,7 @@ mod production_validation_tests {
     }
 
     /// Test data consistency across multiple state transitions
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_state_transition_data_consistency(pool: PgPool) -> sqlx::Result<()> {
         let (task_uuid, step_uuids) =
             create_production_task(&pool, WorkflowPattern::Diamond).await?;

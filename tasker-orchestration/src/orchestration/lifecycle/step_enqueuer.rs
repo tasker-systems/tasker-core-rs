@@ -57,20 +57,17 @@ use crate::orchestration::{
     state_manager::StateManager, task_claim::task_claimer::ClaimedTask,
     viable_step_discovery::ViableStepDiscovery,
 };
-use pgmq_notify::PgmqClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::events::EventPublisher;
 use tasker_shared::messaging::message::SimpleStepMessage;
-use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
+use tasker_shared::messaging::PgmqClientTrait;
 use tasker_shared::types::ViableStep;
-use tasker_shared::{TaskerError, TaskerResult};
+use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
@@ -107,66 +104,29 @@ pub struct NamespaceEnqueueStats {
 /// Step enqueueing component for individual step processing
 pub struct StepEnqueuer {
     viable_step_discovery: ViableStepDiscovery,
-    pgmq_client: UnifiedPgmqClient,
-    pool: PgPool,
+    context: Arc<SystemContext>,
     config: StepEnqueuerConfig,
     state_manager: StateManager,
 }
 
 impl StepEnqueuer {
     /// Create a new step enqueuer instance (backward compatibility with standard client)
-    pub async fn new(pool: PgPool, pgmq_client: PgmqClient) -> TaskerResult<Self> {
-        let unified_client = UnifiedPgmqClient::new_standard(pgmq_client);
-        Self::with_unified_client(pool, unified_client).await
-    }
-
-    /// Create a new step enqueuer with unified client (supports circuit breakers)
-    pub async fn with_unified_client(
-        pool: PgPool,
-        pgmq_client: UnifiedPgmqClient,
-    ) -> TaskerResult<Self> {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = Arc::new(EventPublisher::new());
-        let viable_step_discovery =
-            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let state_manager = StateManager::new(sql_executor, event_publisher.clone(), pool.clone());
-
+    pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
+        let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
+        let viable_step_discovery = ViableStepDiscovery::new(
+            sql_executor.clone(),
+            context.event_publisher.clone(),
+            context.database_pool().clone(),
+        );
+        let state_manager = StateManager::new(
+            sql_executor,
+            context.event_publisher.clone(),
+            context.database_pool().clone(),
+        );
         Ok(Self {
             viable_step_discovery,
-            pgmq_client,
-            pool,
+            context,
             config: StepEnqueuerConfig::default(),
-            state_manager,
-        })
-    }
-
-    /// Create a new step enqueuer with custom configuration (backward compatibility)
-    pub async fn with_config(
-        pool: PgPool,
-        pgmq_client: PgmqClient,
-        config: StepEnqueuerConfig,
-    ) -> TaskerResult<Self> {
-        let unified_client = UnifiedPgmqClient::new_standard(pgmq_client);
-        Self::with_unified_client_and_config(pool, unified_client, config).await
-    }
-
-    /// Create a new step enqueuer with unified client and custom configuration
-    pub async fn with_unified_client_and_config(
-        pool: PgPool,
-        pgmq_client: UnifiedPgmqClient,
-        config: StepEnqueuerConfig,
-    ) -> TaskerResult<Self> {
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let event_publisher = Arc::new(EventPublisher::new());
-        let viable_step_discovery =
-            ViableStepDiscovery::new(sql_executor.clone(), event_publisher.clone(), pool.clone());
-        let state_manager = StateManager::new(sql_executor, event_publisher, pool.clone());
-
-        Ok(Self {
-            viable_step_discovery,
-            pgmq_client,
-            pool,
-            config,
             state_manager,
         })
     }
@@ -368,7 +328,8 @@ impl StepEnqueuer {
         );
 
         let msg_id = self
-            .pgmq_client
+            .context
+            .message_client()
             .send_json_message(&queue_name, &simple_message)
             .await
             .map_err(|e| {
@@ -452,7 +413,7 @@ impl StepEnqueuer {
             "SELECT task_uuid FROM tasker_tasks WHERE task_uuid = $1",
             task_uuid
         )
-        .fetch_one(&self.pool)
+        .fetch_one(self.context.database_pool())
         .await
         .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch task UUID: {e}")))?;
 
@@ -465,7 +426,7 @@ impl StepEnqueuer {
             "SELECT workflow_step_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
-        .fetch_one(&self.pool)
+        .fetch_one(self.context.database_pool())
         .await
         .map_err(|e| TaskerError::DatabaseError(format!("Failed to fetch step UUID: {e}")))?;
 
@@ -490,7 +451,7 @@ impl StepEnqueuer {
 
         let row: Option<(Value, Value, String, String, String)> = sqlx::query_as(query)
             .bind(task_uuid)
-            .fetch_optional(&self.pool)
+            .fetch_optional(self.context.database_pool())
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to get task context: {e}")))?;
 

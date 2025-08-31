@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use tracing::{debug, info};
 use uuid::Uuid;
 
-use tasker_shared::{TaskerResult, TaskerError};
+use tasker_shared::{TaskerError, TaskerResult};
 
 /// Test utilities for creating database test contexts
 pub struct DatabaseTestContext {
@@ -14,16 +14,14 @@ pub struct DatabaseTestContext {
 impl DatabaseTestContext {
     /// Setup a test database context
     pub async fn setup(pool: &PgPool) -> TaskerResult<Self> {
-        Ok(Self {
-            pool: pool.clone(),
-        })
+        Ok(Self { pool: pool.clone() })
     }
 
     /// Create a test task with namespace
     pub async fn create_test_task(&self, namespace: &str, task_name: &str) -> TaskerResult<Uuid> {
         // Create namespace if it doesn't exist
         let namespace_uuid = self.create_namespace(namespace).await?;
-        
+
         // Create named task
         let named_task_uuid = Uuid::new_v4();
         sqlx::query!(
@@ -39,7 +37,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         // Create task
         let task_uuid = Uuid::new_v4();
         sqlx::query!(
@@ -55,14 +53,14 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         Ok(task_uuid)
     }
 
     /// Create a workflow step for testing
     pub async fn create_workflow_step(&self, task_uuid: Uuid) -> TaskerResult<Uuid> {
         let step_uuid = Uuid::new_v4();
-        
+
         // Create named step first
         let named_step_uuid = Uuid::new_v4();
         sqlx::query!(
@@ -76,7 +74,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         // Create workflow step
         sqlx::query!(
             r#"
@@ -91,7 +89,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         Ok(step_uuid)
     }
 
@@ -109,12 +107,12 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         // Update the workflow step state
         sqlx::query!(
             r#"
-            UPDATE tasker_workflow_steps 
-            SET current_state = $2 
+            UPDATE tasker_workflow_steps
+            SET current_state = $2
             WHERE workflow_step_uuid = $1
             "#,
             step_uuid,
@@ -122,7 +120,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
 
@@ -140,26 +138,26 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         // Update the task state
         sqlx::query!(
             r#"
-            UPDATE tasker_tasks 
-            SET complete = true 
+            UPDATE tasker_tasks
+            SET complete = true
             WHERE task_uuid = $1
             "#,
             task_uuid
         )
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
 
     /// Create a test namespace
     pub async fn create_namespace(&self, name: &str) -> TaskerResult<Uuid> {
         let namespace_uuid = Uuid::new_v4();
-        
+
         sqlx::query!(
             r#"
             INSERT INTO tasker_task_namespaces (task_namespace_uuid, name, description)
@@ -172,7 +170,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         // Get the actual UUID (in case of conflict)
         let result = sqlx::query!(
             "SELECT task_namespace_uuid FROM tasker_task_namespaces WHERE name = $1",
@@ -180,7 +178,7 @@ impl DatabaseTestContext {
         )
         .fetch_one(&self.pool)
         .await?;
-        
+
         Ok(result.task_namespace_uuid)
     }
 
@@ -188,7 +186,7 @@ impl DatabaseTestContext {
     pub async fn create_ready_task(&self, namespace: &str, task_name: &str) -> TaskerResult<Uuid> {
         let task_uuid = self.create_test_task(namespace, task_name).await?;
         let step_uuid = self.create_workflow_step(task_uuid).await?;
-        
+
         // Set task to in_progress so it shows up in tasker_ready_tasks view
         sqlx::query!(
             r#"
@@ -201,7 +199,7 @@ impl DatabaseTestContext {
         )
         .execute(&self.pool)
         .await?;
-        
+
         Ok(task_uuid)
     }
 }
@@ -222,8 +220,10 @@ impl TriggerTestSuite {
 
         // Create test task with dependencies
         let test_context = DatabaseTestContext::setup(&self.pool).await?;
-        let task_uuid = test_context.create_test_task("test_namespace", "test_task").await?;
-        
+        let task_uuid = test_context
+            .create_test_task("test_namespace", "test_task")
+            .await?;
+
         // Create test listener for pg_notify
         let mut listener = sqlx::postgres::PgListener::connect_with(&self.pool).await?;
         listener.listen("task_ready").await?;
@@ -239,13 +239,13 @@ impl TriggerTestSuite {
                 match notification {
                     Ok(notif) => {
                         debug!("Received notification on channel {}: {}", notif.channel(), notif.payload());
-                        
+
                         // Validate payload structure
                         let payload: serde_json::Value = serde_json::from_str(notif.payload())?;
                         assert!(payload.get("task_uuid").is_some());
                         assert!(payload.get("namespace").is_some());
                         assert!(payload.get("triggered_by").is_some());
-                        
+
                         info!("Step transition trigger test passed");
                         Ok(())
                     }
@@ -267,7 +267,9 @@ impl TriggerTestSuite {
         listener.listen("task_state_change").await?;
 
         // Create and transition task to complete
-        let task_uuid = test_context.create_test_task("test_namespace", "test_task").await?;
+        let task_uuid = test_context
+            .create_test_task("test_namespace", "test_task")
+            .await?;
         test_context.transition_task_to_complete(task_uuid).await?;
 
         // Check for state change notifications
@@ -278,7 +280,7 @@ impl TriggerTestSuite {
                         let payload: serde_json::Value = serde_json::from_str(notif.payload())?;
                         assert_eq!(payload["task_state"], "complete");
                         assert_eq!(payload["action_needed"], "finalization");
-                        
+
                         info!("Task state change trigger test passed");
                         Ok(())
                     }
@@ -320,7 +322,7 @@ impl TriggerTestSuite {
                         let payload: serde_json::Value = serde_json::from_str(notif.payload())?;
                         assert_eq!(payload["namespace_name"], "test_new_namespace");
                         assert_eq!(payload["triggered_by"], "namespace_creation");
-                        
+
                         info!("Namespace creation trigger test passed");
                         Ok(())
                     }
@@ -347,7 +349,9 @@ impl TriggerTestSuite {
         // Create multiple tasks and steps rapidly
         let mut tasks = Vec::new();
         for i in 0..num_tasks {
-            let task_uuid = test_context.create_test_task("perf_test", &format!("task_{}", i)).await?;
+            let task_uuid = test_context
+                .create_test_task("perf_test", &format!("task_{}", i))
+                .await?;
             let step_uuid = test_context.create_workflow_step(task_uuid).await?;
             tasks.push((task_uuid, step_uuid));
         }
@@ -381,7 +385,7 @@ impl TriggerTestSuite {
         }
 
         let total_time = notification_start.elapsed();
-        
+
         info!(
             "Performance test completed: {} tasks processed in {:?}, {} notifications received in {:?}",
             num_tasks, trigger_time, notifications_received, total_time
@@ -389,15 +393,17 @@ impl TriggerTestSuite {
 
         // Validate reasonable performance
         if trigger_time.as_millis() > 1000 {
-            return Err(TaskerError::ValidationError(
-                format!("Trigger processing took too long: {:?}", trigger_time)
-            ));
+            return Err(TaskerError::ValidationError(format!(
+                "Trigger processing took too long: {:?}",
+                trigger_time
+            )));
         }
 
         if notifications_received < num_tasks / 2 {
-            return Err(TaskerError::ValidationError(
-                format!("Too few notifications received: {}/{}", notifications_received, num_tasks)
-            ));
+            return Err(TaskerError::ValidationError(format!(
+                "Too few notifications received: {}/{}",
+                notifications_received, num_tasks
+            )));
         }
 
         info!("Trigger performance test passed");
@@ -409,37 +415,41 @@ impl TriggerTestSuite {
 mod tests {
     use super::*;
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
     async fn test_all_triggers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let test_suite = TriggerTestSuite::new(pool);
-        
+
         test_suite.test_step_transition_triggers().await?;
         test_suite.test_task_state_change_triggers().await?;
         test_suite.test_namespace_creation_triggers().await?;
         test_suite.test_trigger_performance().await?;
-        
+
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
-    async fn test_database_context_utilities(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    async fn test_database_context_utilities(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let test_context = DatabaseTestContext::setup(&pool).await?;
-        
+
         // Test namespace creation
         let namespace_uuid = test_context.create_namespace("test_context").await?;
         assert!(!namespace_uuid.is_nil());
-        
+
         // Test task creation
-        let task_uuid = test_context.create_test_task("test_context", "context_task").await?;
+        let task_uuid = test_context
+            .create_test_task("test_context", "context_task")
+            .await?;
         assert!(!task_uuid.is_nil());
-        
+
         // Test step creation
         let step_uuid = test_context.create_workflow_step(task_uuid).await?;
         assert!(!step_uuid.is_nil());
-        
+
         // Test step transition
         test_context.transition_step_to_complete(step_uuid).await?;
-        
+
         // Verify step state was updated
         let result = sqlx::query!(
             "SELECT current_state FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
@@ -447,9 +457,9 @@ mod tests {
         )
         .fetch_one(&pool)
         .await?;
-        
+
         assert_eq!(result.current_state, Some("complete".to_string()));
-        
+
         Ok(())
     }
 }

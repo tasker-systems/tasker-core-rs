@@ -7,9 +7,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tracing::{debug, warn};
 
-use crate::web::auth::JwtAuthenticator;
-use crate::web::response_types::ApiError;
 use crate::web::state::AppState;
+use tasker_shared::types::auth::JwtAuthenticator;
+use tasker_shared::types::web::ApiError;
 
 /// Authentication middleware for protected endpoints
 ///
@@ -152,8 +152,8 @@ pub async fn conditional_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::web::state::{AuthConfig, RouteAuthConfig};
     use std::collections::HashMap;
+    use tasker_shared::types::web::{AuthConfig, RouteAuthConfig};
 
     #[test]
     fn test_extract_bearer_token() {

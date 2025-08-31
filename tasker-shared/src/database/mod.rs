@@ -34,12 +34,7 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use tasker_shared::database::{DatabaseConnection, SqlFunctionExecutor};
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Initialize database connection
-//! let db = DatabaseConnection::new().await?;
-//! let pool = db.pool();
+//! use tasker_shared::database::SqlFunctionExecutor;
 //!
 //! // Execute SQL functions
 //! let executor = SqlFunctionExecutor::new(pool.clone());
@@ -48,19 +43,8 @@
 //! # }
 //! ```
 
-pub mod connection;
-pub mod connection_pool_strategies;
-pub mod migrations;
-pub mod optimized_queries;
 pub mod sql_functions;
 
-pub use connection::DatabaseConnection;
-pub use connection_pool_strategies::{
-    DeploymentPattern, HealthCheckResult, OptimizedDatabaseConnection, PoolConfiguration,
-    PoolMetrics,
-};
-pub use migrations::{DatabaseMigrations, MigrationStatus};
-pub use optimized_queries::{PoolStatistics, QueryResultCache};
 pub use sql_functions::{
     AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
     SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,

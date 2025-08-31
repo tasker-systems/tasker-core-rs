@@ -228,9 +228,7 @@ fn test_configuration_builder_pattern() {
     assert!(!config.auth.authentication_enabled);
     assert!(!config.database.enable_secondary_database);
     assert!(config.telemetry.service_name.contains("tasker-core"));
-    assert_eq!(config.engine.task_handler_directory, "tasks");
     assert!(config.health.enabled);
-    assert_eq!(config.dependency_graph.max_depth, 50);
     assert_eq!(config.backoff.default_backoff_seconds.len(), 1);
     assert_eq!(config.execution.max_concurrent_tasks, 10);
 
@@ -251,12 +249,6 @@ fn test_configuration_defaults_match_rails() {
 
     // Database defaults
     assert!(!config.database.enable_secondary_database);
-    // Note: database name will be present in componentized config
-
-    // Engine defaults
-    assert_eq!(config.engine.task_handler_directory, "tasks");
-    assert_eq!(config.engine.task_config_directory, "tasker/tasks");
-    assert_eq!(config.engine.identity_strategy, "default");
 
     // Backoff defaults
     assert_eq!(config.backoff.default_backoff_seconds, vec![1]);

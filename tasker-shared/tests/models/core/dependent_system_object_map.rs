@@ -8,7 +8,7 @@ use tasker_shared::models::dependent_system_object_map::{
     DependentSystemObjectMap, NewDependentSystemObjectMap,
 };
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test systems
     let system_one = DependentSystem::find_or_create_by_name(&pool, "test_system_one").await?;
@@ -96,7 +96,7 @@ async fn test_dependent_system_object_map_crud(pool: PgPool) -> sqlx::Result<()>
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_mapping_stats(pool: PgPool) -> sqlx::Result<()> {
     // Create systems for mapping
     let system_a = DependentSystem::find_or_create_by_name(&pool, "system_a").await?;

@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use tasker_shared::models::named_task::{NamedTask, NewNamedTask};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 
-#[sqlx::test(migrator = "tasker_shared::test_utils::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_named_task_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create a namespace first
     let namespace = TaskNamespace::create(

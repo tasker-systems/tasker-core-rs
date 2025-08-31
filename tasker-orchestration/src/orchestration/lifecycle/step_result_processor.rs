@@ -57,13 +57,10 @@ use crate::orchestration::lifecycle::{
     result_processor::OrchestrationResultProcessor, task_finalizer::TaskFinalizer,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::sync::Arc;
 use tasker_shared::config::orchestration::StepResultProcessorConfig;
-use tasker_shared::messaging::{
-    PgmqClientTrait, StepExecutionStatus, StepResultMessage, UnifiedPgmqClient,
-};
-use tasker_shared::{config::TaskerConfig, TaskerError, TaskerResult};
+use tasker_shared::messaging::{PgmqClientTrait, StepExecutionStatus, StepResultMessage};
+use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
 
 /// Result of step result processing operation
@@ -87,7 +84,7 @@ pub struct StepResultProcessingResult {
 #[derive(Clone)]
 pub struct StepResultProcessor {
     /// PostgreSQL message queue client (unified for circuit breaker flexibility)
-    pgmq_client: Arc<UnifiedPgmqClient>,
+    context: Arc<SystemContext>,
     /// Orchestration result processor for step handling
     orchestration_result_processor: OrchestrationResultProcessor,
     /// Configuration
@@ -96,29 +93,15 @@ pub struct StepResultProcessor {
 
 impl StepResultProcessor {
     /// Create a new step result processor with unified client
-    pub async fn new(
-        pool: PgPool,
-        pgmq_client: Arc<UnifiedPgmqClient>,
-        tasker_config: TaskerConfig,
-    ) -> TaskerResult<Self> {
-        let config = StepResultProcessorConfig::from_tasker_config(&tasker_config);
-        Self::with_config(pool, pgmq_client, config, tasker_config).await
-    }
-
-    /// Create a new step result processor with custom configuration
-    pub async fn with_config(
-        pool: PgPool,
-        pgmq_client: Arc<UnifiedPgmqClient>,
-        config: StepResultProcessorConfig,
-        tasker_config: TaskerConfig,
-    ) -> TaskerResult<Self> {
+    pub fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
+        let config = StepResultProcessorConfig::from_tasker_config(context.config_manager.config());
         // Create orchestration result processor with required dependencies
-        let task_finalizer = TaskFinalizer::new(pool.clone(), tasker_config);
+        let task_finalizer = TaskFinalizer::new(context.clone());
         let orchestration_result_processor =
-            OrchestrationResultProcessor::new(task_finalizer, pool.clone());
+            OrchestrationResultProcessor::new(task_finalizer, context.clone());
 
         Ok(Self {
-            pgmq_client,
+            context,
             orchestration_result_processor,
             config,
         })
@@ -129,7 +112,8 @@ impl StepResultProcessor {
     pub async fn process_batch(&self) -> TaskerResult<usize> {
         // Read messages from the step results queue
         let messages = self
-            .pgmq_client
+            .context
+            .message_client
             .read_messages(
                 &self.config.step_results_queue_name,
                 Some(self.config.visibility_timeout_seconds),
@@ -161,7 +145,8 @@ impl StepResultProcessor {
                 Ok(()) => {
                     // Delete the successfully processed message
                     if let Err(e) = self
-                        .pgmq_client
+                        .context
+                        .message_client
                         .delete_message(&self.config.step_results_queue_name, message.msg_id)
                         .await
                     {
@@ -183,7 +168,8 @@ impl StepResultProcessor {
 
                     // Archive failed messages
                     if let Err(archive_err) = self
-                        .pgmq_client
+                        .context
+                        .message_client
                         .archive_message(&self.config.step_results_queue_name, message.msg_id)
                         .await
                     {

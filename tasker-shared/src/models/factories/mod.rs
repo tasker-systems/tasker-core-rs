@@ -25,7 +25,7 @@
 //! use tasker_shared::models::factories::*;
 //! use sqlx::PgPool;
 //!
-//! #[sqlx::test(migrator = "crate::test_utils::MIGRATOR")]
+//! #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 //! async fn test_complex_workflow(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create a complete workflow with dependencies
 //!     let task = TaskFactory::default()

@@ -458,9 +458,6 @@ impl OrchestrationProcessorCommandHandler {
                         priority,
                         ready_steps,
                         triggered_by,
-                        step_uuid,
-                        step_state,
-                        task_state,
                     )
                     .await;
                 if result.is_ok() {
@@ -937,9 +934,6 @@ impl OrchestrationProcessorCommandHandler {
         priority: i32,
         ready_steps: i32,
         triggered_by: String,
-        step_uuid: Option<Uuid>,
-        step_state: Option<String>,
-        task_state: Option<String>,
     ) -> TaskerResult<TaskReadinessResult> {
         let start_time = std::time::Instant::now();
 
