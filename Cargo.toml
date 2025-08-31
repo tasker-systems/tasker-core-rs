@@ -4,6 +4,7 @@ members = [
     "tasker-shared",
     "tasker-orchestration",
     "tasker-worker",
+    "tasker-client",
     "pgmq-notify",
     "workers/ruby/ext/tasker_core",
     "workers/rust",
@@ -16,7 +17,7 @@ name = "tasker-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
-description = "High-performance Rust core for workflow orchestration, designed to complement the Rails Tasker engine"
+description = "High-performance Rust core for workflow orchestration"
 license = "MIT"
 repository = "https://github.com/tasker-systems/tasker-core"
 keywords = ["workflow", "orchestration", "task", "async", "performance"]
@@ -30,10 +31,10 @@ crate-type = ["rlib"]
 
 
 [dependencies]
-# Dependencies for integration tests
+tasker-worker = { path = "tasker-worker" }
+tasker-client = { path = "tasker-client" }
 tasker-shared = { path = "tasker-shared" }
 tasker-orchestration = { path = "tasker-orchestration" }
-tasker-worker = { path = "tasker-worker" }
 tokio = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
@@ -92,6 +93,9 @@ rsa = { version = "0.9" }
 # OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+
+# CLI tool dependencies
+clap = { version = "4.5", features = ["derive"] }
 
 # Time and date handling
 chrono = { version = "0.4.38", features = ["serde"] }
@@ -153,6 +157,7 @@ magnus = "0.7"
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
 futures = { workspace = true }
+tasker-worker = { path = "tasker-worker" }
 
 [profile.release]
 opt-level = 3

@@ -2,8 +2,8 @@
 # Test-specific overrides for task readiness system
 
 [task_readiness]
-# Start with polling only for test stability, can be overridden by specific tests
-deployment_mode = "polling_only"
+# Enable task readiness for tests
+enabled = true
 
 [task_readiness.enhanced_settings]
 # Very short timeouts for test speed

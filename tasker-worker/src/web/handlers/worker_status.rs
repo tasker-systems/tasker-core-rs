@@ -7,8 +7,9 @@ use axum::Json;
 use std::sync::Arc;
 use tracing::debug;
 
-use crate::web::{response_types::*, state::WorkerWebState};
+use crate::web::state::WorkerWebState;
 use tasker_shared::messaging::clients::MessageClient;
+use tasker_shared::types::web::*;
 
 /// Basic worker status: GET /status
 ///

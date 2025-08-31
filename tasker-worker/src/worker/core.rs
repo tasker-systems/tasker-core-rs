@@ -28,8 +28,10 @@ use super::event_driven_processor::{
     EventDrivenConfig, EventDrivenMessageProcessor, EventDrivenStats,
 };
 use super::task_template_manager::TaskTemplateManager;
-use crate::api_clients::orchestration_client::{OrchestrationApiClient, OrchestrationApiConfig};
 use crate::health::WorkerHealthStatus;
+use tasker_client::api_clients::orchestration_client::{
+    OrchestrationApiClient, OrchestrationApiConfig,
+};
 
 /// TAS-40 Command Pattern WorkerCore with TAS-43 Event-Driven Integration
 ///
@@ -89,7 +91,14 @@ impl WorkerCore {
         namespace: String,
         event_driven_enabled: Option<bool>,
     ) -> TaskerResult<Self> {
-        Self::new_with_event_system(context, orchestration_config, namespace, event_driven_enabled, None).await
+        Self::new_with_event_system(
+            context,
+            orchestration_config,
+            namespace,
+            event_driven_enabled,
+            None,
+        )
+        .await
     }
 
     /// Create new WorkerCore with external event system
@@ -129,7 +138,9 @@ impl WorkerCore {
 
         // Start the processor with event integration
         if let Some(ref event_system) = event_system {
-            processor.start_with_events_and_system(Some(event_system.clone())).await?;
+            processor
+                .start_with_events_and_system(Some(event_system.clone()))
+                .await?;
         } else {
             processor.start_with_events().await?;
         }

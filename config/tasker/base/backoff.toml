@@ -1,0 +1,13 @@
+[backoff]
+default_backoff_seconds = [1, 2, 4, 8, 16, 32]
+max_backoff_seconds = 300
+backoff_multiplier = 2.0
+jitter_enabled = true
+jitter_max_percentage = 0.1
+default_reenqueue_delay = 30
+buffer_seconds = 5
+
+[backoff.reenqueue_delays]
+has_ready_steps = 0
+waiting_for_dependencies = 45
+processing = 10

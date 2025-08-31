@@ -10,12 +10,17 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{
+    config::WebAuthConfig,
     errors::{TaskerError, TaskerResult},
     models::core::{task::TaskListQuery, task_request::TaskRequest},
-    types::api::{
-        BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo, HealthResponse,
-        ManualResolutionRequest, MetricsQuery, NamespaceInfo, PerformanceMetrics, StepResponse,
-        TaskCreationResponse, TaskListResponse, TaskResponse,
+    types::{
+        api::orchestration::{
+            BottleneckAnalysis, BottleneckQuery, DetailedHealthResponse, HandlerInfo,
+            HealthResponse, ManualResolutionRequest, MetricsQuery, NamespaceInfo,
+            PerformanceMetrics, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
+        },
+        auth::JwtAuthenticator,
+        web::AuthConfig,
     },
 };
 
@@ -29,7 +34,7 @@ pub struct OrchestrationApiConfig {
     /// Maximum number of retry attempts
     pub max_retries: u32,
     /// API authentication token (if required)
-    pub auth_token: Option<String>,
+    pub auth: Option<WebAuthConfig>,
 }
 
 impl Default for OrchestrationApiConfig {
@@ -38,7 +43,7 @@ impl Default for OrchestrationApiConfig {
             base_url: "http://localhost:8080".to_string(),
             timeout_ms: 30000,
             max_retries: 3,
-            auth_token: None,
+            auth: None,
         }
     }
 }
@@ -49,27 +54,13 @@ impl OrchestrationApiConfig {
     /// TAS-43: This method replaces ::default() usage with configuration-driven setup
     pub fn from_tasker_config(config: &tasker_shared::config::TaskerConfig) -> Self {
         // Handle optional web configuration with sensible defaults
-        let (base_url, timeout_ms) = match &config.web {
-            Some(web_config) => (
-                format!("http://{}", web_config.bind_address),
-                web_config.request_timeout_ms,
-            ),
-            None => {
-                // Fallback to default when web configuration is not present
-                let default_config = Self::default();
-                (default_config.base_url, default_config.timeout_ms)
-            }
-        };
+        let orchestration_web_config = config.orchestration.web_config();
 
         Self {
-            base_url,
-            timeout_ms,
-            max_retries: 3, // TODO: Load from configuration when orchestration API config is available
-            auth_token: if config.auth.authentication_enabled {
-                Some("worker-token".to_string()) // TODO: Load from auth configuration
-            } else {
-                None
-            },
+            base_url: format!("http://{}", orchestration_web_config.bind_address.clone()),
+            timeout_ms: orchestration_web_config.request_timeout_ms,
+            max_retries: 3,
+            auth: Some(orchestration_web_config.auth.clone()),
         }
     }
 }
@@ -92,16 +83,109 @@ impl OrchestrationApiClient {
             .timeout(Duration::from_millis(config.timeout_ms))
             .user_agent(format!("tasker-worker/{}", env!("CARGO_PKG_VERSION")));
 
-        // Configure authentication if provided
-        if let Some(ref token) = config.auth_token {
-            let mut default_headers = reqwest::header::HeaderMap::new();
-            default_headers.insert(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", token).parse().map_err(|e| {
-                    TaskerError::ConfigurationError(format!("Invalid auth token: {}", e))
-                })?,
-            );
-            client_builder = client_builder.default_headers(default_headers);
+        // Configure authentication if provided and enabled
+        if let Some(ref web_auth_config) = &config.auth {
+            if web_auth_config.enabled {
+                let mut default_headers = reqwest::header::HeaderMap::new();
+
+                // Convert WebAuthConfig to AuthConfig for the JWT authenticator
+                let auth_config = AuthConfig {
+                    enabled: web_auth_config.enabled,
+                    jwt_private_key: web_auth_config.jwt_private_key.clone(),
+                    jwt_public_key: web_auth_config.jwt_public_key.clone(),
+                    jwt_token_expiry_hours: web_auth_config.jwt_token_expiry_hours,
+                    jwt_issuer: web_auth_config.jwt_issuer.clone(),
+                    jwt_audience: web_auth_config.jwt_audience.clone(),
+                    api_key_header: web_auth_config.api_key_header.clone(),
+                    protected_routes: web_auth_config
+                        .protected_routes
+                        .clone()
+                        .into_iter()
+                        .map(|(k, v)| {
+                            (
+                                k,
+                                tasker_shared::types::web::RouteAuthConfig {
+                                    auth_type: v.auth_type,
+                                    required: v.required,
+                                },
+                            )
+                        })
+                        .collect(),
+                };
+
+                // Determine authentication method based on available credentials
+                if !web_auth_config.api_key.is_empty() {
+                    // Use API key authentication
+                    let header_name = if web_auth_config.api_key_header.is_empty() {
+                        "X-API-Key"
+                    } else {
+                        &web_auth_config.api_key_header
+                    };
+
+                    default_headers.insert(
+                        reqwest::header::HeaderName::from_bytes(header_name.as_bytes()).map_err(
+                            |e| {
+                                TaskerError::ConfigurationError(format!(
+                                    "Invalid API key header name: {}",
+                                    e
+                                ))
+                            },
+                        )?,
+                        web_auth_config.api_key.parse().map_err(|e| {
+                            TaskerError::ConfigurationError(format!("Invalid API key: {}", e))
+                        })?,
+                    );
+
+                    debug!(
+                        "Configured API key authentication with header: {}",
+                        header_name
+                    );
+                } else if !web_auth_config.jwt_public_key.is_empty()
+                    && !web_auth_config.jwt_private_key.is_empty()
+                {
+                    // Create JWT authenticator and generate a worker token
+                    let jwt_authenticator =
+                        JwtAuthenticator::from_config(&auth_config).map_err(|e| {
+                            TaskerError::ConfigurationError(format!(
+                                "Failed to create JWT authenticator: {}",
+                                e
+                            ))
+                        })?;
+
+                    // For the orchestration client, we need to generate a token for this worker
+                    // We'll use some default permissions for orchestration communication
+                    let worker_token = jwt_authenticator
+                        .generate_worker_token(
+                            "orchestration-client",
+                            vec!["*".to_string()], // Allow access to all namespaces
+                            vec!["orchestration:read", "orchestration:write"]
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        )
+                        .map_err(|e| {
+                            TaskerError::ConfigurationError(format!(
+                                "Failed to generate worker token: {}",
+                                e
+                            ))
+                        })?;
+
+                    default_headers.insert(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", worker_token).parse().map_err(|e| {
+                            TaskerError::ConfigurationError(format!("Invalid JWT token: {}", e))
+                        })?,
+                    );
+
+                    debug!("Configured JWT authentication with worker token");
+                } else {
+                    warn!("Authentication enabled but no valid credentials (API key or JWT keys) configured");
+                }
+
+                if !default_headers.is_empty() {
+                    client_builder = client_builder.default_headers(default_headers);
+                }
+            }
         }
 
         let client = client_builder.build().map_err(|e| {
@@ -111,7 +195,7 @@ impl OrchestrationApiClient {
         info!(
             base_url = %config.base_url,
             timeout_ms = config.timeout_ms,
-            auth_enabled = config.auth_token.is_some(),
+            auth_enabled = config.auth.is_some(),
             "Created orchestration API client"
         );
 
@@ -776,7 +860,7 @@ mod tests {
         assert_eq!(config.base_url, "http://localhost:8080");
         assert_eq!(config.timeout_ms, 30000);
         assert_eq!(config.max_retries, 3);
-        assert!(config.auth_token.is_none());
+        assert!(config.auth.is_none());
     }
 
     #[test]
@@ -794,16 +878,6 @@ mod tests {
         };
         let client = OrchestrationApiClient::new(config);
         assert!(client.is_err());
-    }
-
-    #[test]
-    fn test_orchestration_client_creation_with_auth() {
-        let config = OrchestrationApiConfig {
-            auth_token: Some("test-token".to_string()),
-            ..Default::default()
-        };
-        let client = OrchestrationApiClient::new(config);
-        assert!(client.is_ok());
     }
 
     // ===================================================================================
@@ -1041,53 +1115,4 @@ mod tests {
     // ===================================================================================
     // CONFIGURATION TESTS
     // ===================================================================================
-
-    #[test]
-    fn test_config_from_tasker_config_with_auth() {
-        use tasker_shared::config::{AuthConfig, TaskerConfig};
-
-        let auth_config = AuthConfig {
-            authentication_enabled: true,
-            strategy: "default".to_string(),
-            current_user_method: "default".to_string(),
-            authenticate_user_method: "default".to_string(),
-            authorization_enabled: false,
-            authorization_coordinator_class: "default".to_string(),
-            authenticator_class: None,
-            user_class: None,
-        };
-
-        let tasker_config = TaskerConfig {
-            auth: auth_config,
-            ..Default::default()
-        };
-
-        let api_config = OrchestrationApiConfig::from_tasker_config(&tasker_config);
-        assert!(api_config.auth_token.is_some());
-        assert_eq!(api_config.auth_token.unwrap(), "worker-token");
-    }
-
-    #[test]
-    fn test_config_from_tasker_config_no_auth() {
-        use tasker_shared::config::{AuthConfig, TaskerConfig};
-
-        let auth_config = AuthConfig {
-            authentication_enabled: false,
-            strategy: "default".to_string(),
-            current_user_method: "default".to_string(),
-            authenticate_user_method: "default".to_string(),
-            authorization_enabled: false,
-            authorization_coordinator_class: "default".to_string(),
-            authenticator_class: None,
-            user_class: None,
-        };
-
-        let tasker_config = TaskerConfig {
-            auth: auth_config,
-            ..Default::default()
-        };
-
-        let api_config = OrchestrationApiConfig::from_tasker_config(&tasker_config);
-        assert!(api_config.auth_token.is_none());
-    }
 }

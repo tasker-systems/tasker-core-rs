@@ -9,8 +9,7 @@
 
 use crate::config::unified_loader::UnifiedConfigLoader;
 use crate::config::{error::ConfigResult, TaskerConfig};
-/// use regex::Regex;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tracing::info;
 
 /// Simplified configuration manager that wraps UnifiedConfigLoader
@@ -108,42 +107,6 @@ impl ConfigManager {
     // Legacy environment override methods removed
 }
 
-// Global configuration singleton for backward compatibility
-static GLOBAL_CONFIG: RwLock<Option<Arc<ConfigManager>>> = RwLock::new(None);
-
-impl ConfigManager {
-    /// Get the global configuration instance
-    pub fn global() -> ConfigResult<Arc<ConfigManager>> {
-        {
-            let guard = GLOBAL_CONFIG.read().unwrap();
-            if let Some(ref config) = *guard {
-                return Ok(Arc::clone(config));
-            }
-        }
-
-        // Load and store configuration if not already loaded
-        let config = Self::load()?;
-        let mut guard = GLOBAL_CONFIG.write().unwrap();
-        *guard = Some(Arc::clone(&config));
-        Ok(config)
-    }
-
-    /// Initialize global configuration with specific environment
-    pub fn initialize_global(environment: Option<&str>) -> ConfigResult<Arc<ConfigManager>> {
-        let config = Self::load_from_environment(environment)?;
-        let mut guard = GLOBAL_CONFIG.write().unwrap();
-        *guard = Some(Arc::clone(&config));
-        Ok(config)
-    }
-
-    /// Reset global configuration (for testing only)
-    #[cfg(test)]
-    pub fn reset_global_for_testing() {
-        let mut guard = GLOBAL_CONFIG.write().unwrap();
-        *guard = None;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,18 +151,6 @@ mod tests {
 
         // Should return development by default if no env vars set
         assert!(detected == "development" || std::env::var("TASKER_ENV").is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_global_singleton_reset() {
-        // Test the reset functionality for global singleton
-        ConfigManager::reset_global_for_testing();
-
-        // After reset, global config should be None
-        // We can't easily test the actual loading without file I/O,
-        // but we can test that reset works
-        let guard = GLOBAL_CONFIG.read().unwrap();
-        assert!(guard.is_none());
     }
 
     #[test]

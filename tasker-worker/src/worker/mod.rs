@@ -29,6 +29,5 @@ pub use event_subscriber::{
 pub use orchestration_result_sender::OrchestrationResultSender;
 pub use step_claim::StepClaim;
 pub use task_template_manager::{
-    CacheStats, CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig,
-    WorkerTaskTemplateOperations,
+    CachedTemplate, TaskTemplateManager, TaskTemplateManagerConfig, WorkerTaskTemplateOperations,
 };

@@ -16,7 +16,7 @@ use tasker_shared::models::core::task_request::TaskRequest;
 // Import all handler response types
 use crate::web::handlers;
 
-use tasker_shared::types::api::{
+use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, DetailedHealthResponse, HandlerInfo, HealthCheck, HealthInfo,
     HealthResponse, ManualResolutionRequest, NamespaceInfo, PerformanceMetrics,
     ResourceUtilization, SlowStepInfo, SlowTaskInfo, StepResponse, TaskCreationResponse,

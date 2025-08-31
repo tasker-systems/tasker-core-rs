@@ -43,5 +43,4 @@ web_api_pool_size = 5
 web_api_max_connections = 8
 web_api_connection_timeout_seconds = 10
 web_api_idle_timeout_seconds = 300
-coordinate_with_orchestration_pool = true
-max_total_connections_hint = 20           # Much smaller for tests
+max_total_connections_hint = 20         # Much smaller for tests

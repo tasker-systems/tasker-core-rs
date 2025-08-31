@@ -20,8 +20,6 @@ async fn test_load_system_configuration_from_file() {
     let config = config_manager.config();
 
     // Verify default values match Rails engine
-    assert!(!config.auth.authentication_enabled);
-    assert_eq!(config.auth.strategy, "none");
     assert!(!config.database.enable_secondary_database);
     assert_eq!(config.backoff.default_backoff_seconds, vec![1]);
     assert_eq!(config.backoff.max_backoff_seconds, 1);
@@ -225,10 +223,8 @@ fn test_configuration_builder_pattern() {
     let config = config_manager.config();
 
     // Verify we can access all configuration sections
-    assert!(!config.auth.authentication_enabled);
     assert!(!config.database.enable_secondary_database);
     assert!(config.telemetry.service_name.contains("tasker-core"));
-    assert!(config.health.enabled);
     assert_eq!(config.backoff.default_backoff_seconds.len(), 1);
     assert_eq!(config.execution.max_concurrent_tasks, 10);
 
@@ -240,12 +236,6 @@ fn test_configuration_defaults_match_rails() {
     // Test that our defaults match the Rails engine defaults
     let config_manager = ConfigManager::load().unwrap();
     let config = config_manager.config();
-
-    // Auth defaults
-    assert!(!config.auth.authentication_enabled);
-    assert_eq!(config.auth.strategy, "none");
-    assert_eq!(config.auth.current_user_method, "current_user");
-    assert_eq!(config.auth.authenticate_user_method, "authenticate_user!");
 
     // Database defaults
     assert!(!config.database.enable_secondary_database);

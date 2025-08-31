@@ -16,7 +16,7 @@ use tasker_shared::{
         task_template::{ResolvedTaskTemplate, TaskTemplate},
     },
     registry::{HandlerKey, TaskHandlerRegistry, TaskTemplateDiscoveryResult},
-    types::HandlerMetadata,
+    types::{base::CacheStats, HandlerMetadata},
 };
 
 /// Configuration for task template manager
@@ -60,18 +60,6 @@ pub struct CachedTemplate {
     pub cached_at: Instant,
     pub access_count: u64,
     pub last_accessed: Instant,
-}
-
-/// Statistics about the task template cache
-#[derive(Debug, Clone, Serialize)]
-pub struct CacheStats {
-    pub total_cached: usize,
-    pub cache_hits: u64,
-    pub cache_misses: u64,
-    pub cache_evictions: u64,
-    pub oldest_entry_age_seconds: u64,
-    pub average_access_count: f64,
-    pub supported_namespaces: Vec<String>,
 }
 
 /// Worker-specific task template manager with local caching

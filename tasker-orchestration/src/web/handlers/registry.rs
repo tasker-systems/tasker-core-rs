@@ -9,7 +9,7 @@ use tracing::info;
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
 use crate::web::state::AppState;
 use tasker_shared::models::{NamedTask, TaskNamespace};
-use tasker_shared::types::api::{HandlerInfo, NamespaceInfo};
+use tasker_shared::types::api::orchestration::{HandlerInfo, NamespaceInfo};
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List available namespaces: GET /v1/handlers

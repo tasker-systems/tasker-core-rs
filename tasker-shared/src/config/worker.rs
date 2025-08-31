@@ -20,20 +20,15 @@ pub struct WorkerConfig {
     /// Step processing configuration (command pattern)
     pub step_processing: StepProcessingConfig,
 
-    /// Event system configuration for command pattern
-    pub event_system: EventSystemConfig,
-
     /// Worker health monitoring
     pub health_monitoring: HealthMonitoringConfig,
 
+    // Note: Event system configuration moved to unified TaskerConfig.event_systems.worker
     /// Queue configuration for message consumption
     /// Note: This field is populated from the main queues configuration, not from TOML
     #[serde(skip)]
     pub queues: QueuesConfig,
 
-    /// Web configuration for worker
-    /// Note: This field is populated from the main web configuration, not from TOML
-    #[serde(skip)]
     pub web: WebConfig,
 }
 
@@ -104,9 +99,6 @@ pub struct EventSubscriberConfig {
 /// Event processing configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EventProcessingConfig {
-    /// Number of event processor threads
-    pub processor_threads: usize,
-
     /// Event processing timeout (ms)
     pub processing_timeout_ms: u64,
 
@@ -146,7 +138,7 @@ impl Default for WorkerConfig {
             worker_type: "general".to_string(),
             namespaces: vec!["default".to_string()],
             step_processing: StepProcessingConfig::default(),
-            event_system: EventSystemConfig::default(),
+            // Event system configuration now comes from unified TaskerConfig.event_systems.worker
             health_monitoring: HealthMonitoringConfig::default(),
             queues: QueuesConfig::default(),
             web: WebConfig::default(),
@@ -201,7 +193,6 @@ impl Default for EventSubscriberConfig {
 impl Default for EventProcessingConfig {
     fn default() -> Self {
         Self {
-            processor_threads: 4,
             processing_timeout_ms: 30000,
             deduplication_enabled: true,
             deduplication_cache_size: 1000,
@@ -252,5 +243,15 @@ impl WorkerConfig {
     /// Get step processing concurrency limit
     pub fn max_concurrent_steps(&self) -> usize {
         self.step_processing.max_concurrent_steps
+    }
+
+    /// Get web configuration with fallback to defaults
+    pub fn web_config(&self) -> WebConfig {
+        self.web.clone()
+    }
+
+    /// Check if web API is enabled
+    pub fn web_enabled(&self) -> bool {
+        self.web.enabled
     }
 }

@@ -42,6 +42,14 @@ max_concurrent_processors = 20
 # Extended processing timeout for complex production workloads
 processing_timeout_seconds = 60
 
+# In-process event system for FFI integration (no TCP endpoints)
+[worker.event_system.in_process]
+# Larger buffer for production throughput
+broadcast_buffer_size = 2000
+ffi_integration_enabled = true
+# Production-specific queue names can be added here if needed
+deduplication_cache_size = 2000
+
 # Step processing - Production Configuration
 [worker.step_processing]
 # Production-grade timeouts

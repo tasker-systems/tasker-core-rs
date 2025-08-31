@@ -49,9 +49,11 @@
 //! }
 //! ```
 
+pub mod bootstrap;
 pub mod event_handler;
 pub mod global_event_system;
 pub mod step_handlers;
+pub mod test_helpers;
 
 // Re-export tasker-worker types for easy access
 pub use tasker_worker::{WorkerBootstrap, WorkerBootstrapConfig};

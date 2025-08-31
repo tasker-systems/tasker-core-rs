@@ -14,6 +14,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// Statistics about the task template cache
+#[derive(Debug, Clone, Serialize)]
+pub struct CacheStats {
+    pub total_cached: usize,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub cache_evictions: u64,
+    pub oldest_entry_age_seconds: u64,
+    pub average_access_count: f64,
+    pub supported_namespaces: Vec<String>,
+}
+
 /// A step that is ready for execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViableStep {

@@ -19,11 +19,10 @@ use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 
 use crate::{
-    api_clients::orchestration_client::OrchestrationApiConfig,
     web::{state::WorkerWebConfig, WorkerWebState},
     worker::core::{WorkerCore, WorkerCoreStatus},
 };
-
+use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
     config::ConfigManager,
     errors::{TaskerError, TaskerResult},
@@ -170,7 +169,11 @@ impl WorkerBootstrapConfig {
         Self {
             worker_id,
             supported_namespaces,
-            enable_web_api: config.web.as_ref().map(|w| w.enabled).unwrap_or(true), // TAS-43: Load from web configuration or default to enabled
+            enable_web_api: config
+                .worker
+                .as_ref()
+                .map(|w| w.web.enabled)
+                .unwrap_or(true), // TAS-43: Load from worker web configuration or default to true
             web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
             orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
             environment_override: Some(config_manager.environment().to_string()),

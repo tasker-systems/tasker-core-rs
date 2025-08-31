@@ -18,7 +18,9 @@ use tasker_shared::database::sql_functions::{
 };
 use tasker_shared::models::core::task::{PaginationInfo, Task, TaskListQuery};
 use tasker_shared::models::core::task_request::TaskRequest;
-use tasker_shared::types::api::{TaskCreationResponse, TaskListResponse, TaskResponse};
+use tasker_shared::types::api::orchestration::{
+    TaskCreationResponse, TaskListResponse, TaskResponse,
+};
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// Create a new task: POST /v1/tasks

@@ -11,14 +11,16 @@
 //! - Database-backed test data persistence
 //! - Namespace and queue setup for testing
 
-use crate::api_clients::orchestration_client::{OrchestrationApiClient, OrchestrationApiConfig};
 use pgmq_notify::PgmqClient;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
+use tasker_client::api_clients::orchestration_client::{
+    OrchestrationApiClient, OrchestrationApiConfig,
+};
 use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::{NamedStep, NamedTask, TaskNamespace, WorkflowStep};
-use tasker_shared::types::api::TaskCreationResponse;
+use tasker_shared::types::api::orchestration::TaskCreationResponse;
 use uuid::Uuid;
 
 /// Test-specific error type for factory operations
@@ -62,9 +64,16 @@ impl WorkerTestFactory {
         orchestration_url: String,
         auth_token: Option<String>,
     ) -> Result<Self, TestFactoryError> {
+        let auth = auth_token.map(|token| {
+            let mut auth_config = tasker_shared::config::WebAuthConfig::default();
+            auth_config.enabled = true;
+            auth_config.api_key = token;
+            auth_config
+        });
+
         let config = OrchestrationApiConfig {
             base_url: orchestration_url,
-            auth_token,
+            auth,
             ..OrchestrationApiConfig::default()
         };
 

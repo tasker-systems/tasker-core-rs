@@ -73,8 +73,6 @@ pub struct WorkerFallbackPoller {
     context: Arc<SystemContext>,
     /// Command sender for worker operations
     command_sender: mpsc::Sender<WorkerCommand>,
-    /// PGMQ client for direct queue access
-    pgmq_client: Option<Arc<UnifiedPgmqClient>>,
     /// Running state
     is_running: AtomicBool,
     /// Statistics
@@ -106,7 +104,6 @@ impl WorkerFallbackPoller {
         config: WorkerPollerConfig,
         context: Arc<SystemContext>,
         command_sender: mpsc::Sender<WorkerCommand>,
-        pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> TaskerResult<Self> {
         let poller_id = Uuid::new_v4();
 
@@ -122,7 +119,6 @@ impl WorkerFallbackPoller {
             config,
             context,
             command_sender,
-            pgmq_client: Some(pgmq_client),
             is_running: AtomicBool::new(false),
             stats: WorkerPollerStats::default(),
         })
@@ -152,7 +148,7 @@ impl WorkerFallbackPoller {
         let poller_id = self.poller_id;
         let config = self.config.clone();
         let command_sender = self.command_sender.clone();
-        let pgmq_client = self.pgmq_client.clone().unwrap();
+        let message_client = self.context.message_client().clone();
         let stats = Arc::new(WorkerPollerStats::default());
         let is_running = Arc::new(AtomicBool::new(true));
 
@@ -176,7 +172,7 @@ impl WorkerFallbackPoller {
                         &queue_name,
                         namespace,
                         &config,
-                        &pgmq_client,
+                        &message_client,
                         &command_sender,
                         &stats,
                         poller_id,

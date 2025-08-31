@@ -31,7 +31,7 @@ use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthSta
 
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
-use tasker_shared::config::task_readiness::TaskReadinessEventSystemConfig;
+use tasker_shared::config::event_systems::TaskReadinessEventSystemConfig;
 
 /// Database-level event system for task readiness coordination
 ///
@@ -208,8 +208,8 @@ impl TaskReadinessEventSystem {
     fn fallback_config(&self) -> ReadinessFallbackConfig {
         ReadinessFallbackConfig {
             enabled: true, // Always enabled for production reliability
-            polling_interval: self.config.fallback_polling_interval,
-            batch_size: self.config.max_concurrent_tasks as u32,
+            polling_interval: self.config.timing.fallback_polling_interval(),
+            batch_size: self.config.processing.batch_size,
             age_threshold: std::time::Duration::from_secs(5), // Default age threshold
             max_age: std::time::Duration::from_secs(3600),    // 1 hour max age
         }

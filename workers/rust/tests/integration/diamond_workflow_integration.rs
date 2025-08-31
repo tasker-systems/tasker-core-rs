@@ -14,8 +14,9 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use tasker_core::test_helpers::shared_test_setup::{
-    create_mathematical_test_context, create_test_task_request, SharedTestSetup,
+    create_mathematical_test_context, create_test_task_request,
 };
+use tasker_worker_rust::test_helpers::{init_test_logging, init_test_worker};
 
 /// Test configuration and constants
 const NAMESPACE: &str = "diamond_workflow";
@@ -30,19 +31,13 @@ mod diamond_workflow_integration_tests {
     use super::*;
     use tokio;
 
-    /// Initialize logging for tests
-    fn init_test_logging() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
-    }
-
     #[tokio::test]
     async fn test_complete_diamond_pattern_workflow() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complete Diamond Pattern Workflow Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting diamond pattern workflow integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test data: even number for diamond pattern calculation
         // Expected progression: 6 → 36 → (1,296 & 1,296) → 2,821,109,907,456 (input^16)
@@ -83,9 +78,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_parallel_branch_execution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Parallel Branch Execution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting parallel branch execution integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use different input to test parallel execution
         let test_context = create_mathematical_test_context(4);
@@ -128,9 +124,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_convergence_step_coordination() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Convergence Step Coordination Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting convergence step coordination integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test convergence logic
         let test_context = create_mathematical_test_context(8);
@@ -166,9 +163,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_diamond_error_handling_and_validation() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Diamond Error Handling and Validation Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting diamond error handling and validation integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test with odd number (may cause validation issues in step handlers)
         let invalid_context = json!({
@@ -225,9 +223,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_diamond_framework_integration() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Diamond Framework Integration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting diamond framework integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test orchestration system initialization for diamond workflow
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -267,32 +266,12 @@ mod diamond_workflow_integration_tests {
     }
 
     #[tokio::test]
-    async fn test_diamond_step_handler_registration() -> Result<()> {
-        init_test_logging();
-        info!("🧪 Starting: Diamond Step Handler Registration Test");
-
-        // Note: Step handlers are automatically discovered and registered by the orchestration system
-        // based on the task template YAML configurations. They don't need explicit instantiation
-        // in integration tests since they're managed by the orchestration framework.
-
-        info!("✅ Diamond workflow step handlers are registered automatically:");
-        info!("  - DiamondStartHandler (start step)");
-        info!("  - DiamondBranchBHandler (parallel branch B)");
-        info!("  - DiamondBranchCHandler (parallel branch C)");
-        info!("  - DiamondEndHandler (convergence step)");
-
-        info!("✅ Step handler discovery and registration is handled by orchestration system");
-        info!("✅ Diamond Step Handler Registration Test passed");
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_diamond_performance_and_parallelism() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Diamond Performance and Parallelism Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting diamond performance and parallelism integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will exercise parallelism
         let test_context = create_mathematical_test_context(12);
@@ -343,9 +322,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_multiple_diamond_workflows_concurrency() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Multiple Diamond Workflows Concurrency Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting multiple diamond workflows concurrency integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Initialize orchestration with more workers for concurrency
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -421,9 +401,10 @@ mod diamond_workflow_integration_tests {
     #[tokio::test]
     async fn test_diamond_dependency_resolution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Diamond Dependency Resolution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting diamond dependency resolution integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test complex dependency resolution
         let test_context = create_mathematical_test_context(14);

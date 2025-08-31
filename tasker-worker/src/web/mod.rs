@@ -15,7 +15,6 @@ use tracing::info;
 
 pub mod handlers;
 pub mod middleware;
-pub mod response_types;
 pub mod routes;
 pub mod state;
 

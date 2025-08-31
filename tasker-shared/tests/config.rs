@@ -102,16 +102,13 @@ fn config_environment_loading() {
             assert_eq!(config_manager.environment(), "test");
 
             // Basic verification that config loaded
-            assert!(!config.auth.authentication_enabled);
+            assert!(config.is_test_environment());
 
             println!("✅ Environment-specific config loading works");
         }
         Err(e) => {
             // If no config files exist, that's expected in test environment
-            println!(
-                "📝 Config loading failed (expected if no config files): {}",
-                e
-            );
+            println!("📝 Config loading failed (expected if no config files): {e}");
 
             // Test that default config works as fallback
             let default_config = TaskerConfig::default();

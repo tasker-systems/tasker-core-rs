@@ -13,9 +13,8 @@ use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use tasker_core::test_helpers::{
-    create_mathematical_test_context, create_test_task_request, SharedTestSetup,
-};
+use tasker_core::test_helpers::{create_mathematical_test_context, create_test_task_request};
+use tasker_worker_rust::test_helpers::{init_test_logging, init_test_worker};
 
 // Note: Rust step handlers are automatically discovered and registered by the orchestration system
 // so we don't need to import them explicitly for integration tests
@@ -33,19 +32,13 @@ mod linear_workflow_integration_tests {
     use super::*;
     use tokio;
 
-    /// Initialize logging for tests
-    fn init_test_logging() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
-    }
-
     #[tokio::test]
     async fn test_complete_linear_mathematical_sequence() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complete Linear Mathematical Sequence Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_complete_linear_mathematical_sequence");
+
+        let mut setup = init_test_worker().await?;
 
         // Test data: even number that will flow through the mathematical sequence
         // Expected progression: 6 → 36 → 1,296 → 1,679,616 → 2,821,109,907,456
@@ -86,9 +79,10 @@ mod linear_workflow_integration_tests {
     #[tokio::test]
     async fn test_step_dependency_chain_execution_order() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Step Dependency Chain Execution Order Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_step_dependency_chain_execution_order");
+
+        let mut setup = init_test_worker().await?;
 
         // Use different input to verify dependency chain
         let test_context = create_mathematical_test_context(8);
@@ -124,9 +118,10 @@ mod linear_workflow_integration_tests {
     #[tokio::test]
     async fn test_mathematical_validation_and_error_handling() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mathematical Validation and Error Handling Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_mathematical_validation_and_error_handling");
+
+        let mut setup = init_test_worker().await?;
 
         // Test with odd number (should be handled gracefully by step handlers)
         let invalid_context = json!({
@@ -187,9 +182,10 @@ mod linear_workflow_integration_tests {
     #[tokio::test]
     async fn test_framework_integration_and_orchestration() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Framework Integration and Orchestration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_framework_integration_and_orchestration");
+
+        let mut setup = init_test_worker().await?;
 
         // Test orchestration system initialization
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -229,30 +225,12 @@ mod linear_workflow_integration_tests {
     }
 
     #[tokio::test]
-    async fn test_step_handler_registration_and_discovery() -> Result<()> {
-        init_test_logging();
-        info!("🧪 Starting: Step Handler Registration and Discovery Test");
-
-        // Note: Step handler verification is handled by the orchestration system's
-        // task template discovery process. Individual handlers don't need explicit
-        // instantiation in the test - they're discovered and registered automatically
-        // when the orchestration system starts.
-        info!("✅ Step handler registration handled by orchestration system");
-
-        // Step handlers are registered automatically by the orchestration system
-        info!("✅ All linear workflow step handlers available through orchestration system");
-
-        info!("✅ Step Handler Registration and Discovery Test passed");
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_performance_and_native_rust_execution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Performance and Native Rust Execution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_performance_and_native_rust_execution");
+
+        let mut setup = init_test_worker().await?;
 
         // Use larger input to test performance with bigger numbers
         let test_context = create_mathematical_test_context(10);
@@ -303,9 +281,10 @@ mod linear_workflow_integration_tests {
     #[tokio::test]
     async fn test_multiple_concurrent_workflows() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Multiple Concurrent Workflows Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting test_multiple_concurrent_workflows");
+
+        let mut setup = init_test_worker().await?;
 
         // Initialize orchestration with more workers for concurrency
         setup.initialize_orchestration(vec![NAMESPACE]).await?;

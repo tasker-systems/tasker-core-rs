@@ -19,13 +19,17 @@ use tracing::{debug, error, info, warn};
 use crate::orchestration::{
     command_processor::OrchestrationCommand,
     orchestration_queues::{
-        OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationNotification,
-        OrchestrationPollerConfig, OrchestrationQueueEvent, OrchestrationQueueListener,
+        OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationListenerStats,
+        OrchestrationNotification, OrchestrationPollerConfig, OrchestrationPollerStats,
+        OrchestrationQueueEvent, OrchestrationQueueListener,
     },
     OrchestrationCore,
 };
 use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
+use crate::orchestration::command_processor::{
+    StepProcessResult, TaskFinalizationResult, TaskInitializeResult,
+};
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
 /// Queue-level event system for orchestration coordination
@@ -161,14 +165,10 @@ impl OrchestrationStatistics {
     /// Create statistics aggregated from component statistics
     pub fn with_component_aggregation(
         &self,
-        fallback_poller: Option<
-            &crate::orchestration::orchestration_queues::OrchestrationFallbackPoller,
-        >,
-        queue_listener: Option<
-            &crate::orchestration::orchestration_queues::OrchestrationQueueListener,
-        >,
+        fallback_poller: Option<&OrchestrationFallbackPoller>,
+        queue_listener: Option<&OrchestrationQueueListener>,
     ) -> OrchestrationStatistics {
-        let mut aggregated = self.clone();
+        let aggregated = self.clone();
 
         // Aggregate fallback poller statistics
         if let Some(poller) = fallback_poller {
@@ -210,11 +210,9 @@ impl OrchestrationStatistics {
 #[derive(Debug)]
 pub struct OrchestrationComponentStatistics {
     /// Fallback poller statistics (if active)
-    pub fallback_poller_stats:
-        Option<crate::orchestration::orchestration_queues::OrchestrationPollerStats>,
+    pub fallback_poller_stats: Option<OrchestrationPollerStats>,
     /// Queue listener statistics (if active)
-    pub queue_listener_stats:
-        Option<crate::orchestration::orchestration_queues::OrchestrationListenerStats>,
+    pub queue_listener_stats: Option<OrchestrationListenerStats>,
     /// System uptime since start
     pub system_uptime: Option<Duration>,
     /// Current deployment mode
@@ -231,7 +229,6 @@ impl OrchestrationEventSystem {
     ) -> TaskerResult<Self> {
         info!(
             system_id = %config.system_id,
-            namespace = %config.namespace,
             deployment_mode = ?config.deployment_mode,
             "Creating OrchestrationEventSystem"
         );
@@ -254,10 +251,10 @@ impl OrchestrationEventSystem {
     /// Convert to OrchestrationListenerConfig for queue listener
     fn listener_config(&self) -> OrchestrationListenerConfig {
         OrchestrationListenerConfig {
-            namespace: self.config.namespace.clone(),
+            namespace: "orchestration".to_string(),
             monitored_queues: vec![
-                "orchestration_step_results".to_string(),
-                "orchestration_task_requests".to_string(),
+                "orchestration_step_results_queue".to_string(),
+                "orchestration_task_requests_queue".to_string(),
             ],
             retry_interval: Duration::from_secs(5),
             max_retry_attempts: 10,
@@ -271,14 +268,14 @@ impl OrchestrationEventSystem {
         OrchestrationPollerConfig {
             enabled: true, // Always enabled when instantiated
             polling_interval: self.config.fallback_polling_interval(),
-            batch_size: self.config.batch_size,
+            batch_size: self.config.message_batch_size() as u32,
             age_threshold: Duration::from_secs(5), // Only poll messages >5 seconds old
             max_age: Duration::from_secs(24 * 60 * 60), // Don't poll messages >24 hours old
             monitored_queues: vec![
-                "orchestration_step_results".to_string(),
-                "orchestration_task_requests".to_string(),
+                "orchestration_step_results_queue".to_string(),
+                "orchestration_task_requests_queue".to_string(),
             ],
-            namespace: self.config.namespace.clone(),
+            namespace: "orchestration".to_string(),
             visibility_timeout: self.config.visibility_timeout(),
         }
     }
@@ -536,7 +533,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 match command_rx.await {
                     Ok(Ok(result)) => {
                         match result {
-                            crate::orchestration::command_processor::StepProcessResult::Success { message } => {
+                            StepProcessResult::Success { message } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -545,21 +542,25 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                 );
 
                                 // Track statistics
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
-                            },
-                            crate::orchestration::command_processor::StepProcessResult::Failed { error } => {
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                            StepProcessResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
                                     error = %error,
                                     "ProcessStepResultFromMessageEvent command failed"
                                 );
-                                self.statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .events_failed
+                                    .fetch_add(1, Ordering::Relaxed);
                                 return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Step processing failed: {}", error)
+                                    message: format!("Step processing failed: {}", error),
                                 });
-                            },
-                            crate::orchestration::command_processor::StepProcessResult::Skipped { reason } => {
+                            }
+                            StepProcessResult::Skipped { reason } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -567,7 +568,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     "ProcessStepResultFromMessageEvent command skipped"
                                 );
                                 // Still count as successful operation
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
                             }
                         }
                     }
@@ -631,7 +634,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 match command_rx.await {
                     Ok(Ok(result)) => {
                         match result {
-                            crate::orchestration::command_processor::TaskInitializeResult::Success { task_uuid, message } => {
+                            TaskInitializeResult::Success { task_uuid, message } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -641,21 +644,25 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                 );
 
                                 // Track statistics
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
-                            },
-                            crate::orchestration::command_processor::TaskInitializeResult::Failed { error } => {
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                            TaskInitializeResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
                                     error = %error,
                                     "InitializeTaskFromMessageEvent command failed"
                                 );
-                                self.statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .events_failed
+                                    .fetch_add(1, Ordering::Relaxed);
                                 return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Task Initialization failed: {}", error)
+                                    message: format!("Task Initialization failed: {}", error),
                                 });
-                            },
-                            crate::orchestration::command_processor::TaskInitializeResult::Skipped { reason } => {
+                            }
+                            TaskInitializeResult::Skipped { reason } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -663,7 +670,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     "InitializeTaskFromMessageEvent command skipped"
                                 );
                                 // Still count as successful operation
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
                             }
                         }
                     }
@@ -729,7 +738,11 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                 match command_rx.await {
                     Ok(Ok(result)) => {
                         match result {
-                            crate::orchestration::command_processor::TaskFinalizationResult::Success { task_uuid, final_status, completion_time } => {
+                            TaskFinalizationResult::Success {
+                                task_uuid,
+                                final_status,
+                                completion_time,
+                            } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -739,21 +752,28 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                 );
 
                                 // Track statistics
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
-                            },
-                            crate::orchestration::command_processor::TaskFinalizationResult::Failed { error } => {
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                            TaskFinalizationResult::Failed { error } => {
                                 warn!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
                                     error = %error,
                                     "FinalizeTaskFromMessageEvent command failed"
                                 );
-                                self.statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .events_failed
+                                    .fetch_add(1, Ordering::Relaxed);
                                 return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Task Finalization failed: {}", error)
+                                    message: format!("Task Finalization failed: {}", error),
                                 });
-                            },
-                            crate::orchestration::command_processor::TaskFinalizationResult::NotClaimed { reason, already_claimed_by } => {
+                            }
+                            TaskFinalizationResult::NotClaimed {
+                                reason,
+                                already_claimed_by,
+                            } => {
                                 debug!(
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
@@ -762,7 +782,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     "FinalizeTaskFromMessageEvent command not claimed"
                                 );
                                 // Still count as successful operation
-                                self.statistics.operations_coordinated.fetch_add(1, Ordering::Relaxed);
+                                self.statistics
+                                    .operations_coordinated
+                                    .fetch_add(1, Ordering::Relaxed);
                             }
                         }
                     }

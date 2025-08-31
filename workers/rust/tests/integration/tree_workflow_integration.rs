@@ -13,9 +13,8 @@ use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use tasker_core::test_helpers::{
-    create_mathematical_test_context, create_test_task_request, SharedTestSetup,
-};
+use tasker_core::test_helpers::{create_mathematical_test_context, create_test_task_request};
+use tasker_worker_rust::test_helpers::{init_test_logging, init_test_worker};
 
 /// Test configuration and constants
 const NAMESPACE: &str = "tree_workflow";
@@ -30,19 +29,11 @@ mod tree_workflow_integration_tests {
     use super::*;
     use tokio;
 
-    /// Initialize logging for tests
-    fn init_test_logging() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
-    }
-
     #[tokio::test]
     async fn test_complete_hierarchical_tree_workflow() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complete Hierarchical Tree Workflow Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Test data: even number for tree pattern calculation
         // Expected progression: 6 → 36 → branches → leaves → convergence (input^32)
@@ -83,9 +74,8 @@ mod tree_workflow_integration_tests {
     #[tokio::test]
     async fn test_tree_branch_hierarchical_execution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Tree Branch Hierarchical Execution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Use different input to test hierarchical execution
         let test_context = create_mathematical_test_context(4);
@@ -128,9 +118,8 @@ mod tree_workflow_integration_tests {
     #[tokio::test]
     async fn test_tree_leaf_parallel_processing() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Tree Leaf Parallel Processing Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test leaf parallel processing
         let test_context = create_mathematical_test_context(8);
@@ -167,9 +156,8 @@ mod tree_workflow_integration_tests {
     #[tokio::test]
     async fn test_tree_final_convergence_coordination() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Tree Final Convergence Coordination Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test complex convergence
         let test_context = create_mathematical_test_context(10);
@@ -207,7 +195,7 @@ mod tree_workflow_integration_tests {
         init_test_logging();
         info!("🧪 Starting: Tree Error Handling and Validation Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Test with odd number (may cause validation issues in step handlers)
         let invalid_context = json!({
@@ -266,7 +254,7 @@ mod tree_workflow_integration_tests {
         init_test_logging();
         info!("🧪 Starting: Tree Framework Integration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Test orchestration system initialization for tree workflow
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -310,7 +298,7 @@ mod tree_workflow_integration_tests {
         init_test_logging();
         info!("🧪 Starting: Tree Performance and Complexity Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Use input that will exercise complex tree processing
         let test_context = create_mathematical_test_context(12);
@@ -363,7 +351,7 @@ mod tree_workflow_integration_tests {
         init_test_logging();
         info!("🧪 Starting: Tree Dependency Resolution Complexity Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test complex dependency resolution
         let test_context = create_mathematical_test_context(16);
@@ -412,7 +400,7 @@ mod tree_workflow_integration_tests {
         init_test_logging();
         info!("🧪 Starting: Multiple Tree Workflows Concurrency Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Initialize orchestration with more workers for complex concurrency
         setup.initialize_orchestration(vec![NAMESPACE]).await?;

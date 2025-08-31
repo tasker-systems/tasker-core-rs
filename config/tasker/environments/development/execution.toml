@@ -1,0 +1,5 @@
+[execution]
+environment = "development"
+processing_mode = "pgmq"
+max_concurrent_tasks = 50
+max_concurrent_steps = 200

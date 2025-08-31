@@ -13,8 +13,10 @@ pub struct TaskReadinessConfig {
     /// Enable task readiness event-driven coordination
     pub enabled: bool,
 
-    /// Deployment mode for event coordination behavior
-    pub event_system: TaskReadinessEventSystemConfig,
+    /// Event system configuration (now from unified event systems)
+    /// Note: This field is populated from the unified event_systems.toml configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_system: Option<crate::config::event_systems::TaskReadinessEventSystemConfig>,
 
     /// Enhanced coordinator specific settings
     pub enhanced_settings: EnhancedCoordinatorSettings,
@@ -234,7 +236,7 @@ impl Default for TaskReadinessConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            event_system: TaskReadinessEventSystemConfig::default(),
+            event_system: Some(crate::config::event_systems::TaskReadinessEventSystemConfig::default()),
             enhanced_settings: EnhancedCoordinatorSettings::default(),
             notification: TaskReadinessNotificationConfig::default(),
             fallback_polling: ReadinessFallbackConfig::default(),
@@ -421,12 +423,12 @@ impl TaskReadinessConfig {
 
     /// Check if task readiness is enabled for the deployment mode
     pub fn is_event_driven_enabled(&self) -> bool {
-        self.enabled && self.event_system.deployment_mode != DeploymentMode::PollingOnly
+        self.enabled && self.event_system.as_ref().map(|es| es.deployment_mode != DeploymentMode::PollingOnly).unwrap_or(false)
     }
 
     /// Check if fallback polling should be enabled
     pub fn is_fallback_polling_enabled(&self) -> bool {
-        self.fallback_polling.enabled && self.event_system.deployment_mode == DeploymentMode::Hybrid
+        self.fallback_polling.enabled && self.event_system.as_ref().map(|es| es.deployment_mode == DeploymentMode::Hybrid).unwrap_or(false)
     }
 
     /// Validate configuration for consistency

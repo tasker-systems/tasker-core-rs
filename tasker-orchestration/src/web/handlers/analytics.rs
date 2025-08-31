@@ -11,7 +11,7 @@ use tracing::info;
 use crate::web::circuit_breaker::execute_with_circuit_breaker;
 use crate::web::state::AppState;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::types::api::{
+use tasker_shared::types::api::orchestration::{
     BottleneckAnalysis, BottleneckQuery, MetricsQuery, PerformanceMetrics, ResourceUtilization,
     SlowStepInfo, SlowTaskInfo,
 };

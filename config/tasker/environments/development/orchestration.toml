@@ -1,4 +1,5 @@
 [orchestration]
+mode = "distributed"
 enable_performance_logging = true
 active_namespaces = [
     "fulfillment",

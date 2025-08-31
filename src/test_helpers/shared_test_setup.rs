@@ -14,15 +14,15 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use chrono::Utc;
+use tasker_client::api_clients::orchestration_client::{
+    OrchestrationApiClient, OrchestrationApiConfig,
+};
 use tasker_orchestration::orchestration::bootstrap::{
     BootstrapConfig as OrchestrationBootstrapConfig, OrchestrationBootstrap,
     OrchestrationSystemHandle,
 };
 use tasker_shared::config::ConfigManager;
 use tasker_shared::models::core::task_request::TaskRequest;
-use tasker_worker::api_clients::orchestration_client::{
-    OrchestrationApiClient, OrchestrationApiConfig,
-};
 use tasker_worker::bootstrap::{WorkerBootstrap, WorkerBootstrapConfig, WorkerSystemHandle};
 
 /// Shared test setup for Rust integration tests
@@ -45,7 +45,7 @@ impl SharedTestSetup {
             base_url: "http://localhost:8080".to_string(), // Default orchestration web server
             timeout_ms: 30000,
             max_retries: 3,
-            auth_token: None, // No auth for testing
+            auth: None, // No auth for testing
         };
 
         let orchestration_client = Arc::new(
@@ -61,6 +61,10 @@ impl SharedTestSetup {
         })
     }
 
+    pub fn set_worker_handle(&mut self, worker_handle: WorkerSystemHandle) {
+        self.worker_handle = Some(Arc::new(RwLock::new(worker_handle)));
+    }
+
     /// Initialize both orchestration and worker systems with web APIs enabled
     /// This is the key difference - both systems need web APIs for integration testing
     pub async fn initialize_systems(&mut self, namespaces: Vec<&str>) -> Result<()> {
@@ -71,13 +75,13 @@ impl SharedTestSetup {
         info!("Namespaces: {:?}", namespaces);
 
         // Check if systems are already initialized
-        if self.orchestration_handle.is_some() || self.worker_handle.is_some() {
-            warn!("Systems already initialized for test {}", self.test_id);
-            return Ok(());
+        if self.orchestration_handle.is_none() {
+            self.initialize_orchestration(namespaces.clone()).await?;
         }
 
-        self.initialize_orchestration(namespaces.clone()).await?;
-        self.initialize_worker(namespaces).await?;
+        if self.worker_handle.is_none() {
+            self.initialize_worker(namespaces).await?;
+        }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         info!("✅ Both systems initialized and ready");

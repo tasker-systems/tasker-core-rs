@@ -6,52 +6,16 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use chrono::{DateTime, Utc};
-use serde::Serialize;
+use chrono::Utc;
 use sqlx::Row;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, error, warn};
 
-use crate::web::{response_types::*, state::WorkerWebState};
-
-/// Basic health check response
-#[derive(Debug, Clone, Serialize)]
-pub struct BasicHealthResponse {
-    status: String,
-    timestamp: DateTime<Utc>,
-    worker_id: String,
-}
-
-/// Detailed health check response with subsystem checks
-#[derive(Debug, Clone, Serialize)]
-pub struct DetailedHealthResponse {
-    status: String,
-    timestamp: DateTime<Utc>,
-    worker_id: String,
-    checks: HashMap<String, HealthCheck>,
-    system_info: WorkerSystemInfo,
-}
-
-/// Individual health check result
-#[derive(Debug, Clone, Serialize)]
-pub struct HealthCheck {
-    status: String,
-    message: Option<String>,
-    duration_ms: u64,
-    last_checked: DateTime<Utc>,
-}
-
-/// Worker system information
-#[derive(Debug, Clone, Serialize)]
-pub struct WorkerSystemInfo {
-    version: String,
-    environment: String,
-    uptime_seconds: u64,
-    worker_type: String,
-    database_pool_size: u32,
-    command_processor_active: bool,
-    supported_namespaces: Vec<String>,
-}
+use crate::web::state::WorkerWebState;
+use tasker_shared::types::api::worker::{
+    BasicHealthResponse, DetailedHealthResponse, HealthCheck, WorkerSystemInfo,
+};
+use tasker_shared::types::web::*;
 
 /// Basic health check endpoint: GET /health
 ///

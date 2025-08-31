@@ -3,13 +3,13 @@
 //! Contains shared state for the worker web API including database connections,
 //! configuration, and metrics tracking.
 
-use crate::worker::task_template_manager::{CacheStats, TaskTemplateManager};
+use crate::worker::task_template_manager::TaskTemplateManager;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
-    registry::TaskHandlerRegistry,
+    registry::TaskHandlerRegistry, types::base::CacheStats,
 };
 use tracing::info;
 
@@ -53,7 +53,7 @@ impl WorkerWebConfig {
                     enabled: web_config.enabled,
                     bind_address: web_config.bind_address.clone(),
                     request_timeout_ms: web_config.request_timeout_ms,
-                    authentication_enabled: config.auth.authentication_enabled,
+                    authentication_enabled: web_config.auth.enabled,
                     cors_enabled: web_config.cors.enabled,
                     metrics_enabled: true, // TODO: Load from web configuration when available
                     health_check_interval_seconds: 30, // TODO: Load from web configuration when available

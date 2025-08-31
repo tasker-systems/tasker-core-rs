@@ -62,7 +62,6 @@
 //! }
 //! ```
 
-pub mod api_clients;
 pub mod bootstrap;
 pub mod config;
 pub mod error;
@@ -74,7 +73,6 @@ pub mod worker;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testing;
 
-pub use api_clients::OrchestrationApiClient;
 pub use bootstrap::{
     WorkerBootstrap, WorkerBootstrapConfig, WorkerSystemHandle, WorkerSystemStatus,
 };

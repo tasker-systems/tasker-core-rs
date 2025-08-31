@@ -1,0 +1,12 @@
+[execution]
+processing_mode = "pgmq"
+max_concurrent_tasks = 100
+max_concurrent_steps = 1000
+default_timeout_seconds = 3600
+step_execution_timeout_seconds = 300
+environment = "production"
+max_discovery_attempts = 3
+step_batch_size = 10
+max_retries = 3
+max_workflow_steps = 1000
+connection_timeout_seconds = 10

@@ -12,9 +12,9 @@ pub use tasker_shared::config::orchestration::{
 // Re-export shared types instead of redefining them
 pub use tasker_shared::config::orchestration::OrchestrationConfig;
 pub use tasker_shared::config::{
-    AuthConfig, BackoffConfig, ConfigManager, DatabaseConfig, DatabasePoolConfig, EngineConfig,
-    ExecutionConfig, HealthConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig,
-    TaskerConfig, TelemetryConfig,
+    BackoffConfig, ConfigManager, DatabaseConfig, DatabasePoolConfig, EngineConfig,
+    ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,
+    TelemetryConfig,
 };
 // Use canonical TaskTemplate from models instead of legacy config types
 pub use tasker_shared::errors::{OrchestrationError, OrchestrationResult};
@@ -31,8 +31,7 @@ mod tests {
         let config = config_manager.config();
 
         // Test basic configuration structure is loaded
-        assert!(!config.auth.authentication_enabled);
-        assert_eq!(config.auth.strategy, "none");
+        assert!(config.orchestration.web.auth.enabled);
         assert!(!config.database.enable_secondary_database);
         assert_eq!(
             config.backoff.default_backoff_seconds,
@@ -52,6 +51,7 @@ mod tests {
         let config_manager = ConfigManager::new();
         // Environment can be overridden by TASKER_ENV, so just verify it's not empty
         assert!(!config_manager.environment().is_empty());
-        assert!(!config_manager.system_config().auth.authentication_enabled);
+        let config = config_manager.config();
+        assert!(config.orchestration.web.auth.enabled);
     }
 }

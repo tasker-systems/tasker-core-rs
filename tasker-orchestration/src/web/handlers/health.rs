@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use tracing::{debug, error};
 
 use crate::web::state::AppState;
-use tasker_shared::types::api::{DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse};
+use tasker_shared::types::api::orchestration::{
+    DetailedHealthResponse, HealthCheck, HealthInfo, HealthResponse,
+};
 use tasker_shared::types::web::ApiError;
 
 /// Basic health check endpoint: GET /health

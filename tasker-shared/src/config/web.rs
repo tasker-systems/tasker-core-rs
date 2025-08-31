@@ -66,9 +66,6 @@ pub struct WebDatabasePoolsConfig {
     /// Web API idle timeout in seconds
     pub web_api_idle_timeout_seconds: u64,
 
-    /// Whether to coordinate with orchestration pool
-    pub coordinate_with_orchestration_pool: bool,
-
     /// Maximum total connections hint for resource coordination
     pub max_total_connections_hint: u32,
 }
@@ -206,7 +203,6 @@ impl Default for WebDatabasePoolsConfig {
             web_api_max_connections: 15,
             web_api_connection_timeout_seconds: 30,
             web_api_idle_timeout_seconds: 600,
-            coordinate_with_orchestration_pool: true,
             max_total_connections_hint: 45,
         }
     }

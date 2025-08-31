@@ -17,8 +17,8 @@ use tracing::{info, warn};
 
 use tasker_core::test_helpers::{
     create_business_test_context, create_mathematical_test_context, create_test_task_request,
-    SharedTestSetup,
 };
+use tasker_worker_rust::test_helpers::init_test_worker;
 
 /// Performance benchmark configuration
 const BENCHMARK_TIMEOUT_SECONDS: u64 = 120; // Longer timeout for performance tests
@@ -115,7 +115,7 @@ mod performance_benchmarking_tests {
         info!("🚀 Starting: Linear Workflow Performance Benchmark");
 
         let mut metrics = PerformanceMetrics::new("Linear Workflow");
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         // Run multiple iterations for statistical significance
         for iteration in 0..PERFORMANCE_ITERATIONS {
@@ -182,7 +182,7 @@ mod performance_benchmarking_tests {
         info!("🚀 Starting: Diamond Workflow Performance Benchmark");
 
         let mut metrics = PerformanceMetrics::new("Diamond Workflow");
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         for iteration in 0..PERFORMANCE_ITERATIONS {
             info!(
@@ -248,7 +248,7 @@ mod performance_benchmarking_tests {
         info!("🚀 Starting: Tree Workflow Performance Benchmark");
 
         let mut metrics = PerformanceMetrics::new("Tree Workflow");
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         for iteration in 0..PERFORMANCE_ITERATIONS {
             info!(
@@ -314,7 +314,7 @@ mod performance_benchmarking_tests {
         info!("🚀 Starting: Mixed DAG Workflow Performance Benchmark");
 
         let mut metrics = PerformanceMetrics::new("Mixed DAG Workflow");
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         for iteration in 0..PERFORMANCE_ITERATIONS {
             info!(
@@ -384,7 +384,7 @@ mod performance_benchmarking_tests {
         info!("🚀 Starting: Order Fulfillment Performance Benchmark");
 
         let mut metrics = PerformanceMetrics::new("Order Fulfillment");
-        let mut setup = SharedTestSetup::new()?;
+        let mut setup = init_test_worker().await?;
 
         for iteration in 0..PERFORMANCE_ITERATIONS {
             info!(

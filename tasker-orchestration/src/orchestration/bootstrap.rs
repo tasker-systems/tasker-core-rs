@@ -226,11 +226,13 @@ impl OrchestrationBootstrap {
             info!("BOOTSTRAP: Creating orchestration web API state");
 
             // Load web server config from configuration manager
-            match WebServerConfig::from_config_manager(&config_manager).map_err(|e| {
-                TaskerError::ConfigurationError(format!(
-                    "Failed to load web server configuration: {e}"
-                ))
-            })? {
+            match WebServerConfig::from_config_manager(&config_manager, "orchestration").map_err(
+                |e| {
+                    TaskerError::ConfigurationError(format!(
+                        "Failed to load web server configuration: {e}"
+                    ))
+                },
+            )? {
                 Some(web_server_config) if web_server_config.enabled => {
                     let app_state = Arc::new(
                         AppState::from_orchestration_core(

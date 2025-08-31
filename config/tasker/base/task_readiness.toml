@@ -5,10 +5,6 @@
 # Enable task readiness event-driven coordination
 enabled = true
 
-# Deployment mode for event coordination behavior
-# Options: "polling_only", "hybrid", "event_driven_only"
-deployment_mode = "hybrid"
-
 # Enhanced coordinator settings
 [task_readiness.enhanced_settings]
 # Coordinator startup timeout in seconds
@@ -19,6 +15,9 @@ shutdown_timeout_seconds = 10
 
 # Enable metrics collection for TAS-43 vs TAS-37 comparison
 metrics_enabled = true
+
+# Rollback threshold - error rate percentage that triggers rollback consideration
+rollback_threshold_percent = 5.0
 
 # PostgreSQL LISTEN/NOTIFY configuration
 [task_readiness.notification]
@@ -120,14 +119,5 @@ max_consecutive_errors = 10
 # Error rate threshold for triggering alerts (errors per minute)
 error_rate_threshold_per_minute = 5
 
-[task_readiness.event_system]
-system_id = "task-readiness-event-system"
-deployment_mode = "Hybrid"
-namespaces = ["orchestration"]
-event_driven_enabled = true
-max_concurrent_tasks = 10
-claim_timeout_seconds = 30
-backoff_delay_milliseconds = 100
-fallback_polling_interval_seconds = 30
-health_check_interval_seconds = 30
-performance_monitoring_enabled = true
+# Event system configuration has been moved to config/tasker/base/event_systems.toml
+# The task_readiness.event_system section is now managed centrally

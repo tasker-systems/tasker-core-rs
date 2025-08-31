@@ -9,15 +9,18 @@ use axum::{
     response::Json,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 use crate::{
-    web::{response_types::ErrorResponse, state::WorkerWebState},
-    worker::task_template_manager::{CacheStats, WorkerTaskTemplateOperations},
+    web::state::WorkerWebState, worker::task_template_manager::WorkerTaskTemplateOperations,
 };
-use tasker_shared::{models::core::task_template::ResolvedTaskTemplate, types::HandlerMetadata};
+use tasker_shared::types::api::worker::{
+    CacheOperationResponse, TemplateListResponse, TemplatePathParams, TemplateQueryParams,
+    TemplateResponse, TemplateValidationResponse,
+};
+use tasker_shared::types::base::CacheStats;
+use tasker_shared::types::web::ErrorResponse;
 
 /// Helper function to create standardized error responses
 fn error_response(error: String, message: String) -> ErrorResponse {
@@ -27,59 +30,6 @@ fn error_response(error: String, message: String) -> ErrorResponse {
         timestamp: Utc::now(),
         request_id: None,
     }
-}
-
-/// Query parameters for template listing
-#[derive(Debug, Deserialize)]
-pub struct TemplateQueryParams {
-    /// Filter by namespace
-    pub namespace: Option<String>,
-    /// Include cache statistics
-    pub include_cache_stats: Option<bool>,
-}
-
-/// Path parameters for template operations
-#[derive(Debug, Deserialize)]
-pub struct TemplatePathParams {
-    pub namespace: String,
-    pub name: String,
-    pub version: String,
-}
-
-/// Response for template retrieval
-#[derive(Debug, Serialize)]
-pub struct TemplateResponse {
-    pub template: ResolvedTaskTemplate,
-    pub handler_metadata: HandlerMetadata,
-    pub cached: bool,
-    pub cache_age_seconds: Option<u64>,
-    pub access_count: Option<u64>,
-}
-
-/// Response for template listing
-#[derive(Debug, Serialize)]
-pub struct TemplateListResponse {
-    pub supported_namespaces: Vec<String>,
-    pub template_count: usize,
-    pub cache_stats: Option<CacheStats>,
-    pub worker_capabilities: Vec<String>,
-}
-
-/// Response for cache operations
-#[derive(Debug, Serialize)]
-pub struct CacheOperationResponse {
-    pub operation: String,
-    pub success: bool,
-    pub cache_stats: CacheStats,
-}
-
-/// Response for template validation
-#[derive(Debug, Serialize)]
-pub struct TemplateValidationResponse {
-    pub valid: bool,
-    pub errors: Vec<String>,
-    pub required_capabilities: Vec<String>,
-    pub step_handlers: Vec<String>,
 }
 
 /// Get a specific task template
@@ -173,7 +123,7 @@ pub async fn list_templates(
     // Filter by namespace if requested
     let filtered_namespaces = if let Some(filter_namespace) = &params.namespace {
         if state.is_namespace_supported(filter_namespace) {
-            vec![filter_namespace.clone()]
+            vec![filter_namespace.to_string()]
         } else {
             return Err((
                 StatusCode::BAD_REQUEST,

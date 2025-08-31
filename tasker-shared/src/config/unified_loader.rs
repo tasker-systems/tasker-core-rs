@@ -11,7 +11,7 @@ use dotenvy::dotenv;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, warn};
 use workspace_tools::workspace;
 
 /// Unified configuration loader using TOML format exclusively
@@ -54,7 +54,7 @@ impl UnifiedConfigLoader {
 
         let root = ws.join("config").join("tasker");
 
-        info!(
+        debug!(
             "🔧 UNIFIED_CONFIG: Using workspace config root: {}",
             root.display()
         );
@@ -88,7 +88,7 @@ impl UnifiedConfigLoader {
             ]));
         }
 
-        info!(
+        debug!(
             "🔧 UNIFIED_CONFIG: Initialized for environment '{}' with root: {}",
             environment,
             root.display()
@@ -148,7 +148,7 @@ impl UnifiedConfigLoader {
             let overrides = self.load_toml_with_env_substitution(&env_path)?;
             self.merge_toml(&mut config, overrides)?;
 
-            info!(
+            debug!(
                 "Applied environment overrides for {} in {} environment",
                 component, self.environment
             );
@@ -166,7 +166,7 @@ impl UnifiedConfigLoader {
         self.component_cache
             .insert(component.to_string(), config.clone());
 
-        info!(
+        debug!(
             "✅ Successfully loaded and validated component: {}",
             component
         );
@@ -186,7 +186,7 @@ impl UnifiedConfigLoader {
             all_configs.insert(component, config);
         }
 
-        info!("✅ Loaded {} component configurations", all_configs.len());
+        debug!("✅ Loaded {} component configurations", all_configs.len());
         Ok(all_configs)
     }
 
@@ -565,12 +565,46 @@ impl ValidatedConfig {
         // Create a combined TOML document with all components
         let mut combined_config = toml::Table::new();
 
-        // Flatten all component configurations into a single TOML table
+        // Flatten all component configurations into a single TOML table with conflict detection
         for (component_name, component_toml) in &self.configs {
             if let toml::Value::Table(component_table) = component_toml {
-                // Insert component sections directly into combined config
+                // Insert component sections directly into combined config with conflict checking
                 for (key, value) in component_table {
-                    combined_config.insert(key.clone(), value.clone());
+                    if let Some(existing_value) = combined_config.get(key) {
+                        // Check for conflicts - if same key exists with different values, merge tables or warn
+                        if let (toml::Value::Table(existing_table), toml::Value::Table(new_table)) =
+                            (existing_value, value)
+                        {
+                            // Merge nested tables
+                            debug!(
+                                "Merging nested table '{}' from component '{}'",
+                                key, component_name
+                            );
+                            let mut merged_table = existing_table.clone();
+                            for (nested_key, nested_value) in new_table {
+                                if merged_table.contains_key(nested_key) {
+                                    debug!(
+                                        "Overriding field '{}.{}' from component '{}'",
+                                        key, nested_key, component_name
+                                    );
+                                }
+                                merged_table.insert(nested_key.clone(), nested_value.clone());
+                            }
+                            combined_config.insert(key.clone(), toml::Value::Table(merged_table));
+                        } else if existing_value != value {
+                            // Non-table values: later components override earlier ones
+                            debug!(
+                                "Overriding field '{}' from component '{}'",
+                                key, component_name
+                            );
+                            combined_config.insert(key.clone(), value.clone());
+                        }
+                        // If values are identical, no action needed
+                    } else {
+                        // No conflict, insert directly
+                        debug!("Adding field '{}' from component '{}'", key, component_name);
+                        combined_config.insert(key.clone(), value.clone());
+                    }
                 }
             } else {
                 return Err(ConfigurationError::invalid_toml(
@@ -580,40 +614,26 @@ impl ValidatedConfig {
             }
         }
 
+        // Log the final combined configuration for debugging
+        debug!(
+            "Final combined configuration has {} top-level keys: {:?}",
+            combined_config.len(),
+            combined_config.keys().collect::<Vec<_>>()
+        );
+
         // Deserialize directly from TOML to TaskerConfig
-        let mut tasker_config: TaskerConfig =
+        let tasker_config: TaskerConfig =
             toml::Value::Table(combined_config)
                 .try_into()
                 .map_err(|e| {
+                    error!("Failed to deserialize TaskerConfig. Error: {}", e);
                     ConfigurationError::json_serialization_error(
                         "TOML to TaskerConfig deserialization",
                         e,
                     )
                 })?;
 
-        // Post-processing hydration: populate skipped fields that are shared across components
-        self.hydrate_worker_config(&mut tasker_config)?;
-
         Ok(tasker_config)
-    }
-
-    /// Hydrate worker configuration with shared components
-    ///
-    /// Populates the `#[serde(skip)]` fields in WorkerConfig with values from
-    /// the main configuration components (queues, web, etc.)
-    fn hydrate_worker_config(&self, config: &mut super::TaskerConfig) -> ConfigResult<()> {
-        if let Some(ref mut worker_config) = config.worker {
-            // Populate queues from main queues configuration
-            worker_config.queues = config.queues.clone();
-            
-            // Populate web from main web configuration if available
-            if let Some(ref web_config) = config.web {
-                worker_config.web = web_config.clone();
-            }
-            // If no web config, keep the default from WorkerConfig::default()
-        }
-        
-        Ok(())
     }
 
     /// Convert to legacy format for backward compatibility

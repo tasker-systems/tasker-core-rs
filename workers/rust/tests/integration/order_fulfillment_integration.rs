@@ -13,9 +13,8 @@ use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use tasker_core::test_helpers::{
-    create_business_test_context, create_test_task_request, SharedTestSetup,
-};
+use tasker_core::test_helpers::{create_business_test_context, create_test_task_request};
+use tasker_worker_rust::test_helpers::{init_test_logging, init_test_worker};
 
 /// Test configuration and constants
 const NAMESPACE: &str = "order_fulfillment";
@@ -30,19 +29,13 @@ mod order_fulfillment_integration_tests {
     use super::*;
     use tokio;
 
-    /// Initialize logging for tests
-    fn init_test_logging() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
-    }
-
     #[tokio::test]
     async fn test_complete_order_fulfillment_workflow() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complete Order Fulfillment Workflow Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting order fulfillment integration tests");
+
+        let mut setup = init_test_worker().await?;
 
         // Test data: complete business context for order fulfillment
         let test_context = create_business_test_context();
@@ -82,9 +75,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_order_validation_step() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Order Validation Step Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting order validation step test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use comprehensive business context for validation testing
         let test_context = json!({
@@ -147,9 +141,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_inventory_reservation_workflow() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Inventory Reservation Workflow Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting inventory reservation workflow test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use multiple items to test inventory reservation
         let test_context = json!({
@@ -222,9 +217,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_payment_processing_integration() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Payment Processing Integration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting payment processing integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test different payment methods
         let test_context = json!({
@@ -287,9 +283,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_shipping_and_delivery_coordination() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Shipping and Delivery Coordination Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting shipping and delivery coordination test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test shipping coordination with complete order
         let test_context = json!({
@@ -357,9 +354,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_business_workflow_error_handling() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Business Workflow Error Handling Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting business workflow error handling test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test with invalid business data
         let invalid_context = json!({
@@ -429,9 +427,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_order_fulfillment_framework_integration() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Order Fulfillment Framework Integration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting order fulfillment framework integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test orchestration system initialization for business workflow
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -473,9 +472,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_business_workflow_performance() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Business Workflow Performance Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting business workflow performance test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use comprehensive business context for performance testing
         let test_context = create_business_test_context();
@@ -526,9 +526,10 @@ mod order_fulfillment_integration_tests {
     #[tokio::test]
     async fn test_multiple_order_fulfillment_concurrency() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Multiple Order Fulfillment Concurrency Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting multiple order fulfillment concurrency test");
+
+        let mut setup = init_test_worker().await?;
 
         // Initialize orchestration with workers for concurrent business processes
         setup.initialize_orchestration(vec![NAMESPACE]).await?;

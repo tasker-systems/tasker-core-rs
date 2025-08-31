@@ -35,12 +35,8 @@ age_threshold_seconds = 1
 max_age_hours = 1
 visibility_timeout_seconds = 10
 
-# Event system - Test Configuration
-[worker.event_system]
-# Lower concurrency for test environments
-max_concurrent_processors = 5
-# Shorter processing timeout for faster test feedback
-processing_timeout_seconds = 10
+# Event system configuration has been moved to config/tasker/base/event_systems.toml
+# Test environment overrides can be added in config/tasker/environments/test/event_systems.toml
 
 # Step processing - Test Configuration
 [worker.step_processing]

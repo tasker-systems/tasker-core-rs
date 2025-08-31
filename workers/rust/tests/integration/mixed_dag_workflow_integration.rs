@@ -13,9 +13,8 @@ use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use tasker_core::test_helpers::{
-    create_mathematical_test_context, create_test_task_request, SharedTestSetup,
-};
+use tasker_core::test_helpers::{create_mathematical_test_context, create_test_task_request};
+use tasker_worker_rust::test_helpers::{init_test_logging, init_test_worker};
 
 /// Test configuration and constants
 const NAMESPACE: &str = "mixed_dag_workflow";
@@ -30,19 +29,13 @@ mod mixed_dag_workflow_integration_tests {
     use super::*;
     use tokio;
 
-    /// Initialize logging for tests
-    fn init_test_logging() {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .try_init();
-    }
-
     #[tokio::test]
     async fn test_complete_complex_dag_workflow() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complete Complex DAG Workflow Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting complex DAG workflow integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test data: even number for complex DAG calculation
         // Expected progression: 6 → complex mixed operations → final result (input^64)
@@ -83,9 +76,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_parallel_and_linear_execution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed Parallel and Linear Execution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed parallel and linear execution integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use different input to test mixed execution patterns
         let test_context = create_mathematical_test_context(4);
@@ -128,9 +122,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_three_way_convergence_coordination() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Three-Way Convergence Coordination Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting three-way convergence coordination integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test complex 3-way convergence
         let test_context = create_mathematical_test_context(8);
@@ -166,9 +161,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_complex_dag_dependency_resolution() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Complex DAG Dependency Resolution Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting complex DAG dependency resolution integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will test the most complex dependency patterns
         let test_context = create_mathematical_test_context(10);
@@ -216,9 +212,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_dag_error_handling_and_validation() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed DAG Error Handling and Validation Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed DAG error handling and validation integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test with odd number (may cause validation issues in step handlers)
         let invalid_context = json!({
@@ -275,9 +272,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_dag_framework_integration() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed DAG Framework Integration Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed DAG framework integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Test orchestration system initialization for complex DAG workflow
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -319,9 +317,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_dag_performance_and_complexity() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed DAG Performance and Complexity Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed DAG performance and complexity integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use input that will exercise the most complex DAG processing
         let test_context = create_mathematical_test_context(12);
@@ -372,9 +371,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_dag_scalability_stress() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed DAG Scalability Stress Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed DAG scalability stress integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Initialize orchestration with maximum workers for stress testing
         setup.initialize_orchestration(vec![NAMESPACE]).await?;
@@ -427,9 +427,10 @@ mod mixed_dag_workflow_integration_tests {
     #[tokio::test]
     async fn test_mixed_dag_pattern_verification() -> Result<()> {
         init_test_logging();
-        info!("🧪 Starting: Mixed DAG Pattern Verification Test");
 
-        let mut setup = SharedTestSetup::new()?;
+        info!("Starting mixed DAG pattern verification integration test");
+
+        let mut setup = init_test_worker().await?;
 
         // Use specific input to verify the mathematical pattern works correctly
         let test_context = create_mathematical_test_context(6);

@@ -18,6 +18,7 @@ required-features = ["web-api"]
 
 [dependencies]
 tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }
+tasker-client = { path = "../tasker-client", package = "tasker-client" }
 pgmq-notify = { path = "../pgmq-notify", package = "pgmq-notify" }
 # Web framework and HTTP server (TAS-28)
 axum = { workspace = true, optional = true }

@@ -357,33 +357,47 @@ Each language binding will implement the same architectural pattern:
 - **Handler Registry**: Language-specific handler lookup and execution  
 - **Event Publisher**: Publishes `StepExecutionCompletionEvent`s back to shared system
 
-### 2. Language-Specific Handler Execution
+### 2. FFI Event-Driven Architecture
+
+**Important**: The FFI implementation uses event-driven processing all the way to the FFI boundary to avoid complex memory management and dynamic method invocation issues.
 
 ```rust
-// Ruby FFI Bridge (future implementation)
-match ruby_handler_registry.get_handler(handler_name) {
-    Ok(handler) => {
-        let ruby_result = execute_ruby_handler(handler, &step_data).await?;
-        let completion_event = convert_ruby_result_to_completion_event(ruby_result);
-        event_subscriber.publish_step_completion(completion_event).await?;
+// Step execution fires events to FFI layer via in-process event system
+// The FFI subscriber forwards events to language-specific event systems
+
+// Ruby FFI Event Bridge (future implementation)
+impl StepExecutionEventHandler {
+    async fn handle_step_execution(&self, event: StepExecutionEvent) -> TaskerResult<()> {
+        // Forward event to Ruby dry-events system via FFI
+        let ruby_event = convert_to_ruby_event(event);
+        self.ruby_ffi_bridge.publish_to_dry_events(ruby_event).await?;
+        
+        // Ruby side:
+        // - dry-events receives event
+        // - dispatches to registered Ruby handlers  
+        // - Ruby handler processes step
+        // - Ruby fires completion event back to dry-events
+        // - dry-events calls back to Rust via FFI
+        
+        Ok(())
     }
 }
 
-// Python FFI Bridge (future implementation)  
-match python_handler_registry.get_handler(handler_name) {
-    Ok(handler) => {
-        let python_result = execute_python_handler(handler, &step_data).await?;
-        let completion_event = convert_python_result_to_completion_event(python_result);
-        event_subscriber.publish_step_completion(completion_event).await?;
-    }
-}
-
-// WASM FFI Bridge (future implementation)
-match wasm_handler_registry.get_handler(handler_name) {
-    Ok(handler) => {
-        let wasm_result = execute_wasm_handler(handler, &step_data).await?;
-        let completion_event = convert_wasm_result_to_completion_event(wasm_result);  
-        event_subscriber.publish_step_completion(completion_event).await?;
+// Python FFI Event Bridge (future implementation)  
+impl StepExecutionEventHandler {
+    async fn handle_step_execution(&self, event: StepExecutionEvent) -> TaskerResult<()> {
+        // Forward event to Python pypubsub system via FFI
+        let python_event = convert_to_python_event(event);
+        self.python_ffi_bridge.publish_to_pypubsub(python_event).await?;
+        
+        // Python side:
+        // - pypubsub receives event
+        // - dispatches to registered Python handlers
+        // - Python handler processes step  
+        // - Python fires completion event back to pypubsub
+        // - pypubsub calls back to Rust via FFI
+        
+        Ok(())
     }
 }
 ```
@@ -770,92 +784,139 @@ RUST_LOG=info cargo run --release
 
 ## 🔮 Future FFI Implementation Guide
 
-When implementing Ruby, Python, or WASM FFI bindings, follow this established pattern:
+When implementing Ruby, Python, or WASM FFI bindings, follow this event-driven pattern that avoids complex FFI memory management:
 
-### 1. Create Language-Specific Event Handler
+### 1. Event-Driven FFI Architecture
+
+**Key Principle**: Use event systems on both sides of the FFI boundary to avoid dynamic method invocation and memory management issues.
 
 ```rust
-pub struct LanguageEventHandler {
-    registry: Arc<LanguageHandlerRegistry>,
-    event_subscriber: Arc<WorkerEventSubscriber>,
-    language_runtime: LanguageRuntime,
+pub struct LanguageEventBridge {
+    ffi_event_publisher: Arc<LanguageFFIEventPublisher>,
+    completion_event_receiver: Arc<LanguageFFIEventReceiver>, 
     worker_id: String,
 }
 
-impl LanguageEventHandler {
+impl LanguageEventBridge {
     pub async fn start(&self) -> Result<()> {
-        let mut receiver = self.event_subscriber.subscribe_to_step_executions();
+        // Subscribe to step execution events from Rust event system
+        let mut step_receiver = self.worker_event_subscriber.subscribe_to_step_executions();
         
-        while let Ok(event) = receiver.recv().await {
-            let handler_name = &event.payload.task_sequence_step.workflow_step.name;
+        // Listen for completion events from language-side event system
+        let completion_receiver = self.completion_event_receiver.start_listening().await?;
+        
+        // Forward step execution events to language-side event system
+        while let Ok(event) = step_receiver.recv().await {
+            // Convert Rust event to language-specific event format
+            let language_event = self.convert_step_execution_event(event);
             
-            match self.registry.get_handler(handler_name) {
-                Ok(handler) => {
-                    // Execute handler in language-specific runtime
-                    let result = self.language_runtime.execute_handler(
-                        handler, 
-                        &event.payload.task_sequence_step
-                    ).await;
-                    
-                    // Convert result and publish completion
-                    let completion_event = self.convert_to_completion_event(event, result);
-                    self.event_subscriber.publish_step_completion(completion_event).await?;
-                }
-                Err(_) => {
-                    // Handler not found in this language - ignore
-                }
-            }
+            // Publish to language-side event system (dry-events, pypubsub, etc.)
+            // This is a simple FFI call that publishes an event, not method invocation
+            self.ffi_event_publisher.publish_step_execution(language_event).await?;
+        }
+        
+        // Handle completion events from language side
+        while let Ok(completion) = completion_receiver.recv().await {
+            // Convert language completion back to Rust event
+            let rust_completion = self.convert_completion_event(completion);
+            
+            // Publish to Rust worker event system via tasker_shared::events::worker_events
+            self.worker_event_publisher.publish_step_completion(rust_completion).await?;
         }
     }
 }
 ```
 
-### 2. Integrate with Bootstrap
+### 2. Complete Event-Driven Workflow
 
-```rust
-// In main() or initialization
-let event_system = get_global_event_system();
+**The correct workflow avoids registry lookups and method calls across FFI boundaries:**
 
-// Create language-specific handler
-let language_handler = LanguageEventHandler::new(
-    language_registry,
-    event_system.clone(),
-    worker_id.clone(),
-);
-
-// Start language handler
-tokio::spawn(async move {
-    if let Err(e) = language_handler.start().await {
-        error!("Language handler stopped: {}", e);
-    }
-});
-
-// Bootstrap worker with shared event system
-let worker_handle = WorkerBootstrap::bootstrap_with_event_system(
-    config,
-    Some(event_system)
-).await?;
+```
+1. 🦀 Rust Worker listens for `worker_{namespace}_queue` messages (pg_notify/polling)
+   ↓
+2. 🦀 tasker-worker/src/worker/command_processor.rs:484-589 claims step
+   ↓  
+3. 🦀 Fires StepExecutionEvent via tasker-shared/src/events/worker_events.rs:133,152
+   ↓
+4. 🦀 FFI Event Bridge receives event (Rust subscriber)
+   ↓
+5. 🌉 FFI Bridge publishes event to language-side event system
+   ↓
+6. 💎 Ruby: dry-events receives and dispatches to registered handlers
+   🐍 Python: pypubsub receives and dispatches to registered handlers  
+   ↓
+7. 💎🐍 Language-side handler processes step in native memory space
+   ↓
+8. 💎🐍 Handler fires completion event to language-side event system
+   ↓
+9. 🌉 Language-side event system calls back to Rust via FFI
+   ↓
+10. 🦀 Rust calls tasker-shared/src/events/worker_events.rs:168 to complete step
 ```
 
-### 3. Language-Specific Considerations
+### 3. FFI Integration Points
 
-**Ruby FFI:**
-- Use `magnus` crate for Ruby integration
-- Convert `TaskSequenceStep` to Ruby hash structure
-- Handle Ruby exceptions and convert to `StepExecutionCompletionEvent`
-- Example: `rb_funcall(handler, rb_intern("call"), 1, task_sequence_step_hash)`
+```rust
+// Initialize FFI event bridges during worker startup
+let ruby_bridge = RubyEventBridge::new(worker_event_system.clone());
+let python_bridge = PythonEventBridge::new(worker_event_system.clone());
 
-**Python FFI:**
-- Use `pyo3` crate for Python integration  
-- Convert `TaskSequenceStep` to Python dictionary
-- Handle Python exceptions and convert to `StepExecutionCompletionEvent`
-- Example: `handler.call_method1("call", (task_sequence_step_dict,))?`
+// Bridges handle all FFI complexity internally
+tokio::spawn(async move { ruby_bridge.start().await });
+tokio::spawn(async move { python_bridge.start().await });
 
-**WASM FFI:**
-- Use `wasmtime` or `wasmer` for WASM runtime
-- Serialize `TaskSequenceStep` to JSON for WASM handler
-- Parse WASM return values and convert to `StepExecutionCompletionEvent`
-- Example: `wasm_instance.call_func("call", &[task_sequence_step_json])?`
+// Worker continues with normal event-driven processing
+let worker_handle = WorkerBootstrap::bootstrap_with_unified_config(config).await?;
+```
+
+### 4. Language-Specific Event System Integration
+
+**Ruby FFI with dry-events:**
+```ruby
+# Ruby side - register handlers with dry-events
+class StepExecutionHandler
+  def call(event)
+    step_data = event[:step_data]
+    result = process_step(step_data)
+    
+    # Fire completion event back to dry-events
+    dry_events.publish(:step_completed, {
+      step_uuid: step_data[:uuid],
+      result: result,
+      status: :success
+    })
+  end
+end
+
+# Rust publishes to this via FFI
+dry_events.subscribe(:step_execution, StepExecutionHandler.new)
+```
+
+**Python FFI with pypubsub:**
+```python
+# Python side - register handlers with pypubsub  
+from pubsub import pub
+
+def step_execution_handler(step_data):
+    result = process_step(step_data)
+    
+    # Fire completion event back to pypubsub
+    pub.send_message('step_completed', {
+        'step_uuid': step_data['uuid'], 
+        'result': result,
+        'status': 'success'
+    })
+
+# Rust publishes to this via FFI
+pub.subscribe(step_execution_handler, 'step_execution')
+```
+
+**Key Benefits of Event-Driven FFI:**
+- ✅ **No dynamic method calls** across FFI boundary 
+- ✅ **No complex memory management** between languages
+- ✅ **Clean separation** of language-specific handler registries
+- ✅ **Consistent error handling** via event completion patterns
+- ✅ **Thread-safe** communication via event systems
 
 ### 4. Testing Event Flow
 

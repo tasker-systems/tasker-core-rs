@@ -20,7 +20,7 @@ use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 
 use super::{OrchestrationEventSystem, OrchestrationEventSystemConfig, TaskReadinessEventSystem};
 use crate::orchestration::{command_processor::OrchestrationCommand, OrchestrationCore};
-use tasker_shared::config::task_readiness::TaskReadinessEventSystemConfig;
+use tasker_shared::config::event_systems::TaskReadinessEventSystemConfig;
 use tasker_shared::DeploymentMode;
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 
@@ -80,11 +80,11 @@ impl UnifiedCoordinatorConfig {
     ) -> TaskerResult<Self> {
         let config = config_manager.config();
 
-        // Access task readiness configuration directly from TaskerConfig struct
-        let task_readiness_config = config.task_readiness.event_system.clone();
+        // Access task readiness configuration from unified event systems configuration
+        let task_readiness_config = config.event_systems.task_readiness.clone();
 
-        // Access orchestration configuration directly from TaskerConfig struct
-        let orchestration_config = config.orchestration.event_systems.clone();
+        // Access orchestration configuration from unified event systems configuration
+        let orchestration_config = config.event_systems.orchestration.clone();
 
         info!(
             orchestration_deployment_mode = %orchestration_config.deployment_mode,

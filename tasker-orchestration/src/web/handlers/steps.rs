@@ -20,7 +20,7 @@ use crate::web::state::AppState;
 use tasker_shared::state_machine::events::StepEvent;
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::StateMachineError;
-use tasker_shared::types::api::{ManualResolutionRequest, StepResponse};
+use tasker_shared::types::api::orchestration::{ManualResolutionRequest, StepResponse};
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType};
 
 /// List workflow steps for a task: GET /v1/tasks/{uuid}/workflow_steps

@@ -42,6 +42,14 @@ max_concurrent_processors = 8
 # Standard processing timeout for development
 processing_timeout_seconds = 20
 
+# In-process event system for FFI integration (no TCP endpoints)
+[worker.event_system.in_process]
+# Standard buffer for development environments
+broadcast_buffer_size = 750
+ffi_integration_enabled = true
+# Development-specific queue names can be added here if needed
+deduplication_cache_size = 750
+
 # Step processing - Development Configuration
 [worker.step_processing]
 # Development-friendly timeouts

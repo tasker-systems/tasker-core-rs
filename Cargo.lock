@@ -4171,6 +4171,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tasker-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dotenvy",
+ "futures",
+ "once_cell",
+ "rand 0.9.2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tasker-shared",
+ "thiserror 2.0.14",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "workspace_tools",
+]
+
+[[package]]
 name = "tasker-core"
 version = "0.1.0"
 dependencies = [
@@ -4180,6 +4204,7 @@ dependencies = [
  "futures",
  "serde_json",
  "sqlx",
+ "tasker-client",
  "tasker-orchestration",
  "tasker-shared",
  "tasker-worker",
@@ -4343,6 +4368,7 @@ dependencies = [
  "sqlx",
  "structured-logger",
  "sysinfo",
+ "tasker-client",
  "tasker-core",
  "tasker-orchestration",
  "tasker-shared",

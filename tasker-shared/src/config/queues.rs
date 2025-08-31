@@ -71,6 +71,24 @@ pub struct RabbitMqBackendConfig {
     pub channel_pool_size: u32,
 }
 
+/// Configuration for orchestration-owned queues used in message classification
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OrchestrationOwnedQueues {
+    pub step_results: String,
+    pub task_requests: String,
+    pub task_finalizations: String,
+}
+
+impl Default for OrchestrationOwnedQueues {
+    fn default() -> Self {
+        Self {
+            step_results: "orchestration_step_results_queue".to_string(),
+            task_requests: "orchestration_task_requests_queue".to_string(),
+            task_finalizations: "orchestration_task_finalizations_queue".to_string(),
+        }
+    }
+}
+
 impl QueuesConfig {
     /// Get the full queue name using the configured naming pattern
     ///

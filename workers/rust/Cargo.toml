@@ -3,12 +3,13 @@ name = "tasker-worker-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Native Rust worker demonstration for tasker-worker foundation"
-authors = ["TAS-41 Implementation"]
+authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 
 [dependencies]
 # Core tasker dependencies
 tasker-worker = { path = "../../tasker-worker" }
 tasker-shared = { path = "../../tasker-shared" }
+tasker-core = { path = "../../", package = "tasker-core" }
 
 # Async runtime and utilities
 tokio = { workspace = true }
@@ -37,7 +38,6 @@ once_cell = { workspace = true }
 # Testing utilities
 tokio-test = { workspace = true }
 tasker-orchestration = { path = "../../tasker-orchestration" }
-tasker-core = { path = "../../", package = "tasker-core" }
 tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
 
@@ -50,6 +50,7 @@ name = "tasker_worker_rust"
 path = "src/lib.rs"
 
 # Integration test targets
+
 [[test]]
 name = "linear_workflow_integration"
 path = "tests/integration/linear_workflow_integration.rs"

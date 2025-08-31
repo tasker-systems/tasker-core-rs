@@ -18,6 +18,12 @@ use tracing::info;
 use uuid::Uuid;
 
 use tasker_shared::{
+    config::event_systems::{
+        BackoffConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
+        EventSystemTimingConfig, InProcessEventConfig, WorkerEventSystemMetadata,
+        WorkerFallbackPollerConfig, WorkerListenerConfig as UnifiedWorkerListenerConfig,
+        WorkerResourceLimits,
+    },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
     system_context::SystemContext,
     TaskerError, TaskerResult,
@@ -26,7 +32,6 @@ use tasker_shared::{
 use super::command_processor::WorkerCommand;
 use super::event_systems::worker_event_system::{WorkerEventSystem, WorkerEventSystemConfig};
 use super::task_template_manager::TaskTemplateManager;
-use super::worker_queues::{fallback_poller::WorkerPollerConfig, listener::WorkerListenerConfig};
 
 /// Configuration for event-driven message processing
 #[derive(Debug, Clone)]
@@ -106,14 +111,11 @@ impl EventDrivenMessageProcessor {
         // Create the new WorkerEventSystem with mapped configuration
         let worker_event_config =
             Self::map_config_to_new_architecture(&config, &supported_namespaces, processor_id);
-        let pgmq_client = context.message_client().clone();
         let worker_event_system = WorkerEventSystem::new(
             worker_event_config,
-            context.clone(),
             worker_command_sender.clone(),
-            pgmq_client,
-        )
-        .await?;
+            context.clone(),
+        );
 
         Ok(Self {
             config,
@@ -142,28 +144,59 @@ impl EventDrivenMessageProcessor {
         WorkerEventSystemConfig {
             system_id: format!("legacy-event-driven-{}", processor_id),
             deployment_mode,
-            supported_namespaces: supported_namespaces.to_vec(),
-            health_monitoring_enabled: true,
-            health_check_interval: Duration::from_secs(60),
-            max_concurrent_processors: legacy_config.batch_size as usize,
-            processing_timeout: legacy_config.visibility_timeout,
-            listener: WorkerListenerConfig {
-                supported_namespaces: supported_namespaces.to_vec(),
-                retry_interval: Duration::from_secs(5),
-                max_retry_attempts: 3,
-                event_timeout: legacy_config.visibility_timeout,
-                health_check_interval: Duration::from_secs(60),
-                batch_processing: true,
-                connection_timeout: Duration::from_secs(10),
+            namespaces: supported_namespaces.to_vec(),
+            timing: EventSystemTimingConfig {
+                health_check_interval_seconds: 60,
+                fallback_polling_interval_seconds: legacy_config.fallback_polling_interval.as_secs(),
+                visibility_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                processing_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                claim_timeout_seconds: 30,
             },
-            fallback_poller: WorkerPollerConfig {
-                enabled: true,
-                polling_interval: legacy_config.fallback_polling_interval,
+            processing: EventSystemProcessingConfig {
+                max_concurrent_operations: legacy_config.batch_size as usize,
                 batch_size: legacy_config.batch_size,
-                age_threshold: Duration::from_secs(2),
-                max_age: Duration::from_secs(12 * 60 * 60),
-                supported_namespaces: supported_namespaces.to_vec(),
-                visibility_timeout: legacy_config.visibility_timeout,
+                max_retries: 3,
+                backoff: BackoffConfig {
+                    initial_delay_ms: 1000,
+                    max_delay_ms: 60000,
+                    multiplier: 2.0,
+                    jitter_percent: 0.1,
+                },
+            },
+            health: EventSystemHealthConfig {
+                enabled: true,
+                performance_monitoring_enabled: true,
+                max_consecutive_errors: 10,
+                error_rate_threshold_per_minute: 60,
+            },
+            metadata: WorkerEventSystemMetadata {
+                in_process_events: InProcessEventConfig {
+                    broadcast_buffer_size: 1000,
+                    ffi_integration_enabled: true,
+                    queue_names: supported_namespaces.iter().map(|ns| format!("{}_queue", ns)).collect(),
+                    deduplication_cache_size: 10000,
+                },
+                listener: UnifiedWorkerListenerConfig {
+                    retry_interval_seconds: 5,
+                    max_retry_attempts: 3,
+                    event_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                    batch_processing: true,
+                    connection_timeout_seconds: 10,
+                },
+                fallback_poller: WorkerFallbackPollerConfig {
+                    enabled: true,
+                    polling_interval_ms: legacy_config.fallback_polling_interval.as_millis() as u64,
+                    batch_size: legacy_config.batch_size,
+                    age_threshold_seconds: 2,
+                    max_age_hours: 12,
+                    visibility_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                },
+                resource_limits: WorkerResourceLimits {
+                    max_memory_mb: 1024,
+                    max_cpu_percent: 80.0,
+                    max_database_connections: 10,
+                    max_queue_connections: 5,
+                },
             },
         }
     }
