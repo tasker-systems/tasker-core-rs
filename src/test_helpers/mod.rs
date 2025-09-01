@@ -1,15 +1,15 @@
-// Test Helpers Module - Integration Testing Infrastructure
+// Test Helpers Module - Docker Integration Testing Infrastructure
 //
-// Provides shared testing utilities and setup functions for Rust integration tests.
-// This module mirrors the Ruby SharedTestLoop functionality but is adapted for
-// native Rust integration testing patterns.
+// Provides shared Docker-based testing utilities for Rust integration tests.
+// Uses shared service pattern for fast, efficient testing.
 
-pub mod shared_test_setup;
+pub mod docker_test_suite_manager;
 pub mod test_utils;
 
-pub use shared_test_setup::{
-    create_business_test_context, create_mathematical_test_context, create_test_task_request,
-    SharedTestSetup, TaskExecutionSummary,
+// Docker Test Suite Manager - shared services across tests (recommended)
+pub use docker_test_suite_manager::{
+    cleanup_shared_services, create_mathematical_test_context, create_order_fulfillment_test_context, create_test_task_request,
+    DockerTestClient, DockerTestResult, DockerTestSuiteManager,
 };
 
 pub use test_utils::{

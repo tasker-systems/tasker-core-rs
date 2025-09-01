@@ -3,7 +3,7 @@ services:
   postgres:
     build:
       context: .
-      dockerfile: Dockerfile.postgres-extensions
+      dockerfile: db/Dockerfile
     environment:
       POSTGRES_DB: tasker_rust_test
       POSTGRES_USER: tasker

@@ -158,6 +158,12 @@ magnus = "0.7"
 tracing-subscriber = { workspace = true }
 futures = { workspace = true }
 tasker-worker = { path = "tasker-worker" }
+serial_test = { workspace = true }
+
+
+[[test]]
+name = "all_workflows_tests"
+path = "tests/docker_integration/all_workflows_test.rs"
 
 [profile.release]
 opt-level = 3

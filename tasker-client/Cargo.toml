@@ -26,6 +26,14 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+# CLI framework
+clap = { version = "4.4", features = ["derive", "env", "color"] }
+
+# Configuration
+config = { workspace = true }
+toml = { workspace = true }
+dirs = "5.0"
+
 # Other utilities
 uuid = { workspace = true }
 chrono = { workspace = true }
@@ -42,10 +50,11 @@ reqwest = { workspace = true }
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
+tempfile = { workspace = true }
 
 [[bin]]
-name = "tasker-client"
-path = "src/main.rs"
+name = "tasker-cli"
+path = "src/bin/tasker-cli.rs"
 
 [lib]
 name = "tasker_client"

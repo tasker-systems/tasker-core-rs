@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   # Define the image tag for this workflow run
-  POSTGRES_IMAGE: ghcr.io/${{ github.repository_owner }}/tasker-postgres:${{ github.sha }}
+  POSTGRES_IMAGE: ghcr.io/${{ github.repository_owner }}/tasker-pgmq:${{ github.sha }}
 
 jobs:
   # Build and push the PostgreSQL image once
@@ -53,7 +53,7 @@ jobs:
           push: true
           tags: |
             ${{ env.POSTGRES_IMAGE }}
-            ghcr.io/${{ github.repository_owner }}/tasker-postgres:latest
+            ghcr.io/${{ github.repository_owner }}/tasker-pgmq:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

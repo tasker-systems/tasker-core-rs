@@ -95,3 +95,40 @@ pub struct WorkerSystemInfo {
     pub command_processor_active: bool,
     pub supported_namespaces: Vec<String>,
 }
+
+/// Worker status response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerStatusResponse {
+    pub worker_id: String,
+    pub status: String,
+    pub uptime_seconds: u64,
+    pub namespaces: Vec<String>,
+    pub current_tasks: u32,
+    pub completed_tasks: u32,
+    pub failed_tasks: u32,
+    pub last_activity: Option<DateTime<Utc>>,
+    pub version: String,
+    pub environment: String,
+}
+
+/// Worker health response (alias for detailed health)
+pub type WorkerHealthResponse = DetailedHealthResponse;
+
+/// Worker information for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerInfo {
+    pub worker_id: String,
+    pub status: String,
+    pub namespaces: Vec<String>,
+    pub last_seen: DateTime<Utc>,
+    pub version: String,
+}
+
+/// Worker list response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerListResponse {
+    pub workers: Vec<WorkerInfo>,
+    pub total_count: usize,
+    pub active_count: usize,
+    pub timestamp: DateTime<Utc>,
+}

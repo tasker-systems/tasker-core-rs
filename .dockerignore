@@ -61,8 +61,9 @@ coverage/
 scripts/dev_*
 scripts/local_*
 
-# Ruby bindings (not needed for server deployment)
-workers/ruby/
+# Ruby bindings build artifacts (keep source but exclude built artifacts)
+workers/ruby/target/
+workers/ruby/ext/tasker_core/target/
 
 # Cargo registry cache
 .cargo/registry/

@@ -1,0 +1,7 @@
+[workspace]
+# Point to the workspace root migrations directory
+migrations = "../migrations"
+
+[test]
+# Use isolated test databases with migrations
+migrations = "../migrations"

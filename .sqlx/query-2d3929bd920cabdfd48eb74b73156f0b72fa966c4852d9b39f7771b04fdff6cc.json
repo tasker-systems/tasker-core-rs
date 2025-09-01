@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT created_at\n            FROM tasker_task_transitions\n            WHERE task_uuid = $1::uuid AND sort_key < $2\n            ORDER BY sort_key DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2d3929bd920cabdfd48eb74b73156f0b72fa966c4852d9b39f7771b04fdff6cc"
+}

@@ -1,0 +1,116 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                total_tasks as \"total_tasks!: i64\",\n                pending_tasks as \"pending_tasks!: i64\",\n                in_progress_tasks as \"in_progress_tasks!: i64\",\n                complete_tasks as \"complete_tasks!: i64\",\n                error_tasks as \"error_tasks!: i64\",\n                cancelled_tasks as \"cancelled_tasks!: i64\",\n                total_steps as \"total_steps!: i64\",\n                pending_steps as \"pending_steps!: i64\",\n                in_progress_steps as \"in_progress_steps!: i64\",\n                complete_steps as \"complete_steps!: i64\",\n                error_steps as \"error_steps!: i64\",\n                retryable_error_steps as \"retryable_error_steps!: i64\",\n                exhausted_retry_steps as \"exhausted_retry_steps!: i64\",\n                in_backoff_steps as \"in_backoff_steps!: i64\",\n                active_connections as \"active_connections!: i64\",\n                max_connections as \"max_connections!: i64\",\n                enqueued_steps as \"enqueued_steps!: i64\"\n            FROM get_system_health_counts()\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pending_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "in_progress_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "complete_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "error_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "cancelled_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "pending_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "in_progress_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "complete_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "retryable_error_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "exhausted_retry_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "in_backoff_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "active_connections!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "max_connections!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "enqueued_steps!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c6bb880ff209cee7ffbcac0f2275e5161007879f48b91b4dbbbcfe597556562a"
+}

@@ -1,0 +1,113 @@
+# =============================================================================
+# Tasker Core Development Database Only
+# =============================================================================
+# Standalone PostgreSQL with PGMQ + UUID v7 extensions for development
+# Perfect when you only need the database running without full orchestration
+#
+# Uses the fully integrated Docker strategy:
+# - Custom PostgreSQL image with PGMQ + UUID v7 extensions
+# - Development-optimized configuration
+# - Pre-configured PGMQ queues for all namespaces
+# - Comprehensive health monitoring
+#
+# Usage: cd docker && docker-compose -f docker-compose.db.yml up -d
+# Or use: ./scripts/run-dev-db.sh start
+
+# version: "3.8" # Removed - obsolete in newer Docker Compose
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database with PGMQ + UUID v7 Extensions
+  # ==========================================================================
+  postgres:
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    image: jcoletaylor/tasker-pgmq:dev
+    container_name: tasker-dev-db
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      POSTGRES_DB: tasker_rust_test
+      POSTGRES_USER: tasker
+      POSTGRES_PASSWORD: tasker
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_INITDB_ARGS: "--auth-host=trust"
+
+      # Development environment settings
+      TASKER_ENV: development
+      PGMQ_ENABLED: "true"
+      UUID_V7_ENABLED: "true"
+
+      # Logging configuration for development
+      POSTGRES_LOG_STATEMENT: all
+      POSTGRES_LOG_CONNECTIONS: "true"
+      POSTGRES_LOG_DISCONNECTIONS: "true"
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist data across restarts with development-specific volume
+      - postgres_dev_db_data:/var/lib/postgresql/data
+
+      # Mount database-specific initialization scripts
+      - ./scripts/postgres-init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+      # Use development-optimized PostgreSQL configuration
+      - ./scripts/postgres-dev.conf:/etc/postgresql/postgresql.conf:ro
+
+      # Optional: mount custom development SQL scripts
+      - ../migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U tasker -d tasker_rust_test && psql -U tasker -d tasker_rust_test -c 'SELECT 1 FROM pgmq.meta LIMIT 1;'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c log_statement=all
+      -c log_destination=stderr
+      -c log_min_messages=info
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_min_duration_statement=100
+      -c log_checkpoints=on
+      -c log_lock_waits=on
+    networks:
+      - tasker-dev-db
+    labels:
+      - "traefik.enable=false"
+      - "systems.tasker.service=database"
+      - "systems.tasker.environment=development"
+      - "systems.tasker.extensions=pgmq,uuid_v7"
+
+# =============================================================================
+# Volume Configuration
+# =============================================================================
+volumes:
+  postgres_dev_db_data:
+    name: tasker-dev-database-data
+    driver: local
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+networks:
+  tasker-dev-db:
+    name: tasker-dev-database
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+# =============================================================================
+# Usage Examples
+# =============================================================================
+# docker-compose -f docker-compose.db.yml up -d              # Start database
+# docker-compose -f docker-compose.db.yml down               # Stop database
+# docker-compose -f docker-compose.db.yml logs postgres      # View logs
+# ./scripts/run-dev-db.sh start                              # Use convenience script
