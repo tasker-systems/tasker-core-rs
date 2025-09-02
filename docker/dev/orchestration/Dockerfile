@@ -18,10 +18,11 @@ FROM jcoletaylor/tasker-builder-base AS orchestration-dev-builder
 # - Debug mode for faster builds and better debugging
 # - All features enabled for comprehensive API coverage
 # - No optimizations to speed up development builds
+ENV SQLX_OFFLINE=true
 RUN cargo build --package tasker-orchestration --all-features
 
 # Verify the debug binary was created
-RUN ls -la target/debug/tasker-orchestration
+RUN ls -la target/debug/tasker-server
 
 # =============================================================================
 # Stage 2: Development runtime
@@ -30,6 +31,7 @@ FROM debian:bullseye-slim AS dev-runtime
 
 # Install runtime dependencies plus development tools
 RUN apt-get update && apt-get install -y \
+    debian-archive-keyring \
     ca-certificates \
     libssl1.1 \
     libpq5 \
@@ -50,7 +52,7 @@ RUN mkdir -p /app/config /app/logs /app/tmp /app/debug \
 COPY --chown=tasker:tasker config/ /app/config/
 
 # Copy debug binary from builder stage
-COPY --from=orchestration-dev-builder --chown=tasker:tasker /app/target/debug/tasker-orchestration /app/tasker-orchestration
+COPY --from=orchestration-dev-builder --chown=tasker:tasker /app/target/debug/tasker-server /app/tasker-server
 
 # Create development helper scripts
 COPY --chown=tasker:tasker <<'EOF' /app/debug/health-check.sh
@@ -59,7 +61,7 @@ echo "=== Orchestration Health Check ==="
 echo "Service: $(curl -s http://localhost:8080/health | jq -r '.status // "unhealthy"')"
 echo "Database: $(nc -z postgres 5432 && echo 'connected' || echo 'disconnected')"
 echo "Memory: $(free -h | grep Mem)"
-echo "Processes: $(ps aux | grep tasker-orchestration)"
+echo "Processes: $(ps aux | grep tasker-server)"
 EOF
 
 RUN chmod +x /app/debug/health-check.sh
@@ -110,4 +112,4 @@ EXPOSE 8080 6669
 STOPSIGNAL SIGINT
 
 # Run the orchestration service with development settings
-CMD ["./tasker-orchestration"]
+CMD ["./tasker-server"]

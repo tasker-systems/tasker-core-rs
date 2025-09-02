@@ -128,22 +128,24 @@ impl WorkerCore {
             })?,
         );
 
-        // Create WorkerProcessor with command pattern and database operations capability
-        let (mut processor, command_sender) = WorkerProcessor::new(
-            namespace.clone(),
-            context.clone(),
-            task_template_manager.clone(),
-            1000, // Command buffer size
-        );
-
-        // Start the processor with event integration
-        if let Some(ref event_system) = event_system {
-            processor
-                .start_with_events_and_system(Some(event_system.clone()))
-                .await?;
-        } else {
-            processor.start_with_events().await?;
-        }
+        let (mut processor, command_sender) = {
+            if let Some(ref event_system) = event_system {
+                WorkerProcessor::new_with_event_system(
+                    namespace.clone(),
+                    context.clone(),
+                    task_template_manager.clone(),
+                    1000, // Command buffer size
+                    event_system.clone(),
+                )
+            } else {
+                WorkerProcessor::new(
+                    namespace.clone(),
+                    context.clone(),
+                    task_template_manager.clone(),
+                    1000, // Command buffer size
+                )
+            }
+        };
 
         // Create EventDrivenMessageProcessor for TAS-43 integration
         let event_driven_config = EventDrivenConfig {
@@ -199,6 +201,10 @@ impl WorkerCore {
                 namespace = %self.namespace,
                 "Event-driven message processor started successfully"
             );
+        }
+
+        if let Some(ref mut processor) = self.processor {
+            processor.start_with_events().await?;
         }
 
         // The WorkerProcessor is already started in new(), just update status

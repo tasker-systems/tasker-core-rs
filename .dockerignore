@@ -68,11 +68,3 @@ workers/ruby/ext/tasker_core/target/
 # Cargo registry cache
 .cargo/registry/
 .cargo/git/
-
-# SQLx offline query cache (will be rebuilt)
-.sqlx/
-
-# Local configuration overrides
-config/local/
-config/tasker/environments/development/
-config/tasker/environments/test/

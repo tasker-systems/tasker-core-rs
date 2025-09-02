@@ -340,8 +340,10 @@ impl EventDrivenSystem for WorkerEventSystem {
         self.initialize_components().await?;
 
         // Start queue listener if configured
-        if let Some(ref mut _listener) = self.queue_listener {
-            // Note: The listener doesn't have a start method, it starts automatically in new()
+        if let Some(ref mut listener) = self.queue_listener {
+            listener.start().await.map_err(|e| DeploymentModeError::ConfigurationError {
+                message: format!("Failed to start queue listener: {}", e)
+            })?;
             info!("🎧 WORKER_EVENT_SYSTEM: Queue listener started");
         }
 

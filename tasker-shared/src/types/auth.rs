@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, warn};
 
-use super::web::AuthConfig;
+use crate::config::web::WebAuthConfig;
 
 /// JWT authentication errors
 #[derive(Error, Debug)]
@@ -67,14 +67,14 @@ pub struct WorkerClaims {
 /// JWT authenticator for worker systems
 #[derive(Clone)]
 pub struct JwtAuthenticator {
-    config: AuthConfig,
+    config: WebAuthConfig,
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
 }
 
 impl JwtAuthenticator {
     /// Create authenticator from configuration
-    pub fn from_config(config: &AuthConfig) -> Result<Self, AuthError> {
+    pub fn from_config(config: &WebAuthConfig) -> Result<Self, AuthError> {
         if !config.enabled {
             debug!("JWT authentication disabled");
             return Ok(Self {

@@ -22,10 +22,11 @@ FROM jcoletaylor/tasker-builder-base AS rust-worker-dev-builder
 # - Debug mode for faster builds and better debugging
 # - All features enabled for comprehensive step handler support
 # - No optimizations to speed up development builds
+ENV SQLX_OFFLINE=true
 RUN cargo build --package tasker-worker-rust --all-features
 
 # Verify the debug binary was created
-RUN ls -la target/debug/tasker-worker-rust
+RUN ls -la target/debug/rust-worker
 
 # =============================================================================
 # Stage 2: Development runtime
@@ -55,7 +56,7 @@ RUN mkdir -p /app/config /app/logs /app/tmp /app/debug \
 COPY --chown=tasker:tasker config/ /app/config/
 
 # Copy debug Rust worker binary from builder stage
-COPY --from=rust-worker-dev-builder --chown=tasker:tasker /app/target/debug/tasker-worker-rust /app/tasker-worker-rust
+COPY --from=rust-worker-dev-builder --chown=tasker:tasker /app/target/debug/rust-worker /app/rust-worker
 
 # Create development helper scripts
 COPY --chown=tasker:tasker <<'EOF' /app/debug/worker-status.sh
@@ -66,7 +67,7 @@ echo "Worker Info: $(curl -s http://localhost:8081/info | jq -r '.worker_id // "
 echo "Database: $(nc -z postgres 5432 && echo 'connected' || echo 'disconnected')"
 echo "Orchestration: $(nc -z orchestration 8080 && echo 'connected' || echo 'disconnected')"
 echo "Memory: $(free -h | grep Mem)"
-echo "Processes: $(ps aux | grep tasker-worker-rust)"
+echo "Processes: $(ps aux | grep rust-worker)"
 echo "Supported Namespaces: $SUPPORTED_NAMESPACES"
 EOF
 
@@ -132,4 +133,4 @@ EXPOSE 8081 6669
 STOPSIGNAL SIGINT
 
 # Run the comprehensive Rust worker with development settings
-CMD ["./tasker-worker-rust"]
+CMD ["./rust-worker"]

@@ -12,10 +12,8 @@ use parking_lot::RwLock;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
-use tasker_shared::config::ConfigManager;
-use tasker_shared::types::web::{
-    ApiError, ApiResult, DbOperationType, SystemOperationalState, WebServerConfig,
-};
+use tasker_shared::config::{web::WebConfig, ConfigManager};
+use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType, SystemOperationalState};
 use tasker_shared::TaskerResult;
 use tracing::{debug, info};
 
@@ -49,7 +47,7 @@ pub struct OrchestrationStatus {
 #[derive(Clone)]
 pub struct AppState {
     /// Web server configuration
-    pub config: Arc<WebServerConfig>,
+    pub config: Arc<WebConfig>,
 
     /// Dedicated database pool for web API operations
     pub web_db_pool: PgPool,
@@ -75,7 +73,7 @@ impl AppState {
     /// This method creates the web API's dedicated database pool while
     /// maintaining references to shared orchestration components.
     pub async fn from_orchestration_core(
-        web_config: WebServerConfig,
+        web_config: WebConfig,
         orchestration_core: Arc<OrchestrationCore>,
         config_manager: Arc<ConfigManager>,
     ) -> ApiResult<Self> {

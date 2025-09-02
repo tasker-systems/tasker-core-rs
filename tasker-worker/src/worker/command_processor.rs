@@ -222,13 +222,33 @@ impl WorkerProcessor {
         (processor, command_sender)
     }
 
+    pub fn new_with_event_system(
+        namespace: String,
+        context: Arc<SystemContext>,
+        task_template_manager: Arc<TaskTemplateManager>,
+        command_buffer_size: usize,
+        event_system: Arc<tasker_shared::events::WorkerEventSystem>,
+    ) -> (Self, mpsc::Sender<WorkerCommand>) {
+        let (mut worker_processor, command_sender) = Self::new(
+            namespace,
+            context,
+            task_template_manager,
+            command_buffer_size,
+        );
+        worker_processor.enable_event_integration_with_system(Some(event_system));
+        (worker_processor, command_sender)
+    }
+
     /// Enable event integration for FFI communication
     pub fn enable_event_integration(&mut self) {
         self.enable_event_integration_with_system(None);
     }
 
     /// Enable event integration with specific event system
-    pub fn enable_event_integration_with_system(&mut self, event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>) {
+    pub fn enable_event_integration_with_system(
+        &mut self,
+        event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
+    ) {
         info!(
             worker_id = %self.worker_id,
             namespace = %self.namespace,
@@ -258,13 +278,6 @@ impl WorkerProcessor {
 
     /// Start processing worker commands with event integration
     pub async fn start_with_events(&mut self) -> TaskerResult<()> {
-        self.start_with_events_and_system(None).await
-    }
-
-    /// Start processing worker commands with specific event system
-    pub async fn start_with_events_and_system(&mut self, event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>) -> TaskerResult<()> {
-        self.enable_event_integration_with_system(event_system);
-
         // Start completion listener if event subscriber is enabled
         let completion_receiver = if let Some(ref subscriber) = self.event_subscriber {
             Some(subscriber.start_completion_listener())

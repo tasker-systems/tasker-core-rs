@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: docker/build/Dockerfile
       target: builder
-    image: rust:1.89-bullseye
+    image: jcoletaylor/tasker-builder-base:latest
     container_name: tasker-builder-base-dev
     profiles:
       - build

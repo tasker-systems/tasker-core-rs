@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: docker/build/Dockerfile
       target: builder
-    image: rust:1.89-bullseye
+    image: jcoletaylor/tasker-builder-base:latest
     container_name: tasker-builder-base
     profiles:
       - build
@@ -32,14 +32,14 @@ services:
     build:
       context: .
       dockerfile: db/Dockerfile
-    image: jcoletaylor/tasker-pgmq:integration
+    image: jcoletaylor/tasker-pgmq:latest
     container_name: tasker-postgres-integration
     restart: unless-stopped
     environment:
       POSTGRES_DB: tasker_integration
       POSTGRES_USER: tasker
       POSTGRES_PASSWORD: tasker
-      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+      POSTGRES_INITDB_ARGS: "--auth-host=trust"
     ports:
       - "5432:5432"
     volumes:
@@ -72,14 +72,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      builder-base:
-        condition: service_completed_successfully
     environment:
       # Core configuration (cleaned up to only essential variables)
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_integration
-      TASKER_ENV: integration
+      TASKER_ENV: test
       WORKSPACE_PATH: /app
       TASKER_CONFIG_ROOT: /app/config
+      LOG_LEVEL: info
+      RUST_LOG: info
     ports:
       - "8080:8080"
     healthcheck:
@@ -109,14 +109,14 @@ services:
         condition: service_healthy
       orchestration:
         condition: service_healthy
-      builder-base:
-        condition: service_completed_successfully
     environment:
       # Core configuration (cleaned up to only essential variables)
       DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_integration
-      TASKER_ENV: integration
+      TASKER_ENV: test
       WORKSPACE_PATH: /app
       TASKER_CONFIG_ROOT: /app/config
+      LOG_LEVEL: info
+      RUST_LOG: info
     ports:
       - "8081:8081"
     healthcheck:

@@ -88,31 +88,6 @@ impl OrchestrationApiClient {
             if web_auth_config.enabled {
                 let mut default_headers = reqwest::header::HeaderMap::new();
 
-                // Convert WebAuthConfig to AuthConfig for the JWT authenticator
-                let auth_config = AuthConfig {
-                    enabled: web_auth_config.enabled,
-                    jwt_private_key: web_auth_config.jwt_private_key.clone(),
-                    jwt_public_key: web_auth_config.jwt_public_key.clone(),
-                    jwt_token_expiry_hours: web_auth_config.jwt_token_expiry_hours,
-                    jwt_issuer: web_auth_config.jwt_issuer.clone(),
-                    jwt_audience: web_auth_config.jwt_audience.clone(),
-                    api_key_header: web_auth_config.api_key_header.clone(),
-                    protected_routes: web_auth_config
-                        .protected_routes
-                        .clone()
-                        .into_iter()
-                        .map(|(k, v)| {
-                            (
-                                k,
-                                tasker_shared::types::web::RouteAuthConfig {
-                                    auth_type: v.auth_type,
-                                    required: v.required,
-                                },
-                            )
-                        })
-                        .collect(),
-                };
-
                 // Determine authentication method based on available credentials
                 if !web_auth_config.api_key.is_empty() {
                     // Use API key authentication
@@ -144,8 +119,8 @@ impl OrchestrationApiClient {
                     && !web_auth_config.jwt_private_key.is_empty()
                 {
                     // Create JWT authenticator and generate a worker token
-                    let jwt_authenticator =
-                        JwtAuthenticator::from_config(&auth_config).map_err(|e| {
+                    let jwt_authenticator = JwtAuthenticator::from_config(&web_auth_config)
+                        .map_err(|e| {
                             TaskerError::ConfigurationError(format!(
                                 "Failed to create JWT authenticator: {}",
                                 e

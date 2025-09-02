@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,\n                           task_uuid, created_at, updated_at\n                    FROM tasker_task_transitions\n                    WHERE task_uuid = $1::uuid AND to_state = $2\n                    ORDER BY task_uuid, sort_key DESC\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_transition_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "from_state",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "sort_key",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "most_recent",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "45d5968f127a7ce857b9ad260e4552152a66159e64318d54a1ea843526e59755"
+}

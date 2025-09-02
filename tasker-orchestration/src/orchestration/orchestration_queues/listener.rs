@@ -162,6 +162,13 @@ impl OrchestrationQueueListener {
                     ))
                 })?;
 
+        listener.connect().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!(
+                "Failed to connect to pgmq-notify listener: {}",
+                e
+            ))
+        })?;
+
         // Listen to message ready events for our orchestration namespace
         listener
             .listen_message_ready_for_namespace(&self.config.namespace)

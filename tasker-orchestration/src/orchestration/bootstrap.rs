@@ -22,9 +22,9 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
+use tasker_shared::config::web::WebConfig;
 use tasker_shared::config::ConfigManager;
 use tasker_shared::system_context::SystemContext;
-use tasker_shared::types::web::WebServerConfig;
 use tasker_shared::{TaskerError, TaskerResult};
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
@@ -221,52 +221,57 @@ impl OrchestrationBootstrap {
             );
         }
 
+        let tasker_config = config_manager.config();
+
         // Create web API state if enabled
-        let web_state = if config.enable_web_api {
+        let web_state: Option<Arc<AppState>> = if config.enable_web_api {
             info!("BOOTSTRAP: Creating orchestration web API state");
 
-            // Load web server config from configuration manager
-            match WebServerConfig::from_config_manager(&config_manager, "orchestration").map_err(
-                |e| {
-                    TaskerError::ConfigurationError(format!(
-                        "Failed to load web server configuration: {e}"
-                    ))
-                },
-            )? {
-                Some(web_server_config) if web_server_config.enabled => {
-                    let app_state = Arc::new(
-                        AppState::from_orchestration_core(
-                            web_server_config.clone(),
-                            orchestration_core.clone(),
-                            config_manager.clone(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            TaskerError::ConfigurationError(format!(
-                                "Failed to create AppState: {e}"
-                            ))
-                        })?,
-                    );
+            let web_config = tasker_config.orchestration.web.clone();
 
-                    info!("✅ BOOTSTRAP: Orchestration web API state created successfully");
-                    Some(app_state)
-                }
-                _ => {
-                    info!("BOOTSTRAP: Web API disabled in configuration");
-                    None
-                }
+            if web_config.enabled {
+                let app_state = Arc::new(
+                    AppState::from_orchestration_core(
+                        web_config.clone(),
+                        orchestration_core.clone(),
+                        config_manager.clone(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        TaskerError::ConfigurationError(format!("Failed to create AppState: {e}"))
+                    })?,
+                );
+
+                info!("✅ BOOTSTRAP: Orchestration web API state created successfully");
+                Some(app_state)
+            } else {
+                info!("BOOTSTRAP: Orchestration web API state disabled");
+                None
             }
         } else {
-            info!("BOOTSTRAP: Web API disabled in bootstrap config");
+            info!("BOOTSTRAP: Orchestration web API disabled in bootstrap config");
             None
         };
 
-        let coordinator_config = UnifiedCoordinatorConfig::from_config_manager(&config_manager)
-                .map_err(|e| {
-                    warn!(error = %e, "Failed to load UnifiedCoordinatorConfig from configuration, using defaults");
-                    e
-                })
-                .unwrap_or_else(|_| UnifiedCoordinatorConfig::default());
+        let coordinator_config: UnifiedCoordinatorConfig = {
+            // Access task readiness configuration from unified event systems configuration
+            let task_readiness_config = tasker_config.event_systems.task_readiness.clone();
+
+            // Access orchestration configuration from unified event systems configuration
+            let orchestration_config = tasker_config.event_systems.orchestration.clone();
+
+            info!(
+                orchestration_deployment_mode = %orchestration_config.deployment_mode,
+                task_readiness_deployment_mode = %task_readiness_config.deployment_mode,
+                "Loading UnifiedCoordinatorConfig from configuration"
+            );
+
+            UnifiedCoordinatorConfig {
+                coordinator_id: "unified-event-coordinator".to_string(),
+                orchestration_config,
+                task_readiness_config,
+            }
+        };
 
         let coordinator = UnifiedEventCoordinator::new(
             coordinator_config,

@@ -153,6 +153,10 @@ impl WorkerQueueListener {
                     ))
                 })?;
 
+        listener.connect().await.map_err(|e| {
+            TaskerError::WorkerError(format!("Failed to connect to pgmq-notify listener: {}", e))
+        })?;
+
         // Listen to message ready events for all supported namespaces
         for namespace in &self.config.supported_namespaces {
             listener

@@ -160,7 +160,8 @@ impl PgmqNotifyListener {
         {
             let channels = self.listening_channels.read().unwrap();
             if channels.contains(channel) {
-                return Err(PgmqNotifyError::already_listening(channel));
+                warn!("Already listening on channel {channel}");
+                return Ok(());
             }
         }
 

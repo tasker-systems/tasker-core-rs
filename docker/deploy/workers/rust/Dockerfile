@@ -22,11 +22,12 @@ FROM jcoletaylor/tasker-builder-base AS rust-worker-builder
 # - Release mode for maximum performance
 # - All features enabled for comprehensive step handler support
 # - Link-time optimization for smaller binaries
+ENV SQLX_OFFLINE=true
 RUN cargo build --release --package tasker-worker-rust --all-features
 
 # Verify the binary was created and is optimized
-RUN ls -la target/release/tasker-worker-rust && \
-    strip target/release/tasker-worker-rust
+RUN ls -la target/release/rust-worker && \
+    strip target/release/rust-worker
 
 # =============================================================================
 # Stage 2: Minimal runtime (production hardened)
@@ -35,6 +36,7 @@ FROM debian:bullseye-slim AS runtime
 
 # Install only essential runtime dependencies
 RUN apt-get update && apt-get install -y \
+    debian-archive-keyring \
     ca-certificates \
     libssl1.1 \
     libpq5 \
@@ -55,7 +57,7 @@ RUN mkdir -p /app/config /app/logs \
 COPY --chown=tasker:tasker config/ /app/config/
 
 # Copy optimized Rust worker binary from builder stage
-COPY --from=rust-worker-builder --chown=tasker:tasker /app/target/release/tasker-worker-rust /app/tasker-worker-rust
+COPY --from=rust-worker-builder --chown=tasker:tasker /app/target/release/rust-worker /app/rust-worker
 
 # Switch to non-root user
 USER tasker
@@ -113,4 +115,4 @@ EXPOSE 8081
 STOPSIGNAL SIGTERM
 
 # Run the comprehensive Rust worker
-CMD ["./tasker-worker-rust"]
+CMD ["./rust-worker"]
