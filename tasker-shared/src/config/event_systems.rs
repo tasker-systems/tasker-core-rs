@@ -187,8 +187,6 @@ pub struct InProcessEventConfig {
     pub broadcast_buffer_size: usize,
     /// Whether to enable FFI event integration
     pub ffi_integration_enabled: bool,
-    /// Queue names this worker handles
-    pub queue_names: Vec<String>,
     /// Deduplication cache size to prevent duplicate processing
     pub deduplication_cache_size: usize,
 }
@@ -201,6 +199,7 @@ pub struct WorkerFallbackPollerConfig {
     pub age_threshold_seconds: u64,
     pub max_age_hours: u64,
     pub visibility_timeout_seconds: u64,
+    #[serde(default)]
     pub supported_namespaces: Vec<String>,
 }
 
@@ -233,11 +232,6 @@ impl WorkerEventSystemConfig {
         config.event_systems.worker.clone()
     }
 
-    /// Get supported queue names for this worker
-    pub fn queue_names(&self) -> Vec<String> {
-        self.metadata.in_process_events.queue_names.clone()
-    }
-
     /// Get fallback polling interval as Duration
     pub fn fallback_polling_interval(&self) -> Duration {
         self.timing.fallback_polling_interval()
@@ -259,7 +253,7 @@ impl Default for EventSystemTimingConfig {
     fn default() -> Self {
         Self {
             health_check_interval_seconds: 30,
-            fallback_polling_interval_seconds: 5,
+            fallback_polling_interval_seconds: 1, // Reduced from 5 to 1 for debugging
             visibility_timeout_seconds: 30,
             processing_timeout_seconds: 30,
             claim_timeout_seconds: 300,
@@ -358,7 +352,6 @@ impl Default for WorkerEventSystemMetadata {
             in_process_events: InProcessEventConfig {
                 broadcast_buffer_size: 1000,
                 ffi_integration_enabled: true,
-                queue_names: vec!["worker_default_queue".to_string()],
                 deduplication_cache_size: 1000,
             },
             listener: WorkerListenerConfig {

@@ -177,7 +177,7 @@ impl WorkerWebState {
     }
 
     /// Perform cache maintenance on task templates
-    pub fn maintain_template_cache(&self) {
-        self.task_template_manager.maintain_cache();
+    pub async fn maintain_template_cache(&self) {
+        self.task_template_manager.maintain_cache().await;
     }
 }

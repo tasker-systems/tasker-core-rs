@@ -309,7 +309,6 @@ pub struct AlertThresholds {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemConfig {
     pub default_dependent_system: String,
-    pub default_queue_name: String,
     pub version: String, // Updated to match Rust TASKER_CORE_VERSION
     // New constants unification fields
     pub max_recursion_depth: u32, // Replaces hardcoded recursion limits
@@ -363,34 +362,33 @@ impl Default for ReenqueueDelays {
 /// Task execution configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ExecutionConfig {
-    pub processing_mode: String,
     pub max_concurrent_tasks: u32,
     pub max_concurrent_steps: u32,
     pub default_timeout_seconds: u64,
     pub step_execution_timeout_seconds: u64,
-    pub environment: String,
     pub max_discovery_attempts: u32,
     pub step_batch_size: u32,
     // New constants unification fields
     pub max_retries: u32,                // Replaces Ruby FALLBACK_MAX_RETRIES
     pub max_workflow_steps: u32,         // Replaces Rust constants::system::MAX_WORKFLOW_STEPS
     pub connection_timeout_seconds: u64, // Replaces Ruby hardcoded API timeouts
+    #[serde(default)]
+    pub environment: String,
 }
 
 impl Default for ExecutionConfig {
     fn default() -> Self {
         Self {
-            processing_mode: "pgmq".to_string(),
             max_concurrent_tasks: 100,
             max_concurrent_steps: 1000,
             default_timeout_seconds: 3600,
             step_execution_timeout_seconds: 300,
-            environment: "production".to_string(),
             max_discovery_attempts: 3,
             step_batch_size: 10,
             max_retries: 3,
             max_workflow_steps: 100,
             connection_timeout_seconds: 10,
+            environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
         }
     }
 }
@@ -404,6 +402,11 @@ impl ExecutionConfig {
     /// Get default task timeout as Duration
     pub fn default_timeout(&self) -> Duration {
         Duration::from_secs(self.default_timeout_seconds)
+    }
+
+    #[inline]
+    pub fn environment(&self) -> &str {
+        self.environment.as_str()
     }
 }
 
@@ -443,7 +446,6 @@ impl Default for TaskerConfig {
             },
             system: SystemConfig {
                 default_dependent_system: "default".to_string(),
-                default_queue_name: "default".to_string(),
                 version: "0.1.0".to_string(),
                 max_recursion_depth: 50,
             },
@@ -462,17 +464,17 @@ impl Default for TaskerConfig {
                 buffer_seconds: 5,
             },
             execution: ExecutionConfig {
-                processing_mode: "pgmq".to_string(),
                 max_concurrent_tasks: 100,
                 max_concurrent_steps: 1000,
                 default_timeout_seconds: 3600,
                 step_execution_timeout_seconds: 300,
-                environment: "development".to_string(),
                 max_discovery_attempts: 3,
                 step_batch_size: 10,
                 max_retries: 3,
                 max_workflow_steps: 1000,
                 connection_timeout_seconds: 10,
+                environment: std::env::var("TASKER_ENV")
+                    .unwrap_or_else(|_| "development".to_string()),
             },
             queues: QueuesConfig::default(),
             orchestration: OrchestrationConfig {

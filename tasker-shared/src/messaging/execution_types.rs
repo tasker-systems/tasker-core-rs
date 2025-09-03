@@ -34,7 +34,7 @@ pub struct StepExecutionRequest {
     pub handler_class: String,
     pub handler_config: HashMap<String, serde_json::Value>,
     pub task_context: serde_json::Value,
-    pub previous_results: HashMap<String, serde_json::Value>,
+    pub previous_results: HashMap<String, StepExecutionResult>,
     pub metadata: StepRequestMetadata,
 }
 
@@ -146,7 +146,7 @@ impl StepExecutionRequest {
         handler_class: String,
         handler_config: HashMap<String, serde_json::Value>,
         task_context: serde_json::Value,
-        previous_results: HashMap<String, serde_json::Value>,
+        previous_results: HashMap<String, StepExecutionResult>,
         retry_limit: i32,
         timeout_ms: i64,
     ) -> Self {

@@ -220,7 +220,7 @@ pub async fn clear_cache(
 ) -> Result<Json<CacheOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
     debug!("Clearing template cache");
 
-    state.task_template_manager.clear_cache();
+    state.task_template_manager.clear_cache().await;
     let cache_stats = state.task_template_manager.cache_stats().await;
 
     Ok(Json(CacheOperationResponse {
@@ -284,7 +284,7 @@ pub async fn maintain_cache(
 ) -> Result<Json<CacheOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
     debug!("Performing template cache maintenance");
 
-    state.maintain_template_cache();
+    state.maintain_template_cache().await;
     let cache_stats = state.task_template_manager.cache_stats().await;
 
     Ok(Json(CacheOperationResponse {

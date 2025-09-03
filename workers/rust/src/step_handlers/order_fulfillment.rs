@@ -20,10 +20,7 @@
 //! - Memory safety for sensitive payment data processing
 //! - High-performance JSON processing for external API integrations
 
-use super::{
-    error_result, get_context_field, get_dependency_result, success_result, RustStepHandler,
-    StepHandlerConfig,
-};
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{Datelike, Utc};
@@ -45,7 +42,8 @@ impl RustStepHandler for ValidateOrderHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract and validate customer info
-        let customer_info = match get_context_field(step_data, "customer_info") {
+        let customer_info = match step_data.get_context_field::<serde_json::Value>("customer_info")
+        {
             Ok(value) => value,
             Err(e) => {
                 error!("Missing customer_info in task context: {}", e);
@@ -95,33 +93,34 @@ impl RustStepHandler for ValidateOrderHandler {
         };
 
         // Extract and validate order items
-        let order_items = match get_context_field(step_data, "order_items") {
-            Ok(value) => match value.as_array() {
-                Some(items) => items,
-                None => {
+        let order_items =
+            match step_data.get_context_field::<Option<Vec<serde_json::Value>>>("order_items") {
+                Ok(value) => match value {
+                    Some(items) => items,
+                    None => {
+                        return Ok(error_result(
+                            step_uuid,
+                            "Order items must be an array".to_string(),
+                            Some("INVALID_ORDER_ITEMS".to_string()),
+                            Some("ValidationError".to_string()),
+                            false,
+                            start_time.elapsed().as_millis() as i64,
+                            None,
+                        ));
+                    }
+                },
+                Err(_) => {
                     return Ok(error_result(
                         step_uuid,
-                        "Order items must be an array".to_string(),
-                        Some("INVALID_ORDER_ITEMS".to_string()),
+                        "Order items are required".to_string(),
+                        Some("MISSING_ORDER_ITEMS".to_string()),
                         Some("ValidationError".to_string()),
                         false,
                         start_time.elapsed().as_millis() as i64,
                         None,
                     ));
                 }
-            },
-            Err(_) => {
-                return Ok(error_result(
-                    step_uuid,
-                    "Order items are required".to_string(),
-                    Some("MISSING_ORDER_ITEMS".to_string()),
-                    Some("ValidationError".to_string()),
-                    false,
-                    start_time.elapsed().as_millis() as i64,
-                    None,
-                ));
-            }
-        };
+            };
 
         if order_items.is_empty() {
             return Ok(error_result(
@@ -324,7 +323,9 @@ impl RustStepHandler for ReserveInventoryHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get validated items from previous step
-        let validate_order_results = match get_dependency_result(step_data, "validate_order") {
+        let validate_order_results = match step_data
+            .get_dependency_result_column_value::<serde_json::Value>("validate_order")
+        {
             Ok(results) => results,
             Err(e) => {
                 error!("Missing result from validate_order: {}", e);
@@ -489,7 +490,9 @@ impl RustStepHandler for ProcessPaymentHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get order validation and inventory reservation results
-        let validate_order_results = match get_dependency_result(step_data, "validate_order") {
+        let validate_order_results = match step_data
+            .get_dependency_result_column_value::<serde_json::Value>("validate_order")
+        {
             Ok(results) => results,
             Err(_) => {
                 return Ok(error_result(
@@ -504,7 +507,8 @@ impl RustStepHandler for ProcessPaymentHandler {
             }
         };
 
-        let reserve_inventory_results = match get_dependency_result(step_data, "reserve_inventory")
+        let reserve_inventory_results = match step_data
+            .get_dependency_result_column_value::<serde_json::Value>("reserve_inventory")
         {
             Ok(results) => results,
             Err(_) => {
@@ -521,7 +525,7 @@ impl RustStepHandler for ProcessPaymentHandler {
         };
 
         // Extract payment info from task context
-        let payment_info = match get_context_field(step_data, "payment_info") {
+        let payment_info = match step_data.get_context_field::<serde_json::Value>("payment_info") {
             Ok(info) => info,
             Err(_) => {
                 return Ok(error_result(
@@ -688,12 +692,16 @@ impl RustStepHandler for ShipOrderHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get results from all previous steps
-        let validate_order_results = get_dependency_result(step_data, "validate_order")?;
-        let reserve_inventory_results = get_dependency_result(step_data, "reserve_inventory")?;
-        let process_payment_results = get_dependency_result(step_data, "process_payment")?;
+        let validate_order_results =
+            step_data.get_dependency_result_column_value::<serde_json::Value>("validate_order")?;
+        let reserve_inventory_results = step_data
+            .get_dependency_result_column_value::<serde_json::Value>("reserve_inventory")?;
+        let process_payment_results =
+            step_data.get_dependency_result_column_value::<serde_json::Value>("process_payment")?;
 
         // Extract shipping info from task context
-        let shipping_info = match get_context_field(step_data, "shipping_info") {
+        let shipping_info = match step_data.get_context_field::<serde_json::Value>("shipping_info")
+        {
             Ok(info) => info,
             Err(_) => {
                 return Ok(error_result(

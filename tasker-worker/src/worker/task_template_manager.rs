@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 use tasker_shared::{
     errors::{TaskerError, TaskerResult},
@@ -155,7 +155,7 @@ impl TaskTemplateManager {
 
         // 2. Check local cache first
         if let Some(template) = self.get_from_cache(&handler_key).await {
-            self.update_cache_hit_stats();
+            self.update_cache_hit_stats().await;
             debug!(
                 namespace = namespace,
                 name = name,
@@ -166,7 +166,7 @@ impl TaskTemplateManager {
         }
 
         // 3. Cache miss - fetch from registry and populate cache
-        self.update_cache_miss_stats();
+        self.update_cache_miss_stats().await;
         debug!(
             namespace = namespace,
             name = name,
@@ -304,8 +304,42 @@ impl TaskTemplateManager {
         info!("📁 Using template directory: {}", config_directory);
 
         // Discover and register templates
-        self.discover_and_register_templates(&config_directory)
+        match self
+            .discover_and_register_templates(&config_directory)
             .await
+        {
+            Ok(discovery_result) => {
+                info!(
+                    "✅ BOOTSTRAP: TaskTemplate discovery complete - {} templates registered from {} files",
+                    discovery_result.successful_registrations,
+                    discovery_result.total_files
+                );
+
+                if !discovery_result.errors.is_empty() {
+                    warn!(
+                        "⚠️ BOOTSTRAP: {} errors during TaskTemplate discovery: {:?}",
+                        discovery_result.errors.len(),
+                        discovery_result.errors
+                    );
+                }
+
+                if !discovery_result.discovered_templates.is_empty() {
+                    info!(
+                        "📋 BOOTSTRAP: Registered templates: {:?}",
+                        discovery_result.discovered_templates
+                    );
+                }
+                Ok(discovery_result)
+            }
+            Err(e) => {
+                error!(
+                    "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {e}"
+                );
+                return Err(TaskerError::ConfigurationError(format!(
+                    "TaskTemplate discovery failed (worker will use registry-only): {e}"
+                )));
+            }
+        }
     }
 
     /// Find the template configuration directory using workspace_tools

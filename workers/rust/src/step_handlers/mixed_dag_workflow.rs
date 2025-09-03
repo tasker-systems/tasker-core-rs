@@ -29,10 +29,7 @@
 //! - Memory safety for large mathematical calculations
 //! - Efficient handling of complex convergence logic
 
-use super::{
-    error_result, get_context_field, get_dependency_result, success_result, RustStepHandler,
-    StepHandlerConfig,
-};
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
@@ -53,10 +50,8 @@ impl RustStepHandler for DagInitHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract even_number from task context
-        let even_number = match get_context_field(step_data, "even_number") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("even_number must be a number"))?,
+        let even_number = match step_data.get_context_field::<i64>("even_number") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing even_number in task context: {}", e);
                 return Ok(error_result(
@@ -133,10 +128,8 @@ impl RustStepHandler for DagProcessLeftHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from dag_init
-        let init_result = match get_dependency_result(step_data, "dag_init") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_init result must be a number"))?,
+        let init_result = match step_data.get_dependency_result_column_value::<i64>("dag_init") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from dag_init: {}", e);
                 return Ok(error_result(
@@ -203,10 +196,8 @@ impl RustStepHandler for DagProcessRightHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from dag_init
-        let init_result = match get_dependency_result(step_data, "dag_init") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_init result must be a number"))?,
+        let init_result = match step_data.get_dependency_result_column_value::<i64>("dag_init") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from dag_init: {}", e);
                 return Ok(error_result(
@@ -273,47 +264,45 @@ impl RustStepHandler for DagValidateHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get results from both process branches (multiple parents)
-        let left_result = match get_dependency_result(step_data, "dag_process_left") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_process_left result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_process_left: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Process left result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_process_left"),
-                    )])),
-                ));
-            }
-        };
+        let left_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_process_left") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_process_left: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Process left result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_process_left"),
+                        )])),
+                    ));
+                }
+            };
 
-        let right_result = match get_dependency_result(step_data, "dag_process_right") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_process_right result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_process_right: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Process right result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_process_right"),
-                    )])),
-                ));
-            }
-        };
+        let right_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_process_right") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_process_right: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Process right result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_process_right"),
+                        )])),
+                    ));
+                }
+            };
 
         // Multiple parent logic: multiply the results together, then square
         let multiplied = left_result * right_result;
@@ -366,26 +355,25 @@ impl RustStepHandler for DagTransformHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from dag_process_left (single parent)
-        let left_result = match get_dependency_result(step_data, "dag_process_left") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_process_left result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_process_left: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Process left result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_process_left"),
-                    )])),
-                ));
-            }
-        };
+        let left_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_process_left") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_process_left: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Process left result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_process_left"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the left result (single parent operation)
         let result = left_result * left_result;
@@ -432,26 +420,25 @@ impl RustStepHandler for DagAnalyzeHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from dag_process_right (single parent)
-        let right_result = match get_dependency_result(step_data, "dag_process_right") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_process_right result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_process_right: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Process right result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_process_right"),
-                    )])),
-                ));
-            }
-        };
+        let right_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_process_right") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_process_right: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Process right result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_process_right"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the right result (single parent operation)
         let result = right_result * right_result;
@@ -498,68 +485,65 @@ impl RustStepHandler for DagFinalizeHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get results from all convergence inputs: D (multiple parent), E (single parent), F (single parent)
-        let validate_result = match get_dependency_result(step_data, "dag_validate") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_validate result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_validate: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Validate result (D) not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_validate"),
-                    )])),
-                ));
-            }
-        };
+        let validate_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_validate") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_validate: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Validate result (D) not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_validate"),
+                        )])),
+                    ));
+                }
+            };
 
-        let transform_result = match get_dependency_result(step_data, "dag_transform") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_transform result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_transform: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Transform result (E) not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_transform"),
-                    )])),
-                ));
-            }
-        };
+        let transform_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_transform") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_transform: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Transform result (E) not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_transform"),
+                        )])),
+                    ));
+                }
+            };
 
-        let analyze_result = match get_dependency_result(step_data, "dag_analyze") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("dag_analyze result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from dag_analyze: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Analyze result (F) not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("dag_analyze"),
-                    )])),
-                ));
-            }
-        };
+        let analyze_result =
+            match step_data.get_dependency_result_column_value::<i64>("dag_analyze") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from dag_analyze: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Analyze result (F) not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("dag_analyze"),
+                        )])),
+                    ));
+                }
+            };
 
         // Multiple parent logic: multiply all three results together, then square
         let multiplied = validate_result * transform_result * analyze_result;

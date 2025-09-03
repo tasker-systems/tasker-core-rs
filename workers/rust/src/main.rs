@@ -18,14 +18,6 @@ async fn main() -> Result<()> {
     // Configure worker with all supported workflow namespaces
     let config = WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
-        supported_namespaces: vec![
-            "default".to_string(),
-            "linear_workflow".to_string(),
-            "diamond_workflow".to_string(),
-            "tree_workflow".to_string(),
-            "mixed_dag_workflow".to_string(),
-            "order_fulfillment".to_string(),
-        ],
         enable_web_api: true,
         event_driven_enabled: true, // TAS-43 real-time processing
         deployment_mode_hint: Some("Hybrid".to_string()),
@@ -34,7 +26,6 @@ async fn main() -> Result<()> {
 
     info!("🔧 Worker Configuration:");
     info!("   Worker ID: {}", config.worker_id);
-    info!("   Supported Namespaces: {:?}", config.supported_namespaces);
     info!(
         "   Event-Driven Processing: {:?}",
         config.event_driven_enabled
@@ -50,19 +41,14 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Display successful startup information
-    info!("🎉 Native Rust Worker is running!");
-    info!("📡 Event-driven processing: PostgreSQL LISTEN/NOTIFY + fallback polling");
-    info!("⚡ Command pattern: Tokio channels with WorkerProcessor");
-    info!("🔬 Performance: Native Rust step processing for maximum throughput");
-    info!("🛠️  Infrastructure: Same foundation as Ruby workers, proving architecture excellence");
-
-    info!("💡 Ready to process tasks in all supported workflow patterns:");
-    info!("   • Linear Workflow (mathematical_sequence)");
-    info!("   • Diamond Workflow (parallel branches + convergence)");
-    info!("   • Tree Workflow (hierarchical branching)");
-    info!("   • Mixed DAG Workflow (complex dependencies)");
-    info!("   • Order Fulfillment (real-world business process)");
+    info!(
+        "   Supported namespaces: {:?}",
+        worker_handle
+            .worker_core
+            .task_template_manager
+            .supported_namespaces()
+            .await
+    );
 
     info!("🔄 Worker running... Press Ctrl+C to shutdown gracefully");
 

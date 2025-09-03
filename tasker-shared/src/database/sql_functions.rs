@@ -66,6 +66,7 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 
 // Import the orchestration models for transitive dependencies
+use crate::messaging::StepExecutionResult;
 use crate::models::orchestration::StepTransitiveDependencies;
 
 /// Core SQL function executor with type-safe async execution.
@@ -861,20 +862,16 @@ impl SqlFunctionExecutor {
     pub async fn get_step_dependency_results_map(
         &self,
         step_uuid: Uuid,
-    ) -> Result<HashMap<String, serde_json::Value>, sqlx::Error> {
+    ) -> Result<HashMap<String, StepExecutionResult>, sqlx::Error> {
         let dependencies = self.get_step_transitive_dependencies(step_uuid).await?;
         Ok(dependencies
             .into_iter()
             .filter_map(|dep| {
                 // Only include steps that are processed AND have non-null results
                 if dep.processed && dep.results.is_some() {
-                    let results = dep.results.unwrap();
-                    // Also ensure results is not just an empty JSON object
-                    if !results.is_null() {
-                        Some((dep.step_name, results))
-                    } else {
-                        None
-                    }
+                    let json_results = dep.results.unwrap();
+                    let results: StepExecutionResult = json_results.into();
+                    Some((dep.step_name, results))
                 } else {
                     None
                 }

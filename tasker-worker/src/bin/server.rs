@@ -50,14 +50,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bootstrap_config = WorkerBootstrapConfig {
         worker_id: format!("server-worker-{}", uuid::Uuid::new_v4()),
-        supported_namespaces: vec![
-            "default".to_string(),
-            "diamond_workflow".to_string(),
-            "mixed_dag_workflow".to_string(),
-            "order_fulfillment".to_string(),
-            "linear_workflow".to_string(),
-            "tree_workflow".to_string(),
-        ],
         enable_web_api: true, // Always enable web API for server mode
         environment_override,
         ..Default::default()
@@ -78,7 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     info!(
         "   Supported namespaces: {:?}",
-        worker_handle.worker_config.supported_namespaces
+        worker_handle
+            .worker_core
+            .task_template_manager
+            .supported_namespaces()
+            .await
     );
     info!(
         "   Event-driven processing: {}",

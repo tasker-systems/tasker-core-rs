@@ -498,9 +498,6 @@ impl UnifiedConfigLoader {
     pub fn detect_environment() -> String {
         dotenv().ok();
         env::var("TASKER_ENV")
-            .or_else(|_| env::var("RAILS_ENV"))
-            .or_else(|_| env::var("RACK_ENV"))
-            .or_else(|_| env::var("APP_ENV"))
             .unwrap_or_else(|_| "development".to_string())
             .to_lowercase()
     }

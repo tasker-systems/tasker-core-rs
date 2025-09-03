@@ -21,10 +21,7 @@
 //! - Memory safety without garbage collection
 //! - Predictable performance characteristics
 
-use super::{
-    error_result, get_context_field, get_dependency_result, success_result, RustStepHandler,
-    StepHandlerConfig,
-};
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
@@ -45,10 +42,8 @@ impl RustStepHandler for LinearStep1Handler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract even_number from task context
-        let even_number = match get_context_field(step_data, "even_number") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("even_number must be a number"))?,
+        let even_number = match step_data.get_context_field::<i64>("even_number") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing even_number in task context: {}", e);
                 return Ok(error_result(
@@ -121,26 +116,25 @@ impl RustStepHandler for LinearStep2Handler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from previous step (linear_step_1)
-        let previous_result = match get_dependency_result(step_data, "linear_step_1") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("linear_step_1 result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from linear_step_1: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Previous step result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("linear_step_1"),
-                    )])),
-                ));
-            }
-        };
+        let previous_result =
+            match step_data.get_dependency_result_column_value::<i64>("linear_step_1") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from linear_step_1: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Previous step result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("linear_step_1"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the previous result
         let result = previous_result * previous_result;
@@ -189,26 +183,25 @@ impl RustStepHandler for LinearStep3Handler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from previous step (linear_step_2)
-        let previous_result = match get_dependency_result(step_data, "linear_step_2") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("linear_step_2 result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from linear_step_2: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Previous step result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("linear_step_2"),
-                    )])),
-                ));
-            }
-        };
+        let previous_result =
+            match step_data.get_dependency_result_column_value::<i64>("linear_step_2") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from linear_step_2: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Previous step result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("linear_step_2"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the previous result (single parent operation)
         let result = previous_result * previous_result;
@@ -254,26 +247,25 @@ impl RustStepHandler for LinearStep4Handler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from previous step (linear_step_3)
-        let previous_result = match get_dependency_result(step_data, "linear_step_3") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("linear_step_3 result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from linear_step_3: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Previous step result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("linear_step_3"),
-                    )])),
-                ));
-            }
-        };
+        let previous_result =
+            match step_data.get_dependency_result_column_value::<i64>("linear_step_3") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from linear_step_3: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Previous step result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("linear_step_3"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the previous result (single parent operation)
         let result = previous_result * previous_result;

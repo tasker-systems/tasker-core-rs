@@ -660,7 +660,7 @@ impl WorkerProcessor {
 
         // 3. Transition using proper StepEvent with result data
         let step_event = if step_result.success {
-            StepEvent::Complete(Some(serde_json::to_value(&step_result.result)?))
+            StepEvent::Complete(Some(serde_json::to_value(&step_result)?))
         } else {
             let error_message = step_result
                 .error

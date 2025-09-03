@@ -17,14 +17,6 @@ pub fn default_config() -> WorkerBootstrapConfig {
     // Configure worker with all supported workflow namespaces
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
-        supported_namespaces: vec![
-            "default".to_string(),
-            "linear_workflow".to_string(),
-            "diamond_workflow".to_string(),
-            "tree_workflow".to_string(),
-            "mixed_dag_workflow".to_string(),
-            "order_fulfillment".to_string(),
-        ],
         enable_web_api: true,
         event_driven_enabled: true,
         deployment_mode_hint: Some("Hybrid".to_string()),
@@ -35,14 +27,6 @@ pub fn default_config() -> WorkerBootstrapConfig {
 pub fn no_web_api_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
-        supported_namespaces: vec![
-            "default".to_string(),
-            "linear_workflow".to_string(),
-            "diamond_workflow".to_string(),
-            "tree_workflow".to_string(),
-            "mixed_dag_workflow".to_string(),
-            "order_fulfillment".to_string(),
-        ],
         enable_web_api: false,
         event_driven_enabled: true,
         deployment_mode_hint: Some("Hybrid".to_string()),
@@ -53,14 +37,6 @@ pub fn no_web_api_config() -> WorkerBootstrapConfig {
 pub fn no_event_driven_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
-        supported_namespaces: vec![
-            "default".to_string(),
-            "linear_workflow".to_string(),
-            "diamond_workflow".to_string(),
-            "tree_workflow".to_string(),
-            "mixed_dag_workflow".to_string(),
-            "order_fulfillment".to_string(),
-        ],
         enable_web_api: true,
         event_driven_enabled: false,
         deployment_mode_hint: Some("Hybrid".to_string()),

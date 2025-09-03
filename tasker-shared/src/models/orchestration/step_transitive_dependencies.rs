@@ -37,13 +37,20 @@
 //! # }
 //! ```
 
+use crate::messaging::StepExecutionResult;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-pub type StepDependencyResultMap = HashMap<String, JsonValue>;
+pub type StepDependencyResultMap = HashMap<String, StepExecutionResult>;
+pub type StepExecutionResultAsJson = sqlx::types::Json<StepExecutionResult>;
+
+impl From<StepExecutionResultAsJson> for StepExecutionResult {
+    fn from(json: StepExecutionResultAsJson) -> Self {
+        json.0
+    }
+}
 
 /// Result structure for get_step_transitive_dependencies SQL function
 ///
@@ -60,7 +67,7 @@ pub struct StepTransitiveDependencies {
     /// Human-readable step name
     pub step_name: String,
     /// Step execution results (JSON)
-    pub results: Option<JsonValue>,
+    pub results: Option<StepExecutionResultAsJson>,
     /// Whether this step has been processed successfully
     pub processed: bool,
     /// Distance from the target step (1 = direct parent, 2 = grandparent, etc.)
@@ -74,7 +81,7 @@ impl StepTransitiveDependencies {
         task_uuid: Uuid,
         named_step_uuid: Uuid,
         step_name: String,
-        results: Option<JsonValue>,
+        results: Option<StepExecutionResultAsJson>,
         processed: bool,
         distance: i32,
     ) -> Self {
@@ -100,7 +107,7 @@ impl StepTransitiveDependencies {
     }
 
     /// Get the step results as a structured value
-    pub fn get_results(&self) -> Option<&JsonValue> {
+    pub fn get_results(&self) -> Option<&StepExecutionResultAsJson> {
         self.results.as_ref()
     }
 
@@ -192,7 +199,7 @@ impl StepTransitiveDependenciesQuery {
         let dependencies = self.get_completed_for_step(step_uuid).await?;
         Ok(dependencies
             .into_iter()
-            .filter_map(|dep| dep.results.map(|results| (dep.step_name, results)))
+            .filter_map(|dep| dep.results.map(|results| (dep.step_name, results.into())))
             .collect())
     }
 }

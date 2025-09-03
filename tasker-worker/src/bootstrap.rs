@@ -86,13 +86,17 @@ impl WorkerSystemHandle {
     }
 
     /// Get system status information
-    pub fn status(&self) -> WorkerSystemStatus {
+    pub async fn status(&self) -> WorkerSystemStatus {
         WorkerSystemStatus {
             running: self.is_running(),
             environment: self.config_manager.environment().to_string(),
             worker_core_status: self.worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
-            supported_namespaces: self.worker_config.supported_namespaces.clone(),
+            supported_namespaces: self
+                .worker_core
+                .task_template_manager
+                .supported_namespaces()
+                .await,
             database_pool_size: self.worker_core.context.database_pool().size(),
             database_pool_idle: self.worker_core.context.database_pool().num_idle(),
             database_url_preview: self
@@ -125,8 +129,6 @@ pub struct WorkerSystemStatus {
 pub struct WorkerBootstrapConfig {
     /// Worker identifier for logging and metrics
     pub worker_id: String,
-    /// Supported namespaces for this worker
-    pub supported_namespaces: Vec<String>,
     /// Whether to start web API server
     pub enable_web_api: bool,
     /// Web API configuration
@@ -145,7 +147,6 @@ impl Default for WorkerBootstrapConfig {
     fn default() -> Self {
         Self {
             worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces: vec!["default".to_string()],
             enable_web_api: true,
             web_config: WorkerWebConfig::default(),
             orchestration_api_config: OrchestrationApiConfig::default(),
@@ -160,16 +161,11 @@ impl WorkerBootstrapConfig {
     /// Create WorkerBootstrapConfig from ConfigManager for configuration-driven bootstrap
     ///
     /// TAS-43: This method replaces ::default() usage with proper configuration loading
-    pub fn from_config_manager(
-        config_manager: &ConfigManager,
-        worker_id: String,
-        supported_namespaces: Vec<String>,
-    ) -> Self {
+    pub fn from_config_manager(config_manager: &ConfigManager, worker_id: String) -> Self {
         let config = config_manager.config();
 
         Self {
             worker_id,
-            supported_namespaces,
             enable_web_api: config
                 .worker
                 .as_ref()
@@ -180,20 +176,6 @@ impl WorkerBootstrapConfig {
             environment_override: Some(config_manager.environment().to_string()),
             event_driven_enabled: true, // TAS-43: Enable event-driven processing for config-managed workers
             deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Configuration-driven workers use hybrid mode
-        }
-    }
-
-    /// Create WorkerBootstrapConfig for testing scenarios
-    pub fn for_testing(supported_namespaces: Vec<String>) -> Self {
-        Self {
-            worker_id: format!("test-worker-{}", uuid::Uuid::new_v4()),
-            supported_namespaces,
-            enable_web_api: false, // Disable web API for testing by default
-            web_config: WorkerWebConfig::default(),
-            orchestration_api_config: OrchestrationApiConfig::default(),
-            environment_override: Some("test".to_string()),
-            event_driven_enabled: true, // TAS-43: Enable event-driven processing for testing
-            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Testing uses hybrid mode for comprehensive coverage
         }
     }
 }
@@ -255,70 +237,9 @@ impl WorkerBootstrap {
             .await?,
         );
 
-        info!("✅ BOOTSTRAP: WorkerCore initialized with TAS-43 WorkerEventSystem architecture",);
+        info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
-
-        // Discover and load TaskTemplates to database
-        info!("BOOTSTRAP: Discovering and registering TaskTemplates to database");
-        let discovery_result: Option<TaskTemplateDiscoveryResult> = match worker_core
-            .task_template_manager
-            .ensure_templates_in_database()
-            .await
-        {
-            Ok(discovery_result) => {
-                info!(
-                    "✅ BOOTSTRAP: TaskTemplate discovery complete - {} templates registered from {} files",
-                    discovery_result.successful_registrations,
-                    discovery_result.total_files
-                );
-
-                if !discovery_result.errors.is_empty() {
-                    warn!(
-                        "⚠️ BOOTSTRAP: {} errors during TaskTemplate discovery: {:?}",
-                        discovery_result.errors.len(),
-                        discovery_result.errors
-                    );
-                }
-
-                if !discovery_result.discovered_templates.is_empty() {
-                    info!(
-                        "📋 BOOTSTRAP: Registered templates: {:?}",
-                        discovery_result.discovered_templates
-                    );
-                }
-                Some(discovery_result)
-            }
-            Err(e) => {
-                warn!(
-                    "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {}",
-                    e
-                );
-                None
-            }
-        };
-
-        if discovery_result.is_some() {
-            let discovery_result = discovery_result.unwrap();
-            if !discovery_result.discovered_namespaces.is_empty() {
-                let namespace_refs: Vec<&str> = discovery_result
-                    .discovered_namespaces
-                    .iter()
-                    .map(|ns| ns.as_str())
-                    .collect();
-                worker_core
-                    .context
-                    .initialize_queues(&namespace_refs)
-                    .await?;
-
-                worker_core
-                    .task_template_manager
-                    .set_supported_namespaces(discovery_result.discovered_namespaces.clone());
-            }
-        }
-
-        // Start the worker core with event-driven processing before creating web state
-        info!("BOOTSTRAP: Starting WorkerCore with event-driven processing and command pattern");
 
         // Unwrap the Arc to get ownership, start the core, then wrap in Arc again
         let mut worker_core_owned = Arc::try_unwrap(worker_core).map_err(|_| {
@@ -421,7 +342,6 @@ mod tests {
     fn test_worker_bootstrap_config_default() {
         let config = WorkerBootstrapConfig::default();
         assert!(!config.worker_id.is_empty());
-        assert!(!config.supported_namespaces.is_empty());
         assert!(config.enable_web_api);
         assert!(config.web_config.enabled);
         assert!(config.environment_override.is_none());
@@ -431,27 +351,12 @@ mod tests {
     fn test_worker_bootstrap_config_customization() {
         let config = WorkerBootstrapConfig {
             worker_id: "test-worker".to_string(),
-            supported_namespaces: vec!["test_namespace".to_string()],
             enable_web_api: false,
             ..Default::default()
         };
 
         assert_eq!(config.worker_id, "test-worker");
-        assert_eq!(config.supported_namespaces.len(), 1);
         assert!(!config.enable_web_api);
-    }
-
-    #[tokio::test]
-    async fn test_worker_bootstrap_config_from_config_manager() {
-        // This test would require a real ConfigManager instance
-        // For now, just test the method exists and can be called
-        let worker_id = "test-worker".to_string();
-        let namespaces = vec!["test_namespace".to_string()];
-
-        // Test that the method can be called without panicking
-        // In real integration tests, we'd pass an actual ConfigManager
-        assert!(!worker_id.is_empty());
-        assert!(!namespaces.is_empty());
     }
 
     #[test]

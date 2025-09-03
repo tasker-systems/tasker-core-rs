@@ -102,6 +102,21 @@ impl WorkerCore {
             context.task_handler_registry.clone(),
         ));
 
+        let discovery_result = task_template_manager.ensure_templates_in_database().await?;
+
+        if !discovery_result.discovered_namespaces.is_empty() {
+            let namespace_refs: Vec<&str> = discovery_result
+                .discovered_namespaces
+                .iter()
+                .map(|ns| ns.as_str())
+                .collect();
+            context.initialize_queues(&namespace_refs).await?;
+
+            task_template_manager
+                .set_supported_namespaces(discovery_result.discovered_namespaces.clone())
+                .await;
+        }
+
         let orchestration_client = Arc::new(
             OrchestrationApiClient::new(orchestration_config).map_err(|e| {
                 TaskerError::ConfigurationError(format!(

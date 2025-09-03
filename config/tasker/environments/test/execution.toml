@@ -1,4 +1,4 @@
 [execution]
-processing_mode = "pgmq"
+environment = "test"
 max_concurrent_tasks = 100
 max_concurrent_steps = 500

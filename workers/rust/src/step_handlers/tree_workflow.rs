@@ -28,10 +28,7 @@
 //! - Memory safety for large result calculations
 //! - Efficient handling of multiple dependency convergence
 
-use super::{
-    error_result, get_context_field, get_dependency_result, success_result, RustStepHandler,
-    StepHandlerConfig,
-};
+use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
@@ -52,10 +49,8 @@ impl RustStepHandler for TreeRootHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract even_number from task context
-        let even_number = match get_context_field(step_data, "even_number") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("even_number must be a number"))?,
+        let even_number = match step_data.get_context_field::<i64>("even_number") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing even_number in task context: {}", e);
                 return Ok(error_result(
@@ -132,10 +127,8 @@ impl RustStepHandler for TreeBranchLeftHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_root
-        let root_result = match get_dependency_result(step_data, "tree_root") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_root result must be a number"))?,
+        let root_result = match step_data.get_dependency_result_column_value::<i64>("tree_root") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_root: {}", e);
                 return Ok(error_result(
@@ -202,10 +195,8 @@ impl RustStepHandler for TreeBranchRightHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_root
-        let root_result = match get_dependency_result(step_data, "tree_root") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_root result must be a number"))?,
+        let root_result = match step_data.get_dependency_result_column_value::<i64>("tree_root") {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_root: {}", e);
                 return Ok(error_result(
@@ -272,26 +263,25 @@ impl RustStepHandler for TreeLeafDHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_branch_left
-        let branch_result = match get_dependency_result(step_data, "tree_branch_left") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_branch_left result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from tree_branch_left: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Tree branch left result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("tree_branch_left"),
-                    )])),
-                ));
-            }
-        };
+        let branch_result =
+            match step_data.get_dependency_result_column_value::<i64>("tree_branch_left") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from tree_branch_left: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Tree branch left result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("tree_branch_left"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the branch result (single parent operation)
         let result = branch_result * branch_result;
@@ -339,26 +329,25 @@ impl RustStepHandler for TreeLeafEHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_branch_left
-        let branch_result = match get_dependency_result(step_data, "tree_branch_left") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_branch_left result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from tree_branch_left: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Tree branch left result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("tree_branch_left"),
-                    )])),
-                ));
-            }
-        };
+        let branch_result =
+            match step_data.get_dependency_result_column_value::<i64>("tree_branch_left") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from tree_branch_left: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Tree branch left result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("tree_branch_left"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the branch result (single parent operation)
         let result = branch_result * branch_result;
@@ -406,26 +395,25 @@ impl RustStepHandler for TreeLeafFHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_branch_right
-        let branch_result = match get_dependency_result(step_data, "tree_branch_right") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_branch_right result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from tree_branch_right: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Tree branch right result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("tree_branch_right"),
-                    )])),
-                ));
-            }
-        };
+        let branch_result =
+            match step_data.get_dependency_result_column_value::<i64>("tree_branch_right") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from tree_branch_right: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Tree branch right result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("tree_branch_right"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the branch result (single parent operation)
         let result = branch_result * branch_result;
@@ -473,26 +461,25 @@ impl RustStepHandler for TreeLeafGHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from tree_branch_right
-        let branch_result = match get_dependency_result(step_data, "tree_branch_right") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_branch_right result must be a number"))?,
-            Err(e) => {
-                error!("Missing result from tree_branch_right: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Tree branch right result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("tree_branch_right"),
-                    )])),
-                ));
-            }
-        };
+        let branch_result =
+            match step_data.get_dependency_result_column_value::<i64>("tree_branch_right") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from tree_branch_right: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Tree branch right result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("tree_branch_right"),
+                        )])),
+                    ));
+                }
+            };
 
         // Square the branch result (single parent operation)
         let result = branch_result * branch_result;
@@ -540,10 +527,9 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get results from all leaf nodes
-        let leaf_d_result = match get_dependency_result(step_data, "tree_leaf_d") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_leaf_d result must be a number"))?,
+        let leaf_d_result = match step_data.get_dependency_result_column_value::<i64>("tree_leaf_d")
+        {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_leaf_d: {}", e);
                 return Ok(error_result(
@@ -561,10 +547,9 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
             }
         };
 
-        let leaf_e_result = match get_dependency_result(step_data, "tree_leaf_e") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_leaf_e result must be a number"))?,
+        let leaf_e_result = match step_data.get_dependency_result_column_value::<i64>("tree_leaf_e")
+        {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_leaf_e: {}", e);
                 return Ok(error_result(
@@ -582,10 +567,9 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
             }
         };
 
-        let leaf_f_result = match get_dependency_result(step_data, "tree_leaf_f") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_leaf_f result must be a number"))?,
+        let leaf_f_result = match step_data.get_dependency_result_column_value::<i64>("tree_leaf_f")
+        {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_leaf_f: {}", e);
                 return Ok(error_result(
@@ -603,10 +587,9 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
             }
         };
 
-        let leaf_g_result = match get_dependency_result(step_data, "tree_leaf_g") {
-            Ok(value) => value
-                .as_i64()
-                .ok_or_else(|| anyhow::anyhow!("tree_leaf_g result must be a number"))?,
+        let leaf_g_result = match step_data.get_dependency_result_column_value::<i64>("tree_leaf_g")
+        {
+            Ok(value) => value,
             Err(e) => {
                 error!("Missing result from tree_leaf_g: {}", e);
                 return Ok(error_result(

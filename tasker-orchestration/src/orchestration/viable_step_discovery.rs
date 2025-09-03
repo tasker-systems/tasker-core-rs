@@ -45,6 +45,7 @@ use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::{DiscoveryError, OrchestrationResult};
 use tasker_shared::events::{EventPublisher, ViableStep as EventsViableStep};
 use tasker_shared::types::ViableStep;
+use tasker_shared::StepExecutionResult;
 use tracing::{debug, info, instrument, warn};
 
 /// High-performance step readiness discovery engine
@@ -446,7 +447,7 @@ impl ViableStepDiscovery {
     async fn load_step_dependencies(
         &self,
         step_uuid: Uuid,
-    ) -> Result<std::collections::HashMap<String, serde_json::Value>, sqlx::Error> {
+    ) -> Result<std::collections::HashMap<String, StepExecutionResult>, sqlx::Error> {
         use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 
         // Use the new SQL function to get all transitive dependencies with their results

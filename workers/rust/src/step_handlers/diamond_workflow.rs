@@ -120,7 +120,8 @@ impl RustStepHandler for DiamondBranchBHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from diamond_start using new ergonomic method
-        let start_result: i64 = match step_data.get_dependency_result("diamond_start") {
+        let start_result: i64 = match step_data.get_dependency_result_column_value("diamond_start")
+        {
             Ok(value) => value,
             Err(e) => {
                 error!("Missing result from diamond_start: {}", e);
@@ -184,7 +185,8 @@ impl RustStepHandler for DiamondBranchCHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get result from diamond_start using new ergonomic method
-        let start_result: i64 = match step_data.get_dependency_result("diamond_start") {
+        let start_result: i64 = match step_data.get_dependency_result_column_value("diamond_start")
+        {
             Ok(value) => value,
             Err(e) => {
                 error!("Missing result from diamond_start: {}", e);
@@ -248,43 +250,45 @@ impl RustStepHandler for DiamondEndHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Get results from both parallel branches using new ergonomic methods
-        let branch_b_result: i64 = match step_data.get_dependency_result("diamond_branch_b") {
-            Ok(value) => value,
-            Err(e) => {
-                error!("Missing result from diamond_branch_b: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Branch B result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("diamond_branch_b"),
-                    )])),
-                ));
-            }
-        };
+        let branch_b_result: i64 =
+            match step_data.get_dependency_result_column_value("diamond_branch_b") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from diamond_branch_b: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Branch B result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("diamond_branch_b"),
+                        )])),
+                    ));
+                }
+            };
 
-        let branch_c_result: i64 = match step_data.get_dependency_result("diamond_branch_c") {
-            Ok(value) => value,
-            Err(e) => {
-                error!("Missing result from diamond_branch_c: {}", e);
-                return Ok(error_result(
-                    step_uuid,
-                    "Branch C result not found".to_string(),
-                    Some("MISSING_DEPENDENCY".to_string()),
-                    Some("DependencyError".to_string()),
-                    true, // Retryable - might be available later
-                    start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "required_step".to_string(),
-                        json!("diamond_branch_c"),
-                    )])),
-                ));
-            }
-        };
+        let branch_c_result: i64 =
+            match step_data.get_dependency_result_column_value("diamond_branch_c") {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Missing result from diamond_branch_c: {}", e);
+                    return Ok(error_result(
+                        step_uuid,
+                        "Branch C result not found".to_string(),
+                        Some("MISSING_DEPENDENCY".to_string()),
+                        Some("DependencyError".to_string()),
+                        true, // Retryable - might be available later
+                        start_time.elapsed().as_millis() as i64,
+                        Some(HashMap::from([(
+                            "required_step".to_string(),
+                            json!("diamond_branch_c"),
+                        )])),
+                    ));
+                }
+            };
 
         // Multiple parent logic: multiply the results together, then square
         let multiplied = branch_b_result * branch_c_result;

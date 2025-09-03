@@ -167,10 +167,6 @@ impl EventDrivenMessageProcessor {
                 in_process_events: InProcessEventConfig {
                     broadcast_buffer_size: 1000,
                     ffi_integration_enabled: true,
-                    queue_names: supported_namespaces
-                        .iter()
-                        .map(|ns| format!("worker_{}_queue", ns))
-                        .collect(),
                     deduplication_cache_size: 10000,
                 },
                 listener: UnifiedWorkerListenerConfig {
@@ -187,7 +183,7 @@ impl EventDrivenMessageProcessor {
                     age_threshold_seconds: 2,
                     max_age_hours: 12,
                     visibility_timeout_seconds: edd_config.visibility_timeout.as_secs(),
-                    supported_namespaces: supported_namespaces.clone().into(),
+                    supported_namespaces: supported_namespaces.into(),
                 },
                 resource_limits: WorkerResourceLimits {
                     max_memory_mb: 1024,

@@ -313,7 +313,7 @@ impl TaskSequenceStep {
     /// // Get a complex result object
     /// let validation_result: ValidationResult = step_data.get_dependency_result("validate_step")?;
     /// ```
-    pub fn get_dependency_result<T>(&self, step_name: &str) -> Result<T, anyhow::Error>
+    pub fn get_dependency_result_column_value<T>(&self, step_name: &str) -> Result<T, anyhow::Error>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -321,26 +321,15 @@ impl TaskSequenceStep {
             anyhow::anyhow!("Dependency result for step '{}' not found", step_name)
         })?;
 
-        serde_json::from_value(step_result.clone()).map_err(|e| {
+        let column_value: T = serde_json::from_value(step_result.result.clone()).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to deserialize result from step '{}': {}",
                 step_name,
                 e
             )
-        })
-    }
+        })?;
 
-    /// Get the result of a dependency step as a raw JSON value
-    ///
-    /// This method provides direct access to step results as serde_json::Value
-    /// for cases where you need to inspect the raw JSON or handle dynamic result types.
-    pub fn get_dependency_result_raw(
-        &self,
-        step_name: &str,
-    ) -> Result<&serde_json::Value, anyhow::Error> {
-        self.dependency_results
-            .get(step_name)
-            .ok_or_else(|| anyhow::anyhow!("Dependency result for step '{}' not found", step_name))
+        Ok(column_value)
     }
 
     /// Check if a context field exists

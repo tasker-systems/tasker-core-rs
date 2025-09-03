@@ -297,43 +297,6 @@ pub fn error_result(
     )
 }
 
-/// Utility function to extract dependency results by step name
-///
-/// Helper for accessing previous step results from `TaskSequenceStep.dependency_results`
-/// DEPRECATED: Use `TaskSequenceStep::get_dependency_result()` method instead
-pub fn get_dependency_result<'a>(
-    step_data: &'a TaskSequenceStep,
-    step_name: &str,
-) -> Result<&'a Value, RustStepHandlerError> {
-    step_data.dependency_results.get(step_name).ok_or_else(|| {
-        RustStepHandlerError::MissingDependency {
-            step_name: step_name.to_string(),
-        }
-    })
-}
-
-/// Utility function to extract task context field with error handling
-///
-/// Helper for safely accessing task context fields with proper error messages
-/// DEPRECATED: Use `TaskSequenceStep::get_context_field()` method instead
-pub fn get_context_field<'a>(
-    step_data: &'a TaskSequenceStep,
-    field_name: &str,
-) -> Result<&'a Value, RustStepHandlerError> {
-    step_data
-        .task
-        .task
-        .context
-        .as_ref()
-        .ok_or_else(|| RustStepHandlerError::InvalidContext {
-            field: "context".to_string(),
-        })?
-        .get(field_name)
-        .ok_or_else(|| RustStepHandlerError::InvalidContext {
-            field: field_name.to_string(),
-        })
-}
-
 // Workflow handler modules
 pub mod diamond_workflow;
 pub mod linear_workflow;
