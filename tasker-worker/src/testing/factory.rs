@@ -122,7 +122,7 @@ impl WorkerTestFactory {
 
         // Create pgmq queue for namespace
         let pgmq_client = PgmqClient::new_with_pool(pool.clone()).await;
-        let queue_name = format!("{}_queue", name);
+        let queue_name = format!("worker_{}_queue", name);
 
         pgmq_client.create_queue(&queue_name).await.map_err(|e| {
             TestFactoryError::CreationError(format!("Queue creation failed: {}", e))

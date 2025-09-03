@@ -114,9 +114,11 @@ impl WorkerCore {
             "Creating WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
         );
 
+        let system_config = context.config_manager.config();
         // Create worker-specific components
-        let task_template_manager = Arc::new(TaskTemplateManager::new(
+        let task_template_manager = Arc::new(TaskTemplateManager::with_namespaces(
             context.task_handler_registry.clone(),
+            system_config.event_systems.worker.namespaces.clone(),
         ));
 
         let orchestration_client = Arc::new(
@@ -128,7 +130,7 @@ impl WorkerCore {
             })?,
         );
 
-        let (mut processor, command_sender) = {
+        let (processor, command_sender) = {
             if let Some(ref event_system) = event_system {
                 WorkerProcessor::new_with_event_system(
                     namespace.clone(),
@@ -203,8 +205,13 @@ impl WorkerCore {
             );
         }
 
-        if let Some(ref mut processor) = self.processor {
-            processor.start_with_events().await?;
+        if let Some(mut processor) = self.processor.take() {
+            // Spawn the processor in background since it contains an infinite processing loop
+            tokio::spawn(async move {
+                if let Err(e) = processor.start_with_events().await {
+                    tracing::error!("WorkerProcessor error: {}", e);
+                }
+            });
         }
 
         // The WorkerProcessor is already started in new(), just update status

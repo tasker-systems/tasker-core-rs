@@ -233,7 +233,7 @@ impl MessageClient for InMemoryClient {
     }
 
     async fn send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()> {
-        let queue_name = "orchestration_step_results";
+        let queue_name = "orchestration_step_results_queue";
         let result_json = serde_json::to_value(&result).map_err(|e| {
             crate::TaskerError::ValidationError(format!("JSON serialization error: {}", e))
         })?;
@@ -242,7 +242,7 @@ impl MessageClient for InMemoryClient {
     }
 
     async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()> {
-        let queue_name = "orchestration_task_requests";
+        let queue_name = "orchestration_task_requests_queue";
         let request_json = serde_json::to_value(&request).map_err(|e| {
             crate::TaskerError::ValidationError(format!("JSON serialization error: {}", e))
         })?;
@@ -251,7 +251,7 @@ impl MessageClient for InMemoryClient {
     }
 
     async fn receive_task_requests(&self, limit: i32) -> TaskerResult<Vec<TaskRequestMessage>> {
-        let queue_name = "orchestration_task_requests";
+        let queue_name = "orchestration_task_requests_queue";
         let raw_messages = self
             .receive_messages_from_queue(queue_name, limit, 30)
             .await?;
@@ -268,7 +268,7 @@ impl MessageClient for InMemoryClient {
     }
 
     async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()> {
-        let queue_name = "orchestration_step_results";
+        let queue_name = "orchestration_step_results_queue";
         let result_json = serde_json::to_value(&result).map_err(|e| {
             crate::TaskerError::ValidationError(format!("JSON serialization error: {}", e))
         })?;
@@ -280,7 +280,7 @@ impl MessageClient for InMemoryClient {
         &self,
         limit: i32,
     ) -> TaskerResult<Vec<StepResultMessage>> {
-        let queue_name = "orchestration_step_results";
+        let queue_name = "orchestration_step_results_queue";
         let raw_messages = self
             .receive_messages_from_queue(queue_name, limit, 30)
             .await?;
@@ -451,7 +451,7 @@ mod tests {
             .unwrap();
 
         // Verify queue metrics
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         let metrics = client.get_queue_metrics(&queue_name).await.unwrap();
         assert_eq!(metrics.message_count, 1);
 
@@ -489,7 +489,7 @@ mod tests {
             .unwrap();
 
         // Verify queue metrics
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         let metrics = client.get_queue_metrics(&queue_name).await.unwrap();
         assert_eq!(metrics.message_count, 1);
 

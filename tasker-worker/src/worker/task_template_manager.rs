@@ -37,18 +37,19 @@ pub struct TaskTemplateManagerConfig {
 impl Default for TaskTemplateManagerConfig {
     fn default() -> Self {
         Self {
-            supported_namespaces: vec![
-                "linear_workflow".to_string(),
-                "order_fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-                "payments".to_string(),
-            ],
+            supported_namespaces: vec!["default".to_string()],
             cache_expiry_seconds: 300, // 5 minutes
             max_cache_size: 1000,
             auto_refresh_enabled: true,
             auto_refresh_interval_seconds: 60, // 1 minute
         }
+    }
+}
+
+impl TaskTemplateManagerConfig {
+    pub fn with_namespaces(mut self, namespaces: Vec<String>) -> Self {
+        self.supported_namespaces = namespaces;
+        self
     }
 }
 
@@ -85,6 +86,13 @@ impl TaskTemplateManager {
     /// Create a new task template manager with default configuration
     pub fn new(registry: Arc<TaskHandlerRegistry>) -> Self {
         Self::with_config(registry, TaskTemplateManagerConfig::default())
+    }
+
+    pub fn with_namespaces(registry: Arc<TaskHandlerRegistry>, namespaces: Vec<String>) -> Self {
+        Self::with_config(
+            registry,
+            TaskTemplateManagerConfig::default().with_namespaces(namespaces),
+        )
     }
 
     /// Create a new task template manager with custom configuration
@@ -276,6 +284,7 @@ impl TaskTemplateManager {
             failed_registrations: discovery_result.failed_registrations,
             errors: discovery_result.errors.clone(),
             discovered_templates: Vec::new(),
+            discovered_namespaces: Vec::new(),
         };
 
         for template_key in &discovery_result.discovered_templates {
@@ -325,6 +334,12 @@ impl TaskTemplateManager {
     /// Consistent with the unified configuration system
     fn find_template_config_directory(&self) -> TaskerResult<String> {
         use workspace_tools::workspace;
+
+        if let Ok(template_dir) = std::env::var("TASK_TEMPLATE_PATH") {
+            if std::path::Path::new(&template_dir).exists() {
+                return Ok(template_dir);
+            }
+        }
 
         // Try WORKSPACE_PATH environment variable first (for compatibility)
         if let Ok(workspace_path) = std::env::var("WORKSPACE_PATH") {

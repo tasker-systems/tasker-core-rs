@@ -8,14 +8,7 @@
 # ============================================================================
 
 [event_systems.orchestration]
-# Use test-specific namespaces
-namespaces = [
-    "default",
-    "orchestration",
-    "fulfillment",
-    "inventory",
-    "notifications",
-]
+namespaces = ["orchestration"]
 
 # Faster timing for tests
 [event_systems.orchestration.timing]

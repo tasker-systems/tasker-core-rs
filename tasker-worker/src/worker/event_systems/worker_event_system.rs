@@ -186,17 +186,24 @@ impl WorkerEventSystem {
                 // Convert unified config to listener config format
                 let listener_config = WorkerListenerConfig {
                     supported_namespaces: self.config.namespaces.clone(),
-                    retry_interval: std::time::Duration::from_secs(self.config.metadata.listener.retry_interval_seconds),
+                    retry_interval: std::time::Duration::from_secs(
+                        self.config.metadata.listener.retry_interval_seconds,
+                    ),
                     max_retry_attempts: self.config.metadata.listener.max_retry_attempts,
-                    event_timeout: std::time::Duration::from_secs(self.config.metadata.listener.event_timeout_seconds),
+                    event_timeout: std::time::Duration::from_secs(
+                        self.config.metadata.listener.event_timeout_seconds,
+                    ),
                     batch_processing: self.config.metadata.listener.batch_processing,
-                    connection_timeout: std::time::Duration::from_secs(self.config.metadata.listener.connection_timeout_seconds),
+                    connection_timeout: std::time::Duration::from_secs(
+                        self.config.metadata.listener.connection_timeout_seconds,
+                    ),
                     health_check_interval: std::time::Duration::from_secs(60), // Default from WorkerListenerConfig
                 };
-                
+
                 // Create a notification sender - we'll convert notifications to commands
-                let (notification_sender, mut notification_receiver) = mpsc::channel::<WorkerNotification>(1000);
-                
+                let (notification_sender, mut notification_receiver) =
+                    mpsc::channel::<WorkerNotification>(1000);
+
                 // Initialize queue listener for event-driven processing
                 self.queue_listener = Some(
                     WorkerQueueListener::new(
@@ -204,11 +211,12 @@ impl WorkerEventSystem {
                         self.context.clone(),
                         notification_sender,
                     )
-                    .await.map_err(|e| DeploymentModeError::ConfigurationError { 
-                        message: format!("Failed to initialize queue listener: {}", e)
+                    .await
+                    .map_err(|e| DeploymentModeError::ConfigurationError {
+                        message: format!("Failed to initialize queue listener: {}", e),
                     })?,
                 );
-                
+
                 // Spawn a task to convert notifications to commands
                 let command_sender = self.command_sender.clone();
                 tokio::spawn(async move {
@@ -219,19 +227,23 @@ impl WorkerEventSystem {
                             WorkerNotification::Event(WorkerQueueEvent::StepMessage(msg_event)) => {
                                 // Convert to command that will process the step
                                 let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                                if let Err(e) = command_sender.send(WorkerCommand::ExecuteStepFromEvent { 
-                                    message_event: msg_event,
-                                    resp: resp_tx,
-                                }).await {
+                                if let Err(e) = command_sender
+                                    .send(WorkerCommand::ExecuteStepFromEvent {
+                                        message_event: msg_event,
+                                        resp: resp_tx,
+                                    })
+                                    .await
+                                {
                                     error!("Failed to forward step notification to command processor: {}", e);
                                 }
                             }
                             WorkerNotification::Health(_) => {
                                 // Forward health check
                                 let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                                if let Err(e) = command_sender.send(WorkerCommand::HealthCheck {
-                                    resp: resp_tx,
-                                }).await {
+                                if let Err(e) = command_sender
+                                    .send(WorkerCommand::HealthCheck { resp: resp_tx })
+                                    .await
+                                {
                                     error!("Failed to forward health check notification: {}", e);
                                 }
                             }
@@ -252,14 +264,25 @@ impl WorkerEventSystem {
                 // Convert unified config to poller config format
                 let poller_config = WorkerPollerConfig {
                     enabled: self.config.metadata.fallback_poller.enabled,
-                    polling_interval: std::time::Duration::from_millis(self.config.metadata.fallback_poller.polling_interval_ms),
+                    polling_interval: std::time::Duration::from_millis(
+                        self.config.metadata.fallback_poller.polling_interval_ms,
+                    ),
                     batch_size: self.config.metadata.fallback_poller.batch_size,
-                    age_threshold: std::time::Duration::from_secs(self.config.metadata.fallback_poller.age_threshold_seconds),
-                    max_age: std::time::Duration::from_secs(self.config.metadata.fallback_poller.max_age_hours * 3600),
+                    age_threshold: std::time::Duration::from_secs(
+                        self.config.metadata.fallback_poller.age_threshold_seconds,
+                    ),
+                    max_age: std::time::Duration::from_secs(
+                        self.config.metadata.fallback_poller.max_age_hours * 3600,
+                    ),
                     supported_namespaces: self.config.namespaces.clone(),
-                    visibility_timeout: std::time::Duration::from_secs(self.config.metadata.fallback_poller.visibility_timeout_seconds),
+                    visibility_timeout: std::time::Duration::from_secs(
+                        self.config
+                            .metadata
+                            .fallback_poller
+                            .visibility_timeout_seconds,
+                    ),
                 };
-                
+
                 // Initialize fallback poller for reliability
                 self.fallback_poller = Some(
                     WorkerFallbackPoller::new(
@@ -267,12 +290,15 @@ impl WorkerEventSystem {
                         self.context.clone(),
                         self.command_sender.clone(),
                     )
-                    .await.map_err(|e| DeploymentModeError::ConfigurationError { 
-                        message: format!("Failed to initialize fallback poller: {}", e)
+                    .await
+                    .map_err(|e| DeploymentModeError::ConfigurationError {
+                        message: format!("Failed to initialize fallback poller: {}", e),
                     })?,
                 );
 
-                info!("📊 WORKER_EVENT_SYSTEM: Fallback poller initialized for reliable processing");
+                info!(
+                    "📊 WORKER_EVENT_SYSTEM: Fallback poller initialized for reliable processing"
+                );
             }
             _ => {}
         }
@@ -304,12 +330,21 @@ impl EventDrivenSystem for WorkerEventSystem {
         WorkerEventSystemStatistics {
             events_processed: self.statistics.events_processed.load(Ordering::Relaxed),
             events_failed: self.statistics.events_failed.load(Ordering::Relaxed),
-            processing_rate: 0.0, // TODO: Calculate actual processing rate
-            average_latency_ms: 0.0, // TODO: Calculate actual latency
+            processing_rate: 0.0,       // TODO: Calculate actual processing rate
+            average_latency_ms: 0.0,    // TODO: Calculate actual latency
             deployment_mode_score: 1.0, // TODO: Calculate effectiveness score
-            step_messages_processed: self.statistics.step_messages_processed.load(Ordering::Relaxed),
-            health_checks_processed: self.statistics.health_checks_processed.load(Ordering::Relaxed),
-            config_updates_processed: self.statistics.config_updates_processed.load(Ordering::Relaxed),
+            step_messages_processed: self
+                .statistics
+                .step_messages_processed
+                .load(Ordering::Relaxed),
+            health_checks_processed: self
+                .statistics
+                .health_checks_processed
+                .load(Ordering::Relaxed),
+            config_updates_processed: self
+                .statistics
+                .config_updates_processed
+                .load(Ordering::Relaxed),
             last_event_at: Some(SystemTime::now()),
         }
     }
@@ -341,15 +376,23 @@ impl EventDrivenSystem for WorkerEventSystem {
 
         // Start queue listener if configured
         if let Some(ref mut listener) = self.queue_listener {
-            listener.start().await.map_err(|e| DeploymentModeError::ConfigurationError {
-                message: format!("Failed to start queue listener: {}", e)
-            })?;
+            listener
+                .start()
+                .await
+                .map_err(|e| DeploymentModeError::ConfigurationError {
+                    message: format!("Failed to start queue listener: {}", e),
+                })?;
             info!("🎧 WORKER_EVENT_SYSTEM: Queue listener started");
         }
 
         // Start fallback poller if configured
-        if let Some(ref mut _poller) = self.fallback_poller {
-            // Note: The poller doesn't have a start method, it starts automatically in new()
+        if let Some(ref mut poller) = self.fallback_poller {
+            poller
+                .start()
+                .await
+                .map_err(|e| DeploymentModeError::ConfigurationError {
+                    message: format!("Failed to start fallback poller: {}", e),
+                })?;
             info!("📊 WORKER_EVENT_SYSTEM: Fallback poller started");
         }
 
@@ -409,5 +452,4 @@ impl EventDrivenSystem for WorkerEventSystem {
             Ok(DeploymentModeHealthStatus::Critical)
         }
     }
-
 }

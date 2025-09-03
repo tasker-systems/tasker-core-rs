@@ -1,5 +1,5 @@
 # Unified Event Systems Configuration
-# 
+#
 # This file consolidates all event system configurations across orchestration,
 # task readiness, and worker components to eliminate configuration drift and
 # provide consistent naming and structure.
@@ -52,7 +52,7 @@ queues_populated_at_runtime = true
 [event_systems.task_readiness]
 system_id = "task-readiness-event-system"
 deployment_mode = "Hybrid"
-namespaces = [] # Empty = all namespaces
+namespaces = []                           # Empty = all namespaces
 
 # Timing configuration
 [event_systems.task_readiness.timing]
@@ -74,7 +74,7 @@ max_delay_ms = 5000
 multiplier = 2.0
 jitter_percent = 0.1
 
-# Health monitoring configuration  
+# Health monitoring configuration
 [event_systems.task_readiness.health]
 enabled = true
 performance_monitoring_enabled = true
@@ -121,7 +121,13 @@ stats_interval_seconds = 60
 [event_systems.worker]
 system_id = "worker-event-system"
 deployment_mode = "Hybrid"
-namespaces = ["fulfillment", "inventory", "notifications"]
+namespaces = [
+    "diamond_workflow",
+    "linear_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "tree_workflow",
+]
 
 # Timing configuration
 [event_systems.worker.timing]
@@ -155,7 +161,13 @@ error_rate_threshold_per_minute = 5
 [event_systems.worker.metadata.in_process_events]
 broadcast_buffer_size = 1000
 ffi_integration_enabled = true
-queue_names = ["fulfillment_queue", "inventory_queue", "notifications_queue"]
+queue_names = [
+    "worker_diamond_workflow_queue",
+    "worker_linear_workflow_queue",
+    "worker_mixed_dag_workflow_queue",
+    "worker_order_fulfillment_queue",
+    "worker_tree_workflow_queue",
+]
 deduplication_cache_size = 1000
 
 # PostgreSQL LISTEN/NOTIFY listener configuration
@@ -187,7 +199,7 @@ max_queue_connections = 20
 # ============================================================================
 #
 # This unified configuration eliminates the previous configuration drift where:
-# 
+#
 # 1. Similar concepts had different names:
 #    - max_concurrent_* was inconsistently named across systems
 #    - timeout fields used different units and naming conventions

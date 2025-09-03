@@ -418,7 +418,7 @@ impl PgmqClient {
         visibility_timeout: Option<i32>,
         batch_size: i32,
     ) -> Result<Vec<Message<serde_json::Value>>> {
-        let queue_name = format!("{namespace}_queue");
+        let queue_name = format!("worker_{namespace}_queue");
         self.read_messages(&queue_name, visibility_timeout, Some(batch_size))
             .await
     }
@@ -426,7 +426,7 @@ impl PgmqClient {
     /// Complete message processing (delete from queue)
     #[instrument(skip(self), fields(namespace = %namespace, message_id = %message_id))]
     pub async fn complete_message(&self, namespace: &str, message_id: i64) -> Result<()> {
-        let queue_name = format!("{namespace}_queue");
+        let queue_name = format!("worker_{namespace}_queue");
         self.delete_message(&queue_name, message_id).await
     }
 
@@ -436,7 +436,7 @@ impl PgmqClient {
         info!("🏗️ Initializing {} namespace queues", namespaces.len());
 
         for namespace in namespaces {
-            let queue_name = format!("{namespace}_queue");
+            let queue_name = format!("worker_{namespace}_queue");
             self.create_queue(&queue_name).await?;
         }
 

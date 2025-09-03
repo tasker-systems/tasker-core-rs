@@ -2,9 +2,9 @@
 mode = "distributed"
 enable_performance_logging = true
 active_namespaces = [
-    "fulfillment",
-    "inventory",
-    "notifications",
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
     "linear_workflow",
     "tree_workflow",
 ]

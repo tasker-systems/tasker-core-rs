@@ -9,7 +9,13 @@ worker_id = "worker-001"
 worker_type = "general"
 
 # Namespaces this worker will process
-namespaces = ["fulfillment", "inventory", "notifications"]
+namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 
 # TAS-43 Event-Driven Processing Configuration
 [worker.event_driven]

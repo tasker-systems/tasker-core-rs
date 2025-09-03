@@ -218,6 +218,36 @@ impl SystemContext {
         Ok(())
     }
 
+    /// Initialize owned queues for the system context
+    pub async fn initialize_orchestration_owned_queues(&self) -> TaskerResult<()> {
+        info!("🏗️ CORE: Initializing owned queues");
+
+        let queue_config = self.config_manager.config().queues.clone();
+
+        let mut orchestration_owned_queues = Vec::<&str>::new();
+
+        orchestration_owned_queues.push(queue_config.orchestration_queues.step_results.as_str());
+        orchestration_owned_queues.push(queue_config.orchestration_queues.task_requests.as_str());
+        orchestration_owned_queues.push(
+            queue_config
+                .orchestration_queues
+                .task_finalizations
+                .as_str(),
+        );
+
+        for queue_name in orchestration_owned_queues {
+            self.message_client
+                .create_queue(queue_name)
+                .await
+                .map_err(|e| {
+                    TaskerError::MessagingError(format!("Failed to initialize owned queues: {e}"))
+                })?;
+        }
+
+        info!("✅ CORE: All owned queues initialized");
+        Ok(())
+    }
+
     /// Get database pool reference
     pub fn database_pool(&self) -> &PgPool {
         &self.database_pool

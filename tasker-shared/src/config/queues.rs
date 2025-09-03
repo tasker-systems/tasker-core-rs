@@ -27,9 +27,6 @@ pub struct QueuesConfig {
     /// Queue type definitions for orchestration system
     pub orchestration_queues: OrchestrationQueuesConfig,
 
-    /// Queue type definitions for worker system
-    pub worker_queues: WorkerQueuesConfig,
-
     /// Backend-specific configuration for PGMQ
     pub pgmq: PgmqBackendConfig,
 
@@ -44,15 +41,6 @@ pub struct OrchestrationQueuesConfig {
     pub task_requests: String,
     pub task_finalizations: String,
     pub step_results: String,
-}
-
-/// Worker queue definitions
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkerQueuesConfig {
-    pub default: String,
-    pub fulfillment: String,
-    pub inventory: String,
-    pub notifications: String,
 }
 
 /// Backend-specific configuration for PGMQ
@@ -125,18 +113,6 @@ impl QueuesConfig {
     pub fn task_finalizations_queue_name(&self) -> String {
         self.get_orchestration_queue_name(&self.orchestration_queues.task_finalizations)
     }
-
-    /// Get a worker queue name by type
-    pub fn worker_queue_name(&self, queue_type: &str) -> String {
-        let queue_name = match queue_type {
-            "default" => &self.worker_queues.default,
-            "fulfillment" => &self.worker_queues.fulfillment,
-            "inventory" => &self.worker_queues.inventory,
-            "notifications" => &self.worker_queues.notifications,
-            _ => queue_type, // Fallback to queue_type itself
-        };
-        self.get_worker_queue_name(queue_name)
-    }
 }
 
 impl Default for QueuesConfig {
@@ -150,22 +126,11 @@ impl Default for QueuesConfig {
             max_batch_size: 100,
             health_check_interval: 60,
             naming_pattern: "{namespace}_{name}_queue".to_string(),
-            default_namespaces: vec![
-                "default".to_string(),
-                "fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-            ],
+            default_namespaces: vec!["default".to_string()],
             orchestration_queues: OrchestrationQueuesConfig {
-                task_requests: "task_requests".to_string(),
-                task_finalizations: "task_finalizations".to_string(),
-                step_results: "step_results".to_string(),
-            },
-            worker_queues: WorkerQueuesConfig {
-                default: "default".to_string(),
-                fulfillment: "fulfillment".to_string(),
-                inventory: "inventory".to_string(),
-                notifications: "notifications".to_string(),
+                task_requests: "orchestration_task_requests_queue".to_string(),
+                task_finalizations: "orchestration_task_finalizations_queue".to_string(),
+                step_results: "orchestration_step_results_queue".to_string(),
             },
             pgmq: PgmqBackendConfig {
                 poll_interval_ms: 250,
@@ -207,11 +172,6 @@ mod tests {
         assert_eq!(
             config.step_results_queue_name(),
             "orchestration_step_results_queue"
-        );
-
-        assert_eq!(
-            config.worker_queue_name("fulfillment"),
-            "worker_fulfillment_queue"
         );
     }
 }

@@ -101,6 +101,7 @@ pub struct TaskTemplateDiscoveryResult {
     pub failed_registrations: usize,
     pub errors: Vec<String>,
     pub discovered_templates: Vec<String>,
+    pub discovered_namespaces: Vec<String>,
 }
 
 /// Database-first task handler registry for distributed orchestration
@@ -286,6 +287,7 @@ impl TaskHandlerRegistry {
                 failed_registrations: 0,
                 errors: Vec::new(),
                 discovered_templates: Vec::new(),
+                discovered_namespaces: Vec::new(),
             });
         }
 
@@ -295,6 +297,7 @@ impl TaskHandlerRegistry {
             failed_registrations: 0,
             errors: Vec::new(),
             discovered_templates: Vec::new(),
+            discovered_namespaces: Vec::new(),
         };
 
         // Process each YAML file
@@ -307,6 +310,9 @@ impl TaskHandlerRegistry {
                             "{}/{}/{}",
                             template.namespace_name, template.name, template.version
                         ));
+                        result
+                            .discovered_namespaces
+                            .push(template.namespace_name.clone());
                         debug!(
                             "✅ Registered template from {}: {}/{}:{}",
                             yaml_path.display(),

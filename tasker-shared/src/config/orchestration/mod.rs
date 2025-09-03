@@ -52,13 +52,7 @@ impl Default for OrchestrationConfig {
     fn default() -> Self {
         Self {
             mode: "standalone".to_string(),
-            active_namespaces: vec![
-                "fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-                "payments".to_string(),
-                "analytics".to_string(),
-            ],
+            active_namespaces: vec!["default".to_string()],
             enable_performance_logging: false,
             // Queue configuration now comes from centralized QueuesConfig
             // Event systems configuration now comes from unified TaskerConfig.event_systems
@@ -94,13 +88,7 @@ impl Default for OrchestrationSystemConfig {
 
         Self {
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            active_namespaces: vec![
-                "fulfillment".to_string(),
-                "inventory".to_string(),
-                "notifications".to_string(),
-                "payments".to_string(),
-                "analytics".to_string(),
-            ],
+            active_namespaces: vec!["default".to_string()],
             enable_performance_logging: false,
         }
     }

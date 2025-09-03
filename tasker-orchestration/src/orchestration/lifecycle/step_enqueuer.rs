@@ -225,7 +225,7 @@ impl StepEnqueuer {
                     steps_failed += 1;
 
                     // Update namespace stats
-                    let queue_name = format!("{}_queue", claimed_task.namespace_name);
+                    let queue_name = format!("worker_{}_queue", claimed_task.namespace_name);
                     let stats = namespace_breakdown
                         .entry(claimed_task.namespace_name.clone())
                         .or_insert_with(|| NamespaceEnqueueStats {
@@ -320,7 +320,7 @@ impl StepEnqueuer {
             .await?;
 
         // Enqueue to namespace-specific queue
-        let queue_name = format!("{}_queue", claimed_task.namespace_name);
+        let queue_name = format!("worker_{}_queue", claimed_task.namespace_name);
 
         info!(
             "📝 STEP_ENQUEUER: Created simple step message - targeting queue '{}' for step UUID '{}'",

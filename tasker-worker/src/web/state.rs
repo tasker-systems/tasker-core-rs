@@ -111,7 +111,10 @@ impl WorkerWebState {
 
         // Create task handler registry and task template manager
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new((*database_pool).clone()));
-        let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry));
+        let task_template_manager = Arc::new(TaskTemplateManager::with_namespaces(
+            task_handler_registry,
+            system_config.event_systems.worker.namespaces.clone(),
+        ));
 
         Ok(Self {
             worker_core,

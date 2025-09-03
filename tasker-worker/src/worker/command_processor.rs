@@ -1013,7 +1013,7 @@ mod tests {
             step_uuid: Uuid::new_v4(),
         };
 
-        let queue_name = format!("{}_{}", "test_worker", "test_namespace");
+        let queue_name = format!("{}_{}", "worker", "test_namespace");
 
         let message = PgmqMessage::<SimpleStepMessage> {
             msg_id: 1,

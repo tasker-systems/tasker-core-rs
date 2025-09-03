@@ -18,6 +18,7 @@ pub fn default_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
         supported_namespaces: vec![
+            "default".to_string(),
             "linear_workflow".to_string(),
             "diamond_workflow".to_string(),
             "tree_workflow".to_string(),
@@ -35,6 +36,7 @@ pub fn no_web_api_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
         supported_namespaces: vec![
+            "default".to_string(),
             "linear_workflow".to_string(),
             "diamond_workflow".to_string(),
             "tree_workflow".to_string(),
@@ -52,6 +54,7 @@ pub fn no_event_driven_config() -> WorkerBootstrapConfig {
     WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
         supported_namespaces: vec![
+            "default".to_string(),
             "linear_workflow".to_string(),
             "diamond_workflow".to_string(),
             "tree_workflow".to_string(),
@@ -65,7 +68,9 @@ pub fn no_event_driven_config() -> WorkerBootstrapConfig {
     }
 }
 
-pub async fn bootstrap(config: WorkerBootstrapConfig) -> Result<WorkerSystemHandle> {
+pub async fn bootstrap(
+    config: WorkerBootstrapConfig,
+) -> Result<(WorkerSystemHandle, RustEventHandler)> {
     info!("📋 Creating native Rust step handler registry...");
     let registry = Arc::new(RustStepHandlerRegistry::new());
     info!(
@@ -84,13 +89,6 @@ pub async fn bootstrap(config: WorkerBootstrapConfig) -> Result<WorkerSystemHand
         "rust-worker-demo-001".to_string(),
     );
 
-    // Start the event handler in background
-    let _event_handler_handle = tokio::spawn(async move {
-        if let Err(e) = event_handler.start().await {
-            warn!("Event handler stopped with error: {}", e);
-        }
-    });
-
     info!("✅ Event handler connected - ready to receive StepExecutionEvents");
 
     // Bootstrap the worker using tasker-worker foundation with our global event system
@@ -98,5 +96,5 @@ pub async fn bootstrap(config: WorkerBootstrapConfig) -> Result<WorkerSystemHand
     let worker_handle =
         WorkerBootstrap::bootstrap_with_event_system(config, Some(event_system)).await?;
 
-    Ok(worker_handle)
+    Ok((worker_handle, event_handler))
 }

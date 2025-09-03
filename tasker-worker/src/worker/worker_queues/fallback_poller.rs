@@ -166,7 +166,7 @@ impl WorkerFallbackPoller {
 
                 // Poll all supported namespace queues
                 for namespace in &config.supported_namespaces {
-                    let queue_name = format!("{}_queue", namespace);
+                    let queue_name = format!("worker_{}_queue", namespace);
 
                     if let Err(e) = Self::poll_namespace_queue(
                         &queue_name,

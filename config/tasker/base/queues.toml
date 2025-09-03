@@ -15,7 +15,13 @@ max_batch_size = 100
 naming_pattern = "{namespace}_{name}_queue"
 
 # Default namespaces across all backends
-default_namespaces = ["default", "fulfillment", "inventory", "notifications"]
+default_namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 
 # Queue type definitions for orchestration system
 [queues.orchestration_queues]
@@ -25,10 +31,11 @@ step_results = "orchestration_step_results_queue"
 
 # Queue type definitions for worker system
 [queues.worker_queues]
-default = "worker_default_queue"
-fulfillment = "worker_fulfillment_queue"
-inventory = "worker_inventory_queue"
-notifications = "worker_notifications_queue"
+diamond_workflow = "worker_diamond_workflow_queue"
+linear_workflow = "worker_linear_workflow_queue"
+mixed_dag_workflow = "worker_mixed_dag_workflow_queue"
+order_fulfillment = "worker_order_fulfillment_queue"
+tree_workflow = "worker_tree_workflow_queue"
 
 # Backend-specific configuration for PGMQ
 [queues.pgmq]

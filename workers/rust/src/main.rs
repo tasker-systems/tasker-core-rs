@@ -5,33 +5,21 @@
 //! while achieving significant performance improvements over Ruby equivalents.
 
 use anyhow::Result;
-use std::sync::Arc;
-use tasker_worker_rust::{
-    bootstrap::bootstrap, event_handler::RustEventHandler,
-    global_event_system::get_global_event_system, RustStepHandlerRegistry, WorkerBootstrap,
-    WorkerBootstrapConfig,
-};
+use tasker_worker_rust::{bootstrap::bootstrap, WorkerBootstrapConfig};
 use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing subscriber for structured logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("tasker_worker_rust=info".parse()?)
-                .add_directive("tasker_worker=info".parse()?)
-                .add_directive("tasker_shared=warn".parse()?),
-        )
-        .init();
+    // Use tasker-shared's structured logging initialization
+    tasker_shared::logging::init_structured_logging();
 
     info!("🚀 Starting Native Rust Worker Demonstration");
     info!("✅ TAS-41: Proving tasker-worker excellence for native Rust development");
-
     // Configure worker with all supported workflow namespaces
     let config = WorkerBootstrapConfig {
         worker_id: "rust-worker-demo-001".to_string(),
         supported_namespaces: vec![
+            "default".to_string(),
             "linear_workflow".to_string(),
             "diamond_workflow".to_string(),
             "tree_workflow".to_string(),
@@ -53,7 +41,14 @@ async fn main() -> Result<()> {
     );
     info!("   Web API: {}", config.enable_web_api);
 
-    let mut worker_handle = bootstrap(config).await?;
+    let (mut worker_handle, event_handler) = bootstrap(config).await?;
+
+    // Start event handler in background
+    tokio::spawn(async move {
+        if let Err(e) = event_handler.start().await {
+            warn!("Event handler stopped with error: {}", e);
+        }
+    });
 
     // Display successful startup information
     info!("🎉 Native Rust Worker is running!");
@@ -83,7 +78,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
     // Graceful shutdown
     info!("🔄 Shutting down worker...");
     worker_handle.stop()?;

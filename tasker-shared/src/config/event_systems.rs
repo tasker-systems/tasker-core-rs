@@ -360,11 +360,7 @@ impl Default for WorkerEventSystemMetadata {
             in_process_events: InProcessEventConfig {
                 broadcast_buffer_size: 1000,
                 ffi_integration_enabled: true,
-                queue_names: vec![
-                    "worker_fulfillment_queue".to_string(),
-                    "worker_inventory_queue".to_string(),
-                    "worker_notifications_queue".to_string(),
-                ],
+                queue_names: vec!["worker_default_queue".to_string()],
                 deduplication_cache_size: 1000,
             },
             listener: WorkerListenerConfig {
@@ -503,7 +499,7 @@ mod tests {
 
         assert_eq!(config.system_id, "worker-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
-        assert_eq!(config.namespaces, vec!["fulfillment"]);
+        assert_eq!(config.namespaces, vec!["default".to_string()]);
         assert_eq!(config.metadata.resource_limits.max_memory_mb, 2048);
         assert_eq!(
             config.metadata.in_process_events.broadcast_buffer_size,

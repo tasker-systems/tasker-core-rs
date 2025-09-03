@@ -2,7 +2,13 @@
 
 [queues]
 # Development-specific namespaces including test workflows
-default_namespaces = [ "dev_default", "dev_fulfillment", "dev_inventory", "dev_notifications", "linear_workflow", "tree_workflow"]
+default_namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 
 # Development-specific backend settings for PGMQ
 [queues.pgmq]

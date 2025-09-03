@@ -2,7 +2,13 @@
 
 [queues]
 # Test-specific namespaces including all workflow test patterns
-default_namespaces = [ "test_default", "test_fulfillment", "test_inventory", "test_notifications", "linear_workflow", "tree_workflow", "mixed_dag_workflow"]
+default_namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 
 # Test-specific backend settings for PGMQ (fast testing)
 [queues.pgmq]

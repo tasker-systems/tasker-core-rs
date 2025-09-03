@@ -16,13 +16,13 @@
 # This demonstrates real-world business logic with external service simulation
 #
 ---
-:name: business_workflow
-:namespace_name: order_fulfillment
-:version: 1.0.0
-:description: "Complete order fulfillment business workflow using native Rust handlers: validate → reserve → payment → shipping"
-:metadata:
-  :author: TAS-41 Native Rust Implementation
-  :tags:
+name: business_workflow
+namespace_name: order_fulfillment
+version: 1.0.0
+description: "Complete order fulfillment business workflow using native Rust handlers: validate → reserve → payment → shipping"
+metadata:
+  author: TAS-41 Native Rust Implementation
+  tags:
     - namespace:order_fulfillment
     - pattern:business_workflow
     - dependencies:linear_with_validation
@@ -31,13 +31,13 @@
     - type_safety:compile_time
     - business_logic:order_processing
     - external_services:simulated
-  :documentation_url: 
-  :created_at: "2025-08-29T00:00:00Z"
-  :updated_at: "2025-08-29T00:00:00Z"
-  :notes: "Native Rust implementation with sophisticated business logic and external service integration"
-:task_handler:
-  :callable: tasker_worker_rust::step_handlers::RustStepHandler
-  :initialization:
+  documentation_url: 
+  created_at: "2025-08-29T00:00:00Z"
+  updated_at: "2025-08-29T00:00:00Z"
+  notes: "Native Rust implementation with sophisticated business logic and external service integration"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
     input_validation:
       required_fields:
         - customer
@@ -58,11 +58,11 @@
       - "Native Rust execution with business logic optimization"
       - "Efficient external service simulation"
       - "Memory-safe error handling throughout business flow"
-:system_dependencies:
-  :primary: default
-  :secondary: []
-:domain_events: []
-:input_schema:
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
   type: object
   required:
     - customer
@@ -133,12 +133,12 @@
         address:
           type: object
           description: "Shipping address"
-:steps:
-  - :name: validate_order
-    :description: "Validate customer information, order items, and calculate totals"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::order_fulfillment::ValidateOrderHandler
-      :initialization:
+steps:
+  - name: validate_order
+    description: "Validate customer information, order items, and calculate totals"
+    handler:
+      callable: tasker_worker_rust::step_handlers::order_fulfillment::ValidateOrderHandler
+      initialization:
         validation_rules:
           customer_validation: strict
           item_validation: check_sku_exists
@@ -152,21 +152,21 @@
           customer_errors: fail_fast
           item_errors: detailed_reporting
           calculation_errors: retry_once
-    :system_dependency:
-    :dependencies: []
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 45
-    :publishes_events: []
-  - :name: reserve_inventory
-    :description: "Check inventory availability and create reservations"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::order_fulfillment::ReserveInventoryHandler
-      :initialization:
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 45
+    publishes_events: []
+  - name: reserve_inventory
+    description: "Check inventory availability and create reservations"
+    handler:
+      callable: tasker_worker_rust::step_handlers::order_fulfillment::ReserveInventoryHandler
+      initialization:
         inventory_rules:
           availability_check: real_time
           reservation_duration: 15_minutes
@@ -178,22 +178,22 @@
           insufficient_inventory: detailed_report
           reservation_conflicts: retry_with_backoff
           service_errors: fallback_strategies
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - validate_order
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 60
-    :publishes_events: []
-  - :name: process_payment
-    :description: "Process payment using customer payment information"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::order_fulfillment::ProcessPaymentHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+  - name: process_payment
+    description: "Process payment using customer payment information"
+    handler:
+      callable: tasker_worker_rust::step_handlers::order_fulfillment::ProcessPaymentHandler
+      initialization:
         payment_processing:
           gateway_integration: simulated
           security_validation: comprehensive
@@ -206,23 +206,23 @@
           payment_failures: detailed_logging
           security_failures: fail_immediately
           gateway_errors: retry_strategies
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - validate_order
       - reserve_inventory
-    :retry:
-      :retryable: true
-      :limit: 2
-      :backoff: exponential
-      :backoff_base_ms: 2000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 90
-    :publishes_events: []
-  - :name: ship_order
-    :description: "Create shipment and schedule delivery"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::order_fulfillment::ShipOrderHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 2
+      backoff: exponential
+      backoff_base_ms: 2000
+      max_backoff_ms: 30000
+    timeout_seconds: 90
+    publishes_events: []
+  - name: ship_order
+    description: "Create shipment and schedule delivery"
+    handler:
+      callable: tasker_worker_rust::step_handlers::order_fulfillment::ShipOrderHandler
+      initialization:
         shipping_configuration:
           carrier_integration: simulated
           tracking_generation: enabled
@@ -235,69 +235,69 @@
           weekend_delivery: disabled
           holiday_handling: skip_holidays
           address_validation: basic_checks
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - validate_order
       - reserve_inventory
       - process_payment
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 60
-    :publishes_events: []
-:environments:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 60
+    publishes_events: []
+environments:
   test:
-    :steps:
-      - :name: validate_order
-        :timeout_seconds: 20
-        :handler:
-          :initialization:
+    steps:
+      - name: validate_order
+        timeout_seconds: 20
+        handler:
+          initialization:
             fast_validation: true
             mock_external_services: true
-      - :name: reserve_inventory
-        :timeout_seconds: 30
-        :handler:
-          :initialization:
+      - name: reserve_inventory
+        timeout_seconds: 30
+        handler:
+          initialization:
             mock_inventory_service: true
             instant_reservations: true
-      - :name: process_payment
-        :timeout_seconds: 45
-        :handler:
-          :initialization:
+      - name: process_payment
+        timeout_seconds: 45
+        handler:
+          initialization:
             mock_payment_gateway: true
             always_approve: true
-      - :name: ship_order
-        :timeout_seconds: 30
-        :handler:
-          :initialization:
+      - name: ship_order
+        timeout_seconds: 30
+        handler:
+          initialization:
             mock_carrier_service: true
             instant_scheduling: true
   development:
-    :steps:
-      - :name: validate_order
-        :handler:
-          :initialization:
+    steps:
+      - name: validate_order
+        handler:
+          initialization:
             debug_mode: true
             validation_logging: verbose
             customer_debug: true
-      - :name: reserve_inventory
-        :handler:
-          :initialization:
+      - name: reserve_inventory
+        handler:
+          initialization:
             debug_mode: true
             inventory_simulation_logging: true
             reservation_tracking: detailed
-      - :name: process_payment
-        :handler:
-          :initialization:
+      - name: process_payment
+        handler:
+          initialization:
             debug_mode: true
             payment_simulation_logging: true
             security_logging: enabled
-      - :name: ship_order
-        :handler:
-          :initialization:
+      - name: ship_order
+        handler:
+          initialization:
             debug_mode: true
             shipping_simulation_logging: true
             delivery_calculation_details: true

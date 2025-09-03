@@ -22,7 +22,6 @@ use crate::orchestration::{
 use crate::web;
 use crate::web::state::AppState;
 use std::sync::Arc;
-use tasker_shared::config::web::WebConfig;
 use tasker_shared::config::ConfigManager;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
@@ -205,6 +204,11 @@ impl OrchestrationBootstrap {
 
         // Initialize OrchestrationCore with unified configuration
         let orchestration_core = Arc::new(OrchestrationCore::new(system_context.clone()).await?);
+
+        orchestration_core
+            .context
+            .initialize_orchestration_owned_queues()
+            .await?;
 
         info!("✅ BOOTSTRAP: OrchestrationCore initialized with unified configuration");
 

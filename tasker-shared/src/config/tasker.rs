@@ -49,7 +49,6 @@ pub use super::orchestration::{
 };
 pub use super::queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
-    WorkerQueuesConfig,
 };
 
 pub use super::queue_classification::{ConfigDrivenMessageEvent, QueueClassifier, QueueType};

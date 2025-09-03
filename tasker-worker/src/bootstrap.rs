@@ -273,23 +273,6 @@ impl WorkerBootstrap {
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
 
-        // Initialize namespace queues if needed
-        if !config.supported_namespaces.is_empty() {
-            let namespace_refs: Vec<&str> = config
-                .supported_namespaces
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-            worker_core
-                .context
-                .initialize_queues(&namespace_refs)
-                .await?;
-            info!(
-                "✅ BOOTSTRAP: Initialized queues for namespaces: {:?}",
-                config.supported_namespaces
-            );
-        }
-
         // Discover and load TaskTemplates to database
         info!("BOOTSTRAP: Discovering and registering TaskTemplates to database");
         match worker_core
@@ -327,7 +310,41 @@ impl WorkerBootstrap {
             }
         }
 
-        // Create web API state if enabled (before starting worker core)
+        // Initialize namespace queues if needed
+        if !config.supported_namespaces.is_empty() {
+            let namespace_refs: Vec<&str> = config
+                .supported_namespaces
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            worker_core
+                .context
+                .initialize_queues(&namespace_refs)
+                .await?;
+            info!(
+                "✅ BOOTSTRAP: Initialized queues for namespaces: {:?}",
+                config.supported_namespaces
+            );
+        }
+
+        // Start the worker core with event-driven processing before creating web state
+        info!("BOOTSTRAP: Starting WorkerCore with event-driven processing and command pattern");
+
+        // Unwrap the Arc to get ownership, start the core, then wrap in Arc again
+        let mut worker_core_owned = Arc::try_unwrap(worker_core).map_err(|_| {
+            TaskerError::WorkerError("Failed to unwrap Arc for worker core start".to_string())
+        })?;
+
+        worker_core_owned
+            .start()
+            .await
+            .map_err(|e| TaskerError::WorkerError(format!("Failed to start worker core: {}", e)))?;
+
+        let worker_core = Arc::new(worker_core_owned);
+
+        info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
+
+        // Create web API state if enabled (after starting worker core)
         let web_state = if config.enable_web_api {
             info!("BOOTSTRAP: Creating worker web API state");
 
@@ -347,14 +364,6 @@ impl WorkerBootstrap {
             info!("BOOTSTRAP: Web API disabled in configuration");
             None
         };
-
-        // Start the worker core (processor already started in new())
-        // Note: The processor is already started in WorkerCore::new(), so we just need to
-        // update the status to Running. Since WorkerCore doesn't implement Clone and is
-        // behind Arc, we'll call start through a different approach.
-        info!(
-            "BOOTSTRAP: Worker core processor already started in new(), updating status to Running"
-        );
 
         // Create runtime handle
         let runtime_handle = tokio::runtime::Handle::current();

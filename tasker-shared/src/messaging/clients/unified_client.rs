@@ -403,7 +403,7 @@ impl MessageClient for PgmqClient {
             },
         };
 
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         TaskerPgmqClientExt::send_step_message(self, &queue_name, &pgmq_message)
             .await
             .map_err(|e| {
@@ -418,7 +418,7 @@ impl MessageClient for PgmqClient {
         message: SimpleStepMessage,
     ) -> TaskerResult<()> {
         // Convert SimpleStepMessage to a basic JSON message
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         self.send_json_message(&queue_name, &message)
             .await
             .map_err(|e| {
@@ -433,7 +433,7 @@ impl MessageClient for PgmqClient {
         limit: i32,
         visibility_timeout: i32,
     ) -> TaskerResult<Vec<StepMessage>> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         let messages = self
             .read_messages(&queue_name, Some(visibility_timeout), Some(limit))
             .await
@@ -463,7 +463,7 @@ impl MessageClient for PgmqClient {
     }
 
     async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()> {
-        self.send_json_message("task_requests", &request)
+        self.send_json_message("orchestration_task_requests_queue", &request)
             .await
             .map_err(|e| {
                 crate::TaskerError::MessagingError(format!("Failed to send task request: {}", e))
@@ -473,7 +473,7 @@ impl MessageClient for PgmqClient {
 
     async fn receive_task_requests(&self, limit: i32) -> TaskerResult<Vec<TaskRequestMessage>> {
         let messages = self
-            .read_messages("task_requests", Some(30), Some(limit))
+            .read_messages("orchestration_task_requests_queue", Some(30), Some(limit))
             .await
             .map_err(|e| {
                 crate::TaskerError::MessagingError(format!(
@@ -493,7 +493,7 @@ impl MessageClient for PgmqClient {
     }
 
     async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()> {
-        self.send_json_message("orchestration_step_results", &result)
+        self.send_json_message("orchestration_step_results_queue", &result)
             .await
             .map_err(|e| {
                 crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
@@ -506,7 +506,7 @@ impl MessageClient for PgmqClient {
         limit: i32,
     ) -> TaskerResult<Vec<StepResultMessage>> {
         let messages = self
-            .read_messages("orchestration_step_results", Some(30), Some(limit))
+            .read_messages("orchestration_step_results_queue", Some(30), Some(limit))
             .await
             .map_err(|e| {
                 crate::TaskerError::MessagingError(format!("Failed to receive step results: {}", e))

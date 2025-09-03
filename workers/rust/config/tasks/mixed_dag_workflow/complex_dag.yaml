@@ -18,13 +18,13 @@
 # Final result: input^64
 #
 ---
-:name: complex_dag
-:namespace_name: mixed_dag_workflow
-:version: 1.0.0
-:description: "Complex DAG workflow using native Rust handlers: mixed patterns with linear, parallel, and convergence operations (input^64)"
-:metadata:
-  :author: TAS-41 Native Rust Implementation
-  :tags:
+name: complex_dag
+namespace_name: mixed_dag_workflow
+version: 1.0.0
+description: "Complex DAG workflow using native Rust handlers: mixed patterns with linear, parallel, and convergence operations (input^64)"
+metadata:
+  author: TAS-41 Native Rust Implementation
+  tags:
     - namespace:mixed_dag_workflow
     - pattern:complex_dag
     - dependencies:mixed_linear_parallel_convergence
@@ -33,13 +33,13 @@
     - type_safety:compile_time
     - parallelism:multi_path
     - convergence:three_way
-  :documentation_url: 
-  :created_at: "2025-08-29T00:00:00Z"
-  :updated_at: "2025-08-29T00:00:00Z"
-  :notes: "Native Rust implementation with complex mixed dependency patterns and multi-path convergence"
-:task_handler:
-  :callable: tasker_worker_rust::step_handlers::RustStepHandler
-  :initialization:
+  documentation_url: 
+  created_at: "2025-08-29T00:00:00Z"
+  updated_at: "2025-08-29T00:00:00Z"
+  notes: "Native Rust implementation with complex mixed dependency patterns and multi-path convergence"
+task_handler:
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
+  initialization:
     input_validation:
       required_fields:
         - even_number
@@ -60,11 +60,11 @@
       - "Complex dependency resolution with native Rust performance"
       - "Mixed parallel and linear execution paths"
       - "Multi-way convergence with compile-time safety"
-:system_dependencies:
-  :primary: default
-  :secondary: []
-:domain_events: []
-:input_schema:
+system_dependencies:
+  primary: default
+  secondary: []
+domain_events: []
+input_schema:
   type: object
   required:
     - even_number
@@ -74,33 +74,33 @@
       minimum: 2
       maximum: 100
       description: "Even number for complex DAG calculation"
-:steps:
-  - :name: dag_init
-    :description: "DAG initialization: Square the input even number"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagInitHandler
-      :initialization:
+steps:
+  - name: dag_init
+    description: "DAG initialization: Square the input even number"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagInitHandler
+      initialization:
         operation: square
         step_type: initialization
         description: "Initialize DAG: square the input number"
         downstream_paths:
           - dag_process_left
           - dag_process_right
-    :system_dependency:
-    :dependencies: []
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_process_left
-    :description: "Left processing path: Square the init result"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessLeftHandler
-      :initialization:
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_process_left
+    description: "Left processing path: Square the init result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessLeftHandler
+      initialization:
         operation: square
         step_type: parallel_processing
         processing_path: left
@@ -108,22 +108,22 @@
         downstream_steps:
           - dag_validate
           - dag_transform
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_init
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_process_right
-    :description: "Right processing path: Square the init result"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessRightHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_process_right
+    description: "Right processing path: Square the init result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessRightHandler
+      initialization:
         operation: square
         step_type: parallel_processing
         processing_path: right
@@ -131,22 +131,22 @@
         downstream_steps:
           - dag_validate
           - dag_analyze
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_init
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_validate
-    :description: "Validation step: Multiply both processing results and square"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagValidateHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_validate
+    description: "Validation step: Multiply both processing results and square"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagValidateHandler
+      initialization:
         operation: multiply_and_square
         step_type: convergence_validation
         description: "Validate: multiply both processing paths and square"
@@ -155,67 +155,67 @@
           - right: dag_process_right
         downstream_steps:
           - dag_finalize
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_process_left
       - dag_process_right
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_transform
-    :description: "Transform step: Square the left processing result"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagTransformHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_transform
+    description: "Transform step: Square the left processing result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagTransformHandler
+      initialization:
         operation: square
         step_type: linear_transformation
         description: "Transform: square the left processing result"
         input_path: dag_process_left
         downstream_steps:
           - dag_finalize
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_process_left
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_analyze
-    :description: "Analysis step: Square the right processing result"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagAnalyzeHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_analyze
+    description: "Analysis step: Square the right processing result"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagAnalyzeHandler
+      initialization:
         operation: square
         step_type: linear_analysis
         description: "Analyze: square the right processing result"
         input_path: dag_process_right
         downstream_steps:
           - dag_finalize
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_process_right
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 30
-    :publishes_events: []
-  - :name: dag_finalize
-    :description: "Final convergence: Multiply validate, transform, analyze results and square"
-    :handler:
-      :callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagFinalizeHandler
-      :initialization:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: dag_finalize
+    description: "Final convergence: Multiply validate, transform, analyze results and square"
+    handler:
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagFinalizeHandler
+      initialization:
         operation: multiply_three_and_square
         step_type: final_convergence
         description: "Finalize: multiply validate, transform, analyze and square"
@@ -225,71 +225,71 @@
           - dag_analyze
         convergence_pattern: "((validate × transform × analyze)²)"
         final_result: "input^64"
-    :system_dependency:
-    :dependencies:
+    system_dependency:
+    dependencies:
       - dag_validate
       - dag_transform
       - dag_analyze
-    :retry:
-      :retryable: true
-      :limit: 3
-      :backoff: exponential
-      :backoff_base_ms: 1000
-      :max_backoff_ms: 30000
-    :timeout_seconds: 45
-    :publishes_events: []
-:environments:
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 45
+    publishes_events: []
+environments:
   test:
-    :steps:
-      - :name: dag_init
-        :timeout_seconds: 10
-      - :name: dag_process_left
-        :timeout_seconds: 10
-      - :name: dag_process_right
-        :timeout_seconds: 10
-      - :name: dag_validate
-        :timeout_seconds: 15
-      - :name: dag_transform
-        :timeout_seconds: 10
-      - :name: dag_analyze
-        :timeout_seconds: 10
-      - :name: dag_finalize
-        :timeout_seconds: 20
+    steps:
+      - name: dag_init
+        timeout_seconds: 10
+      - name: dag_process_left
+        timeout_seconds: 10
+      - name: dag_process_right
+        timeout_seconds: 10
+      - name: dag_validate
+        timeout_seconds: 15
+      - name: dag_transform
+        timeout_seconds: 10
+      - name: dag_analyze
+        timeout_seconds: 10
+      - name: dag_finalize
+        timeout_seconds: 20
   development:
-    :steps:
-      - :name: dag_init
-        :handler:
-          :initialization:
+    steps:
+      - name: dag_init
+        handler:
+          initialization:
             debug_mode: true
             dag_visualization: true
-      - :name: dag_process_left
-        :handler:
-          :initialization:
+      - name: dag_process_left
+        handler:
+          initialization:
             debug_mode: true
             path_tracking: true
-      - :name: dag_process_right
-        :handler:
-          :initialization:
+      - name: dag_process_right
+        handler:
+          initialization:
             debug_mode: true
             path_tracking: true
-      - :name: dag_validate
-        :handler:
-          :initialization:
+      - name: dag_validate
+        handler:
+          initialization:
             debug_mode: true
             convergence_tracking: true
-      - :name: dag_transform
-        :handler:
-          :initialization:
+      - name: dag_transform
+        handler:
+          initialization:
             debug_mode: true
             transformation_tracking: true
-      - :name: dag_analyze
-        :handler:
-          :initialization:
+      - name: dag_analyze
+        handler:
+          initialization:
             debug_mode: true
             analysis_tracking: true
-      - :name: dag_finalize
-        :handler:
-          :initialization:
+      - name: dag_finalize
+        handler:
+          initialization:
             debug_mode: true
             final_convergence_verification: true
             dag_summary: true

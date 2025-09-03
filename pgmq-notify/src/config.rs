@@ -139,8 +139,9 @@ impl PgmqNotifyConfig {
             }
         }
 
-        // Fallback: use "default" if pattern doesn't match
-        Ok("default".to_string())
+        Err(PgmqNotifyError::Configuration {
+            message: format!("Invalid namespace: {queue_name}"),
+        })
     }
 
     /// Build channel name with optional prefix

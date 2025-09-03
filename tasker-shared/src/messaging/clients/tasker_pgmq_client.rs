@@ -159,7 +159,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         namespace: &str,
         step_message: PgmqStepMessage,
     ) -> MessagingResult<i64> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         self.send_step_message(&queue_name, &step_message).await
     }
 
@@ -170,14 +170,14 @@ impl TaskerPgmqClientExt for PgmqClient {
         visibility_timeout: Option<i32>,
         batch_size: i32,
     ) -> MessagingResult<Vec<PgmqStepMessage>> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         self.read_step_messages(&queue_name, visibility_timeout, Some(batch_size))
             .await
     }
 
     /// Complete step message processing (delete with workflow context)
     async fn complete_step_message(&self, namespace: &str, message_id: i64) -> MessagingResult<()> {
-        let queue_name = format!("{}_queue", namespace);
+        let queue_name = format!("worker_{}_queue", namespace);
         self.delete_message(&queue_name, message_id)
             .await
             .map_err(|e| crate::messaging::MessagingError::from(e))?;

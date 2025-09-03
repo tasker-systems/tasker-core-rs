@@ -2,7 +2,13 @@
 
 [queues]
 # Production-specific namespaces for enterprise features
-default_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics", "reporting", "audit", "integration"]
+default_namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 
 # Production-specific backend settings for PGMQ
 [queues.pgmq]

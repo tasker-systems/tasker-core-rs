@@ -34,7 +34,6 @@ pub mod event_systems;
 pub mod executor;
 pub mod manager;
 pub mod orchestration;
-pub mod query_cache;
 pub mod queues;
 pub mod state;
 pub mod task_readiness;
@@ -62,10 +61,8 @@ pub use orchestration::{
     event_systems::OrchestrationEventSystemConfig, task_claimer::TaskClaimerConfig, ExecutorConfig,
     ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
 };
-pub use query_cache::{CacheTypeConfig, QueryCacheConfig};
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
-    WorkerQueuesConfig,
 };
 
 pub mod queue_classification;

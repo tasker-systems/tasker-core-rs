@@ -2,12 +2,11 @@
 mode = "distributed"
 enable_performance_logging = true
 active_namespaces = [
-    "test_fulfillment",
-    "test_inventory",
-    "test_notifications",
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
     "linear_workflow",
     "tree_workflow",
-    "mixed_dag_workflow",
 ]
 heartbeat_interval_ms = 1000
 

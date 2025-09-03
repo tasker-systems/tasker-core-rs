@@ -1,11 +1,11 @@
 [orchestration]
 mode = "distributed"
 active_namespaces = [
-    "fulfillment",
-    "inventory",
-    "notifications",
-    "payments",
-    "analytics",
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
 ]
 max_concurrent_orchestrators = 3
 enable_performance_logging = false

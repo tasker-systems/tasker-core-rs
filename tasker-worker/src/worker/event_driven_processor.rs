@@ -147,7 +147,9 @@ impl EventDrivenMessageProcessor {
             namespaces: supported_namespaces.to_vec(),
             timing: EventSystemTimingConfig {
                 health_check_interval_seconds: 60,
-                fallback_polling_interval_seconds: legacy_config.fallback_polling_interval.as_secs(),
+                fallback_polling_interval_seconds: legacy_config
+                    .fallback_polling_interval
+                    .as_secs(),
                 visibility_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
                 processing_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
                 claim_timeout_seconds: 30,
@@ -173,7 +175,10 @@ impl EventDrivenMessageProcessor {
                 in_process_events: InProcessEventConfig {
                     broadcast_buffer_size: 1000,
                     ffi_integration_enabled: true,
-                    queue_names: supported_namespaces.iter().map(|ns| format!("{}_queue", ns)).collect(),
+                    queue_names: supported_namespaces
+                        .iter()
+                        .map(|ns| format!("worker_{}_queue", ns))
+                        .collect(),
                     deduplication_cache_size: 10000,
                 },
                 listener: UnifiedWorkerListenerConfig {
