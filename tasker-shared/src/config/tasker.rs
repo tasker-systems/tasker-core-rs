@@ -477,7 +477,6 @@ impl Default for TaskerConfig {
             queues: QueuesConfig::default(),
             orchestration: OrchestrationConfig {
                 mode: "distributed".to_string(),
-                active_namespaces: vec!["default".to_string()],
                 enable_performance_logging: false,
                 // Event systems configuration now comes from unified TaskerConfig.event_systems
                 // Queue configuration now comes from centralized QueuesConfig
@@ -568,14 +567,6 @@ impl TaskerConfig {
                 "queues.default_batch_size",
                 "0",
                 "batch size must be greater than 0",
-            ));
-        }
-
-        // Orchestration configuration validation
-        if self.orchestration.active_namespaces.is_empty() {
-            return Err(ConfigurationError::missing_required_field(
-                "orchestration.active_namespaces",
-                "at least one active namespace must be configured",
             ));
         }
 

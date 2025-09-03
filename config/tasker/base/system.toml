@@ -1,5 +1,4 @@
 [system]
 default_dependent_system = "default"
-default_queue_name = "default"
 version = "0.1.0"
 max_recursion_depth = 50

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Statistics about the task template cache
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheStats {
     pub total_cached: usize,
     pub cache_hits: u64,

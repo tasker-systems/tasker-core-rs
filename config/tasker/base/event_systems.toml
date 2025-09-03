@@ -11,7 +11,6 @@
 [event_systems.orchestration]
 system_id = "orchestration-event-system"
 deployment_mode = "Hybrid"
-namespaces = ["orchestration"]
 
 # Timing configuration
 [event_systems.orchestration.timing]
@@ -51,8 +50,7 @@ queues_populated_at_runtime = true
 
 [event_systems.task_readiness]
 system_id = "task-readiness-event-system"
-deployment_mode = "Hybrid"
-namespaces = []                           # Empty = all namespaces
+deployment_mode = "Hybrid"                # Empty = all namespaces
 
 # Timing configuration
 [event_systems.task_readiness.timing]
@@ -121,13 +119,6 @@ stats_interval_seconds = 60
 [event_systems.worker]
 system_id = "worker-event-system"
 deployment_mode = "Hybrid"
-namespaces = [
-    "diamond_workflow",
-    "linear_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "tree_workflow",
-]
 
 # Timing configuration
 [event_systems.worker.timing]
@@ -161,13 +152,6 @@ error_rate_threshold_per_minute = 5
 [event_systems.worker.metadata.in_process_events]
 broadcast_buffer_size = 1000
 ffi_integration_enabled = true
-queue_names = [
-    "worker_diamond_workflow_queue",
-    "worker_linear_workflow_queue",
-    "worker_mixed_dag_workflow_queue",
-    "worker_order_fulfillment_queue",
-    "worker_tree_workflow_queue",
-]
 deduplication_cache_size = 1000
 
 # PostgreSQL LISTEN/NOTIFY listener configuration
@@ -193,31 +177,3 @@ max_memory_mb = 2048
 max_cpu_percent = 80.0
 max_database_connections = 50
 max_queue_connections = 20
-
-# ============================================================================
-# CONFIGURATION NOTES
-# ============================================================================
-#
-# This unified configuration eliminates the previous configuration drift where:
-#
-# 1. Similar concepts had different names:
-#    - max_concurrent_* was inconsistently named across systems
-#    - timeout fields used different units and naming conventions
-#    - health check configurations were scattered
-#
-# 2. Common patterns were duplicated:
-#    - All systems needed timing, processing, and health configurations
-#    - Backoff configurations were repeated with slight variations
-#    - Deployment mode support was implemented differently
-#
-# 3. System-specific needs were mixed with common patterns:
-#    - Task readiness needs PostgreSQL LISTEN/NOTIFY configuration
-#    - Workers need FFI event integration and resource limits
-#    - Orchestration needs queue configuration integration
-#
-# The unified approach provides:
-# - Consistent naming across all event systems
-# - Shared common configuration patterns
-# - Clear separation of system-specific metadata
-# - Type-safe configuration with validation
-# - Single source of truth for event system configuration

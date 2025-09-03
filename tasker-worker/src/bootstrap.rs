@@ -23,6 +23,7 @@ use crate::{
     worker::core::{WorkerCore, WorkerCoreStatus},
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
+use tasker_shared::registry::TaskTemplateDiscoveryResult;
 use tasker_shared::{
     config::ConfigManager,
     errors::{TaskerError, TaskerResult},
@@ -245,25 +246,10 @@ impl WorkerBootstrap {
         // Initialize system context
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
-        // Initialize WorkerCore with unified configuration and TAS-43 event system
-        // Use first supported namespace or default
-        let namespace = config
-            .supported_namespaces
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "default_worker".to_string());
-
-        info!(
-            "BOOTSTRAP: Initializing WorkerCore for namespace: {} with TAS-43 WorkerEventSystem integration",
-            namespace
-        );
-
         let worker_core = Arc::new(
             WorkerCore::new_with_event_system(
                 system_context.clone(),
                 config.orchestration_api_config.clone(),
-                namespace.clone(),
-                Some(true), // Enable event-driven processing by default - delegates to WorkerEventSystem
                 event_system, // Use provided event system for cross-component coordination
             )
             .await?,
@@ -275,7 +261,7 @@ impl WorkerBootstrap {
 
         // Discover and load TaskTemplates to database
         info!("BOOTSTRAP: Discovering and registering TaskTemplates to database");
-        match worker_core
+        let discovery_result: Option<TaskTemplateDiscoveryResult> = match worker_core
             .task_template_manager
             .ensure_templates_in_database()
             .await
@@ -301,30 +287,34 @@ impl WorkerBootstrap {
                         discovery_result.discovered_templates
                     );
                 }
+                Some(discovery_result)
             }
             Err(e) => {
                 warn!(
                     "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {}",
                     e
                 );
+                None
             }
-        }
+        };
 
-        // Initialize namespace queues if needed
-        if !config.supported_namespaces.is_empty() {
-            let namespace_refs: Vec<&str> = config
-                .supported_namespaces
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-            worker_core
-                .context
-                .initialize_queues(&namespace_refs)
-                .await?;
-            info!(
-                "✅ BOOTSTRAP: Initialized queues for namespaces: {:?}",
-                config.supported_namespaces
-            );
+        if discovery_result.is_some() {
+            let discovery_result = discovery_result.unwrap();
+            if !discovery_result.discovered_namespaces.is_empty() {
+                let namespace_refs: Vec<&str> = discovery_result
+                    .discovered_namespaces
+                    .iter()
+                    .map(|ns| ns.as_str())
+                    .collect();
+                worker_core
+                    .context
+                    .initialize_queues(&namespace_refs)
+                    .await?;
+
+                worker_core
+                    .task_template_manager
+                    .set_supported_namespaces(discovery_result.discovered_namespaces.clone());
+            }
         }
 
         // Start the worker core with event-driven processing before creating web state

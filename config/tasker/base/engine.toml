@@ -8,7 +8,6 @@ custom_events_directories = ["config/tasker/events"]
 search_paths = [
     "config/task_templates/*.{yml,yaml}",
     "config/tasks/*.{yml,yaml}",
-    "spec/handlers/examples/**/config/*{yml,yaml}",
 ]
 
 [dependency_graph]

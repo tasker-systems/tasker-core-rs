@@ -66,7 +66,7 @@ pub async fn readiness_check(
         timestamp: Utc::now(),
         worker_id: state.worker_id(),
         checks,
-        system_info: create_system_info(&state),
+        system_info: create_system_info(&state).await,
     };
 
     if overall_healthy {
@@ -143,7 +143,7 @@ pub async fn detailed_health_check(
         timestamp: Utc::now(),
         worker_id: state.worker_id(),
         checks,
-        system_info: create_system_info(&state),
+        system_info: create_system_info(&state).await,
     })
 }
 
@@ -318,7 +318,7 @@ async fn check_step_processing_health(state: &WorkerWebState) -> HealthCheck {
 }
 
 /// Create system information summary
-fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
+async fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
     WorkerSystemInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
@@ -329,6 +329,6 @@ fn create_system_info(state: &WorkerWebState) -> WorkerSystemInfo {
             state.worker_core.status(),
             crate::worker::core::WorkerCoreStatus::Running
         ),
-        supported_namespaces: state.worker_core.supported_namespaces().to_vec(),
+        supported_namespaces: state.worker_core.supported_namespaces().await,
     }
 }

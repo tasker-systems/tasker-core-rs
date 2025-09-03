@@ -1,13 +1,6 @@
 [orchestration]
 mode = "distributed"
 enable_performance_logging = true
-active_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
 heartbeat_interval_ms = 3000
 
 [orchestration.queues.settings]

@@ -236,7 +236,9 @@ impl Default for TaskReadinessConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            event_system: Some(crate::config::event_systems::TaskReadinessEventSystemConfig::default()),
+            event_system: Some(
+                crate::config::event_systems::TaskReadinessEventSystemConfig::default(),
+            ),
             enhanced_settings: EnhancedCoordinatorSettings::default(),
             notification: TaskReadinessNotificationConfig::default(),
             fallback_polling: ReadinessFallbackConfig::default(),
@@ -423,12 +425,22 @@ impl TaskReadinessConfig {
 
     /// Check if task readiness is enabled for the deployment mode
     pub fn is_event_driven_enabled(&self) -> bool {
-        self.enabled && self.event_system.as_ref().map(|es| es.deployment_mode != DeploymentMode::PollingOnly).unwrap_or(false)
+        self.enabled
+            && self
+                .event_system
+                .as_ref()
+                .map(|es| es.deployment_mode != DeploymentMode::PollingOnly)
+                .unwrap_or(false)
     }
 
     /// Check if fallback polling should be enabled
     pub fn is_fallback_polling_enabled(&self) -> bool {
-        self.fallback_polling.enabled && self.event_system.as_ref().map(|es| es.deployment_mode == DeploymentMode::Hybrid).unwrap_or(false)
+        self.fallback_polling.enabled
+            && self
+                .event_system
+                .as_ref()
+                .map(|es| es.deployment_mode == DeploymentMode::Hybrid)
+                .unwrap_or(false)
     }
 
     /// Validate configuration for consistency

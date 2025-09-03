@@ -111,10 +111,7 @@ impl WorkerWebState {
 
         // Create task handler registry and task template manager
         let task_handler_registry = Arc::new(TaskHandlerRegistry::new((*database_pool).clone()));
-        let task_template_manager = Arc::new(TaskTemplateManager::with_namespaces(
-            task_handler_registry,
-            system_config.event_systems.worker.namespaces.clone(),
-        ));
+        let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry));
 
         Ok(Self {
             worker_core,
@@ -153,8 +150,8 @@ impl WorkerWebState {
     }
 
     /// Get supported namespaces for this worker
-    pub fn supported_namespaces(&self) -> Vec<String> {
-        self.task_template_manager.supported_namespaces().to_vec()
+    pub async fn supported_namespaces(&self) -> Vec<String> {
+        self.task_template_manager.supported_namespaces().await
     }
 
     /// Get queue name for a namespace
@@ -163,8 +160,10 @@ impl WorkerWebState {
     }
 
     /// Check if a namespace is supported by this worker
-    pub fn is_namespace_supported(&self, namespace: &str) -> bool {
-        self.task_template_manager.is_namespace_supported(namespace)
+    pub async fn is_namespace_supported(&self, namespace: &str) -> bool {
+        self.task_template_manager
+            .is_namespace_supported(namespace)
+            .await
     }
 
     /// Get task template manager reference for template operations
@@ -173,8 +172,8 @@ impl WorkerWebState {
     }
 
     /// Get task template manager statistics
-    pub fn template_cache_stats(&self) -> CacheStats {
-        self.task_template_manager.cache_stats()
+    pub async fn template_cache_stats(&self) -> CacheStats {
+        self.task_template_manager.cache_stats().await
     }
 
     /// Perform cache maintenance on task templates

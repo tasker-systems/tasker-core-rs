@@ -54,8 +54,6 @@ use uuid::Uuid;
 pub struct WorkerEventPublisher {
     /// Worker identifier for traceability
     worker_id: String,
-    /// Namespace this worker is processing
-    namespace: String,
     /// Shared event publisher for cross-language communication
     shared_publisher: SharedEventPublisher,
     /// Event system for direct publishing if needed
@@ -64,35 +62,28 @@ pub struct WorkerEventPublisher {
 
 impl WorkerEventPublisher {
     /// Create a new worker event publisher
-    pub fn new(worker_id: String, namespace: String) -> Self {
+    pub fn new(worker_id: String) -> Self {
         let event_system = Arc::new(WorkerEventSystem::new());
         let shared_publisher = event_system.create_publisher();
 
         info!(
             worker_id = %worker_id,
-            namespace = %namespace,
             "Creating WorkerEventPublisher for FFI communication"
         );
 
         Self {
             worker_id,
-            namespace,
             shared_publisher,
             event_system,
         }
     }
 
     /// Create a worker event publisher with custom event system
-    pub fn with_event_system(
-        worker_id: String,
-        namespace: String,
-        event_system: Arc<WorkerEventSystem>,
-    ) -> Self {
+    pub fn with_event_system(worker_id: String, event_system: Arc<WorkerEventSystem>) -> Self {
         let shared_publisher = event_system.create_publisher();
 
         Self {
             worker_id,
-            namespace,
             shared_publisher,
             event_system,
         }
@@ -205,7 +196,6 @@ impl WorkerEventPublisher {
 
         WorkerEventPublisherStats {
             worker_id: self.worker_id.clone(),
-            namespace: self.namespace.clone(),
             events_published: 0, // Would need to track this separately
             ffi_handlers_subscribed: system_stats.step_execution_subscribers,
             completion_subscribers: system_stats.step_completion_subscribers,
@@ -218,7 +208,6 @@ impl WorkerEventPublisher {
 #[derive(Debug, Clone)]
 pub struct WorkerEventPublisherStats {
     pub worker_id: String,
-    pub namespace: String,
     pub events_published: u64,
     pub ffi_handlers_subscribed: usize,
     pub completion_subscribers: usize,
@@ -333,19 +322,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_event_publisher_creation() {
-        let publisher =
-            WorkerEventPublisher::new("test_worker_123".to_string(), "test_namespace".to_string());
+        let publisher = WorkerEventPublisher::new("test_worker_123".to_string());
 
         assert_eq!(publisher.worker_id, "test_worker_123");
-        assert_eq!(publisher.namespace, "test_namespace");
     }
 
     #[tokio::test]
     async fn test_fire_step_execution_event() {
-        let publisher = WorkerEventPublisher::new(
-            "test_worker_123".to_string(),
-            "order_processing".to_string(),
-        );
+        let publisher = WorkerEventPublisher::new("test_worker_123".to_string());
 
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
@@ -400,10 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_step_event_payload_structure() {
-        let publisher = WorkerEventPublisher::new(
-            "test_worker_123".to_string(),
-            "order_processing".to_string(),
-        );
+        let publisher = WorkerEventPublisher::new("test_worker_123".to_string());
 
         let task_uuid = Uuid::new_v4();
         let step_uuid = Uuid::new_v4();
@@ -486,8 +467,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_correlation() {
-        let publisher =
-            WorkerEventPublisher::new("test_worker_123".to_string(), "test_namespace".to_string());
+        let publisher = WorkerEventPublisher::new("test_worker_123".to_string());
 
         let correlation_id = Uuid::new_v4();
         let task_uuid = Uuid::new_v4();
@@ -521,12 +501,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_publisher_statistics() {
-        let publisher =
-            WorkerEventPublisher::new("test_worker_123".to_string(), "test_namespace".to_string());
+        let publisher = WorkerEventPublisher::new("test_worker_123".to_string());
 
         let stats = publisher.get_statistics();
         assert_eq!(stats.worker_id, "test_worker_123");
-        assert_eq!(stats.namespace, "test_namespace");
         assert_eq!(stats.events_published, 0);
     }
 }

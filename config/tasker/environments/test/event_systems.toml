@@ -7,10 +7,6 @@
 # ORCHESTRATION EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
 
-[event_systems.orchestration]
-# Use test-specific namespaces
-namespaces = ["orchestration"]
-
 # Faster timing for tests
 [event_systems.orchestration.timing]
 health_check_interval_seconds = 10
@@ -27,10 +23,6 @@ batch_size = 5
 # ============================================================================
 # TASK READINESS EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
-
-[event_systems.task_readiness]
-# Test with specific namespaces
-namespaces = ["orchestration"]
 
 # Faster timing for tests
 [event_systems.task_readiness.timing]
@@ -49,16 +41,6 @@ batch_size = 10
 # WORKER EVENT SYSTEM - TEST OVERRIDES
 # ============================================================================
 
-[event_systems.worker]
-# Test with specific namespaces
-namespaces = [
-    "diamond_workflow",
-    "linear_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "tree_workflow",
-]
-
 # Faster timing for tests
 [event_systems.worker.timing]
 health_check_interval_seconds = 10
@@ -76,13 +58,6 @@ batch_size = 5
 [event_systems.worker.metadata.in_process_events]
 broadcast_buffer_size = 500
 ffi_integration_enabled = true
-queue_names = [
-    "worker_diamond_workflow_queue",
-    "worker_linear_workflow_queue",
-    "worker_mixed_dag_workflow_queue",
-    "worker_order_fulfillment_queue",
-    "worker_tree_workflow_queue",
-]
 deduplication_cache_size = 500
 
 [event_systems.worker.metadata.listener]

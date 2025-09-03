@@ -22,9 +22,6 @@ pub struct EventSystemConfig<T = ()> {
     /// Deployment mode (EventDrivenOnly, PollingOnly, Hybrid)
     pub deployment_mode: DeploymentMode,
 
-    /// Namespaces this event system handles (empty = all namespaces)
-    pub namespaces: Vec<String>,
-
     /// Core timing configuration
     pub timing: EventSystemTimingConfig,
 
@@ -204,6 +201,7 @@ pub struct WorkerFallbackPollerConfig {
     pub age_threshold_seconds: u64,
     pub max_age_hours: u64,
     pub visibility_timeout_seconds: u64,
+    pub supported_namespaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -377,6 +375,7 @@ impl Default for WorkerEventSystemMetadata {
                 age_threshold_seconds: 2,
                 max_age_hours: 12,
                 visibility_timeout_seconds: 30,
+                supported_namespaces: vec![],
             },
             resource_limits: WorkerResourceLimits {
                 max_memory_mb: 2048,
@@ -393,7 +392,6 @@ impl Default for OrchestrationEventSystemConfig {
         Self {
             system_id: "orchestration-event-system".to_string(),
             deployment_mode: DeploymentMode::Hybrid,
-            namespaces: vec!["orchestration".to_string()],
             timing: EventSystemTimingConfig::default(),
             processing: EventSystemProcessingConfig::default(),
             health: EventSystemHealthConfig::default(),
@@ -407,7 +405,6 @@ impl Default for TaskReadinessEventSystemConfig {
         Self {
             system_id: "task-readiness-event-system".to_string(),
             deployment_mode: DeploymentMode::Hybrid,
-            namespaces: vec![], // Empty = all namespaces
             timing: EventSystemTimingConfig::default(),
             processing: EventSystemProcessingConfig::default(),
             health: EventSystemHealthConfig::default(),
@@ -421,7 +418,6 @@ impl Default for WorkerEventSystemConfig {
         Self {
             system_id: "worker-event-system".to_string(),
             deployment_mode: DeploymentMode::Hybrid,
-            namespaces: vec!["fulfillment".to_string()],
             timing: EventSystemTimingConfig::default(),
             processing: EventSystemProcessingConfig::default(),
             health: EventSystemHealthConfig::default(),
@@ -473,7 +469,6 @@ mod tests {
 
         assert_eq!(config.system_id, "orchestration-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
-        assert_eq!(config.namespaces, vec!["orchestration"]);
         assert_eq!(config.timing.health_check_interval_seconds, 30);
         assert_eq!(config.processing.batch_size, 10);
         assert!(config.health.enabled);
@@ -485,7 +480,6 @@ mod tests {
 
         assert_eq!(config.system_id, "task-readiness-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
-        assert!(config.namespaces.is_empty()); // All namespaces
         assert_eq!(
             config.metadata.enhanced_settings.rollback_threshold_percent,
             5.0
@@ -499,7 +493,6 @@ mod tests {
 
         assert_eq!(config.system_id, "worker-event-system");
         assert_eq!(config.deployment_mode, DeploymentMode::Hybrid);
-        assert_eq!(config.namespaces, vec!["default".to_string()]);
         assert_eq!(config.metadata.resource_limits.max_memory_mb, 2048);
         assert_eq!(
             config.metadata.in_process_events.broadcast_buffer_size,

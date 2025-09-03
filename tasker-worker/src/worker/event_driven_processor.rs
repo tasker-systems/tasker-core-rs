@@ -36,23 +36,24 @@ use super::task_template_manager::TaskTemplateManager;
 /// Configuration for event-driven message processing
 #[derive(Debug, Clone)]
 pub struct EventDrivenConfig {
-    /// Enable event-driven processing (vs polling-only)
-    pub event_driven_enabled: bool,
     /// Fallback polling interval (for reliability)
     pub fallback_polling_interval: Duration,
     /// Message batch size for processing
     pub batch_size: u32,
     /// Visibility timeout for message processing
     pub visibility_timeout: Duration,
+
+    /// Deployment mode for event-driven processing
+    pub deployment_mode: DeploymentMode,
 }
 
 impl Default for EventDrivenConfig {
     fn default() -> Self {
         Self {
-            event_driven_enabled: true,
             fallback_polling_interval: Duration::from_millis(500),
             batch_size: 10,
             visibility_timeout: Duration::from_secs(30),
+            deployment_mode: DeploymentMode::Hybrid,
         }
     }
 }
@@ -96,10 +97,7 @@ impl EventDrivenMessageProcessor {
         worker_command_sender: mpsc::Sender<WorkerCommand>,
     ) -> TaskerResult<Self> {
         // Build supported namespaces list from task template manager + "default"
-        let mut supported_namespaces = task_template_manager.supported_namespaces().to_vec();
-        if !supported_namespaces.contains(&"default".to_string()) {
-            supported_namespaces.push("default".to_string());
-        }
+        let supported_namespaces = task_template_manager.supported_namespaces().await.to_vec();
 
         info!(
             supported_namespaces = ?supported_namespaces,
@@ -115,6 +113,7 @@ impl EventDrivenMessageProcessor {
             worker_event_config,
             worker_command_sender.clone(),
             context.clone(),
+            supported_namespaces.clone(),
         );
 
         Ok(Self {
@@ -131,32 +130,25 @@ impl EventDrivenMessageProcessor {
 
     /// Map legacy EventDrivenConfig to new WorkerEventSystemConfig
     fn map_config_to_new_architecture(
-        legacy_config: &EventDrivenConfig,
+        edd_config: &EventDrivenConfig,
         supported_namespaces: &[String],
         processor_id: Uuid,
     ) -> WorkerEventSystemConfig {
-        let deployment_mode = if legacy_config.event_driven_enabled {
-            DeploymentMode::Hybrid
-        } else {
-            DeploymentMode::PollingOnly
-        };
+        let deployment_mode = edd_config.deployment_mode.clone();
 
         WorkerEventSystemConfig {
             system_id: format!("legacy-event-driven-{}", processor_id),
             deployment_mode,
-            namespaces: supported_namespaces.to_vec(),
             timing: EventSystemTimingConfig {
                 health_check_interval_seconds: 60,
-                fallback_polling_interval_seconds: legacy_config
-                    .fallback_polling_interval
-                    .as_secs(),
-                visibility_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
-                processing_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                fallback_polling_interval_seconds: edd_config.fallback_polling_interval.as_secs(),
+                visibility_timeout_seconds: edd_config.visibility_timeout.as_secs(),
+                processing_timeout_seconds: edd_config.visibility_timeout.as_secs(),
                 claim_timeout_seconds: 30,
             },
             processing: EventSystemProcessingConfig {
-                max_concurrent_operations: legacy_config.batch_size as usize,
-                batch_size: legacy_config.batch_size,
+                max_concurrent_operations: edd_config.batch_size as usize,
+                batch_size: edd_config.batch_size,
                 max_retries: 3,
                 backoff: BackoffConfig {
                     initial_delay_ms: 1000,
@@ -184,17 +176,18 @@ impl EventDrivenMessageProcessor {
                 listener: UnifiedWorkerListenerConfig {
                     retry_interval_seconds: 5,
                     max_retry_attempts: 3,
-                    event_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                    event_timeout_seconds: edd_config.visibility_timeout.as_secs(),
                     batch_processing: true,
                     connection_timeout_seconds: 10,
                 },
                 fallback_poller: WorkerFallbackPollerConfig {
                     enabled: true,
-                    polling_interval_ms: legacy_config.fallback_polling_interval.as_millis() as u64,
-                    batch_size: legacy_config.batch_size,
+                    polling_interval_ms: edd_config.fallback_polling_interval.as_millis() as u64,
+                    batch_size: edd_config.batch_size,
                     age_threshold_seconds: 2,
                     max_age_hours: 12,
-                    visibility_timeout_seconds: legacy_config.visibility_timeout.as_secs(),
+                    visibility_timeout_seconds: edd_config.visibility_timeout.as_secs(),
+                    supported_namespaces: supported_namespaces.clone().into(),
                 },
                 resource_limits: WorkerResourceLimits {
                     max_memory_mb: 1024,
@@ -211,7 +204,7 @@ impl EventDrivenMessageProcessor {
         info!(
             processor_id = %self.processor_id,
             supported_namespaces = ?self.supported_namespaces,
-            deployment_mode = ?self.config.event_driven_enabled,
+            deployment_mode = ?self.config.deployment_mode,
             "Starting EventDrivenMessageProcessor bridge - delegating to WorkerEventSystem"
         );
 
@@ -268,7 +261,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                event_driven_enabled: self.config.event_driven_enabled,
+                deployment_mode: self.config.deployment_mode.clone(),
                 listener_connected: self.is_running, // Use running state as health indicator
                 messages_processed: new_stats.events_processed,
                 events_received: new_stats.events_processed, // Map to same field for simplicity
@@ -278,7 +271,7 @@ impl EventDrivenMessageProcessor {
             EventDrivenStats {
                 processor_id: self.processor_id,
                 supported_namespaces: self.supported_namespaces.clone(),
-                event_driven_enabled: self.config.event_driven_enabled,
+                deployment_mode: self.config.deployment_mode.clone(),
                 listener_connected: false,
                 messages_processed: 0,
                 events_received: 0,
@@ -295,7 +288,7 @@ impl EventDrivenMessageProcessor {
 pub struct EventDrivenStats {
     pub processor_id: Uuid,
     pub supported_namespaces: Vec<String>,
-    pub event_driven_enabled: bool,
+    pub deployment_mode: DeploymentMode,
     pub listener_connected: bool,
     pub messages_processed: u64,
     pub events_received: u64,

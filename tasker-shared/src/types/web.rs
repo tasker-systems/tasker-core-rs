@@ -410,10 +410,8 @@ pub struct WorkerHealthStatus {
 pub struct NamespaceHealth {
     pub namespace: String,
     pub queue_depth: u64,
-    pub processing_rate: f64,
-    pub active_steps: u32,
     pub health_status: String,
-    pub last_processed: Option<DateTime<Utc>>,
+    pub queue_metrics: pgmq_notify::types::QueueMetrics,
 }
 
 /// System metrics for the worker
@@ -453,7 +451,6 @@ pub struct WorkerConfigurationStatus {
     pub environment: String,
     pub database_connected: bool,
     pub event_system_enabled: bool,
-    pub command_buffer_size: usize,
     pub supported_namespaces: Vec<String>,
 }
 

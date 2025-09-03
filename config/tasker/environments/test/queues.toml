@@ -1,15 +1,5 @@
 # Test Environment Queue Configuration Overrides
 
-[queues]
-# Test-specific namespaces including all workflow test patterns
-default_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
-
 # Test-specific backend settings for PGMQ (fast testing)
 [queues.pgmq]
 poll_interval_ms = 100

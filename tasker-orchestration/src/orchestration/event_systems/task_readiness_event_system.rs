@@ -180,7 +180,6 @@ impl TaskReadinessEventSystem {
     ) -> TaskerResult<Self> {
         info!(
             system_id = %config.system_id,
-            namespaces = ?config.namespaces,
             deployment_mode = ?config.deployment_mode,
             "Creating TaskReadinessEventSystem"
         );

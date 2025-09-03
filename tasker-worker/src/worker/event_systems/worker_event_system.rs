@@ -125,6 +125,8 @@ pub struct WorkerEventSystem {
     context: Arc<SystemContext>,
     /// Running flag
     is_running: Arc<AtomicBool>,
+    /// Supported namespaces
+    supported_namespaces: Vec<String>,
 }
 
 /// Thread-safe statistics container
@@ -155,6 +157,7 @@ impl WorkerEventSystem {
         config: WorkerEventSystemConfig,
         command_sender: mpsc::Sender<WorkerCommand>,
         context: Arc<SystemContext>,
+        supported_namespaces: Vec<String>,
     ) -> Self {
         let system_id = config.system_id.clone();
         let deployment_mode = config.deployment_mode.clone();
@@ -162,7 +165,6 @@ impl WorkerEventSystem {
         info!(
             system_id = %system_id,
             deployment_mode = ?deployment_mode,
-            supported_namespaces = ?config.namespaces,
             "🔄 WORKER_EVENT_SYSTEM: Initializing with unified configuration"
         );
 
@@ -176,6 +178,7 @@ impl WorkerEventSystem {
             statistics: Arc::new(AtomicStatistics::default()),
             context,
             is_running: Arc::new(AtomicBool::new(false)),
+            supported_namespaces,
         }
     }
 
@@ -185,7 +188,6 @@ impl WorkerEventSystem {
             DeploymentMode::EventDrivenOnly | DeploymentMode::Hybrid => {
                 // Convert unified config to listener config format
                 let listener_config = WorkerListenerConfig {
-                    supported_namespaces: self.config.namespaces.clone(),
                     retry_interval: std::time::Duration::from_secs(
                         self.config.metadata.listener.retry_interval_seconds,
                     ),
@@ -198,6 +200,7 @@ impl WorkerEventSystem {
                         self.config.metadata.listener.connection_timeout_seconds,
                     ),
                     health_check_interval: std::time::Duration::from_secs(60), // Default from WorkerListenerConfig
+                    supported_namespaces: self.supported_namespaces.clone(),
                 };
 
                 // Create a notification sender - we'll convert notifications to commands
@@ -274,13 +277,13 @@ impl WorkerEventSystem {
                     max_age: std::time::Duration::from_secs(
                         self.config.metadata.fallback_poller.max_age_hours * 3600,
                     ),
-                    supported_namespaces: self.config.namespaces.clone(),
                     visibility_timeout: std::time::Duration::from_secs(
                         self.config
                             .metadata
                             .fallback_poller
                             .visibility_timeout_seconds,
                     ),
+                    supported_namespaces: self.supported_namespaces.clone(),
                 };
 
                 // Initialize fallback poller for reliability

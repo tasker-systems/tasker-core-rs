@@ -1,9 +1,7 @@
 [system]
 default_dependent_system = "default"
-default_queue_name = "default"
 
 [execution]
-environment = "development"
 max_concurrent_tasks = 25
 max_concurrent_steps = 200
 default_timeout_seconds = 300

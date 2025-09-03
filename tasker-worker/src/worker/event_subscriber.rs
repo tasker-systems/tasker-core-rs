@@ -55,8 +55,6 @@ use uuid::Uuid;
 pub struct WorkerEventSubscriber {
     /// Worker identifier for traceability
     worker_id: String,
-    /// Namespace this worker is processing
-    namespace: String,
     /// Shared event subscriber for cross-language communication
     shared_subscriber: SharedEventSubscriber,
     /// Event system for direct access if needed
@@ -69,7 +67,6 @@ pub struct WorkerEventSubscriber {
 #[derive(Debug, Clone, Default)]
 pub struct WorkerEventSubscriberStats {
     pub worker_id: String,
-    pub namespace: String,
     pub completions_received: u64,
     pub successful_completions: u64,
     pub failed_completions: u64,
@@ -95,25 +92,22 @@ pub enum WorkerEventSubscriberError {
 
 impl WorkerEventSubscriber {
     /// Create a new worker event subscriber
-    pub fn new(worker_id: String, namespace: String) -> Self {
+    pub fn new(worker_id: String) -> Self {
         let event_system = Arc::new(WorkerEventSystem::new());
         let shared_subscriber = event_system.create_subscriber();
 
         info!(
             worker_id = %worker_id,
-            namespace = %namespace,
             "Creating WorkerEventSubscriber for FFI completion events"
         );
 
         let stats = Arc::new(std::sync::Mutex::new(WorkerEventSubscriberStats {
             worker_id: worker_id.clone(),
-            namespace: namespace.clone(),
             ..Default::default()
         }));
 
         Self {
             worker_id,
-            namespace,
             shared_subscriber,
             event_system,
             stats,
@@ -121,22 +115,16 @@ impl WorkerEventSubscriber {
     }
 
     /// Create a worker event subscriber with custom event system
-    pub fn with_event_system(
-        worker_id: String,
-        namespace: String,
-        event_system: Arc<WorkerEventSystem>,
-    ) -> Self {
+    pub fn with_event_system(worker_id: String, event_system: Arc<WorkerEventSystem>) -> Self {
         let shared_subscriber = event_system.create_subscriber();
 
         let stats = Arc::new(std::sync::Mutex::new(WorkerEventSubscriberStats {
             worker_id: worker_id.clone(),
-            namespace: namespace.clone(),
             ..Default::default()
         }));
 
         Self {
             worker_id,
-            namespace,
             shared_subscriber,
             event_system,
             stats,
@@ -152,14 +140,12 @@ impl WorkerEventSubscriber {
         let mut event_receiver = self.shared_subscriber.subscribe_to_step_completions();
 
         let worker_id = self.worker_id.clone();
-        let namespace = self.namespace.clone();
         let stats = Arc::clone(&self.stats);
 
         // Spawn background task to listen for completion events
         tokio::spawn(async move {
             info!(
                 worker_id = %worker_id,
-                namespace = %namespace,
                 "Started completion event listener for FFI handlers"
             );
 
@@ -242,7 +228,6 @@ impl WorkerEventSubscriber {
         // Return current statistics (can be enhanced with system_stats data later)
         WorkerEventSubscriberStats {
             worker_id: stats.worker_id.clone(),
-            namespace: stats.namespace.clone(),
             completions_received: stats.completions_received,
             successful_completions: stats.successful_completions,
             failed_completions: stats.failed_completions,
@@ -330,8 +315,8 @@ pub struct PendingExecution {
 
 impl CorrelatedCompletionListener {
     /// Create a new correlated completion listener
-    pub fn new(worker_id: String, namespace: String) -> Self {
-        let subscriber = WorkerEventSubscriber::new(worker_id, namespace);
+    pub fn new(worker_id: String) -> Self {
+        let subscriber = WorkerEventSubscriber::new(worker_id);
         let correlation_tracker = Arc::new(std::sync::Mutex::new(HashMap::new()));
 
         Self {
@@ -488,11 +473,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_event_subscriber_creation() {
-        let subscriber =
-            WorkerEventSubscriber::new("test_worker_123".to_string(), "test_namespace".to_string());
+        let subscriber = WorkerEventSubscriber::new("test_worker_123".to_string());
 
         assert_eq!(subscriber.worker_id, "test_worker_123");
-        assert_eq!(subscriber.namespace, "test_namespace");
     }
 
     #[tokio::test]
@@ -535,10 +518,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_correlated_completion_listener() {
-        let listener = CorrelatedCompletionListener::new(
-            "test_worker_123".to_string(),
-            "test_namespace".to_string(),
-        );
+        let listener = CorrelatedCompletionListener::new("test_worker_123".to_string());
 
         let correlation_id = Uuid::new_v4();
         let task_uuid = Uuid::new_v4();
@@ -560,12 +540,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscriber_statistics() {
-        let subscriber =
-            WorkerEventSubscriber::new("test_worker_123".to_string(), "test_namespace".to_string());
+        let subscriber = WorkerEventSubscriber::new("test_worker_123".to_string());
 
         let stats = subscriber.get_statistics();
         assert_eq!(stats.worker_id, "test_worker_123");
-        assert_eq!(stats.namespace, "test_namespace");
         assert_eq!(stats.completions_received, 0);
         assert_eq!(stats.successful_completions, 0);
         assert_eq!(stats.failed_completions, 0);

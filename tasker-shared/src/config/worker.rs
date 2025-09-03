@@ -14,9 +14,6 @@ pub struct WorkerConfig {
     pub worker_id: String,
     pub worker_type: String,
 
-    /// Namespaces this worker will process
-    pub namespaces: Vec<String>,
-
     /// Step processing configuration (command pattern)
     pub step_processing: StepProcessingConfig,
 
@@ -136,7 +133,6 @@ impl Default for WorkerConfig {
         Self {
             worker_id: "worker-001".to_string(),
             worker_type: "general".to_string(),
-            namespaces: vec!["default".to_string()],
             step_processing: StepProcessingConfig::default(),
             // Event system configuration now comes from unified TaskerConfig.event_systems.worker
             health_monitoring: HealthMonitoringConfig::default(),
@@ -224,20 +220,11 @@ impl WorkerConfig {
             return Err("worker_type cannot be empty".to_string());
         }
 
-        if self.namespaces.is_empty() {
-            return Err("worker must have at least one namespace".to_string());
-        }
-
         if self.step_processing.max_concurrent_steps == 0 {
             return Err("max_concurrent_steps must be greater than 0".to_string());
         }
 
         Ok(())
-    }
-
-    /// Check if worker can process the given namespace
-    pub fn can_process_namespace(&self, namespace: &str) -> bool {
-        self.namespaces.contains(&namespace.to_string())
     }
 
     /// Get step processing concurrency limit

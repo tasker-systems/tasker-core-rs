@@ -21,9 +21,6 @@ pub struct QueuesConfig {
     pub naming_pattern: String,
     pub health_check_interval: u64,
 
-    /// Default namespaces across all backends
-    pub default_namespaces: Vec<String>,
-
     /// Queue type definitions for orchestration system
     pub orchestration_queues: OrchestrationQueuesConfig,
 
@@ -126,7 +123,6 @@ impl Default for QueuesConfig {
             max_batch_size: 100,
             health_check_interval: 60,
             naming_pattern: "{namespace}_{name}_queue".to_string(),
-            default_namespaces: vec!["default".to_string()],
             orchestration_queues: OrchestrationQueuesConfig {
                 task_requests: "orchestration_task_requests_queue".to_string(),
                 task_finalizations: "orchestration_task_finalizations_queue".to_string(),

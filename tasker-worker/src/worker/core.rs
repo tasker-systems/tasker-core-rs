@@ -68,9 +68,6 @@ pub struct WorkerCore {
 
     /// Core configuration
     pub core_id: Uuid,
-
-    /// Worker namespace for message filtering
-    pub namespace: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,37 +85,21 @@ impl WorkerCore {
     pub async fn new(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
-        namespace: String,
-        event_driven_enabled: Option<bool>,
     ) -> TaskerResult<Self> {
-        Self::new_with_event_system(
-            context,
-            orchestration_config,
-            namespace,
-            event_driven_enabled,
-            None,
-        )
-        .await
+        Self::new_with_event_system(context, orchestration_config, None).await
     }
 
     /// Create new WorkerCore with external event system
     pub async fn new_with_event_system(
         context: Arc<SystemContext>,
         orchestration_config: OrchestrationApiConfig,
-        namespace: String,
-        event_driven_enabled: Option<bool>,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<Self> {
-        info!(
-            namespace = %namespace,
-            "Creating WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
-        );
+        info!("Creating WorkerCore with Command Pattern and Event System");
 
-        let system_config = context.config_manager.config();
         // Create worker-specific components
-        let task_template_manager = Arc::new(TaskTemplateManager::with_namespaces(
+        let task_template_manager = Arc::new(TaskTemplateManager::new(
             context.task_handler_registry.clone(),
-            system_config.event_systems.worker.namespaces.clone(),
         ));
 
         let orchestration_client = Arc::new(
@@ -133,7 +114,6 @@ impl WorkerCore {
         let (processor, command_sender) = {
             if let Some(ref event_system) = event_system {
                 WorkerProcessor::new_with_event_system(
-                    namespace.clone(),
                     context.clone(),
                     task_template_manager.clone(),
                     1000, // Command buffer size
@@ -141,7 +121,6 @@ impl WorkerCore {
                 )
             } else {
                 WorkerProcessor::new(
-                    namespace.clone(),
                     context.clone(),
                     task_template_manager.clone(),
                     1000, // Command buffer size
@@ -151,10 +130,16 @@ impl WorkerCore {
 
         // Create EventDrivenMessageProcessor for TAS-43 integration
         let event_driven_config = EventDrivenConfig {
-            event_driven_enabled: event_driven_enabled.unwrap_or(true),
             fallback_polling_interval: Duration::from_millis(500),
             batch_size: 10,
             visibility_timeout: Duration::from_secs(30),
+            deployment_mode: context
+                .config_manager
+                .config()
+                .event_systems
+                .worker
+                .deployment_mode
+                .clone(),
         };
 
         let event_driven_processor = EventDrivenMessageProcessor::new(
@@ -179,14 +164,12 @@ impl WorkerCore {
             orchestration_client,
             status: WorkerCoreStatus::Created,
             core_id,
-            namespace,
         })
     }
 
     /// Start the worker core with event-driven processing
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
-            namespace = %self.namespace,
             "Starting WorkerCore with TAS-40 command pattern and TAS-43 event-driven integration"
         );
 
@@ -200,7 +183,6 @@ impl WorkerCore {
 
             info!(
                 core_id = %self.core_id,
-                namespace = %self.namespace,
                 "Event-driven message processor started successfully"
             );
         }
@@ -219,7 +201,6 @@ impl WorkerCore {
 
         info!(
             core_id = %self.core_id,
-            namespace = %self.namespace,
             "WorkerCore started successfully with TAS-40 command pattern and TAS-43 event-driven integration"
         );
 
@@ -228,10 +209,7 @@ impl WorkerCore {
 
     /// Stop the worker core and event-driven processing
     pub async fn stop(&mut self) -> TaskerResult<()> {
-        info!(
-            namespace = %self.namespace,
-            "Stopping WorkerCore with event-driven processing"
-        );
+        info!("Stopping WorkerCore with event-driven processing");
 
         self.status = WorkerCoreStatus::Stopping;
 
@@ -246,7 +224,6 @@ impl WorkerCore {
             } else {
                 info!(
                     core_id = %self.core_id,
-                    namespace = %self.namespace,
                     "Event-driven message processor stopped successfully"
                 );
             }
@@ -271,7 +248,6 @@ impl WorkerCore {
 
         info!(
             core_id = %self.core_id,
-            namespace = %self.namespace,
             "WorkerCore stopped successfully"
         );
 
@@ -296,8 +272,8 @@ impl WorkerCore {
             status: worker_status.status.clone(),
             database_connected: event_driven_connected, // Event-driven processor includes DB connectivity
             orchestration_api_reachable: true,          // TODO: Could check actual API connectivity
-            supported_namespaces: vec![worker_status.namespace.clone()],
-            cached_templates: 0, // TODO: Get from task_template_manager
+            supported_namespaces: self.task_template_manager.supported_namespaces().await,
+            template_cache_stats: Some(self.task_template_manager.cache_stats().await),
             total_messages_processed: worker_status.steps_executed,
             successful_executions: worker_status.steps_succeeded,
             failed_executions: worker_status.steps_failed,
@@ -363,23 +339,20 @@ impl WorkerCore {
     }
 
     /// Get supported namespaces
-    pub fn supported_namespaces(&self) -> &[String] {
-        self.task_template_manager.supported_namespaces()
+    pub async fn supported_namespaces(&self) -> Vec<String> {
+        self.task_template_manager.supported_namespaces().await
     }
 
     /// Check if a namespace is supported
-    pub fn is_namespace_supported(&self, namespace: &str) -> bool {
-        self.task_template_manager.is_namespace_supported(namespace)
+    pub async fn is_namespace_supported(&self, namespace: &str) -> bool {
+        self.task_template_manager
+            .is_namespace_supported(namespace)
+            .await
     }
 
     /// Get the command sender for communicating with the worker processor
     pub fn command_sender(&self) -> &mpsc::Sender<WorkerCommand> {
         &self.command_sender
-    }
-
-    /// Get the worker namespace
-    pub fn namespace(&self) -> &str {
-        &self.namespace
     }
 
     /// Get event-driven processor statistics

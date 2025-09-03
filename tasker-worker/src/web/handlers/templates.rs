@@ -61,7 +61,7 @@ pub async fn get_template(
             {
                 Ok(handler_metadata) => {
                     // Check if it was cached
-                    let cache_stats = state.task_template_manager.cache_stats();
+                    let cache_stats = state.task_template_manager.cache_stats().await;
                     let cached = cache_stats.total_cached > 0;
 
                     Ok(Json(TemplateResponse {
@@ -118,37 +118,20 @@ pub async fn list_templates(
 ) -> Result<Json<TemplateListResponse>, (StatusCode, Json<ErrorResponse>)> {
     debug!("Listing supported templates and namespaces");
 
-    let supported_namespaces = state.supported_namespaces();
-
-    // Filter by namespace if requested
-    let filtered_namespaces = if let Some(filter_namespace) = &params.namespace {
-        if state.is_namespace_supported(filter_namespace) {
-            vec![filter_namespace.to_string()]
-        } else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(error_response(
-                    "namespace_not_supported".to_string(),
-                    format!(
-                        "Namespace '{}' is not supported by this worker",
-                        filter_namespace
-                    ),
-                )),
-            ));
-        }
-    } else {
-        supported_namespaces.clone()
-    };
+    let supported_namespaces = state.supported_namespaces().await;
 
     // Get cache stats if requested
     let cache_stats = if params.include_cache_stats.unwrap_or(false) {
-        Some(state.task_template_manager.cache_stats())
+        Some(state.task_template_manager.cache_stats().await)
     } else {
         None
     };
 
-    // TODO: Get actual template count from registry
-    let template_count = 0;
+    let template_count = state
+        .task_template_manager()
+        .cache_stats()
+        .await
+        .total_cached;
 
     // Worker capabilities (static for now)
     let worker_capabilities = vec![
@@ -159,7 +142,7 @@ pub async fn list_templates(
     ];
 
     Ok(Json(TemplateListResponse {
-        supported_namespaces: filtered_namespaces,
+        supported_namespaces,
         template_count,
         cache_stats,
         worker_capabilities,
@@ -190,8 +173,10 @@ pub async fn validate_template(
             let mut errors = Vec::new();
 
             // Validate template for worker execution
-            if let Err(validation_error) =
-                state.task_template_manager.validate_for_worker(&template)
+            if let Err(validation_error) = state
+                .task_template_manager
+                .validate_for_worker(&template)
+                .await
             {
                 errors.push(validation_error.to_string());
             }
@@ -236,7 +221,7 @@ pub async fn clear_cache(
     debug!("Clearing template cache");
 
     state.task_template_manager.clear_cache();
-    let cache_stats = state.task_template_manager.cache_stats();
+    let cache_stats = state.task_template_manager.cache_stats().await;
 
     Ok(Json(CacheOperationResponse {
         operation: "clear".to_string(),
@@ -265,7 +250,7 @@ pub async fn refresh_template(
         .await
     {
         Ok(()) => {
-            let cache_stats = state.task_template_manager.cache_stats();
+            let cache_stats = state.task_template_manager.cache_stats().await;
             Ok(Json(CacheOperationResponse {
                 operation: "refresh".to_string(),
                 success: true,
@@ -300,7 +285,7 @@ pub async fn maintain_cache(
     debug!("Performing template cache maintenance");
 
     state.maintain_template_cache();
-    let cache_stats = state.task_template_manager.cache_stats();
+    let cache_stats = state.task_template_manager.cache_stats().await;
 
     Ok(Json(CacheOperationResponse {
         operation: "maintain".to_string(),
@@ -317,6 +302,6 @@ pub async fn get_cache_stats(
 ) -> Result<Json<CacheStats>, (StatusCode, Json<ErrorResponse>)> {
     debug!("Getting template cache statistics");
 
-    let cache_stats = state.task_template_manager.cache_stats();
+    let cache_stats = state.task_template_manager.cache_stats().await;
     Ok(Json(cache_stats))
 }

@@ -1,15 +1,4 @@
 # Production Environment Queue Configuration Overrides
-
-[queues]
-# Production-specific namespaces for enterprise features
-default_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
-
 # Production-specific backend settings for PGMQ
 [queues.pgmq]
 poll_interval_ms = 500

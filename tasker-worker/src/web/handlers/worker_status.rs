@@ -22,7 +22,7 @@ pub async fn worker_status(State(state): State<Arc<WorkerWebState>>) -> Json<Wor
         worker_type: state.worker_type(),
         status: "active".to_string(),
         uptime_seconds: state.uptime_seconds(),
-        configuration: create_configuration_status(&state),
+        configuration: create_configuration_status(&state).await,
         capabilities: create_capabilities_info(&state),
         performance_metrics: create_performance_metrics(&state).await,
         registered_handlers: create_registered_handlers(&state).await,
@@ -63,10 +63,10 @@ pub async fn namespace_health(
 
     let mut namespace_health = Vec::new();
 
-    for namespace in state.supported_namespaces() {
+    for namespace in state.supported_namespaces().await {
         let queue_name = state.queue_name_for_namespace(&namespace);
 
-        let (queue_depth, health_status) =
+        let (queue_depth, health_status, metrics) =
             match state.message_client.get_queue_metrics(&queue_name).await {
                 Ok(metrics) => {
                     let depth = metrics.message_count as u64;
@@ -77,18 +77,20 @@ pub async fn namespace_health(
                     } else {
                         "critical"
                     };
-                    (depth, status.to_string())
+                    (depth, status.to_string(), metrics)
                 }
-                Err(_) => (0, "unknown".to_string()),
+                Err(_) => (
+                    0,
+                    "unknown".to_string(),
+                    pgmq_notify::types::QueueMetrics::default(),
+                ),
             };
 
         namespace_health.push(NamespaceHealth {
             namespace: namespace.clone(),
             queue_depth,
-            processing_rate: 0.0, // TODO: Calculate actual processing rate from metrics
-            active_steps: 0,      // TODO: Get from database query of active workflow steps
             health_status,
-            last_processed: None, // TODO: Get timestamp of last processed step for this namespace
+            queue_metrics: metrics,
         });
     }
 
@@ -97,13 +99,17 @@ pub async fn namespace_health(
 
 // Helper functions for status creation
 
-fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurationStatus {
+async fn create_configuration_status(state: &WorkerWebState) -> WorkerConfigurationStatus {
     WorkerConfigurationStatus {
         environment: std::env::var("TASKER_ENV").unwrap_or_else(|_| "development".to_string()),
-        database_connected: true,   // TODO: Check actual database status
-        event_system_enabled: true, // TODO: Check actual event system status
-        command_buffer_size: 1000,  // TODO: Get from actual configuration
-        supported_namespaces: state.supported_namespaces(),
+        database_connected: true, // TODO: Check actual database status
+        event_system_enabled: state
+            .system_config
+            .event_systems
+            .worker
+            .deployment_mode
+            .has_event_driven(),
+        supported_namespaces: state.supported_namespaces().await,
     }
 }
 
@@ -125,7 +131,7 @@ async fn create_performance_metrics(state: &WorkerWebState) -> WorkerPerformance
     let mut _total_queue_depth = 0;
     let mut processing_rate = 0.0;
 
-    for namespace in state.supported_namespaces() {
+    for namespace in state.supported_namespaces().await {
         let queue_name = state.queue_name_for_namespace(&namespace);
         if let Ok(metrics) = state.message_client.get_queue_metrics(&queue_name).await {
             _total_queue_depth += metrics.message_count;
@@ -149,7 +155,7 @@ async fn create_registered_handlers(state: &WorkerWebState) -> Vec<RegisteredHan
     // Create placeholder handlers for each supported namespace
     let mut handlers = Vec::new();
 
-    for namespace in state.supported_namespaces() {
+    for namespace in state.supported_namespaces().await {
         handlers.push(RegisteredHandler {
             namespace: namespace.clone(),
             handler_class: format!("{}::{}Handler", namespace, namespace),

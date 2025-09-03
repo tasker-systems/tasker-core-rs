@@ -19,7 +19,6 @@ pub use event_systems::OrchestrationEventSystemConfig;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OrchestrationConfig {
     pub mode: String,
-    pub active_namespaces: Vec<String>,
     pub enable_performance_logging: bool,
     // Note: Queue configuration removed - use TaskerConfig.queues for centralized queue config
     // Note: Event systems configuration moved to unified TaskerConfig.event_systems
@@ -52,7 +51,6 @@ impl Default for OrchestrationConfig {
     fn default() -> Self {
         Self {
             mode: "standalone".to_string(),
-            active_namespaces: vec!["default".to_string()],
             enable_performance_logging: false,
             // Queue configuration now comes from centralized QueuesConfig
             // Event systems configuration now comes from unified TaskerConfig.event_systems
@@ -71,7 +69,6 @@ pub struct OrchestrationSystemConfig {
     pub orchestrator_id: String,
     /// Orchestration loop configuration
     /// Namespaces to create queues for
-    pub active_namespaces: Vec<String>,
     /// Enable comprehensive performance logging
     pub enable_performance_logging: bool,
 }
@@ -88,7 +85,6 @@ impl Default for OrchestrationSystemConfig {
 
         Self {
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            active_namespaces: vec!["default".to_string()],
             enable_performance_logging: false,
         }
     }
@@ -109,7 +105,6 @@ impl OrchestrationSystemConfig {
 
         Self {
             orchestrator_id: format!("orchestrator-{timestamp}"),
-            active_namespaces: config.orchestration.active_namespaces.clone(),
             enable_performance_logging: config.orchestration.enable_performance_logging,
         }
     }

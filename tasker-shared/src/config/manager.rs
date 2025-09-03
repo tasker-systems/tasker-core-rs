@@ -123,8 +123,7 @@ mod tests {
         config.database.password = "test_password".to_string();
         config.database.database = Some("test_db".to_string());
 
-        config.orchestration.mode = "test".to_string();
-        config.orchestration.active_namespaces = vec!["test".to_string()];
+        config.orchestration.mode = "distributed".to_string();
 
         config.queues.pgmq.poll_interval_ms = 1000;
         config.queues.default_visibility_timeout_seconds = 30;

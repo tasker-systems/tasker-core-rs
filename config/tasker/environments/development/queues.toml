@@ -1,15 +1,5 @@
 # Development Environment Queue Configuration Overrides
 
-[queues]
-# Development-specific namespaces including test workflows
-default_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
-
 # Development-specific backend settings for PGMQ
 [queues.pgmq]
 poll_interval_ms = 200

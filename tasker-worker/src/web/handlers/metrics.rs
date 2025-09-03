@@ -41,7 +41,7 @@ pub async fn prometheus_metrics(State(state): State<Arc<WorkerWebState>>) -> Htm
     ));
 
     // Queue depth metrics for each supported namespace
-    for namespace in state.supported_namespaces() {
+    for namespace in state.supported_namespaces().await {
         let queue_name = state.queue_name_for_namespace(&namespace);
         match state.message_client.get_queue_metrics(&queue_name).await {
             Ok(queue_metrics) => {
@@ -103,7 +103,7 @@ pub async fn worker_metrics(
     );
 
     // Queue metrics for each supported namespace
-    for namespace in state.supported_namespaces() {
+    for namespace in state.supported_namespaces().await {
         let queue_name = state.queue_name_for_namespace(&namespace);
         match state.message_client.get_queue_metrics(&queue_name).await {
             Ok(queue_metrics) => {

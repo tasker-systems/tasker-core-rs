@@ -3,10 +3,10 @@
 //! Local task template management that integrates with the shared TaskHandlerRegistry.
 //! Provides worker-specific template caching, validation, and namespace-aware filtering.
 
-use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use tasker_shared::{
@@ -76,8 +76,8 @@ pub struct TaskTemplateManager {
     registry: Arc<TaskHandlerRegistry>,
     /// Local cache of task templates with expiry
     cache: Arc<RwLock<HashMap<HandlerKey, CachedTemplate>>>,
-    /// Configuration for this manager
-    config: TaskTemplateManagerConfig,
+    /// Configuration for this manager (wrapped in RwLock for interior mutability)
+    config: Arc<RwLock<TaskTemplateManagerConfig>>,
     /// Cache statistics
     stats: Arc<RwLock<CacheStats>>,
 }
@@ -86,13 +86,6 @@ impl TaskTemplateManager {
     /// Create a new task template manager with default configuration
     pub fn new(registry: Arc<TaskHandlerRegistry>) -> Self {
         Self::with_config(registry, TaskTemplateManagerConfig::default())
-    }
-
-    pub fn with_namespaces(registry: Arc<TaskHandlerRegistry>, namespaces: Vec<String>) -> Self {
-        Self::with_config(
-            registry,
-            TaskTemplateManagerConfig::default().with_namespaces(namespaces),
-        )
     }
 
     /// Create a new task template manager with custom configuration
@@ -120,9 +113,19 @@ impl TaskTemplateManager {
         Self {
             registry,
             cache: Arc::new(RwLock::new(HashMap::new())),
-            config,
+            config: Arc::new(RwLock::new(config)),
             stats: Arc::new(RwLock::new(initial_stats)),
         }
+    }
+
+    /// Update supported namespaces dynamically (thread-safe with interior mutability)
+    pub async fn set_supported_namespaces(&self, namespaces: Vec<String>) {
+        let mut config = self.config.write().await;
+        config.supported_namespaces = namespaces.clone();
+
+        // Also update the stats to reflect the new namespaces
+        let mut stats = self.stats.write().await;
+        stats.supported_namespaces = namespaces;
     }
 
     /// Get a task template by namespace, name, and version
@@ -139,10 +142,11 @@ impl TaskTemplateManager {
         version: &str,
     ) -> TaskerResult<ResolvedTaskTemplate> {
         // 1. Validate namespace is supported by this worker
-        if !self.is_namespace_supported(namespace) {
+        if !self.is_namespace_supported(namespace).await {
             return Err(TaskerError::ValidationError(format!(
                 "Namespace '{}' is not supported by this worker. Supported: {:?}",
-                namespace, self.config.supported_namespaces
+                namespace,
+                self.config.read().await.supported_namespaces
             )));
         }
 
@@ -150,7 +154,7 @@ impl TaskTemplateManager {
             HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
 
         // 2. Check local cache first
-        if let Some(template) = self.get_from_cache(&handler_key) {
+        if let Some(template) = self.get_from_cache(&handler_key).await {
             self.update_cache_hit_stats();
             debug!(
                 namespace = namespace,
@@ -181,7 +185,7 @@ impl TaskTemplateManager {
         name: &str,
         version: &str,
     ) -> TaskerResult<HandlerMetadata> {
-        if !self.is_namespace_supported(namespace) {
+        if !self.is_namespace_supported(namespace).await {
             return Err(TaskerError::ValidationError(format!(
                 "Namespace '{}' is not supported by this worker",
                 namespace
@@ -192,7 +196,7 @@ impl TaskTemplateManager {
             HandlerKey::new(namespace.to_string(), name.to_string(), version.to_string());
 
         // Check if we have it cached
-        if let Some(cached) = self.get_cached_entry(&handler_key) {
+        if let Some(cached) = self.get_cached_entry(&handler_key).await {
             return Ok(cached.handler_metadata);
         }
 
@@ -219,15 +223,17 @@ impl TaskTemplateManager {
     }
 
     /// Check if a namespace is supported by this worker
-    pub fn is_namespace_supported(&self, namespace: &str) -> bool {
+    pub async fn is_namespace_supported(&self, namespace: &str) -> bool {
         self.config
+            .read()
+            .await
             .supported_namespaces
             .contains(&namespace.to_string())
     }
 
     /// Get list of supported namespaces
-    pub fn supported_namespaces(&self) -> &[String] {
-        &self.config.supported_namespaces
+    pub async fn supported_namespaces(&self) -> Vec<String> {
+        self.config.read().await.supported_namespaces.clone()
     }
 
     /// Refresh cache for a specific template
@@ -242,7 +248,7 @@ impl TaskTemplateManager {
 
         // Remove from cache to force refresh
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().await;
             cache.remove(&handler_key);
         }
 
@@ -267,8 +273,7 @@ impl TaskTemplateManager {
     ) -> TaskerResult<TaskTemplateDiscoveryResult> {
         info!(
             directory = config_directory,
-            "🔍 Worker discovering TaskTemplates for supported namespaces: {:?}",
-            self.config.supported_namespaces
+            "🔍 Worker discovering TaskTemplates",
         );
 
         // Use the registry to discover and register templates
@@ -277,42 +282,15 @@ impl TaskTemplateManager {
             .discover_and_register_templates(config_directory)
             .await?;
 
-        // Filter results to only include templates for supported namespaces
-        let mut filtered_result = TaskTemplateDiscoveryResult {
-            total_files: discovery_result.total_files,
-            successful_registrations: 0,
-            failed_registrations: discovery_result.failed_registrations,
-            errors: discovery_result.errors.clone(),
-            discovered_templates: Vec::new(),
-            discovered_namespaces: Vec::new(),
-        };
-
-        for template_key in &discovery_result.discovered_templates {
-            // Template key format is "namespace/name/version"
-            if let Some(namespace) = template_key.split('/').next() {
-                if self.is_namespace_supported(namespace) {
-                    filtered_result.successful_registrations += 1;
-                    filtered_result
-                        .discovered_templates
-                        .push(template_key.clone());
-                    info!("✅ Registered supported template: {}", template_key);
-                } else {
-                    debug!(
-                        "⏩ Skipped unsupported namespace template: {}",
-                        template_key
-                    );
-                }
-            }
-        }
-
         info!(
-            "📊 Worker template discovery complete: {} total files, {} supported templates registered, {} failed",
-            filtered_result.total_files,
-            filtered_result.successful_registrations,
-            filtered_result.failed_registrations
+            "📊 Worker template discovery complete: {} total files, {} supported templates registered, {} failed, discovered namespaces: {:?}",
+            discovery_result.total_files,
+            discovery_result.successful_registrations,
+            discovery_result.failed_registrations,
+            discovery_result.discovered_namespaces
         );
 
-        Ok(filtered_result)
+        Ok(discovery_result)
     }
 
     /// Load TaskTemplates to database during worker startup
@@ -374,12 +352,12 @@ impl TaskTemplateManager {
     }
 
     /// Clear entire cache
-    pub fn clear_cache(&self) {
-        let mut cache = self.cache.write().unwrap();
+    pub async fn clear_cache(&self) {
+        let mut cache = self.cache.write().await;
         cache.clear();
 
         // Reset stats
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().await;
         stats.total_cached = 0;
         stats.cache_evictions += cache.len() as u64;
 
@@ -387,9 +365,9 @@ impl TaskTemplateManager {
     }
 
     /// Get cache statistics
-    pub fn cache_stats(&self) -> CacheStats {
-        let cache = self.cache.read().unwrap();
-        let mut stats = self.stats.read().unwrap().clone();
+    pub async fn cache_stats(&self) -> CacheStats {
+        let cache = self.cache.read().await;
+        let mut stats = self.stats.read().await.clone();
 
         stats.total_cached = cache.len();
 
@@ -410,10 +388,10 @@ impl TaskTemplateManager {
     }
 
     /// Perform cache maintenance (remove expired entries, enforce size limits)
-    pub fn maintain_cache(&self) {
-        let mut cache = self.cache.write().unwrap();
+    pub async fn maintain_cache(&self) {
+        let mut cache = self.cache.write().await;
         let now = Instant::now();
-        let expiry_duration = Duration::from_secs(self.config.cache_expiry_seconds);
+        let expiry_duration = Duration::from_secs(self.config.read().await.cache_expiry_seconds);
 
         // Remove expired entries
         let mut expired_keys = Vec::new();
@@ -425,19 +403,19 @@ impl TaskTemplateManager {
 
         for key in expired_keys {
             cache.remove(&key);
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().await;
             stats.cache_evictions += 1;
         }
 
         // Enforce size limits using LRU eviction
-        while cache.len() > self.config.max_cache_size {
+        while cache.len() > self.config.read().await.max_cache_size {
             if let Some(lru_key) = cache
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_accessed)
                 .map(|(key, _)| key.clone())
             {
                 cache.remove(&lru_key);
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().await;
                 stats.cache_evictions += 1;
             } else {
                 break;
@@ -452,10 +430,10 @@ impl TaskTemplateManager {
 
     // Private helper methods
 
-    fn get_from_cache(&self, key: &HandlerKey) -> Option<ResolvedTaskTemplate> {
-        let mut cache = self.cache.write().unwrap();
+    async fn get_from_cache(&self, key: &HandlerKey) -> Option<ResolvedTaskTemplate> {
+        let mut cache = self.cache.write().await;
         let now = Instant::now();
-        let expiry_duration = Duration::from_secs(self.config.cache_expiry_seconds);
+        let expiry_duration = Duration::from_secs(self.config.read().await.cache_expiry_seconds);
 
         if let Some(entry) = cache.get_mut(key) {
             // Check if entry is expired
@@ -467,7 +445,7 @@ impl TaskTemplateManager {
             } else {
                 // Remove expired entry
                 cache.remove(key);
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().await;
                 stats.cache_evictions += 1;
             }
         }
@@ -475,10 +453,10 @@ impl TaskTemplateManager {
         None
     }
 
-    fn get_cached_entry(&self, key: &HandlerKey) -> Option<CachedTemplate> {
-        let cache = self.cache.read().unwrap();
+    async fn get_cached_entry(&self, key: &HandlerKey) -> Option<CachedTemplate> {
+        let cache = self.cache.read().await;
         let now = Instant::now();
-        let expiry_duration = Duration::from_secs(self.config.cache_expiry_seconds);
+        let expiry_duration = Duration::from_secs(self.config.read().await.cache_expiry_seconds);
 
         cache.get(key).and_then(|entry| {
             if now.duration_since(entry.cached_at) <= expiry_duration {
@@ -539,18 +517,18 @@ impl TaskTemplateManager {
         };
 
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().await;
             cache.insert(key.clone(), cached_entry);
 
             // Enforce cache size limits
-            while cache.len() > self.config.max_cache_size {
+            while cache.len() > self.config.read().await.max_cache_size {
                 if let Some(lru_key) = cache
                     .iter()
                     .min_by_key(|(_, entry)| entry.last_accessed)
                     .map(|(key, _)| key.clone())
                 {
                     cache.remove(&lru_key);
-                    let mut stats = self.stats.write().unwrap();
+                    let mut stats = self.stats.write().await;
                     stats.cache_evictions += 1;
                 } else {
                     break;
@@ -568,13 +546,13 @@ impl TaskTemplateManager {
         Ok(resolved_template)
     }
 
-    fn update_cache_hit_stats(&self) {
-        let mut stats = self.stats.write().unwrap();
+    async fn update_cache_hit_stats(&self) {
+        let mut stats = self.stats.write().await;
         stats.cache_hits += 1;
     }
 
-    fn update_cache_miss_stats(&self) {
-        let mut stats = self.stats.write().unwrap();
+    async fn update_cache_miss_stats(&self) {
+        let mut stats = self.stats.write().await;
         stats.cache_misses += 1;
     }
 }
@@ -593,7 +571,7 @@ impl Clone for TaskTemplateManager {
 /// Helper trait for worker-specific task template operations
 pub trait WorkerTaskTemplateOperations {
     /// Validate that a template is suitable for worker execution
-    fn validate_for_worker(&self, template: &ResolvedTaskTemplate) -> TaskerResult<()>;
+    async fn validate_for_worker(&self, template: &ResolvedTaskTemplate) -> TaskerResult<()>;
 
     /// Extract step handler callables from template
     fn extract_step_handlers(&self, template: &ResolvedTaskTemplate) -> Vec<String>;
@@ -603,9 +581,12 @@ pub trait WorkerTaskTemplateOperations {
 }
 
 impl WorkerTaskTemplateOperations for TaskTemplateManager {
-    fn validate_for_worker(&self, template: &ResolvedTaskTemplate) -> TaskerResult<()> {
+    async fn validate_for_worker(&self, template: &ResolvedTaskTemplate) -> TaskerResult<()> {
         // Validate namespace is supported
-        if !self.is_namespace_supported(&template.template.namespace_name) {
+        if !self
+            .is_namespace_supported(&template.template.namespace_name)
+            .await
+        {
             return Err(TaskerError::ValidationError(format!(
                 "Template namespace '{}' is not supported by this worker",
                 template.template.namespace_name

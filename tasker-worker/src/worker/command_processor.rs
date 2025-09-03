@@ -105,7 +105,6 @@ pub enum WorkerCommand {
 #[derive(Debug, Clone)]
 pub struct WorkerStatus {
     pub worker_id: String,
-    pub namespace: String,
     pub status: String,
     pub steps_executed: u64,
     pub steps_succeeded: u64,
@@ -143,7 +142,6 @@ pub struct EventIntegrationStatus {
 pub struct WorkerProcessor {
     /// Worker identification
     worker_id: String,
-    namespace: String,
     processor_id: Uuid,
 
     /// System context for dependencies and database access
@@ -177,19 +175,17 @@ pub struct WorkerProcessor {
 impl WorkerProcessor {
     /// Create new WorkerProcessor with command pattern
     pub fn new(
-        namespace: String,
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
         command_buffer_size: usize,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
         let (command_sender, command_receiver) = mpsc::channel(command_buffer_size);
-        let worker_id = format!("worker_{}_{}", namespace, Uuid::new_v4());
+        let worker_id = format!("worker_{}", Uuid::new_v4());
         let processor_id = Uuid::new_v4();
 
         info!(
             worker_id = %worker_id,
             processor_id = %processor_id,
-            namespace = %namespace,
             "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
@@ -201,7 +197,6 @@ impl WorkerProcessor {
 
         let processor = Self {
             worker_id: worker_id.clone(),
-            namespace: namespace.clone(),
             processor_id,
             context,
             task_template_manager,
@@ -223,18 +218,13 @@ impl WorkerProcessor {
     }
 
     pub fn new_with_event_system(
-        namespace: String,
         context: Arc<SystemContext>,
         task_template_manager: Arc<TaskTemplateManager>,
         command_buffer_size: usize,
         event_system: Arc<tasker_shared::events::WorkerEventSystem>,
     ) -> (Self, mpsc::Sender<WorkerCommand>) {
-        let (mut worker_processor, command_sender) = Self::new(
-            namespace,
-            context,
-            task_template_manager,
-            command_buffer_size,
-        );
+        let (mut worker_processor, command_sender) =
+            Self::new(context, task_template_manager, command_buffer_size);
         worker_processor.enable_event_integration_with_system(Some(event_system));
         (worker_processor, command_sender)
     }
@@ -251,7 +241,6 @@ impl WorkerProcessor {
     ) {
         info!(
             worker_id = %self.worker_id,
-            namespace = %self.namespace,
             "Enabling event integration for FFI communication"
         );
 
@@ -263,14 +252,10 @@ impl WorkerProcessor {
         // Create publisher and subscriber with shared event system
         let event_publisher = WorkerEventPublisher::with_event_system(
             self.worker_id.clone(),
-            self.namespace.clone(),
             shared_event_system.clone(),
         );
-        let event_subscriber = WorkerEventSubscriber::with_event_system(
-            self.worker_id.clone(),
-            self.namespace.clone(),
-            shared_event_system,
-        );
+        let event_subscriber =
+            WorkerEventSubscriber::with_event_system(self.worker_id.clone(), shared_event_system);
 
         self.event_publisher = Some(event_publisher);
         self.event_subscriber = Some(event_subscriber);
@@ -434,7 +419,7 @@ impl WorkerProcessor {
                 true // Continue processing
             }
             WorkerCommand::HealthCheck { resp } => {
-                let result = self.handle_health_check();
+                let result = self.handle_health_check().await;
                 let _ = resp.send(result);
                 true // Continue processing
             }
@@ -607,7 +592,6 @@ impl WorkerProcessor {
 
         let status = WorkerStatus {
             worker_id: self.worker_id.clone(),
-            namespace: self.namespace.clone(),
             status: "running".to_string(),
             steps_executed: self.stats.total_executed,
             steps_succeeded: self.stats.total_succeeded,
@@ -626,14 +610,14 @@ impl WorkerProcessor {
     }
 
     /// Handle health check request
-    fn handle_health_check(&self) -> TaskerResult<WorkerHealthStatus> {
+    async fn handle_health_check(&self) -> TaskerResult<WorkerHealthStatus> {
         let _uptime = self.start_time.elapsed().as_secs();
         let health_status = WorkerHealthStatus {
             status: "healthy".to_string(),
             database_connected: true, // TODO: Could add actual DB connectivity check
             orchestration_api_reachable: true, // TODO: Could add actual API check
-            supported_namespaces: vec![self.namespace.clone()],
-            cached_templates: self.handlers.len(),
+            supported_namespaces: self.task_template_manager.supported_namespaces().await,
+            template_cache_stats: Some(self.task_template_manager.cache_stats().await),
             total_messages_processed: self.stats.total_executed,
             successful_executions: self.stats.total_succeeded,
             failed_executions: self.stats.total_failed,
@@ -970,15 +954,8 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (processor, _sender) = WorkerProcessor::new(
-            "test_namespace".to_string(),
-            context,
-            task_template_manager,
-            100,
-        );
+        let (processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
 
-        assert_eq!(processor.namespace, "test_namespace");
-        assert!(processor.worker_id.contains("test_namespace"));
         assert_eq!(processor.stats.total_executed, 0);
         assert_eq!(processor.handlers.len(), 0);
 
@@ -1000,12 +977,7 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (mut processor, _sender) = WorkerProcessor::new(
-            "test_namespace".to_string(),
-            context,
-            task_template_manager,
-            100,
-        );
+        let (mut processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
 
         // Create a SimpleStepMessage for testing
         let step_message = SimpleStepMessage {
@@ -1047,16 +1019,10 @@ mod tests {
             context.task_handler_registry.clone(),
         ));
 
-        let (processor, _sender) = WorkerProcessor::new(
-            "test_namespace".to_string(),
-            context,
-            task_template_manager,
-            100,
-        );
+        let (processor, _sender) = WorkerProcessor::new(context, task_template_manager, 100);
 
         let status = processor.handle_get_worker_status().unwrap();
 
-        assert_eq!(status.namespace, "test_namespace");
         assert_eq!(status.status, "running");
         assert_eq!(status.steps_executed, 0);
         assert_eq!(status.registered_handlers.len(), 0);

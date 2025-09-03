@@ -3,6 +3,7 @@
 //! Health status types and utilities for worker monitoring
 
 use serde::{Deserialize, Serialize};
+use tasker_shared::types::base::CacheStats;
 
 /// Worker health status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ pub struct WorkerHealthStatus {
     pub supported_namespaces: Vec<String>,
 
     /// Number of cached templates
-    pub cached_templates: usize,
+    pub template_cache_stats: Option<CacheStats>,
 
     /// Total messages processed
     pub total_messages_processed: u64,
@@ -39,7 +40,7 @@ impl Default for WorkerHealthStatus {
             database_connected: false,
             orchestration_api_reachable: false,
             supported_namespaces: Vec::new(),
-            cached_templates: 0,
+            template_cache_stats: None,
             total_messages_processed: 0,
             successful_executions: 0,
             failed_executions: 0,

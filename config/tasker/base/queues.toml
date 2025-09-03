@@ -3,39 +3,23 @@
 
 [queues]
 # Backend selection (aligns with UnifiedMessageClient)
-backend = "pgmq"                          # Future: "rabbitmq", "redis", etc.
+backend = "pgmq"                            # Future: "rabbitmq", "redis", etc.
 orchestration_namespace = "orchestration"
 worker_namespace = "worker"
+default_namespace = "default"
+naming_pattern = "{namespace}_{name}_queue"
 
 # Universal queue configuration (backend-agnostic)
 default_visibility_timeout_seconds = 30
 health_check_interval = 60
 default_batch_size = 10
 max_batch_size = 100
-naming_pattern = "{namespace}_{name}_queue"
-
-# Default namespaces across all backends
-default_namespaces = [
-    "diamond_workflow",
-    "mixed_dag_workflow",
-    "order_fulfillment",
-    "linear_workflow",
-    "tree_workflow",
-]
 
 # Queue type definitions for orchestration system
 [queues.orchestration_queues]
 task_requests = "orchestration_task_requests_queue"
 task_finalizations = "orchestration_task_finalizations_queue"
 step_results = "orchestration_step_results_queue"
-
-# Queue type definitions for worker system
-[queues.worker_queues]
-diamond_workflow = "worker_diamond_workflow_queue"
-linear_workflow = "worker_linear_workflow_queue"
-mixed_dag_workflow = "worker_mixed_dag_workflow_queue"
-order_fulfillment = "worker_order_fulfillment_queue"
-tree_workflow = "worker_tree_workflow_queue"
 
 # Backend-specific configuration for PGMQ
 [queues.pgmq]

@@ -39,10 +39,10 @@ pub struct WorkerPollerConfig {
     pub age_threshold: Duration,
     /// Maximum message age to poll for (prevents infinite old message processing)
     pub max_age: Duration,
-    /// Supported namespaces for this worker
-    pub supported_namespaces: Vec<String>,
     /// Visibility timeout for polled messages
     pub visibility_timeout: Duration,
+    /// Supported namespaces for fallback polling
+    pub supported_namespaces: Vec<String>,
 }
 
 impl Default for WorkerPollerConfig {
@@ -53,8 +53,8 @@ impl Default for WorkerPollerConfig {
             batch_size: 10,
             age_threshold: Duration::from_secs(2), // Only poll for messages >2 seconds old
             max_age: Duration::from_secs(12 * 60 * 60), // Don't poll for messages >12 hours old
-            supported_namespaces: vec!["default".to_string()],
             visibility_timeout: Duration::from_secs(30),
+            supported_namespaces: vec![],
         }
     }
 }
@@ -109,7 +109,6 @@ impl WorkerFallbackPoller {
 
         info!(
             poller_id = %poller_id,
-            supported_namespaces = ?config.supported_namespaces,
             polling_interval = ?config.polling_interval,
             "Creating WorkerFallbackPoller"
         );
@@ -136,7 +135,6 @@ impl WorkerFallbackPoller {
 
         info!(
             poller_id = %self.poller_id,
-            supported_namespaces = ?self.config.supported_namespaces,
             polling_interval = ?self.config.polling_interval,
             "Starting WorkerFallbackPoller"
         );
