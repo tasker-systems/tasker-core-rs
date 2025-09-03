@@ -185,153 +185,140 @@ impl OrchestrationResultProcessor {
             "🔍 TASK_COORDINATION: Processing step result notification for task coordination"
         );
 
-        // TAS-32: NO STATE UPDATES - Ruby workers handle step state transitions and result saving
-        // Rust orchestration only coordinates task-level finalization
+        debug!(
+            step_uuid = %step_uuid,
+            status = %status,
+            "🔍 TASK_COORDINATION: Status qualifies for finalization check - looking up WorkflowStep"
+        );
 
-        // TAS-37: Use finalization claiming to prevent race conditions
-        if matches!(status.as_str(), "success" | "failed") {
-            debug!(
-                step_uuid = %step_uuid,
-                status = %status,
-                "🔍 TASK_COORDINATION: Status qualifies for finalization check - looking up WorkflowStep"
-            );
+        match WorkflowStep::find_by_id(self.context.database_pool(), step_uuid).await {
+            Ok(Some(workflow_step)) => {
+                info!(
+                    step_uuid = %step_uuid,
+                    task_uuid = %workflow_step.task_uuid,
+                    "🔍 TASK_COORDINATION: Found WorkflowStep - attempting finalization claim"
+                );
 
-            match WorkflowStep::find_by_id(self.context.database_pool(), step_uuid).await {
-                Ok(Some(workflow_step)) => {
-                    info!(
-                        step_uuid = %step_uuid,
-                        task_uuid = %workflow_step.task_uuid,
-                        "🔍 TASK_COORDINATION: Found WorkflowStep - attempting finalization claim"
-                    );
+                // Try to claim the task for finalization
+                match self
+                    .finalization_claimer
+                    .claim_task(workflow_step.task_uuid)
+                    .await
+                {
+                    Ok(claim_result) => {
+                        if claim_result.claimed {
+                            // We got the claim - proceed with finalization
+                            info!(
+                                task_uuid = %workflow_step.task_uuid,
+                                processor_id = %self.processor_id,
+                                step_uuid = %step_uuid,
+                                "✅ TASK_COORDINATION: Successfully claimed task for finalization"
+                            );
 
-                    // Try to claim the task for finalization
-                    match self
-                        .finalization_claimer
-                        .claim_task(workflow_step.task_uuid)
-                        .await
-                    {
-                        Ok(claim_result) => {
-                            if claim_result.claimed {
-                                // We got the claim - proceed with finalization
-                                info!(
-                                    task_uuid = %workflow_step.task_uuid,
-                                    processor_id = %self.processor_id,
-                                    step_uuid = %step_uuid,
-                                    "✅ TASK_COORDINATION: Successfully claimed task for finalization"
-                                );
+                            // Perform finalization with the claim
+                            debug!(
+                                task_uuid = %workflow_step.task_uuid,
+                                step_uuid = %step_uuid,
+                                "🔍 TASK_COORDINATION: Calling TaskFinalizer.finalize_task"
+                            );
 
-                                // Perform finalization with the claim
-                                debug!(
-                                    task_uuid = %workflow_step.task_uuid,
-                                    step_uuid = %step_uuid,
-                                    "🔍 TASK_COORDINATION: Calling TaskFinalizer.finalize_task"
-                                );
+                            match self
+                                .task_finalizer
+                                .finalize_task(workflow_step.task_uuid, false)
+                                .await
+                            {
+                                Ok(result) => {
+                                    info!(
+                                        task_uuid = %workflow_step.task_uuid,
+                                        step_uuid = %step_uuid,
+                                        action = ?result.action,
+                                        reason = ?result.reason,
+                                        "✅ TASK_COORDINATION: Task finalization completed successfully"
+                                    );
 
-                                match self
-                                    .task_finalizer
-                                    .finalize_task(workflow_step.task_uuid, false)
-                                    .await
-                                {
-                                    Ok(result) => {
-                                        info!(
-                                            task_uuid = %workflow_step.task_uuid,
-                                            step_uuid = %step_uuid,
-                                            action = ?result.action,
-                                            reason = ?result.reason,
-                                            "✅ TASK_COORDINATION: Task finalization completed successfully"
-                                        );
-
-                                        // Release the claim after successful finalization
-                                        if let Err(e) = self
-                                            .finalization_claimer
-                                            .release_claim(workflow_step.task_uuid)
-                                            .await
-                                        {
-                                            warn!(
-                                                task_uuid = %workflow_step.task_uuid,
-                                                step_uuid = %step_uuid,
-                                                error = %e,
-                                                "⚠️ TASK_COORDINATION: Failed to release finalization claim after successful finalization"
-                                            );
-                                        } else {
-                                            debug!(
-                                                task_uuid = %workflow_step.task_uuid,
-                                                step_uuid = %step_uuid,
-                                                "🔍 TASK_COORDINATION: Successfully released finalization claim"
-                                            );
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
+                                    // Release the claim after successful finalization
+                                    if let Err(e) = self
+                                        .finalization_claimer
+                                        .release_claim(workflow_step.task_uuid)
+                                        .await
+                                    {
+                                        warn!(
                                             task_uuid = %workflow_step.task_uuid,
                                             step_uuid = %step_uuid,
                                             error = %e,
-                                            "❌ TASK_COORDINATION: Task finalization failed"
+                                            "⚠️ TASK_COORDINATION: Failed to release finalization claim after successful finalization"
                                         );
-                                        // Release claim on error
-                                        if let Err(release_err) = self
-                                            .finalization_claimer
-                                            .release_claim(workflow_step.task_uuid)
-                                            .await
-                                        {
-                                            warn!(
-                                                task_uuid = %workflow_step.task_uuid,
-                                                step_uuid = %step_uuid,
-                                                release_error = %release_err,
-                                                "⚠️ TASK_COORDINATION: Failed to release finalization claim after finalization error"
-                                            );
-                                        } else {
-                                            debug!(
-                                                task_uuid = %workflow_step.task_uuid,
-                                                step_uuid = %step_uuid,
-                                                "🔍 TASK_COORDINATION: Released finalization claim after finalization error"
-                                            );
-                                        }
-                                        return Err(e.into());
+                                    } else {
+                                        debug!(
+                                            task_uuid = %workflow_step.task_uuid,
+                                            step_uuid = %step_uuid,
+                                            "🔍 TASK_COORDINATION: Successfully released finalization claim"
+                                        );
                                     }
-                                };
-                            } else {
-                                // Another processor is handling or will handle finalization
-                                debug!(
-                                    task_uuid = %workflow_step.task_uuid,
-                                    step_uuid = %step_uuid,
-                                    already_claimed_by = ?claim_result.already_claimed_by,
-                                    reason = ?claim_result.message,
-                                    "🔍 TASK_COORDINATION: Task finalization not needed or already claimed by another processor"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!(
+                                }
+                                Err(e) => {
+                                    error!(
+                                        task_uuid = %workflow_step.task_uuid,
+                                        step_uuid = %step_uuid,
+                                        error = %e,
+                                        "❌ TASK_COORDINATION: Task finalization failed"
+                                    );
+                                    // Release claim on error
+                                    if let Err(release_err) = self
+                                        .finalization_claimer
+                                        .release_claim(workflow_step.task_uuid)
+                                        .await
+                                    {
+                                        warn!(
+                                            task_uuid = %workflow_step.task_uuid,
+                                            step_uuid = %step_uuid,
+                                            release_error = %release_err,
+                                            "⚠️ TASK_COORDINATION: Failed to release finalization claim after finalization error"
+                                        );
+                                    } else {
+                                        debug!(
+                                            task_uuid = %workflow_step.task_uuid,
+                                            step_uuid = %step_uuid,
+                                            "🔍 TASK_COORDINATION: Released finalization claim after finalization error"
+                                        );
+                                    }
+                                    return Err(e.into());
+                                }
+                            };
+                        } else {
+                            // Another processor is handling or will handle finalization
+                            debug!(
                                 task_uuid = %workflow_step.task_uuid,
                                 step_uuid = %step_uuid,
-                                error = %e,
-                                "❌ TASK_COORDINATION: Failed to attempt finalization claim"
+                                already_claimed_by = ?claim_result.already_claimed_by,
+                                reason = ?claim_result.message,
+                                "🔍 TASK_COORDINATION: Task finalization not needed or already claimed by another processor"
                             );
                         }
                     }
-                }
-                Ok(None) => {
-                    error!(
-                        step_uuid = %step_uuid,
-                        "❌ TASK_COORDINATION: WorkflowStep not found for step UUID during finalization check"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        step_uuid = %step_uuid,
-                        error = %e,
-                        "❌ TASK_COORDINATION: Failed to lookup WorkflowStep during finalization check"
-                    );
+                    Err(e) => {
+                        error!(
+                            task_uuid = %workflow_step.task_uuid,
+                            step_uuid = %step_uuid,
+                            error = %e,
+                            "❌ TASK_COORDINATION: Failed to attempt finalization claim"
+                        );
+                    }
                 }
             }
-        } else {
-            // For non-terminal status, just log - no coordination needed
-            debug!(
-                step_uuid = %step_uuid,
-                status = %status,
-                "🔍 TASK_COORDINATION: Step status '{}' does not require finalization check - no coordination action needed", status
-            );
+            Ok(None) => {
+                error!(
+                    step_uuid = %step_uuid,
+                    "❌ TASK_COORDINATION: WorkflowStep not found for step UUID during finalization check"
+                );
+            }
+            Err(e) => {
+                error!(
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "❌ TASK_COORDINATION: Failed to lookup WorkflowStep during finalization check"
+                );
+            }
         }
 
         Ok(())

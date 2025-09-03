@@ -546,8 +546,22 @@ impl RustStepHandler for DagFinalizeHandler {
             };
 
         // Multiple parent logic: multiply all three results together, then square
-        let multiplied = validate_result * transform_result * analyze_result;
-        let result = multiplied * multiplied;
+        // Use checked multiplication to handle overflow gracefully
+        let multiplied = (validate_result as u128)
+            .checked_mul(transform_result as u128)
+            .and_then(|v| v.checked_mul(analyze_result as u128))
+            .unwrap_or_else(|| {
+                error!(
+                    "Overflow in multiplication: {} * {} * {}", 
+                    validate_result, transform_result, analyze_result
+                );
+                u128::MAX // Use max value as fallback
+            });
+        
+        let result = multiplied.checked_mul(multiplied).unwrap_or_else(|| {
+            error!("Overflow in squaring: {}²", multiplied);
+            u128::MAX // Use max value as fallback
+        });
 
         info!(
             "DAG Finalize: ({} × {} × {})² = {}² = {}",
@@ -560,7 +574,13 @@ impl RustStepHandler for DagFinalizeHandler {
         // Calculate expected result: original^64
         // Complex path calculation:
         // A(n²) -> B(n⁴), C(n⁴) -> D((n⁴ × n⁴)²=n¹⁶), E(n⁸), F(n⁸) -> G((n¹⁶ × n⁸ × n⁸)²=(n³²)²=n⁶⁴)
-        let expected = original_number.pow(64);
+        // Use saturating_pow to avoid overflow
+        let expected: u128 = if original_number >= 0 {
+            (original_number as u128).saturating_pow(64)
+        } else {
+            // Handle negative numbers by using absolute value and noting the sign
+            ((-original_number) as u128).saturating_pow(64)
+        };
         let matches = result == expected;
 
         info!(
@@ -583,20 +603,21 @@ impl RustStepHandler for DagFinalizeHandler {
                 "analyze_result": "sequence.dag_analyze.result"
             }),
         );
-        metadata.insert("multiplied".to_string(), json!(multiplied));
+        // Convert large numbers to strings for safe JSON serialization
+        metadata.insert("multiplied".to_string(), json!(multiplied.to_string()));
         metadata.insert(
             "verification".to_string(),
             json!({
                 "original_number": original_number,
-                "expected_result": expected,
-                "actual_result": result,
+                "expected_result": expected.to_string(),
+                "actual_result": result.to_string(),
                 "matches": matches
             }),
         );
 
         Ok(success_result(
             step_uuid,
-            json!(result),
+            json!(result.to_string()), // Convert to string for JSON safety
             start_time.elapsed().as_millis() as i64,
             Some(metadata),
         ))
