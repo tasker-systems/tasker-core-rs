@@ -1325,6 +1325,54 @@ impl WorkflowStep {
         }
     }
 
+    /// Check if step can be enqueued for orchestration (must be in in_progress state)
+    ///
+    /// This method determines if a step is eligible for orchestration processing
+    /// by checking if it's currently in the in_progress state.
+    pub async fn can_be_enqueued_for_orchestration(
+        &self,
+        pool: &PgPool,
+    ) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "in_progress"),
+            None => Ok(false), // No state means can't be enqueued for orchestration
+        }
+    }
+
+    /// Check if step can be completed from orchestration (must be in enqueued_for_orchestration state)
+    ///
+    /// This method determines if a step is eligible for completion from orchestration
+    /// by checking if it's currently in the enqueued_for_orchestration state.
+    pub async fn can_be_completed_from_orchestration(
+        &self,
+        pool: &PgPool,
+    ) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "enqueued_for_orchestration"),
+            None => Ok(false), // No state means can't be completed from orchestration
+        }
+    }
+
+    /// Check if step can be failed from orchestration (must be in enqueued_for_orchestration state)
+    ///
+    /// This method determines if a step is eligible for failure from orchestration
+    /// by checking if it's currently in the enqueued_for_orchestration state.
+    pub async fn can_be_failed_from_orchestration(
+        &self,
+        pool: &PgPool,
+    ) -> Result<bool, sqlx::Error> {
+        let current_state = self.get_current_state(pool).await?;
+
+        match current_state {
+            Some(state) => Ok(state == "enqueued_for_orchestration"),
+            None => Ok(false), // No state means can't be failed from orchestration
+        }
+    }
+
     /// Count unmet dependencies for this step
     ///
     /// Returns the count of parent steps that are not in a complete state.

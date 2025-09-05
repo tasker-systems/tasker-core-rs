@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use sqlx::PgPool;
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// Trait for implementing state transition actions
@@ -140,141 +141,260 @@ impl StateAction<Task> for UpdateTaskCompletionAction {
 /// Action to update step results when completing
 pub struct UpdateStepResultsAction;
 
+impl UpdateStepResultsAction {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub async fn handle_move_to_in_progress(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        _event: &str,
+    ) -> ActionResult<()> {
+        let mut step_clone = step.clone();
+        step_clone
+            .mark_in_process(pool)
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_uuid.to_string(),
+                reason: format!("Failed to mark step as in process: {e}"),
+            })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            "Step marked as in_process with legacy flag updated"
+        );
+        Ok(())
+    }
+
+    pub async fn handle_move_to_completed(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        event: &str,
+    ) -> ActionResult<()> {
+        // Extract results from event if available
+        let results = extract_results_from_event(event)?;
+
+        // Update the legacy processed boolean flag and processed_at timestamp
+        // This ensures compatibility with SQL functions and queries that rely on these flags
+        let mut step_clone = step.clone();
+        step_clone
+            .mark_processed(pool, results.clone())
+            .await
+            .map_err(|e| ActionError::DatabaseUpdateFailed {
+                entity_type: "WorkflowStep".to_string(),
+                entity_id: step.workflow_step_uuid.to_string(),
+                reason: format!("Failed to mark step as processed: {e}"),
+            })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            ?results,
+            "Step marked as complete with results and legacy flags updated"
+        );
+        Ok(())
+    }
+
+    pub async fn handle_move_to_error(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        _event: &str,
+    ) -> ActionResult<()> {
+        // When a step fails, it's no longer in process
+        sqlx::query!(
+            r#"
+        UPDATE tasker_workflow_steps
+        SET in_process = false,
+            updated_at = NOW()
+        WHERE workflow_step_uuid = $1
+        "#,
+            step.workflow_step_uuid
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| ActionError::DatabaseUpdateFailed {
+            entity_type: "WorkflowStep".to_string(),
+            entity_id: step.workflow_step_uuid.to_string(),
+            reason: format!("Failed to mark step as not in process after error: {e}"),
+        })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            "Step marked as not in_process after error"
+        );
+        Ok(())
+    }
+
+    pub async fn handle_move_to_cancelled(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        _event: &str,
+    ) -> ActionResult<()> {
+        sqlx::query!(
+            r#"
+        UPDATE tasker_workflow_steps
+        SET in_process = false,
+            processed = true,
+            processed_at = NOW(),
+            updated_at = NOW()
+        WHERE workflow_step_uuid = $1
+        "#,
+            step.workflow_step_uuid
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| ActionError::DatabaseUpdateFailed {
+            entity_type: "WorkflowStep".to_string(),
+            entity_id: step.workflow_step_uuid.to_string(),
+            reason: format!("Failed to mark cancelled step as processed: {e}"),
+        })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            "Cancelled step marked as processed and not in_process"
+        );
+        Ok(())
+    }
+
+    pub async fn handle_move_to_enqueued_for_orchestration(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        event: &str,
+    ) -> ActionResult<()> {
+        // Extract results from event if available for later orchestration processing
+        let results = extract_results_from_event(event)?;
+
+        // Update step to no longer be in_process since worker has completed
+        // but don't mark as processed yet - orchestration will do that
+        sqlx::query!(
+            r#"
+        UPDATE tasker_workflow_steps
+        SET in_process = false,
+            results = $2,
+            updated_at = NOW()
+        WHERE workflow_step_uuid = $1
+        "#,
+            step.workflow_step_uuid,
+            results.as_ref().map(|r| serde_json::to_value(r).unwrap())
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| ActionError::DatabaseUpdateFailed {
+            entity_type: "WorkflowStep".to_string(),
+            entity_id: step.workflow_step_uuid.to_string(),
+            reason: format!("Failed to mark step as enqueued for orchestration: {e}"),
+        })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            ?results,
+            "Step marked as enqueued for orchestration with results preserved"
+        );
+        Ok(())
+    }
+
+    pub async fn handle_move_to_resolved_manually(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        _event: &str,
+    ) -> ActionResult<()> {
+        sqlx::query!(
+            r#"
+        UPDATE tasker_workflow_steps
+        SET in_process = false,
+            processed = true,
+            processed_at = NOW(),
+            updated_at = NOW()
+        WHERE workflow_step_uuid = $1
+        "#,
+            step.workflow_step_uuid
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| ActionError::DatabaseUpdateFailed {
+            entity_type: "WorkflowStep".to_string(),
+            entity_id: step.workflow_step_uuid.to_string(),
+            reason: format!("Failed to mark manually resolved step as processed: {e}"),
+        })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            "Manually resolved step marked as processed and not in_process"
+        );
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl StateAction<WorkflowStep> for UpdateStepResultsAction {
     async fn execute(
         &self,
         step: &WorkflowStep,
-        _from_state: Option<String>,
+        from_state: Option<String>,
         to_state: String,
         event: &str,
         pool: &PgPool,
     ) -> ActionResult<()> {
-        // Handle transition to in_progress state
-        if to_state == WorkflowStepState::InProgress.to_string() {
-            let mut step_clone = step.clone();
-            step_clone.mark_in_process(pool).await.map_err(|e| {
-                ActionError::DatabaseUpdateFailed {
-                    entity_type: "WorkflowStep".to_string(),
-                    entity_id: step.workflow_step_uuid.to_string(),
-                    reason: format!("Failed to mark step as in process: {e}"),
-                }
-            })?;
+        let moving_to_state = match WorkflowStepState::from_str(&to_state) {
+            Ok(state) => state,
+            Err(e) => {
+                return Err(ActionError::InvalidStateTransition {
+                    from_state: from_state,
+                    to_state,
+                    reason: format!("Failed to parse state: {e}"),
+                })
+            }
+        };
 
-            tracing::info!(
-                step_uuid = %step.workflow_step_uuid,
-                task_uuid = %step.task_uuid,
-                "Step marked as in_process with legacy flag updated"
-            );
-        }
-
-        // Handle transition to complete state
-        if to_state == WorkflowStepState::Complete.to_string() {
-            // Extract results from event if available
-            let results = extract_results_from_event(event)?;
-
-            // Update the legacy processed boolean flag and processed_at timestamp
-            // This ensures compatibility with SQL functions and queries that rely on these flags
-            let mut step_clone = step.clone();
-            step_clone
-                .mark_processed(pool, results.clone())
-                .await
-                .map_err(|e| ActionError::DatabaseUpdateFailed {
-                    entity_type: "WorkflowStep".to_string(),
-                    entity_id: step.workflow_step_uuid.to_string(),
-                    reason: format!("Failed to mark step as processed: {e}"),
-                })?;
-
-            tracing::info!(
-                step_uuid = %step.workflow_step_uuid,
-                task_uuid = %step.task_uuid,
-                ?results,
-                "Step marked as complete with results and legacy flags updated"
-            );
-        }
-
-        // Handle transition to error state - mark as no longer in_process
-        if to_state == WorkflowStepState::Error.to_string() {
-            // When a step fails, it's no longer in process
-            sqlx::query!(
-                r#"
-                UPDATE tasker_workflow_steps
-                SET in_process = false,
-                    updated_at = NOW()
-                WHERE workflow_step_uuid = $1
-                "#,
-                step.workflow_step_uuid
-            )
-            .execute(pool)
-            .await
-            .map_err(|e| ActionError::DatabaseUpdateFailed {
-                entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_uuid.to_string(),
-                reason: format!("Failed to mark step as not in process after error: {e}"),
-            })?;
-
-            tracing::info!(
-                step_uuid = %step.workflow_step_uuid,
-                task_uuid = %step.task_uuid,
-                "Step marked as not in_process after error"
-            );
-        }
-
-        // Handle transition to cancelled state - mark as not in_process and processed
-        if to_state == WorkflowStepState::Cancelled.to_string() {
-            sqlx::query!(
-                r#"
-                UPDATE tasker_workflow_steps
-                SET in_process = false,
-                    processed = true,
-                    processed_at = NOW(),
-                    updated_at = NOW()
-                WHERE workflow_step_uuid = $1
-                "#,
-                step.workflow_step_uuid
-            )
-            .execute(pool)
-            .await
-            .map_err(|e| ActionError::DatabaseUpdateFailed {
-                entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_uuid.to_string(),
-                reason: format!("Failed to mark cancelled step as processed: {e}"),
-            })?;
-
-            tracing::info!(
-                step_uuid = %step.workflow_step_uuid,
-                task_uuid = %step.task_uuid,
-                "Cancelled step marked as processed and not in_process"
-            );
-        }
-
-        // Handle transition to resolved_manually state - similar to complete
-        if to_state == WorkflowStepState::ResolvedManually.to_string() {
-            sqlx::query!(
-                r#"
-                UPDATE tasker_workflow_steps
-                SET in_process = false,
-                    processed = true,
-                    processed_at = NOW(),
-                    updated_at = NOW()
-                WHERE workflow_step_uuid = $1
-                "#,
-                step.workflow_step_uuid
-            )
-            .execute(pool)
-            .await
-            .map_err(|e| ActionError::DatabaseUpdateFailed {
-                entity_type: "WorkflowStep".to_string(),
-                entity_id: step.workflow_step_uuid.to_string(),
-                reason: format!("Failed to mark manually resolved step as processed: {e}"),
-            })?;
-
-            tracing::info!(
-                step_uuid = %step.workflow_step_uuid,
-                task_uuid = %step.task_uuid,
-                "Manually resolved step marked as processed and not in_process"
-            );
-        }
+        match moving_to_state {
+            WorkflowStepState::InProgress => {
+                self.handle_move_to_in_progress(step, pool, event).await?;
+            }
+            WorkflowStepState::Complete => {
+                self.handle_move_to_completed(step, pool, event).await?;
+            }
+            WorkflowStepState::Error => {
+                self.handle_move_to_error(step, pool, event).await?;
+            }
+            WorkflowStepState::Cancelled => {
+                self.handle_move_to_cancelled(step, pool, event).await?;
+            }
+            WorkflowStepState::EnqueuedForOrchestration => {
+                self.handle_move_to_enqueued_for_orchestration(step, pool, event)
+                    .await?;
+            }
+            WorkflowStepState::ResolvedManually => {
+                self.handle_move_to_resolved_manually(step, pool, event)
+                    .await?;
+            }
+            WorkflowStepState::Pending => {
+                tracing::info!(
+                    step_uuid = %step.workflow_step_uuid,
+                    task_uuid = %step.task_uuid,
+                    "Step initialized as pending"
+                );
+            }
+            WorkflowStepState::Enqueued => {
+                tracing::info!(
+                    step_uuid = %step.workflow_step_uuid,
+                    task_uuid = %step.task_uuid,
+                    "Step moved to enqueued for worker processing"
+                );
+            }
+        };
 
         Ok(())
     }
@@ -409,6 +529,7 @@ fn determine_task_event_name(from_state: &Option<String>, to_state: &str) -> Opt
 fn determine_step_event_name(from_state: &Option<String>, to_state: &str) -> Option<&'static str> {
     match (from_state.as_deref(), to_state) {
         (_, "in_progress") => Some("step.started"),
+        (_, "enqueued_for_orchestration") => Some("step.enqueued_for_orchestration"),
         (_, "complete") => Some("step.completed"),
         (_, "error") => Some("step.failed"),
         (_, "cancelled") => Some("step.cancelled"),
@@ -453,11 +574,11 @@ fn build_step_event_context(
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
-    // Try to parse event as JSON to extract results from StepEvent::Complete
+    // Try to parse event as JSON to extract results from StepEvent::Complete or StepEvent::EnqueueForOrchestration
     if let Ok(event_data) = serde_json::from_str::<Value>(event) {
-        // StepEvent::Complete serializes as: {"type": "Complete", "data": { results }}
+        // StepEvent serializes as: {"type": "Complete", "data": { results }} or {"type": "EnqueueForOrchestration", "data": { results }}
         if let Some(event_type) = event_data.get("type") {
-            if event_type == "Complete" {
+            if event_type == "Complete" || event_type == "EnqueueForOrchestration" {
                 // Extract the data field which contains the actual step results
                 if let Some(results) = event_data.get("data") {
                     return Ok(Some(results.clone()));

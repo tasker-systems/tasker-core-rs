@@ -413,6 +413,213 @@ ALTER TYPE workflow_step_state ADD VALUE 'enqueued_for_orchestration';
 -- Particularly important: dependency satisfaction queries
 ```
 
+## Architectural Enhancement Plan
+
+### Overview
+
+After initial implementation review, several architectural improvements have been identified to ensure the EnqueuedForOrchestration state follows established patterns and maintains type safety throughout the codebase.
+
+### Enhancement Categories
+
+#### 1. State Machine Consistency Enhancement
+
+**Issue**: The `is_in_processing_pipeline()` method does not include `EnqueuedForOrchestration` state.
+
+**Current Implementation** (`tasker-shared/src/state_machine/states.rs:115`):
+```rust
+pub fn is_in_processing_pipeline(&self) -> bool {
+    matches!(self, Self::Enqueued | Self::InProgress)
+}
+```
+
+**Required Fix**:
+```rust
+pub fn is_in_processing_pipeline(&self) -> bool {
+    matches!(self, Self::Enqueued | Self::InProgress | Self::EnqueuedForOrchestration)
+}
+```
+
+**Rationale**: Steps in `EnqueuedForOrchestration` state are actively being processed by the orchestration system and should be considered part of the processing pipeline for metrics and monitoring purposes.
+
+#### 2. Model Helper Methods Pattern Compliance
+
+**Issue**: New guard implementations bypass the established pattern of delegating to model helper methods.
+
+**Current Problematic Pattern** (`tasker-shared/src/state_machine/guards.rs:164-237`):
+```rust
+async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
+    let current_state = step.get_current_state(pool).await?;
+    match current_state {
+        Some(state) if state == "enqueued_for_orchestration" => Ok(true),
+        // Direct database state checking...
+    }
+}
+```
+
+**Required Pattern** (Following existing guards like `StepCanBeRetriedGuard`):
+```rust
+async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
+    if step.can_be_enqueued_for_orchestration(pool).await? {
+        Ok(true)
+    } else {
+        // Error handling with proper context...
+    }
+}
+```
+
+**New Model Helper Methods Required** (`tasker-shared/src/models/core/workflow_step.rs`):
+- `can_be_enqueued_for_orchestration()` - Check if step is in `InProgress` state
+- `can_be_completed_from_orchestration()` - Check if step is in `EnqueuedForOrchestration` state  
+- `can_be_failed_from_orchestration()` - Check if step is in `EnqueuedForOrchestration` state
+
+**Benefits**:
+- Consistent with existing codebase patterns (`can_be_retried`, `can_be_reset`)
+- Encapsulates state checking logic in the model layer
+- Easier to test and maintain
+- Provides single source of truth for business rules
+
+#### 3. Type Safety Enhancement with Enum Parsing
+
+**Issue**: Guards use string matching instead of leveraging the type-safe `FromStr` implementation.
+
+**Current String Matching Pattern**:
+```rust
+let current_state = step.get_current_state(pool).await?;
+match current_state {
+    Some(state) if state == "enqueued_for_orchestration" => Ok(true),
+    Some(state) => Err(business_rule_violation(format!(
+        "Step cannot be processed from state '{}'", state
+    ))),
+}
+```
+
+**Enhanced Enum Parsing Pattern**:
+```rust
+let current_state = step.get_current_state(pool).await?;
+match current_state {
+    Some(state_str) => {
+        let state = WorkflowStepState::from_str(&state_str)
+            .map_err(|e| business_rule_violation(format!("Invalid state: {}", e)))?;
+        match state {
+            WorkflowStepState::EnqueuedForOrchestration => Ok(true),
+            _ => Err(business_rule_violation(format!(
+                "Step cannot be processed from state '{}'", state
+            ))),
+        }
+    },
+    None => Err(business_rule_violation("Step has no current state")),
+}
+```
+
+**Benefits**:
+- Compile-time type safety with exhaustive matching
+- Leverages existing `FromStr` implementation (`states.rs:145`)
+- Consistent error handling for invalid states
+- Better IDE support and refactoring safety
+
+#### 4. Result Processor Enhancement
+
+**Issue**: Orchestration result processor uses string evaluation instead of enum matching.
+
+**Current Implementation** (`tasker-orchestration/src/orchestration/lifecycle/result_processor.rs:593`):
+```rust
+if state == "enqueued_for_orchestration" {
+    // Process orchestration transition...
+}
+```
+
+**Enhanced Implementation**:
+```rust
+let step_state = WorkflowStepState::from_str(&state)
+    .map_err(|e| TaskerError::InvalidState(format!("Invalid step state: {}", e)))?;
+
+match step_state {
+    WorkflowStepState::EnqueuedForOrchestration => {
+        // Process orchestration transition with type safety...
+    },
+    _ => {
+        // Handle other states or return appropriate error...
+    }
+}
+```
+
+**Benefits**:
+- Type-safe state handling throughout orchestration processing
+- Consistent with state machine architecture
+- Better error messages and debugging capabilities
+
+#### 5. Database Schema Validation
+
+**Status**: ✅ **COMPLETED** - Schema updates applied directly to migration file.
+
+**Updates Applied** (`migrations/20250810140000_uuid_v7_initial_schema.sql`):
+- Added `enqueued_for_orchestration` to CHECK constraints
+- Updated `get_task_execution_context()` function to track `enqueued_for_orchestration_steps` 
+- Ensured dependency satisfaction logic excludes `EnqueuedForOrchestration` from completed counts
+
+### Implementation Sequence
+
+#### Phase 1: State Machine Foundation Fixes
+1. **Update State Helper Method**
+   - Fix `is_in_processing_pipeline()` to include `EnqueuedForOrchestration`
+   - Update related documentation and tests
+
+#### Phase 2: Model Layer Enhancement  
+2. **Add Model Helper Methods**
+   - Implement `can_be_enqueued_for_orchestration()` method
+   - Implement `can_be_completed_from_orchestration()` method  
+   - Implement `can_be_failed_from_orchestration()` method
+   - Add comprehensive tests for new methods
+
+#### Phase 3: Guard Pattern Compliance
+3. **Refactor Guard Implementations**
+   - Update `StepCanBeEnqueuedForOrchestrationGuard` to use model helper
+   - Update `StepCanBeCompletedFromOrchestrationGuard` to use model helper
+   - Update `StepCanBeFailedFromOrchestrationGuard` to use model helper
+   - Maintain existing error handling patterns and messages
+
+#### Phase 4: Type Safety Enhancement
+4. **Implement Enum Parsing Throughout**
+   - Update all guards to use `FromStr` parsing instead of string matching
+   - Update result processor to use enum matching
+   - Add proper error handling for invalid state strings
+   - Ensure consistent error message formatting
+
+#### Phase 5: Testing and Validation
+5. **Comprehensive Testing**
+   - Add unit tests for new model helper methods
+   - Add integration tests for guard behavior with new patterns  
+   - Add tests for enum parsing error handling
+   - Verify result processor enum handling
+   - Add race condition tests to validate orchestration flow
+
+### Success Criteria
+
+1. **Pattern Consistency**: All new code follows established codebase patterns
+2. **Type Safety**: No string matching for state comparisons, all use enum parsing
+3. **Model Encapsulation**: State checking logic properly encapsulated in model layer
+4. **Test Coverage**: Comprehensive test coverage for all new patterns and methods
+5. **Error Handling**: Consistent and informative error messages throughout
+6. **Performance**: No performance regression from enhanced type safety
+
+### Risk Assessment
+
+**Low Risk**:
+- State method updates follow existing patterns
+- Model helper methods mirror existing implementations
+- Enum parsing leverages existing `FromStr` implementation
+
+**Medium Risk**:
+- Guard refactoring requires careful error message preservation
+- Result processor changes affect orchestration processing logic
+
+**Mitigation Strategies**:
+- Implement changes incrementally with testing at each phase
+- Preserve existing error message formats for backward compatibility
+- Add comprehensive integration tests before deploying orchestration changes
+
 ## Conclusion
+
+The initial EnqueuedForOrchestration implementation successfully addresses the core race condition issue. These architectural enhancements will ensure the solution follows established patterns, maintains type safety, and provides a robust foundation for future state machine extensions.
 
 This implementation will resolve the architectural timing race condition and ensure proper orchestration metadata processing while maintaining system reliability and performance. The solution leverages existing architecture patterns and requires minimal changes to core processing logic, with the main complexity being in SQL function updates to handle the new intermediate state correctly.

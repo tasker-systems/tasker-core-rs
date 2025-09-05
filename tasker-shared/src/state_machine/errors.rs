@@ -74,6 +74,19 @@ pub enum ActionError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("Invalid state transition: {from_state:?} -> {to_state} - {reason}")]
+    InvalidStateTransition {
+        from_state: Option<String>,
+        to_state: String,
+        reason: String,
+    },
+
+    #[error("Invalid state for action execution: {state}")]
+    InvalidState { state: String },
+
+    #[error("Invalid action for state: {state}")]
+    InvalidAction { state: String },
 }
 
 /// Specific error type for persistence operations

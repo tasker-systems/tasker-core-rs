@@ -1,7 +1,9 @@
 use super::errors::{business_rule_violation, dependencies_not_met, GuardResult};
+use super::states::{TaskState, WorkflowStepState};
 use crate::models::{Task, WorkflowStep};
 use async_trait::async_trait;
 use sqlx::PgPool;
+use std::str::FromStr;
 
 /// Trait for implementing state transition guards
 #[async_trait]
@@ -115,10 +117,14 @@ impl StateGuard<Task> for TaskCanBeResetGuard {
         } else {
             let current_state = task.get_current_state(pool).await?;
             match current_state {
-                Some(state) => Err(business_rule_violation(format!(
-                    "Task {} cannot be reset from state '{}', must be in Error state",
-                    task.task_uuid, state
-                ))),
+                Some(state_str) => {
+                    let state = TaskState::from_str(&state_str)
+                        .map_err(|e| business_rule_violation(format!("Invalid task state: {}", e)))?;
+                    Err(business_rule_violation(format!(
+                        "Task {} cannot be reset from state '{}', must be in Error state",
+                        task.task_uuid, state
+                    )))
+                },
                 None => Err(business_rule_violation(format!(
                     "Task {} has no current state",
                     task.task_uuid
@@ -144,10 +150,14 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
         } else {
             let current_state = step.get_current_state(pool).await?;
             match current_state {
-                Some(state) => Err(business_rule_violation(format!(
-                    "Step {} cannot be retried from state '{}', must be in Error state",
-                    step.workflow_step_uuid, state
-                ))),
+                Some(state_str) => {
+                    let state = WorkflowStepState::from_str(&state_str)
+                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    Err(business_rule_violation(format!(
+                        "Step {} cannot be retried from state '{}', must be in Error state",
+                        step.workflow_step_uuid, state
+                    )))
+                },
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
                     step.workflow_step_uuid
@@ -158,6 +168,105 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
 
     fn description(&self) -> &'static str {
         "Step must be in error state to be retried"
+    }
+}
+
+/// Guard to check if step can be enqueued for orchestration (must be in InProgress state)
+pub struct StepCanBeEnqueuedForOrchestrationGuard;
+
+#[async_trait]
+impl StateGuard<WorkflowStep> for StepCanBeEnqueuedForOrchestrationGuard {
+    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
+        // Delegate to the model's implementation
+        if step.can_be_enqueued_for_orchestration(pool).await? {
+            Ok(true)
+        } else {
+            let current_state = step.get_current_state(pool).await?;
+            match current_state {
+                Some(state_str) => {
+                    let state = WorkflowStepState::from_str(&state_str)
+                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    Err(business_rule_violation(format!(
+                        "Step {} cannot be enqueued for orchestration from state '{}', must be InProgress",
+                        step.workflow_step_uuid, state
+                    )))
+                },
+                None => Err(business_rule_violation(format!(
+                    "Step {} has no current state",
+                    step.workflow_step_uuid
+                ))),
+            }
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        "Step must be in InProgress state to be enqueued for orchestration"
+    }
+}
+
+/// Guard to check if step can be completed from orchestration (must be in EnqueuedForOrchestration state)
+pub struct StepCanBeCompletedFromOrchestrationGuard;
+
+#[async_trait]
+impl StateGuard<WorkflowStep> for StepCanBeCompletedFromOrchestrationGuard {
+    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
+        // Delegate to the model's implementation
+        if step.can_be_completed_from_orchestration(pool).await? {
+            Ok(true)
+        } else {
+            let current_state = step.get_current_state(pool).await?;
+            match current_state {
+                Some(state_str) => {
+                    let state = WorkflowStepState::from_str(&state_str)
+                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    Err(business_rule_violation(format!(
+                        "Step {} cannot be completed from orchestration from state '{}', must be EnqueuedForOrchestration",
+                        step.workflow_step_uuid, state
+                    )))
+                },
+                None => Err(business_rule_violation(format!(
+                    "Step {} has no current state",
+                    step.workflow_step_uuid
+                ))),
+            }
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        "Step must be in EnqueuedForOrchestration state to be completed by orchestration"
+    }
+}
+
+/// Guard to check if step can be failed from orchestration (must be in EnqueuedForOrchestration state)
+pub struct StepCanBeFailedFromOrchestrationGuard;
+
+#[async_trait]
+impl StateGuard<WorkflowStep> for StepCanBeFailedFromOrchestrationGuard {
+    async fn check(&self, step: &WorkflowStep, pool: &PgPool) -> GuardResult<bool> {
+        // Delegate to the model's implementation
+        if step.can_be_failed_from_orchestration(pool).await? {
+            Ok(true)
+        } else {
+            let current_state = step.get_current_state(pool).await?;
+            match current_state {
+                Some(state_str) => {
+                    let state = WorkflowStepState::from_str(&state_str)
+                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    Err(business_rule_violation(format!(
+                        "Step {} cannot be failed from orchestration from state '{}', must be EnqueuedForOrchestration",
+                        step.workflow_step_uuid, state
+                    )))
+                },
+                None => Err(business_rule_violation(format!(
+                    "Step {} has no current state",
+                    step.workflow_step_uuid
+                ))),
+            }
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        "Step must be in EnqueuedForOrchestration state to be failed by orchestration"
     }
 }
 

@@ -17,7 +17,9 @@
 //! This enables autonomous Ruby workers with database-driven coordination.
 
 use std::sync::Arc;
+use std::str::FromStr;
 use tasker_shared::errors::OrchestrationResult;
+use tasker_shared::state_machine::states::WorkflowStepState;
 use tasker_shared::system_context::SystemContext;
 use uuid::Uuid;
 
@@ -274,8 +276,18 @@ impl OrchestrationResultProcessor {
             status = %status,
             execution_time_ms = execution_time_ms,
             processor_id = %self.processor_id,
-            "🔍 TASK_COORDINATION: Processing step result notification for task coordination"
+            "🔍 ORCHESTRATION_PROCESSING: Processing step result for orchestration and task coordination"
         );
+
+        // TAS-41: First handle orchestration state transitions if needed
+        if let Err(e) = self.process_orchestration_state_transition(step_uuid, status).await {
+            error!(
+                step_uuid = %step_uuid,
+                error = %e,
+                "❌ ORCHESTRATION_PROCESSING: Failed to process orchestration state transition"
+            );
+            return Err(e);
+        }
 
         debug!(
             step_uuid = %step_uuid,
@@ -535,6 +547,109 @@ impl OrchestrationResultProcessor {
                 );
                 return Err(e.into());
             }
+        }
+
+        Ok(())
+    }
+
+    /// TAS-41: Process orchestration state transitions for EnqueuedForOrchestration steps
+    /// 
+    /// This method handles the transition of steps from EnqueuedForOrchestration state
+    /// to their final states (Complete or Error) after orchestration metadata processing.
+    /// This is critical for fixing the race condition where workers bypass orchestration.
+    async fn process_orchestration_state_transition(
+        &self,
+        step_uuid: &Uuid,
+        original_status: &String,
+    ) -> OrchestrationResult<()> {
+        // Load the current step to check its state
+        let step = WorkflowStep::find_by_id(self.context.database_pool(), step_uuid.clone())
+            .await
+            .map_err(|e| {
+                tasker_shared::errors::OrchestrationError::DatabaseError {
+                    operation: "load_step".to_string(),
+                    reason: format!("Failed to load step {}: {}", step_uuid, e)
+                }
+            })?;
+
+        let Some(step) = step else {
+            warn!(
+                step_uuid = %step_uuid,
+                "Step not found - may have been processed by another processor"
+            );
+            return Ok(());
+        };
+
+        // Get the current state using the step's state machine
+        let current_state = step.get_current_state(self.context.database_pool())
+            .await
+            .map_err(|e| {
+                tasker_shared::errors::OrchestrationError::DatabaseError {
+                    operation: "get_current_state".to_string(),
+                    reason: format!("Failed to get current state for step {}: {}", step_uuid, e)
+                }
+            })?;
+
+        // Only process if step is in EnqueuedForOrchestration state
+        if let Some(state_str) = current_state {
+            let step_state = WorkflowStepState::from_str(&state_str)
+                .map_err(|e| tasker_shared::errors::OrchestrationError::from(format!("Invalid workflow step state: {}", e)))?;
+            
+            if matches!(step_state, WorkflowStepState::EnqueuedForOrchestration) {
+                info!(
+                    step_uuid = %step_uuid,
+                    original_status = %original_status,
+                    "Processing orchestration state transition for step in EnqueuedForOrchestration state"
+                );
+
+                // Create state machine for the step
+                use tasker_shared::state_machine::StepStateMachine;
+                let mut state_machine = StepStateMachine::new(
+                    step.clone(),
+                    self.context.database_pool().clone(),
+                    Some(self.context.event_publisher.clone()),
+                );
+
+                // Determine the final state based on original worker status
+                let final_event = if original_status.to_lowercase().contains("success") 
+                    || original_status.to_lowercase() == "complete" 
+                    || original_status.to_lowercase() == "completed" {
+                    // Successful completion
+                    use tasker_shared::state_machine::events::StepEvent;
+                    StepEvent::Complete(None)
+                } else {
+                    // Failed execution  
+                    use tasker_shared::state_machine::events::StepEvent;
+                    StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                };
+
+                // Execute the state transition
+                let final_state = state_machine.transition(final_event).await
+                    .map_err(|e| {
+                        tasker_shared::errors::OrchestrationError::StateTransitionFailed {
+                            entity_type: "WorkflowStep".to_string(),
+                            entity_uuid: *step_uuid,
+                            reason: format!("Failed to transition step to final state: {}", e)
+                        }
+                    })?;
+
+                info!(
+                    step_uuid = %step_uuid,
+                    final_state = %final_state,
+                    "Successfully transitioned step from EnqueuedForOrchestration to final state"
+                );
+            } else {
+                debug!(
+                    step_uuid = %step_uuid,
+                    current_state = %step_state,
+                    "Step not in EnqueuedForOrchestration state - skipping orchestration transition"
+                );
+            }
+        } else {
+            warn!(
+                step_uuid = %step_uuid,
+                "Step has no current state - may be in inconsistent state"
+            );
         }
 
         Ok(())

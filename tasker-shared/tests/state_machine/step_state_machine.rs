@@ -48,6 +48,44 @@ async fn test_step_state_transitions(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+async fn test_enqueued_for_orchestration_transitions(pool: PgPool) -> sqlx::Result<()> {
+    // TAS-41: Test the new EnqueuedForOrchestration state transitions
+    let sm = create_test_step_state_machine(pool);
+
+    // Worker transitions InProgress to EnqueuedForOrchestration
+    assert_eq!(
+        sm.determine_target_state(
+            WorkflowStepState::InProgress,
+            &StepEvent::EnqueueForOrchestration(Some(json!({"success": true})))
+        )
+        .unwrap(),
+        WorkflowStepState::EnqueuedForOrchestration
+    );
+
+    // Orchestration transitions EnqueuedForOrchestration to Complete
+    assert_eq!(
+        sm.determine_target_state(
+            WorkflowStepState::EnqueuedForOrchestration,
+            &StepEvent::Complete(None)
+        )
+        .unwrap(),
+        WorkflowStepState::Complete
+    );
+
+    // Orchestration transitions EnqueuedForOrchestration to Error
+    assert_eq!(
+        sm.determine_target_state(
+            WorkflowStepState::EnqueuedForOrchestration,
+            &StepEvent::Fail("orchestration error".to_string())
+        )
+        .unwrap(),
+        WorkflowStepState::Error
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
 async fn test_step_invalid_transitions(pool: PgPool) -> sqlx::Result<()> {
     let sm = create_test_step_state_machine(pool);
 

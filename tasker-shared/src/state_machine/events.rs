@@ -50,13 +50,15 @@ impl TaskEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum StepEvent {
-    /// Enqueue the step for processing (TAS-32: pending → enqueued)
+    /// Enqueue the step for processing (pending → enqueued)
     Enqueue,
-    /// Start processing the step (TAS-32: enqueued → in_progress)
+    /// Start processing the step (enqueued → in_progress)
     Start,
-    /// Mark step as complete with optional results
+    /// Enqueue step results for orchestration processing (in_progress → enqueued_for_orchestration)
+    EnqueueForOrchestration(Option<Value>),
+    /// Mark step as complete with optional results (enqueued_for_orchestration → complete)
     Complete(Option<Value>),
-    /// Mark step as failed with error message
+    /// Mark step as failed with error message (enqueued_for_orchestration → error)
     Fail(String),
     /// Cancel the step
     Cancel,
@@ -72,6 +74,7 @@ impl StepEvent {
         match self {
             Self::Enqueue => "enqueue",
             Self::Start => "start",
+            Self::EnqueueForOrchestration(_) => "enqueue_for_orchestration",
             Self::Complete(_) => "complete",
             Self::Fail(_) => "fail",
             Self::Cancel => "cancel",
@@ -88,15 +91,17 @@ impl StepEvent {
         }
     }
 
-    /// Extract results if this is a completion event
+    /// Extract results if this is a completion or enqueue for orchestration event
     pub fn results(&self) -> Option<&Value> {
         match self {
             Self::Complete(results) => results.as_ref(),
+            Self::EnqueueForOrchestration(results) => results.as_ref(),
             _ => None,
         }
     }
 
     /// Check if this event represents a terminal transition
+    /// EnqueueForOrchestration is NOT terminal as orchestration still needs to process
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
@@ -132,5 +137,15 @@ impl StepEvent {
     /// Create a simple completion event without results
     pub fn complete_simple() -> Self {
         Self::Complete(None)
+    }
+
+    /// Create an enqueue for orchestration event with results
+    pub fn enqueue_for_orchestration_with_results(results: Value) -> Self {
+        Self::EnqueueForOrchestration(Some(results))
+    }
+
+    /// Create a simple enqueue for orchestration event without results
+    pub fn enqueue_for_orchestration_simple() -> Self {
+        Self::EnqueueForOrchestration(None)
     }
 }

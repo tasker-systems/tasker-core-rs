@@ -905,6 +905,8 @@ BEGIN
       COUNT(CASE WHEN sd.current_state = 'pending' THEN 1 END) as pending_steps,
       COUNT(CASE WHEN sd.current_state = 'enqueued' THEN 1 END) as enqueued_steps,
       COUNT(CASE WHEN sd.current_state = 'in_progress' THEN 1 END) as in_progress_steps,
+      -- NEW: Track steps awaiting orchestration processing separately
+      COUNT(CASE WHEN sd.current_state = 'enqueued_for_orchestration' THEN 1 END) as enqueued_for_orchestration_steps,
       COUNT(CASE WHEN sd.current_state IN ('complete', 'resolved_manually') THEN 1 END) as completed_steps,
       COUNT(CASE WHEN sd.current_state = 'error' THEN 1 END) as failed_steps,
       COUNT(CASE WHEN sd.ready_for_execution = true THEN 1 END) as ready_steps,
@@ -929,7 +931,9 @@ BEGIN
     -- FIXED: Execution State Logic
     CASE
       WHEN COALESCE(ast.ready_steps, 0) > 0 THEN 'has_ready_steps'
-      WHEN COALESCE(ast.in_progress_steps, 0) > 0 OR COALESCE(ast.enqueued_steps, 0) > 0 THEN 'processing'  -- UPDATED
+      WHEN COALESCE(ast.in_progress_steps, 0) > 0
+           OR COALESCE(ast.enqueued_steps, 0) > 0
+           OR COALESCE(ast.enqueued_for_orchestration_steps, 0) > 0 THEN 'processing'  -- UPDATED
       -- OLD BUG: WHEN COALESCE(ast.failed_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
       -- NEW FIX: Only blocked if failed steps are NOT retry-eligible
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
@@ -966,7 +970,7 @@ BEGIN
     END as health_status,
 
     -- Enqueued steps (must be last to match RETURNS TABLE declaration)
-    COALESCE(ast.enqueued_steps, 0) as enqueued_steps
+    COALESCE(ast.enqueued_steps, 0) + COALESCE(ast.enqueued_for_orchestration_steps, 0) as enqueued_steps
 
   FROM task_info ti
   CROSS JOIN aggregated_stats ast;
@@ -1229,6 +1233,7 @@ BEGIN
       COUNT(CASE WHEN sd.current_state = 'pending' THEN 1 END) as pending_steps,
       COUNT(CASE WHEN sd.current_state = 'enqueued' THEN 1 END) as enqueued_steps,
       COUNT(CASE WHEN sd.current_state = 'in_progress' THEN 1 END) as in_progress_steps,
+      COUNT(CASE WHEN sd.current_state = 'enqueued_for_orchestration' THEN 1 END) as enqueued_for_orchestration_steps,
       COUNT(CASE WHEN sd.current_state IN ('complete', 'resolved_manually') THEN 1 END) as completed_steps,
       COUNT(CASE WHEN sd.current_state = 'error' THEN 1 END) as failed_steps,
       COUNT(CASE WHEN sd.ready_for_execution = true THEN 1 END) as ready_steps,
@@ -1250,7 +1255,9 @@ BEGIN
     -- Execution status
     CASE
       WHEN COALESCE(ast.ready_steps, 0) > 0 THEN 'has_ready_steps'
-      WHEN COALESCE(ast.in_progress_steps, 0) > 0 OR COALESCE(ast.enqueued_steps, 0) > 0 THEN 'processing'
+      WHEN COALESCE(ast.in_progress_steps, 0) > 0
+           OR COALESCE(ast.enqueued_steps, 0) > 0
+           OR COALESCE(ast.enqueued_for_orchestration_steps, 0) > 0 THEN 'processing'  -- UPDATED
       WHEN COALESCE(ast.permanently_blocked_steps, 0) > 0 AND COALESCE(ast.ready_steps, 0) = 0 THEN 'blocked_by_failures'
       WHEN COALESCE(ast.completed_steps, 0) = COALESCE(ast.total_steps, 0) AND COALESCE(ast.total_steps, 0) > 0 THEN 'all_complete'
       ELSE 'waiting_for_dependencies'
@@ -1281,7 +1288,7 @@ BEGIN
     END as health_status,
 
     -- Enqueued steps (must be last to match RETURNS TABLE declaration)
-    COALESCE(ast.enqueued_steps, 0) as enqueued_steps
+    COALESCE(ast.enqueued_steps, 0) + COALESCE(ast.enqueued_for_orchestration_steps, 0) as enqueued_steps
 
   FROM task_info ti
   LEFT JOIN aggregated_stats ast ON ast.task_uuid = ti.task_uuid;
@@ -1963,6 +1970,7 @@ BEGIN
             'pending',
             'enqueued',
             'in_progress',
+            'enqueued_for_orchestration',
             'complete',
             'error',
             'cancelled',
@@ -1988,6 +1996,7 @@ BEGIN
             'pending',
             'enqueued',
             'in_progress',
+            'enqueued_for_orchestration',
             'complete',
             'error',
             'cancelled',
@@ -2073,13 +2082,13 @@ BEGIN
     -- Check for invalid workflow step to_states
     SELECT COUNT(*) INTO invalid_step_to_states
     FROM public.tasker_workflow_step_transitions
-    WHERE to_state NOT IN ('pending', 'enqueued', 'in_progress', 'complete', 'error', 'cancelled', 'resolved_manually');
+    WHERE to_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
 
     -- Check for invalid workflow step from_states
     SELECT COUNT(*) INTO invalid_step_from_states
     FROM public.tasker_workflow_step_transitions
     WHERE from_state IS NOT NULL
-    AND from_state NOT IN ('pending', 'enqueued', 'in_progress', 'complete', 'error', 'cancelled', 'resolved_manually');
+    AND from_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
 
     -- Check for invalid task to_states
     SELECT COUNT(*) INTO invalid_task_to_states

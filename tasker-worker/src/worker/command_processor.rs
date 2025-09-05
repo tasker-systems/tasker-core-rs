@@ -658,16 +658,15 @@ impl WorkerProcessor {
             Some(self.context.event_publisher.clone()),
         );
 
-        // 3. Transition using proper StepEvent with result data
+        // 3. Transition using EnqueueForOrchestration to allow orchestration processing
+        // TAS-41: Worker transitions to EnqueuedForOrchestration instead of terminal states
+        // This prevents the race condition where tasks become ready before orchestration processing
         let step_event = if step_result.success {
-            StepEvent::Complete(Some(serde_json::to_value(&step_result)?))
+            StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?))
         } else {
-            let error_message = step_result
-                .error
-                .as_ref()
-                .map(|e| e.message.clone())
-                .unwrap_or_else(|| "Unknown error".to_string());
-            StepEvent::Fail(error_message)
+            // For failures, we still use EnqueueForOrchestration to allow orchestration to process
+            // The orchestration system will determine if it should Complete or Fail based on metadata
+            StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?))
         };
 
         // 4. Execute atomic state transition (includes result persistence via UpdateStepResultsAction)

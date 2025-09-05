@@ -78,9 +78,11 @@ pub enum WorkflowStepState {
     Enqueued,
     /// Step is currently being executed by a worker
     InProgress,
-    /// Step completed successfully
+    /// Step completed by worker, enqueued for orchestration processing
+    EnqueuedForOrchestration,
+    /// Step completed successfully (after orchestration processing)
     Complete,
-    /// Step failed with an error
+    /// Step failed with an error (after orchestration processing)
     Error,
     /// Step was cancelled
     Cancelled,
@@ -90,6 +92,7 @@ pub enum WorkflowStepState {
 
 impl WorkflowStepState {
     /// Check if this is a terminal state (no further transitions allowed)
+    /// EnqueuedForOrchestration is NOT terminal as orchestration can still process it
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
@@ -109,7 +112,7 @@ impl WorkflowStepState {
 
     /// Check if this step is in the processing pipeline (enqueued or actively processing)
     pub fn is_in_processing_pipeline(&self) -> bool {
-        matches!(self, Self::Enqueued | Self::InProgress)
+        matches!(self, Self::Enqueued | Self::InProgress | Self::EnqueuedForOrchestration)
     }
 
     /// Check if this step is ready to be claimed by a worker
@@ -118,6 +121,7 @@ impl WorkflowStepState {
     }
 
     /// Check if this step satisfies dependencies for other steps
+    /// EnqueuedForOrchestration is NOT included as it's not yet fully processed
     pub fn satisfies_dependencies(&self) -> bool {
         matches!(self, Self::Complete | Self::ResolvedManually)
     }
@@ -129,6 +133,7 @@ impl fmt::Display for WorkflowStepState {
             Self::Pending => write!(f, "pending"),
             Self::Enqueued => write!(f, "enqueued"),
             Self::InProgress => write!(f, "in_progress"),
+            Self::EnqueuedForOrchestration => write!(f, "enqueued_for_orchestration"),
             Self::Complete => write!(f, "complete"),
             Self::Error => write!(f, "error"),
             Self::Cancelled => write!(f, "cancelled"),
@@ -145,6 +150,7 @@ impl std::str::FromStr for WorkflowStepState {
             "pending" => Ok(Self::Pending),
             "enqueued" => Ok(Self::Enqueued),
             "in_progress" => Ok(Self::InProgress),
+            "enqueued_for_orchestration" => Ok(Self::EnqueuedForOrchestration),
             "complete" => Ok(Self::Complete),
             "error" => Ok(Self::Error),
             "cancelled" => Ok(Self::Cancelled),
