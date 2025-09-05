@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT task_uuid, named_task_uuid, complete, requested_at, initiator, source_system,\n                   reason, bypass_steps, tags, context, identity_hash,\n                   claimed_at, claimed_by, priority, claim_timeout_seconds, created_at, updated_at\n            FROM tasker_tasks\n            WHERE identity_hash = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "named_task_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "complete",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "requested_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "initiator",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_system",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "bypass_steps",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "tags",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "context",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "identity_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "claimed_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
+        "name": "claimed_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 14,
+        "name": "claim_timeout_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "05688b35828e412404f2bec04da90512ab90972041f6fb5e0645893284b761f2"
+}

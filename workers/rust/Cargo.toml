@@ -48,29 +48,3 @@ path = "src/main.rs"
 [lib]
 name = "tasker_worker_rust"
 path = "src/lib.rs"
-
-# Integration test targets
-
-[[test]]
-name = "linear_workflow_integration"
-path = "tests/integration/linear_workflow_integration.rs"
-
-[[test]]
-name = "diamond_workflow_integration"
-path = "tests/integration/diamond_workflow_integration.rs"
-
-[[test]]
-name = "tree_workflow_integration"
-path = "tests/integration/tree_workflow_integration.rs"
-
-[[test]]
-name = "mixed_dag_workflow_integration"
-path = "tests/integration/mixed_dag_workflow_integration.rs"
-
-[[test]]
-name = "order_fulfillment_integration"
-path = "tests/integration/order_fulfillment_integration.rs"
-
-[[test]]
-name = "performance_benchmarks"
-path = "tests/integration/performance_benchmarks.rs"

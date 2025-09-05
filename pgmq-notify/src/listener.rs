@@ -16,7 +16,7 @@ use crate::error::{PgmqNotifyError, Result};
 use crate::events::PgmqNotifyEvent;
 
 /// Statistics about the listener
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ListenerStats {
     pub connected: bool,
     pub channels_listening: usize,
@@ -27,19 +27,6 @@ pub struct ListenerStats {
     pub last_error_at: Option<SystemTime>,
 }
 
-impl Default for ListenerStats {
-    fn default() -> Self {
-        Self {
-            connected: false,
-            channels_listening: 0,
-            events_received: 0,
-            parse_errors: 0,
-            connection_errors: 0,
-            last_event_at: None,
-            last_error_at: None,
-        }
-    }
-}
 
 /// Trait for handling PGMQ notification events
 #[async_trait]

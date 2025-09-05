@@ -3,7 +3,7 @@ use std::time::Duration;
 
 // Re-export and use the unified event system configuration
 pub use crate::config::event_systems::{
-    EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig, 
+    EventSystemConfig, EventSystemHealthConfig, EventSystemProcessingConfig,
     EventSystemTimingConfig, OrchestrationEventSystemConfig, OrchestrationEventSystemMetadata,
 };
 

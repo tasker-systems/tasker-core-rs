@@ -8,6 +8,8 @@ pub mod config;
 pub mod error;
 
 // Re-export commonly used types for convenience
-pub use api_clients::{OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig};
+pub use api_clients::{
+    OrchestrationApiClient, OrchestrationApiConfig, WorkerApiClient, WorkerApiConfig,
+};
 pub use config::ClientConfig;
 pub use error::{ClientError, ClientResult};

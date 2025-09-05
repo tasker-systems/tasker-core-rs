@@ -112,7 +112,10 @@ impl WorkflowStepState {
 
     /// Check if this step is in the processing pipeline (enqueued or actively processing)
     pub fn is_in_processing_pipeline(&self) -> bool {
-        matches!(self, Self::Enqueued | Self::InProgress | Self::EnqueuedForOrchestration)
+        matches!(
+            self,
+            Self::Enqueued | Self::InProgress | Self::EnqueuedForOrchestration
+        )
     }
 
     /// Check if this step is ready to be claimed by a worker

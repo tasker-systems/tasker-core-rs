@@ -118,13 +118,14 @@ impl StateGuard<Task> for TaskCanBeResetGuard {
             let current_state = task.get_current_state(pool).await?;
             match current_state {
                 Some(state_str) => {
-                    let state = TaskState::from_str(&state_str)
-                        .map_err(|e| business_rule_violation(format!("Invalid task state: {}", e)))?;
+                    let state = TaskState::from_str(&state_str).map_err(|e| {
+                        business_rule_violation(format!("Invalid task state: {}", e))
+                    })?;
                     Err(business_rule_violation(format!(
                         "Task {} cannot be reset from state '{}', must be in Error state",
                         task.task_uuid, state
                     )))
-                },
+                }
                 None => Err(business_rule_violation(format!(
                     "Task {} has no current state",
                     task.task_uuid
@@ -151,13 +152,14 @@ impl StateGuard<WorkflowStep> for StepCanBeRetriedGuard {
             let current_state = step.get_current_state(pool).await?;
             match current_state {
                 Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str)
-                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
+                        business_rule_violation(format!("Invalid workflow step state: {}", e))
+                    })?;
                     Err(business_rule_violation(format!(
                         "Step {} cannot be retried from state '{}', must be in Error state",
                         step.workflow_step_uuid, state
                     )))
-                },
+                }
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
                     step.workflow_step_uuid
@@ -184,13 +186,14 @@ impl StateGuard<WorkflowStep> for StepCanBeEnqueuedForOrchestrationGuard {
             let current_state = step.get_current_state(pool).await?;
             match current_state {
                 Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str)
-                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
+                        business_rule_violation(format!("Invalid workflow step state: {}", e))
+                    })?;
                     Err(business_rule_violation(format!(
                         "Step {} cannot be enqueued for orchestration from state '{}', must be InProgress",
                         step.workflow_step_uuid, state
                     )))
-                },
+                }
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
                     step.workflow_step_uuid
@@ -217,13 +220,14 @@ impl StateGuard<WorkflowStep> for StepCanBeCompletedFromOrchestrationGuard {
             let current_state = step.get_current_state(pool).await?;
             match current_state {
                 Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str)
-                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
+                        business_rule_violation(format!("Invalid workflow step state: {}", e))
+                    })?;
                     Err(business_rule_violation(format!(
                         "Step {} cannot be completed from orchestration from state '{}', must be EnqueuedForOrchestration",
                         step.workflow_step_uuid, state
                     )))
-                },
+                }
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
                     step.workflow_step_uuid
@@ -250,13 +254,14 @@ impl StateGuard<WorkflowStep> for StepCanBeFailedFromOrchestrationGuard {
             let current_state = step.get_current_state(pool).await?;
             match current_state {
                 Some(state_str) => {
-                    let state = WorkflowStepState::from_str(&state_str)
-                        .map_err(|e| business_rule_violation(format!("Invalid workflow step state: {}", e)))?;
+                    let state = WorkflowStepState::from_str(&state_str).map_err(|e| {
+                        business_rule_violation(format!("Invalid workflow step state: {}", e))
+                    })?;
                     Err(business_rule_violation(format!(
                         "Step {} cannot be failed from orchestration from state '{}', must be EnqueuedForOrchestration",
                         step.workflow_step_uuid, state
                     )))
-                },
+                }
                 None => Err(business_rule_violation(format!(
                     "Step {} has no current state",
                     step.workflow_step_uuid

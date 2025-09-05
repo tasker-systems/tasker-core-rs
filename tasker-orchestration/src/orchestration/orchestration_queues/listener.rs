@@ -147,8 +147,10 @@ impl OrchestrationQueueListener {
         );
 
         // Create pgmq-notify configuration from system context database URL
+        // Updated for TAS-41 wrapper function integration: use extraction patterns that match
+        // our wrapper functions' namespace extraction logic
         let pgmq_config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern(&format!(r"(?P<namespace>{})", self.config.namespace))
+            .with_queue_naming_pattern(r"(?P<namespace>\w+)_queue|orchestration.*")
             .with_default_namespace(&self.config.namespace);
 
         // Create pgmq-notify listener
@@ -169,13 +171,26 @@ impl OrchestrationQueueListener {
             ))
         })?;
 
-        // Listen to message ready events for our orchestration namespace
+        // Listen to message ready events for orchestration queues using TAS-41 wrapper function channels
+        // Our wrapper functions send notifications to channels based on queue name patterns:
+        // - "orchestration*" -> namespace "orchestration" -> channel "pgmq_message_ready.orchestration"
+        // - "*_queue" -> namespace extracted from queue name -> channel "pgmq_message_ready.{namespace}"
+
+        // Listen to orchestration namespace (covers orchestration, orchestration_priority, etc.)
         listener
             .listen_message_ready_for_namespace(&self.config.namespace)
             .await
             .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Failed to listen to namespace: {}", e))
+                TaskerError::OrchestrationError(format!(
+                    "Failed to listen to orchestration namespace: {}",
+                    e
+                ))
             })?;
+
+        // Also listen to the global channel for any messages we might miss
+        listener.listen_message_ready_global().await.map_err(|e| {
+            TaskerError::OrchestrationError(format!("Failed to listen to global channel: {}", e))
+        })?;
 
         // Create event handler
         let handler = OrchestrationEventHandler::new(
@@ -188,7 +203,7 @@ impl OrchestrationQueueListener {
 
         // Store the listener and start the listening task
         self.pgmq_listener = Some(listener);
-        
+
         // Start listening with the event handler in background task
         let listener_id = self.listener_id;
         if let Some(mut listener) = self.pgmq_listener.take() {
@@ -213,7 +228,8 @@ impl OrchestrationQueueListener {
                 Err(e) => {
                     error!(listener_id = %listener_id, error = %e, "Failed to start pgmq-notify listener");
                     return Err(TaskerError::OrchestrationError(format!(
-                        "Failed to start pgmq-notify listener: {}", e
+                        "Failed to start pgmq-notify listener: {}",
+                        e
                     )));
                 }
             }

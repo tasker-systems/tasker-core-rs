@@ -82,10 +82,23 @@ impl PgmqClient {
         debug!("📤 Sending JSON message to queue: {}", queue_name);
 
         let serialized = serde_json::to_value(message)?;
-        let message_id = self.pgmq.send(queue_name, &serialized).await?;
+
+        // Use wrapper function for atomic message sending + notification
+        let message_id = sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            queue_name,
+            &serialized,
+            0i32
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let message_id = message_id.ok_or_else(|| {
+            PgmqNotifyError::Generic(anyhow::anyhow!("Wrapper function returned NULL message ID"))
+        })?;
 
         info!(
-            "✅ JSON message sent to queue: {} with ID: {}",
+            "✅ JSON message sent to queue: {} with ID: {} (with notification)",
             queue_name, message_id
         );
         Ok(message_id)
@@ -107,13 +120,24 @@ impl PgmqClient {
             queue_name, delay_seconds
         );
 
-        let message_id = self
-            .pgmq
-            .send_delay(queue_name, message, delay_seconds)
-            .await?;
+        let serialized = serde_json::to_value(message)?;
+
+        // Use wrapper function for atomic message sending + notification
+        let message_id = sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            queue_name,
+            &serialized,
+            delay_seconds as i32
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let message_id = message_id.ok_or_else(|| {
+            PgmqNotifyError::Generic(anyhow::anyhow!("Wrapper function returned NULL message ID"))
+        })?;
 
         info!(
-            "✅ Delayed message sent to queue: {} with ID: {}",
+            "✅ Delayed message sent to queue: {} with ID: {} (with notification)",
             queue_name, message_id
         );
         Ok(message_id)
@@ -445,12 +469,12 @@ impl PgmqClient {
     }
 
     /// Send message within a transaction (for atomic operations)
-    #[instrument(skip(self, message, _tx), fields(queue = %queue_name))]
+    #[instrument(skip(self, message, tx), fields(queue = %queue_name))]
     pub async fn send_with_transaction<T>(
         &self,
         queue_name: &str,
         message: &T,
-        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<i64>
     where
         T: serde::Serialize,
@@ -460,11 +484,26 @@ impl PgmqClient {
             queue_name
         );
 
-        // For now, use the standard pgmq send method
-        // TODO: Implement proper transaction support when pgmq supports it
-        let message_id = self.pgmq.send(queue_name, message).await?;
+        let serialized = serde_json::to_value(message)?;
 
-        debug!("✅ Message sent in transaction with id: {}", message_id);
+        // Use wrapper function within the transaction for atomic message sending + notification
+        let message_id = sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            queue_name,
+            &serialized,
+            0i32
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        let message_id = message_id.ok_or_else(|| {
+            PgmqNotifyError::Generic(anyhow::anyhow!("Wrapper function returned NULL message ID"))
+        })?;
+
+        debug!(
+            "✅ Message sent in transaction with id: {} (with notification)",
+            message_id
+        );
         Ok(message_id)
     }
 }

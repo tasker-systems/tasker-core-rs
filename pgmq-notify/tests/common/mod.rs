@@ -1,0 +1,221 @@
+use serde_json::{json, Value};
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+/// Test database utilities for pgmq-notify integration tests
+pub struct TestDb {
+    pub pool: PgPool,
+    pub test_id: String,
+    pub created_queues: Vec<String>,
+}
+
+impl TestDb {
+    /// Create a new test database connection with unique test ID
+    pub async fn new() -> Result<Self, sqlx::Error> {
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://tasker:tasker@localhost:5432/tasker_rust_test".to_string()
+        });
+
+        let pool = PgPool::connect(&database_url).await?;
+        let test_id = Uuid::new_v4().to_string()[..8].to_string();
+
+        Ok(TestDb {
+            pool,
+            test_id,
+            created_queues: Vec::new(),
+        })
+    }
+
+    /// Create a test queue with unique name
+    pub async fn create_test_queue(
+        &mut self,
+        queue_base_name: &str,
+    ) -> Result<String, sqlx::Error> {
+        let queue_name = format!("{}_{}", queue_base_name, self.test_id);
+
+        sqlx::query("SELECT pgmq.create($1)")
+            .bind(&queue_name)
+            .execute(&self.pool)
+            .await?;
+
+        self.created_queues.push(queue_name.clone());
+        Ok(queue_name)
+    }
+
+    /// Send a single message using the wrapper function
+    pub async fn send_message(
+        &self,
+        queue_name: &str,
+        message: Value,
+        delay_seconds: i32,
+    ) -> Result<i64, sqlx::Error> {
+        let row = sqlx::query("SELECT pgmq_send_with_notify($1, $2, $3) as msg_id")
+            .bind(queue_name)
+            .bind(message)
+            .bind(delay_seconds)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(row.get("msg_id"))
+    }
+
+    /// Send batch messages using the wrapper function
+    pub async fn send_batch_messages(
+        &self,
+        queue_name: &str,
+        messages: Vec<Value>,
+        delay_seconds: i32,
+    ) -> Result<Vec<i64>, sqlx::Error> {
+        let row = sqlx::query("SELECT pgmq_send_batch_with_notify($1, $2, $3) as msg_ids")
+            .bind(queue_name)
+            .bind(messages)
+            .bind(delay_seconds)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(row.get("msg_ids"))
+    }
+
+    /// Get message count in a queue
+    pub async fn get_message_count(&self, queue_name: &str) -> Result<i64, sqlx::Error> {
+        let table_name = format!("pgmq.q_{}", queue_name);
+        let query = format!("SELECT COUNT(*) as count FROM {}", table_name);
+
+        let row = sqlx::query(&query).fetch_one(&self.pool).await?;
+
+        Ok(row.get("count"))
+    }
+
+    /// Test namespace extraction for various queue patterns
+    pub async fn test_namespace_extraction(
+        &self,
+        queue_names: Vec<&str>,
+    ) -> Result<HashMap<String, String>, sqlx::Error> {
+        let mut results = HashMap::new();
+
+        for queue_name in queue_names {
+            let row = sqlx::query("SELECT extract_queue_namespace($1) as namespace")
+                .bind(queue_name)
+                .fetch_one(&self.pool)
+                .await?;
+
+            let namespace: String = row.get("namespace");
+            results.insert(queue_name.to_string(), namespace);
+        }
+
+        Ok(results)
+    }
+
+    /// Read messages from a queue (for verification)
+    pub async fn read_messages(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        qty: i32,
+    ) -> Result<Vec<(i64, Value)>, sqlx::Error> {
+        let rows = sqlx::query("SELECT msg_id, message FROM pgmq.read($1, $2, $3)")
+            .bind(queue_name)
+            .bind(vt)
+            .bind(qty)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            let msg_id: i64 = row.get("msg_id");
+            let message: Value = row.get("message");
+            messages.push((msg_id, message));
+        }
+
+        Ok(messages)
+    }
+
+    /// Get notification channel for a queue
+    pub fn get_notification_channel(&self, queue_name: &str) -> String {
+        // This mirrors the logic in our wrapper functions
+        let namespace = self.extract_namespace_sync(queue_name);
+        format!("pgmq_message_ready.{}", namespace)
+    }
+
+    /// Extract namespace synchronously (for test assertions)
+    fn extract_namespace_sync(&self, queue_name: &str) -> String {
+        // Mirror the SQL extract_queue_namespace logic
+        if queue_name.starts_with("worker_") && queue_name.ends_with("_queue") {
+            // worker_rust_queue -> rust
+            let middle = &queue_name[7..queue_name.len() - 6];
+            middle.to_string()
+        } else if queue_name.ends_with("_queue") {
+            // some_namespace_queue -> some_namespace
+            let namespace = &queue_name[..queue_name.len() - 6];
+            namespace.to_string()
+        } else if queue_name.starts_with("orchestration") {
+            // orchestration* -> orchestration
+            "orchestration".to_string()
+        } else {
+            // fallback: use the queue name as-is
+            queue_name.to_string()
+        }
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        // Clean up test queues
+        if !self.created_queues.is_empty() {
+            tokio::spawn({
+                let pool = self.pool.clone();
+                let queues = self.created_queues.clone();
+                async move {
+                    for queue in queues {
+                        let _ = sqlx::query("SELECT pgmq.drop_queue($1)")
+                            .bind(queue)
+                            .execute(&pool)
+                            .await;
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Helper to create test JSON messages
+pub fn create_test_message(msg_type: &str, data: Value) -> Value {
+    json!({
+        "type": msg_type,
+        "data": data,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "test_id": Uuid::new_v4().to_string()
+    })
+}
+
+/// Helper to create workflow step messages
+pub fn create_workflow_message(workflow: &str, step: &str, payload: Value) -> Value {
+    json!({
+        "workflow": workflow,
+        "step": step,
+        "payload": payload,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "test_id": Uuid::new_v4().to_string()
+    })
+}
+
+/// Helper to create orchestration command messages
+pub fn create_orchestration_message(command: &str, task_id: &str, additional: Value) -> Value {
+    let mut message = json!({
+        "command": command,
+        "task_id": task_id,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "test_id": Uuid::new_v4().to_string()
+    });
+
+    if let Value::Object(additional_obj) = additional {
+        if let Value::Object(ref mut message_obj) = message {
+            for (key, value) in additional_obj {
+                message_obj.insert(key, value);
+            }
+        }
+    }
+
+    message
+}

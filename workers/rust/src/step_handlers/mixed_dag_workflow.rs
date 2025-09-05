@@ -552,12 +552,12 @@ impl RustStepHandler for DagFinalizeHandler {
             .and_then(|v| v.checked_mul(analyze_result as u128))
             .unwrap_or_else(|| {
                 error!(
-                    "Overflow in multiplication: {} * {} * {}", 
+                    "Overflow in multiplication: {} * {} * {}",
                     validate_result, transform_result, analyze_result
                 );
                 u128::MAX // Use max value as fallback
             });
-        
+
         let result = multiplied.checked_mul(multiplied).unwrap_or_else(|| {
             error!("Overflow in squaring: {}²", multiplied);
             u128::MAX // Use max value as fallback

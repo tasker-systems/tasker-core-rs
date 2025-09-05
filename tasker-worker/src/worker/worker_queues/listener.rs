@@ -65,7 +65,16 @@ pub struct WorkerListenerConfig {
 impl Default for WorkerListenerConfig {
     fn default() -> Self {
         Self {
-            supported_namespaces: vec!["linear_workflow".to_string()],
+            // Updated for TAS-41: Include all workflow namespaces supported by Rust workers
+            supported_namespaces: vec![
+                "linear_workflow".to_string(),
+                "diamond_workflow".to_string(),
+                "tree_workflow".to_string(),
+                "mixed_dag_workflow".to_string(),
+                "order_fulfillment".to_string(),
+                // Also include the simplified "rust" namespace for generic worker tasks
+                "rust".to_string(),
+            ],
             retry_interval: Duration::from_secs(5),
             max_retry_attempts: 10,
             event_timeout: Duration::from_secs(30),
@@ -131,15 +140,11 @@ impl WorkerQueueListener {
             "Starting WorkerQueueListener"
         );
 
-        // Create namespace pattern for worker namespace queues
-        let namespace_pattern = format!(
-            "(?P<namespace>{})",
-            self.config.supported_namespaces.join("|")
-        );
-
         // Create pgmq-notify configuration for worker namespace queues
+        // Updated for TAS-41 wrapper function integration: use extraction patterns that match
+        // our wrapper functions' namespace extraction logic from queue names like "worker_{namespace}_queue"
         let pgmq_config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern(&namespace_pattern)
+            .with_queue_naming_pattern(r"worker_(?P<namespace>\w+)_queue|(?P<namespace>\w+)_queue")
             .with_default_namespace("default");
 
         // Create pgmq-notify listener
@@ -157,8 +162,21 @@ impl WorkerQueueListener {
             TaskerError::WorkerError(format!("Failed to connect to pgmq-notify listener: {}", e))
         })?;
 
-        // Listen to message ready events for all supported namespaces
+        // Listen to message ready events for all supported namespaces using TAS-41 wrapper function channels
+        // Our wrapper functions send notifications to channels based on queue name patterns:
+        // - "worker_{namespace}_queue" -> namespace "{namespace}" -> channel "pgmq_message_ready.{namespace}"
+        // - "{namespace}_queue" -> namespace "{namespace}" -> channel "pgmq_message_ready.{namespace}"
+        // So for supported_namespaces=["rust", "python"], we'll listen to:
+        // - "pgmq_message_ready.rust" (gets notifications from worker_rust_queue)
+        // - "pgmq_message_ready.python" (gets notifications from worker_python_queue)
+
         for namespace in &self.config.supported_namespaces {
+            info!(
+                listener_id = %self.listener_id,
+                namespace = %namespace,
+                "Subscribing to TAS-41 wrapper function notifications for worker namespace"
+            );
+
             listener
                 .listen_message_ready_for_namespace(namespace)
                 .await

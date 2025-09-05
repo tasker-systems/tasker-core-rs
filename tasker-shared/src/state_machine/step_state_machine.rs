@@ -110,7 +110,23 @@ impl StepStateMachine {
             // Legacy: Support pending → in_progress for backward compatibility during transition
             (WorkflowStepState::Pending, StepEvent::Start) => WorkflowStepState::InProgress,
 
-            // Complete transitions
+            // TAS-41: EnqueuedForOrchestration transitions
+            // Worker completes step and enqueues for orchestration
+            (WorkflowStepState::InProgress, StepEvent::EnqueueForOrchestration(_)) => {
+                WorkflowStepState::EnqueuedForOrchestration
+            }
+
+            // Orchestration processes and completes
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Complete(_)) => {
+                WorkflowStepState::Complete
+            }
+
+            // Orchestration processes and fails
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Fail(_)) => {
+                WorkflowStepState::Error
+            }
+
+            // Complete transitions (legacy direct path, should eventually be removed)
             (WorkflowStepState::InProgress, StepEvent::Complete(_)) => WorkflowStepState::Complete,
 
             // Failure transitions
@@ -122,6 +138,9 @@ impl StepStateMachine {
             (WorkflowStepState::Pending, StepEvent::Cancel) => WorkflowStepState::Cancelled,
             (WorkflowStepState::Enqueued, StepEvent::Cancel) => WorkflowStepState::Cancelled,
             (WorkflowStepState::InProgress, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Cancel) => {
+                WorkflowStepState::Cancelled
+            }
             (WorkflowStepState::Error, StepEvent::Cancel) => WorkflowStepState::Cancelled,
 
             // Retry transitions (from error state back to pending)

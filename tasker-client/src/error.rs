@@ -3,8 +3,8 @@
 //! Unified error handling for tasker-client library and CLI operations.
 
 use anyhow::Result;
-use thiserror::Error;
 use tasker_shared::errors::TaskerError;
+use thiserror::Error;
 
 /// Client operation result type
 pub type ClientResult<T> = Result<T, ClientError>;

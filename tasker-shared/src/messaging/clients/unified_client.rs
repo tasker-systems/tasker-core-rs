@@ -417,13 +417,28 @@ impl MessageClient for PgmqClient {
         namespace: &str,
         message: SimpleStepMessage,
     ) -> TaskerResult<()> {
-        // Convert SimpleStepMessage to a basic JSON message
+        // Convert SimpleStepMessage to a basic JSON message and use wrapper function
         let queue_name = format!("worker_{}_queue", namespace);
-        self.send_json_message(&queue_name, &message)
-            .await
-            .map_err(|e| {
-                crate::TaskerError::MessagingError(format!("Failed to send simple message: {}", e))
-            })?;
+        let serialized = serde_json::to_value(&message).map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Serialization error: {}", e))
+        })?;
+
+        sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            &queue_name,
+            &serialized,
+            0i32
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to send simple message: {}", e))
+        })?
+        .ok_or_else(|| {
+            crate::TaskerError::MessagingError(
+                "Wrapper function returned NULL message ID".to_string(),
+            )
+        })?;
         Ok(())
     }
 
@@ -454,20 +469,50 @@ impl MessageClient for PgmqClient {
     }
 
     async fn send_step_result(&self, result: StepExecutionResult) -> TaskerResult<()> {
-        self.send_json_message("orchestration_step_results", &result)
-            .await
-            .map_err(|e| {
-                crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
-            })?;
+        let serialized = serde_json::to_value(&result).map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Serialization error: {}", e))
+        })?;
+
+        sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            "orchestration_step_results",
+            &serialized,
+            0i32
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
+        })?
+        .ok_or_else(|| {
+            crate::TaskerError::MessagingError(
+                "Wrapper function returned NULL message ID".to_string(),
+            )
+        })?;
         Ok(())
     }
 
     async fn send_task_request(&self, request: TaskRequestMessage) -> TaskerResult<()> {
-        self.send_json_message("orchestration_task_requests_queue", &request)
-            .await
-            .map_err(|e| {
-                crate::TaskerError::MessagingError(format!("Failed to send task request: {}", e))
-            })?;
+        let serialized = serde_json::to_value(&request).map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Serialization error: {}", e))
+        })?;
+
+        sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            "orchestration_task_requests_queue",
+            &serialized,
+            0i32
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to send task request: {}", e))
+        })?
+        .ok_or_else(|| {
+            crate::TaskerError::MessagingError(
+                "Wrapper function returned NULL message ID".to_string(),
+            )
+        })?;
         Ok(())
     }
 
@@ -493,11 +538,26 @@ impl MessageClient for PgmqClient {
     }
 
     async fn send_step_result_message(&self, result: StepResultMessage) -> TaskerResult<()> {
-        self.send_json_message("orchestration_step_results_queue", &result)
-            .await
-            .map_err(|e| {
-                crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
-            })?;
+        let serialized = serde_json::to_value(&result).map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Serialization error: {}", e))
+        })?;
+
+        sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            "orchestration_step_results_queue",
+            &serialized,
+            0i32
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            crate::TaskerError::MessagingError(format!("Failed to send step result: {}", e))
+        })?
+        .ok_or_else(|| {
+            crate::TaskerError::MessagingError(
+                "Wrapper function returned NULL message ID".to_string(),
+            )
+        })?;
         Ok(())
     }
 

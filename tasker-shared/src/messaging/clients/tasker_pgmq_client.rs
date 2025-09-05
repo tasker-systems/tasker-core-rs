@@ -112,10 +112,24 @@ impl TaskerPgmqClientExt for PgmqClient {
             queue_name, message.step_uuid
         );
 
-        let message_id = self
-            .send_json_message(queue_name, message)
-            .await
-            .map_err(|e| crate::messaging::MessagingError::from(e))?;
+        // Use wrapper function to ensure notifications are sent atomically
+        let serialized = serde_json::to_value(message)
+            .map_err(|e| crate::messaging::MessagingError::message_serialization(e.to_string()))?;
+
+        let message_id = sqlx::query_scalar!(
+            "SELECT pgmq_send_with_notify($1, $2, $3)",
+            queue_name,
+            &serialized,
+            0i32
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            crate::messaging::MessagingError::database_query("pgmq_send_with_notify", e.to_string())
+        })?
+        .ok_or_else(|| {
+            crate::messaging::MessagingError::internal("Wrapper function returned NULL message ID")
+        })?;
 
         info!(
             "✅ Step message sent to queue: {} with ID: {}",

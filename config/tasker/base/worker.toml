@@ -36,12 +36,15 @@ health_check_interval_seconds = 60
 batch_processing = true
 connection_timeout_seconds = 10
 
-# TAS-43 Fallback Poller Configuration (reliability backup)
+# TAS-43 Fallback Poller Configuration (TAS-41 updated for event-driven architecture)
 [worker.fallback_poller]
 enabled = true
-polling_interval_ms = 500
-batch_size = 10
-age_threshold_seconds = 2
+# Polling interval increased from 500ms to 45000ms (45s) due to event-driven notifications providing <10ms latency
+polling_interval_ms = 45000
+# Batch size reduced since fewer missed events expected with event-driven processing
+batch_size = 5
+# Age threshold increased from 2s to 10s to avoid race conditions with event-driven processing
+age_threshold_seconds = 10
 max_age_hours = 12
 visibility_timeout_seconds = 30
 

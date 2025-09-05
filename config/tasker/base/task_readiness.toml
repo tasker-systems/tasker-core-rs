@@ -52,25 +52,25 @@ health_check_interval_seconds = 30
 # Automatic reconnection on connection loss
 auto_reconnect = true
 
-# Fallback polling configuration for hybrid reliability
+# Fallback polling configuration for hybrid reliability (TAS-41 updated for event-driven architecture)
 [task_readiness.fallback_polling]
-# Enable fallback polling as safety net
+# Enable fallback polling as safety net (reduced frequency due to <10ms event-driven notifications)
 enabled = true
 
-# Polling interval in milliseconds for checking missed events
-polling_interval_ms = 2000
+# Polling interval in milliseconds - increased from 2000ms to 30000ms (30s) since events handle most cases
+polling_interval_ms = 30000
 
-# Age threshold in seconds - only check tasks older than this
-age_threshold_seconds = 5
+# Age threshold in seconds - increased from 5s to 15s to avoid race conditions with event-driven processing
+age_threshold_seconds = 15
 
 # Maximum age in seconds - don't check tasks older than this (prevent excessive load)
 max_age_seconds = 3600
 
-# Batch size for each polling query
-batch_size = 50
+# Batch size for each polling query - reduced since fewer missed events expected
+batch_size = 20
 
-# Maximum concurrent polling operations
-max_concurrent_pollers = 2
+# Maximum concurrent polling operations - reduced due to lower polling frequency
+max_concurrent_pollers = 1
 
 # Event channel configuration
 [task_readiness.event_channel]

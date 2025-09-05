@@ -14,10 +14,7 @@ use tasker_shared::{
         WorkerFallbackPollerConfig, WorkerListenerConfig as UnifiedWorkerListenerConfig,
         WorkerResourceLimits,
     },
-    event_system::{
-        deployment::DeploymentMode,
-        event_driven::EventDrivenSystem,
-    },
+    event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
     messaging::UnifiedPgmqClient,
     system_context::SystemContext,
 };
@@ -186,7 +183,7 @@ async fn test_worker_event_processing_flow() {
 async fn test_worker_notification_handling() {
     let mut config = create_default_config();
     config.system_id = "test-notification-handling".to_string();
-    
+
     let context = Arc::new(
         SystemContext::new()
             .await
@@ -271,7 +268,7 @@ async fn test_deployment_mode_behavior() {
 async fn test_event_processing_error_handling() {
     let mut config = create_default_config();
     config.system_id = "test-error-handling".to_string();
-    
+
     let context = Arc::new(
         SystemContext::new()
             .await
@@ -482,9 +479,18 @@ async fn test_complete_tas43_integration() {
 
     println!("✅ TAS-43 Complete integration test passed!");
     println!("   📊 Events processed: {}", final_stats.events_processed);
-    println!("   📨 Step messages: {}", final_stats.step_messages_processed);
-    println!("   🔍 Health checks: {}", final_stats.health_checks_processed);
-    println!("   ⚙️  Config updates: {}", final_stats.config_updates_processed);
+    println!(
+        "   📨 Step messages: {}",
+        final_stats.step_messages_processed
+    );
+    println!(
+        "   🔍 Health checks: {}",
+        final_stats.health_checks_processed
+    );
+    println!(
+        "   ⚙️  Config updates: {}",
+        final_stats.config_updates_processed
+    );
     println!("   ❌ Failed events: {}", final_stats.events_failed);
     println!("   🎉 TAS-43 Worker Event System is fully operational!");
 }
