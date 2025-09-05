@@ -53,6 +53,7 @@
 //! - **JSONB Operations**: GIN indexes for result queries
 //! - **Atomic Updates**: Row-level locking for state transitions
 
+use crate::messaging::StepExecutionResult;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
@@ -82,7 +83,7 @@ use uuid::Uuid;
 ///
 /// - `inputs`: Step input parameters (from task context)
 /// - `results`: Step execution results and metadata
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStep {
     pub workflow_step_uuid: Uuid,
     pub task_uuid: Uuid,
@@ -114,6 +115,18 @@ pub struct NewWorkflowStep {
 }
 
 impl WorkflowStep {
+    /// Get results as StepExecutionResult
+    pub fn get_step_execution_result(&self) -> Option<StepExecutionResult> {
+        self.results
+            .as_ref()
+            .map(|v| StepExecutionResult::from(v.clone()))
+    }
+
+    /// Set results from StepExecutionResult
+    pub fn set_step_execution_result(&mut self, result: StepExecutionResult) {
+        self.results = Some(serde_json::to_value(result).unwrap_or(serde_json::json!({})));
+    }
+
     /// Create a new workflow step
     pub async fn create(
         pool: &PgPool,
@@ -1352,7 +1365,7 @@ pub struct TaskCompletionStats {
     pub all_complete: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct WorkflowStepWithName {
     pub workflow_step_uuid: Uuid,
     pub task_uuid: Uuid,
@@ -1374,6 +1387,18 @@ pub struct WorkflowStepWithName {
 }
 
 impl WorkflowStepWithName {
+    /// Get results as StepExecutionResult
+    pub fn get_step_execution_result(&self) -> Option<StepExecutionResult> {
+        self.results
+            .as_ref()
+            .map(|v| StepExecutionResult::from(v.clone()))
+    }
+
+    /// Set results from StepExecutionResult
+    pub fn set_step_execution_result(&mut self, result: StepExecutionResult) {
+        self.results = Some(serde_json::to_value(result).unwrap_or(serde_json::json!({})));
+    }
+
     // Find all workflow steps by array of IDs with named step names
 
     pub async fn find_by_ids(

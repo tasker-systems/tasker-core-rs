@@ -155,7 +155,7 @@ impl BackoffCalculator {
     /// the step with backoff information.
     pub async fn calculate_and_apply_backoff(
         &self,
-        step_uuid: Uuid,
+        step_uuid: &Uuid,
         context: BackoffContext,
     ) -> Result<BackoffResult, BackoffError> {
         // Check for server-requested backoff first
@@ -164,7 +164,7 @@ impl BackoffCalculator {
                 .await
         } else {
             // Fall back to exponential backoff
-            self.apply_exponential_backoff(step_uuid, &context).await
+            self.apply_exponential_backoff(&step_uuid, &context).await
         }
     }
 
@@ -197,7 +197,7 @@ impl BackoffCalculator {
     /// Apply server-requested backoff from Retry-After header
     async fn apply_server_requested_backoff(
         &self,
-        step_uuid: Uuid,
+        step_uuid: &Uuid,
         retry_after_seconds: u32,
     ) -> Result<BackoffResult, BackoffError> {
         // Cap the server-requested delay
@@ -223,7 +223,7 @@ impl BackoffCalculator {
     /// Apply exponential backoff based on attempt count
     async fn apply_exponential_backoff(
         &self,
-        step_uuid: Uuid,
+        step_uuid: &Uuid,
         _context: &BackoffContext,
     ) -> Result<BackoffResult, BackoffError> {
         // Get current attempt count

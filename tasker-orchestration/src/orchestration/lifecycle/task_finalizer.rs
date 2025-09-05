@@ -56,6 +56,112 @@ use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
 
+/// Execution status returned by the SQL get_task_execution_context function
+/// Matches the execution_status values from the SQL function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ExecutionStatus {
+    /// Task has ready steps that can be executed
+    HasReadySteps,
+    /// Task has steps currently being processed
+    Processing,
+    /// Task is blocked by failures that cannot be retried
+    BlockedByFailures,
+    /// All steps are complete
+    AllComplete,
+    /// Task is waiting for dependencies to complete
+    WaitingForDependencies,
+}
+
+impl ExecutionStatus {
+    /// Parse execution status from SQL string value (kept for backward compatibility)
+    pub fn from_str(value: &str) -> Self {
+        value.into()
+    }
+
+    /// Convert to SQL string value
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::HasReadySteps => "has_ready_steps",
+            Self::Processing => "processing",
+            Self::BlockedByFailures => "blocked_by_failures",
+            Self::AllComplete => "all_complete",
+            Self::WaitingForDependencies => "waiting_for_dependencies",
+        }
+    }
+}
+
+impl From<&str> for ExecutionStatus {
+    fn from(value: &str) -> Self {
+        match value {
+            "has_ready_steps" => Self::HasReadySteps,
+            "processing" => Self::Processing,
+            "blocked_by_failures" => Self::BlockedByFailures,
+            "all_complete" => Self::AllComplete,
+            "waiting_for_dependencies" => Self::WaitingForDependencies,
+            _ => Self::WaitingForDependencies, // Default fallback
+        }
+    }
+}
+
+impl From<String> for ExecutionStatus {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
+}
+
+/// Recommended action returned by the SQL get_task_execution_context function
+/// Matches the recommended_action values from the SQL function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RecommendedAction {
+    /// Execute the ready steps
+    ExecuteReadySteps,
+    /// Wait for in-progress steps to complete
+    WaitForCompletion,
+    /// Handle permanent failures
+    HandleFailures,
+    /// Finalize the completed task
+    FinalizeTask,
+    /// Wait for dependencies to become ready
+    WaitForDependencies,
+}
+
+impl RecommendedAction {
+    /// Parse recommended action from SQL string value (kept for backward compatibility)
+    pub fn from_str(value: &str) -> Self {
+        value.into()
+    }
+
+    /// Convert to SQL string value
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::ExecuteReadySteps => "execute_ready_steps",
+            Self::WaitForCompletion => "wait_for_completion",
+            Self::HandleFailures => "handle_failures",
+            Self::FinalizeTask => "finalize_task",
+            Self::WaitForDependencies => "wait_for_dependencies",
+        }
+    }
+}
+
+impl From<&str> for RecommendedAction {
+    fn from(value: &str) -> Self {
+        match value {
+            "execute_ready_steps" => Self::ExecuteReadySteps,
+            "wait_for_completion" => Self::WaitForCompletion,
+            "handle_failures" => Self::HandleFailures,
+            "finalize_task" => Self::FinalizeTask,
+            "wait_for_dependencies" => Self::WaitForDependencies,
+            _ => Self::WaitForDependencies, // Default fallback
+        }
+    }
+}
+
+impl From<String> for RecommendedAction {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
+}
+
 /// Result of task finalization operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizationResult {
@@ -92,7 +198,7 @@ pub enum FinalizationAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecutionContext {
     pub task_uuid: Uuid,
-    pub execution_status: String,
+    pub execution_status: ExecutionStatus,
     pub health_status: Option<String>,
     pub completion_percentage: Option<f64>,
     pub total_steps: Option<i32>,
@@ -101,7 +207,7 @@ pub struct TaskExecutionContext {
     pub in_progress_steps: Option<i32>,
     pub completed_steps: Option<i32>,
     pub failed_steps: Option<i32>,
-    pub recommended_action: Option<String>,
+    pub recommended_action: Option<RecommendedAction>,
 }
 
 /// TaskFinalizer handles task completion and finalization logic
@@ -149,7 +255,7 @@ impl TaskFinalizer {
             return Ok(false);
         };
 
-        Ok(context.execution_status == "blocked_by_failures")
+        Ok(context.execution_status == ExecutionStatus::BlockedByFailures)
     }
 
     /// Finalize a task with processed steps
@@ -424,8 +530,8 @@ impl TaskFinalizer {
         match context_result {
             Ok(Some(sql_context)) => Ok(Some(TaskExecutionContext {
                 task_uuid,
-                execution_status: sql_context.recommended_action.clone(), // Use recommended_action as a proxy for status
-                health_status: Some("healthy".to_string()),               // Default health status
+                execution_status: sql_context.execution_status.as_str().into(),
+                health_status: Some(sql_context.health_status),
                 completion_percentage: Some(
                     sql_context
                         .completion_percentage
@@ -439,7 +545,7 @@ impl TaskFinalizer {
                 in_progress_steps: Some(sql_context.in_progress_steps as i32),
                 completed_steps: Some(sql_context.completed_steps as i32),
                 failed_steps: Some(sql_context.failed_steps as i32),
-                recommended_action: Some(sql_context.recommended_action),
+                recommended_action: Some(sql_context.recommended_action.as_str().into()),
             })),
             Ok(None) => Ok(None), // No context available
             Err(_) => Ok(None),   // Context not available due to error
@@ -469,33 +575,29 @@ impl TaskFinalizer {
             return self.handle_unclear_state(task, None).await;
         };
 
-        match context.execution_status.as_str() {
-            "all_complete" | "finalize_task" => {
+        match context.execution_status {
+            ExecutionStatus::AllComplete => {
                 println!("TaskFinalizer: Task {task_uuid} - calling complete_task");
                 self.complete_task(task, Some(context)).await
             }
-            "blocked_by_failures" => {
+            ExecutionStatus::BlockedByFailures => {
                 println!("TaskFinalizer: Task {task_uuid} - calling error_task");
                 self.error_task(task, Some(context)).await
             }
-            "has_ready_steps" | "execute_ready_steps" => {
+            ExecutionStatus::HasReadySteps => {
                 println!("TaskFinalizer: Task {task_uuid} - has ready steps, should execute them");
                 self.handle_ready_steps_state(task, Some(context), synchronous)
                     .await
             }
-            "waiting_for_dependencies" => {
+            ExecutionStatus::WaitingForDependencies => {
                 println!("TaskFinalizer: Task {task_uuid} - waiting for dependencies");
                 self.handle_waiting_state(task, Some(context), synchronous)
                     .await
             }
-            "processing" => {
+            ExecutionStatus::Processing => {
                 println!("TaskFinalizer: Task {task_uuid} - handling processing state");
                 self.handle_processing_state(task, Some(context), synchronous)
                     .await
-            }
-            _ => {
-                println!("TaskFinalizer: Task {task_uuid} - handling unclear state");
-                self.handle_unclear_state(task, Some(context)).await
             }
         }
     }
@@ -610,7 +712,7 @@ impl TaskFinalizer {
 
         if let Some(ref ctx) = context {
             eprintln!(
-                "TaskFinalizer: Task {} in unclear state: execution_status={}, health_status={:?}, ready_steps={:?}, failed_steps={:?}, in_progress_steps={:?}",
+                "TaskFinalizer: Task {} in unclear state: execution_status={:?}, health_status={:?}, ready_steps={:?}, failed_steps={:?}, in_progress_steps={:?}",
                 task_uuid,
                 ctx.execution_status,
                 ctx.health_status,
@@ -632,21 +734,23 @@ impl TaskFinalizer {
 
     /// Determine reason for pending state
     fn determine_pending_reason(&self, context: &TaskExecutionContext) -> Option<String> {
-        match context.execution_status.as_str() {
-            "has_ready_steps" | "execute_ready_steps" => Some("Ready for processing".to_string()),
-            "waiting_for_dependencies" => Some("Waiting for dependencies".to_string()),
-            "processing" => Some("Waiting for step completion".to_string()),
-            _ => Some("Workflow paused".to_string()),
+        match context.execution_status {
+            ExecutionStatus::HasReadySteps => Some("Ready for processing".to_string()),
+            ExecutionStatus::WaitingForDependencies => Some("Waiting for dependencies".to_string()),
+            ExecutionStatus::Processing => Some("Waiting for step completion".to_string()),
+            ExecutionStatus::BlockedByFailures => Some("Blocked by failures".to_string()),
+            ExecutionStatus::AllComplete => Some("Task complete".to_string()),
         }
     }
 
     /// Determine reason for reenqueue
     fn determine_reenqueue_reason(&self, context: &TaskExecutionContext) -> Option<String> {
-        match context.execution_status.as_str() {
-            "has_ready_steps" | "execute_ready_steps" => Some("Ready steps available".to_string()),
-            "waiting_for_dependencies" => Some("Awaiting dependencies".to_string()),
-            "processing" => Some("Steps in progress".to_string()),
-            _ => Some("Continuing workflow".to_string()),
+        match context.execution_status {
+            ExecutionStatus::HasReadySteps => Some("Ready steps available".to_string()),
+            ExecutionStatus::WaitingForDependencies => Some("Awaiting dependencies".to_string()),
+            ExecutionStatus::Processing => Some("Steps in progress".to_string()),
+            ExecutionStatus::BlockedByFailures => Some("Handling failures".to_string()),
+            ExecutionStatus::AllComplete => Some("Finalizing task".to_string()),
         }
     }
 
@@ -669,18 +773,20 @@ impl TaskFinalizer {
             return tasker_config.backoff.default_reenqueue_delay as u64;
         };
 
-        match context.execution_status.as_str() {
-            "has_ready_steps" | "execute_ready_steps" => {
+        match context.execution_status {
+            ExecutionStatus::HasReadySteps => {
                 tasker_config.backoff.reenqueue_delays.has_ready_steps
             }
-            "waiting_for_dependencies" => {
+            ExecutionStatus::WaitingForDependencies => {
                 tasker_config
                     .backoff
                     .reenqueue_delays
                     .waiting_for_dependencies
             }
-            "processing" => tasker_config.backoff.reenqueue_delays.processing,
-            _ => tasker_config.backoff.default_reenqueue_delay as u64,
+            ExecutionStatus::Processing => tasker_config.backoff.reenqueue_delays.processing,
+            ExecutionStatus::BlockedByFailures | ExecutionStatus::AllComplete => {
+                tasker_config.backoff.default_reenqueue_delay as u64
+            }
         }
     }
 
@@ -697,24 +803,27 @@ impl TaskFinalizer {
 
         // Check context-based priorities
         if let Some(ctx) = context {
-            match ctx.execution_status.as_str() {
-                "has_ready_steps" | "execute_ready_steps" => {
+            match ctx.execution_status {
+                ExecutionStatus::HasReadySteps => {
                     // Ready steps should be processed with higher priority
                     EnqueuePriority::High
                 }
-                "blocked_by_failures" => {
+                ExecutionStatus::BlockedByFailures => {
                     // Failed tasks need attention but not urgent
                     EnqueuePriority::Normal
                 }
-                "waiting_for_dependencies" => {
+                ExecutionStatus::WaitingForDependencies => {
                     // Waiting tasks can be lower priority
                     EnqueuePriority::Low
                 }
-                "processing" => {
+                ExecutionStatus::Processing => {
                     // Currently processing tasks get normal priority
                     EnqueuePriority::Normal
                 }
-                _ => EnqueuePriority::Normal,
+                ExecutionStatus::AllComplete => {
+                    // Complete tasks being re-enqueued for final checks
+                    EnqueuePriority::Low
+                }
             }
         } else {
             // No context available, use normal priority
@@ -947,7 +1056,7 @@ mod tests {
         let task_uuid = Uuid::now_v7();
         let context = TaskExecutionContext {
             task_uuid,
-            execution_status: "all_complete".to_string(),
+            execution_status: ExecutionStatus::AllComplete,
             health_status: Some("healthy".to_string()),
             completion_percentage: Some(100.0),
             total_steps: Some(3),
@@ -956,11 +1065,129 @@ mod tests {
             in_progress_steps: Some(0),
             completed_steps: Some(3),
             failed_steps: Some(0),
-            recommended_action: Some("complete".to_string()),
+            recommended_action: Some(RecommendedAction::FinalizeTask),
         };
 
         assert_eq!(context.task_uuid, task_uuid);
-        assert_eq!(context.execution_status, "all_complete");
+        assert_eq!(context.execution_status, ExecutionStatus::AllComplete);
         assert_eq!(context.completed_steps, Some(3));
+    }
+
+    #[test]
+    fn test_execution_status_conversion() {
+        // Test from_str method (backward compatibility)
+        assert_eq!(
+            ExecutionStatus::from_str("has_ready_steps"),
+            ExecutionStatus::HasReadySteps
+        );
+        assert_eq!(
+            ExecutionStatus::from_str("processing"),
+            ExecutionStatus::Processing
+        );
+        assert_eq!(
+            ExecutionStatus::from_str("blocked_by_failures"),
+            ExecutionStatus::BlockedByFailures
+        );
+        assert_eq!(
+            ExecutionStatus::from_str("all_complete"),
+            ExecutionStatus::AllComplete
+        );
+        assert_eq!(
+            ExecutionStatus::from_str("waiting_for_dependencies"),
+            ExecutionStatus::WaitingForDependencies
+        );
+        assert_eq!(
+            ExecutionStatus::from_str("unknown"),
+            ExecutionStatus::WaitingForDependencies
+        ); // Default
+
+        // Test From<&str> implementation
+        let status: ExecutionStatus = "has_ready_steps".into();
+        assert_eq!(status, ExecutionStatus::HasReadySteps);
+        let status: ExecutionStatus = "processing".into();
+        assert_eq!(status, ExecutionStatus::Processing);
+        let status: ExecutionStatus = "unknown".into();
+        assert_eq!(status, ExecutionStatus::WaitingForDependencies); // Default
+
+        // Test From<String> implementation
+        let status: ExecutionStatus = String::from("all_complete").into();
+        assert_eq!(status, ExecutionStatus::AllComplete);
+        let status: ExecutionStatus = String::from("blocked_by_failures").into();
+        assert_eq!(status, ExecutionStatus::BlockedByFailures);
+
+        // Test as_str method
+        assert_eq!(ExecutionStatus::HasReadySteps.as_str(), "has_ready_steps");
+        assert_eq!(ExecutionStatus::Processing.as_str(), "processing");
+        assert_eq!(
+            ExecutionStatus::BlockedByFailures.as_str(),
+            "blocked_by_failures"
+        );
+        assert_eq!(ExecutionStatus::AllComplete.as_str(), "all_complete");
+        assert_eq!(
+            ExecutionStatus::WaitingForDependencies.as_str(),
+            "waiting_for_dependencies"
+        );
+    }
+
+    #[test]
+    fn test_recommended_action_conversion() {
+        // Test from_str method (backward compatibility)
+        assert_eq!(
+            RecommendedAction::from_str("execute_ready_steps"),
+            RecommendedAction::ExecuteReadySteps
+        );
+        assert_eq!(
+            RecommendedAction::from_str("wait_for_completion"),
+            RecommendedAction::WaitForCompletion
+        );
+        assert_eq!(
+            RecommendedAction::from_str("handle_failures"),
+            RecommendedAction::HandleFailures
+        );
+        assert_eq!(
+            RecommendedAction::from_str("finalize_task"),
+            RecommendedAction::FinalizeTask
+        );
+        assert_eq!(
+            RecommendedAction::from_str("wait_for_dependencies"),
+            RecommendedAction::WaitForDependencies
+        );
+        assert_eq!(
+            RecommendedAction::from_str("unknown"),
+            RecommendedAction::WaitForDependencies
+        ); // Default
+
+        // Test From<&str> implementation
+        let action: RecommendedAction = "execute_ready_steps".into();
+        assert_eq!(action, RecommendedAction::ExecuteReadySteps);
+        let action: RecommendedAction = "wait_for_completion".into();
+        assert_eq!(action, RecommendedAction::WaitForCompletion);
+        let action: RecommendedAction = "unknown".into();
+        assert_eq!(action, RecommendedAction::WaitForDependencies); // Default
+
+        // Test From<String> implementation
+        let action: RecommendedAction = String::from("finalize_task").into();
+        assert_eq!(action, RecommendedAction::FinalizeTask);
+        let action: RecommendedAction = String::from("handle_failures").into();
+        assert_eq!(action, RecommendedAction::HandleFailures);
+
+        // Test as_str method
+        assert_eq!(
+            RecommendedAction::ExecuteReadySteps.as_str(),
+            "execute_ready_steps"
+        );
+        assert_eq!(
+            RecommendedAction::WaitForCompletion.as_str(),
+            "wait_for_completion"
+        );
+        assert_eq!(
+            RecommendedAction::HandleFailures.as_str(),
+            "handle_failures"
+        );
+        assert_eq!(RecommendedAction::FinalizeTask.as_str(), "finalize_task");
+        assert_eq!(
+            RecommendedAction::WaitForDependencies.as_str(),
+            "wait_for_dependencies"
+        );
     }
 }

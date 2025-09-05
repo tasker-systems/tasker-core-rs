@@ -218,34 +218,13 @@ impl StepResultProcessor {
             "Processing step result"
         );
 
-        // Convert step status to string for result processor
-        let status_string = match step_result.status {
-            StepExecutionStatus::Success => "success".to_string(),
-            StepExecutionStatus::Failed => "failed".to_string(),
-            StepExecutionStatus::Skipped => "skipped".to_string(),
-            StepExecutionStatus::Timeout => "timeout".to_string(),
-            StepExecutionStatus::Cancelled => "cancelled".to_string(),
-        };
-
         // Process the step result using the orchestration result processor
         self.orchestration_result_processor
-            .handle_step_result_with_metadata(
-                step_result.step_uuid,
-                status_string,
-                step_result.execution_time_ms,
-                step_result.orchestration_metadata,
-            )
+            .handle_step_result_with_metadata(step_result)
             .await
             .map_err(|e| {
                 TaskerError::OrchestrationError(format!("Failed to handle step result: {e}"))
             })?;
-
-        info!(
-            step_uuid = %step_result.step_uuid,
-            task_uuid = %step_result.task_uuid,
-            msg_id = msg_id,
-            "Step result processed successfully"
-        );
 
         Ok(())
     }

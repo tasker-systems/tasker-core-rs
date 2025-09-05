@@ -257,6 +257,7 @@ impl ReadinessFallbackPoller {
               AND (rt.claimed_by IS NULL)
               AND rt.execution_status = 'has_ready_steps'
               AND rt.ready_steps_count > 0
+              AND rt.claim_status = 'available'
             ORDER BY rt.computed_priority DESC, rt.created_at ASC
             LIMIT $3
             "#,

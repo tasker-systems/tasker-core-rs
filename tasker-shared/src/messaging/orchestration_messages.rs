@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::messaging::message::OrchestrationMetadata;
@@ -158,6 +159,24 @@ pub struct StepResultMessage {
     pub metadata: StepResultMetadata,
 }
 
+impl fmt::Display for StepResultMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "StepResultMessage {{ step_uuid: {}, task_uuid: {}, namespace: {}, status: {}, results: {:?}, error: {:?}, execution_time_ms: {}, orchestration_metadata: {:?}, metadata: {:?} }}",
+            self.step_uuid,
+            self.task_uuid,
+            self.namespace,
+            self.status,
+            self.results,
+            self.error,
+            self.execution_time_ms,
+            self.orchestration_metadata,
+            self.metadata
+        )
+    }
+}
+
 /// DEPRECATED: Message for batch results - kept for backward compatibility
 /// Use StepResultMessage for new individual step processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +232,24 @@ pub enum StepExecutionStatus {
     Skipped,
     Timeout,
     Cancelled,
+}
+
+impl fmt::Display for StepExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StepExecutionStatus::Success => write!(f, "Success"),
+            StepExecutionStatus::Failed => write!(f, "Failed"),
+            StepExecutionStatus::Skipped => write!(f, "Skipped"),
+            StepExecutionStatus::Timeout => write!(f, "Timeout"),
+            StepExecutionStatus::Cancelled => write!(f, "Cancelled"),
+        }
+    }
+}
+
+impl From<StepExecutionStatus> for String {
+    fn from(status: StepExecutionStatus) -> Self {
+        status.to_string().to_lowercase()
+    }
 }
 
 /// Error information for failed step execution

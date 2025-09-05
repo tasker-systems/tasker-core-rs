@@ -568,12 +568,7 @@ impl OrchestrationProcessorCommandHandler {
         // Delegate to sophisticated OrchestrationResultProcessor
         match self
             .result_processor
-            .handle_step_result_with_metadata(
-                step_result.step_uuid,
-                step_result.status.clone(),
-                step_result.metadata.execution_time_ms as u64,
-                step_result.orchestration_metadata.clone(),
-            )
+            .handle_step_execution_result(&step_result)
             .await
         {
             Ok(()) => {

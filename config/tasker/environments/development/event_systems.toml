@@ -7,6 +7,10 @@
 # ORCHESTRATION EVENT SYSTEM - DEVELOPMENT OVERRIDES
 # ============================================================================
 
+[event_systems.orchestration]
+system_id = "orchestration-event-system"
+deployment_mode = "EventDrivenOnly"
+
 # Faster timing for tests
 [event_systems.orchestration.timing]
 health_check_interval_seconds = 10
@@ -24,6 +28,10 @@ batch_size = 5
 # TASK READINESS EVENT SYSTEM - DEVELOPMENT OVERRIDES
 # ============================================================================
 
+[event_systems.task_readiness]
+system_id = "task-readiness-event-system"
+deployment_mode = "EventDrivenOnly"
+
 # Faster timing for tests
 [event_systems.task_readiness.timing]
 health_check_interval_seconds = 10
@@ -40,6 +48,9 @@ batch_size = 10
 # ============================================================================
 # WORKER EVENT SYSTEM - DEVELOPMENT OVERRIDES
 # ============================================================================
+
+[event_systems.worker]
+deployment_mode = "EventDrivenOnly"
 
 # Faster timing for tests
 [event_systems.worker.timing]

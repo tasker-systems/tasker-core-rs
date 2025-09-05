@@ -27,10 +27,12 @@ use crate::orchestration::{
     task_claim::finalization_claimer::FinalizationClaimer,
     BackoffCalculatorConfig,
 };
-use tasker_shared::messaging::message::OrchestrationMetadata;
+use tasker_shared::messaging::{
+    message::OrchestrationMetadata, StepExecutionResult, StepResultMessage,
+};
 use tasker_shared::models::core::workflow_step::WorkflowStep;
 
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// TAS-32: Orchestration coordination processor (coordination only, no state management)
 ///
@@ -87,12 +89,14 @@ impl OrchestrationResultProcessor {
     /// - Orchestration-level retry decisions
     pub async fn handle_step_result_with_metadata(
         &self,
-        step_uuid: Uuid,
-        status: String,
-        execution_time_ms: u64,
-        orchestration_metadata: Option<OrchestrationMetadata>,
+        step_result: StepResultMessage,
     ) -> OrchestrationResult<()> {
-        tracing::info!(
+        let step_uuid = &step_result.step_uuid;
+        let status = &step_result.status;
+        let execution_time_ms = &step_result.execution_time_ms;
+        let orchestration_metadata = &step_result.orchestration_metadata;
+
+        info!(
             step_uuid = %step_uuid,
             status = %status,
             execution_time_ms = execution_time_ms,
@@ -112,7 +116,7 @@ impl OrchestrationResultProcessor {
             );
 
             if let Err(e) = self
-                .process_orchestration_metadata(step_uuid, metadata)
+                .process_orchestration_metadata(step_uuid, &metadata)
                 .await
             {
                 error!(
@@ -141,7 +145,95 @@ impl OrchestrationResultProcessor {
         );
 
         match self
-            .handle_step_result(step_uuid, status.clone(), execution_time_ms)
+            .handle_step_result(
+                &step_result.step_uuid,
+                &step_result.status.clone().into(),
+                &(step_result.execution_time_ms as i64),
+            )
+            .await
+        {
+            Ok(()) => {
+                info!(
+                    step_uuid = %step_uuid,
+                    status = %status,
+                    "✅ ORCHESTRATION_RESULT_PROCESSOR: Step result notification processing completed successfully"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    step_uuid = %step_uuid,
+                    status = %status,
+                    error = %e,
+                    "❌ ORCHESTRATION_RESULT_PROCESSOR: Step result notification processing failed"
+                );
+                Err(e)
+            }
+        }
+    }
+
+    pub async fn handle_step_execution_result(
+        &self,
+        step_result: &StepExecutionResult,
+    ) -> OrchestrationResult<()> {
+        let step_uuid = &step_result.step_uuid;
+        let status = &step_result.status;
+        let execution_time_ms = &step_result.metadata.execution_time_ms;
+        let orchestration_metadata = &step_result.orchestration_metadata;
+
+        info!(
+            step_uuid = %step_uuid,
+            status = %status,
+            execution_time_ms = execution_time_ms,
+            processor_id = %self.processor_id,
+            "✅ ORCHESTRATION_RESULT_PROCESSOR: Step execution result notification processing completed successfully"
+        );
+        // Process orchestration metadata for backoff decisions (coordinating retry timing)
+        if let Some(metadata) = &orchestration_metadata {
+            debug!(
+                step_uuid = %step_uuid,
+                headers_count = metadata.headers.len(),
+                has_error_context = metadata.error_context.is_some(),
+                has_backoff_hint = metadata.backoff_hint.is_some(),
+                custom_fields_count = metadata.custom.len(),
+                "🔍 ORCHESTRATION_RESULT_PROCESSOR: Processing orchestration metadata"
+            );
+
+            if let Err(e) = self
+                .process_orchestration_metadata(step_uuid, &metadata)
+                .await
+            {
+                error!(
+                    step_uuid = %step_uuid,
+                    error = %e,
+                    "❌ ORCHESTRATION_RESULT_PROCESSOR: Failed to process orchestration metadata"
+                );
+            } else {
+                debug!(
+                    step_uuid = %step_uuid,
+                    "✅ ORCHESTRATION_RESULT_PROCESSOR: Successfully processed orchestration metadata"
+                );
+            }
+        } else {
+            debug!(
+                step_uuid = %step_uuid,
+                "🔍 ORCHESTRATION_RESULT_PROCESSOR: No orchestration metadata to process"
+            );
+        }
+
+        // Delegate to coordination-only result handling (no state updates)
+        debug!(
+            step_uuid = %step_uuid,
+            status = %status,
+            "🔍 ORCHESTRATION_RESULT_PROCESSOR: Delegating to handle_step_result for coordination-only processing"
+        );
+
+        match self
+            .handle_step_result(
+                &step_result.step_uuid,
+                &step_result.status,
+                &step_result.metadata.execution_time_ms,
+            )
             .await
         {
             Ok(()) => {
@@ -173,9 +265,9 @@ impl OrchestrationResultProcessor {
     /// since Ruby workers manage step state transitions directly.
     pub async fn handle_step_result(
         &self,
-        step_uuid: Uuid,
-        status: String,
-        execution_time_ms: u64,
+        step_uuid: &Uuid,
+        status: &String,
+        execution_time_ms: &i64,
     ) -> OrchestrationResult<()> {
         info!(
             step_uuid = %step_uuid,
@@ -191,7 +283,7 @@ impl OrchestrationResultProcessor {
             "🔍 TASK_COORDINATION: Status qualifies for finalization check - looking up WorkflowStep"
         );
 
-        match WorkflowStep::find_by_id(self.context.database_pool(), step_uuid).await {
+        match WorkflowStep::find_by_id(self.context.database_pool(), step_uuid.clone()).await {
             Ok(Some(workflow_step)) => {
                 info!(
                     step_uuid = %step_uuid,
@@ -332,7 +424,7 @@ impl OrchestrationResultProcessor {
     /// - Explicit backoff hints from handlers
     async fn process_orchestration_metadata(
         &self,
-        step_uuid: Uuid,
+        step_uuid: &Uuid,
         metadata: &OrchestrationMetadata,
     ) -> OrchestrationResult<()> {
         tracing::debug!(

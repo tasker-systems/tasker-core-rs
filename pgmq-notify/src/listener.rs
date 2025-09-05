@@ -255,6 +255,10 @@ impl PgmqNotifyListener {
     }
 
     /// Start listening loop with an event handler
+    ///
+    /// This function now RUNS THE LOOP IN THE CURRENT TASK and only returns when the
+    /// underlying notification stream ends or an error occurs. If you want a detached
+    /// background task, use `start_listening_with_handler` (see below).
     #[instrument(skip(self, handler))]
     pub async fn listen_with_handler<H>(&mut self, handler: H) -> Result<()>
     where
@@ -272,9 +276,106 @@ impl PgmqNotifyListener {
             let stats = Arc::clone(&self.stats);
             let _listening_channels = Arc::clone(&self.listening_channels);
 
-            // Spawn the listening task
-            tokio::spawn(async move {
+            // Run the listening loop inline (blocking) so callers awaiting this function
+            // will not return until the stream ends or an error occurs.
+            let mut stream = listener.into_stream();
+
+            while let Some(notification) = stream.next().await {
+                match notification {
+                    Ok(notification) => {
+                        debug!(
+                            "Received notification from channel: {} with payload: {}",
+                            notification.channel(),
+                            notification.payload()
+                        );
+
+                        // Update stats
+                        {
+                            let mut stats = stats.write().unwrap();
+                            stats.events_received += 1;
+                            stats.last_event_at = Some(SystemTime::now());
+                        }
+
+                        // Parse the event
+                        match serde_json::from_str::<PgmqNotifyEvent>(notification.payload()) {
+                            Ok(event) => {
+                                if let Err(e) = handler.handle_event(event).await {
+                                    error!("Event handler failed: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                let parse_error = PgmqNotifyError::Serialization(e);
+
+                                // Update stats
+                                {
+                                    let mut stats = stats.write().unwrap();
+                                    stats.parse_errors += 1;
+                                    stats.last_error_at = Some(SystemTime::now());
+                                }
+
+                                handler
+                                    .handle_parse_error(
+                                        notification.channel(),
+                                        notification.payload(),
+                                        parse_error,
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let conn_error = PgmqNotifyError::Database(e);
+
+                        // Update stats
+                        {
+                            let mut stats = stats.write().unwrap();
+                            stats.connection_errors += 1;
+                            stats.last_error_at = Some(SystemTime::now());
+                            stats.connected = false;
+                        }
+
+                        handler.handle_connection_error(conn_error).await;
+
+                        // Break the loop on connection error
+                        break;
+                    }
+                }
+            }
+
+            info!("PGMQ notification listener loop ended");
+        }
+
+        Ok(())
+    }
+
+    /// Start listening loop with an event handler in a detached background task
+    ///
+    /// This spawns the listener in the background and returns immediately. For applications
+    /// that need the listener to block until completion, use `listen_with_handler` instead.
+    #[instrument(skip(self, handler))]
+    pub async fn start_listening_with_handler<H>(
+        &mut self,
+        handler: H,
+    ) -> Result<tokio::task::JoinHandle<Result<()>>>
+    where
+        H: PgmqEventHandler + 'static,
+    {
+        if self.listener.is_none() {
+            return Err(PgmqNotifyError::NotConnected);
+        }
+
+        let handler = Arc::new(handler);
+
+        info!("Starting PGMQ notification listener in background task");
+
+        if let Some(listener) = self.listener.take() {
+            let stats = Arc::clone(&self.stats);
+            let _listening_channels = Arc::clone(&self.listening_channels);
+
+            // Spawn the listening task and return handle
+            let handle = tokio::spawn(async move {
                 let mut stream = listener.into_stream();
+                info!("Started listening for notifications");
 
                 while let Some(notification) = stream.next().await {
                     match notification {
@@ -339,13 +440,16 @@ impl PgmqNotifyListener {
                 }
 
                 info!("PGMQ notification listener loop ended");
+                Ok(())
             });
+
+            return Ok(handle);
         }
 
-        Ok(())
+        Err(PgmqNotifyError::NotConnected)
     }
 
-    /// Start a simple listening loop that queues events
+    /// Start a simple listening loop that queues events (detached background task)
     pub async fn start_listening(&mut self) -> Result<()> {
         if self.listener.is_none() {
             return Err(PgmqNotifyError::NotConnected);

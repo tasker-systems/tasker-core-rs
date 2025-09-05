@@ -383,6 +383,47 @@ impl Default for OrchestrationMetadata {
 }
 
 impl OrchestrationMetadata {
+    /// Try to create OrchestrationMetadata from JSON value
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::Null => None,
+            serde_json::Value::Object(obj) => {
+                let headers = obj
+                    .get("headers")
+                    .and_then(|v| v.as_object())
+                    .map(|h| {
+                        h.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let error_context = obj
+                    .get("error_context")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+
+                let backoff_hint = obj
+                    .get("backoff_hint")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+                let custom = obj
+                    .get("custom")
+                    .and_then(|v| v.as_object())
+                    .map(|c| c.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    .unwrap_or_default();
+
+                Some(OrchestrationMetadata {
+                    headers,
+                    error_context,
+                    backoff_hint,
+                    custom,
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// Create new orchestration metadata
     pub fn new() -> Self {
         Self {

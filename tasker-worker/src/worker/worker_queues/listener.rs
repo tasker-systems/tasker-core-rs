@@ -180,17 +180,38 @@ impl WorkerQueueListener {
         );
 
         // Start listening with the event handler in background task
+        self.pgmq_listener = Some(listener);
+
+        // Start listening with the event handler in background task
         let listener_id = self.listener_id;
-        tokio::spawn(async move {
-            match listener.listen_with_handler(handler).await {
-                Ok(_) => {
-                    info!(listener_id = %listener_id, "pgmq-notify listener completed successfully");
+        if let Some(mut listener) = self.pgmq_listener.take() {
+            // Use the new background-task method that returns a JoinHandle
+            match listener.start_listening_with_handler(handler).await {
+                Ok(handle) => {
+                    // Spawn a monitoring task for the background listener
+                    tokio::spawn(async move {
+                        match handle.await {
+                            Ok(Ok(_)) => {
+                                info!(listener_id = %listener_id, "pgmq-notify listener completed successfully");
+                            }
+                            Ok(Err(e)) => {
+                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener failed");
+                            }
+                            Err(e) => {
+                                error!(listener_id = %listener_id, error = %e, "pgmq-notify listener task panicked");
+                            }
+                        }
+                    });
                 }
                 Err(e) => {
-                    error!(listener_id = %listener_id, error = %e, "pgmq-notify listener failed");
+                    error!(listener_id = %listener_id, error = %e, "Failed to start pgmq-notify listener");
+                    return Err(TaskerError::OrchestrationError(format!(
+                        "Failed to start pgmq-notify listener: {}",
+                        e
+                    )));
                 }
             }
-        });
+        }
 
         self.is_connected = true;
         *self.stats.started_at.lock() = Some(Instant::now());

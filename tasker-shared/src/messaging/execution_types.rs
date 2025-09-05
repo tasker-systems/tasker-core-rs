@@ -77,6 +77,62 @@ pub struct StepExecutionResult {
     pub orchestration_metadata: Option<OrchestrationMetadata>,
 }
 
+impl From<serde_json::Value> for StepExecutionResult {
+    fn from(value: serde_json::Value) -> Self {
+        let mut step_uuid = Uuid::nil();
+        let mut success = false;
+        let mut result: Value = Value::Null;
+        let mut metadata = StepExecutionMetadata::default();
+        let mut status: String = String::new();
+        let mut error: Option<StepExecutionError> = None;
+        let mut orchestration_metadata: Option<OrchestrationMetadata> = None;
+
+        match value {
+            serde_json::Value::Object(obj) => {
+                for (key, val) in obj {
+                    match key.as_str() {
+                        "step_uuid" => {
+                            step_uuid = if let Some(uuid_str) = val.as_str() {
+                                Uuid::parse_str(uuid_str).unwrap_or(Uuid::nil())
+                            } else {
+                                Uuid::nil()
+                            };
+                        }
+                        "success" => success = val.as_bool().unwrap_or(false),
+                        "result" => result = val,
+                        "metadata" => metadata = StepExecutionMetadata::from(val),
+                        "status" => {
+                            status = val.as_str().map(|s| s.to_string()).unwrap_or_default()
+                        }
+                        "error" => error = StepExecutionError::from_json(&val),
+                        "orchestration_metadata" => {
+                            orchestration_metadata = OrchestrationMetadata::from_json(&val)
+                        }
+                        _ => {}
+                    }
+                }
+                StepExecutionResult {
+                    step_uuid,
+                    success,
+                    result,
+                    metadata,
+                    status,
+                    error,
+                    orchestration_metadata,
+                }
+            }
+            _ => StepExecutionResult::error(
+                step_uuid,
+                String::from("Invalid step execution result"),
+                Some(String::from("INVALD_STEP_EXECUTION_RESULT")),
+                None,
+                0,
+                None,
+            ),
+        }
+    }
+}
+
 /// Error information for failed step execution
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepExecutionError {
@@ -84,6 +140,46 @@ pub struct StepExecutionError {
     pub error_type: Option<String>,
     pub backtrace: Option<Vec<String>>,
     pub retryable: bool,
+}
+
+impl StepExecutionError {
+    /// Try to create StepExecutionError from JSON value
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::Null => None,
+            serde_json::Value::Object(obj) => {
+                let message = obj
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_default();
+
+                let error_type = obj
+                    .get("error_type")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+
+                let backtrace = obj.get("backtrace").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
+
+                let retryable = obj
+                    .get("retryable")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                Some(StepExecutionError {
+                    message,
+                    error_type,
+                    backtrace,
+                    retryable,
+                })
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Comprehensive metadata for step execution results
@@ -114,6 +210,71 @@ pub struct StepExecutionMetadata {
     pub error_type: Option<String>,
     /// Context data for API-level backoff evaluation
     pub context: HashMap<String, Value>,
+}
+
+impl From<serde_json::Value> for StepExecutionMetadata {
+    fn from(value: serde_json::Value) -> Self {
+        let mut metadata = StepExecutionMetadata::default();
+        if let Some(obj) = value.as_object() {
+            for (key, val) in obj {
+                match key.as_str() {
+                    "execution_time_ms" => metadata.execution_time_ms = val.as_i64().unwrap_or(0),
+                    "handler_version" => metadata.handler_version = val.as_str().map(String::from),
+                    "retryable" => metadata.retryable = val.as_bool().unwrap_or(false),
+                    "completed_at" => {
+                        if let Some(s) = val.as_str() {
+                            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                                metadata.completed_at = dt.with_timezone(&chrono::Utc);
+                            }
+                        }
+                    }
+                    "worker_id" => metadata.worker_id = val.as_str().map(String::from),
+                    "worker_hostname" => metadata.worker_hostname = val.as_str().map(String::from),
+                    "started_at" => {
+                        if let Some(s) = val.as_str() {
+                            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                                metadata.started_at = Some(dt.with_timezone(&chrono::Utc));
+                            }
+                        }
+                    }
+                    "custom" => {
+                        if let Some(obj) = val.as_object() {
+                            metadata.custom =
+                                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        }
+                    }
+                    "error_code" => metadata.error_code = val.as_str().map(String::from),
+                    "error_type" => metadata.error_type = val.as_str().map(String::from),
+                    "context" => {
+                        if let Some(obj) = val.as_object() {
+                            metadata.context =
+                                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        metadata
+    }
+}
+
+impl Default for StepExecutionMetadata {
+    fn default() -> Self {
+        Self {
+            execution_time_ms: 0,
+            handler_version: None,
+            retryable: false,
+            completed_at: chrono::Utc::now(),
+            worker_id: None,
+            worker_hostname: None,
+            started_at: None,
+            custom: HashMap::new(),
+            error_code: None,
+            error_type: None,
+            context: HashMap::new(),
+        }
+    }
 }
 
 impl StepBatchRequest {
@@ -405,6 +566,52 @@ mod tests {
             persistence_format["metadata"]["custom"]["custom_field"],
             "custom_value"
         );
+    }
+
+    #[test]
+    fn test_step_execution_result_from_json() {
+        // Test successful result
+        let json_value = serde_json::json!({
+            "step_uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "success": true,
+            "result": {"data": "test"},
+            "metadata": {
+                "execution_time_ms": 100,
+                "retryable": false
+            },
+            "status": "completed"
+        });
+
+        let result = StepExecutionResult::from(json_value);
+        assert!(result.success);
+        assert_eq!(result.status, "completed");
+        assert_eq!(result.metadata.execution_time_ms, 100);
+
+        // Test error result
+        let error_json = serde_json::json!({
+            "step_uuid": "550e8400-e29b-41d4-a716-446655440001",
+            "success": false,
+            "result": {},
+            "metadata": {
+                "execution_time_ms": 50,
+                "retryable": true,
+                "error_code": "TIMEOUT"
+            },
+            "status": "failed",
+            "error": {
+                "message": "Operation timed out",
+                "error_type": "TimeoutError",
+                "retryable": true
+            }
+        });
+
+        let error_result = StepExecutionResult::from(error_json);
+        assert!(!error_result.success);
+        assert_eq!(error_result.status, "failed");
+        assert!(error_result.error.is_some());
+        let error = error_result.error.unwrap();
+        assert_eq!(error.message, "Operation timed out");
+        assert!(error.retryable);
     }
 
     #[test]
