@@ -142,9 +142,10 @@ impl WorkerQueueListener {
 
         // Create pgmq-notify configuration for worker namespace queues
         // Updated for TAS-41 wrapper function integration: use extraction patterns that match
-        // our wrapper functions' namespace extraction logic from queue names like "worker_{namespace}_queue"
+        // our wrapper functions' namespace extraction logic from queue names
+        // Pattern matches both "worker_{namespace}_queue" and "{namespace}_queue" formats
         let pgmq_config = PgmqNotifyConfig::new()
-            .with_queue_naming_pattern(r"worker_(?P<namespace>\w+)_queue|(?P<namespace>\w+)_queue")
+            .with_queue_naming_pattern(r"^(?:worker_)?(?P<namespace>\w+)_queue$")
             .with_default_namespace("default");
 
         // Create pgmq-notify listener

@@ -142,8 +142,24 @@ impl AppState {
             last_health_check: std::time::Instant::now(),
         }));
 
-        // Create TaskInitializer from orchestration context
-        let task_initializer = Arc::new(TaskInitializer::new(orchestration_core.context.clone()));
+        // Create TaskClaimStepEnqueuer for immediate step enqueuing (TAS-41)
+        let orchestrator_id = format!("web_api_{}", uuid::Uuid::new_v4());
+        let task_claim_step_enqueuer =
+            crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer::new(
+                orchestration_core.context.clone(),
+                orchestrator_id,
+            )
+            .await
+            .map_err(|e| {
+                ApiError::database_error(format!("Failed to create TaskClaimStepEnqueuer: {e}"))
+            })?;
+        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+
+        // Create TaskInitializer with step enqueuer for immediate step enqueuing (TAS-41)
+        let task_initializer = Arc::new(TaskInitializer::with_step_enqueuer(
+            orchestration_core.context.clone(),
+            task_claim_step_enqueuer,
+        ));
 
         info!(
             web_pool_size = pool_config.web_api_max_connections,

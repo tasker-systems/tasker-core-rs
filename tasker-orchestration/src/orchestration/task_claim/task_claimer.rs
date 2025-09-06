@@ -39,13 +39,19 @@
 //! # }
 //! ```
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tasker_shared::config::orchestration::TaskClaimerConfig;
 use tasker_shared::{TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
+
+use super::task_claim_manager::{TaskClaimManager, ClaimTransferable};
+use super::task_claim_state::{TaskClaimState, ClaimPurpose};
+use super::task_claim_state_manager::TaskClaimStateManager;
 
 /// Represents a claimed task with priority fairness metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,24 +79,29 @@ pub struct TaskClaimer {
     pool: PgPool,
     orchestrator_id: String,
     config: TaskClaimerConfig,
+    state_manager: TaskClaimStateManager,
 }
 
 impl TaskClaimer {
     /// Create a new task claimer instance
     pub fn new(pool: PgPool, orchestrator_id: String) -> Self {
+        let state_manager = TaskClaimStateManager::new(pool.clone());
         Self {
             pool,
             orchestrator_id,
             config: TaskClaimerConfig::default(),
+            state_manager,
         }
     }
 
     /// Create a new task claimer with custom configuration
     pub fn with_config(pool: PgPool, orchestrator_id: String, config: TaskClaimerConfig) -> Self {
+        let state_manager = TaskClaimStateManager::new(pool.clone());
         Self {
             pool,
             orchestrator_id,
             config,
+            state_manager,
         }
     }
 
@@ -233,6 +244,67 @@ impl TaskClaimer {
         Ok(extended)
     }
 
+    /// Claim a specific task by UUID for immediate processing
+    ///
+    /// This is used for immediate step enqueuing after task creation (TAS-41).
+    /// Unlike claim_ready_tasks which claims a batch, this targets a specific task.
+    #[instrument(skip(self), fields(orchestrator_id = %self.orchestrator_id))]
+    pub async fn claim_individual_task(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<Option<ClaimedTask>> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            orchestrator_id = %self.orchestrator_id,
+            "Attempting to claim individual task"
+        );
+
+        let query = r#"
+            SELECT task_uuid, namespace_name, priority, computed_priority, age_hours,
+                   ready_steps_count, claim_timeout_seconds
+            FROM claim_individual_task($1::UUID, $2::VARCHAR, $3::INTEGER)
+        "#;
+
+        let rows = sqlx::query_as::<_, ClaimedTaskRow>(query)
+            .bind(task_uuid)
+            .bind(&self.orchestrator_id)
+            .bind(self.config.default_claim_timeout)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("Failed to claim individual task {}: {}", task_uuid, e);
+                TaskerError::DatabaseError(format!("Individual task claiming failed: {e}"))
+            })?;
+
+        // Should return at most one row
+        let claimed_task = rows.into_iter().next().map(|row| ClaimedTask {
+            task_uuid: row.task_uuid,
+            namespace_name: row.namespace_name,
+            priority: row.priority,
+            computed_priority: row.computed_priority,
+            age_hours: row.age_hours,
+            ready_steps_count: row.ready_steps_count,
+            claim_timeout_seconds: row.claim_timeout_seconds,
+            claimed_at: Utc::now(),
+        });
+
+        if let Some(ref task) = claimed_task {
+            info!(
+                task_uuid = task.task_uuid.to_string(),
+                namespace = %task.namespace_name,
+                ready_steps = task.ready_steps_count,
+                "Successfully claimed individual task"
+            );
+        } else {
+            debug!(
+                task_uuid = task_uuid.to_string(),
+                "Task not eligible for claiming (may be complete, have no ready steps, or already claimed)"
+            );
+        }
+
+        Ok(claimed_task)
+    }
+
     /// Get current orchestrator ID
     pub fn orchestrator_id(&self) -> &str {
         &self.orchestrator_id
@@ -295,7 +367,94 @@ impl TaskClaimer {
 
         summary
     }
+
+    /// Get access to the state manager
+    pub fn state_manager(&self) -> &TaskClaimStateManager {
+        &self.state_manager
+    }
 }
+
+/// Implementation of TaskClaimManager trait for TaskClaimer
+#[async_trait]
+impl TaskClaimManager for TaskClaimer {
+    fn processor_id(&self) -> &str {
+        &self.orchestrator_id
+    }
+
+    async fn claim_task(
+        &self,
+        task_uuid: Uuid,
+        purpose: ClaimPurpose,
+        timeout_seconds: Option<i32>,
+    ) -> TaskerResult<TaskClaimState> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            purpose = ?purpose,
+            timeout = timeout_seconds,
+            "Claiming task with purpose through TaskClaimer"
+        );
+
+        self.state_manager.claim_with_purpose(
+            task_uuid,
+            &self.orchestrator_id,
+            &purpose,
+            timeout_seconds.or(Some(self.config.default_claim_timeout)),
+        ).await
+    }
+
+    async fn transfer_claim(
+        &self,
+        task_uuid: Uuid,
+        from_purpose: ClaimPurpose,
+        to_purpose: ClaimPurpose,
+        timeout_seconds: Option<i32>,
+    ) -> TaskerResult<TaskClaimState> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            from = ?from_purpose,
+            to = ?to_purpose,
+            timeout = timeout_seconds,
+            "Transferring claim through TaskClaimer"
+        );
+
+        self.state_manager.transfer_claim(
+            task_uuid,
+            &self.orchestrator_id,
+            &from_purpose,
+            &to_purpose,
+            timeout_seconds.or(Some(self.config.default_claim_timeout)),
+        ).await
+    }
+
+    async fn release_claim(
+        &self,
+        task_uuid: Uuid,
+        _purpose: ClaimPurpose,
+    ) -> TaskerResult<bool> {
+        // Use the existing release method - purpose is tracked at application level
+        self.release_task_claim(task_uuid).await
+    }
+
+    async fn extend_claim(
+        &self,
+        task_uuid: Uuid,
+        _purpose: ClaimPurpose,
+        _additional_seconds: Option<i32>,
+    ) -> TaskerResult<bool> {
+        // Use the existing extend method - purpose is tracked at application level
+        self.extend_task_claim(task_uuid).await
+    }
+
+    async fn get_claim_state(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<TaskClaimState> {
+        self.state_manager.get_claim_state(task_uuid).await
+    }
+}
+
+/// TaskClaimer implements ClaimTransferable
+impl ClaimTransferable for TaskClaimer {}
 
 /// Internal struct for SQL query results
 #[derive(sqlx::FromRow)]

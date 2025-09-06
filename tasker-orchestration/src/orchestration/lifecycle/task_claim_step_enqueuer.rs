@@ -71,7 +71,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::TaskClaimStepEnqueuerConfig;
 use tasker_shared::{SystemContext, TaskerResult};
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 /// Result of a single orchestration cycle
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,6 +436,76 @@ impl TaskClaimStepEnqueuer {
         );
 
         self.step_enqueuer.enqueue_ready_steps(claimed_task).await
+    }
+
+    /// Process a single task by UUID: claim it, enqueue steps, and release
+    ///
+    /// This is used for immediate step enqueuing after task creation (TAS-41).
+    /// Returns None if the task couldn't be claimed (no ready steps, already claimed, etc.)
+    pub async fn process_single_task(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<Option<StepEnqueueResult>> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            "Processing single task for immediate step enqueuing"
+        );
+
+        // Claim the individual task
+        let claimed_task = match self.task_claimer.claim_individual_task(task_uuid).await? {
+            Some(task) => task,
+            None => {
+                debug!(
+                    task_uuid = task_uuid.to_string(),
+                    "Task not ready for processing (no ready steps or already claimed)"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Process the claimed task to enqueue steps
+        let enqueue_result = match self.process_claimed_task(&claimed_task).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!(
+                    task_uuid = task_uuid.to_string(),
+                    error = %e,
+                    "Failed to process claimed task"
+                );
+
+                // Always try to release the claim on error
+                let _ = self.task_claimer.release_task_claim(task_uuid).await;
+                return Err(e);
+            }
+        };
+
+        // Release the claim immediately after processing
+        match self.task_claimer.release_task_claim(task_uuid).await {
+            Ok(released) => {
+                if !released {
+                    warn!(
+                        task_uuid = task_uuid.to_string(),
+                        "Task claim was not released (may have been released already)"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    task_uuid = task_uuid.to_string(),
+                    error = %e,
+                    "Failed to release task claim after processing"
+                );
+            }
+        }
+
+        info!(
+            task_uuid = task_uuid.to_string(),
+            steps_enqueued = enqueue_result.steps_enqueued,
+            steps_failed = enqueue_result.steps_failed,
+            "Successfully processed single task with immediate step enqueuing"
+        );
+
+        Ok(Some(enqueue_result))
     }
 
     /// Calculate priority distribution for monitoring

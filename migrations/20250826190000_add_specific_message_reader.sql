@@ -24,46 +24,46 @@ BEGIN
     IF queue_name ~ '[^a-zA-Z0-9_]' THEN
         RAISE EXCEPTION 'Invalid queue name: %', queue_name;
     END IF;
-    
-    -- Construct table names
-    queue_table_name := 'pgmq.' || quote_ident(queue_name);
-    archive_table_name := 'pgmq.' || quote_ident(queue_name || '_archive');
-    
+
+    -- Construct table names with PGMQ's naming convention (q_ prefix for queues, a_ prefix for archives)
+    queue_table_name := 'pgmq.q_' || queue_name;
+    archive_table_name := 'pgmq.a_' || queue_name;
+
     -- Check if the queue table exists
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_schema = 'pgmq' 
-        AND table_name = queue_name
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'pgmq'
+        AND table_name = 'q_' || queue_name
     ) THEN
         RAISE EXCEPTION 'Queue does not exist: %', queue_name;
     END IF;
-    
+
     -- Build the dynamic SQL query to read the specific message
     sql_query := format('
-        UPDATE %I 
-        SET 
+        UPDATE %s
+        SET
             vt = (now() + interval ''%s seconds''),
             read_ct = read_ct + 1
         WHERE msg_id = %L
         AND vt <= now()
         RETURNING msg_id, read_ct, enqueued_at, vt, message
     ', queue_table_name, vt_seconds, target_msg_id);
-    
+
     -- Execute the query and return the result
     FOR result_record IN EXECUTE sql_query LOOP
-        RETURN QUERY SELECT 
+        RETURN QUERY SELECT
             result_record.msg_id,
             result_record.read_ct,
             result_record.enqueued_at,
             result_record.vt,
             result_record.message;
     END LOOP;
-    
+
     -- If no record was returned, the message either:
     -- 1. Doesn't exist
     -- 2. Is already claimed (vt > now())
     -- 3. Has been archived
-    
+
     RETURN;
 END;
 $$ LANGUAGE plpgsql;
@@ -81,25 +81,25 @@ BEGIN
     IF queue_name ~ '[^a-zA-Z0-9_]' THEN
         RAISE EXCEPTION 'Invalid queue name: %', queue_name;
     END IF;
-    
-    -- Construct table name
-    queue_table_name := 'pgmq.' || quote_ident(queue_name);
-    
+
+    -- Construct table name with PGMQ's naming convention (q_ prefix)
+    queue_table_name := 'pgmq.q_' || queue_name;
+
     -- Check if the queue table exists
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_schema = 'pgmq' 
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'pgmq'
         AND table_name = queue_name
     ) THEN
         RAISE EXCEPTION 'Queue does not exist: %', queue_name;
     END IF;
-    
+
     -- Delete the specific message
-    EXECUTE format('DELETE FROM %I WHERE msg_id = %L', queue_table_name, target_msg_id);
-    
+    EXECUTE format('DELETE FROM %s WHERE msg_id = %L', queue_table_name, target_msg_id);
+
     -- Get the number of rows affected
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    
+
     RETURN deleted_count > 0;
 END;
 $$ LANGUAGE plpgsql;
@@ -118,29 +118,29 @@ BEGIN
     IF queue_name ~ '[^a-zA-Z0-9_]' THEN
         RAISE EXCEPTION 'Invalid queue name: %', queue_name;
     END IF;
-    
+
     -- Construct table name
     queue_table_name := 'pgmq.' || quote_ident(queue_name);
-    
+
     -- Check if the queue table exists
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_schema = 'pgmq' 
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'pgmq'
         AND table_name = queue_name
     ) THEN
         RAISE EXCEPTION 'Queue does not exist: %', queue_name;
     END IF;
-    
+
     -- Extend the visibility timeout for the specific message
     EXECUTE format('
-        UPDATE %I 
+        UPDATE %s
         SET vt = vt + interval ''%s seconds''
         WHERE msg_id = %L
     ', queue_table_name, additional_vt_seconds, target_msg_id);
-    
+
     -- Get the number of rows affected
     GET DIAGNOSTICS updated_count = ROW_COUNT;
-    
+
     RETURN updated_count > 0;
 END;
 $$ LANGUAGE plpgsql;

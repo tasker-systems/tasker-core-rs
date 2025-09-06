@@ -44,17 +44,16 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::orchestration::lifecycle::task_enqueuer::{
-    EnqueuePriority, EnqueueRequest, TaskEnqueuer,
-};
+use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
 use std::sync::Arc;
-use tasker_shared::config::TaskerConfig;
+
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::events::publisher::EventPublisher;
+
 use tasker_shared::events::types::{Event, OrchestrationEvent, TaskResult};
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
+use tasker_shared::TaskerError;
 
 /// Execution status returned by the SQL get_task_execution_context function
 /// Matches the execution_status values from the SQL function
@@ -219,18 +218,32 @@ pub struct TaskExecutionContext {
 pub struct TaskFinalizer {
     context: Arc<SystemContext>,
     sql_executor: SqlFunctionExecutor,
-    task_enqueuer: Arc<TaskEnqueuer>,
+    task_claim_step_enqueuer: Option<Arc<TaskClaimStepEnqueuer>>,
 }
 
 impl TaskFinalizer {
-    /// Create a new TaskFinalizer
+    /// Create a new TaskFinalizer without step enqueuer (backward compatible)
     pub fn new(context: Arc<SystemContext>) -> Self {
         let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
-        let task_enqueuer = Arc::new(TaskEnqueuer::new(context.clone()));
+
         Self {
             context,
             sql_executor,
-            task_enqueuer,
+            task_claim_step_enqueuer: None,
+        }
+    }
+
+    /// Create a TaskFinalizer with TaskClaimStepEnqueuer for immediate step enqueuing
+    pub fn with_step_enqueuer(
+        context: Arc<SystemContext>,
+        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+    ) -> Self {
+        let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
+
+        Self {
+            context,
+            sql_executor,
+            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
         }
     }
 
@@ -258,40 +271,12 @@ impl TaskFinalizer {
         Ok(context.execution_status == ExecutionStatus::BlockedByFailures)
     }
 
-    /// Finalize a task with processed steps
-    ///
-    /// @param task_uuid The task ID to finalize
-    /// @param processed_steps All processed steps
-    pub async fn finalize_task_with_steps(
-        &self,
-        task_uuid: Uuid,
-        processed_steps: Vec<WorkflowStep>,
-    ) -> Result<FinalizationResult, FinalizationError> {
-        let context = self.get_task_execution_context(task_uuid).await?;
-
-        // Fire finalization started event
-        self.publish_finalization_started(task_uuid, &processed_steps, &context)
-            .await?;
-
-        // Use context-enhanced finalization logic with synchronous flag
-        let result = self.finalize_task(task_uuid, true).await?;
-
-        // Fire finalization completed event
-        let final_context = self.get_task_execution_context(task_uuid).await?;
-        self.publish_finalization_completed(task_uuid, &processed_steps, &final_context)
-            .await?;
-
-        Ok(result)
-    }
-
     /// Finalize a task based on its current state using TaskExecutionContext
     ///
     /// @param task_uuid The task ID to finalize
-    /// @param synchronous Whether this is synchronous processing (default: false)
     pub async fn finalize_task(
         &self,
         task_uuid: Uuid,
-        synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task = Task::find_by_id(self.context.database_pool(), task_uuid).await?;
         let Some(task) = task else {
@@ -300,8 +285,7 @@ impl TaskFinalizer {
 
         let context = self.get_task_execution_context(task_uuid).await?;
 
-        self.make_finalization_decision(task, context, synchronous)
-            .await
+        self.make_finalization_decision(task, context).await
     }
 
     /// Complete a task successfully
@@ -453,71 +437,6 @@ impl TaskFinalizer {
     }
 
     /// Reenqueue task with context intelligence
-    ///
-    /// This method handles task-level reenqueuing with appropriate delays based on
-    /// the task's execution context. This is different from step-level retries:
-    ///
-    /// - **Task Reenqueue**: When the entire task needs to be processed again
-    ///   (e.g., more steps became ready, dependencies completed)
-    /// - **Step Retry**: When a specific step failed and needs to be retried
-    ///   (handled by BackoffCalculator in StepExecutor/StepHandler)
-    async fn reenqueue_task_with_context(
-        &self,
-        task: Task,
-        context: Option<TaskExecutionContext>,
-        reason: Option<String>,
-    ) -> Result<FinalizationResult, FinalizationError> {
-        let task_uuid = task.task_uuid;
-        let delay_seconds = self.calculate_reenqueue_delay(&context);
-        let final_reason = reason.unwrap_or_else(|| {
-            context
-                .as_ref()
-                .and_then(|c| self.determine_reenqueue_reason(c))
-                .unwrap_or_else(|| "Continuing workflow".to_string())
-        });
-
-        // Use the TaskEnqueuer to handle the actual reenqueue operation
-        let priority = self.determine_enqueue_priority(&context, &final_reason);
-
-        let enqueue_request = EnqueueRequest::reenqueue(task.clone())
-            .with_delay(delay_seconds as u32)
-            .with_priority(priority)
-            .with_reason(&final_reason)
-            .with_metadata(
-                "ready_steps".to_string(),
-                serde_json::json!(context.as_ref().and_then(|c| c.ready_steps)),
-            );
-
-        match self.task_enqueuer.enqueue(enqueue_request).await {
-            Ok(enqueue_result) => {
-                println!(
-                    "TaskFinalizer: Task {} successfully reenqueued - {} (delay: {}s, job_id: {:?})",
-                    task_uuid,
-                    final_reason,
-                    delay_seconds,
-                    enqueue_result.job_id
-                );
-            }
-            Err(enqueue_error) => {
-                eprintln!(
-                    "TaskFinalizer: Failed to reenqueue task {task_uuid} - {final_reason}: {enqueue_error}"
-                );
-                // Don't return the error - log it and continue with finalization
-                // The task state has already been updated appropriately
-            }
-        }
-
-        Ok(FinalizationResult {
-            task_uuid,
-            action: FinalizationAction::Reenqueued,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
-            reason: Some(final_reason),
-        })
-    }
-
-    /// Get TaskExecutionContext using function-based implementation
     async fn get_task_execution_context(
         &self,
         task_uuid: Uuid,
@@ -557,7 +476,6 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
-        synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
 
@@ -586,18 +504,15 @@ impl TaskFinalizer {
             }
             ExecutionStatus::HasReadySteps => {
                 println!("TaskFinalizer: Task {task_uuid} - has ready steps, should execute them");
-                self.handle_ready_steps_state(task, Some(context), synchronous)
-                    .await
+                self.handle_ready_steps_state(task, Some(context)).await
             }
             ExecutionStatus::WaitingForDependencies => {
                 println!("TaskFinalizer: Task {task_uuid} - waiting for dependencies");
-                self.handle_waiting_state(task, Some(context), synchronous)
-                    .await
+                self.handle_waiting_state(task, Some(context)).await
             }
             ExecutionStatus::Processing => {
                 println!("TaskFinalizer: Task {task_uuid} - handling processing state");
-                self.handle_processing_state(task, Some(context), synchronous)
-                    .await
+                self.handle_processing_state(task, Some(context)).await
             }
         }
     }
@@ -607,7 +522,6 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
-        synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
         let ready_steps = context.as_ref().and_then(|c| c.ready_steps).unwrap_or(0);
@@ -639,27 +553,19 @@ impl TaskFinalizer {
                 })?;
         }
 
-        if synchronous {
-            // In synchronous mode, we can't actually execute steps here
-            // The calling code should handle step execution
-            println!("TaskFinalizer: Task {task_uuid} ready for synchronous step execution");
-            Ok(FinalizationResult {
-                task_uuid,
-                action: FinalizationAction::Pending,
-                completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-                total_steps: context.as_ref().and_then(|c| c.total_steps),
-                health_status: context.as_ref().and_then(|c| c.health_status.clone()),
-                reason: Some("Ready for synchronous step execution".to_string()),
-            })
-        } else {
-            // In asynchronous mode, reenqueue immediately for step execution
-            self.reenqueue_task_with_context(
-                task,
-                context,
-                Some("Ready steps available".to_string()),
-            )
-            .await
+        // In asynchronous mode, process ready steps immediately
+        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
+            enqueuer.process_single_task(task.task_uuid).await?;
         }
+
+        Ok(FinalizationResult {
+            task_uuid: task.task_uuid,
+            action: FinalizationAction::Reenqueued,
+            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
+            total_steps: context.as_ref().and_then(|c| c.total_steps),
+            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            reason: Some("Ready steps enqueued".to_string()),
+        })
     }
 
     /// Handle waiting for dependencies state
@@ -667,19 +573,20 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
-        synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        if synchronous {
-            self.pending_task(task, context, Some("Waiting for dependencies".to_string()))
-                .await
-        } else {
-            self.reenqueue_task_with_context(
-                task,
-                context,
-                Some("Awaiting dependencies".to_string()),
-            )
-            .await
+        // Process any ready steps (there might be some even in waiting state)
+        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
+            enqueuer.process_single_task(task.task_uuid).await?;
         }
+
+        Ok(FinalizationResult {
+            task_uuid: task.task_uuid,
+            action: FinalizationAction::Reenqueued,
+            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
+            total_steps: context.as_ref().and_then(|c| c.total_steps),
+            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            reason: Some("Awaiting dependencies".to_string()),
+        })
     }
 
     /// Handle processing state
@@ -687,19 +594,20 @@ impl TaskFinalizer {
         &self,
         task: Task,
         context: Option<TaskExecutionContext>,
-        synchronous: bool,
     ) -> Result<FinalizationResult, FinalizationError> {
-        if synchronous {
-            self.pending_task(
-                task,
-                context,
-                Some("Waiting for step completion".to_string()),
-            )
-            .await
-        } else {
-            self.reenqueue_task_with_context(task, context, Some("Steps in progress".to_string()))
-                .await
+        // Process any newly ready steps
+        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
+            enqueuer.process_single_task(task.task_uuid).await?;
         }
+
+        Ok(FinalizationResult {
+            task_uuid: task.task_uuid,
+            action: FinalizationAction::Reenqueued,
+            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
+            total_steps: context.as_ref().and_then(|c| c.total_steps),
+            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            reason: Some("Steps in progress".to_string()),
+        })
     }
 
     /// Handle unclear task state
@@ -721,9 +629,19 @@ impl TaskFinalizer {
                 ctx.in_progress_steps
             );
 
-            // Default to re-enqueuing with a longer delay for unclear states
-            self.reenqueue_task_with_context(task, context, Some("Continuing workflow".to_string()))
-                .await
+            // Default to processing any ready steps for unclear states
+            if let Some(enqueuer) = &self.task_claim_step_enqueuer {
+                enqueuer.process_single_task(task.task_uuid).await?;
+            }
+
+            Ok(FinalizationResult {
+                task_uuid: task.task_uuid,
+                action: FinalizationAction::Reenqueued,
+                completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
+                total_steps: context.as_ref().and_then(|c| c.total_steps),
+                health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+                reason: Some("Continuing workflow".to_string()),
+            })
         } else {
             eprintln!("TaskFinalizer: Task {task_uuid} has no execution context and unclear state");
 
@@ -740,94 +658,6 @@ impl TaskFinalizer {
             ExecutionStatus::Processing => Some("Waiting for step completion".to_string()),
             ExecutionStatus::BlockedByFailures => Some("Blocked by failures".to_string()),
             ExecutionStatus::AllComplete => Some("Task complete".to_string()),
-        }
-    }
-
-    /// Determine reason for reenqueue
-    fn determine_reenqueue_reason(&self, context: &TaskExecutionContext) -> Option<String> {
-        match context.execution_status {
-            ExecutionStatus::HasReadySteps => Some("Ready steps available".to_string()),
-            ExecutionStatus::WaitingForDependencies => Some("Awaiting dependencies".to_string()),
-            ExecutionStatus::Processing => Some("Steps in progress".to_string()),
-            ExecutionStatus::BlockedByFailures => Some("Handling failures".to_string()),
-            ExecutionStatus::AllComplete => Some("Finalizing task".to_string()),
-        }
-    }
-
-    /// Calculate intelligent re-enqueue delay based on execution context
-    ///
-    /// **Important**: This method calculates task-level reenqueue delays, NOT step-level
-    /// retry delays. Step retry delays are handled by `BackoffCalculator`.
-    ///
-    /// Task reenqueue delays are used when:
-    /// - A task needs to be re-enqueued for continued orchestration
-    /// - The task is waiting for dependencies to complete
-    /// - The task has ready steps but needs to be processed again
-    ///
-    /// These delays are typically shorter (0-45 seconds) compared to step retry delays
-    /// which use exponential backoff (1-300 seconds).
-    fn calculate_reenqueue_delay(&self, context: &Option<TaskExecutionContext>) -> u64 {
-        let tasker_config = self.context.config_manager.config();
-        let Some(context) = context else {
-            // Use default reenqueue delay from configuration
-            return tasker_config.backoff.default_reenqueue_delay as u64;
-        };
-
-        match context.execution_status {
-            ExecutionStatus::HasReadySteps => {
-                tasker_config.backoff.reenqueue_delays.has_ready_steps
-            }
-            ExecutionStatus::WaitingForDependencies => {
-                tasker_config
-                    .backoff
-                    .reenqueue_delays
-                    .waiting_for_dependencies
-            }
-            ExecutionStatus::Processing => tasker_config.backoff.reenqueue_delays.processing,
-            ExecutionStatus::BlockedByFailures | ExecutionStatus::AllComplete => {
-                tasker_config.backoff.default_reenqueue_delay as u64
-            }
-        }
-    }
-
-    /// Determine enqueue priority based on context and reason
-    fn determine_enqueue_priority(
-        &self,
-        context: &Option<TaskExecutionContext>,
-        reason: &str,
-    ) -> EnqueuePriority {
-        // Check for critical conditions first
-        if reason.contains("critical") || reason.contains("urgent") {
-            return EnqueuePriority::Critical;
-        }
-
-        // Check context-based priorities
-        if let Some(ctx) = context {
-            match ctx.execution_status {
-                ExecutionStatus::HasReadySteps => {
-                    // Ready steps should be processed with higher priority
-                    EnqueuePriority::High
-                }
-                ExecutionStatus::BlockedByFailures => {
-                    // Failed tasks need attention but not urgent
-                    EnqueuePriority::Normal
-                }
-                ExecutionStatus::WaitingForDependencies => {
-                    // Waiting tasks can be lower priority
-                    EnqueuePriority::Low
-                }
-                ExecutionStatus::Processing => {
-                    // Currently processing tasks get normal priority
-                    EnqueuePriority::Normal
-                }
-                ExecutionStatus::AllComplete => {
-                    // Complete tasks being re-enqueued for final checks
-                    EnqueuePriority::Low
-                }
-            }
-        } else {
-            // No context available, use normal priority
-            EnqueuePriority::Normal
         }
     }
 
@@ -1021,6 +851,15 @@ pub enum FinalizationError {
 
     #[error("Event publishing error: {0}")]
     EventPublishing(String),
+
+    #[error("General error: {0}")]
+    General(String),
+}
+
+impl From<TaskerError> for FinalizationError {
+    fn from(error: TaskerError) -> Self {
+        FinalizationError::General(error.to_string())
+    }
 }
 
 #[cfg(test)]

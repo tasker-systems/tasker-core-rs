@@ -45,11 +45,16 @@
 //! # }
 //! ```
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tasker_shared::{config::ConfigManager, SystemContext};
+use tasker_shared::{config::ConfigManager, SystemContext, TaskerResult, TaskerError};
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+use super::task_claim_manager::{TaskClaimManager, ClaimTransferable};
+use super::task_claim_state::{TaskClaimState, ClaimPurpose};
+use super::task_claim_state_manager::TaskClaimStateManager;
 
 /// Result of a finalization claim attempt
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -109,16 +114,19 @@ pub struct FinalizationClaimer {
     context: Arc<SystemContext>,
     processor_id: String,
     config: FinalizationClaimerConfig,
+    state_manager: TaskClaimStateManager,
 }
 
 impl FinalizationClaimer {
     /// Create a new finalization claimer with default configuration
     pub fn new(context: Arc<SystemContext>, processor_id: String) -> Self {
         let config = FinalizationClaimerConfig::from_config_manager(context.config_manager.clone());
+        let state_manager = TaskClaimStateManager::new(context.database_pool().clone());
         Self {
             context,
             processor_id,
             config,
+            state_manager,
         }
     }
 
@@ -269,7 +277,116 @@ impl FinalizationClaimer {
             uuid::Uuid::new_v4()
         )
     }
+
+    /// Get access to the state manager
+    pub fn state_manager(&self) -> &TaskClaimStateManager {
+        &self.state_manager
+    }
 }
+
+/// Implementation of TaskClaimManager trait for FinalizationClaimer
+#[async_trait]
+impl TaskClaimManager for FinalizationClaimer {
+    fn processor_id(&self) -> &str {
+        &self.processor_id
+    }
+
+    async fn claim_task(
+        &self,
+        task_uuid: Uuid,
+        purpose: ClaimPurpose,
+        timeout_seconds: Option<i32>,
+    ) -> TaskerResult<TaskClaimState> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            purpose = ?purpose,
+            timeout = timeout_seconds,
+            "Claiming task with purpose through FinalizationClaimer"
+        );
+
+        // For FinalizationClaimer, we should primarily handle Finalization purpose
+        // but we can delegate to the state manager for other purposes
+        match purpose {
+            ClaimPurpose::Finalization => {
+                // Use the existing finalization claim logic via the internal claim_task method
+                let result = FinalizationClaimer::claim_task(self, task_uuid).await
+                    .map_err(|e| TaskerError::DatabaseError(e.to_string()))?;
+                
+                if result.claimed {
+                    self.state_manager.get_claim_state(task_uuid).await
+                } else {
+                    Err(TaskerError::InvalidOperation(
+                        result.message.unwrap_or_else(|| "Failed to claim for finalization".to_string())
+                    ))
+                }
+            }
+            _ => {
+                // Delegate to state manager for other purposes
+                self.state_manager.claim_with_purpose(
+                    task_uuid,
+                    &self.processor_id,
+                    &purpose,
+                    timeout_seconds.or(Some(self.config.default_timeout_seconds)),
+                ).await
+            }
+        }
+    }
+
+    async fn transfer_claim(
+        &self,
+        task_uuid: Uuid,
+        from_purpose: ClaimPurpose,
+        to_purpose: ClaimPurpose,
+        timeout_seconds: Option<i32>,
+    ) -> TaskerResult<TaskClaimState> {
+        debug!(
+            task_uuid = task_uuid.to_string(),
+            from = ?from_purpose,
+            to = ?to_purpose,
+            timeout = timeout_seconds,
+            "Transferring claim through FinalizationClaimer"
+        );
+
+        self.state_manager.transfer_claim(
+            task_uuid,
+            &self.processor_id,
+            &from_purpose,
+            &to_purpose,
+            timeout_seconds.or(Some(self.config.default_timeout_seconds)),
+        ).await
+    }
+
+    async fn release_claim(
+        &self,
+        task_uuid: Uuid,
+        _purpose: ClaimPurpose,
+    ) -> TaskerResult<bool> {
+        // Use the existing release method - purpose is tracked at application level
+        self.release_claim(task_uuid).await
+            .map_err(|e| TaskerError::DatabaseError(e.to_string()))
+    }
+
+    async fn extend_claim(
+        &self,
+        task_uuid: Uuid,
+        _purpose: ClaimPurpose,
+        _additional_seconds: Option<i32>,
+    ) -> TaskerResult<bool> {
+        // Use the existing extend method - purpose is tracked at application level
+        self.extend_claim(task_uuid).await
+            .map_err(|e| TaskerError::DatabaseError(e.to_string()))
+    }
+
+    async fn get_claim_state(
+        &self,
+        task_uuid: Uuid,
+    ) -> TaskerResult<TaskClaimState> {
+        self.state_manager.get_claim_state(task_uuid).await
+    }
+}
+
+/// FinalizationClaimer implements ClaimTransferable
+impl ClaimTransferable for FinalizationClaimer {}
 
 /// RAII wrapper for automatic claim release
 ///

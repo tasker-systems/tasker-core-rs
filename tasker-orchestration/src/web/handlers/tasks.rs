@@ -79,10 +79,10 @@ pub async fn create_task(
         // Set requested_at to current time
         task_request.requested_at = chrono::Utc::now().naive_utc();
 
-        // Initialize task using existing orchestration logic
+        // Initialize task with immediate step enqueuing (TAS-41)
         state
             .task_initializer
-            .create_task_from_request(task_request)
+            .create_and_enqueue_task_from_request(task_request)
             .await
     })
     .await;

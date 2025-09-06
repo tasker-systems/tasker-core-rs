@@ -273,7 +273,17 @@ impl OrchestrationCore {
         info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
 
         let config = TaskRequestProcessorConfig::default();
-        let task_initializer = Arc::new(TaskInitializer::new(context.clone()));
+        // Create TaskClaimStepEnqueuer for immediate step enqueuing (TAS-41)
+        let orchestrator_id = format!("task_request_processor_{}", uuid::Uuid::new_v4());
+        let task_claim_step_enqueuer =
+            TaskClaimStepEnqueuer::new(context.clone(), orchestrator_id).await?;
+        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+
+        // Create TaskInitializer with step enqueuer for immediate step enqueuing (TAS-41)
+        let task_initializer = Arc::new(TaskInitializer::with_step_enqueuer(
+            context.clone(),
+            task_claim_step_enqueuer,
+        ));
 
         Ok(Arc::new(TaskRequestProcessor::new(
             context.message_client.clone(),
@@ -289,11 +299,22 @@ impl OrchestrationCore {
     ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
         info!("Creating sophisticated OrchestrationResultProcessor for command pattern delegation");
 
-        let task_finalizer = TaskFinalizer::new(context.clone());
+        // Generate a shared processor_id for both FinalizationClaimer and TaskClaimStepEnqueuer
+        // This allows claim transfer between finalization and step enqueueing (TAS-41)
+        let shared_processor_id = FinalizationClaimer::generate_processor_id("orchestration");
 
-        Ok(Arc::new(OrchestrationResultProcessor::new(
+        // Create TaskClaimStepEnqueuer with the shared processor_id
+        let task_claim_step_enqueuer =
+            TaskClaimStepEnqueuer::new(context.clone(), shared_processor_id.clone()).await?;
+        let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
+
+        let task_finalizer =
+            TaskFinalizer::with_step_enqueuer(context.clone(), task_claim_step_enqueuer);
+
+        Ok(Arc::new(OrchestrationResultProcessor::with_processor_id(
             task_finalizer,
             context.clone(),
+            shared_processor_id,
         )))
     }
 

@@ -41,6 +41,7 @@
 //! # }
 //! ```
 
+use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
 use crate::orchestration::state_manager::StateManager;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -73,18 +74,32 @@ pub struct TaskInitializationResult {
 pub struct TaskInitializer {
     context: Arc<SystemContext>,
     state_manager: Option<StateManager>,
+    task_claim_step_enqueuer: Option<Arc<TaskClaimStepEnqueuer>>,
 }
 
 impl TaskInitializer {
-    /// Create a new TaskInitializer
+    /// Create a new TaskInitializer without step enqueuer (backward compatible)
     pub fn new(context: Arc<SystemContext>) -> Self {
         Self {
             context,
             state_manager: None,
+            task_claim_step_enqueuer: None,
         }
     }
 
-    /// Create a TaskInitializer with StateManager for proper state handling
+    /// Create a TaskInitializer with TaskClaimStepEnqueuer for immediate step enqueuing
+    pub fn with_step_enqueuer(
+        context: Arc<SystemContext>,
+        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+    ) -> Self {
+        Self {
+            context,
+            state_manager: None,
+            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
+        }
+    }
+
+    /// Create a TaskInitializer with StateManager for proper state handling (backward compatible)
     pub fn with_state_manager(context: Arc<SystemContext>) -> Self {
         let pool = context.database_pool().clone();
         let sql_executor = SqlFunctionExecutor::new(pool.clone());
@@ -94,6 +109,24 @@ impl TaskInitializer {
         Self {
             context,
             state_manager: Some(state_manager),
+            task_claim_step_enqueuer: None,
+        }
+    }
+
+    /// Create a TaskInitializer with both StateManager and TaskClaimStepEnqueuer
+    pub fn with_state_manager_and_step_enqueuer(
+        context: Arc<SystemContext>,
+        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+    ) -> Self {
+        let pool = context.database_pool().clone();
+        let sql_executor = SqlFunctionExecutor::new(pool.clone());
+        let state_manager =
+            StateManager::new(sql_executor, context.event_publisher.clone(), pool.clone());
+
+        Self {
+            context,
+            state_manager: Some(state_manager),
+            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
         }
     }
 
@@ -259,6 +292,65 @@ impl TaskInitializer {
         );
 
         Ok(result)
+    }
+
+    /// Create a task and immediately enqueue its ready steps
+    ///
+    /// This method combines task creation with immediate step enqueuing (TAS-41)
+    /// to reduce latency between task creation and step execution.
+    #[instrument(skip(self), fields(task_name = %task_request.name))]
+    pub async fn create_and_enqueue_task_from_request(
+        &self,
+        task_request: TaskRequest,
+    ) -> Result<TaskInitializationResult, TaskInitializationError> {
+        // First, create the task using existing method
+        let initialization_result = self.create_task_from_request(task_request).await?;
+
+        info!(
+            task_uuid = initialization_result.task_uuid.to_string(),
+            step_count = initialization_result.step_count,
+            "Task created, attempting immediate step enqueuing"
+        );
+
+        // Only attempt immediate enqueuing if we have a task_claim_step_enqueuer
+        if let Some(ref task_claim_step_enqueuer) = self.task_claim_step_enqueuer {
+            // Process the single task to enqueue its steps
+            match task_claim_step_enqueuer
+                .process_single_task(initialization_result.task_uuid)
+                .await
+            {
+                Ok(Some(enqueue_result)) => {
+                    info!(
+                        task_uuid = initialization_result.task_uuid.to_string(),
+                        steps_enqueued = enqueue_result.steps_enqueued,
+                        "Successfully enqueued steps immediately after task creation"
+                    );
+                }
+                Ok(None) => {
+                    // This is unusual but not an error - task may have no ready steps initially
+                    debug!(
+                        task_uuid = initialization_result.task_uuid.to_string(),
+                        "No steps were ready for immediate enqueuing"
+                    );
+                }
+                Err(e) => {
+                    // Log the error but don't fail the task creation
+                    // The orchestration loop will pick up the task eventually
+                    warn!(
+                        task_uuid = initialization_result.task_uuid.to_string(),
+                        error = %e,
+                        "Failed to immediately enqueue steps, task will be processed in next orchestration cycle"
+                    );
+                }
+            }
+        } else {
+            debug!(
+                task_uuid = initialization_result.task_uuid.to_string(),
+                "TaskClaimStepEnqueuer not configured, skipping immediate step enqueuing"
+            );
+        }
+
+        Ok(initialization_result)
     }
 
     /// Create the basic task record

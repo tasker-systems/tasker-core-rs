@@ -52,6 +52,10 @@ impl From<FinalizationError> for OrchestrationError {
                     reason,
                 }
             }
+            FinalizationError::General(reason) => OrchestrationError::ConfigurationError {
+                config_source: "task_finalizer".to_string(),
+                reason,
+            },
         }
     }
 }

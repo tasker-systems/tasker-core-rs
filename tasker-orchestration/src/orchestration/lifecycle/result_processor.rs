@@ -79,6 +79,28 @@ impl OrchestrationResultProcessor {
         }
     }
 
+    /// Create a new orchestration result processor with a specific processor_id
+    /// This allows sharing the same processor_id between FinalizationClaimer and TaskClaimStepEnqueuer
+    /// for seamless claim transfer (TAS-41)
+    pub fn with_processor_id(
+        task_finalizer: TaskFinalizer,
+        context: Arc<SystemContext>,
+        processor_id: String,
+    ) -> Self {
+        let backoff_config =
+            BackoffCalculatorConfig::from_config_manager(context.config_manager.clone());
+        let backoff_calculator =
+            BackoffCalculator::new(backoff_config, context.database_pool().clone());
+        let finalization_claimer = FinalizationClaimer::new(context.clone(), processor_id.clone());
+        Self {
+            task_finalizer,
+            backoff_calculator,
+            finalization_claimer,
+            context,
+            processor_id,
+        }
+    }
+
     /// TAS-32: Handle step result notification with orchestration metadata (coordination only)
     ///
     /// TAS-32 ARCHITECTURE CHANGE: This method now only processes orchestration metadata
@@ -331,7 +353,7 @@ impl OrchestrationResultProcessor {
 
                             match self
                                 .task_finalizer
-                                .finalize_task(workflow_step.task_uuid, false)
+                                .finalize_task(workflow_step.task_uuid)
                                 .await
                             {
                                 Ok(result) => {

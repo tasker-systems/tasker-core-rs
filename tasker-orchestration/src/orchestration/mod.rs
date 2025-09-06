@@ -11,6 +11,7 @@ pub mod core;
 pub mod error_classifier;
 pub mod errors;
 pub mod event_systems;
+pub mod examples;
 pub mod lifecycle;
 pub mod orchestration_queues;
 pub mod state_manager;
@@ -35,10 +36,6 @@ pub use bootstrap::{
 
 pub use lifecycle::step_enqueuer::{NamespaceEnqueueStats, StepEnqueueResult, StepEnqueuer};
 
-pub use lifecycle::task_enqueuer::{
-    DirectEnqueueHandler, EnqueueError, EnqueueHandler, EnqueueOperation, EnqueuePriority,
-    EnqueueRequest, EnqueueResult, EventBasedEnqueueHandler, TaskEnqueuer,
-};
 pub use lifecycle::task_finalizer::{
     FinalizationAction, FinalizationError, FinalizationResult, TaskFinalizer,
 };
