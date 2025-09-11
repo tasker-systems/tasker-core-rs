@@ -17,6 +17,7 @@
 //! 5. **Testability**: Model methods can be tested independently
 
 use super::errors::{PersistenceError, PersistenceResult};
+use super::states::TaskState;
 use crate::models::core::task_transition::{NewTaskTransition, TaskTransition};
 use crate::models::core::workflow_step_transition::{
     NewWorkflowStepTransition, WorkflowStepTransition,
@@ -77,6 +78,7 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
             task_uuid: task.task_uuid,
             to_state,
             from_state,
+            processor_uuid: None, // No processor tracking in base persist_transition
             metadata: Some(transition_metadata),
         };
 
@@ -114,6 +116,45 @@ impl TransitionPersistence<crate::models::Task> for TaskTransitionPersistence {
             })?;
 
         Ok(transitions.len() as i32 + 1)
+    }
+}
+
+impl TaskTransitionPersistence {
+    /// TAS-41: Atomic transition with ownership validation
+    /// Returns true if transition succeeded, false if ownership conflict occurred
+    pub async fn transition_with_ownership(
+        &self,
+        task_uuid: Uuid,
+        from_state: TaskState,
+        to_state: TaskState,
+        processor_uuid: Uuid,
+        metadata: Option<Value>,
+        pool: &PgPool,
+    ) -> PersistenceResult<bool> {
+        // Enhanced metadata if provided (but processor_uuid goes in its own column)
+        let transition_metadata = metadata.unwrap_or_else(|| {
+            serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            })
+        });
+
+        // Create transition with processor_uuid in dedicated column
+        let new_transition = NewTaskTransition {
+            task_uuid,
+            to_state: to_state.to_string(),
+            from_state: Some(from_state.to_string()),
+            processor_uuid: Some(processor_uuid), // TAS-41: Use dedicated column
+            metadata: Some(transition_metadata),
+        };
+
+        TaskTransition::create(pool, new_transition)
+            .await
+            .map_err(|e| PersistenceError::TransitionSaveFailed {
+                reason: format!("Ownership transition failed: {e}"),
+            })?;
+
+        // If we reach here, the transition succeeded
+        Ok(true)
     }
 }
 

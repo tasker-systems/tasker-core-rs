@@ -1,9 +1,8 @@
 [orchestration]
+mode = "standalone"
 max_concurrent_orchestrators = 3
 enable_performance_logging = false
-default_claim_timeout_seconds = 300
-enable_heartbeat = true
-heartbeat_interval_ms = 5000
+use_unified_state_machine = true
 
 # Note: Queue configuration has been moved to config/tasker/base/queues.toml
 # The orchestration system now references the centralized queue configuration

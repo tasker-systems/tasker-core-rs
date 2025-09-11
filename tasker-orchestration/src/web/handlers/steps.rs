@@ -331,11 +331,8 @@ pub async fn resolve_step_manually(
         };
 
         // Initialize StepStateMachine for proper state transition
-        let mut step_state_machine = StepStateMachine::new(
-            step.clone(),
-            db_pool.clone(),
-            Some(state.orchestration_core.context.event_publisher.clone()),
-        );
+        let mut step_state_machine =
+            StepStateMachine::new(step.clone(), state.orchestration_core.context.clone());
 
         // Attempt manual resolution using state machine
         match step_state_machine

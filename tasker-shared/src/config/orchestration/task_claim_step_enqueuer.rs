@@ -1,6 +1,6 @@
 use crate::config::orchestration::step_enqueuer::StepEnqueuerConfig;
 use crate::config::orchestration::step_result_processor::StepResultProcessorConfig;
-use crate::config::orchestration::task_claimer::TaskClaimerConfig;
+// REMOVED: TaskClaimerConfig for TAS-41
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -20,8 +20,7 @@ pub struct TaskClaimStepEnqueuerConfig {
     pub enable_performance_logging: bool,
     /// Enable heartbeat for long-running operations
     pub enable_heartbeat: bool,
-    /// Task claimer configuration
-    pub task_claimer_config: TaskClaimerConfig,
+    // REMOVED: task_claimer_config for TAS-41
     /// Step enqueuer configuration
     pub step_enqueuer_config: StepEnqueuerConfig,
     /// Step result processor configuration
@@ -37,7 +36,7 @@ impl Default for TaskClaimStepEnqueuerConfig {
             max_cycles: None,
             enable_performance_logging: false,
             enable_heartbeat: true,
-            task_claimer_config: TaskClaimerConfig::default(),
+            // REMOVED: task_claimer_config for TAS-41
             step_enqueuer_config: StepEnqueuerConfig::default(),
             step_result_processor_config: StepResultProcessorConfig::default(),
         }
@@ -54,13 +53,13 @@ impl TaskClaimStepEnqueuerConfig {
 
     pub fn from_tasker_config(config: &TaskerConfig) -> Self {
         Self {
-            max_batch_size: config.task_claimer.max_batch_size,
+            max_batch_size: 5,      // Default value, was config.task_claimer.max_batch_size
             namespace_filter: None, // No direct mapping in config, keep as runtime parameter
-            cycle_interval: config.task_claimer.cycle_interval(),
+            cycle_interval: Duration::from_secs(1), // Default value, was config.task_claimer.cycle_interval()
             max_cycles: None, // No direct mapping in config, keep as runtime parameter
             enable_performance_logging: config.orchestration.enable_performance_logging,
-            enable_heartbeat: config.task_claimer.enable_heartbeat,
-            task_claimer_config: TaskClaimerConfig::from_tasker_config(config),
+            enable_heartbeat: true, // Default value, was config.task_claimer.enable_heartbeat
+            // REMOVED: task_claimer_config for TAS-41
             step_enqueuer_config: StepEnqueuerConfig::from_tasker_config(config),
             step_result_processor_config: StepResultProcessorConfig::from_tasker_config(config),
         }

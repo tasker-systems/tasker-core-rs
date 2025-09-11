@@ -1,16 +1,13 @@
 use super::state::OperationalStateConfig;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 pub mod task_claim_step_enqueuer;
 pub use task_claim_step_enqueuer::TaskClaimStepEnqueuerConfig;
 pub mod step_enqueuer;
 pub use step_enqueuer::StepEnqueuerConfig;
 pub mod step_result_processor;
-pub use step_result_processor::StepResultProcessorConfig;
-pub mod task_claimer;
 pub use crate::config::executor::{ExecutorConfig, ExecutorType};
-pub use task_claimer::TaskClaimerConfig;
+pub use step_result_processor::StepResultProcessorConfig;
 pub mod event_systems;
 pub use crate::config::web::WebConfig;
 pub use event_systems::OrchestrationEventSystemConfig;
@@ -20,10 +17,10 @@ pub use event_systems::OrchestrationEventSystemConfig;
 pub struct OrchestrationConfig {
     pub mode: String,
     pub enable_performance_logging: bool,
+    pub use_unified_state_machine: bool,
     // Note: Queue configuration removed - use TaskerConfig.queues for centralized queue config
     // Note: Event systems configuration moved to unified TaskerConfig.event_systems
-    pub enable_heartbeat: bool,
-    pub heartbeat_interval_ms: u64,
+    // Note: Heartbeat configuration removed - moved to task_claim_step_enqueuer for TAS-41
     /// TAS-37 Supplemental: Shutdown-aware monitoring configuration
     pub operational_state: OperationalStateConfig,
     /// Web API configuration (TAS-28)
@@ -31,11 +28,6 @@ pub struct OrchestrationConfig {
 }
 
 impl OrchestrationConfig {
-    /// Get heartbeat interval as Duration
-    pub fn heartbeat_interval(&self) -> Duration {
-        Duration::from_millis(self.heartbeat_interval_ms)
-    }
-
     /// Get web configuration with fallback to defaults
     pub fn web_config(&self) -> WebConfig {
         self.web.clone()
@@ -52,10 +44,10 @@ impl Default for OrchestrationConfig {
         Self {
             mode: "standalone".to_string(),
             enable_performance_logging: false,
+            use_unified_state_machine: true,
             // Queue configuration now comes from centralized QueuesConfig
             // Event systems configuration now comes from unified TaskerConfig.event_systems
-            enable_heartbeat: true,
-            heartbeat_interval_ms: 5000,
+            // Heartbeat configuration now comes from task_claim_step_enqueuer for TAS-41
             operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
             web: WebConfig::default(),
         }

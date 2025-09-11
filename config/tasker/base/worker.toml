@@ -20,7 +20,7 @@ health_check_interval_seconds = 30
 
 # Step processing configuration (command pattern)
 [worker.step_processing]
-claim_timeout_seconds = 300
+processor_ownership_timeout_seconds = 300
 max_retries = 3
 retry_backoff_multiplier = 2.0
 heartbeat_interval_seconds = 30
@@ -47,6 +47,8 @@ batch_size = 5
 age_threshold_seconds = 10
 max_age_hours = 12
 visibility_timeout_seconds = 30
+# TAS-41: Task states that can be picked up for processing
+processable_states = ["pending", "waiting_for_dependencies", "waiting_for_retry"]
 
 # Event system configuration has been moved to config/tasker/base/event_systems.toml
 # The worker.event_system section is now managed centrally with unified configuration

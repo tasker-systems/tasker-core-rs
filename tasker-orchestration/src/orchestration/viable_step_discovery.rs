@@ -44,6 +44,7 @@ use std::sync::Arc;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::errors::{DiscoveryError, OrchestrationResult};
 use tasker_shared::events::{EventPublisher, ViableStep as EventsViableStep};
+use tasker_shared::system_context::SystemContext;
 use tasker_shared::types::ViableStep;
 use tasker_shared::StepExecutionResult;
 use tracing::{debug, info, instrument, warn};
@@ -57,15 +58,12 @@ pub struct ViableStepDiscovery {
 
 impl ViableStepDiscovery {
     /// Create new step discovery instance
-    pub fn new(
-        sql_executor: SqlFunctionExecutor,
-        event_publisher: Arc<EventPublisher>,
-        pool: sqlx::PgPool,
-    ) -> Self {
+    pub fn new(system_context: Arc<SystemContext>) -> Self {
+        let sql_executor = SqlFunctionExecutor::new(system_context.database_pool().clone());
         Self {
             sql_executor,
-            event_publisher,
-            pool,
+            event_publisher: system_context.event_publisher.clone(),
+            pool: system_context.database_pool().clone(),
         }
     }
 

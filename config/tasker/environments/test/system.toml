@@ -25,6 +25,10 @@ waiting_for_dependencies = 1
 processing = 0
 
 [backoff.reenqueue_delays]
-has_ready_steps = 0
-waiting_for_dependencies = 1
-processing = 0
+initializing = 0
+enqueuing_steps = 0
+steps_in_process = 0
+evaluating_results = 0
+waiting_for_dependencies = 0
+waiting_for_retry = 0
+blocked_by_failures = 0

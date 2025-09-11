@@ -50,6 +50,7 @@ use tasker_shared::state_machine::events::{StepEvent, TaskEvent};
 use tasker_shared::state_machine::states::{TaskState, WorkflowStepState};
 use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
+use tasker_shared::system_context::SystemContext;
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
@@ -92,9 +93,9 @@ pub struct StateEvaluationResult {
 /// State manager for coordinating SQL functions with state machines
 #[derive(Clone)]
 pub struct StateManager {
-    sql_executor: SqlFunctionExecutor,
+    system_context: Arc<SystemContext>,
+    sql_executor: Arc<SqlFunctionExecutor>,
     event_publisher: Arc<EventPublisher>,
-    pool: sqlx::PgPool,
     /// Cache of active state machines to avoid recreation
     task_state_machines: Arc<Mutex<HashMap<Uuid, TaskStateMachine>>>,
     step_state_machines: Arc<Mutex<HashMap<Uuid, StepStateMachine>>>,
@@ -102,27 +103,28 @@ pub struct StateManager {
 
 impl StateManager {
     /// Create new state manager instance
-    pub fn new(
-        sql_executor: SqlFunctionExecutor,
-        event_publisher: Arc<EventPublisher>,
-        pool: sqlx::PgPool,
-    ) -> Self {
+    pub fn new(system_context: Arc<SystemContext>) -> Self {
+        let sql_executor = Arc::new(SqlFunctionExecutor::new(
+            system_context.database_pool().clone(),
+        ));
+        let event_publisher = system_context.event_publisher.clone();
+
         Self {
+            system_context,
             sql_executor,
             event_publisher,
-            pool,
             task_state_machines: Arc::new(Mutex::new(HashMap::new())),
             step_state_machines: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Get reference to the database pool
-    pub fn pool(&self) -> &sqlx::PgPool {
-        &self.pool
+    pub fn database_pool(&self) -> &sqlx::PgPool {
+        self.system_context.database_pool()
     }
 
     async fn get_task_uuid_for_step_uuid(&self, step_uuid: Uuid) -> OrchestrationResult<Uuid> {
-        let step = WorkflowStep::find_by_id(&self.pool, step_uuid)
+        let step = WorkflowStep::find_by_id(self.database_pool(), step_uuid)
             .await
             .map_err(|e| OrchestrationError::SqlFunctionError {
                 function_name: "find_by_id".to_string(),
@@ -171,9 +173,9 @@ impl StateManager {
         // 4. Check if transition is needed
         let transition_required = matches!(
             (&current_state, &recommended_state),
-            (TaskState::Pending, Some(TaskState::InProgress))
-                | (TaskState::InProgress, Some(TaskState::Complete))
-                | (TaskState::InProgress, Some(TaskState::Error))
+            (TaskState::Pending, Some(TaskState::Initializing))
+                | (TaskState::EvaluatingResults, Some(TaskState::Complete))
+                | (TaskState::EvaluatingResults, Some(TaskState::Error))
         );
 
         let result = StateEvaluationResult {
@@ -214,7 +216,7 @@ impl StateManager {
             "SELECT task_uuid FROM tasker_workflow_steps WHERE workflow_step_uuid = $1",
             step_uuid
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.database_pool())
         .await
         .map_err(|e| OrchestrationError::DatabaseError {
             operation: "get_task_uuid_for_step".to_string(),
@@ -438,17 +440,17 @@ impl StateManager {
     ) -> OrchestrationResult<(Option<TaskState>, Option<String>)> {
         match current_state {
             TaskState::Pending => {
-                // Transition to in_progress if any steps are running
+                // Transition to enqueuing_steps if any steps are ready to be enqueued
                 if context.total_steps - context.completed_steps - context.pending_steps > 0 {
                     Ok((
-                        Some(TaskState::InProgress),
-                        Some("Steps are now executing".to_string()),
+                        Some(TaskState::EnqueuingSteps),
+                        Some("Steps are being enqueued for processing".to_string()),
                     ))
                 } else {
                     Ok((None, None))
                 }
             }
-            TaskState::InProgress => {
+            TaskState::StepsInProcess => {
                 // Check for completion or failure
                 if context.failed_steps > 0
                     && context.completed_steps + context.failed_steps == context.total_steps
@@ -518,25 +520,22 @@ impl StateManager {
             Ok(machine.clone())
         } else {
             // Need to get task from database to create state machine
-            let task = tasker_shared::models::core::task::Task::find_by_id(&self.pool, task_uuid)
-                .await
-                .map_err(|e| OrchestrationError::DatabaseError {
-                    operation: "find_task_by_id".to_string(),
-                    reason: e.to_string(),
-                })?
-                .ok_or_else(|| OrchestrationError::InvalidTaskState {
-                    task_uuid,
-                    current_state: "not_found".to_string(),
-                    expected_states: vec!["pending".to_string(), "in_progress".to_string()],
-                })?;
+            let task = tasker_shared::models::core::task::Task::find_by_id(
+                self.database_pool(),
+                task_uuid,
+            )
+            .await
+            .map_err(|e| OrchestrationError::DatabaseError {
+                operation: "find_task_by_id".to_string(),
+                reason: e.to_string(),
+            })?
+            .ok_or_else(|| OrchestrationError::InvalidTaskState {
+                task_uuid,
+                current_state: "not_found".to_string(),
+                expected_states: vec!["pending".to_string(), "in_progress".to_string()],
+            })?;
 
-            let machine = TaskStateMachine::new(
-                task,
-                self.pool.clone(),
-                Some(Arc::new(
-                    tasker_shared::events::publisher::EventPublisher::default(),
-                )),
-            );
+            let machine = TaskStateMachine::new(task, self.system_context.clone());
 
             // Store in cache for future use
             task_machines.insert(task_uuid, machine.clone());
@@ -557,7 +556,8 @@ impl StateManager {
         } else {
             // Need to get step from database to create state machine
             let step = tasker_shared::models::core::workflow_step::WorkflowStep::find_by_id(
-                &self.pool, step_uuid,
+                self.database_pool(),
+                step_uuid,
             )
             .await
             .map_err(|e| OrchestrationError::DatabaseError {
@@ -570,8 +570,7 @@ impl StateManager {
                 expected_states: vec!["pending".to_string(), "in_progress".to_string()],
             })?;
 
-            let machine =
-                StepStateMachine::new(step, self.pool.clone(), Some(self.event_publisher.clone()));
+            let machine = StepStateMachine::new(step, self.system_context.clone());
 
             // Store in cache for future use
             step_machines.insert(step_uuid, machine.clone());
@@ -588,7 +587,7 @@ impl StateManager {
         let mut task_state_machine = self.get_or_create_task_state_machine(task_uuid).await?;
 
         let event = match target_state {
-            TaskState::InProgress => TaskEvent::Start,
+            TaskState::Initializing => TaskEvent::Start,
             TaskState::Complete => TaskEvent::Complete,
             TaskState::Error => TaskEvent::Fail("Task failed".to_string()),
             _ => return Ok(()), // No transition needed
@@ -740,7 +739,7 @@ impl StateManager {
         let task_state_machine = self.get_or_create_task_state_machine(task_uuid).await?;
         let current_state = task_state_machine.current_state().await?;
 
-        if current_state == TaskState::InProgress {
+        if current_state.is_active() {
             debug!(
                 task_uuid = task_uuid.to_string(),
                 current_state = %current_state,
@@ -755,7 +754,7 @@ impl StateManager {
             "Transitioning task to in_progress"
         );
 
-        self.transition_task_state(task_uuid, TaskState::InProgress)
+        self.transition_task_state(task_uuid, TaskState::StepsInProcess)
             .await
     }
 
@@ -781,47 +780,6 @@ impl StateManager {
         Ok(())
     }
 
-    /// TAS-32 DEPRECATED: Mark step as in progress - transitions state machine and sets in_process column
-    ///
-    /// **DEPRECATED in TAS-32**: Ruby workers now handle step state transitions with MessageManager.
-    /// This method is no longer called by Rust orchestration but kept for backward compatibility.
-    #[deprecated(
-        note = "Ruby workers handle step state transitions. Use Ruby MessageManager instead."
-    )]
-    pub async fn mark_step_in_progress(&self, step_uuid: Uuid) -> OrchestrationResult<()> {
-        // 1. Transition state machine to InProgress
-        let mut step_state_machine = self.get_or_create_step_state_machine(step_uuid).await?;
-
-        let event = StepEvent::Start;
-
-        step_state_machine.transition(event).await.map_err(|e| {
-            OrchestrationError::StateTransitionFailed {
-                entity_type: "WorkflowStep".to_string(),
-                entity_uuid: step_uuid,
-                reason: e.to_string(),
-            }
-        })?;
-
-        // 2. Also update the in_process column to true in the database
-        // This provides a direct database flag for queries that need to check processing status
-        sqlx::query!(
-            "UPDATE tasker_workflow_steps SET in_process = true WHERE workflow_step_uuid = $1",
-            step_uuid
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| OrchestrationError::DatabaseError {
-            operation: "mark_step_in_progress".to_string(),
-            reason: format!("Failed to update in_process column for step {step_uuid}: {e}"),
-        })?;
-
-        debug!(
-            step_uuid = step_uuid.to_string(),
-            "Marked step as in progress"
-        );
-        Ok(())
-    }
-
     /// Process task transition request
     async fn process_task_transition_request(
         &self,
@@ -830,7 +788,13 @@ impl StateManager {
         let mut task_state_machine = self
             .get_or_create_task_state_machine(request.entity_uuid)
             .await?;
-        let current_state = task_state_machine.current_state().await?;
+        let current_state = task_state_machine.current_state().await.map_err(|e| {
+            OrchestrationError::StateTransitionFailed {
+                entity_type: "task".to_string(),
+                entity_uuid: request.entity_uuid,
+                reason: format!("Failed to get current state: {e}"),
+            }
+        })?;
 
         if let StateTransitionEvent::TaskEvent(event) = request.event {
             match task_state_machine.transition(event).await {

@@ -435,6 +435,10 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
                 self.queue_listener = Some(queue_listener);
             }
+            DeploymentMode::Disabled => {
+                // Handle disabled mode
+                warn!("OrchestrationEventSystem is disabled");
+            }
         }
 
         self.is_running.store(true, Ordering::Relaxed);
@@ -778,7 +782,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     system_id = %self.system_id,
                                     msg_id = %msg_id,
                                     reason = %reason,
-                                    already_claimed_by = %already_claimed_by.unwrap_or(String::from("Unknown")),
+                                    already_claimed_by = %already_claimed_by.unwrap_or(uuid::Uuid::nil()).to_string(),
                                     "FinalizeTaskFromMessageEvent command not claimed"
                                 );
                                 // Still count as successful operation
@@ -903,6 +907,9 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                         });
                     }
                 }
+            }
+            DeploymentMode::Disabled => {
+                info!("OrchestrationEventSystem is disabled");
             }
         }
 

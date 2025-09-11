@@ -27,6 +27,10 @@ waiting_for_dependencies = 3
 processing = 1
 
 [backoff.reenqueue_delays]
-has_ready_steps = 0
-waiting_for_dependencies = 10
-processing = 5
+initializing = 1
+enqueuing_steps = 0
+steps_in_process = 5
+evaluating_results = 1
+waiting_for_dependencies = 15
+waiting_for_retry = 15
+blocked_by_failures = 60

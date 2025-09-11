@@ -1,6 +1,0 @@
-[task_claimer]
-max_batch_size = 10
-default_claim_timeout = 300
-heartbeat_interval_seconds = 60
-enable_heartbeat = true
-cycle_interval_seconds = 60

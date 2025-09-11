@@ -96,28 +96,30 @@ use sqlx::{FromRow, PgPool};
 /// Only read operations are available via the SQL function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct SystemHealthCounts {
-    // Task counts by state
+    // Task counts by state - TAS-41: 12 granular states
     pub total_tasks: i64,
     pub pending_tasks: i64,
-    pub in_progress_tasks: i64,
+    pub initializing_tasks: i64,
+    pub enqueuing_steps_tasks: i64,
+    pub steps_in_process_tasks: i64,
+    pub evaluating_results_tasks: i64,
+    pub waiting_for_dependencies_tasks: i64,
+    pub waiting_for_retry_tasks: i64,
+    pub blocked_by_failures_tasks: i64,
     pub complete_tasks: i64,
     pub error_tasks: i64,
     pub cancelled_tasks: i64,
+    pub resolved_manually_tasks: i64,
 
-    // Step counts by state
+    // Step counts by state - updated for TAS-41
     pub total_steps: i64,
     pub pending_steps: i64,
-    pub in_progress_steps: i64,
-    pub complete_steps: i64,
-    pub error_steps: i64,
-    pub retryable_error_steps: i64,
-    pub exhausted_retry_steps: i64,
-    pub in_backoff_steps: i64,
-
-    // System capacity metrics
-    pub active_connections: i64,
-    pub max_connections: i64,
     pub enqueued_steps: i64,
+    pub running_steps: i64,
+    pub complete_steps: i64,
+    pub cancelled_steps: i64,
+    pub failed_steps: i64,
+    pub resolved_manually_steps: i64,
 }
 
 /// System health summary with computed health indicators
@@ -128,7 +130,6 @@ pub struct SystemHealthSummary {
     pub task_error_rate: f64,
     pub step_completion_rate: f64,
     pub step_error_rate: f64,
-    pub connection_utilization: f64,
     pub overall_health_score: f64,
     pub health_status: String,
 }
@@ -167,21 +168,25 @@ impl SystemHealthCounts {
             SELECT
                 total_tasks as "total_tasks!: i64",
                 pending_tasks as "pending_tasks!: i64",
-                in_progress_tasks as "in_progress_tasks!: i64",
+                initializing_tasks as "initializing_tasks!: i64",
+                enqueuing_steps_tasks as "enqueuing_steps_tasks!: i64",
+                steps_in_process_tasks as "steps_in_process_tasks!: i64",
+                evaluating_results_tasks as "evaluating_results_tasks!: i64",
+                waiting_for_dependencies_tasks as "waiting_for_dependencies_tasks!: i64",
+                waiting_for_retry_tasks as "waiting_for_retry_tasks!: i64",
+                blocked_by_failures_tasks as "blocked_by_failures_tasks!: i64",
                 complete_tasks as "complete_tasks!: i64",
                 error_tasks as "error_tasks!: i64",
                 cancelled_tasks as "cancelled_tasks!: i64",
+                resolved_manually_tasks as "resolved_manually_tasks!: i64",
                 total_steps as "total_steps!: i64",
                 pending_steps as "pending_steps!: i64",
-                in_progress_steps as "in_progress_steps!: i64",
+                enqueued_steps as "enqueued_steps!: i64",
+                running_steps as "running_steps!: i64",
                 complete_steps as "complete_steps!: i64",
-                error_steps as "error_steps!: i64",
-                retryable_error_steps as "retryable_error_steps!: i64",
-                exhausted_retry_steps as "exhausted_retry_steps!: i64",
-                in_backoff_steps as "in_backoff_steps!: i64",
-                active_connections as "active_connections!: i64",
-                max_connections as "max_connections!: i64",
-                enqueued_steps as "enqueued_steps!: i64"
+                cancelled_steps as "cancelled_steps!: i64",
+                failed_steps as "failed_steps!: i64",
+                resolved_manually_steps as "resolved_manually_steps!: i64"
             FROM get_system_health_counts()
             "#
         )
@@ -201,7 +206,6 @@ impl SystemHealthCounts {
                 task_error_rate: counts.task_error_rate(),
                 step_completion_rate: counts.step_completion_rate(),
                 step_error_rate: counts.step_error_rate(),
-                connection_utilization: counts.connection_utilization(),
                 overall_health_score: counts.overall_health_score(),
                 health_status: counts.health_status(),
                 counts,
@@ -244,16 +248,7 @@ impl SystemHealthCounts {
         if self.total_steps == 0 {
             0.0
         } else {
-            self.error_steps as f64 / self.total_steps as f64
-        }
-    }
-
-    /// Calculate connection pool utilization (0.0 to 1.0).
-    pub fn connection_utilization(&self) -> f64 {
-        if self.max_connections == 0 {
-            0.0
-        } else {
-            self.active_connections as f64 / self.max_connections as f64
+            self.failed_steps as f64 / self.total_steps as f64
         }
     }
 
@@ -298,16 +293,8 @@ impl SystemHealthCounts {
     pub fn overall_health_score(&self) -> f64 {
         let completion_score = (self.task_completion_rate() + self.step_completion_rate()) * 50.0;
         let error_penalty = (self.task_error_rate() + self.step_error_rate()) * 25.0;
-        let connection_penalty = if self.connection_utilization() > 0.9 {
-            10.0
-        } else {
-            0.0
-        };
-        let retry_penalty = if self.total_steps > 0 {
-            (self.exhausted_retry_steps as f64 / self.total_steps as f64) * 15.0
-        } else {
-            0.0
-        };
+        let connection_penalty = 0.0; // TODO: TAS-41 - Connection metrics not available
+        let retry_penalty = 0.0; // TODO: TAS-41 - Retry metrics not yet included in updated function
 
         (completion_score - error_penalty - connection_penalty - retry_penalty).clamp(0.0, 100.0)
     }
@@ -339,19 +326,9 @@ impl SystemHealthCounts {
         self.task_error_rate() > 0.1 || self.step_error_rate() > 0.1 // More than 10%
     }
 
-    /// Check if connection pool is under stress.
-    pub fn connection_pool_stressed(&self) -> bool {
-        self.connection_utilization() > 0.8 // More than 80% utilization
-    }
-
-    /// Get count of active work (in-progress tasks and steps).
+    /// Get count of active work (steps in process tasks and running steps).
     pub fn active_work_count(&self) -> i64 {
-        self.in_progress_tasks + self.in_progress_steps
-    }
-
-    /// Get count of blocked work (pending + backoff).
-    pub fn blocked_work_count(&self) -> i64 {
-        self.pending_tasks + self.pending_steps + self.in_backoff_steps
+        self.steps_in_process_tasks + self.running_steps
     }
 
     /// Check if there are steps enqueued for processing.

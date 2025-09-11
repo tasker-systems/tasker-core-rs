@@ -141,14 +141,11 @@ impl StepClaim {
         );
 
         // Create a WorkflowStep to pass to the state machine
-        // First, get the workflow step from the database
-        let db_pool = self.context.database_pool();
 
         // Create a state machine for this step
         let mut state_machine = StepStateMachine::new(
             task_sequence_step.workflow_step.clone().into(),
-            db_pool.clone(),
-            Some(self.context.event_publisher.clone()),
+            self.context.clone(),
         );
 
         // Try to transition the step to in_progress (claiming it)

@@ -27,7 +27,6 @@ pub struct ListenerStats {
     pub last_error_at: Option<SystemTime>,
 }
 
-
 /// Trait for handling PGMQ notification events
 #[async_trait]
 pub trait PgmqEventHandler: Send + Sync {

@@ -30,18 +30,6 @@ fn test_state_health_summary_calculations() {
     assert_eq!(summary.step_completion_percentage(), 40.0);
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
-async fn test_state_manager_creation(pool: sqlx::PgPool) {
-    let sql_executor = SqlFunctionExecutor::new(pool.clone());
-    let event_publisher = Arc::new(EventPublisher::new());
-    let state_manager = StateManager::new(sql_executor, event_publisher, pool);
-
-    // Test that we can create the StateManager successfully
-    // Since the fields are private, we can't directly test them, but creation success is sufficient
-    // More comprehensive testing would require public methods or integration tests
-    drop(state_manager); // Verify it was created successfully
-}
-
 #[test]
 fn test_state_transition_request() {
     let entity_uuid = Uuid::new_v4();

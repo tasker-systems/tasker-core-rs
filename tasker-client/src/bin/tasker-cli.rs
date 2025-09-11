@@ -230,7 +230,6 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(priority as i32),
-                claim_timeout_seconds: None,
             };
 
             match client.create_task(task_request).await {

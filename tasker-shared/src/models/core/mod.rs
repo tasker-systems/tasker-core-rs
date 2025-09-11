@@ -1,7 +1,6 @@
 pub mod annotation_type;
 pub mod dependent_system;
 pub mod dependent_system_object_map;
-pub mod finalization_attempt;
 pub mod named_step;
 pub mod named_task;
 pub mod named_tasks_named_step;

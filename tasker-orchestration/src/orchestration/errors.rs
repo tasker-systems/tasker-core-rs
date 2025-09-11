@@ -52,6 +52,7 @@ impl From<FinalizationError> for OrchestrationError {
                     reason,
                 }
             }
+            // Removed claim-related error variants - TAS-41 eliminates claims
             FinalizationError::General(reason) => OrchestrationError::ConfigurationError {
                 config_source: "task_finalizer".to_string(),
                 reason,

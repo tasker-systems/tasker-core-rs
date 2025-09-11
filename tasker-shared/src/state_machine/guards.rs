@@ -1,9 +1,11 @@
 use super::errors::{business_rule_violation, dependencies_not_met, GuardResult};
+use super::events::TaskEvent;
 use super::states::{TaskState, WorkflowStepState};
 use crate::models::{Task, WorkflowStep};
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::str::FromStr;
+use uuid::Uuid;
 
 /// Trait for implementing state transition guards
 #[async_trait]
@@ -13,6 +15,102 @@ pub trait StateGuard<T> {
 
     /// Get a description of this guard for logging
     fn description(&self) -> &'static str;
+}
+
+/// Guard conditions for state transitions (TAS-41 specification lines 147-249)
+pub struct TransitionGuard;
+
+impl TransitionGuard {
+    /// Check if a transition is valid
+    pub fn can_transition(
+        from: TaskState,
+        to: TaskState,
+        event: &TaskEvent,
+        _task: &Task,
+    ) -> GuardResult<()> {
+        use TaskEvent::*;
+        use TaskState::*;
+
+        // Terminal states cannot transition
+        if from.is_terminal() {
+            return Err(business_rule_violation(format!(
+                "Cannot transition from terminal state {from:?}"
+            )));
+        }
+
+        // Validate specific transitions
+        let valid = match (from, to, event) {
+            // Initial transitions
+            (Pending, Initializing, Start) => true,
+
+            // From Initializing
+            (Initializing, EnqueuingSteps, ReadyStepsFound(_)) => true,
+            (Initializing, TaskState::Complete, NoStepsFound) => true,
+            (Initializing, WaitingForDependencies, NoDependenciesReady) => true,
+
+            // From EnqueuingSteps
+            (EnqueuingSteps, StepsInProcess, StepsEnqueued(_)) => true,
+            (EnqueuingSteps, Error, EnqueueFailed(_)) => true,
+
+            // From StepsInProcess
+            (StepsInProcess, EvaluatingResults, AllStepsCompleted) => true,
+            (StepsInProcess, EvaluatingResults, StepCompleted(_)) => true,
+            (StepsInProcess, WaitingForRetry, StepFailed(_)) => true,
+
+            // From EvaluatingResults
+            (EvaluatingResults, TaskState::Complete, AllStepsSuccessful) => true,
+            (EvaluatingResults, EnqueuingSteps, ReadyStepsFound(_)) => true,
+            (EvaluatingResults, WaitingForDependencies, NoDependenciesReady) => true,
+            (EvaluatingResults, BlockedByFailures, PermanentFailure(_)) => true,
+
+            // From waiting states
+            (WaitingForDependencies, EvaluatingResults, DependenciesReady) => true,
+            (WaitingForRetry, EnqueuingSteps, RetryReady) => true,
+            (BlockedByFailures, Error, GiveUp) => true,
+            (BlockedByFailures, ResolvedManually, ManualResolution) => true,
+
+            // Cancellation from any non-terminal state
+            (from, Cancelled, Cancel) if !from.is_terminal() => true,
+
+            // Legacy transitions for backward compatibility
+            (Pending, StepsInProcess, Start) => true, // Maps old "in_progress"
+            (StepsInProcess, TaskState::Complete, TaskEvent::Complete) => true,
+            (StepsInProcess, Error, Fail(_)) => true,
+            (_, Cancelled, Cancel) if !from.is_terminal() => true,
+            (_, ResolvedManually, ResolveManually) => true,
+            (Error, Pending, Reset) => true,
+
+            // Invalid transition
+            _ => false,
+        };
+
+        if valid {
+            Ok(())
+        } else {
+            Err(business_rule_violation(format!(
+                "Invalid transition from {from:?} to {to:?} with event {event:?}"
+            )))
+        }
+    }
+
+    /// Check processor ownership for transitions requiring it
+    pub fn check_ownership(
+        state: TaskState,
+        task_processor: Option<Uuid>,
+        requesting_processor: Uuid,
+    ) -> GuardResult<()> {
+        if !state.requires_ownership() {
+            return Ok(());
+        }
+
+        match task_processor {
+            Some(owner) if owner == requesting_processor => Ok(()),
+            Some(owner) => Err(business_rule_violation(format!(
+                "Processor {requesting_processor} does not own task in state {state:?} (owned by {owner})"
+            ))),
+            None => Ok(()), // No owner yet, can claim
+        }
+    }
 }
 
 /// Guard to check if all workflow steps are complete before completing a task

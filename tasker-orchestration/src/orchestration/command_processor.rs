@@ -139,8 +139,8 @@ pub enum StepProcessResult {
 pub struct TaskReadinessResult {
     pub task_uuid: Uuid,
     pub namespace: String,
-    pub steps_enqueued: usize,
-    pub steps_discovered: usize,
+    pub steps_enqueued: u32,
+    pub steps_discovered: u32,
     pub triggered_by: String,
     pub processing_time_ms: u64,
 }
@@ -154,7 +154,7 @@ pub enum TaskFinalizationResult {
     },
     NotClaimed {
         reason: String,
-        already_claimed_by: Option<String>,
+        already_claimed_by: Option<Uuid>,
     },
     Failed {
         error: String,
@@ -184,10 +184,10 @@ use tokio::task::JoinHandle;
 
 // TAS-40 Phase 2.2 - Sophisticated delegation imports
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
-use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
+use tasker_shared::state_machine::TaskStateMachine;
 use tasker_shared::system_context::SystemContext;
 
 /// TAS-40 Command Pattern Orchestration Processor
@@ -205,11 +205,8 @@ pub struct OrchestrationProcessor {
     /// Sophisticated orchestration result processor for step results
     result_processor: Arc<OrchestrationResultProcessor>,
 
-    /// Sophisticated finalization claimer for atomic operations
-    finalization_claimer: Arc<FinalizationClaimer>,
-
     /// TAS-43: Task claim step enqueuer for atomic task claiming and step enqueueing
-    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+    task_claim_step_enqueuer: Arc<StepEnqueuerService>,
 
     /// PGMQ client for message operations
     pgmq_client: Arc<UnifiedPgmqClient>,
@@ -230,8 +227,7 @@ impl OrchestrationProcessor {
         context: Arc<SystemContext>,
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
-        finalization_claimer: Arc<FinalizationClaimer>,
-        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+        task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
         buffer_size: usize,
     ) -> (Self, mpsc::Sender<OrchestrationCommand>) {
@@ -250,7 +246,6 @@ impl OrchestrationProcessor {
             context,
             task_request_processor,
             result_processor,
-            finalization_claimer,
             task_claim_step_enqueuer,
             pgmq_client,
             command_rx: Some(command_rx),
@@ -267,7 +262,6 @@ impl OrchestrationProcessor {
         let stats = self.stats.clone();
         let task_request_processor = self.task_request_processor.clone();
         let result_processor = self.result_processor.clone();
-        let finalization_claimer = self.finalization_claimer.clone();
         let task_claim_step_enqueuer = self.task_claim_step_enqueuer.clone();
         let pgmq_client = self.pgmq_client.clone();
         let mut command_rx = self.command_rx.take().ok_or_else(|| {
@@ -280,7 +274,6 @@ impl OrchestrationProcessor {
                 stats: stats,
                 task_request_processor: task_request_processor,
                 result_processor: result_processor,
-                finalization_claimer: finalization_claimer,
                 task_claim_step_enqueuer: task_claim_step_enqueuer,
                 pgmq_client: pgmq_client,
             };
@@ -299,8 +292,7 @@ pub struct OrchestrationProcessorCommandHandler {
     stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
     task_request_processor: Arc<TaskRequestProcessor>,
     result_processor: Arc<OrchestrationResultProcessor>,
-    finalization_claimer: Arc<FinalizationClaimer>,
-    task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>, // TAS-43: Added for atomic task claiming and step enqueueing
+    task_claim_step_enqueuer: Arc<StepEnqueuerService>, // TAS-43: Added for atomic task claiming and step enqueueing
     pgmq_client: Arc<UnifiedPgmqClient>,
 }
 
@@ -310,8 +302,7 @@ impl OrchestrationProcessorCommandHandler {
         stats: Arc<std::sync::RwLock<OrchestrationProcessingStats>>,
         task_request_processor: Arc<TaskRequestProcessor>,
         result_processor: Arc<OrchestrationResultProcessor>,
-        finalization_claimer: Arc<FinalizationClaimer>,
-        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+        task_claim_step_enqueuer: Arc<StepEnqueuerService>,
         pgmq_client: Arc<UnifiedPgmqClient>,
     ) -> Self {
         Self {
@@ -319,7 +310,6 @@ impl OrchestrationProcessorCommandHandler {
             stats,
             task_request_processor,
             result_processor,
-            finalization_claimer,
             task_claim_step_enqueuer,
             pgmq_client,
         }
@@ -628,59 +618,28 @@ impl OrchestrationProcessorCommandHandler {
         }
     }
 
-    /// Handle task finalization using sophisticated FinalizationClaimer delegation (atomic operation)
     async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        // TAS-40 Phase 2.2 - Sophisticated FinalizationClaimer delegation
-        // Uses existing sophisticated FinalizationClaimer for atomic operations including:
-        // - Atomic task claiming to prevent race conditions (TAS-37 solution)
-        // - Task status validation and finalization logic
-        // - Proper claim release even on errors
-        // - Comprehensive observability and audit trail
+        let task_state_machine = TaskStateMachine::for_task(
+            task_uuid,
+            self.context.database_pool().clone(),
+            self.context.processor_uuid(),
+        );
 
-        // Attempt to claim the task for finalization using TAS-37 atomic claiming
-        match self.finalization_claimer.claim_task(task_uuid).await {
-            Ok(claim_result) => {
-                if claim_result.claimed {
-                    // Successfully claimed task - proceed with finalization
-                    // In a real implementation, this would delegate to TaskFinalizer for the actual work
-                    // and then release the claim. For now, simulate successful finalization.
+        // Use TaskFinalizer directly with state machine approach
+        use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
 
-                    // Release the claim after successful finalization
-                    match self.finalization_claimer.release_claim(task_uuid).await {
-                        Ok(_) => Ok(TaskFinalizationResult::Success {
-                            task_uuid,
-                            final_status: "completed".to_string(),
-                            completion_time: Some(Utc::now()),
-                        }),
-                        Err(release_err) => {
-                            tracing::warn!(
-                                task_uuid = %task_uuid,
-                                error = %release_err,
-                                "Failed to release finalization claim - claim will timeout naturally"
-                            );
-                            Err(TaskerError::OrchestrationError(
-                                format!("Failed to release finalization claim, but will time out naturally, {release_err}")
-                            ))
-                        }
-                    }
-                } else {
-                    // Could not claim task - already being processed by another processor
-                    Ok(TaskFinalizationResult::NotClaimed {
-                        reason: claim_result
-                            .message
-                            .unwrap_or_else(|| "Task already claimed for finalization".to_string()),
-                        already_claimed_by: claim_result.already_claimed_by,
-                    })
-                }
-            }
-            Err(e) => {
-                // Claim attempt failed due to error
-                Ok(TaskFinalizationResult::Failed {
-                    error: format!(
-                        "Task finalization failed via FinalizationClaimer delegation: {e}"
-                    ),
-                })
-            }
+        let task_finalizer =
+            TaskFinalizer::new(self.context.clone(), self.task_claim_step_enqueuer.clone());
+
+        match task_finalizer.finalize_task(task_uuid).await {
+            Ok(result) => Ok(TaskFinalizationResult::Success {
+                task_uuid,
+                final_status: format!("{:?}", result.action),
+                completion_time: Some(Utc::now()),
+            }),
+            Err(e) => Ok(TaskFinalizationResult::Failed {
+                error: format!("Task finalization failed: {e}"),
+            }),
         }
     }
 
@@ -1158,7 +1117,8 @@ impl OrchestrationProcessorCommandHandler {
             namespace = %namespace,
             priority = priority,
             ready_steps = ready_steps,
-            steps_enqueued = process_result.total_steps_enqueued,
+            tasks_processed = process_result.tasks_processed,
+            tasks_failed = process_result.tasks_failed,
             processing_time_ms = processing_time_ms,
             triggered_by = %triggered_by,
             "Task readiness processed successfully via TaskClaimStepEnqueuer"
@@ -1167,8 +1127,8 @@ impl OrchestrationProcessorCommandHandler {
         Ok(TaskReadinessResult {
             task_uuid,
             namespace,
-            steps_enqueued: process_result.total_steps_enqueued,
-            steps_discovered: process_result.total_steps_discovered,
+            steps_enqueued: ready_steps as u32,
+            steps_discovered: ready_steps as u32,
             processing_time_ms,
             triggered_by,
         })

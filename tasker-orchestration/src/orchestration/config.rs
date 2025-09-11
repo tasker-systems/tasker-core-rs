@@ -6,7 +6,7 @@
 //! Re-export shared types instead of redefining them
 pub use tasker_shared::config::orchestration::{
     OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
-    TaskClaimStepEnqueuerConfig, TaskClaimerConfig,
+    TaskClaimStepEnqueuerConfig,
 };
 
 // Re-export shared types instead of redefining them

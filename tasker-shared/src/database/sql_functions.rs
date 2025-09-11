@@ -65,6 +65,9 @@ use sqlx::{types::BigDecimal, types::Uuid, FromRow, PgPool};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+// TAS-41: Import TaskState for query methods
+use crate::state_machine::TaskState;
+
 // Import the orchestration models for transitive dependencies
 use crate::messaging::StepExecutionResult;
 use crate::models::orchestration::StepTransitiveDependencies;
@@ -573,75 +576,28 @@ impl SqlFunctionExecutor {
 }
 
 // ============================================================================
-// 5. TASK EXECUTION CONTEXT
+// 5. TASK EXECUTION CONTEXT (UNIFIED VERSION)
 // ============================================================================
 
-/// Task execution context and recommendations
-/// Equivalent to Rails: FunctionBasedTaskExecutionContext
-/// FIXED: Aligned with actual SQL function return columns
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
-pub struct TaskExecutionContext {
-    pub task_uuid: Uuid,
-    pub named_task_uuid: Uuid,
-    pub status: String,
-    pub total_steps: i64,
-    pub pending_steps: i64,
-    pub in_progress_steps: i64,
-    pub completed_steps: i64,
-    pub failed_steps: i64,
-    pub ready_steps: i64,
-    pub execution_status: String,
-    pub recommended_action: String,
-    pub completion_percentage: sqlx::types::BigDecimal, // numeric from SQL
-    pub health_status: String,
-}
-
-impl TaskExecutionContext {
-    /// Check if task is ready for execution
-    pub fn can_proceed(&self) -> bool {
-        self.ready_steps > 0
-    }
-
-    /// Check if task is complete
-    pub fn is_complete(&self) -> bool {
-        self.completion_percentage >= BigDecimal::from(100)
-    }
-
-    /// Check if task is blocked
-    pub fn is_blocked(&self) -> bool {
-        self.ready_steps == 0 && self.pending_steps > 0
-    }
-
-    /// Get execution status info
-    pub fn get_execution_status(&self) -> &str {
-        &self.execution_status
-    }
-
-    /// Get health status info
-    pub fn get_health_status(&self) -> &str {
-        &self.health_status
-    }
-}
+// Use unified TaskExecutionContext from models::orchestration
+// This replaces the duplicate definition that existed here
+pub use crate::models::orchestration::TaskExecutionContext;
 
 impl SqlFunctionExecutor {
-    /// Get task execution context
-    /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_task
+    /// Get task execution context (DEPRECATED - use TaskExecutionContext::get_for_task)
     pub async fn get_task_execution_context(
         &self,
         task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
-        let sql = "SELECT * FROM get_task_execution_context($1::UUID)";
-        self.execute_single_with_task_uuid(sql, task_uuid).await
+        TaskExecutionContext::get_for_task(&self.pool, task_uuid).await
     }
 
-    /// Get task execution contexts for multiple tasks (batch operation)
-    /// Equivalent to Rails: FunctionBasedTaskExecutionContext.for_tasks_batch
+    /// Get task execution contexts for multiple tasks (DEPRECATED - use TaskExecutionContext::get_for_tasks)
     pub async fn get_task_execution_contexts_batch(
         &self,
         task_uuids: Vec<Uuid>,
     ) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
-        let sql = "SELECT * FROM get_task_execution_contexts_batch($1::UUID[])";
-        self.execute_many_with_task_uuids(sql, &task_uuids).await
+        TaskExecutionContext::get_for_tasks(&self.pool, &task_uuids).await
     }
 }
 
@@ -907,5 +863,106 @@ impl SqlFunctionExecutor {
             .into_iter()
             .filter(|dep| dep.distance == 1)
             .collect())
+    }
+}
+
+// ============================================================================
+// 8. TAS-41 QUERY METHODS
+// ============================================================================
+
+/// Task info for batch processing with current state (TAS-41)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ReadyTaskInfo {
+    pub task_uuid: Uuid,
+    pub task_name: String,
+    pub priority: i32,
+    pub namespace_name: String,
+    pub ready_steps_count: i64,
+    pub computed_priority: Option<BigDecimal>,
+    pub current_state: String,
+}
+
+impl SqlFunctionExecutor {
+    // Get next ready task with type-safe result (TAS-41)
+    pub async fn get_task_ready_info(
+        &self,
+        task_uuid: Uuid,
+    ) -> Result<Option<ReadyTaskInfo>, sqlx::Error> {
+        sqlx::query_as!(
+            ReadyTaskInfo,
+            r#"
+            SELECT
+                task_uuid as "task_uuid!",
+                task_name as "task_name!",
+                priority as "priority!",
+                namespace_name as "namespace_name!",
+                ready_steps_count as "ready_steps_count!",
+                computed_priority as "computed_priority!",
+                current_state as "current_state!"
+            FROM get_task_ready_info($1::UUID)
+            "#,
+            task_uuid
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Get next ready task with type-safe result (TAS-41)
+    pub async fn get_next_ready_task(&self) -> Result<Option<ReadyTaskInfo>, sqlx::Error> {
+        sqlx::query_as!(
+            ReadyTaskInfo,
+            r#"
+            SELECT
+                task_uuid as "task_uuid!",
+                task_name as "task_name!",
+                priority as "priority!",
+                namespace_name as "namespace_name!",
+                ready_steps_count as "ready_steps_count!",
+                computed_priority as "computed_priority!",
+                current_state as "current_state!"
+            FROM get_next_ready_task()
+            "#
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Get batch of ready tasks with their current states (TAS-41)
+    pub async fn get_next_ready_tasks(
+        &self,
+        limit: i32,
+    ) -> Result<Vec<ReadyTaskInfo>, sqlx::Error> {
+        sqlx::query_as!(
+            ReadyTaskInfo,
+            r#"
+            SELECT
+                task_uuid as "task_uuid!",
+                task_name as "task_name!",
+                priority as "priority!",
+                namespace_name as "namespace_name!",
+                ready_steps_count as "ready_steps_count!",
+                computed_priority as "computed_priority!",
+                current_state as "current_state!"
+            FROM get_next_ready_tasks($1)
+            "#,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Get current state of a task (TAS-41)
+    pub async fn get_current_task_state(&self, task_uuid: Uuid) -> Result<TaskState, sqlx::Error> {
+        let state_str =
+            sqlx::query_scalar!(r#"SELECT get_current_task_state($1) as "state""#, task_uuid)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| sqlx::Error::RowNotFound)?;
+
+        match state_str {
+            Some(state) => TaskState::try_from(state.as_str())
+                .map_err(|_| sqlx::Error::Decode("Invalid task state".into())),
+            None => Err(sqlx::Error::RowNotFound),
+        }
     }
 }

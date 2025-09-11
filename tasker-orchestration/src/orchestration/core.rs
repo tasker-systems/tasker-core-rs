@@ -17,22 +17,19 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::{TaskerError, TaskerResult};
 
 use crate::orchestration::command_processor::{
-    OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, StepProcessResult,
-    SystemHealth, TaskFinalizationResult, TaskInitializeResult,
+    OrchestrationCommand, OrchestrationProcessingStats, OrchestrationProcessor, SystemHealth,
 };
 use crate::orchestration::lifecycle::result_processor::OrchestrationResultProcessor;
-use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
 use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use crate::orchestration::lifecycle::task_request_processor::{
     TaskRequestProcessor, TaskRequestProcessorConfig,
 };
-use crate::orchestration::task_claim::finalization_claimer::FinalizationClaimer;
 
 /// TAS-40 Command Pattern OrchestrationCore
 ///
@@ -53,9 +50,6 @@ pub struct OrchestrationCore {
 
     /// System status
     pub status: OrchestrationCoreStatus,
-
-    /// Core configuration
-    pub core_id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,10 +67,9 @@ impl OrchestrationCore {
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
         info!("Creating OrchestrationCore with TAS-40 command pattern integration");
 
-        // Create sophisticated delegation components using existing patterns
+        // Create sophisticated delegation components using unified claim system
         let task_request_processor = Self::create_task_request_processor(&context).await?;
         let result_processor = Self::create_result_processor(&context).await?;
-        let finalization_claimer = Self::create_finalization_claimer(&context).await?;
         let task_claim_step_enqueuer = Self::create_task_claim_step_enqueuer(&context).await?;
 
         // Create OrchestrationProcessor with sophisticated delegation
@@ -84,23 +77,19 @@ impl OrchestrationCore {
             context.clone(),
             task_request_processor,
             result_processor,
-            finalization_claimer,
             task_claim_step_enqueuer,
             context.message_client(),
-            1000, // Command buffer size
+            1000, // Command buffer size,
         );
 
         // Start the processor
         processor.start().await?;
-
-        let core_id = Uuid::now_v7();
 
         Ok(Self {
             context,
             command_sender,
             processor: Some(processor),
             status: OrchestrationCoreStatus::Created,
-            core_id,
         })
     }
 
@@ -119,7 +108,7 @@ impl OrchestrationCore {
         self.status = OrchestrationCoreStatus::Running;
 
         info!(
-            core_id = %self.core_id,
+            processor_uuid = %self.context.processor_uuid(),
             "OrchestrationCore started successfully with TAS-40 command pattern"
         );
 
@@ -150,7 +139,7 @@ impl OrchestrationCore {
         self.status = OrchestrationCoreStatus::Stopped;
 
         info!(
-            core_id = %self.core_id,
+            processor_uuid = %self.context.processor_uuid(),
             "OrchestrationCore stopped successfully"
         );
 
@@ -189,81 +178,14 @@ impl OrchestrationCore {
             .map_err(|e| TaskerError::OrchestrationError(format!("Stats response error: {e}")))?
     }
 
-    /// Initialize a task via command pattern (replaces direct orchestration calls)
-    pub async fn initialize_task(
-        &self,
-        request: TaskRequestMessage,
-    ) -> TaskerResult<TaskInitializeResult> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-
-        self.command_sender
-            .send(OrchestrationCommand::InitializeTask {
-                request,
-                resp: resp_tx,
-            })
-            .await
-            .map_err(|e| {
-                TaskerError::OrchestrationError(format!(
-                    "Failed to send task initialization command: {e}"
-                ))
-            })?;
-
-        resp_rx.await.map_err(|e| {
-            TaskerError::OrchestrationError(format!("Task initialization response error: {e}"))
-        })?
-    }
-
-    /// Process step result via command pattern (replaces direct result processor calls)
-    pub async fn process_step_result(
-        &self,
-        result: StepExecutionResult,
-    ) -> TaskerResult<StepProcessResult> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-
-        self.command_sender
-            .send(OrchestrationCommand::ProcessStepResult {
-                result,
-                resp: resp_tx,
-            })
-            .await
-            .map_err(|e| {
-                TaskerError::OrchestrationError(format!("Failed to send step result command: {e}"))
-            })?;
-
-        resp_rx.await.map_err(|e| {
-            TaskerError::OrchestrationError(format!("Step result response error: {e}"))
-        })?
-    }
-
-    /// Finalize task via command pattern (replaces direct finalization calls)
-    pub async fn finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-
-        self.command_sender
-            .send(OrchestrationCommand::FinalizeTask {
-                task_uuid,
-                resp: resp_tx,
-            })
-            .await
-            .map_err(|e| {
-                TaskerError::OrchestrationError(format!(
-                    "Failed to send task finalization command: {e}"
-                ))
-            })?;
-
-        resp_rx.await.map_err(|e| {
-            TaskerError::OrchestrationError(format!("Task finalization response error: {e}"))
-        })?
-    }
-
     /// Get current orchestration core status
     pub fn status(&self) -> &OrchestrationCoreStatus {
         &self.status
     }
 
     /// Get core ID
-    pub fn core_id(&self) -> &Uuid {
-        &self.core_id
+    pub fn processor_uuid(&self) -> Uuid {
+        self.context.processor_uuid()
     }
 
     /// Create sophisticated TaskRequestProcessor for delegation
@@ -273,14 +195,11 @@ impl OrchestrationCore {
         info!("Creating sophisticated TaskRequestProcessor for command pattern delegation");
 
         let config = TaskRequestProcessorConfig::default();
-        // Create TaskClaimStepEnqueuer for immediate step enqueuing (TAS-41)
-        let orchestrator_id = format!("task_request_processor_{}", uuid::Uuid::new_v4());
-        let task_claim_step_enqueuer =
-            TaskClaimStepEnqueuer::new(context.clone(), orchestrator_id).await?;
+        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
         // Create TaskInitializer with step enqueuer for immediate step enqueuing (TAS-41)
-        let task_initializer = Arc::new(TaskInitializer::with_step_enqueuer(
+        let task_initializer = Arc::new(TaskInitializer::new(
             context.clone(),
             task_claim_step_enqueuer,
         ));
@@ -297,52 +216,29 @@ impl OrchestrationCore {
     async fn create_result_processor(
         context: &Arc<SystemContext>,
     ) -> TaskerResult<Arc<OrchestrationResultProcessor>> {
-        info!("Creating sophisticated OrchestrationResultProcessor for command pattern delegation");
+        info!("Creating sophisticated OrchestrationResultProcessor with unified claim system");
 
-        // Generate a shared processor_id for both FinalizationClaimer and TaskClaimStepEnqueuer
-        // This allows claim transfer between finalization and step enqueueing (TAS-41)
-        let shared_processor_id = FinalizationClaimer::generate_processor_id("orchestration");
-
-        // Create TaskClaimStepEnqueuer with the shared processor_id
-        let task_claim_step_enqueuer =
-            TaskClaimStepEnqueuer::new(context.clone(), shared_processor_id.clone()).await?;
+        // Create TaskClaimStepEnqueuer with the shared processor UUID
+        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        let task_finalizer =
-            TaskFinalizer::with_step_enqueuer(context.clone(), task_claim_step_enqueuer);
+        let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
 
-        Ok(Arc::new(OrchestrationResultProcessor::with_processor_id(
+        Ok(Arc::new(OrchestrationResultProcessor::new(
             task_finalizer,
             context.clone(),
-            shared_processor_id,
-        )))
-    }
-
-    /// Create sophisticated FinalizationClaimer for delegation
-    async fn create_finalization_claimer(
-        context: &Arc<SystemContext>,
-    ) -> TaskerResult<Arc<FinalizationClaimer>> {
-        info!("Creating sophisticated FinalizationClaimer for command pattern delegation");
-
-        let processor_id = FinalizationClaimer::generate_processor_id("orchestration_core");
-
-        Ok(Arc::new(FinalizationClaimer::new(
-            context.clone(),
-            processor_id,
         )))
     }
 
     /// Create sophisticated TaskClaimStepEnqueuer for delegation
     async fn create_task_claim_step_enqueuer(
         context: &Arc<SystemContext>,
-    ) -> TaskerResult<Arc<TaskClaimStepEnqueuer>> {
+    ) -> TaskerResult<Arc<StepEnqueuerService>> {
         info!(
             "Creating sophisticated TaskClaimStepEnqueuer for TAS-43 command pattern integration"
         );
 
-        let orchestrator_id = format!("orchestration_core_{}", uuid::Uuid::new_v4());
-
-        let enqueuer = TaskClaimStepEnqueuer::new(context.clone(), orchestrator_id).await?;
+        let enqueuer = StepEnqueuerService::new(context.clone()).await?;
 
         Ok(Arc::new(enqueuer))
     }

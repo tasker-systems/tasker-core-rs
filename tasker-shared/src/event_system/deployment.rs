@@ -51,6 +51,14 @@ pub enum DeploymentMode {
     /// - Systems optimizing for <10ms latency requirements
     /// - Mature deployments with comprehensive monitoring
     EventDrivenOnly,
+
+    /// Disabled event-driven coordination (no polling fallback)
+    ///
+    /// Disabled coordination without polling fallback.
+    /// Recommended for:
+    /// - Environments where event-driven coordination is not required
+    /// - Systems with no event infrastructure or monitoring
+    Disabled,
 }
 
 impl fmt::Display for DeploymentMode {
@@ -59,6 +67,7 @@ impl fmt::Display for DeploymentMode {
             DeploymentMode::PollingOnly => write!(f, "PollingOnly"),
             DeploymentMode::Hybrid => write!(f, "Hybrid"),
             DeploymentMode::EventDrivenOnly => write!(f, "EventDrivenOnly"),
+            DeploymentMode::Disabled => write!(f, "Disabled"),
         }
     }
 }
@@ -87,6 +96,11 @@ impl DeploymentMode {
     /// Check if this mode is event-driven only (no fallback)
     pub fn is_event_driven_only(&self) -> bool {
         matches!(self, DeploymentMode::EventDrivenOnly)
+    }
+
+    /// Check if this mode is disabled (no coordination)
+    pub fn is_disabled(&self) -> bool {
+        matches!(self, DeploymentMode::Disabled)
     }
 }
 

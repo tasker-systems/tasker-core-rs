@@ -54,13 +54,13 @@
 //! ```
 
 use crate::orchestration::lifecycle::{
-    result_processor::OrchestrationResultProcessor,
-    task_claim_step_enqueuer::TaskClaimStepEnqueuer, task_finalizer::TaskFinalizer,
+    result_processor::OrchestrationResultProcessor, step_enqueuer_service::StepEnqueuerService,
+    task_finalizer::TaskFinalizer,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tasker_shared::config::orchestration::StepResultProcessorConfig;
-use tasker_shared::messaging::{PgmqClientTrait, StepExecutionStatus, StepResultMessage};
+use tasker_shared::messaging::{PgmqClientTrait, StepResultMessage};
 use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -98,21 +98,12 @@ impl StepResultProcessor {
         let config = StepResultProcessorConfig::from_tasker_config(context.config_manager.config());
         // Create orchestration result processor with required dependencies
 
-        // Generate a shared processor_id for both FinalizationClaimer and TaskClaimStepEnqueuer
-        // This allows claim transfer between finalization and step enqueueing (TAS-41)
-        let shared_processor_id = format!("step_result_processor_{}", uuid::Uuid::new_v4());
-
-        let task_claim_step_enqueuer =
-            TaskClaimStepEnqueuer::new(context.clone(), shared_processor_id.clone()).await?;
+        let task_claim_step_enqueuer = StepEnqueuerService::new(context.clone()).await?;
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
-        let task_finalizer =
-            TaskFinalizer::with_step_enqueuer(context.clone(), task_claim_step_enqueuer);
-        let orchestration_result_processor = OrchestrationResultProcessor::with_processor_id(
-            task_finalizer,
-            context.clone(),
-            shared_processor_id,
-        );
+        let task_finalizer = TaskFinalizer::new(context.clone(), task_claim_step_enqueuer);
+        let orchestration_result_processor =
+            OrchestrationResultProcessor::new(task_finalizer, context.clone());
 
         Ok(Self {
             context,

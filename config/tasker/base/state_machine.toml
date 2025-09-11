@@ -1,0 +1,45 @@
+# TAS-41 State Machine Configuration
+[state_machine]
+enabled = true
+enable_transition_logging = true
+transition_log_level = "INFO"
+
+[state_machine.timeouts]
+initializing = 60
+enqueuing_steps = 30
+steps_in_process = 300
+evaluating_results = 60
+
+[state_machine.waiting_states]
+max_waiting_for_dependencies_minutes = 60
+retry_intervals = [30, 60, 120, 300, 600]
+max_blocked_time_minutes = 60
+blocked_resolution_strategy = "manual_only"
+
+[state_machine.recovery]
+enable_stuck_task_detection = true
+stuck_task_detection_interval_seconds = 120
+max_stuck_duration_minutes = 10
+recovery_strategy = "reset_to_waiting"
+max_recoveries_per_task = 3
+
+[state_machine.metrics]
+enable_state_transition_metrics = true
+collect_transition_latency = true
+collect_time_in_state = true
+state_histogram_buckets = [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 300, 600]
+
+[state_machine.processor_ownership]
+enable_ownership_tracking = true
+default_timeout_seconds = 300
+enable_heartbeat = true
+heartbeat_interval_seconds = 60
+max_consecutive_ownership_failures = 3
+
+[state_machine.persistence]
+track_transition_history = true
+max_transitions_per_task = 100
+store_processor_info = true
+store_event_details = true
+enable_history_cleanup = true
+history_retention_days = 30

@@ -88,6 +88,7 @@ pub struct TaskTransition {
     pub task_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
+    pub processor_uuid: Option<Uuid>, // TAS-41: Processor ownership tracking
     pub metadata: Option<serde_json::Value>,
     pub sort_key: i32,
     pub most_recent: bool,
@@ -101,6 +102,7 @@ pub struct NewTaskTransition {
     pub task_uuid: Uuid,
     pub to_state: String,
     pub from_state: Option<String>,
+    pub processor_uuid: Option<Uuid>, // TAS-41: Processor ownership tracking
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -174,6 +176,7 @@ impl TaskTransition {
     ///     task_uuid: Uuid::new_v4(),
     ///     to_state: "processing".to_string(),
     ///     from_state: Some("pending".to_string()),
+    ///     processor_uuid: Some(Uuid::new_v4()),  // TAS-41: Processor ownership
     ///     metadata: Some(json!({"reason": "worker_assigned"})),
     /// }).await?;
     /// # Ok(())
@@ -217,14 +220,15 @@ impl TaskTransition {
             TaskTransition,
             r#"
             INSERT INTO tasker_task_transitions
-            (task_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            (task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, true, NOW(), NOW())
+            RETURNING task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                       created_at, updated_at
             "#,
             new_transition.task_uuid,
             new_transition.to_state,
             new_transition.from_state,
+            new_transition.processor_uuid,
             new_transition.metadata,
             next_sort_key
         )
@@ -274,14 +278,15 @@ impl TaskTransition {
             TaskTransition,
             r#"
             INSERT INTO tasker_task_transitions
-            (task_uuid, to_state, from_state, metadata, sort_key, most_recent, created_at, updated_at)
-            VALUES ($1::uuid, $2, $3, $4, $5, true, NOW(), NOW())
-            RETURNING task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            (task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent, created_at, updated_at)
+            VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, true, NOW(), NOW())
+            RETURNING task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                       created_at, updated_at
             "#,
             new_transition.task_uuid,
             new_transition.to_state,
             new_transition.from_state,
+            new_transition.processor_uuid,
             new_transition.metadata,
             next_sort_key
         )
@@ -299,7 +304,7 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_transition_uuid = $1::uuid
@@ -320,7 +325,7 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_uuid = $1::uuid AND most_recent = true
@@ -343,7 +348,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_uuid = $1::uuid
@@ -367,7 +372,7 @@ impl TaskTransition {
             sqlx::query_as!(
                 TaskTransition,
                 r#"
-                SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                        created_at, updated_at
                 FROM tasker_task_transitions
                 WHERE to_state = $1 AND most_recent = true
@@ -381,7 +386,7 @@ impl TaskTransition {
             sqlx::query_as!(
                 TaskTransition,
                 r#"
-                SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                        created_at, updated_at
                 FROM tasker_task_transitions
                 WHERE to_state = $1
@@ -404,7 +409,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_uuid = ANY($1)
@@ -426,7 +431,7 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_uuid = $1::uuid AND most_recent = false
@@ -491,7 +496,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE task_uuid = $1::uuid
@@ -645,7 +650,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             ORDER BY sort_key DESC
@@ -662,7 +667,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, task_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, task_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    created_at, updated_at
             FROM tasker_task_transitions
             WHERE to_state = $1
@@ -684,7 +689,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE metadata ? $1
@@ -710,7 +715,7 @@ impl TaskTransition {
         let transition = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE to_state = $1
@@ -734,7 +739,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE created_at BETWEEN $1 AND $2
@@ -758,7 +763,7 @@ impl TaskTransition {
         let transitions = sqlx::query_as!(
             TaskTransition,
             r#"
-            SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+            SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                    task_uuid, created_at, updated_at
             FROM tasker_task_transitions
             WHERE metadata ->> $1 = $2
@@ -1273,7 +1278,7 @@ impl TaskTransitionQuery {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                    SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                            task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
                     WHERE task_uuid = $1::uuid
@@ -1289,7 +1294,7 @@ impl TaskTransitionQuery {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                    SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                            task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
                     WHERE task_uuid = $1::uuid AND to_state = $2
@@ -1306,7 +1311,7 @@ impl TaskTransitionQuery {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                    SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                            task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
                     WHERE task_uuid = $1::uuid AND most_recent = true
@@ -1322,7 +1327,7 @@ impl TaskTransitionQuery {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                    SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                            task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
                     WHERE task_uuid = $1::uuid
@@ -1340,7 +1345,7 @@ impl TaskTransitionQuery {
                 sqlx::query_as!(
                     TaskTransition,
                     r#"
-                    SELECT task_transition_uuid, to_state, from_state, metadata, sort_key, most_recent,
+                    SELECT task_transition_uuid, to_state, from_state, processor_uuid, metadata, sort_key, most_recent,
                            task_uuid, created_at, updated_at
                     FROM tasker_task_transitions
                     WHERE task_uuid = $1::uuid

@@ -54,8 +54,7 @@
 //! ```
 
 use crate::orchestration::{
-    state_manager::StateManager, task_claim::task_claimer::ClaimedTask,
-    viable_step_discovery::ViableStepDiscovery,
+    state_manager::StateManager, viable_step_discovery::ViableStepDiscovery,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -63,7 +62,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
-use tasker_shared::database::sql_functions::SqlFunctionExecutor;
+use tasker_shared::database::sql_functions::{ReadyTaskInfo, SqlFunctionExecutor};
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
 use tasker_shared::types::ViableStep;
@@ -88,6 +87,9 @@ pub struct StepEnqueueResult {
     pub namespace_breakdown: HashMap<String, NamespaceEnqueueStats>,
     /// Any non-fatal errors encountered
     pub warnings: Vec<String>,
+
+    /// Step UUIDs that were enqueued
+    pub step_uuids: Vec<Uuid>,
 }
 
 /// Per-namespace enqueueing statistics
@@ -112,21 +114,19 @@ pub struct StepEnqueuer {
 impl StepEnqueuer {
     /// Create a new step enqueuer instance (backward compatibility with standard client)
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
-        let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
-        let viable_step_discovery = ViableStepDiscovery::new(
-            sql_executor.clone(),
-            context.event_publisher.clone(),
-            context.database_pool().clone(),
-        );
-        let state_manager = StateManager::new(
-            sql_executor,
-            context.event_publisher.clone(),
-            context.database_pool().clone(),
-        );
+        let viable_step_discovery = ViableStepDiscovery::new(context.clone());
+        let state_manager = StateManager::new(context.clone());
+        let tasker_config = context.config_manager.config();
+        let config = StepEnqueuerConfig {
+            max_steps_per_task: tasker_config.execution.step_batch_size as usize,
+            enqueue_delay_seconds: 0, // No direct mapping, keep default
+            enable_detailed_logging: tasker_config.orchestration.enable_performance_logging,
+            enqueue_timeout_seconds: tasker_config.execution.step_execution_timeout_seconds,
+        };
         Ok(Self {
             viable_step_discovery,
             context,
-            config: StepEnqueuerConfig::default(),
+            config,
             state_manager,
         })
     }
@@ -135,28 +135,27 @@ impl StepEnqueuer {
     ///
     /// This discovers viable steps using the existing SQL-based logic, then enqueues each
     /// step individually to its namespace-specific queue for autonomous worker processing.
-    #[instrument(skip(self), fields(task_uuid = claimed_task.task_uuid.to_string(), namespace = %claimed_task.namespace_name))]
+    #[instrument(skip(self), fields(task_uuid = task_info.task_uuid.to_string(), namespace = %task_info.namespace_name))]
     pub async fn enqueue_ready_steps(
         &self,
-        claimed_task: &ClaimedTask,
+        task_info: &ReadyTaskInfo,
     ) -> TaskerResult<StepEnqueueResult> {
         let start_time = Instant::now();
 
         info!(
-            task_uuid = claimed_task.task_uuid.to_string(),
-            namespace = %claimed_task.namespace_name,
-            ready_steps_expected = claimed_task.ready_steps_count,
+            task_uuid = task_info.task_uuid.to_string(),
+            namespace = %task_info.namespace_name,
             "Starting step enqueueing for claimed task"
         );
 
         // 1. Discover viable steps using existing SQL-based logic
         let viable_steps = self
             .viable_step_discovery
-            .find_viable_steps(claimed_task.task_uuid)
+            .find_viable_steps(task_info.task_uuid)
             .await
             .map_err(|e| {
                 error!(
-                    task_uuid = claimed_task.task_uuid.to_string(),
+                    task_uuid = task_info.task_uuid.to_string(),
                     error = %e,
                     "Failed to discover viable steps"
                 );
@@ -165,25 +164,26 @@ impl StepEnqueuer {
 
         let steps_discovered = viable_steps.len();
         debug!(
-            task_uuid = claimed_task.task_uuid.to_string(),
+            task_uuid = task_info.task_uuid.to_string(),
             steps_discovered = steps_discovered,
             "Discovered viable steps for enqueueing"
         );
 
         if steps_discovered == 0 {
             warn!(
-                task_uuid = claimed_task.task_uuid.to_string(),
+                task_uuid = task_info.task_uuid.to_string(),
                 "No viable steps found for claimed task - task may have been processed already"
             );
 
             return Ok(StepEnqueueResult {
-                task_uuid: claimed_task.task_uuid,
+                task_uuid: task_info.task_uuid,
                 steps_discovered: 0,
                 steps_enqueued: 0,
                 steps_failed: 0,
                 processing_duration_ms: start_time.elapsed().as_millis() as u64,
                 namespace_breakdown: HashMap::new(),
                 warnings: vec!["No viable steps found for enqueueing".to_string()],
+                step_uuids: Vec::new(),
             });
         }
 
@@ -192,18 +192,17 @@ impl StepEnqueuer {
         let mut steps_failed = 0;
         let mut namespace_breakdown: HashMap<String, NamespaceEnqueueStats> = HashMap::new();
         let mut warnings = Vec::new();
+        let mut step_uuids = Vec::new();
 
         for viable_step in viable_steps {
-            match self
-                .enqueue_individual_step(claimed_task, &viable_step)
-                .await
-            {
+            match self.enqueue_individual_step(task_info, &viable_step).await {
                 Ok(queue_name) => {
                     steps_enqueued += 1;
+                    step_uuids.push(viable_step.step_uuid);
 
                     // Update namespace stats
                     let stats = namespace_breakdown
-                        .entry(claimed_task.namespace_name.clone())
+                        .entry(task_info.namespace_name.clone())
                         .or_insert_with(|| NamespaceEnqueueStats {
                             steps_enqueued: 0,
                             steps_failed: 0,
@@ -213,7 +212,7 @@ impl StepEnqueuer {
 
                     if self.config.enable_detailed_logging {
                         debug!(
-                            task_uuid = claimed_task.task_uuid.to_string(),
+                            task_uuid = task_info.task_uuid.to_string(),
                             step_uuid = viable_step.step_uuid.to_string(),
                             step_name = %viable_step.name,
                             queue_name = %queue_name,
@@ -225,9 +224,9 @@ impl StepEnqueuer {
                     steps_failed += 1;
 
                     // Update namespace stats
-                    let queue_name = format!("worker_{}_queue", claimed_task.namespace_name);
+                    let queue_name = format!("worker_{}_queue", task_info.namespace_name);
                     let stats = namespace_breakdown
-                        .entry(claimed_task.namespace_name.clone())
+                        .entry(task_info.namespace_name.clone())
                         .or_insert_with(|| NamespaceEnqueueStats {
                             steps_enqueued: 0,
                             steps_failed: 0,
@@ -242,7 +241,7 @@ impl StepEnqueuer {
                     warnings.push(warning.clone());
 
                     warn!(
-                        task_uuid = claimed_task.task_uuid.to_string(),
+                        task_uuid = task_info.task_uuid.to_string(),
                         step_uuid = viable_step.step_uuid.to_string(),
                         step_name = %viable_step.name,
                         error = %e,
@@ -259,22 +258,22 @@ impl StepEnqueuer {
         if steps_enqueued > 0 {
             if let Err(e) = self
                 .state_manager
-                .mark_task_in_progress(claimed_task.task_uuid)
+                .mark_task_in_progress(task_info.task_uuid)
                 .await
             {
                 error!(
-                    task_uuid = claimed_task.task_uuid.to_string(),
+                    task_uuid = task_info.task_uuid.to_string(),
                     error = %e,
                     "Failed to transition task to in_progress state after enqueueing steps"
                 );
                 // Don't fail the entire operation - steps were successfully enqueued
                 warnings.push(format!(
                     "Warning: Failed to transition task {} to in_progress state: {}",
-                    claimed_task.task_uuid, e
+                    task_info.task_uuid, e
                 ));
             } else {
                 info!(
-                    task_uuid = claimed_task.task_uuid.to_string(),
+                    task_uuid = task_info.task_uuid.to_string(),
                     steps_enqueued = steps_enqueued,
                     "Successfully transitioned task to in_progress state after enqueueing steps"
                 );
@@ -282,17 +281,18 @@ impl StepEnqueuer {
         }
 
         let result = StepEnqueueResult {
-            task_uuid: claimed_task.task_uuid,
+            task_uuid: task_info.task_uuid,
             steps_discovered,
             steps_enqueued,
             steps_failed,
             processing_duration_ms,
             namespace_breakdown,
             warnings,
+            step_uuids,
         };
 
         info!(
-            task_uuid = claimed_task.task_uuid.to_string(),
+            task_uuid = task_info.task_uuid.to_string(),
             steps_discovered = steps_discovered,
             steps_enqueued = steps_enqueued,
             steps_failed = steps_failed,
@@ -306,21 +306,21 @@ impl StepEnqueuer {
     /// Enqueue a single viable step to its namespace queue
     async fn enqueue_individual_step(
         &self,
-        claimed_task: &ClaimedTask,
+        task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<String> {
         info!(
             "🚀 STEP_ENQUEUER: Preparing to enqueue step {} (name: '{}') from task {} (namespace: '{}')",
-            viable_step.step_uuid, viable_step.name, claimed_task.task_uuid, claimed_task.namespace_name
+            viable_step.step_uuid, viable_step.name, task_info.task_uuid, task_info.namespace_name
         );
 
         // Create simple UUID-based message (simplified architecture)
         let simple_message = self
-            .create_simple_step_message(claimed_task, viable_step)
+            .create_simple_step_message(task_info, viable_step)
             .await?;
 
         // Enqueue to namespace-specific queue
-        let queue_name = format!("worker_{}_queue", claimed_task.namespace_name);
+        let queue_name = format!("worker_{}_queue", task_info.namespace_name);
 
         info!(
             "📝 STEP_ENQUEUER: Created simple step message - targeting queue '{}' for step UUID '{}'",
@@ -370,8 +370,8 @@ impl StepEnqueuer {
         info!(
             "🎯 STEP_ENQUEUER: Step enqueueing complete - step_uuid: {}, task_uuid: {}, namespace: '{}', queue: '{}', msg_id: {}",
             viable_step.step_uuid,
-            claimed_task.task_uuid,
-            claimed_task.namespace_name,
+            task_info.task_uuid,
+            task_info.namespace_name,
             queue_name,
             msg_id
         );
@@ -385,11 +385,11 @@ impl StepEnqueuer {
     /// as the API layer, dramatically reducing message size and complexity.
     async fn create_simple_step_message(
         &self,
-        claimed_task: &ClaimedTask,
+        task_info: &ReadyTaskInfo,
         viable_step: &ViableStep,
     ) -> TaskerResult<SimpleStepMessage> {
         // Get task and step UUIDs from the database - minimal message creation
-        let task_uuid = self.get_task_uuid(claimed_task.task_uuid).await?;
+        let task_uuid = self.get_task_uuid(task_info.task_uuid).await?;
         let step_uuid = self.get_step_uuid(viable_step.step_uuid).await?;
 
         // Create minimal SimpleStepMessage - workers will query dependencies as needed
@@ -511,6 +511,7 @@ mod tests {
             processing_duration_ms: 150,
             namespace_breakdown,
             warnings: vec![],
+            step_uuids: vec![],
         };
 
         assert_eq!(result.task_uuid, task_uuid);

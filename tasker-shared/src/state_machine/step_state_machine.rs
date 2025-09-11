@@ -11,6 +11,7 @@ use super::{
 };
 use crate::events::publisher::EventPublisher;
 use crate::models::WorkflowStep;
+use crate::system_context::SystemContext;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -25,20 +26,15 @@ pub struct StepStateMachine {
 
 impl StepStateMachine {
     /// Create a new step state machine instance
-    pub fn new(
-        step: WorkflowStep,
-        pool: PgPool,
-        event_publisher: Option<Arc<EventPublisher>>,
-    ) -> Self {
-        let event_publisher = match event_publisher {
-            Some(publisher) => publisher,
-            None => Arc::new(EventPublisher::new()),
-        };
+    pub fn new(step: WorkflowStep, system_context: Arc<SystemContext>) -> Self {
+        let pool = system_context.database_pool().clone();
+        let event_publisher = system_context.event_publisher.clone();
+        let persistence = StepTransitionPersistence;
         Self {
             step,
             pool,
             event_publisher,
-            persistence: StepTransitionPersistence,
+            persistence,
         }
     }
 

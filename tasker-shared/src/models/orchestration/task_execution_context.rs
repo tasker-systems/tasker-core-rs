@@ -1,4 +1,4 @@
-//! # Task Execution Context - Real-Time Task Status
+//! # Task Execution Context - Real-Time Task Status (UNIFIED VERSION)
 //!
 //! **CRITICAL**: This is NOT a database table - it's a computed view via SQL functions.
 //!
@@ -8,106 +8,32 @@
 //! for workflow tasks. Unlike other models, this data is **never stored** - it's calculated
 //! on-demand using sophisticated SQL functions that analyze step states and dependencies.
 //!
-//! ## Human-Readable Explanation
+//! ## Unified Structure (TAS-41)
 //!
-//! Think of this as a "task dashboard" that gives you a real-time snapshot of what's happening
-//! with any workflow task. It answers critical questions for monitoring and orchestration:
+//! This version unifies the 3 different TaskExecutionContext definitions that existed across:
+//! - task_finalizer.rs (canonical enums)
+//! - sql_functions.rs (FromRow, ToSchema)
+//! - task_execution_context.rs (this file)
 //!
-//! - **"How is my task doing?"** (Overall execution status and health)
-//! - **"How much progress has been made?"** (Completion percentage and step counts)
-//! - **"What can I do next?"** (Recommended actions based on current state)
-//! - **"Are there any problems?"** (Failed steps and error conditions)
-//! - **"What's ready to run?"** (Steps that can be executed immediately)
-//!
-//! ### Real-World Example
-//!
-//! For a data processing workflow with 10 steps:
-//! ```text
-//! Task: "Daily Sales Report Generation"
-//! Status: "in_progress"
-//! Progress: 7/10 steps complete (70%)
-//! Ready: 2 steps ready to run
-//! Failed: 1 step failed
-//! Health: "degraded" (due to failure)
-//! Action: "retry_failed_steps"
-//! ```
-//!
-//! This tells you immediately that the task is mostly done but has issues that need attention.
-//!
-//! ## SQL Function Integration
-//!
-//! This module integrates with two key PostgreSQL functions:
-//!
-//! ### 1. `get_task_execution_context(input_task_uuid bigint)`
-//! - Computes execution context for a single task
-//! - Returns comprehensive statistics and status analysis
-//! - Uses CTEs and step readiness functions for efficient calculation
-//!
-//! ### 2. `get_task_execution_contexts_batch(input_task_uuids bigint[])`
-//! - Batch computation for multiple tasks simultaneously
-//! - Optimized for dashboard and bulk operations
-//! - Reduces database round trips for large-scale analysis
-//!
-//! ## Function Return Schema
-//!
-//! Both functions return identical table structure:
-//! ```sql
-//! RETURNS TABLE(
-//!   task_uuid bigint,
-//!   named_task_uuid integer,
-//!   status text,
-//!   total_steps bigint,
-//!   pending_steps bigint,
-//!   in_progress_steps bigint,
-//!   completed_steps bigint,
-//!   failed_steps bigint,
-//!   ready_steps bigint,
-//!   execution_status text,
-//!   recommended_action text,
-//!   completion_percentage numeric,
-//!   health_status text,
-//!   enqueued_steps bigint
-//! )
-//! ```
-//!
-//! ## Performance Characteristics
-//!
-//! - **No Storage Overhead**: No tables to maintain or indexes to update
-//! - **Always Current**: Real-time calculation ensures data is never stale
-//! - **Efficient Computation**: Leverages existing indexes on steps and transitions
-//! - **Batch Optimization**: Single query can analyze hundreds of tasks
-//!
-//! ## Rails Heritage
-//!
-//! Migrated from `app/models/tasker/task_execution_context.rb` (967B)
-//! The Rails model was a thin wrapper around the same SQL functions.
+//! Now uses proper `ExecutionStatus` and `RecommendedAction` enums instead of raw strings.
 
+use crate::models::orchestration::execution_status::{ExecutionStatus, RecommendedAction};
 use serde::{Deserialize, Serialize};
 use sqlx::types::{BigDecimal, Uuid};
 use sqlx::{FromRow, PgPool};
 
+#[cfg(feature = "web-api")]
+use utoipa::ToSchema;
+
 /// Represents computed task execution context and statistics.
+///
+/// **UNIFIED VERSION**: Uses proper ExecutionStatus and RecommendedAction enums
+/// instead of raw strings for type safety.
 ///
 /// **IMPORTANT**: This is NOT a database table - it's the result of calling
 /// `get_task_execution_context()` or `get_task_execution_contexts_batch()` SQL functions.
-///
-/// # Computed Fields
-///
-/// All fields are calculated dynamically by analyzing:
-/// - Current task state from `tasker_task_transitions`
-/// - Step states from `tasker_workflow_step_transitions`
-/// - Step dependencies from `tasker_workflow_step_edges`
-/// - Step readiness from `get_step_readiness_status()` function
-///
-/// # No CRUD Operations
-///
-/// Unlike other models, this struct does NOT support:
-/// - `create()` - Cannot insert computed data
-/// - `update()` - Cannot modify computed data
-/// - `delete()` - Cannot delete computed data
-///
-/// Only read operations are available via the SQL functions.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskExecutionContext {
     pub task_uuid: Uuid,
     pub named_task_uuid: Uuid,
@@ -118,8 +44,10 @@ pub struct TaskExecutionContext {
     pub completed_steps: i64,
     pub failed_steps: i64,
     pub ready_steps: i64,
-    pub execution_status: String,
-    pub recommended_action: Option<String>,
+    /// Proper typed execution status (was raw string)
+    pub execution_status: ExecutionStatus,
+    /// Proper typed recommended action (was raw string)
+    pub recommended_action: Option<RecommendedAction>,
     pub completion_percentage: BigDecimal,
     pub health_status: String,
     pub enqueued_steps: i64,
@@ -130,58 +58,12 @@ impl TaskExecutionContext {
     ///
     /// This method calls the `get_task_execution_context(input_task_uuid)` PostgreSQL function
     /// to compute real-time execution statistics and status for the specified task.
-    ///
-    /// # SQL Function Details
-    ///
-    /// The underlying function performs sophisticated analysis:
-    ///
-    /// ```sql
-    /// SELECT * FROM get_task_execution_context($1)
-    /// ```
-    ///
-    /// **Function Implementation Overview:**
-    /// 1. **Step Data Collection**: Uses `get_step_readiness_status()` for comprehensive step analysis
-    /// 2. **Task State Resolution**: Joins with `tasker_task_transitions` for current status
-    /// 3. **Statistical Aggregation**: Counts steps by state using conditional aggregation
-    /// 4. **Health Analysis**: Computes execution status and recommended actions
-    /// 5. **Progress Calculation**: Determines completion percentage and health metrics
-    ///
-    /// # Performance Characteristics
-    ///
-    /// - **Complexity**: O(S + E) where S = steps, E = edges (dependencies)
-    /// - **Typical Performance**: <20ms for tasks with 100 steps
-    /// - **Index Dependencies**: Leverages existing indexes on step/task tables
-    /// - **Memory Usage**: Minimal - single result row returned
-    ///
-    /// # Example Usage
-    ///
-    /// ```rust,no_run
-    /// use tasker_shared::models::orchestration::task_execution_context::TaskExecutionContext;
-    /// use sqlx::PgPool;
-    /// use uuid::Uuid;
-    ///
-    /// # async fn example(pool: PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
-    /// if let Some(context) = TaskExecutionContext::get_for_task(&pool, task_uuid).await? {
-    ///     println!("Task {} status: {}", context.task_uuid, context.execution_status);
-    ///     println!("Progress: {}/{} steps complete",
-    ///              context.completed_steps, context.total_steps);
-    ///
-    ///     if context.ready_steps > 0 {
-    ///         println!("{} steps ready for execution", context.ready_steps);
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
-    /// Get execution context for a specific task
     pub async fn get_for_task(
         pool: &PgPool,
         task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, sqlx::Error> {
         let context = sqlx::query_as!(
-            TaskExecutionContext,
+            RawTaskExecutionContext,
             r#"
             SELECT
                 task_uuid as "task_uuid!: Uuid",
@@ -205,64 +87,19 @@ impl TaskExecutionContext {
         .fetch_optional(pool)
         .await?;
 
-        Ok(context)
+        Ok(context.map(|raw| raw.into_typed()))
     }
 
     /// Get execution contexts for multiple tasks using batch SQL function.
     ///
     /// This method calls the `get_task_execution_contexts_batch(input_task_uuids)` PostgreSQL
     /// function to efficiently compute execution statistics for multiple tasks simultaneously.
-    ///
-    /// # SQL Function Details
-    ///
-    /// ```sql
-    /// SELECT * FROM get_task_execution_contexts_batch($1)
-    /// ```
-    ///
-    /// **Batch Processing Advantages:**
-    /// - Single database round trip for multiple tasks
-    /// - Shared CTEs reduce redundant calculations
-    /// - Optimized JOIN operations across all tasks
-    /// - Better PostgreSQL query plan caching
-    ///
-    /// # Performance Benefits
-    ///
-    /// **vs. Multiple Single Calls:**
-    /// - **Network Overhead**: 1 round trip vs N round trips
-    /// - **Query Planning**: Single plan vs N plans
-    /// - **Connection Usage**: 1 connection vs N connections
-    /// - **Typical Speedup**: 5-10x for batches of 50+ tasks
-    ///
-    /// # Example Usage
-    ///
-    /// ```rust,no_run
-    /// use tasker_shared::models::orchestration::task_execution_context::TaskExecutionContext;
-    /// use sqlx::PgPool;
-    /// use uuid::Uuid;
-    ///
-    /// # async fn example(pool: PgPool) -> Result<(), sqlx::Error> {
-    /// let task_uuids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
-    /// let contexts = TaskExecutionContext::get_for_tasks(&pool, &task_uuids).await?;
-    ///
-    /// for context in contexts {
-    ///     println!("Task {}: {} steps complete",
-    ///              context.task_uuid, context.completed_steps);
-    ///
-    ///     if context.ready_steps > 0 {
-    ///         println!("  → {} steps ready for execution", context.ready_steps);
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// For complete examples with test data setup, see `tests/models/orchestration/task_execution_context.rs`.
     pub async fn get_for_tasks(
         pool: &PgPool,
         task_uuids: &[Uuid],
     ) -> Result<Vec<TaskExecutionContext>, sqlx::Error> {
         let contexts = sqlx::query_as!(
-            TaskExecutionContext,
+            RawTaskExecutionContext,
             r#"
             SELECT
                 task_uuid as "task_uuid!: Uuid",
@@ -286,7 +123,7 @@ impl TaskExecutionContext {
         .fetch_all(pool)
         .await?;
 
-        Ok(contexts)
+        Ok(contexts.into_iter().map(|raw| raw.into_typed()).collect())
     }
 
     /// Check if the task has any steps ready for execution.
@@ -335,6 +172,47 @@ impl TaskExecutionContext {
             "Ready".to_string()
         } else {
             "Waiting".to_string()
+        }
+    }
+}
+
+/// Raw TaskExecutionContext from SQL (with string types) - internal use only
+#[derive(Debug, FromRow)]
+struct RawTaskExecutionContext {
+    pub task_uuid: Uuid,
+    pub named_task_uuid: Uuid,
+    pub status: String,
+    pub total_steps: i64,
+    pub pending_steps: i64,
+    pub in_progress_steps: i64,
+    pub completed_steps: i64,
+    pub failed_steps: i64,
+    pub ready_steps: i64,
+    pub execution_status: String,
+    pub recommended_action: Option<String>,
+    pub completion_percentage: BigDecimal,
+    pub health_status: String,
+    pub enqueued_steps: i64,
+}
+
+impl RawTaskExecutionContext {
+    /// Convert raw SQL result to properly typed TaskExecutionContext
+    fn into_typed(self) -> TaskExecutionContext {
+        TaskExecutionContext {
+            task_uuid: self.task_uuid,
+            named_task_uuid: self.named_task_uuid,
+            status: self.status,
+            total_steps: self.total_steps,
+            pending_steps: self.pending_steps,
+            in_progress_steps: self.in_progress_steps,
+            completed_steps: self.completed_steps,
+            failed_steps: self.failed_steps,
+            ready_steps: self.ready_steps,
+            execution_status: ExecutionStatus::from(self.execution_status),
+            recommended_action: self.recommended_action.map(RecommendedAction::from),
+            completion_percentage: self.completion_percentage,
+            health_status: self.health_status,
+            enqueued_steps: self.enqueued_steps,
         }
     }
 }

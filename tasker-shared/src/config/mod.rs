@@ -58,8 +58,8 @@ pub use event_systems::{
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
 pub use orchestration::{
-    event_systems::OrchestrationEventSystemConfig, task_claimer::TaskClaimerConfig, ExecutorConfig,
-    ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
+    event_systems::OrchestrationEventSystemConfig, ExecutorConfig, ExecutorType,
+    OrchestrationConfig, OrchestrationSystemConfig,
 };
 pub use queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,

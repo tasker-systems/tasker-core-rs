@@ -1,6 +1,7 @@
 use crate::config::manager::ConfigManager;
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Configuration for step enqueueing behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +29,7 @@ impl Default for StepEnqueuerConfig {
 
 impl StepEnqueuerConfig {
     /// Create StepEnqueuerConfig from ConfigManager
-    pub fn from_config_manager(config_manager: &ConfigManager) -> Self {
+    pub fn from_config_manager(config_manager: Arc<ConfigManager>) -> Self {
         let config = config_manager.config();
 
         Self {

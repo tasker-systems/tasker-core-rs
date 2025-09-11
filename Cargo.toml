@@ -29,6 +29,9 @@ path = "src/lib.rs"
 name = "tasker_core"
 crate-type = ["rlib"]
 
+[[bin]]
+name = "config-validator"
+path = "src/bin/config-validator.rs"
 
 [dependencies]
 tasker-worker = { path = "tasker-worker" }
@@ -43,6 +46,8 @@ chrono = { workspace = true }
 dotenvy = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+clap = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 
 [features]

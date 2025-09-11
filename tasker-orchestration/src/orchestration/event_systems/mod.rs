@@ -31,7 +31,7 @@ pub mod unified_event_coordinator;
 pub use orchestration_event_system::{
     OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationStatistics,
 };
-pub use task_readiness_event_system::{TaskReadinessEventSystem, TaskReadinessStatistics};
+pub use task_readiness_event_system::TaskReadinessEventSystem;
 pub use unified_event_coordinator::{
     UnifiedCoordinatorConfig, UnifiedEventCoordinator, UnifiedHealthReport,
 };

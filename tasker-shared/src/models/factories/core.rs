@@ -155,8 +155,7 @@ impl SqlxFactory<Task> for TaskFactory {
             tags: Some(tags),
             context: Some(context),
             identity_hash,
-            priority: Some(2),                // Default to normal priority
-            claim_timeout_seconds: Some(300), // Default to 5 minutes
+            priority: Some(2), // Default to normal priority
         };
 
         let task = Task::create(pool, new_task).await?;
@@ -185,6 +184,7 @@ impl StateFactory<Task> for TaskFactory {
                 task_uuid: task.task_uuid,
                 to_state: state.clone(),
                 from_state: None,
+                processor_uuid: None, // TAS-41: No processor for factory-created transitions
                 metadata: Some(json!({
                     "factory_created": true,
                     "initial_state": true

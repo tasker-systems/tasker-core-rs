@@ -44,8 +44,8 @@ pub use super::event_systems::{
     WorkerEventSystemConfig as UnifiedWorkerEventSystemConfig,
 };
 pub use super::orchestration::{
-    event_systems::OrchestrationEventSystemConfig, task_claimer::TaskClaimerConfig, ExecutorConfig,
-    ExecutorType, OrchestrationConfig, OrchestrationSystemConfig,
+    event_systems::OrchestrationEventSystemConfig, ExecutorConfig, ExecutorType,
+    OrchestrationConfig, OrchestrationSystemConfig,
 };
 pub use super::queues::{
     OrchestrationQueuesConfig, PgmqBackendConfig, QueuesConfig, RabbitMqBackendConfig,
@@ -102,9 +102,7 @@ pub struct TaskerConfig {
     /// Task readiness event-driven system configuration (TAS-43)
     pub task_readiness: TaskReadinessConfig,
 
-    /// Task claimer configuration (TAS-43)
-    pub task_claimer: TaskClaimerConfig,
-
+    // REMOVED: task_claimer for TAS-41 state machine approach
     /// Unified event systems configuration
     pub event_systems: EventSystemsConfig,
 
@@ -344,17 +342,26 @@ impl Default for BackoffConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReenqueueDelays {
-    pub has_ready_steps: u64,
+    // TAS-41: New state machine states
+    pub initializing: u64,
+    pub enqueuing_steps: u64,
+    pub steps_in_process: u64,
+    pub evaluating_results: u64,
     pub waiting_for_dependencies: u64,
-    pub processing: u64,
+    pub waiting_for_retry: u64,
+    pub blocked_by_failures: u64,
 }
 
 impl Default for ReenqueueDelays {
     fn default() -> Self {
         Self {
-            has_ready_steps: 10,
-            waiting_for_dependencies: 10,
-            processing: 10,
+            initializing: 5,
+            enqueuing_steps: 0,
+            steps_in_process: 10,
+            evaluating_results: 5,
+            waiting_for_dependencies: 45,
+            waiting_for_retry: 30,
+            blocked_by_failures: 60,
         }
     }
 }
@@ -456,9 +463,13 @@ impl Default for TaskerConfig {
                 jitter_enabled: true,
                 jitter_max_percentage: 0.1,
                 reenqueue_delays: ReenqueueDelays {
-                    has_ready_steps: 0,
+                    initializing: 5,
+                    enqueuing_steps: 10,
+                    steps_in_process: 30,
+                    evaluating_results: 15,
                     waiting_for_dependencies: 45,
-                    processing: 10,
+                    waiting_for_retry: 60,
+                    blocked_by_failures: 120,
                 },
                 default_reenqueue_delay: 30,
                 buffer_seconds: 5,
@@ -480,10 +491,10 @@ impl Default for TaskerConfig {
             orchestration: OrchestrationConfig {
                 mode: "distributed".to_string(),
                 enable_performance_logging: false,
+                use_unified_state_machine: true,
                 // Event systems configuration now comes from unified TaskerConfig.event_systems
                 // Queue configuration now comes from centralized QueuesConfig
-                enable_heartbeat: true,
-                heartbeat_interval_ms: 5000,
+                // Heartbeat configuration moved to task_claim_step_enqueuer for TAS-41
                 operational_state: OperationalStateConfig::default(), // TAS-37 Supplemental: Add missing field
                 web: WebConfig::default(),
             },
@@ -522,8 +533,8 @@ impl Default for TaskerConfig {
                 },
             },
             task_readiness: TaskReadinessConfig::default(), // TAS-43 Task Readiness System
-            task_claimer: TaskClaimerConfig::default(),     // TAS-44 Task Claimer System
-            event_systems: EventSystemsConfig::default(),   // Unified Event Systems Configuration
+            // REMOVED: task_claimer for TAS-41 state machine approach
+            event_systems: EventSystemsConfig::default(), // Unified Event Systems Configuration
             worker: None, // Optional, only populated when TOML contains worker configuration
         }
     }

@@ -6,6 +6,7 @@
 // TAS-40: Simplified operational state for web API compatibility with command pattern
 
 use crate::orchestration::core::{OrchestrationCore, OrchestrationCoreStatus};
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_initializer::TaskInitializer;
 use crate::web::circuit_breaker::WebDatabaseCircuitBreaker;
 use parking_lot::RwLock;
@@ -142,13 +143,7 @@ impl AppState {
             last_health_check: std::time::Instant::now(),
         }));
 
-        // Create TaskClaimStepEnqueuer for immediate step enqueuing (TAS-41)
-        let orchestrator_id = format!("web_api_{}", uuid::Uuid::new_v4());
-        let task_claim_step_enqueuer =
-            crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer::new(
-                orchestration_core.context.clone(),
-                orchestrator_id,
-            )
+        let task_claim_step_enqueuer = StepEnqueuerService::new(orchestration_core.context.clone())
             .await
             .map_err(|e| {
                 ApiError::database_error(format!("Failed to create TaskClaimStepEnqueuer: {e}"))
@@ -156,7 +151,7 @@ impl AppState {
         let task_claim_step_enqueuer = Arc::new(task_claim_step_enqueuer);
 
         // Create TaskInitializer with step enqueuer for immediate step enqueuing (TAS-41)
-        let task_initializer = Arc::new(TaskInitializer::with_step_enqueuer(
+        let task_initializer = Arc::new(TaskInitializer::new(
             orchestration_core.context.clone(),
             task_claim_step_enqueuer,
         ));

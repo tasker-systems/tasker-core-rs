@@ -28,9 +28,9 @@ async fn test_load_system_configuration_from_file() {
     assert_eq!(config.execution.max_concurrent_steps, 50);
 
     // Verify reenqueue delays
-    assert_eq!(config.backoff.reenqueue_delays.has_ready_steps, 0);
-    assert_eq!(config.backoff.reenqueue_delays.waiting_for_dependencies, 1);
-    assert_eq!(config.backoff.reenqueue_delays.processing, 0);
+    assert_eq!(config.backoff.reenqueue_delays.initializing, 0);
+    assert_eq!(config.backoff.reenqueue_delays.steps_in_process, 0);
+    assert_eq!(config.backoff.reenqueue_delays.evaluating_results, 0);
 
     println!("✅ System configuration loaded successfully!");
 }

@@ -5,12 +5,12 @@ use super::{
     },
     errors::{StateMachineError, StateMachineResult},
     events::TaskEvent,
-    guards::{AllStepsCompleteGuard, StateGuard, TaskCanBeResetGuard, TaskNotInProgressGuard},
     persistence::{TaskTransitionPersistence, TransitionPersistence},
     states::TaskState,
 };
 use crate::events::publisher::EventPublisher;
 use crate::models::Task;
+use crate::system_context::SystemContext;
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -18,32 +18,85 @@ use uuid::Uuid;
 /// Thread-safe task state machine for lifecycle management
 #[derive(Clone)]
 pub struct TaskStateMachine {
+    task_uuid: Uuid,
     task: Task,
+    current_state: TaskState,
     pool: PgPool,
     event_publisher: Arc<EventPublisher>,
     persistence: TaskTransitionPersistence,
+    processor_uuid: Uuid,
 }
 
 impl TaskStateMachine {
     /// Create a new task state machine instance
-    pub fn new(task: Task, pool: PgPool, event_publisher: Option<Arc<EventPublisher>>) -> Self {
-        let event_publisher = match event_publisher {
-            Some(publisher) => publisher,
-            None => Arc::new(EventPublisher::new()),
-        };
+    pub fn new(task: Task, system_context: Arc<SystemContext>) -> Self {
+        let event_publisher = system_context.event_publisher.clone();
+        let persistence = TaskTransitionPersistence;
+        let processor_uuid = system_context.processor_uuid();
+        let pool = system_context.database_pool().clone();
+
         Self {
+            task_uuid: task.task_uuid,
             task,
+            current_state: TaskState::Pending, // Will be resolved on first use
             pool,
             event_publisher,
-            persistence: TaskTransitionPersistence,
+            persistence,
+            processor_uuid,
         }
     }
 
-    /// Get the current state of the task
+    /// Create state machine for existing task (TAS-41 approach)
+    pub async fn for_task(
+        task_uuid: Uuid,
+        pool: PgPool,
+        processor_uuid: Uuid,
+    ) -> StateMachineResult<Self> {
+        let persistence = TaskTransitionPersistence;
+
+        let current_state = persistence
+            .resolve_current_state(task_uuid, &pool)
+            .await?
+            .map(|s| s.parse().unwrap_or(TaskState::Pending))
+            .unwrap_or(TaskState::Pending);
+
+        // For now, create a minimal task with just the UUID
+        // This can be enhanced later when Task::find_by_uuid is available
+        let task = Task {
+            task_uuid,
+            named_task_uuid: Uuid::nil(), // Placeholder
+            complete: false,
+            requested_at: chrono::Utc::now().naive_utc(),
+            initiator: None,
+            source_system: None,
+            reason: None,
+            bypass_steps: None,
+            tags: None,
+            context: None,
+            identity_hash: "placeholder".to_string(),
+            priority: 0,
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
+        };
+
+        let event_publisher = Arc::new(EventPublisher::new());
+
+        Ok(Self {
+            task_uuid,
+            task,
+            current_state,
+            pool,
+            event_publisher,
+            persistence,
+            processor_uuid,
+        })
+    }
+
+    /// Get the current state from database (for validation)
     pub async fn current_state(&self) -> StateMachineResult<TaskState> {
         match self
             .persistence
-            .resolve_current_state(self.task.task_uuid, &self.pool)
+            .resolve_current_state(self.task_uuid, &self.pool)
             .await?
         {
             Some(state_str) => state_str.parse().map_err(|_| {
@@ -54,32 +107,59 @@ impl TaskStateMachine {
     }
 
     /// Attempt to transition the task state
-    pub async fn transition(&mut self, event: TaskEvent) -> StateMachineResult<TaskState> {
-        let current_state = self.current_state().await?;
+    pub async fn transition(&mut self, event: TaskEvent) -> StateMachineResult<bool> {
+        let current_state = self.current_state;
         let target_state = self.determine_target_state_internal(current_state, &event)?;
 
-        // Check guards
-        self.check_guards(current_state, target_state, &event)
-            .await?;
+        // Use the new TransitionGuard for validation (TAS-41 approach)
+        use super::guards::TransitionGuard;
+        TransitionGuard::can_transition(current_state, target_state, &event, &self.task).map_err(
+            |e| StateMachineError::GuardFailed {
+                reason: e.to_string(),
+            },
+        )?;
 
-        // Persist the transition
-        let event_str = serde_json::to_string(&event)?;
-        self.persistence
-            .persist_transition(
-                &self.task,
-                Some(current_state.to_string()),
-                target_state.to_string(),
-                &event_str,
-                None,
+        // Check ownership if required (TAS-41 processor ownership)
+        if target_state.requires_ownership() {
+            // Get current task processor from transitions
+            let current_processor = self.get_current_processor().await?;
+            TransitionGuard::check_ownership(target_state, current_processor, self.processor_uuid)
+                .map_err(|e| StateMachineError::GuardFailed {
+                    reason: e.to_string(),
+                })?;
+        }
+
+        // Persist the transition atomically with ownership (TAS-41 atomic approach)
+        let metadata = Some(serde_json::json!({
+            "event": format!("{:?}", event),
+        }));
+
+        let success = self
+            .persistence
+            .transition_with_ownership(
+                self.task_uuid,
+                current_state,
+                target_state,
+                self.processor_uuid,
+                metadata,
                 &self.pool,
             )
-            .await?;
+            .await
+            .map_err(|e| StateMachineError::PersistenceFailed {
+                reason: e.to_string(),
+            })?;
 
-        // Execute actions
-        self.execute_actions(current_state, target_state, &event_str)
-            .await?;
+        if success {
+            // Execute actions only if transition succeeded and update cached state
+            let event_str = format!("{:?}", event);
+            self.execute_actions(current_state, target_state, &event_str)
+                .await?;
 
-        Ok(target_state)
+            // Update cached state after successful transition
+            self.current_state = target_state;
+        }
+
+        Ok(success)
     }
 
     /// Determine the target state based on current state and event (for testing)
@@ -93,32 +173,55 @@ impl TaskStateMachine {
     }
 
     /// Determine the target state based on current state and event (internal implementation)
+    /// Enhanced with comprehensive TAS-41 12-state transitions (lines 1042-1087)
     fn determine_target_state_internal(
         &self,
         current_state: TaskState,
         event: &TaskEvent,
     ) -> StateMachineResult<TaskState> {
+        use TaskEvent::*;
+        use TaskState::*;
+
         let target = match (current_state, event) {
-            // Start transitions
-            (TaskState::Pending, TaskEvent::Start) => TaskState::InProgress,
-            (TaskState::Error, TaskEvent::Reset) => TaskState::Pending,
+            // From Pending (TAS-41 comprehensive transitions)
+            (Pending, Start) => Initializing,
 
-            // Complete transitions
-            (TaskState::InProgress, TaskEvent::Complete) => TaskState::Complete,
+            // From Initializing
+            (Initializing, ReadyStepsFound(_)) => EnqueuingSteps,
+            (Initializing, NoStepsFound) => TaskState::Complete,
+            (Initializing, NoDependenciesReady) => WaitingForDependencies,
 
-            // Failure transitions
-            (TaskState::InProgress, TaskEvent::Fail(_)) => TaskState::Error,
-            (TaskState::Pending, TaskEvent::Fail(_)) => TaskState::Error,
+            // From EnqueuingSteps
+            (EnqueuingSteps, StepsEnqueued(_)) => StepsInProcess,
+            (EnqueuingSteps, EnqueueFailed(_)) => Error,
 
-            // Cancel transitions
-            (TaskState::Pending, TaskEvent::Cancel) => TaskState::Cancelled,
-            (TaskState::InProgress, TaskEvent::Cancel) => TaskState::Cancelled,
-            (TaskState::Error, TaskEvent::Cancel) => TaskState::Cancelled,
+            // From StepsInProcess
+            (StepsInProcess, AllStepsCompleted) => EvaluatingResults,
+            (StepsInProcess, StepCompleted(_)) => EvaluatingResults,
+            (StepsInProcess, StepFailed(_)) => WaitingForRetry,
 
-            // Manual resolution
-            (_, TaskEvent::ResolveManually) => TaskState::ResolvedManually,
+            // From EvaluatingResults
+            (EvaluatingResults, AllStepsSuccessful) => TaskState::Complete,
+            (EvaluatingResults, ReadyStepsFound(_)) => EnqueuingSteps,
+            (EvaluatingResults, NoDependenciesReady) => WaitingForDependencies,
+            (EvaluatingResults, PermanentFailure(_)) => BlockedByFailures,
 
-            // Invalid transitions
+            // From waiting states
+            (WaitingForDependencies, DependenciesReady) => EvaluatingResults,
+            (WaitingForRetry, RetryReady) => EnqueuingSteps,
+            (BlockedByFailures, GiveUp) => Error,
+            (BlockedByFailures, ManualResolution) => ResolvedManually,
+
+            // Cancellation from any non-terminal state
+            (state, Cancel) if !state.is_terminal() => Cancelled,
+
+            // Legacy transitions for backward compatibility
+            (StepsInProcess, TaskEvent::Complete) => TaskState::Complete,
+            (StepsInProcess, Fail(_)) => Error,
+            (Error, Reset) => Pending,
+            (_, ResolveManually) => ResolvedManually,
+
+            // Invalid combinations
             (from_state, _) => {
                 return Err(StateMachineError::InvalidTransition {
                     from: Some(from_state.to_string()),
@@ -128,39 +231,6 @@ impl TaskStateMachine {
         };
 
         Ok(target)
-    }
-
-    /// Check guard conditions for the transition
-    async fn check_guards(
-        &self,
-        current_state: TaskState,
-        target_state: TaskState,
-        event: &TaskEvent,
-    ) -> StateMachineResult<()> {
-        match (current_state, target_state, event) {
-            // Check all steps complete before task completion
-            (TaskState::InProgress, TaskState::Complete, TaskEvent::Complete) => {
-                let guard = AllStepsCompleteGuard;
-                guard.check(&self.task, &self.pool).await?;
-            }
-
-            // Check task not already in progress when starting
-            (TaskState::Pending, TaskState::InProgress, TaskEvent::Start) => {
-                let guard = TaskNotInProgressGuard;
-                guard.check(&self.task, &self.pool).await?;
-            }
-
-            // Check task can be reset (must be in error)
-            (TaskState::Error, TaskState::Pending, TaskEvent::Reset) => {
-                let guard = TaskCanBeResetGuard;
-                guard.check(&self.task, &self.pool).await?;
-            }
-
-            // No special guards for other transitions
-            _ => {}
-        }
-
-        Ok(())
     }
 
     /// Execute actions after successful transition
@@ -194,15 +264,15 @@ impl TaskStateMachine {
     }
 
     /// Check if the task is in a terminal state
-    pub async fn is_terminal(&self) -> StateMachineResult<bool> {
-        let current_state = self.current_state().await?;
-        Ok(current_state.is_terminal())
+    pub async fn is_terminal(&self) -> Result<bool, StateMachineError> {
+        let state = self.current_state().await?;
+        Ok(state.is_terminal())
     }
 
     /// Check if the task is currently active (being processed)
-    pub async fn is_active(&self) -> StateMachineResult<bool> {
-        let current_state = self.current_state().await?;
-        Ok(current_state.is_active())
+    pub async fn is_active(&self) -> Result<bool, StateMachineError> {
+        let state = self.current_state().await?;
+        Ok(state.is_active())
     }
 
     /// Get task information
@@ -213,5 +283,24 @@ impl TaskStateMachine {
     /// Get task UUID
     pub fn task_uuid(&self) -> Uuid {
         self.task.task_uuid
+    }
+
+    /// Get current processor UUID from the latest transition
+    async fn get_current_processor(&self) -> StateMachineResult<Option<Uuid>> {
+        // Query the processor_uuid from the latest transition (TAS-41: dedicated column)
+        let result = sqlx::query!(
+            "SELECT processor_uuid FROM tasker_task_transitions
+             WHERE task_uuid = $1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            self.task_uuid
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            StateMachineError::Internal(format!("Failed to query current processor: {e}"))
+        })?;
+
+        Ok(result.and_then(|row| row.processor_uuid))
     }
 }

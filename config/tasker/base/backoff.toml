@@ -8,6 +8,11 @@ default_reenqueue_delay = 30
 buffer_seconds = 5
 
 [backoff.reenqueue_delays]
-has_ready_steps = 0
+# TAS-41: New state machine states
+initializing = 5
+enqueuing_steps = 0
+steps_in_process = 10
+evaluating_results = 5
 waiting_for_dependencies = 45
-processing = 10
+waiting_for_retry = 30
+blocked_by_failures = 60

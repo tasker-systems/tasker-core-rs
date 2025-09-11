@@ -41,125 +41,19 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::PgPool;
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use std::sync::Arc;
 
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-
 use tasker_shared::events::types::{Event, OrchestrationEvent, TaskResult};
+use tasker_shared::models::orchestration::{ExecutionStatus, TaskExecutionContext};
 use tasker_shared::models::{Task, WorkflowStep};
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerError;
-
-/// Execution status returned by the SQL get_task_execution_context function
-/// Matches the execution_status values from the SQL function
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ExecutionStatus {
-    /// Task has ready steps that can be executed
-    HasReadySteps,
-    /// Task has steps currently being processed
-    Processing,
-    /// Task is blocked by failures that cannot be retried
-    BlockedByFailures,
-    /// All steps are complete
-    AllComplete,
-    /// Task is waiting for dependencies to complete
-    WaitingForDependencies,
-}
-
-impl ExecutionStatus {
-    /// Parse execution status from SQL string value (kept for backward compatibility)
-    pub fn from_str(value: &str) -> Self {
-        value.into()
-    }
-
-    /// Convert to SQL string value
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::HasReadySteps => "has_ready_steps",
-            Self::Processing => "processing",
-            Self::BlockedByFailures => "blocked_by_failures",
-            Self::AllComplete => "all_complete",
-            Self::WaitingForDependencies => "waiting_for_dependencies",
-        }
-    }
-}
-
-impl From<&str> for ExecutionStatus {
-    fn from(value: &str) -> Self {
-        match value {
-            "has_ready_steps" => Self::HasReadySteps,
-            "processing" => Self::Processing,
-            "blocked_by_failures" => Self::BlockedByFailures,
-            "all_complete" => Self::AllComplete,
-            "waiting_for_dependencies" => Self::WaitingForDependencies,
-            _ => Self::WaitingForDependencies, // Default fallback
-        }
-    }
-}
-
-impl From<String> for ExecutionStatus {
-    fn from(value: String) -> Self {
-        value.as_str().into()
-    }
-}
-
-/// Recommended action returned by the SQL get_task_execution_context function
-/// Matches the recommended_action values from the SQL function
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RecommendedAction {
-    /// Execute the ready steps
-    ExecuteReadySteps,
-    /// Wait for in-progress steps to complete
-    WaitForCompletion,
-    /// Handle permanent failures
-    HandleFailures,
-    /// Finalize the completed task
-    FinalizeTask,
-    /// Wait for dependencies to become ready
-    WaitForDependencies,
-}
-
-impl RecommendedAction {
-    /// Parse recommended action from SQL string value (kept for backward compatibility)
-    pub fn from_str(value: &str) -> Self {
-        value.into()
-    }
-
-    /// Convert to SQL string value
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::ExecuteReadySteps => "execute_ready_steps",
-            Self::WaitForCompletion => "wait_for_completion",
-            Self::HandleFailures => "handle_failures",
-            Self::FinalizeTask => "finalize_task",
-            Self::WaitForDependencies => "wait_for_dependencies",
-        }
-    }
-}
-
-impl From<&str> for RecommendedAction {
-    fn from(value: &str) -> Self {
-        match value {
-            "execute_ready_steps" => Self::ExecuteReadySteps,
-            "wait_for_completion" => Self::WaitForCompletion,
-            "handle_failures" => Self::HandleFailures,
-            "finalize_task" => Self::FinalizeTask,
-            "wait_for_dependencies" => Self::WaitForDependencies,
-            _ => Self::WaitForDependencies, // Default fallback
-        }
-    }
-}
-
-impl From<String> for RecommendedAction {
-    fn from(value: String) -> Self {
-        value.as_str().into()
-    }
-}
 
 /// Result of task finalization operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +66,8 @@ pub struct FinalizationResult {
     pub completion_percentage: Option<f64>,
     /// Total number of steps in task
     pub total_steps: Option<i32>,
+    /// Number of steps enqueued in this pass
+    pub enqueued_steps: Option<i32>,
     /// Health status of the task
     pub health_status: Option<String>,
     /// Reason for the action (if applicable)
@@ -193,21 +89,7 @@ pub enum FinalizationAction {
     NoAction,
 }
 
-/// Context information for task execution status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskExecutionContext {
-    pub task_uuid: Uuid,
-    pub execution_status: ExecutionStatus,
-    pub health_status: Option<String>,
-    pub completion_percentage: Option<f64>,
-    pub total_steps: Option<i32>,
-    pub ready_steps: Option<i32>,
-    pub pending_steps: Option<i32>,
-    pub in_progress_steps: Option<i32>,
-    pub completed_steps: Option<i32>,
-    pub failed_steps: Option<i32>,
-    pub recommended_action: Option<RecommendedAction>,
-}
+// TaskExecutionContext is now imported from tasker_shared::models::orchestration
 
 /// TaskFinalizer handles task completion and finalization logic
 ///
@@ -218,41 +100,38 @@ pub struct TaskExecutionContext {
 pub struct TaskFinalizer {
     context: Arc<SystemContext>,
     sql_executor: SqlFunctionExecutor,
-    task_claim_step_enqueuer: Option<Arc<TaskClaimStepEnqueuer>>,
+    step_enqueuer_service: Arc<StepEnqueuerService>,
 }
 
 impl TaskFinalizer {
     /// Create a new TaskFinalizer without step enqueuer (backward compatible)
-    pub fn new(context: Arc<SystemContext>) -> Self {
-        let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
-
-        Self {
-            context,
-            sql_executor,
-            task_claim_step_enqueuer: None,
-        }
-    }
-
-    /// Create a TaskFinalizer with TaskClaimStepEnqueuer for immediate step enqueuing
-    pub fn with_step_enqueuer(
+    pub fn new(
         context: Arc<SystemContext>,
-        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+        step_enqueuer_service: Arc<StepEnqueuerService>,
     ) -> Self {
         let sql_executor = SqlFunctionExecutor::new(context.database_pool().clone());
 
         Self {
             context,
             sql_executor,
-            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
+            step_enqueuer_service,
         }
     }
 
-    pub fn get_state_machine_for_task(&self, task: &Task) -> TaskStateMachine {
-        TaskStateMachine::new(
-            task.clone(),
+    pub async fn get_state_machine_for_task(
+        &self,
+        task: &Task,
+    ) -> Result<TaskStateMachine, FinalizationError> {
+        TaskStateMachine::for_task(
+            task.task_uuid,
             self.context.database_pool().clone(),
-            Some(self.context.event_publisher.clone()),
+            self.context.processor_uuid(),
         )
+        .await
+        .map_err(|e| FinalizationError::StateMachine {
+            error: format!("Failed to create state machine: {e}"),
+            task_uuid: task.task_uuid,
+        })
     }
 
     /// Check if the task is blocked by errors
@@ -297,7 +176,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = self.get_state_machine_for_task(&task);
+        let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
         // Get current state
         let current_state =
@@ -314,21 +193,89 @@ impl TaskFinalizer {
             return Ok(FinalizationResult {
                 task_uuid,
                 action: FinalizationAction::Completed,
-                completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-                total_steps: context.as_ref().and_then(|c| c.total_steps),
-                health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+                completion_percentage: context
+                    .as_ref()
+                    .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+                total_steps: context.as_ref().map(|c| c.total_steps as i32),
+                health_status: context.as_ref().map(|c| c.health_status.clone()),
+                enqueued_steps: None,
                 reason: None,
             });
         }
 
-        // Transition to complete state using state machine
-        state_machine
-            .transition(TaskEvent::Complete)
-            .await
-            .map_err(|e| FinalizationError::StateMachine {
-                error: format!("Failed to transition to complete: {e}"),
-                task_uuid,
-            })?;
+        // Handle proper state transitions based on current state
+        match current_state {
+            TaskState::EvaluatingResults => {
+                // Transition from EvaluatingResults to Complete
+                state_machine
+                    .transition(TaskEvent::AllStepsSuccessful)
+                    .await
+                    .map_err(|e| FinalizationError::StateMachine {
+                        error: format!(
+                            "Failed to transition from EvaluatingResults to Complete: {e}"
+                        ),
+                        task_uuid,
+                    })?;
+            }
+            TaskState::StepsInProcess => {
+                // Need to go through: StepsInProcess -> EvaluatingResults -> Complete
+                state_machine
+                    .transition(TaskEvent::AllStepsCompleted)
+                    .await
+                    .map_err(|e| FinalizationError::StateMachine {
+                        error: format!(
+                            "Failed to transition from StepsInProcess to EvaluatingResults: {e}"
+                        ),
+                        task_uuid,
+                    })?;
+
+                // Now transition from EvaluatingResults to Complete
+                state_machine
+                    .transition(TaskEvent::AllStepsSuccessful)
+                    .await
+                    .map_err(|e| FinalizationError::StateMachine {
+                        error: format!(
+                            "Failed to transition from EvaluatingResults to Complete: {e}"
+                        ),
+                        task_uuid,
+                    })?;
+            }
+            TaskState::Pending => {
+                // This should not happen anymore with the proper initialization fix
+                error!(
+                    task_uuid = %task_uuid,
+                    current_state = %current_state,
+                    "Task is still in Pending state when trying to complete - this indicates an initialization issue"
+                );
+                return Err(FinalizationError::StateMachine {
+                    error: format!("Task should not be in Pending state when trying to complete. This indicates the task was not properly initialized."),
+                    task_uuid,
+                });
+            }
+            TaskState::Initializing => {
+                // This means task has no steps and can be completed directly
+                state_machine
+                    .transition(TaskEvent::NoStepsFound)
+                    .await
+                    .map_err(|e| FinalizationError::StateMachine {
+                        error: format!("Failed to transition from Initializing to Complete: {e}"),
+                        task_uuid,
+                    })?;
+            }
+            _ => {
+                // For other states, try the legacy Complete event as a fallback
+                state_machine
+                    .transition(TaskEvent::Complete)
+                    .await
+                    .map_err(|e| FinalizationError::StateMachine {
+                        error: format!(
+                            "Failed to transition to complete from {}: {e}",
+                            current_state
+                        ),
+                        task_uuid,
+                    })?;
+            }
+        }
 
         // Update the task complete flag (this might be redundant if the state machine action handles it)
         task.mark_complete(self.context.database_pool()).await?;
@@ -339,9 +286,12 @@ impl TaskFinalizer {
         Ok(FinalizationResult {
             task_uuid,
             action: FinalizationAction::Completed,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            completion_percentage: context
+                .as_ref()
+                .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+            total_steps: context.as_ref().map(|c| c.total_steps as i32),
+            health_status: context.as_ref().map(|c| c.health_status.clone()),
+            enqueued_steps: None,
             reason: None,
         })
     }
@@ -355,7 +305,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = self.get_state_machine_for_task(&task);
+        let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
         // Transition to error state using state machine
         let error_message = "Steps in error state".to_string();
@@ -373,9 +323,12 @@ impl TaskFinalizer {
         Ok(FinalizationResult {
             task_uuid,
             action: FinalizationAction::Failed,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            completion_percentage: context
+                .as_ref()
+                .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+            total_steps: context.as_ref().map(|c| c.total_steps as i32),
+            health_status: context.as_ref().map(|c| c.health_status.clone()),
+            enqueued_steps: None,
             reason: Some("Steps in error state".to_string()),
         })
     }
@@ -390,7 +343,7 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
 
         // Use state machine for proper state transitions
-        let mut state_machine = self.get_state_machine_for_task(&task);
+        let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
         // Get current state to determine appropriate transition
         let current_state =
@@ -429,45 +382,31 @@ impl TaskFinalizer {
         Ok(FinalizationResult {
             task_uuid,
             action: FinalizationAction::Pending,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            completion_percentage: context
+                .as_ref()
+                .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+            total_steps: context.as_ref().map(|c| c.total_steps as i32),
+            health_status: context.as_ref().map(|c| c.health_status.clone()),
+            enqueued_steps: None,
             reason: Some(final_reason),
         })
     }
 
-    /// Reenqueue task with context intelligence
+    /// Get task execution context using unified TaskExecutionContext
     async fn get_task_execution_context(
         &self,
         task_uuid: Uuid,
     ) -> Result<Option<TaskExecutionContext>, FinalizationError> {
-        let context_result = self
-            .sql_executor
-            .get_task_execution_context(task_uuid)
-            .await;
-
-        match context_result {
-            Ok(Some(sql_context)) => Ok(Some(TaskExecutionContext {
-                task_uuid,
-                execution_status: sql_context.execution_status.as_str().into(),
-                health_status: Some(sql_context.health_status),
-                completion_percentage: Some(
-                    sql_context
-                        .completion_percentage
-                        .to_string()
-                        .parse::<f64>()
-                        .unwrap_or(0.0),
-                ),
-                total_steps: Some(sql_context.total_steps as i32),
-                ready_steps: Some(sql_context.ready_steps as i32),
-                pending_steps: Some(sql_context.pending_steps as i32),
-                in_progress_steps: Some(sql_context.in_progress_steps as i32),
-                completed_steps: Some(sql_context.completed_steps as i32),
-                failed_steps: Some(sql_context.failed_steps as i32),
-                recommended_action: Some(sql_context.recommended_action.as_str().into()),
-            })),
-            Ok(None) => Ok(None), // No context available
-            Err(_) => Ok(None),   // Context not available due to error
+        match TaskExecutionContext::get_for_task(self.context.database_pool(), task_uuid).await {
+            Ok(context) => Ok(context),
+            Err(e) => {
+                debug!(
+                    task_uuid = %task_uuid,
+                    error = %e,
+                    "Failed to get task execution context"
+                );
+                Ok(None) // Context not available due to error
+            }
         }
     }
 
@@ -524,14 +463,14 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
-        let ready_steps = context.as_ref().and_then(|c| c.ready_steps).unwrap_or(0);
+        let ready_steps = context.as_ref().map(|c| c.ready_steps).unwrap_or(0);
 
         println!(
             "TaskFinalizer: Task {task_uuid} has {ready_steps} ready steps - transitioning to in_progress"
         );
 
         // Use state machine to transition to in_progress if needed
-        let mut state_machine = self.get_state_machine_for_task(&task);
+        let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
         let current_state =
             state_machine
@@ -542,30 +481,58 @@ impl TaskFinalizer {
                     task_uuid,
                 })?;
 
-        // Transition to in_progress if not already there or complete
-        if current_state != TaskState::InProgress && current_state != TaskState::Complete {
+        // Transition to active processing state if not already active or complete
+        let is_active = matches!(
+            current_state,
+            TaskState::EnqueuingSteps | TaskState::StepsInProcess | TaskState::EvaluatingResults
+        );
+
+        if !is_active && current_state != TaskState::Complete {
             state_machine
                 .transition(TaskEvent::Start)
                 .await
                 .map_err(|e| FinalizationError::StateMachine {
-                    error: format!("Failed to transition to in_progress: {e}"),
+                    error: format!("Failed to transition to active state: {e}"),
                     task_uuid,
                 })?;
         }
 
-        // In asynchronous mode, process ready steps immediately
-        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
-            enqueuer.process_single_task(task.task_uuid).await?;
+        // Use TaskClaimStepEnqueuer for step processing
+        debug!(
+            task_uuid = task.task_uuid.to_string(),
+            "Processing ready steps with TaskClaimStepEnqueuer"
+        );
+        let maybe_task_info = self.sql_executor.get_task_ready_info(task_uuid).await?;
+        match maybe_task_info {
+            Some(task_info) => {
+                if let Some(enqueue_result) = self
+                    .step_enqueuer_service
+                    .process_single_task_from_ready_info(&task_info)
+                    .await?
+                {
+                    Ok(FinalizationResult {
+                        task_uuid: task.task_uuid,
+                        action: FinalizationAction::Reenqueued,
+                        completion_percentage: context
+                            .as_ref()
+                            .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+                        total_steps: context.as_ref().map(|c| c.total_steps as i32),
+                        health_status: context.as_ref().map(|c| c.health_status.clone()),
+                        enqueued_steps: Some(enqueue_result.steps_enqueued as i32),
+                        reason: Some("Ready steps enqueued".to_string()),
+                    })
+                } else {
+                    Err(FinalizationError::General(format!(
+                        "Failed to enqueue steps for task re-enqueuing task {}",
+                        task.task_uuid
+                    )))
+                }
+            }
+            None => Err(FinalizationError::General(format!(
+                "Failed to enqueue steps for task re-enqueuing task {}",
+                task.task_uuid
+            ))),
         }
-
-        Ok(FinalizationResult {
-            task_uuid: task.task_uuid,
-            action: FinalizationAction::Reenqueued,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
-            reason: Some("Ready steps enqueued".to_string()),
-        })
     }
 
     /// Handle waiting for dependencies state
@@ -574,19 +541,11 @@ impl TaskFinalizer {
         task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        // Process any ready steps (there might be some even in waiting state)
-        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
-            enqueuer.process_single_task(task.task_uuid).await?;
-        }
-
-        Ok(FinalizationResult {
-            task_uuid: task.task_uuid,
-            action: FinalizationAction::Reenqueued,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
-            reason: Some("Awaiting dependencies".to_string()),
-        })
+        info!(
+            "Handling waiting state for task {} by delegating to ready steps state",
+            task.task_uuid
+        );
+        self.handle_ready_steps_state(task, context).await
     }
 
     /// Handle processing state
@@ -595,17 +554,20 @@ impl TaskFinalizer {
         task: Task,
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
-        // Process any newly ready steps
-        if let Some(enqueuer) = &self.task_claim_step_enqueuer {
-            enqueuer.process_single_task(task.task_uuid).await?;
-        }
+        debug!(
+            "Handling processing state for task {}, no action taken",
+            task.task_uuid
+        );
 
         Ok(FinalizationResult {
             task_uuid: task.task_uuid,
-            action: FinalizationAction::Reenqueued,
-            completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-            total_steps: context.as_ref().and_then(|c| c.total_steps),
-            health_status: context.as_ref().and_then(|c| c.health_status.clone()),
+            action: FinalizationAction::NoAction,
+            completion_percentage: context
+                .as_ref()
+                .and_then(|c| c.completion_percentage.to_string().parse().ok()),
+            total_steps: context.as_ref().map(|c| c.total_steps as i32),
+            health_status: context.as_ref().map(|c| c.health_status.clone()),
+            enqueued_steps: None,
             reason: Some("Steps in progress".to_string()),
         })
     }
@@ -617,37 +579,9 @@ impl TaskFinalizer {
         context: Option<TaskExecutionContext>,
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
-
-        if let Some(ref ctx) = context {
-            eprintln!(
-                "TaskFinalizer: Task {} in unclear state: execution_status={:?}, health_status={:?}, ready_steps={:?}, failed_steps={:?}, in_progress_steps={:?}",
-                task_uuid,
-                ctx.execution_status,
-                ctx.health_status,
-                ctx.ready_steps,
-                ctx.failed_steps,
-                ctx.in_progress_steps
-            );
-
-            // Default to processing any ready steps for unclear states
-            if let Some(enqueuer) = &self.task_claim_step_enqueuer {
-                enqueuer.process_single_task(task.task_uuid).await?;
-            }
-
-            Ok(FinalizationResult {
-                task_uuid: task.task_uuid,
-                action: FinalizationAction::Reenqueued,
-                completion_percentage: context.as_ref().and_then(|c| c.completion_percentage),
-                total_steps: context.as_ref().and_then(|c| c.total_steps),
-                health_status: context.as_ref().and_then(|c| c.health_status.clone()),
-                reason: Some("Continuing workflow".to_string()),
-            })
-        } else {
-            eprintln!("TaskFinalizer: Task {task_uuid} has no execution context and unclear state");
-
-            // Without context, attempt to transition to error state
-            self.error_task(task, None).await
-        }
+        error!("TaskFinalizer: Task {task_uuid} has no execution context and unclear state");
+        // Without context, attempt to transition to error state
+        self.error_task(task, context).await
     }
 
     /// Determine reason for pending state
@@ -882,6 +816,7 @@ mod tests {
             completion_percentage: Some(100.0),
             total_steps: Some(5),
             health_status: Some("healthy".to_string()),
+            enqueued_steps: None,
             reason: None,
         };
 
@@ -890,143 +825,5 @@ mod tests {
         assert_eq!(result.completion_percentage, Some(100.0));
     }
 
-    #[test]
-    fn test_task_execution_context_creation() {
-        let task_uuid = Uuid::now_v7();
-        let context = TaskExecutionContext {
-            task_uuid,
-            execution_status: ExecutionStatus::AllComplete,
-            health_status: Some("healthy".to_string()),
-            completion_percentage: Some(100.0),
-            total_steps: Some(3),
-            ready_steps: Some(0),
-            pending_steps: Some(0),
-            in_progress_steps: Some(0),
-            completed_steps: Some(3),
-            failed_steps: Some(0),
-            recommended_action: Some(RecommendedAction::FinalizeTask),
-        };
-
-        assert_eq!(context.task_uuid, task_uuid);
-        assert_eq!(context.execution_status, ExecutionStatus::AllComplete);
-        assert_eq!(context.completed_steps, Some(3));
-    }
-
-    #[test]
-    fn test_execution_status_conversion() {
-        // Test from_str method (backward compatibility)
-        assert_eq!(
-            ExecutionStatus::from_str("has_ready_steps"),
-            ExecutionStatus::HasReadySteps
-        );
-        assert_eq!(
-            ExecutionStatus::from_str("processing"),
-            ExecutionStatus::Processing
-        );
-        assert_eq!(
-            ExecutionStatus::from_str("blocked_by_failures"),
-            ExecutionStatus::BlockedByFailures
-        );
-        assert_eq!(
-            ExecutionStatus::from_str("all_complete"),
-            ExecutionStatus::AllComplete
-        );
-        assert_eq!(
-            ExecutionStatus::from_str("waiting_for_dependencies"),
-            ExecutionStatus::WaitingForDependencies
-        );
-        assert_eq!(
-            ExecutionStatus::from_str("unknown"),
-            ExecutionStatus::WaitingForDependencies
-        ); // Default
-
-        // Test From<&str> implementation
-        let status: ExecutionStatus = "has_ready_steps".into();
-        assert_eq!(status, ExecutionStatus::HasReadySteps);
-        let status: ExecutionStatus = "processing".into();
-        assert_eq!(status, ExecutionStatus::Processing);
-        let status: ExecutionStatus = "unknown".into();
-        assert_eq!(status, ExecutionStatus::WaitingForDependencies); // Default
-
-        // Test From<String> implementation
-        let status: ExecutionStatus = String::from("all_complete").into();
-        assert_eq!(status, ExecutionStatus::AllComplete);
-        let status: ExecutionStatus = String::from("blocked_by_failures").into();
-        assert_eq!(status, ExecutionStatus::BlockedByFailures);
-
-        // Test as_str method
-        assert_eq!(ExecutionStatus::HasReadySteps.as_str(), "has_ready_steps");
-        assert_eq!(ExecutionStatus::Processing.as_str(), "processing");
-        assert_eq!(
-            ExecutionStatus::BlockedByFailures.as_str(),
-            "blocked_by_failures"
-        );
-        assert_eq!(ExecutionStatus::AllComplete.as_str(), "all_complete");
-        assert_eq!(
-            ExecutionStatus::WaitingForDependencies.as_str(),
-            "waiting_for_dependencies"
-        );
-    }
-
-    #[test]
-    fn test_recommended_action_conversion() {
-        // Test from_str method (backward compatibility)
-        assert_eq!(
-            RecommendedAction::from_str("execute_ready_steps"),
-            RecommendedAction::ExecuteReadySteps
-        );
-        assert_eq!(
-            RecommendedAction::from_str("wait_for_completion"),
-            RecommendedAction::WaitForCompletion
-        );
-        assert_eq!(
-            RecommendedAction::from_str("handle_failures"),
-            RecommendedAction::HandleFailures
-        );
-        assert_eq!(
-            RecommendedAction::from_str("finalize_task"),
-            RecommendedAction::FinalizeTask
-        );
-        assert_eq!(
-            RecommendedAction::from_str("wait_for_dependencies"),
-            RecommendedAction::WaitForDependencies
-        );
-        assert_eq!(
-            RecommendedAction::from_str("unknown"),
-            RecommendedAction::WaitForDependencies
-        ); // Default
-
-        // Test From<&str> implementation
-        let action: RecommendedAction = "execute_ready_steps".into();
-        assert_eq!(action, RecommendedAction::ExecuteReadySteps);
-        let action: RecommendedAction = "wait_for_completion".into();
-        assert_eq!(action, RecommendedAction::WaitForCompletion);
-        let action: RecommendedAction = "unknown".into();
-        assert_eq!(action, RecommendedAction::WaitForDependencies); // Default
-
-        // Test From<String> implementation
-        let action: RecommendedAction = String::from("finalize_task").into();
-        assert_eq!(action, RecommendedAction::FinalizeTask);
-        let action: RecommendedAction = String::from("handle_failures").into();
-        assert_eq!(action, RecommendedAction::HandleFailures);
-
-        // Test as_str method
-        assert_eq!(
-            RecommendedAction::ExecuteReadySteps.as_str(),
-            "execute_ready_steps"
-        );
-        assert_eq!(
-            RecommendedAction::WaitForCompletion.as_str(),
-            "wait_for_completion"
-        );
-        assert_eq!(
-            RecommendedAction::HandleFailures.as_str(),
-            "handle_failures"
-        );
-        assert_eq!(RecommendedAction::FinalizeTask.as_str(), "finalize_task");
-        assert_eq!(
-            RecommendedAction::WaitForDependencies.as_str(),
-            "wait_for_dependencies"
-        );
-    }
+    // Tests for ExecutionStatus and RecommendedAction enums are now in the unified module
 }

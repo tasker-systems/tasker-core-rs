@@ -41,18 +41,21 @@
 //! # }
 //! ```
 
-use crate::orchestration::lifecycle::task_claim_step_enqueuer::TaskClaimStepEnqueuer;
+use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::state_manager::StateManager;
+use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::logging;
 use tasker_shared::models::core::task_template::TaskTemplate;
 use tasker_shared::models::{task_request::TaskRequest, NamedStep, Task, WorkflowStep};
 use tasker_shared::registry::TaskHandlerRegistry;
+use tasker_shared::state_machine::states::TaskState;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerError;
 use tracing::{debug, error, info, instrument, warn};
@@ -73,60 +76,22 @@ pub struct TaskInitializationResult {
 /// Atomic task creation with proper transaction safety
 pub struct TaskInitializer {
     context: Arc<SystemContext>,
-    state_manager: Option<StateManager>,
-    task_claim_step_enqueuer: Option<Arc<TaskClaimStepEnqueuer>>,
+    state_manager: StateManager,
+    step_enqueuer_service: Arc<StepEnqueuerService>,
 }
 
 impl TaskInitializer {
     /// Create a new TaskInitializer without step enqueuer (backward compatible)
-    pub fn new(context: Arc<SystemContext>) -> Self {
-        Self {
-            context,
-            state_manager: None,
-            task_claim_step_enqueuer: None,
-        }
-    }
-
-    /// Create a TaskInitializer with TaskClaimStepEnqueuer for immediate step enqueuing
-    pub fn with_step_enqueuer(
+    pub fn new(
         context: Arc<SystemContext>,
-        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
+        step_enqueuer_service: Arc<StepEnqueuerService>,
     ) -> Self {
-        Self {
-            context,
-            state_manager: None,
-            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
-        }
-    }
-
-    /// Create a TaskInitializer with StateManager for proper state handling (backward compatible)
-    pub fn with_state_manager(context: Arc<SystemContext>) -> Self {
-        let pool = context.database_pool().clone();
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let state_manager =
-            StateManager::new(sql_executor, context.event_publisher.clone(), pool.clone());
+        let state_manager = StateManager::new(context.clone());
 
         Self {
             context,
-            state_manager: Some(state_manager),
-            task_claim_step_enqueuer: None,
-        }
-    }
-
-    /// Create a TaskInitializer with both StateManager and TaskClaimStepEnqueuer
-    pub fn with_state_manager_and_step_enqueuer(
-        context: Arc<SystemContext>,
-        task_claim_step_enqueuer: Arc<TaskClaimStepEnqueuer>,
-    ) -> Self {
-        let pool = context.database_pool().clone();
-        let sql_executor = SqlFunctionExecutor::new(pool.clone());
-        let state_manager =
-            StateManager::new(sql_executor, context.event_publisher.clone(), pool.clone());
-
-        Self {
-            context,
-            state_manager: Some(state_manager),
-            task_claim_step_enqueuer: Some(task_claim_step_enqueuer),
+            state_manager,
+            step_enqueuer_service,
         }
     }
 
@@ -306,51 +271,32 @@ impl TaskInitializer {
         // First, create the task using existing method
         let initialization_result = self.create_task_from_request(task_request).await?;
 
+        let task_uuid = initialization_result.task_uuid.clone();
+
         info!(
-            task_uuid = initialization_result.task_uuid.to_string(),
+            task_uuid = task_uuid.to_string(),
             step_count = initialization_result.step_count,
             "Task created, attempting immediate step enqueuing"
         );
 
-        // Only attempt immediate enqueuing if we have a task_claim_step_enqueuer
-        if let Some(ref task_claim_step_enqueuer) = self.task_claim_step_enqueuer {
+        let sql_executor = SqlFunctionExecutor::new(self.context.database_pool().clone());
+
+        if let Some(task_info) = sql_executor.get_task_ready_info(task_uuid).await? {
             // Process the single task to enqueue its steps
-            match task_claim_step_enqueuer
-                .process_single_task(initialization_result.task_uuid)
+            match self
+                .step_enqueuer_service
+                .process_single_task_from_ready_info(&task_info)
                 .await
+                .map_err(|err| TaskInitializationError::StepEnqueuing(format!("{err}")))
             {
-                Ok(Some(enqueue_result)) => {
-                    info!(
-                        task_uuid = initialization_result.task_uuid.to_string(),
-                        steps_enqueued = enqueue_result.steps_enqueued,
-                        "Successfully enqueued steps immediately after task creation"
-                    );
-                }
-                Ok(None) => {
-                    // This is unusual but not an error - task may have no ready steps initially
-                    debug!(
-                        task_uuid = initialization_result.task_uuid.to_string(),
-                        "No steps were ready for immediate enqueuing"
-                    );
-                }
-                Err(e) => {
-                    // Log the error but don't fail the task creation
-                    // The orchestration loop will pick up the task eventually
-                    warn!(
-                        task_uuid = initialization_result.task_uuid.to_string(),
-                        error = %e,
-                        "Failed to immediately enqueue steps, task will be processed in next orchestration cycle"
-                    );
-                }
+                Ok(_) => Ok(initialization_result),
+                Err(err) => Err(TaskInitializationError::StepEnqueuing(format!("{err}"))),
             }
         } else {
-            debug!(
-                task_uuid = initialization_result.task_uuid.to_string(),
-                "TaskClaimStepEnqueuer not configured, skipping immediate step enqueuing"
-            );
+            Err(TaskInitializationError::Database(format!(
+                "Unable to find task info for {task_uuid}"
+            )))
         }
-
-        Ok(initialization_result)
     }
 
     /// Create the basic task record
@@ -614,6 +560,7 @@ impl TaskInitializer {
             task_uuid,
             to_state: "pending".to_string(),
             from_state: None,
+            processor_uuid: Some(self.context.processor_uuid()),
             metadata: Some(json!({"initial_state": "pending", "from_service": "task_initializer"})),
         };
 
@@ -658,31 +605,65 @@ impl TaskInitializer {
         task_uuid: Uuid,
         step_mapping: &HashMap<String, Uuid>,
     ) -> Result<(), TaskInitializationError> {
-        // Get or create StateManager for proper state machine initialization
-        let state_manager = if let Some(ref manager) = self.state_manager {
-            manager.clone()
-        } else {
-            // Create a temporary StateManager for this operation
-            let sql_executor = SqlFunctionExecutor::new(self.context.database_pool().clone());
-            StateManager::new(
-                sql_executor,
-                self.context.event_publisher.clone(),
-                self.context.database_pool().clone(),
-            )
-        };
+        // Ensure the task transitions from Pending to Initializing state
+        // This is critical for the task lifecycle to work properly
+        use tasker_shared::state_machine::{TaskEvent, TaskStateMachine};
 
-        // Initialize task state machine by evaluating its state
-        // This will create the state machine and ensure it's properly initialized
-        match state_manager.evaluate_task_state(task_uuid).await {
-            Ok(_result) => {}
-            Err(e) => {
-                warn!(
-                    task_uuid = task_uuid.to_string(),
-                    error = %e,
-                    "Failed to initialize task state machine with StateManager, basic initialization completed"
-                );
-                // Don't fail the entire initialization for StateManager issues
+        let mut task_state_machine = TaskStateMachine::for_task(
+            task_uuid,
+            self.context.database_pool().clone(),
+            self.context.processor_uuid(),
+        )
+        .await
+        .map_err(|e| {
+            TaskInitializationError::StateMachine(format!(
+                "Failed to create task state machine: {e}"
+            ))
+        })?;
+
+        let current_state = task_state_machine.current_state().await.map_err(|e| {
+            TaskInitializationError::StateMachine(format!("Failed to get current state: {e}"))
+        })?;
+
+        info!(
+            task_uuid = task_uuid.to_string(),
+            current_state = %current_state,
+            "Task state machine created, transitioning from Pending to Initializing"
+        );
+
+        // Transition from Pending to Initializing if needed
+        if current_state == TaskState::Pending {
+            match task_state_machine.transition(TaskEvent::Start).await {
+                Ok(success) => {
+                    if success {
+                        info!(
+                            task_uuid = task_uuid.to_string(),
+                            "Successfully transitioned task from Pending to Initializing"
+                        );
+                    } else {
+                        warn!(
+                            task_uuid = task_uuid.to_string(),
+                            "Task state transition returned false - task may already be in correct state"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        task_uuid = task_uuid.to_string(),
+                        error = %e,
+                        "Failed to transition task from Pending to Initializing"
+                    );
+                    return Err(TaskInitializationError::StateMachine(format!(
+                        "Failed to transition task from Pending to Initializing: {e}"
+                    )));
+                }
             }
+        } else {
+            info!(
+                task_uuid = task_uuid.to_string(),
+                current_state = %current_state,
+                "Task already in non-Pending state, no transition needed"
+            );
         }
 
         // Initialize step state machines WITHOUT evaluating state transitions
@@ -690,7 +671,8 @@ impl TaskInitializer {
         // as this sets in_process=true, making them ineligible for execution
         for &workflow_step_uuid in step_mapping.values() {
             // Simply verify the state machine exists, don't evaluate/transition
-            match state_manager
+            match self
+                .state_manager
                 .get_or_create_step_state_machine(workflow_step_uuid)
                 .await
             {
@@ -823,11 +805,20 @@ pub enum TaskInitializationError {
 
     #[error("Transaction failed: {0}")]
     TransactionFailed(String),
+
+    #[error("Step enqueuing error: {0}")]
+    StepEnqueuing(String),
 }
 
 impl From<TaskInitializationError> for TaskerError {
     fn from(error: TaskInitializationError) -> Self {
         TaskerError::OrchestrationError(format!("Task initialization failed: {error}"))
+    }
+}
+
+impl From<sqlx::Error> for TaskInitializationError {
+    fn from(error: sqlx::Error) -> Self {
+        TaskInitializationError::Database(error.to_string())
     }
 }
 

@@ -216,7 +216,6 @@ impl TaskTemplateManager {
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: Some(5),
-            claim_timeout_seconds: Some(300),
         };
 
         self.registry.resolve_handler(&task_request).await
@@ -523,7 +522,6 @@ impl TaskTemplateManager {
                 requested_at: chrono::Utc::now().naive_utc(),
                 options: None,
                 priority: Some(5),
-                claim_timeout_seconds: Some(300),
             })
             .await?;
 
@@ -602,6 +600,7 @@ impl Clone for TaskTemplateManager {
     }
 }
 
+#[async_trait::async_trait]
 /// Helper trait for worker-specific task template operations
 pub trait WorkerTaskTemplateOperations {
     /// Validate that a template is suitable for worker execution
@@ -614,6 +613,7 @@ pub trait WorkerTaskTemplateOperations {
     fn requires_capabilities(&self, template: &ResolvedTaskTemplate) -> Vec<String>;
 }
 
+#[async_trait::async_trait]
 impl WorkerTaskTemplateOperations for TaskTemplateManager {
     async fn validate_for_worker(&self, template: &ResolvedTaskTemplate) -> TaskerResult<()> {
         // Validate namespace is supported

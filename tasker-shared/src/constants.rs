@@ -173,8 +173,11 @@ pub mod status_groups {
     ];
 
     /// Task statuses that indicate active execution
-    pub const TASK_ACTIVE_STATES: &[TaskState] =
-        &[TaskState::Pending, TaskState::InProgress, TaskState::Error];
+    pub const TASK_ACTIVE_STATES: &[TaskState] = &[
+        TaskState::Pending,
+        TaskState::StepsInProcess,
+        TaskState::Error,
+    ];
 }
 
 /// State transition event mapping
@@ -193,7 +196,10 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
         (None, TaskState::Pending),
         events::TASK_INITIALIZE_REQUESTED,
     );
-    map.insert((None, TaskState::InProgress), events::TASK_START_REQUESTED);
+    map.insert(
+        (None, TaskState::StepsInProcess),
+        events::TASK_START_REQUESTED,
+    );
     map.insert((None, TaskState::Complete), events::TASK_COMPLETED);
     map.insert((None, TaskState::Error), events::TASK_FAILED);
     map.insert((None, TaskState::Cancelled), events::TASK_CANCELLED);
@@ -204,19 +210,19 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
 
     // Standard lifecycle transitions
     map.insert(
-        (Some(TaskState::Pending), TaskState::InProgress),
+        (Some(TaskState::Pending), TaskState::StepsInProcess),
         events::TASK_START_REQUESTED,
     );
     map.insert(
-        (Some(TaskState::InProgress), TaskState::Complete),
+        (Some(TaskState::StepsInProcess), TaskState::Complete),
         events::TASK_COMPLETED,
     );
     map.insert(
-        (Some(TaskState::InProgress), TaskState::Error),
+        (Some(TaskState::StepsInProcess), TaskState::Error),
         events::TASK_FAILED,
     );
     map.insert(
-        (Some(TaskState::Error), TaskState::InProgress),
+        (Some(TaskState::Error), TaskState::StepsInProcess),
         events::TASK_RETRY_REQUESTED,
     );
     map.insert(
@@ -234,7 +240,7 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
         events::TASK_CANCELLED,
     );
     map.insert(
-        (Some(TaskState::InProgress), TaskState::Cancelled),
+        (Some(TaskState::StepsInProcess), TaskState::Cancelled),
         events::TASK_CANCELLED,
     );
     map.insert(
@@ -242,7 +248,7 @@ pub fn build_task_transition_map() -> TaskTransitionMap {
         events::TASK_RESOLVED_MANUALLY,
     );
     map.insert(
-        (Some(TaskState::InProgress), TaskState::ResolvedManually),
+        (Some(TaskState::StepsInProcess), TaskState::ResolvedManually),
         events::TASK_RESOLVED_MANUALLY,
     );
 

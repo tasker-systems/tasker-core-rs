@@ -11,18 +11,16 @@ pub mod core;
 pub mod error_classifier;
 pub mod errors;
 pub mod event_systems;
-pub mod examples;
 pub mod lifecycle;
 pub mod orchestration_queues;
 pub mod state_manager;
 pub mod system_events;
-pub mod task_claim;
 pub mod task_readiness;
 pub mod viable_step_discovery;
 
 pub use tasker_shared::config::orchestration::{
     OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
-    TaskClaimStepEnqueuerConfig, TaskClaimerConfig,
+    TaskClaimStepEnqueuerConfig,
 };
 
 // Re-export core types and components for easy access
@@ -53,26 +51,12 @@ pub use core::{OrchestrationCore, OrchestrationCoreStatus};
 // Re-export TAS-43 Unified Event System components from event_systems namespace
 pub use event_systems::{
     OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationEventSystemConfig,
-    OrchestrationStatistics, TaskReadinessEventSystem, TaskReadinessStatistics,
-    UnifiedCoordinatorConfig, UnifiedEventCoordinator, UnifiedHealthReport,
+    OrchestrationStatistics, TaskReadinessEventSystem, UnifiedCoordinatorConfig,
+    UnifiedEventCoordinator, UnifiedHealthReport,
 };
 
 // Re-export TAS-43 Task Readiness components
-pub use task_readiness::{
-    FallbackPollerStats,
-    NamespaceCreatedEvent,
-    // Core task readiness functionality (database event specific)
-    // Note: Coordinators removed - use TaskReadinessEventSystem from event_systems module instead
-    ReadinessEventClassifier,
-    ReadinessFallbackPoller,
-    ReadinessTrigger,
-    TaskReadinessEvent,
-    TaskReadinessListener,
-    TaskReadinessListenerStats,
-    TaskReadinessNotification,
-    TaskReadyEvent,
-    TaskStateChangeEvent,
-};
+pub use task_readiness::{FallbackPoller, FallbackPollerConfig};
 
 // Re-export TAS-43 Orchestration Queue components
 pub use orchestration_queues::{
@@ -111,8 +95,4 @@ pub use state_manager::StateManager;
 pub use system_events::{
     constants, EventMetadata, StateTransition, SystemEventsConfig, SystemEventsManager,
 };
-pub use task_claim::finalization_claimer::{
-    ClaimGuard, FinalizationClaimResult, FinalizationClaimer, FinalizationClaimerConfig,
-};
-pub use task_claim::task_claimer::{ClaimedTask, TaskClaimer};
 pub use tasker_shared::events::EventPublisher;

@@ -21,7 +21,7 @@ use uuid::Uuid;
 /// - Operational state management
 pub struct SystemContext {
     /// System instance ID
-    pub system_id: Uuid,
+    pub processor_uuid: Uuid,
 
     /// Configuration manager with environment-aware loading
     pub config_manager: Arc<ConfigManager>,
@@ -45,7 +45,7 @@ pub struct SystemContext {
 impl std::fmt::Debug for SystemContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemContext")
-            .field("system_id", &self.system_id)
+            .field("processor_uuid", &self.processor_uuid)
             .field("config_manager", &"Arc<ConfigManager>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
             .field(
@@ -193,7 +193,7 @@ impl SystemContext {
         info!("✅ SystemContext components created successfully");
 
         Ok(Self {
-            system_id,
+            processor_uuid: system_id,
             config_manager,
             message_client,
             database_pool,
@@ -268,6 +268,10 @@ impl SystemContext {
         self.circuit_breaker_manager.is_some()
     }
 
+    pub fn processor_uuid(&self) -> Uuid {
+        self.processor_uuid
+    }
+
     /// Create a minimal SystemContext for testing with provided database pool
     ///
     /// This bypasses full configuration loading and creates a basic context
@@ -295,7 +299,7 @@ impl SystemContext {
         let event_publisher = Arc::new(EventPublisher::new());
 
         Ok(Self {
-            system_id,
+            processor_uuid: system_id,
             config_manager,
             message_client,
             database_pool,

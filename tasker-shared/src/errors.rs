@@ -51,11 +51,25 @@ pub enum TaskerError {
         namespace: String,
         version: String,
     },
+    #[error("State machine error: {0}")]
+    StateMachineError(String),
+    #[error("State machine action error: {0}")]
+    StateMachineActionError(String),
+    #[error("State machine guard error: {0}")]
+    StateMachineGuardError(String),
+    #[error("State machine persistence error: {0}")]
+    StateMachinePersistenceError(String),
 }
 
 impl From<serde_json::Error> for TaskerError {
     fn from(error: serde_json::Error) -> Self {
         TaskerError::ValidationError(format!("JSON serialization error: {error}"))
+    }
+}
+
+impl From<sqlx::Error> for TaskerError {
+    fn from(err: sqlx::Error) -> Self {
+        TaskerError::DatabaseError(err.to_string())
     }
 }
 

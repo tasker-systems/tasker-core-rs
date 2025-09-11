@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                task_uuid as \"task_uuid!\",\n                task_name as \"task_name!\",\n                priority as \"priority!\",\n                namespace_name as \"namespace_name!\",\n                ready_steps_count as \"ready_steps_count!\",\n                computed_priority as \"computed_priority!\",\n                current_state as \"current_state!\"\n            FROM get_next_ready_task()\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "namespace_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ready_steps_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "computed_priority!",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 6,
+        "name": "current_state!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "f8621c9f22ffbc9b931a784e8d60cd8214053307506503c477f92615b6b3f984"
+}

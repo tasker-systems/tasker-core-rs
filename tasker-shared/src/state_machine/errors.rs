@@ -1,3 +1,4 @@
+use crate::errors::TaskerError;
 use thiserror::Error;
 
 /// Comprehensive error types for state machine operations
@@ -159,4 +160,28 @@ pub fn dependencies_not_met(reason: impl Into<String>) -> GuardError {
 /// Helper function to create business rule violations
 pub fn business_rule_violation(rule: impl Into<String>) -> GuardError {
     GuardError::BusinessRuleViolation { rule: rule.into() }
+}
+
+impl From<StateMachineError> for TaskerError {
+    fn from(err: StateMachineError) -> Self {
+        TaskerError::StateMachineError(format!("{err}"))
+    }
+}
+
+impl From<GuardError> for TaskerError {
+    fn from(err: GuardError) -> Self {
+        TaskerError::StateMachineGuardError(format!("{err}"))
+    }
+}
+
+impl From<ActionError> for TaskerError {
+    fn from(err: ActionError) -> Self {
+        TaskerError::StateMachineActionError(format!("{err}"))
+    }
+}
+
+impl From<PersistenceError> for TaskerError {
+    fn from(err: PersistenceError) -> Self {
+        TaskerError::StateMachinePersistenceError(format!("{err}"))
+    }
 }

@@ -18,6 +18,7 @@ use tasker_shared::database::sql_functions::{
 };
 use tasker_shared::models::core::task::{PaginationInfo, Task, TaskListQuery};
 use tasker_shared::models::core::task_request::TaskRequest;
+use tasker_shared::models::orchestration::{ExecutionStatus, RecommendedAction};
 use tasker_shared::types::api::orchestration::{
     TaskCreationResponse, TaskListResponse, TaskResponse,
 };
@@ -252,8 +253,11 @@ pub async fn get_task(
                 completed_steps: execution_context.completed_steps,
                 failed_steps: execution_context.failed_steps,
                 ready_steps: execution_context.ready_steps,
-                execution_status: execution_context.execution_status,
-                recommended_action: execution_context.recommended_action,
+                execution_status: execution_context.execution_status.as_str().to_string(),
+                recommended_action: execution_context
+                    .recommended_action
+                    .map(|ra| ra.as_str().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
                 completion_percentage,
                 health_status: execution_context.health_status,
 
@@ -379,10 +383,11 @@ pub async fn list_tasks(
                             completed_steps: 0,
                             failed_steps: 0,
                             ready_steps: 0,
-                            execution_status: "unknown".to_string(),
-                            recommended_action: "investigate".to_string(),
+                            execution_status: ExecutionStatus::WaitingForDependencies,
+                            recommended_action: Some(RecommendedAction::WaitForDependencies),
                             completion_percentage: sqlx::types::BigDecimal::from(0),
                             health_status: "unknown".to_string(),
+                            enqueued_steps: 0,
                         }
                     });
 
@@ -423,8 +428,11 @@ pub async fn list_tasks(
                     completed_steps: execution_context.completed_steps,
                     failed_steps: execution_context.failed_steps,
                     ready_steps: execution_context.ready_steps,
-                    execution_status: execution_context.execution_status,
-                    recommended_action: execution_context.recommended_action,
+                    execution_status: execution_context.execution_status.as_str().to_string(),
+                    recommended_action: execution_context
+                        .recommended_action
+                        .map(|ra| ra.as_str().to_string())
+                        .unwrap_or_else(|| "none".to_string()),
                     completion_percentage,
                     health_status: execution_context.health_status,
 
@@ -496,7 +504,10 @@ pub async fn cancel_task(
         };
 
         // Step 2: Check if task can be cancelled using domain model
-        let can_cancel = task.can_be_cancelled(pool).await.map_err(ApiError::from)?;
+        let can_cancel = task
+            .can_be_cancelled(state.orchestration_core.context.clone())
+            .await
+            .map_err(ApiError::from)?;
 
         if !can_cancel {
             return Err(ApiError::bad_request("Cannot cancel a completed task"));
@@ -504,7 +515,9 @@ pub async fn cancel_task(
 
         // Step 3: Cancel the task using domain model
         let mut task = task; // Make mutable for cancellation
-        task.cancel_task(pool).await.map_err(ApiError::from)?;
+        task.cancel_task(state.orchestration_core.context.clone())
+            .await
+            .map_err(ApiError::from)?;
 
         // Step 4: Get task metadata using domain model
         let (name, namespace, version, status) =
@@ -527,10 +540,11 @@ pub async fn cancel_task(
                     completed_steps: 0,
                     failed_steps: 0,
                     ready_steps: 0,
-                    execution_status: "cancelled".to_string(),
-                    recommended_action: "none".to_string(),
+                    execution_status: ExecutionStatus::AllComplete,
+                    recommended_action: None,
                     completion_percentage: sqlx::types::BigDecimal::from(100),
                     health_status: "cancelled".to_string(),
+                    enqueued_steps: 0,
                 }
             });
 
@@ -584,8 +598,11 @@ pub async fn cancel_task(
             completed_steps: execution_context.completed_steps,
             failed_steps: execution_context.failed_steps,
             ready_steps: execution_context.ready_steps,
-            execution_status: execution_context.execution_status,
-            recommended_action: execution_context.recommended_action,
+            execution_status: execution_context.execution_status.as_str().to_string(),
+            recommended_action: execution_context
+                .recommended_action
+                .map(|ra| ra.as_str().to_string())
+                .unwrap_or_else(|| "none".to_string()),
             completion_percentage,
             health_status: execution_context.health_status,
 

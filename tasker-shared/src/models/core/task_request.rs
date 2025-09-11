@@ -60,9 +60,6 @@ pub struct TaskRequest {
 
     /// Priority for task execution (higher values = higher priority). Default: 0
     pub priority: Option<i32>,
-
-    /// Configurable timeout for task claims in seconds. Default: 60
-    pub claim_timeout_seconds: Option<i32>,
 }
 
 /// Represents the resolved NamedTask and extracted options from a TaskRequest
@@ -91,7 +88,6 @@ impl Default for TaskRequest {
             requested_at: chrono::Utc::now().naive_utc(),
             options: None,
             priority: None,
-            claim_timeout_seconds: None,
         }
     }
 }
@@ -163,12 +159,6 @@ impl TaskRequest {
     /// Set task priority (higher values = higher priority)
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = Some(priority);
-        self
-    }
-
-    /// Set claim timeout for distributed orchestration
-    pub fn with_claim_timeout_seconds(mut self, seconds: i32) -> Self {
-        self.claim_timeout_seconds = Some(seconds);
         self
     }
 
@@ -328,7 +318,6 @@ impl ResolvedTaskRequest {
                 &Some(self.resolved_context.clone()),
             ),
             priority: self.task_request.priority,
-            claim_timeout_seconds: self.task_request.claim_timeout_seconds,
         }
     }
 

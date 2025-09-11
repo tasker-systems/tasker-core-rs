@@ -31,9 +31,6 @@ use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
 /// It demonstrates how different event types can be managed consistently while
 /// respecting their architectural differences.
 pub struct UnifiedEventCoordinator {
-    /// Coordinator identifier
-    coordinator_id: Uuid,
-
     /// Orchestration event system
     orchestration_system: Option<OrchestrationEventSystem>,
 
@@ -131,15 +128,7 @@ impl UnifiedEventCoordinator {
             .await?,
         );
 
-        let task_readiness_system = Some(
-            TaskReadinessEventSystem::new(
-                config.task_readiness_config.clone(),
-                context.clone(),
-                orchestration_core.clone(),
-                orchestration_command_sender, // Use the same command sender as orchestration system
-            )
-            .await?,
-        );
+        let task_readiness_system = Some(TaskReadinessEventSystem::new(context.clone()));
 
         info!(
             coordinator_id = %coordinator_id,
@@ -147,7 +136,6 @@ impl UnifiedEventCoordinator {
         );
 
         Ok(Self {
-            coordinator_id,
             orchestration_system,
             task_readiness_system,
             context,
@@ -158,7 +146,7 @@ impl UnifiedEventCoordinator {
     /// Start unified event coordination
     pub async fn start(&mut self) -> TaskerResult<()> {
         info!(
-            coordinator_id = %self.coordinator_id,
+            processor_uuid = %self.context.processor_uuid(),
             "Starting UnifiedEventCoordinator"
         );
 
@@ -172,8 +160,7 @@ impl UnifiedEventCoordinator {
             })?;
 
             info!(
-                coordinator_id = %self.coordinator_id,
-                system_id = %orchestration_system.system_id(),
+                processor_uuid = %self.context.processor_uuid(),
                 deployment_mode = ?orchestration_system.deployment_mode(),
                 "Orchestration event system started"
             );
@@ -189,15 +176,15 @@ impl UnifiedEventCoordinator {
             })?;
 
             info!(
-                coordinator_id = %self.coordinator_id,
-                system_id = %task_readiness_system.system_id(),
+                processor_uuid = %self.context.processor_uuid(),
+                system_id = %task_readiness_system.processor_uuid(),
                 deployment_mode = ?task_readiness_system.deployment_mode(),
                 "Task readiness event system started"
             );
         }
 
         info!(
-            coordinator_id = %self.coordinator_id,
+            processor_uuid = %self.context.processor_uuid(),
             "UnifiedEventCoordinator started successfully"
         );
 
@@ -207,7 +194,7 @@ impl UnifiedEventCoordinator {
     /// Stop unified event coordination
     pub async fn stop(&mut self) -> TaskerResult<()> {
         info!(
-            coordinator_id = %self.coordinator_id,
+            processor_uuid = %self.context.processor_uuid(),
             "Stopping UnifiedEventCoordinator"
         );
 
@@ -221,7 +208,7 @@ impl UnifiedEventCoordinator {
         }
 
         info!(
-            coordinator_id = %self.coordinator_id,
+            processor_uuid = %self.context.processor_uuid(),
             "UnifiedEventCoordinator stopped successfully"
         );
 
@@ -231,7 +218,7 @@ impl UnifiedEventCoordinator {
     /// Perform unified health check across all event systems
     pub async fn health_check(&self) -> TaskerResult<UnifiedHealthReport> {
         let mut report = UnifiedHealthReport {
-            coordinator_id: self.coordinator_id,
+            processor_uuid: self.context.processor_uuid(),
             orchestration_healthy: true,
             task_readiness_healthy: true,
             orchestration_statistics: None,
@@ -247,7 +234,7 @@ impl UnifiedEventCoordinator {
                 }
                 Err(e) => {
                     warn!(
-                        coordinator_id = %self.coordinator_id,
+                        processor_uuid = %self.context.processor_uuid(),
                         error = %e,
                         "Orchestration system health check failed"
                     );
@@ -259,24 +246,27 @@ impl UnifiedEventCoordinator {
 
         // Check task readiness system health
         if let Some(task_readiness_system) = &self.task_readiness_system {
-            match task_readiness_system.health_check().await {
-                Ok(_) => {
-                    report.task_readiness_statistics = Some(task_readiness_system.statistics());
+            if task_readiness_system.is_running() {
+                info!(
+                    processor_uuid = %self.context.processor_uuid(),
+                    "Task readiness system health check passed"
+                );
+                report.task_readiness_healthy = true;
+                if report.orchestration_healthy && report.task_readiness_healthy {
+                    report.overall_healthy = true;
                 }
-                Err(e) => {
-                    warn!(
-                        coordinator_id = %self.coordinator_id,
-                        error = %e,
-                        "Task readiness system health check failed"
-                    );
-                    report.task_readiness_healthy = false;
-                    report.overall_healthy = false;
-                }
+            } else {
+                warn!(
+                    processor_uuid = %self.context.processor_uuid(),
+                    "Task readiness system health check failed"
+                );
+                report.task_readiness_healthy = false;
+                report.overall_healthy = false;
             }
         }
 
         debug!(
-            coordinator_id = %self.coordinator_id,
+            processor_uuid = %self.context.processor_uuid(),
             orchestration_healthy = %report.orchestration_healthy,
             task_readiness_healthy = %report.task_readiness_healthy,
             overall_healthy = %report.overall_healthy,
@@ -292,7 +282,7 @@ impl UnifiedEventCoordinator {
 /// Unified health report combining both event system statuses
 #[derive(Debug, Clone)]
 pub struct UnifiedHealthReport {
-    pub coordinator_id: Uuid,
+    pub processor_uuid: Uuid,
     pub orchestration_healthy: bool,
     pub task_readiness_healthy: bool,
     pub orchestration_statistics: Option<SystemStatistics>,

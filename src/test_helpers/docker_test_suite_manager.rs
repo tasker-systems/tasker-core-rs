@@ -541,7 +541,6 @@ pub fn create_test_task_request(
         requested_at: Utc::now().naive_utc(),
         options: None,
         priority: Some(5),
-        claim_timeout_seconds: Some(300),
     }
 }
 
