@@ -241,6 +241,7 @@ mod tests {
     };
     use tasker_shared::models::workflow_step::WorkflowStepWithName;
     use tasker_shared::types::TaskSequenceStep;
+    use tasker_shared::StepExecutionResult;
     use uuid::Uuid;
 
     /// Helper function to create a test TaskSequenceStep for testing
@@ -267,10 +268,7 @@ mod tests {
                     tags: None,
                     context: Some(task_context),
                     identity_hash: "test_hash".to_string(),
-                    claimed_at: None,
-                    claimed_by: None,
                     priority: 5,
-                    claim_timeout_seconds: 300,
                     created_at: chrono::Utc::now().naive_utc(),
                     updated_at: chrono::Utc::now().naive_utc(),
                 },
@@ -335,16 +333,16 @@ mod tests {
         let step_uuid = Uuid::new_v4();
         let step_name = "process_payment";
         let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
-        let dependency_results = HashMap::from([
-            (
-                "validate_order".to_string(),
-                serde_json::json!({"valid": true}),
+        let mut dependency_results = StepDependencyResultMap::default();
+        dependency_results.insert(
+            "process_payment".into(),
+            StepExecutionResult::success(
+                step_uuid,
+                serde_json::json!({"amount": 100.0}),
+                120,
+                None,
             ),
-            (
-                "check_inventory".to_string(),
-                serde_json::json!({"available": true}),
-            ),
-        ]);
+        );
         let task_context = serde_json::json!({"order_id": 12345});
 
         let task_sequence_step = create_test_task_sequence_step(
@@ -390,16 +388,16 @@ mod tests {
         let step_uuid = Uuid::new_v4();
         let step_name = "process_payment";
         let task_context = serde_json::json!({"order_id": 12345});
-        let dependency_results = HashMap::from([
-            (
-                "validate_order".to_string(),
-                serde_json::json!({"valid": true}),
+        let mut dependency_results = StepDependencyResultMap::default();
+        dependency_results.insert(
+            "process_payment".into(),
+            StepExecutionResult::success(
+                step_uuid,
+                serde_json::json!({"amount": 100.0}),
+                120,
+                None,
             ),
-            (
-                "check_inventory".to_string(),
-                serde_json::json!({"available": true}),
-            ),
-        ]);
+        );
 
         let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
 
@@ -409,7 +407,7 @@ mod tests {
             step_name,
             "OrderProcessing::PaymentHandler",
             step_payload,
-            dependency_results.clone(),
+            dependency_results,
             task_context.clone(),
         );
 

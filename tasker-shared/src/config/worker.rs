@@ -49,7 +49,7 @@ pub struct StepProcessingConfig {
 }
 
 /// Event system configuration for command pattern
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct EventSystemConfig {
     /// Event publisher configuration
     pub publisher: EventPublisherConfig,
@@ -150,16 +150,6 @@ impl Default for StepProcessingConfig {
             retry_backoff_multiplier: 2.0,
             heartbeat_interval_seconds: 30,
             max_concurrent_steps: 100,
-        }
-    }
-}
-
-impl Default for EventSystemConfig {
-    fn default() -> Self {
-        Self {
-            publisher: EventPublisherConfig::default(),
-            subscriber: EventSubscriberConfig::default(),
-            processing: EventProcessingConfig::default(),
         }
     }
 }

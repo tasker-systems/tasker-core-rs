@@ -22,11 +22,6 @@ pub enum ExecutionStatus {
 }
 
 impl ExecutionStatus {
-    /// Parse execution status from SQL string value (kept for backward compatibility)
-    pub fn from_str(value: &str) -> Self {
-        value.into()
-    }
-
     /// Convert to SQL string value
     pub fn as_str(&self) -> &str {
         match self {
@@ -75,11 +70,6 @@ pub enum RecommendedAction {
 }
 
 impl RecommendedAction {
-    /// Parse recommended action from SQL string value (kept for backward compatibility)
-    pub fn from_str(value: &str) -> Self {
-        value.into()
-    }
-
     /// Convert to SQL string value
     pub fn as_str(&self) -> &str {
         match self {

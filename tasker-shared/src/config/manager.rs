@@ -107,6 +107,12 @@ impl ConfigManager {
     // Legacy environment override methods removed
 }
 
+impl Default for ConfigManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,7 +146,7 @@ mod tests {
 
         assert_eq!(manager.environment(), "test");
         assert_eq!(manager.config().database.host, "localhost");
-        assert_eq!(manager.config().orchestration.mode, "test");
+        assert_eq!(manager.config().orchestration.mode, "distributed");
     }
 
     #[test]

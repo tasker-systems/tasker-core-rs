@@ -262,7 +262,9 @@ impl WorkerQueueListener {
 
 /// Event handler for worker pgmq-notify events
 struct WorkerEventHandler {
+    #[allow(dead_code)]
     config: WorkerListenerConfig,
+    #[allow(dead_code)]
     context: Arc<SystemContext>,
     event_sender: mpsc::Sender<WorkerNotification>,
     listener_id: Uuid,

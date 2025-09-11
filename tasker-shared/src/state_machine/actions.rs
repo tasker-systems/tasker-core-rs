@@ -542,6 +542,12 @@ impl UpdateStepResultsAction {
     }
 }
 
+impl Default for UpdateStepResultsAction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl StateAction<WorkflowStep> for UpdateStepResultsAction {
     async fn execute(
@@ -556,7 +562,7 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
             Ok(state) => state,
             Err(e) => {
                 return Err(ActionError::InvalidStateTransition {
-                    from_state: from_state,
+                    from_state,
                     to_state,
                     reason: format!("Failed to parse state: {e}"),
                 })

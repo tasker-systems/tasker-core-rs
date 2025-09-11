@@ -38,8 +38,6 @@
 //! - **State Queries**: Complex joins with task_transitions table
 //! - **Scope Queries**: Optimized with strategic indexes
 
-use crate::events::publisher::EventPublisher;
-use crate::scopes::ScopeBuilder;
 use crate::state_machine::{
     events::{StepEvent, TaskEvent},
     step_state_machine::StepStateMachine,
@@ -1841,6 +1839,7 @@ impl Task {
         &mut self,
         system_context: Arc<SystemContext>,
     ) -> Result<(), sqlx::Error> {
+        use crate::scopes::ScopeBuilder;
         // Step 1: Create task state machine and check if cancellation is valid
         let mut task_state_machine = TaskStateMachine::new(self.clone(), system_context.clone());
         let current_task_state = task_state_machine

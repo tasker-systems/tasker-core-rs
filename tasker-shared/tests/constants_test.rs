@@ -29,9 +29,13 @@ fn test_backoff_config_defaults() {
 #[test]
 fn test_reenqueue_delays_defaults() {
     let delays = ReenqueueDelays::default();
-    assert_eq!(delays.has_ready_steps, 10);
-    assert_eq!(delays.waiting_for_dependencies, 10);
-    assert_eq!(delays.processing, 10);
+    assert_eq!(delays.initializing, 5);
+    assert_eq!(delays.enqueuing_steps, 0);
+    assert_eq!(delays.evaluating_results, 5);
+    assert_eq!(delays.steps_in_process, 10);
+    assert_eq!(delays.waiting_for_dependencies, 45);
+    assert_eq!(delays.waiting_for_retry, 30);
+    assert_eq!(delays.blocked_by_failures, 60);
 }
 
 #[test]
@@ -94,25 +98,52 @@ fn test_status_groups() {
 
     // Test step working states
     assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::Pending));
+    assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::Enqueued));
     assert!(status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::InProgress));
+    assert!(status_groups::VALID_STEP_STILL_WORKING_STATES
+        .contains(&WorkflowStepState::EnqueuedForOrchestration));
     assert!(!status_groups::VALID_STEP_STILL_WORKING_STATES.contains(&WorkflowStepState::Complete));
 
     // Test unready step statuses
+    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::Enqueued));
     assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::InProgress));
+    assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES
+        .contains(&WorkflowStepState::EnqueuedForOrchestration));
     assert!(status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::Complete));
     assert!(!status_groups::UNREADY_WORKFLOW_STEP_STATUSES.contains(&WorkflowStepState::Pending));
 
-    // Test task final states
+    // Test task final states (terminal states)
     assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::Complete));
+    assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::Error));
     assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::Cancelled));
     assert!(status_groups::TASK_FINAL_STATES.contains(&TaskState::ResolvedManually));
     assert!(!status_groups::TASK_FINAL_STATES.contains(&TaskState::Pending));
 
-    // Test task active states
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Pending));
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::InProgress));
-    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Error));
+    // Test task active states (TAS-41 orchestration states)
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Initializing));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::EnqueuingSteps));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::StepsInProcess));
+    assert!(status_groups::TASK_ACTIVE_STATES.contains(&TaskState::EvaluatingResults));
+    assert!(!status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Pending));
     assert!(!status_groups::TASK_ACTIVE_STATES.contains(&TaskState::Complete));
+
+    // Test task waiting states
+    assert!(status_groups::TASK_WAITING_STATES.contains(&TaskState::WaitingForDependencies));
+    assert!(status_groups::TASK_WAITING_STATES.contains(&TaskState::WaitingForRetry));
+    assert!(status_groups::TASK_WAITING_STATES.contains(&TaskState::BlockedByFailures));
+    assert!(!status_groups::TASK_WAITING_STATES.contains(&TaskState::Pending));
+    assert!(!status_groups::TASK_WAITING_STATES.contains(&TaskState::Complete));
+
+    // Test task processable states
+    assert!(status_groups::TASK_PROCESSABLE_STATES.contains(&TaskState::Pending));
+    assert!(status_groups::TASK_PROCESSABLE_STATES.contains(&TaskState::WaitingForDependencies));
+    assert!(status_groups::TASK_PROCESSABLE_STATES.contains(&TaskState::WaitingForRetry));
+    assert!(!status_groups::TASK_PROCESSABLE_STATES.contains(&TaskState::Initializing));
+    assert!(!status_groups::TASK_PROCESSABLE_STATES.contains(&TaskState::Complete));
+
+    // Test all states arrays have correct counts
+    assert_eq!(status_groups::ALL_TASK_STATES.len(), 12); // TAS-41 comprehensive states
+    assert_eq!(status_groups::ALL_STEP_STATES.len(), 8); // Including EnqueuedForOrchestration
 }
 
 #[test]
@@ -120,17 +151,17 @@ fn test_transition_maps() {
     let task_map = build_task_transition_map();
     let step_map = build_step_transition_map();
 
-    // Test key task transitions exist
+    // Test key TAS-41 task transitions exist
     assert_eq!(
         task_map.get(&(None, TaskState::Pending)),
         Some(&system_events::TASK_INITIALIZE_REQUESTED)
     );
     assert_eq!(
-        task_map.get(&(Some(TaskState::Pending), TaskState::InProgress)),
+        task_map.get(&(Some(TaskState::Pending), TaskState::Initializing)),
         Some(&system_events::TASK_START_REQUESTED)
     );
     assert_eq!(
-        task_map.get(&(Some(TaskState::InProgress), TaskState::Complete)),
+        task_map.get(&(Some(TaskState::EvaluatingResults), TaskState::Complete)),
         Some(&system_events::TASK_COMPLETED)
     );
 
@@ -142,13 +173,20 @@ fn test_transition_maps() {
     assert_eq!(
         step_map.get(&(
             Some(WorkflowStepState::Pending),
+            WorkflowStepState::Enqueued
+        )),
+        Some(&system_events::STEP_ENQUEUE_REQUESTED)
+    );
+    assert_eq!(
+        step_map.get(&(
+            Some(WorkflowStepState::Enqueued),
             WorkflowStepState::InProgress
         )),
         Some(&system_events::STEP_EXECUTION_REQUESTED)
     );
     assert_eq!(
         step_map.get(&(
-            Some(WorkflowStepState::InProgress),
+            Some(WorkflowStepState::EnqueuedForOrchestration),
             WorkflowStepState::Complete
         )),
         Some(&system_events::STEP_COMPLETED)

@@ -149,7 +149,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         let messages = self
             .read_messages(queue_name, visibility_timeout, qty)
             .await
-            .map_err(|e| crate::messaging::MessagingError::from(e))?;
+            .map_err(crate::messaging::MessagingError::from)?;
 
         let mut step_messages = Vec::new();
         for msg in messages {
@@ -194,7 +194,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         let queue_name = format!("worker_{}_queue", namespace);
         self.delete_message(&queue_name, message_id)
             .await
-            .map_err(|e| crate::messaging::MessagingError::from(e))?;
+            .map_err(crate::messaging::MessagingError::from)?;
 
         debug!(
             "✅ Step message processing completed: namespace={}, message_id={}",
@@ -210,7 +210,7 @@ impl TaskerPgmqClientExt for PgmqClient {
         let status = self
             .get_client_status()
             .await
-            .map_err(|e| crate::messaging::MessagingError::from(e))?;
+            .map_err(crate::messaging::MessagingError::from)?;
 
         Ok(status)
     }

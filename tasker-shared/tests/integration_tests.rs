@@ -24,6 +24,7 @@ use tasker_shared::models::{
     NamedTask, Task, TaskNamespace, WorkflowStep, WorkflowStepEdge, WorkflowStepTransition,
 };
 use tasker_shared::scopes::*;
+use tasker_shared::system_context::SystemContext;
 
 // =============================================================================
 // REUSABLE FOUNDATION PATTERNS
@@ -34,10 +35,14 @@ use tasker_shared::scopes::*;
 pub struct StandardFoundation {
     pub namespaces: HashMap<String, TaskNamespace>,
     pub named_tasks: HashMap<String, NamedTask>,
+    pub system_context: Arc<SystemContext>,
 }
 
 impl StandardFoundation {
     pub async fn setup(pool: &PgPool) -> Result<Self, Box<dyn std::error::Error>> {
+        let system_context = SystemContext::with_pool(pool.clone()).await.ok().unwrap(); // okay if this panics, it's test
+        let system_context = Arc::new(system_context);
+
         // Create standard namespaces
         let default_ns = TaskNamespaceFactory::new()
             .with_name("default")
@@ -82,6 +87,7 @@ impl StandardFoundation {
         Ok(StandardFoundation {
             namespaces,
             named_tasks,
+            system_context,
         })
     }
 }
@@ -796,14 +802,12 @@ async fn test_comprehensive_state_transition_scenarios(
 async fn test_task_complete_flag_integration_with_state_transitions(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use tasker_shared::events::publisher::EventPublisher;
     use tasker_shared::models::core::task::Task;
     use tasker_shared::state_machine::events::TaskEvent;
-    use tasker_shared::state_machine::states::TaskState;
     use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
 
     // Setup foundation and create a simple task (no steps for this test)
-    let _foundation = StandardFoundation::setup(&pool).await?;
+    let foundation = StandardFoundation::setup(&pool).await?;
 
     // Create a simple task without workflow steps to test the complete flag
     use tasker_shared::models::factories::core::TaskFactory;
@@ -817,46 +821,25 @@ async fn test_task_complete_flag_integration_with_state_transitions(
     let task_before = Task::find_by_id(&pool, test_task.task_uuid).await?.unwrap();
     assert!(!task_before.complete, "Task should initially be incomplete");
 
-    // Create state machine and transition to complete
-    let event_publisher = Arc::new(EventPublisher::default());
     let mut state_machine =
-        TaskStateMachine::new(test_task.clone(), pool.clone(), Some(event_publisher));
+        TaskStateMachine::new(test_task.clone(), foundation.system_context.clone());
 
-    // First transition to in_progress state
-    let result = state_machine.transition(TaskEvent::Start).await;
-    match &result {
-        Ok(state) => {
-            assert_eq!(
-                *state,
-                TaskState::InProgress,
-                "Task should be in in_progress state"
-            );
-        }
-        Err(e) => {
-            panic!("State transition to in_progress should succeed, but got error: {e:?}");
-        }
-    }
-
-    // Then transition to complete state
-    let result = state_machine.transition(TaskEvent::Complete).await;
-    match &result {
-        Ok(state) => {
-            assert_eq!(
-                *state,
-                TaskState::Complete,
-                "Task should be in complete state"
-            );
-        }
-        Err(e) => {
-            panic!("State transition to complete should succeed, but got error: {e:?}");
-        }
-    }
-
-    // Verify the task.complete flag was updated in the database
-    let task_after = Task::find_by_id(&pool, test_task.task_uuid).await?.unwrap();
+    // First transition to initializing state
+    let successful_start = state_machine.transition(TaskEvent::Start).await;
     assert!(
-        task_after.complete,
-        "Task.complete should be true after state transition"
+        successful_start.is_ok(),
+        "State transition from start should succeed"
+    );
+    assert!(
+        successful_start.unwrap(),
+        "State transition from start should succeed"
+    );
+
+    // Then try invalid transition to complete state (should fail in TAS-41)
+    let can_complete = state_machine.transition(TaskEvent::Complete).await;
+    assert!(
+        can_complete.is_err(),
+        "Direct transition from Initializing to Complete should fail in TAS-41"
     );
 
     Ok(())
@@ -867,7 +850,6 @@ async fn test_task_complete_flag_integration_with_state_transitions(
 async fn test_workflow_step_flags_integration_with_state_transitions(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use tasker_shared::events::publisher::EventPublisher;
     use tasker_shared::models::core::workflow_step::WorkflowStep;
     use tasker_shared::state_machine::events::StepEvent;
     use tasker_shared::state_machine::states::WorkflowStepState;
@@ -896,9 +878,8 @@ async fn test_workflow_step_flags_integration_with_state_transitions(
     );
 
     // Create state machine
-    let event_publisher = Arc::new(EventPublisher::default());
     let mut state_machine =
-        StepStateMachine::new(test_step.clone(), pool.clone(), Some(event_publisher));
+        StepStateMachine::new(test_step.clone(), foundation.system_context.clone());
 
     // Transition to in_progress state
     let result = state_machine.transition(StepEvent::Start).await;

@@ -611,7 +611,7 @@ impl MessageClient for PgmqClient {
         let metrics = self.queue_metrics(queue_name).await.map_err(|e| {
             crate::TaskerError::MessagingError(format!("Failed to get queue metrics: {}", e))
         })?;
-        Ok(metrics.into())
+        Ok(metrics)
     }
 
     fn client_type(&self) -> &'static str {

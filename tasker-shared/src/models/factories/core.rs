@@ -221,7 +221,7 @@ impl TaskFactory {
     }
 
     pub fn in_progress(self) -> Self {
-        self.with_initial_state("in_progress")
+        self.with_initial_state("steps_in_process")
     }
 }
 
@@ -464,9 +464,9 @@ mod tests {
 
         // Check that task was created successfully with transitions
         let transitions = TaskTransition::list_by_task(&pool, task.task_uuid).await?;
-        // Should have one transition to in_progress state
+        // Should have one transition to steps_in_process state
         assert_eq!(transitions.len(), 1);
-        assert_eq!(transitions[0].to_state, "in_progress");
+        assert_eq!(transitions[0].to_state, "steps_in_process");
 
         Ok(())
     }

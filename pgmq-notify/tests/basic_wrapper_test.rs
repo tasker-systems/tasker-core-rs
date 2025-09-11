@@ -1,7 +1,7 @@
 mod common;
 
 use common::{create_test_message, TestDb};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
 /// Test basic PGMQ wrapper functions with notifications

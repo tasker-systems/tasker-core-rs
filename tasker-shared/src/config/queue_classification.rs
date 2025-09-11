@@ -102,16 +102,13 @@ impl QueueClassifier {
     /// Extract namespace from worker queue name (e.g., "worker_fulfillment_queue" -> Some("fulfillment"))
     fn extract_worker_namespace(&self, queue_name: &str) -> Option<String> {
         if queue_name.ends_with("_queue") {
-            let without_queue_suffix = &queue_name[..queue_name.len() - "_queue".len()];
-
-            // Check if it's a worker namespace queue (pattern: worker_{name}_queue)
-            if let Some(name) = without_queue_suffix.strip_prefix("worker_") {
-                return Some(name.to_string());
-            }
-
-            // Legacy support: handle old pattern {namespace}_queue for backwards compatibility
-            if !queue_name.starts_with(&self.orchestration_namespace) {
-                return Some(without_queue_suffix.to_string());
+            if let Some(without_queue_suffix) = queue_name.strip_suffix("_queue") {
+                // Check if it's a worker namespace queue (pattern: worker_{name}_queue)
+                if let Some(name) = without_queue_suffix.strip_prefix("worker_") {
+                    return Some(name.to_string());
+                } else {
+                    return Some(without_queue_suffix.to_string());
+                }
             }
         }
         None

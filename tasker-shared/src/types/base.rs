@@ -139,6 +139,7 @@ pub enum WorkerEventType {
 }
 
 /// Generic event payload for worker events
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EventPayload {
     /// Step execution event payload

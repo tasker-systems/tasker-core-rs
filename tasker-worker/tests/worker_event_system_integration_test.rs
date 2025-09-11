@@ -15,7 +15,6 @@ use tasker_shared::{
         WorkerResourceLimits,
     },
     event_system::{deployment::DeploymentMode, event_driven::EventDrivenSystem},
-    messaging::UnifiedPgmqClient,
     system_context::SystemContext,
 };
 use tasker_worker::worker::{
@@ -27,7 +26,6 @@ fn create_default_config() -> WorkerEventSystemConfig {
     WorkerEventSystemConfig {
         system_id: "test-worker-event-system".to_string(),
         deployment_mode: DeploymentMode::PollingOnly,
-        namespaces: vec!["default".to_string()],
         timing: EventSystemTimingConfig {
             health_check_interval_seconds: 60,
             fallback_polling_interval_seconds: 30,
@@ -56,7 +54,6 @@ fn create_default_config() -> WorkerEventSystemConfig {
             in_process_events: InProcessEventConfig {
                 broadcast_buffer_size: 1000,
                 ffi_integration_enabled: true,
-                queue_names: vec!["default_queue".to_string()],
                 deduplication_cache_size: 10000,
             },
             listener: UnifiedWorkerListenerConfig {
@@ -73,6 +70,7 @@ fn create_default_config() -> WorkerEventSystemConfig {
                 age_threshold_seconds: 2,
                 max_age_hours: 12,
                 visibility_timeout_seconds: 30,
+                supported_namespaces: vec!["default".to_string()],
             },
             resource_limits: WorkerResourceLimits {
                 max_memory_mb: 1024,
@@ -91,15 +89,12 @@ async fn test_worker_event_system_creation_and_startup() {
     let mut config = create_default_config();
     config.system_id = "test-worker-event-system".to_string();
     config.deployment_mode = DeploymentMode::PollingOnly; // Use polling only to avoid dependency on actual DB
-    config.namespaces = vec!["test_namespace".to_string()];
     config.timing.fallback_polling_interval_seconds = 1; // Fast polling for test
     config.processing.batch_size = 5;
     config.metadata.fallback_poller.polling_interval_ms = 1000;
     config.metadata.fallback_poller.batch_size = 5;
     config.metadata.fallback_poller.age_threshold_seconds = 1;
     config.metadata.fallback_poller.max_age_hours = 1;
-    config.metadata.in_process_events.ffi_integration_enabled = false; // Disable for test
-    config.metadata.in_process_events.queue_names = vec!["test_namespace_queue".to_string()];
 
     // Create system context (mock)
     let context = Arc::new(
@@ -112,7 +107,8 @@ async fn test_worker_event_system_creation_and_startup() {
     let (command_sender, _command_receiver) = mpsc::channel(100);
 
     // Create WorkerEventSystem
-    let event_system = WorkerEventSystem::new(config, command_sender, context);
+    let event_system =
+        WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
 
     // Verify initial state
     assert_eq!(event_system.system_id(), "test-worker-event-system");
@@ -142,11 +138,9 @@ async fn test_worker_event_processing_flow() {
     let mut config = create_default_config();
     config.system_id = "test-event-processing".to_string();
     config.deployment_mode = DeploymentMode::Hybrid;
-    config.namespaces = vec!["linear_workflow".to_string()];
     config.timing.health_check_interval_seconds = 10;
     config.processing.max_concurrent_operations = 3;
     config.timing.processing_timeout_seconds = 1;
-    config.metadata.in_process_events.queue_names = vec!["linear_workflow_queue".to_string()];
 
     let context = Arc::new(
         SystemContext::new()
@@ -155,7 +149,12 @@ async fn test_worker_event_processing_flow() {
     );
     let (command_sender, _command_receiver) = mpsc::channel(100);
 
-    let event_system = WorkerEventSystem::new(config, command_sender, context);
+    let event_system = WorkerEventSystem::new(
+        config,
+        command_sender,
+        context,
+        vec!["linear_workflow_queue".to_string()],
+    );
 
     // Create test events
     let step_message_event =
@@ -191,7 +190,16 @@ async fn test_worker_notification_handling() {
     );
     let (command_sender, _command_receiver) = mpsc::channel(100);
 
-    let event_system = WorkerEventSystem::new(config, command_sender, context);
+    let event_system = WorkerEventSystem::new(
+        config,
+        command_sender,
+        context,
+        vec![
+            "test".to_string(),
+            "health".to_string(),
+            "config".to_string(),
+        ],
+    );
 
     // Test different notification types
     let step_event = WorkerQueueEvent::StepMessage(create_test_message_ready_event(
@@ -245,7 +253,8 @@ async fn test_deployment_mode_behavior() {
         );
         let (command_sender, _command_receiver) = mpsc::channel(100);
 
-        let event_system = WorkerEventSystem::new(config, command_sender, context);
+        let event_system =
+            WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
 
         // Verify deployment mode is set correctly
         assert_eq!(event_system.deployment_mode(), deployment_mode);
@@ -276,7 +285,8 @@ async fn test_event_processing_error_handling() {
     );
     let (command_sender, _command_receiver) = mpsc::channel(100);
 
-    let event_system = WorkerEventSystem::new(config, command_sender, context);
+    let event_system =
+        WorkerEventSystem::new(config, command_sender, context, vec!["default".to_string()]);
 
     // Test unknown event handling
     let unknown_event = WorkerQueueEvent::Unknown {
@@ -300,20 +310,6 @@ async fn test_event_processing_error_handling() {
 }
 
 // Helper functions
-
-async fn create_pgmq_client() -> Arc<UnifiedPgmqClient> {
-    use tasker_shared::config::ConfigManager;
-    use tasker_shared::system_context::SystemContext;
-
-    let config_manager = ConfigManager::load_from_env("test").unwrap();
-    let system_context = SystemContext::from_config(config_manager)
-        .await
-        .map_err(|e| {
-            panic!("Failed to create system context: {e}");
-        })
-        .unwrap();
-    system_context.message_client.clone()
-}
 
 fn create_test_message_ready_event(
     msg_id: i64,
@@ -342,10 +338,6 @@ async fn test_complete_tas43_integration() {
     let config = WorkerEventSystemConfig {
         system_id: "tas43-integration-test".to_string(),
         deployment_mode: DeploymentMode::Hybrid,
-        namespaces: vec![
-            "linear_workflow".to_string(),
-            "order_fulfillment".to_string(),
-        ],
         timing: EventSystemTimingConfig {
             health_check_interval_seconds: 5,
             fallback_polling_interval_seconds: 1,
@@ -374,10 +366,6 @@ async fn test_complete_tas43_integration() {
             in_process_events: InProcessEventConfig {
                 broadcast_buffer_size: 1000,
                 ffi_integration_enabled: true,
-                queue_names: vec![
-                    "linear_workflow_queue".to_string(),
-                    "order_fulfillment_queue".to_string(),
-                ],
                 deduplication_cache_size: 10000,
             },
             listener: UnifiedWorkerListenerConfig {
@@ -394,6 +382,10 @@ async fn test_complete_tas43_integration() {
                 age_threshold_seconds: 1,
                 max_age_hours: 1,
                 visibility_timeout_seconds: 30,
+                supported_namespaces: vec![
+                    "linear_workflow".to_string(),
+                    "order_fulfillment".to_string(),
+                ],
             },
             resource_limits: WorkerResourceLimits {
                 max_memory_mb: 1024,
@@ -413,7 +405,15 @@ async fn test_complete_tas43_integration() {
     let (command_sender, _command_receiver) = mpsc::channel(1000);
 
     // 3. Create and verify WorkerEventSystem
-    let event_system = WorkerEventSystem::new(config, command_sender.clone(), context);
+    let event_system = WorkerEventSystem::new(
+        config,
+        command_sender.clone(),
+        context,
+        vec![
+            "linear_workflow".to_string(),
+            "order_fulfillment".to_string(),
+        ],
+    );
 
     // 4. Verify system properties
     assert_eq!(event_system.system_id(), "tas43-integration-test");

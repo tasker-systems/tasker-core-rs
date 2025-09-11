@@ -2,7 +2,7 @@
 //!
 //! Tests for the TaskerConfig implementation and environment variable handling.
 
-use tasker_shared::config::{BackoffConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig};
+use tasker_shared::config::{BackoffConfig, ExecutionConfig, TaskerConfig};
 
 #[test]
 fn config_loads_successfully() {
@@ -74,11 +74,6 @@ fn config_component_defaults() {
     );
     assert_eq!(backoff_config.max_backoff_seconds, 60); // Updated to match actual default
     assert!(backoff_config.jitter_enabled);
-
-    let reenqueue_delays = ReenqueueDelays::default();
-    assert_eq!(reenqueue_delays.has_ready_steps, 10); // Updated to match actual default
-    assert_eq!(reenqueue_delays.waiting_for_dependencies, 10); // Updated to match actual default
-    assert_eq!(reenqueue_delays.processing, 10); // Updated to match actual default
 }
 
 #[test]

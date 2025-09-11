@@ -1,10 +1,10 @@
 mod common;
 
-use common::{create_orchestration_message, create_test_message, create_workflow_message, TestDb};
+use common::{create_orchestration_message, create_test_message, TestDb};
 use serde_json::json;
 
 /// Test complete PGMQ wrapper functions flow with notifications
-/// Converted from test_complete_wrapper_flow.sql  
+/// Converted from test_complete_wrapper_flow.sql
 /// Demonstrates: queue creation -> message sending -> notifications -> verification
 #[tokio::test]
 async fn test_complete_wrapper_flow() {
@@ -197,7 +197,7 @@ async fn test_delayed_message_flow() {
     assert_eq!(message_count, 1, "Queue should contain 1 delayed message");
 
     // Try to read immediately - should get empty result for visibility timeout
-    let immediate_messages = test_db
+    let _immediate_messages = test_db
         .read_messages(&test_queue, 1, 10) // Very short visibility timeout
         .await
         .expect("Failed to read messages");

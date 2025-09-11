@@ -23,7 +23,6 @@ use crate::{
     worker::core::{WorkerCore, WorkerCoreStatus},
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
-use tasker_shared::registry::TaskTemplateDiscoveryResult;
 use tasker_shared::{
     config::ConfigManager,
     errors::{TaskerError, TaskerResult},

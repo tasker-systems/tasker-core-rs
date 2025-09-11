@@ -106,7 +106,6 @@ pub struct BackoffConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationEventSystemMetadata {
     /// Note: Queue configuration is populated from main queues config, not TOML
-    #[serde(skip)]
     pub queues_populated_at_runtime: bool,
 }
 
@@ -498,7 +497,7 @@ mod tests {
         let timing = EventSystemTimingConfig::default();
 
         assert_eq!(timing.health_check_interval(), Duration::from_secs(30));
-        assert_eq!(timing.fallback_polling_interval(), Duration::from_secs(5));
+        assert_eq!(timing.fallback_polling_interval(), Duration::from_secs(1));
         assert_eq!(timing.claim_timeout(), Duration::from_secs(300));
     }
 

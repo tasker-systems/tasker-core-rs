@@ -435,8 +435,6 @@ impl UnifiedConfigLoader {
         Ok(())
     }
 
-    /// Validate executor pools configuration
-
     /// Validate PGMQ configuration
     fn validate_pgmq_config(&self, config: &toml::Value) -> ConfigResult<()> {
         let table = config.as_table().ok_or_else(|| {

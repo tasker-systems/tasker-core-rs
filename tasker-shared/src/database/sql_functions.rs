@@ -24,7 +24,6 @@
 //!
 //! ### 3. State Management
 //! - `transition_task_state(task_uuid, from_state, to_state)`: Atomic state transitions
-//! - `cleanup_stale_processes(timeout_minutes)`: Process cleanup and recovery
 //! - `finalize_task_completion(task_uuid)`: Task completion orchestration
 //!
 //! ## Performance Benefits

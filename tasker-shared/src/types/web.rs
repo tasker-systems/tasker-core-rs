@@ -3,14 +3,12 @@
 //! Defines error types specific to the web API and their HTTP response conversions.
 //! Leverages thiserror for structured error handling and Axum's IntoResponse for HTTP conversion.
 
-use crate::config::{ConfigManager, WebConfig};
-use crate::{TaskerError, TaskerResult};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::error;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

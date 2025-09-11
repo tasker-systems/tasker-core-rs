@@ -224,16 +224,14 @@ impl SystemContext {
 
         let queue_config = self.config_manager.config().queues.clone();
 
-        let mut orchestration_owned_queues = Vec::<&str>::new();
-
-        orchestration_owned_queues.push(queue_config.orchestration_queues.step_results.as_str());
-        orchestration_owned_queues.push(queue_config.orchestration_queues.task_requests.as_str());
-        orchestration_owned_queues.push(
+        let orchestration_owned_queues = vec![
+            queue_config.orchestration_queues.step_results.as_str(),
+            queue_config.orchestration_queues.task_requests.as_str(),
             queue_config
                 .orchestration_queues
                 .task_finalizations
                 .as_str(),
-        );
+        ];
 
         for queue_name in orchestration_owned_queues {
             self.message_client

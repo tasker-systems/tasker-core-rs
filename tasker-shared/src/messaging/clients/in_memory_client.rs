@@ -79,9 +79,9 @@ impl InMemoryClient {
         *self.last_activity.lock().await = chrono::Utc::now();
     }
 
-    /// Get queue name for namespace
+    /// Get queue name for namespace (matches tasker_pgmq_client naming)
     fn get_queue_name(&self, namespace: &str) -> String {
-        format!("{}_queue", namespace)
+        format!("worker_{}_queue", namespace)
     }
 
     /// Send a message to a specific queue
@@ -147,6 +147,12 @@ impl InMemoryClient {
         }
 
         Ok(result)
+    }
+}
+
+impl Default for InMemoryClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

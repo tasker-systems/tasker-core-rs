@@ -115,7 +115,7 @@ pub struct TaskerConfig {
 ///
 /// Contains all event system configurations in a standardized format
 /// to eliminate configuration drift between orchestration, task readiness, and worker systems.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct EventSystemsConfig {
     /// Orchestration event system configuration
     pub orchestration: UnifiedOrchestrationEventSystemConfig,
@@ -125,16 +125,6 @@ pub struct EventSystemsConfig {
 
     /// Worker event system configuration
     pub worker: UnifiedWorkerEventSystemConfig,
-}
-
-impl Default for EventSystemsConfig {
-    fn default() -> Self {
-        Self {
-            orchestration: UnifiedOrchestrationEventSystemConfig::default(),
-            task_readiness: UnifiedTaskReadinessEventSystemConfig::default(),
-            worker: UnifiedWorkerEventSystemConfig::default(),
-        }
-    }
 }
 
 /// Database connection and pooling configuration
