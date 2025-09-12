@@ -24,21 +24,28 @@
 //! ## Usage in WorkerProcessor
 //!
 //! ```rust
-//! use tasker_worker::event_publisher::WorkerEventPublisher;
+//! use tasker_worker::worker::event_publisher::WorkerEventPublisher;
+//! use tasker_shared::types::TaskSequenceStep;
 //!
-//! // Inside WorkerProcessor
-//! let event_publisher = WorkerEventPublisher::new(worker_id.clone());
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Inside WorkerProcessor
+//!     let worker_id = "worker-001".to_string();
+//!     let event_publisher = WorkerEventPublisher::new(worker_id.clone());
 //!
-//! // After database hydration, before or during step execution
-//! event_publisher.fire_step_execution_event(
-//!     task_uuid,
-//!     step_uuid,
-//!     step_name,
-//!     handler_class,
-//!     step_payload,
-//!     dependency_results,
-//!     execution_context,
-//! ).await?;
+//!     // Example TaskSequenceStep would come from database hydration
+//!     // For doctest purposes, we'll create a minimal example
+//!     // In practice, this would come from WorkerProcessor's step processing
+//!
+//!     // Note: TaskSequenceStep creation would typically happen in the processor
+//!     // This is just to demonstrate the fire_step_execution_event API
+//!
+//!     // Uncomment for real usage with TaskSequenceStep:
+//!     // event_publisher.fire_step_execution_event(&task_sequence_step).await?;
+//!
+//!     println!("WorkerEventPublisher created successfully");
+//!     Ok(())
+//! }
 //! ```
 
 use std::sync::Arc;

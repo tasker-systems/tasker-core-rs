@@ -19,16 +19,15 @@
 //!
 //! ```rust,no_run
 //! use tasker_orchestration::orchestration::StateManager;
-//! use tasker_shared::events::publisher::EventPublisher;
-//! use tasker_shared::database::sql_functions::SqlFunctionExecutor;
+//! use tasker_shared::system_context::SystemContext;
+//! use std::sync::Arc;
 //!
-//! // Create components for StateManager (using mock pool for example)
-//! # use sqlx::PgPool;
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # let pool = PgPool::connect("postgresql://localhost/nonexistent").await?;
-//! let sql_executor = SqlFunctionExecutor::new(pool.clone());
-//! let event_publisher = EventPublisher::new();
-//! let state_manager = StateManager::new(sql_executor, event_publisher, pool);
+//! // Create system context (using mock configuration for example)
+//! # use tasker_shared::config::ConfigManager;
+//! # let config_manager = ConfigManager::load()?;
+//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! let state_manager = StateManager::new(context);
 //!
 //! // StateManager provides high-level state management operations
 //! // Verify creation succeeded (we can't test database operations without a real database)

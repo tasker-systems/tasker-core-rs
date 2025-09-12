@@ -16,18 +16,17 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_orchestration::orchestration::viable_step_discovery::ViableStepDiscovery;
-//! use tasker_shared::events::publisher::EventPublisher;
-//! use tasker_shared::database::sql_functions::SqlFunctionExecutor;
+//! use tasker_shared::system_context::SystemContext;
+//! use std::sync::Arc;
 //!
-//! // Create ViableStepDiscovery for step readiness analysis
-//! # use sqlx::PgPool;
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # let pool = PgPool::connect("postgresql://localhost/nonexistent").await?;
-//! let sql_executor = SqlFunctionExecutor::new(pool.clone());
-//! let event_publisher = EventPublisher::new();
-//! let discovery = ViableStepDiscovery::new(sql_executor, event_publisher, pool);
+//! // Create system context for ViableStepDiscovery
+//! # use tasker_shared::config::ConfigManager;
+//! # let config_manager = ConfigManager::load()?;
+//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! let discovery = ViableStepDiscovery::new(context);
 //!
 //! // ViableStepDiscovery uses SQL functions to determine step readiness
 //! // Verify creation succeeded (we can't test SQL functions without a real database)

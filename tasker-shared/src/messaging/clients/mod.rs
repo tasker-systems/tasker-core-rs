@@ -12,18 +12,20 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use crate::messaging::clients::{UnifiedMessageClient, MessageClient};
-//! // NOTE: PgmqClient is now located in pgmq-notify crate
-//! use pgmq_notify::PgmqClient;
+//! ```rust,no_run
+//! use tasker_shared::messaging::clients::{UnifiedMessageClient, MessageClient};
+//! use tasker_shared::TaskerResult;
 //!
+//! # async fn example() -> TaskerResult<()> {
 //! // Create a client based on your needs
 //! let client = UnifiedMessageClient::new_in_memory(); // For testing
-//! let client = UnifiedMessageClient::new_pgmq(database_url).await?; // For production
+//! // let client = UnifiedMessageClient::new_pgmq("postgresql://localhost/test").await?; // For production
 //!
-//! // Use the unified interface
-//! client.send_step_message(namespace, message).await?;
-//! let messages = client.receive_step_messages(namespace, 10, 30).await?;
+//! // Use the unified interface would work like this (example shows structure)
+//! // client.send_step_message(namespace, message).await?;
+//! // let messages = client.receive_step_messages(namespace, 10, 30).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod in_memory_client;

@@ -251,7 +251,12 @@ impl TaskSequenceStep {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # use serde::{Deserialize, Serialize};
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct UserInfo { name: String }
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
     /// // Get a string field
     /// let order_id: String = step_data.get_context_field("order_id")?;
     ///
@@ -260,6 +265,7 @@ impl TaskSequenceStep {
     ///
     /// // Get a complex object
     /// let user_info: UserInfo = step_data.get_context_field("user")?;
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn get_context_field<T>(&self, field_name: &str) -> Result<T, anyhow::Error>
     where
@@ -307,12 +313,18 @@ impl TaskSequenceStep {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
+    /// # use tasker_shared::types::base::TaskSequenceStep;
+    /// # use serde::{Deserialize, Serialize};
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct ValidationResult { valid: bool }
+    /// # let step_data: TaskSequenceStep = panic!("Example only");
     /// // Get a simple value result
-    /// let calculated_value: i64 = step_data.get_dependency_result("calculate_step")?;
+    /// let calculated_value: i64 = step_data.get_dependency_result_column_value("calculate_step")?;
     ///
     /// // Get a complex result object
-    /// let validation_result: ValidationResult = step_data.get_dependency_result("validate_step")?;
+    /// let validation_result: ValidationResult = step_data.get_dependency_result_column_value("validate_step")?;
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn get_dependency_result_column_value<T>(&self, step_name: &str) -> Result<T, anyhow::Error>
     where

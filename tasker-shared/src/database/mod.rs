@@ -36,6 +36,8 @@
 //! ```rust,no_run
 //! use tasker_shared::database::SqlFunctionExecutor;
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
 //! // Execute SQL functions
 //! let executor = SqlFunctionExecutor::new(pool.clone());
 //! let metrics = executor.get_analytics_metrics(None).await?;

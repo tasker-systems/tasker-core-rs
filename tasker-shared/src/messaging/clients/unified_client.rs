@@ -26,6 +26,9 @@
 //! ## Usage in SystemContext
 //!
 //! ```rust
+//! use std::sync::Arc;
+//! use tasker_shared::messaging::clients::UnifiedMessageClient;
+//! 
 //! // SystemContext uses UnifiedMessageClient instead of direct PgmqClient
 //! pub struct SystemContext {
 //!     pub message_client: Arc<UnifiedMessageClient>,

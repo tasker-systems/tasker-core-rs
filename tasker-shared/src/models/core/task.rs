@@ -1461,7 +1461,6 @@ impl Task {
     ///     context: Some(context),
     ///     identity_hash,
     ///     priority: Some(5), // Default priority
-    ///     claim_timeout_seconds: Some(300), // 5 minutes default claim timeout
     /// };
     ///
     /// let task = Task::create(pool, new_task).await?;
@@ -1509,7 +1508,7 @@ impl Task {
     /// println!("Health: {}", context.health_status);
     ///
     /// if let Some(action) = context.recommended_action {
-    ///     println!("Recommended Action: {}", action);
+    ///     println!("Recommended Action: {:?}", action);
     /// }
     ///
     /// // Check if intervention needed
@@ -1577,7 +1576,7 @@ impl Task {
     ///         (context.completed_steps * 100 / context.total_steps)
     ///     } else { 0 };
     ///
-    ///     println!("Task {}: {} - {}% complete - {} ready steps",
+    ///     println!("Task {}: {:?} - {}% complete - {} ready steps",
     ///              context.task_uuid, context.execution_status,
     ///              completion_pct, context.ready_steps);
     /// }
@@ -1830,7 +1829,9 @@ impl Task {
     /// # async fn example(pool: &PgPool, task_uuid: Uuid) -> Result<(), sqlx::Error> {
     /// let mut task = Task::find_by_id(pool, task_uuid).await?.unwrap();
     ///
-    /// task.cancel_task(pool).await?;
+    /// # use std::sync::Arc;
+    /// # let context: Arc<tasker_shared::system_context::SystemContext> = panic!("Example only");
+    /// task.cancel_task(context).await?;
     /// // Task and all steps are now properly transitioned to cancelled state
     /// # Ok(())
     /// # }

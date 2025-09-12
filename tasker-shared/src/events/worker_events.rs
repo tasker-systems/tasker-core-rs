@@ -21,24 +21,29 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_shared::events::{WorkerEventSystem, WorkerEventPublisher};
 //! use tasker_shared::types::{StepEventPayload, StepExecutionEvent};
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create worker event system
 //! let event_system = WorkerEventSystem::new();
 //!
 //! // Worker publishes step execution event to FFI
 //! let publisher = event_system.create_publisher();
-//! let payload = StepEventPayload::new(/* ... */);
-//! publisher.publish_step_execution(payload).await?;
+//! # let task_sequence_step = panic!("Example only - would be real TaskSequenceStep");
+//! # let payload = StepEventPayload::new(uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), task_sequence_step);
+//! // publisher.publish_step_execution(payload).await?;
 //!
 //! // Subscribe to completion events from FFI
 //! let subscriber = event_system.create_subscriber();
 //! let mut completions = subscriber.subscribe_to_step_completions();
 //! while let Ok(completion) = completions.recv().await {
 //!     // Handle completion from FFI handler
+//!     break; // Example - break after first completion
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::types::{StepEventPayload, StepExecutionCompletionEvent, StepExecutionEvent};

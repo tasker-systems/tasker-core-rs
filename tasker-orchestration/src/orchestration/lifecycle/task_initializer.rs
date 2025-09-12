@@ -20,23 +20,23 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use tasker_orchestration::orchestration::TaskInitializer;
-//! use tasker_orchestration::orchestration::handler_config::HandlerConfiguration;
-//! use tasker_shared::models::core::task_request::TaskRequest;
+//! ```rust,no_run
+//! use tasker_orchestration::orchestration::lifecycle::task_initializer::TaskInitializer;
+//! use tasker_shared::system_context::SystemContext;
+//! use tasker_orchestration::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
+//! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # let pool = sqlx::PgPool::connect("postgresql://localhost/nonexistent").await?;
-//! let initializer = TaskInitializer::new(pool.clone());
+//! // Create system context and dependencies
+//! # use tasker_shared::config::ConfigManager;
+//! # let config_manager = ConfigManager::load()?;
+//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! let step_enqueuer = Arc::new(StepEnqueuerService::new(context.clone()).await?);
+//! let initializer = TaskInitializer::new(context, step_enqueuer);
 //!
-//! let task_request = TaskRequest::new("order_processor".to_string(), "default".to_string())
-//!     .with_context(serde_json::json!({"order_id": 12345}))
-//!     .with_initiator("test_user".to_string())
-//!     .with_source_system("test_system".to_string())
-//!     .with_reason("Example usage".to_string());
-//!
-//! let result = initializer.create_task_from_request(task_request).await?;
-//! println!("Created task {} with {} steps", result.task_uuid, result.step_count);
+//! // TaskInitializer is ready to create tasks from requests
+//! // See integration tests for complete usage examples
+//! let _initializer = initializer;
 //! # Ok(())
 //! # }
 //! ```

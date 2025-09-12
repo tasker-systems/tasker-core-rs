@@ -34,20 +34,18 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_orchestration::orchestration::step_result_processor::StepResultProcessor;
-//! use tasker_shared::messaging::UnifiedPgmqClient;
-//! use tasker_shared::config::TaskerConfig;
+//! use tasker_orchestration::orchestration::lifecycle::step_result_processor::StepResultProcessor;
+//! use tasker_shared::system_context::SystemContext;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
-//! # let pgmq_client = Arc::new(UnifiedPgmqClient::Standard(
-//! #     tasker_shared::messaging::PgmqClient::new_with_pool(pool.clone()).await
-//! # ));
-//! # let config = TaskerConfig::default();
-//! let processor = StepResultProcessor::new(pool, pgmq_client, config).await?;
+//! // Create system context and step result processor
+//! # use tasker_shared::config::ConfigManager;
+//! # let config_manager = ConfigManager::load()?;
+//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! let processor = StepResultProcessor::new(context).await?;
 //!
-//! // Process step results
+//! // Process step results from the queue
 //! processor.process_batch().await?;
 //! # Ok(())
 //! # }

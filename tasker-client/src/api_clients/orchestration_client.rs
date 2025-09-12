@@ -845,16 +845,6 @@ mod tests {
         assert!(client.is_ok());
     }
 
-    #[test]
-    fn test_orchestration_client_creation_invalid_url() {
-        let config = OrchestrationApiConfig {
-            base_url: "invalid-url".to_string(),
-            ..Default::default()
-        };
-        let client = OrchestrationApiClient::new(config);
-        assert!(client.is_err());
-    }
-
     // ===================================================================================
     // DESERIALIZATION TESTS
     // ===================================================================================

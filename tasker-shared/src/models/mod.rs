@@ -91,7 +91,6 @@
 //!     context: Some(json!({"input": "data"})),
 //!     identity_hash: "example_hash".to_string(),
 //!     priority: Some(5),
-//!     claim_timeout_seconds: Some(300),
 //! }).await?;
 //! # Ok(())
 //! # }

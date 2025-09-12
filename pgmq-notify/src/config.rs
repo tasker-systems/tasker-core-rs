@@ -196,7 +196,7 @@ mod tests {
             config.extract_namespace("inventory_queue").unwrap(),
             "inventory"
         );
-        assert_eq!(config.extract_namespace("no_match").unwrap(), "default");
+        assert!(config.extract_namespace("no_match").is_err(), "Should return error for non-matching pattern");
     }
 
     #[test]

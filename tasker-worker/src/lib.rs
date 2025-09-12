@@ -41,7 +41,6 @@
 //!     // TAS-43 Event-Driven Worker with Configuration
 //!     let config = WorkerBootstrapConfig {
 //!         worker_id: "worker-001".to_string(),
-//!         supported_namespaces: vec!["payments".to_string(), "inventory".to_string()],
 //!         enable_web_api: true,
 //!         event_driven_enabled: true,  // TAS-43 Event-Driven Processing
 //!         deployment_mode_hint: Some("Hybrid".to_string()), // Reliability mode

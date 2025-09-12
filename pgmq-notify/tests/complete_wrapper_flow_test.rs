@@ -31,8 +31,8 @@ async fn test_complete_wrapper_flow() {
     // Test 1: Single Message with Notifications
     // This will:
     // 1. Send message to PGMQ queue
-    // 2. Extract namespace from queue name (test_complete_queue -> test_complete_queue)
-    // 3. Send pg_notify to: pgmq_message_ready.test_complete_queue
+    // 2. Extract namespace from queue name (test_complete_queue -> test_complete)
+    // 3. Send pg_notify to: pgmq_message_ready.test_complete
     // 4. Send pg_notify to: pgmq_message_ready (global channel)
     let integration_message =
         create_test_message("integration_test", json!("testing complete flow"));
@@ -47,7 +47,7 @@ async fn test_complete_wrapper_flow() {
     // Verify expected notification channel
     assert_eq!(
         test_db.get_notification_channel(&test_complete_queue),
-        "pgmq_message_ready.test_complete_queue"
+        "pgmq_message_ready.test_complete"
     );
 
     // Test 2: Batch Messages with Notifications
@@ -145,7 +145,7 @@ async fn test_complete_wrapper_flow() {
 
     // Test 5: Summary - Expected Notification Channels
     let queue_channel_mappings = vec![
-        (&test_complete_queue, "test_complete_queue"),
+        (&test_complete_queue, "test_complete"),
         (&worker_rust_queue, "rust"),
         (&orchestration_queue, "orchestration"),
     ];

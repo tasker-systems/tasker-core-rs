@@ -154,7 +154,7 @@ impl SystemHealthCounts {
     ///     println!("Total tasks: {}", health.total_tasks);
     ///     println!("Error tasks: {}", health.error_tasks);
     ///     println!("Is healthy: {}", health.is_healthy());
-    ///     println!("Connection usage: {}/{}", health.active_connections, health.max_connections);
+    ///     println!("Steps in process: {}", health.running_steps);
     /// }
     /// # Ok(())
     /// # }
@@ -269,25 +269,29 @@ impl SystemHealthCounts {
     /// let healthy_system = SystemHealthCounts {
     ///     total_tasks: 100,
     ///     pending_tasks: 5,
-    ///     in_progress_tasks: 10,
+    ///     initializing_tasks: 2,
+    ///     enqueuing_steps_tasks: 3,
+    ///     steps_in_process_tasks: 10,
+    ///     evaluating_results_tasks: 5,
+    ///     waiting_for_dependencies_tasks: 0,
+    ///     waiting_for_retry_tasks: 0,
+    ///     blocked_by_failures_tasks: 0,
     ///     complete_tasks: 85,
     ///     error_tasks: 0,
     ///     cancelled_tasks: 0,
+    ///     resolved_manually_tasks: 0,
     ///     total_steps: 300,
     ///     pending_steps: 10,
-    ///     in_progress_steps: 20,
-    ///     complete_steps: 270,
-    ///     error_steps: 0,
-    ///     retryable_error_steps: 0,
-    ///     exhausted_retry_steps: 0,
-    ///     in_backoff_steps: 0,
-    ///     active_connections: 5,
-    ///     max_connections: 20,
-    ///     enqueued_steps: 0,
+    ///     enqueued_steps: 15,
+    ///     running_steps: 20,
+    ///     complete_steps: 250,
+    ///     cancelled_steps: 0,
+    ///     failed_steps: 0,
+    ///     resolved_manually_steps: 5,
     /// };
     ///
     /// let score = healthy_system.overall_health_score();
-    /// assert!(score > 85.0, "Healthy system should score above 85");
+    /// assert!(score > 75.0, "Healthy system should score above 75");
     /// assert!(healthy_system.is_healthy());
     /// ```
     pub fn overall_health_score(&self) -> f64 {

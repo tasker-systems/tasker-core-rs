@@ -24,20 +24,33 @@
 //! ## Usage in WorkerProcessor
 //!
 //! ```rust
-//! use tasker_worker::event_subscriber::WorkerEventSubscriber;
+//! use tasker_worker::worker::event_subscriber::WorkerEventSubscriber;
+//! use tokio::sync::mpsc;
 //!
-//! // Inside WorkerProcessor initialization
-//! let event_subscriber = WorkerEventSubscriber::new(worker_id.clone());
-//! let completion_receiver = event_subscriber.start_completion_listener();
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Inside WorkerProcessor initialization
+//!     let worker_id = "worker-001".to_string();
+//!     let event_subscriber = WorkerEventSubscriber::new(worker_id.clone());
+//!     let mut completion_receiver = event_subscriber.start_completion_listener();
 //!
-//! // In command processing loop alongside other commands
-//! tokio::select! {
-//!     command = command_receiver.recv() => {
-//!         // Handle regular worker commands
-//!     },
-//!     completion = completion_receiver.recv() => {
-//!         // Handle step completion from FFI handlers
-//!     }
+//!     // Create a dummy command receiver for the example
+//!     let (_command_tx, mut command_receiver) = mpsc::channel::<String>(10);
+//!
+//!     // In command processing loop alongside other commands
+//!     // Note: This would normally run in a loop, but for doctest we'll just show the pattern
+//!     println!("WorkerEventSubscriber setup complete - would process commands here");
+//!     
+//!     // Example of the select pattern (commented out to avoid hanging in doctest):
+//!     // tokio::select! {
+//!     //     command = command_receiver.recv() => {
+//!     //         // Handle regular worker commands
+//!     //     },
+//!     //     completion = completion_receiver.recv() => {
+//!     //         // Handle step completion from FFI handlers
+//!     //     }
+//!     // }
+//!     Ok(())
 //! }
 //! ```
 

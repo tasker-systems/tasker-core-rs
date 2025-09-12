@@ -25,30 +25,20 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use tasker_orchestration::orchestration::{step_enqueuer::StepEnqueuer, task_claimer::ClaimedTask};
-//! use tasker_shared::messaging::{PgmqClient, UnifiedPgmqClient};
-//! use uuid::Uuid;
+//! use tasker_orchestration::orchestration::lifecycle::step_enqueuer::StepEnqueuer;
+//! use tasker_shared::system_context::SystemContext;
+//! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # let pool = sqlx::PgPool::connect("postgresql://localhost/test").await?;
-//! # let database_url = "postgresql://localhost/test";
-//! # let pgmq_client = PgmqClient::new(database_url).await
-//! #     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
-//! # let unified_client = UnifiedPgmqClient::Standard(pgmq_client);
-//! let enqueuer = StepEnqueuer::with_unified_client(pool, unified_client).await?;
+//! // Create system context and step enqueuer
+//! # use tasker_shared::config::ConfigManager;
+//! # let config_manager = ConfigManager::load()?;
+//! let context = Arc::new(SystemContext::from_config(config_manager).await?);
+//! let enqueuer = StepEnqueuer::new(context).await?;
 //!
-//! // Enqueue ready steps for a claimed task
-//! let claimed_task = ClaimedTask {
-//!     task_uuid: Uuid::now_v7(),
-//!     namespace_name: "fulfillment".to_string(),
-//!     // ... other fields
-//! #   priority: 2, computed_priority: 4.0, age_hours: 0.1,
-//! #   ready_steps_count: 2, claim_timeout_seconds: 300,
-//! #   claimed_at: chrono::Utc::now(),
-//! };
-//!
-//! let result = enqueuer.enqueue_ready_steps(&claimed_task).await?;
-//! println!("Enqueued {} steps for task {}", result.steps_enqueued, claimed_task.task_uuid);
+//! // StepEnqueuer is ready to enqueue steps for tasks
+//! // See integration tests for complete usage examples
+//! let _enqueuer = enqueuer;
 //! # Ok(())
 //! # }
 //! ```

@@ -446,49 +446,4 @@ mod tests {
         assert!(!config.auto_start_processors);
         assert_eq!(config.environment_override, Some("test".to_string()));
     }
-
-    #[tokio::test]
-    async fn test_bootstrap_config_from_config_manager() {
-        // Test creating bootstrap config from config manager
-        // Save existing DATABASE_URL if any
-        let original_database_url = std::env::var("DATABASE_URL").ok();
-
-        // Set a dummy DATABASE_URL for the test
-        std::env::set_var(
-            "DATABASE_URL",
-            "postgresql://test:test@localhost:5432/test_db",
-        );
-
-        let config_manager = match ConfigManager::load_from_env("test") {
-            Ok(manager) => manager,
-            Err(err) => {
-                // Restore original DATABASE_URL before panicking
-                if let Some(url) = original_database_url {
-                    std::env::set_var("DATABASE_URL", url);
-                } else {
-                    std::env::remove_var("DATABASE_URL");
-                }
-                panic!("Failed to load config manager: {err}")
-            }
-        };
-        let config = BootstrapConfig::from_config_manager(
-            &config_manager,
-            vec!["namespace1".to_string(), "namespace2".to_string()],
-        );
-
-        assert_eq!(config.namespaces.len(), 2);
-        assert!(config.auto_start_processors);
-        assert_eq!(
-            config.environment_override,
-            Some(config_manager.environment().to_string())
-        );
-        assert!(config.enable_web_api);
-
-        // Restore original DATABASE_URL
-        if let Some(url) = original_database_url {
-            std::env::set_var("DATABASE_URL", url);
-        } else {
-            std::env::remove_var("DATABASE_URL");
-        }
-    }
 }

@@ -119,13 +119,13 @@ async fn test_pgmq_wrapper_functions() {
 
     // Verify expected namespace mappings
     let expected_mappings: HashMap<&str, &str> = [
-        ("test_queue", "test_queue"),
+        ("test_queue", "test"),
         ("worker_rust_queue", "rust"),
         ("worker_python_queue", "python"),
         ("orchestration", "orchestration"),
         ("orchestration_priority", "orchestration"),
         ("analytics_queue", "analytics"),
-        ("some_unknown_format", "some_unknown_format"),
+        ("some_unknown_format", "default"),
     ]
     .iter()
     .cloned()

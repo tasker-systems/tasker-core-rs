@@ -67,14 +67,18 @@ impl TestDb {
         messages: Vec<Value>,
         delay_seconds: i32,
     ) -> Result<Vec<i64>, sqlx::Error> {
-        let row = sqlx::query("SELECT pgmq_send_batch_with_notify($1, $2, $3) as msg_ids")
+        let rows = sqlx::query("SELECT pgmq_send_batch_with_notify($1, $2, $3)")
             .bind(queue_name)
             .bind(messages)
             .bind(delay_seconds)
-            .fetch_one(&self.pool)
+            .fetch_all(&self.pool)
             .await?;
 
-        Ok(row.get("msg_ids"))
+        let msg_ids: Vec<i64> = rows.iter()
+            .map(|row| row.get::<i64, usize>(0))
+            .collect();
+
+        Ok(msg_ids)
     }
 
     /// Get message count in a queue
@@ -140,21 +144,35 @@ impl TestDb {
 
     /// Extract namespace synchronously (for test assertions)
     fn extract_namespace_sync(&self, queue_name: &str) -> String {
+        // Remove test suffix if present (e.g., test_complete_queue_cd691ed8 -> test_complete_queue)
+        let clean_name = if let Some(last_underscore) = queue_name.rfind('_') {
+            let suffix = &queue_name[last_underscore + 1..];
+            // If suffix looks like a random ID (8+ alphanumeric chars), remove it
+            if suffix.len() >= 8 && suffix.chars().all(|c| c.is_ascii_alphanumeric()) {
+                &queue_name[..last_underscore]
+            } else {
+                queue_name
+            }
+        } else {
+            queue_name
+        };
+
         // Mirror the SQL extract_queue_namespace logic
-        if queue_name.starts_with("worker_") && queue_name.ends_with("_queue") {
+        if clean_name.starts_with("worker_") && clean_name.ends_with("_queue") {
             // worker_rust_queue -> rust
-            let middle = &queue_name[7..queue_name.len() - 6];
+            let middle = &clean_name[7..clean_name.len() - 6];
             middle.to_string()
-        } else if queue_name.ends_with("_queue") {
+        } else if clean_name.ends_with("_queue") {
             // some_namespace_queue -> some_namespace
-            let namespace = &queue_name[..queue_name.len() - 6];
+            let namespace = &clean_name[..clean_name.len() - 6];
             namespace.to_string()
-        } else if queue_name.starts_with("orchestration") {
+        } else if clean_name.starts_with("orchestration") {
             // orchestration* -> orchestration
             "orchestration".to_string()
         } else {
-            // fallback: use the queue name as-is
-            queue_name.to_string()
+            // For names like "test_complete_queue" that don't fit patterns,
+            // use the clean name as the namespace
+            clean_name.to_string()
         }
     }
 }

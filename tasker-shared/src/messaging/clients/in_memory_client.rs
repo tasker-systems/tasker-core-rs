@@ -14,13 +14,21 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use crate::messaging::clients::{UnifiedMessageClient, MessageClient};
+//! ```rust,no_run
+//! use tasker_shared::messaging::clients::{UnifiedMessageClient, MessageClient};
+//! use tasker_shared::messaging::message::SimpleStepMessage;
+//! use tasker_shared::TaskerResult;
 //!
+//! # async fn example() -> TaskerResult<()> {
 //! let client = UnifiedMessageClient::new_in_memory();
 //! client.initialize_namespace_queues(&["test_namespace"]).await?;
-//! client.send_step_message("test_namespace", step_message).await?;
-//! let messages = client.receive_step_messages("test_namespace", 10, 30).await?;
+//! 
+//! // Example of sending a message (would need actual step_message)
+//! // let step_message = SimpleStepMessage::new(...);
+//! // client.send_step_message("test_namespace", step_message).await?;
+//! // let messages = client.receive_step_messages("test_namespace", 10, 30).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 use async_trait::async_trait;
