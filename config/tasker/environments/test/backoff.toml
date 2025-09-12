@@ -1,0 +1,16 @@
+[backoff]
+default_backoff_seconds = [1]
+max_backoff_seconds = 1
+backoff_multiplier = 1.5
+jitter_enabled = false
+default_reenqueue_delay = 1
+buffer_seconds = 0
+
+[backoff.reenqueue_delays]
+initializing = 0
+enqueuing_steps = 0
+steps_in_process = 0
+evaluating_results = 0
+waiting_for_dependencies = 0
+waiting_for_retry = 0
+blocked_by_failures = 0

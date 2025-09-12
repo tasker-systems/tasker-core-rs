@@ -7,6 +7,10 @@ sample_rate = 0.1
 enabled = true
 check_interval_seconds = 120
 
+[health.alert_thresholds]
+error_rate = 0.02
+queue_depth = 5000.0
+
 [events]
 batch_size = 500
 enabled = true
@@ -21,10 +25,6 @@ max_size = 50000
 enabled = true
 cleanup_interval_seconds = 600
 memory_pressure_threshold = 0.85
-
-[health.alert_thresholds]
-error_rate = 0.02
-queue_depth = 5000.0
 
 [query_cache.active_workers]
 ttl_seconds = 60

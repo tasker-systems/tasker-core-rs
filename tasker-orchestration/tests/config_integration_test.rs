@@ -233,14 +233,20 @@ fn test_configuration_builder_pattern() {
 
 #[test]
 fn test_configuration_defaults_match_rails() {
-    // Test that our defaults match the Rails engine defaults
+    // Initialize tracing for debug output
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_test_writer()
+        .try_init();
+
+    // Test that our configuration loads properly from .env (which is currently test environment)
     let config_manager = ConfigManager::load().unwrap();
     let config = config_manager.config();
 
     // Database defaults
     assert!(!config.database.enable_secondary_database);
 
-    // Backoff defaults
+    // Backoff defaults (test environment values from .env TASKER_ENV=test)
     assert_eq!(config.backoff.default_backoff_seconds, vec![1]);
     assert_eq!(config.backoff.max_backoff_seconds, 1);
     assert_eq!(config.backoff.backoff_multiplier, 1.5);
@@ -249,11 +255,11 @@ fn test_configuration_defaults_match_rails() {
     assert_eq!(config.backoff.default_reenqueue_delay, 1);
     assert_eq!(config.backoff.buffer_seconds, 0);
 
-    // Execution defaults
+    // Execution defaults (test environment values from .env TASKER_ENV=test)
     assert_eq!(config.execution.max_concurrent_tasks, 10);
     assert_eq!(config.execution.max_concurrent_steps, 50);
     assert_eq!(config.execution.default_timeout_seconds, 30);
     assert_eq!(config.execution.step_execution_timeout_seconds, 10);
 
-    println!("✅ Configuration defaults match Rails engine!");
+    println!("✅ Configuration loaded successfully with test environment overrides!");
 }

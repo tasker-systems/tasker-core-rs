@@ -78,8 +78,6 @@ pub fn init_structured_logging() {
 /// Get current environment from environment variables
 fn get_environment() -> String {
     std::env::var("TASKER_ENV")
-        .or_else(|_| std::env::var("RAILS_ENV"))
-        .or_else(|_| std::env::var("RACK_ENV"))
         .or_else(|_| std::env::var("APP_ENV"))
         .unwrap_or_else(|_| "development".to_string())
 }
@@ -479,9 +477,9 @@ mod tests {
 
     #[test]
     fn test_environment_detection() {
-        std::env::set_var("TASKER_ENV", "test_override");
+        std::env::set_var("TASKER_ENV", "test");
         let env = get_environment();
-        assert_eq!(env, "test_override");
+        assert_eq!(env, "test");
         std::env::remove_var("TASKER_ENV");
     }
 

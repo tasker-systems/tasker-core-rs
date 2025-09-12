@@ -21,11 +21,6 @@ jitter_max_percentage = 0.1
 default_reenqueue_delay = 15
 buffer_seconds = 2
 
-[reenqueue]
-has_ready_steps = 0
-waiting_for_dependencies = 3
-processing = 1
-
 [backoff.reenqueue_delays]
 initializing = 1
 enqueuing_steps = 0
@@ -34,3 +29,8 @@ evaluating_results = 1
 waiting_for_dependencies = 15
 waiting_for_retry = 15
 blocked_by_failures = 60
+
+[reenqueue]
+has_ready_steps = 0
+waiting_for_dependencies = 3
+processing = 1

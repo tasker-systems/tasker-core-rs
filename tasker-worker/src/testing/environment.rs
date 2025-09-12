@@ -123,14 +123,12 @@ impl WorkerTestEnvironment {
 
         // Check 3: Environment must indicate test mode
         let is_test_env = self.get_env("TASKER_ENV") == Some("test".to_string())
-            || self.get_env("RAILS_ENV") == Some("test".to_string())
-            || self.get_env("APP_ENV") == Some("test".to_string())
             || self.get_env("TEST_ENV").is_some()
             || self.is_ci;
 
         if !is_test_env {
             warn!("⚠️ Environment does not indicate test mode");
-            warn!("  Set TASKER_ENV=test or RAILS_ENV=test for safety");
+            warn!("  Set TASKER_ENV=test for safety");
 
             // In CI, this is an error
             if self.is_ci {

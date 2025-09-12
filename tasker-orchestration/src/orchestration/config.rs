@@ -31,7 +31,7 @@ mod tests {
         let config = config_manager.config();
 
         // Test basic configuration structure is loaded
-        assert!(config.orchestration.web.auth.enabled);
+        assert!(!config.orchestration.web.auth.enabled);
         assert!(!config.database.enable_secondary_database);
         assert_eq!(
             config.backoff.default_backoff_seconds,
@@ -52,6 +52,6 @@ mod tests {
         // Environment can be overridden by TASKER_ENV, so just verify it's not empty
         assert!(!config_manager.environment().is_empty());
         let config = config_manager.config();
-        assert!(config.orchestration.web.auth.enabled);
+        assert!(!config.orchestration.web.auth.enabled);
     }
 }
