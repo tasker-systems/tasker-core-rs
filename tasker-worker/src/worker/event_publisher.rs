@@ -398,6 +398,24 @@ mod tests {
                 None,
             ),
         );
+        dependency_results.insert(
+            "validate_order".into(),
+            StepExecutionResult::success(
+                Uuid::new_v4(),
+                serde_json::json!({ "order_valid": true }),
+                50,
+                None,
+            ),
+        );
+        dependency_results.insert(
+            "check_inventory".into(),
+            StepExecutionResult::success(
+                Uuid::new_v4(),
+                serde_json::json!({ "inventory_checked": true }),
+                70,
+                None,
+            ),
+        );
 
         let step_payload = serde_json::json!({"amount": 100.0, "currency": "USD"});
 
@@ -450,12 +468,17 @@ mod tests {
         );
 
         // Verify dependency results are preserved
-        assert_eq!(event.payload.task_sequence_step.dependency_results.len(), 2);
+        assert_eq!(event.payload.task_sequence_step.dependency_results.len(), 3);
         assert!(event
             .payload
             .task_sequence_step
             .dependency_results
             .contains_key("validate_order"));
+        assert!(event
+            .payload
+            .task_sequence_step
+            .dependency_results
+            .contains_key("process_payment"));
         assert!(event
             .payload
             .task_sequence_step
