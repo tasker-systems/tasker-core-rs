@@ -207,9 +207,9 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION get_next_ready_task()
 RETURNS TABLE(
     task_uuid UUID,
-    task_name TEXT,
+    task_name VARCHAR,
     priority INTEGER,
-    namespace_name TEXT,
+    namespace_name VARCHAR,
     ready_steps_count BIGINT,
     computed_priority NUMERIC,
     current_state VARCHAR
@@ -225,9 +225,9 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION get_next_ready_tasks(p_limit INTEGER DEFAULT 5)
 RETURNS TABLE(
     task_uuid UUID,
-    task_name TEXT,
+    task_name VARCHAR,
     priority INTEGER,
-    namespace_name TEXT,
+    namespace_name VARCHAR,
     ready_steps_count BIGINT,
     computed_priority NUMERIC,
     current_state VARCHAR

@@ -1,43 +1,25 @@
 //! # Integration Test Suite Demo
 //!
-//! Demonstrates how to use the new IntegrationTestSuite helper for simplified testing
+//! Demonstrates how to use the new DockerIntegrationManager for simplified testing.
+//! Assumes Docker Compose services are already running.
+//!
+//! Prerequisites:
+//! Run `docker-compose -f docker/docker-compose.test.yml up --build -d` before running tests
 
 use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{ApiOnlyTestSuite, IntegrationTestSuite};
+use tasker_core::test_helpers::{
+    create_task_request, wait_for_task_completion, IntegrationTestManager,
+};
 use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
 
-/// Helper to create a TaskRequest matching CLI usage
-fn create_task_request(
-    namespace: &str,
-    name: &str,
-    input_context: serde_json::Value,
-) -> TaskRequest {
-    TaskRequest {
-        namespace: namespace.to_string(),
-        name: name.to_string(),
-        version: "1.0.0".to_string(),
-        context: input_context,
-        status: "PENDING".to_string(),
-        initiator: "integration-test".to_string(),
-        source_system: "test".to_string(),
-        reason: "Integration test execution".to_string(),
-        complete: false,
-        tags: vec!["integration-test".to_string()],
-        bypass_steps: vec![],
-        requested_at: chrono::Utc::now().naive_utc(),
-        options: None,
-        priority: Some(5),
-    }
-}
-
-/// Demo of the full integration test suite
+/// Demo of the full integration test suite with worker
 #[tokio::test]
 async fn demo_full_integration_test_suite() -> Result<()> {
-    // One line setup - handles PostgreSQL, orchestration, worker, and client!
-    let suite = IntegrationTestSuite::setup().await?;
+    // Simple setup - connects to running Docker Compose services
+    let manager = IntegrationTestManager::setup().await?;
 
     println!("\n🎯 Testing task creation with full environment...");
 
@@ -48,7 +30,10 @@ async fn demo_full_integration_test_suite() -> Result<()> {
         json!({"even_number": 8}),
     );
 
-    let task_response = suite.client.create_task(task_request).await?;
+    let task_response = manager
+        .orchestration_client
+        .create_task(task_request)
+        .await?;
 
     println!("✅ Task created: {}", task_response.task_uuid);
     println!("   Status: {}", task_response.status);
@@ -56,7 +41,7 @@ async fn demo_full_integration_test_suite() -> Result<()> {
 
     // Verify we can retrieve the task
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
-    let retrieved_task = suite.client.get_task(task_uuid).await?;
+    let retrieved_task = manager.orchestration_client.get_task(task_uuid).await?;
     assert_eq!(
         retrieved_task.task_uuid.to_string(),
         task_response.task_uuid
@@ -71,13 +56,13 @@ async fn demo_full_integration_test_suite() -> Result<()> {
 /// Demo of the API-only test suite (faster, no worker needed)
 #[tokio::test]
 async fn demo_api_only_test_suite() -> Result<()> {
-    // Faster setup - just PostgreSQL and orchestration service
-    let suite = ApiOnlyTestSuite::setup().await?;
+    // Faster setup - just connects to orchestration service
+    let manager = IntegrationTestManager::setup_orchestration_only().await?;
 
     println!("\n🔧 Testing API functionality...");
 
     // Test 1: Health check
-    let health = suite.client.get_basic_health().await?;
+    let health = manager.orchestration_client.get_basic_health().await?;
     assert_eq!(health.status, "healthy");
     println!("✅ Health check passed: {}", health.status);
 
@@ -88,13 +73,16 @@ async fn demo_api_only_test_suite() -> Result<()> {
         json!({"even_number": 6}),
     );
 
-    let task_response = suite.client.create_task(task_request).await?;
+    let task_response = manager
+        .orchestration_client
+        .create_task(task_request)
+        .await?;
     assert!(!task_response.task_uuid.is_empty());
     println!("✅ Task creation API working: {}", task_response.task_uuid);
 
     // Test 3: Task retrieval API
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
-    let retrieved_task = suite.client.get_task(task_uuid).await?;
+    let retrieved_task = manager.orchestration_client.get_task(task_uuid).await?;
     assert_eq!(
         retrieved_task.task_uuid.to_string(),
         task_response.task_uuid
@@ -103,7 +91,7 @@ async fn demo_api_only_test_suite() -> Result<()> {
 
     // Test 4: Task listing API
     let query = TaskListQuery::default();
-    let task_list = suite.client.list_tasks(&query).await?;
+    let task_list = manager.orchestration_client.list_tasks(&query).await?;
     assert!(task_list.tasks.len() >= 1);
     println!(
         "✅ Task listing API working: {} tasks found",
@@ -115,24 +103,32 @@ async fn demo_api_only_test_suite() -> Result<()> {
     Ok(())
 }
 
-/// Demo of custom worker ID setup
+/// Demo of Docker Compose environment configuration
 #[tokio::test]
-#[ignore] // Only run when Docker is available
-async fn demo_custom_worker_setup() -> Result<()> {
-    // Setup with custom worker ID
-    let suite = IntegrationTestSuite::setup_with_worker_id("custom-worker-123").await?;
+async fn demo_custom_environment_setup() -> Result<()> {
+    // This test demonstrates how to use custom environment variables
+    // to connect to different service endpoints
+    println!("🔧 Testing custom environment configuration...");
 
-    println!("✅ Custom worker setup complete");
-    println!("   Worker ID: {}", suite.worker_id);
-    println!("   Worker URL: {}", suite.worker_url);
+    // The DockerIntegrationManager will read from environment variables:
+    // TASKER_TEST_ORCHESTRATION_URL (default: http://localhost:8080)
+    // TASKER_TEST_WORKER_URL (default: http://localhost:8081)
+    let manager = IntegrationTestManager::setup().await?;
 
-    assert_eq!(suite.worker_id, "custom-worker-123");
+    println!("✅ Connected to services:");
+    println!("   Orchestration: {}", manager.orchestration_url);
+    if let Some(ref worker_url) = manager.worker_url {
+        println!("   Worker: {}", worker_url);
+    }
 
     // Test basic functionality
-    let health = suite.client.get_basic_health().await?;
+    let health = manager.orchestration_client.get_basic_health().await?;
     assert_eq!(health.status, "healthy");
 
-    println!("🎉 Custom worker integration test demo passed!");
+    // Display configuration info
+    manager.display_info();
+
+    println!("🎉 Custom environment integration test demo passed!");
 
     Ok(())
 }

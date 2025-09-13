@@ -27,7 +27,7 @@ use tasker_shared::types::web::ApiError;
 ))]
 pub async fn basic_health(_state: State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
-        status: "ok".to_string(),
+        status: "healthy".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
     })
 }

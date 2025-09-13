@@ -7,8 +7,9 @@
 
 FROM rust:1.89-bullseye AS chef
 
-# Install cargo-chef for dependency layer caching
+# Install cargo-chef and sqlx-cli for dependency layer caching and migrations
 RUN cargo install cargo-chef
+RUN cargo install sqlx-cli --features postgres
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -94,6 +95,8 @@ RUN apt-get update && apt-get install -y \
     libpq5 \
     ca-certificates \
     curl \
+    bash \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -103,6 +106,19 @@ WORKDIR /app
 
 # Copy binary from builder (workspace target directory)
 COPY --from=builder /app/target/release/tasker-server ./tasker-orchestration
+
+# Copy SQLx CLI from builder
+COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+
+# Copy migration scripts and migrations
+COPY docker/scripts/ ./scripts/
+COPY migrations/ ./migrations/
+
+# Make scripts executable before switching to non-root user
+RUN chmod +x ./scripts/*.sh
+
+# Set environment variables for the service
+ENV APP_NAME=tasker-orchestration
 
 # Environment variables will be set by docker-compose
 
@@ -114,4 +130,6 @@ USER tasker
 
 EXPOSE 8080
 
+# Use orchestration-specific entrypoint that handles migrations
+ENTRYPOINT ["./scripts/orchestration-entrypoint.sh"]
 CMD ["./tasker-orchestration"]

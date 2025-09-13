@@ -97,6 +97,16 @@ RUN useradd -r -g daemon -u 999 tasker
 # Copy binary from builder
 COPY --from=builder /app/target/debug/rust-worker ./
 
+# Create scripts directory and copy worker entrypoint script
+RUN mkdir -p ./scripts
+COPY docker/scripts/worker-entrypoint.sh ./scripts/worker-entrypoint.sh
+
+# Make scripts executable before switching to non-root user
+RUN chmod +x ./scripts/*.sh
+
+# Set environment variables for the service
+ENV APP_NAME=tasker-worker-rust
+
 # Environment variables will be set by docker-compose
 
 # Health check
@@ -107,4 +117,6 @@ USER tasker
 
 EXPOSE 8081
 
+# Use worker-specific entrypoint
+ENTRYPOINT ["./scripts/worker-entrypoint.sh"]
 CMD ["./rust-worker"]

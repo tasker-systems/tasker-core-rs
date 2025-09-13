@@ -87,12 +87,6 @@ sqlx = { version = "0.8", features = [
 # System information
 sysinfo = "0.31"
 tempfile = "3.0"
-testcontainers = { version = "0.25.0", features = ["blocking", "http_wait"] }
-testcontainers-modules = { version = "0.13.0", features = [
-  "postgres",
-  "rabbitmq",
-  "redis",
-] }
 # Error handling
 thiserror = "2.0"
 # Async runtime and utilities
@@ -139,9 +133,6 @@ tasker-client = { path = "tasker-client" }
 tasker-orchestration = { path = "tasker-orchestration" }
 tasker-shared = { path = "tasker-shared" }
 tasker-worker = { path = "tasker-worker" }
-# Testing infrastructure
-testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -152,14 +143,8 @@ futures = { workspace = true }
 reqwest = { workspace = true }
 serial_test = { workspace = true }
 tasker-worker = { path = "tasker-worker" }
-testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# TODO: Re-enable when docker integration tests are updated for testcontainers v0.25
-# [[test]]
-# name = "all_workflows_tests"
-# path = "tests/docker_integration/all_workflows_test.rs"
 
 [features]
 test-utils = [

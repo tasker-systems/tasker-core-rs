@@ -23,7 +23,7 @@ use tasker_shared::types::web::*;
 /// Always available, even during graceful shutdown.
 pub async fn health_check(State(state): State<Arc<WorkerWebState>>) -> Json<BasicHealthResponse> {
     Json(BasicHealthResponse {
-        status: "ok".to_string(),
+        status: "healthy".to_string(),
         timestamp: Utc::now(),
         worker_id: state.worker_id(),
     })
