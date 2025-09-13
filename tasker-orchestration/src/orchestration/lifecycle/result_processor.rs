@@ -33,7 +33,7 @@ use tasker_shared::messaging::{
     message::OrchestrationMetadata, StepExecutionResult, StepResultMessage,
 };
 use tasker_shared::models::core::workflow_step::WorkflowStep;
-use tasker_shared::state_machine::{TaskEvent, TaskStateMachine};
+use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 
 use tracing::{debug, error, info, warn};
 
@@ -302,10 +302,41 @@ impl OrchestrationResultProcessor {
                 )
                 .await?;
 
-                if task_state_machine
-                    .transition(TaskEvent::StepCompleted(step_uuid.clone()))
-                    .await?
-                {
+                // Check the current state of the task
+                let current_state = task_state_machine.current_state().await?;
+
+                debug!(
+                    task_uuid = %workflow_step.task_uuid,
+                    current_state = ?current_state,
+                    step_uuid = %step_uuid,
+                    "🔍 TASK_COORDINATION: Current task state before attempting transition"
+                );
+
+                // Only transition with StepCompleted if we're in StepsInProcess state
+                // If we're already in EvaluatingResults, we need to check what the next transition should be
+                let should_finalize = if current_state == TaskState::StepsInProcess {
+                    // We can transition with StepCompleted
+                    task_state_machine
+                        .transition(TaskEvent::StepCompleted(step_uuid.clone()))
+                        .await?
+                } else if current_state == TaskState::EvaluatingResults {
+                    // We're already evaluating results, need to check if we should finalize
+                    // This happens when multiple steps complete in quick succession
+                    debug!(
+                        task_uuid = %workflow_step.task_uuid,
+                        "Task already in EvaluatingResults state, checking if finalization is needed"
+                    );
+                    true // Check if finalization is needed
+                } else {
+                    debug!(
+                        task_uuid = %workflow_step.task_uuid,
+                        current_state = ?current_state,
+                        "Task in state that doesn't require immediate finalization check"
+                    );
+                    false
+                };
+
+                if should_finalize {
                     match self
                         .task_finalizer
                         .finalize_task(workflow_step.task_uuid)
