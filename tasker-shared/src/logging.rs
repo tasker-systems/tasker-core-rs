@@ -1,78 +1,65 @@
-//! # Structured Logging Module
+//! # Tracing Module
 //!
-//! Environment-aware structured logging that outputs to both console and files
-//! for debugging complex async workflows and FFI operations.
+//! Environment-aware console logging using the tracing ecosystem.
+//! Designed for containerized applications where logs should go to stdout/stderr.
+//!
+//! This module provides:
+//! - Simple console-only logging (container-friendly)
+//! - Environment-based log level configuration
+//! - Domain-specific structured logging macros
+//! - TTY-aware ANSI color output
 
-use chrono::Utc;
-use std::fs;
-use std::path::PathBuf;
-use std::process;
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use chrono::Utc;
 use uuid::Uuid;
 
-static LOGGER_INITIALIZED: OnceLock<()> = OnceLock::new();
+static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
 
-/// Initialize structured logging with environment-specific configuration
-pub fn init_structured_logging() {
-    LOGGER_INITIALIZED.get_or_init(|| {
+/// Initialize tracing with console output only
+/// 
+/// This function sets up structured logging that outputs to stdout/stderr,
+/// which is appropriate for containerized applications and follows modern
+/// observability practices.
+pub fn init_tracing() {
+    TRACING_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
         let log_level = get_log_level(&environment);
-
-        // Create log directory if it doesn't exist
-        let log_dir = PathBuf::from("log");
-        if !log_dir.exists() {
-            fs::create_dir_all(&log_dir).expect("Failed to create log directory");
-        }
-
-        // Generate log file name with environment, PID, and timestamp
-        let pid = process::id();
-        let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
-        let log_filename = format!("{environment}.{pid}.{timestamp}.log");
-        let log_path = log_dir.join(log_filename);
-
-        // Initialize tracing with both console and file output
-        let file_appender = tracing_appender::rolling::never(&log_dir, format!("{environment}.{pid}.{timestamp}.log"));
-        let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
-
-        // Try to initialize tracing subscriber, but don't panic if one already exists
+        
+        // Determine if we're in a TTY for ANSI color support
+        let use_ansi = atty::is(atty::Stream::Stdout);
+        
         let subscriber = tracing_subscriber::registry()
             .with(
                 fmt::layer()
                     .with_target(true)
                     .with_thread_ids(true)
                     .with_level(true)
-                    .with_ansi(true)
-                    .with_filter(EnvFilter::new(log_level.clone()))
-            )
-            .with(
-                fmt::layer()
-                    .with_writer(file_writer)
-                    .with_target(true)
-                    .with_thread_ids(true)
-                    .with_level(true)
-                    .with_ansi(false)
-                    .json()
+                    .with_ansi(use_ansi)
                     .with_filter(EnvFilter::new(log_level))
             );
 
         // Use try_init to avoid panic if global subscriber already set
         if subscriber.try_init().is_err() {
-            // A global subscriber is already set (likely from FFI bindings)
-            // This is not an error - continue normally
+            // A global subscriber is already set (likely from tests or FFI)
             tracing::debug!("Global tracing subscriber already initialized - continuing with existing subscriber");
         }
 
         tracing::info!(
-            pid = pid,
             environment = %environment,
-            log_file = %log_path.display(),
-            "🔧 STRUCTURED LOGGING: Initialized with file output"
+            ansi_colors = use_ansi,
+            "🔧 TRACING: Console logging initialized"
         );
-
-        // Store the guard to prevent it from being dropped
-        std::mem::forget(_guard);
     });
+}
+
+/// Legacy alias for backward compatibility
+/// 
+/// This function is deprecated and will be removed in a future version.
+/// Use `init_tracing()` instead.
+#[deprecated(since = "0.2.0", note = "Use init_tracing() instead")]
+pub fn init_structured_logging() {
+    init_tracing();
 }
 
 /// Get current environment from environment variables

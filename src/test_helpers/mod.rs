@@ -1,18 +1,21 @@
-// Test Helpers Module - Docker Integration Testing Infrastructure
+// Test Helpers Module - Integration Testing Infrastructure
 //
-// Provides shared Docker-based testing utilities for Rust integration tests.
-// Uses shared service pattern for fast, efficient testing.
+// Provides modern testing utilities for Rust integration tests using testcontainers-rs.
 
-pub mod docker_test_suite_manager;
 pub mod test_utils;
-
-// Docker Test Suite Manager - shared services across tests (recommended)
-pub use docker_test_suite_manager::{
-    cleanup_shared_services, create_mathematical_test_context,
-    create_order_fulfillment_test_context, create_test_task_request, DockerTestClient,
-    DockerTestResult, DockerTestSuiteManager,
-};
+pub mod testcontainers;
+pub mod integration_test_suite;
 
 pub use test_utils::{
     get_test_database_url, setup_test_database_url, setup_test_db, setup_test_environment, MIGRATOR,
+};
+
+// Re-export main testcontainers types for convenience
+pub use testcontainers::{
+    BuildMode, PgmqPostgres, OrchestrationService, WorkerService,
+};
+
+// Re-export integration test suite types for convenience
+pub use integration_test_suite::{
+    IntegrationTestSuite, ApiOnlyTestSuite,
 };

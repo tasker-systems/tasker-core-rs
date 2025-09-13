@@ -418,39 +418,40 @@ impl TaskFinalizer {
     ) -> Result<FinalizationResult, FinalizationError> {
         let task_uuid = task.task_uuid;
 
-        println!(
-            "TaskFinalizer: Making decision for task {} with execution_status: {:?}",
-            task_uuid,
-            context.as_ref().map(|c| &c.execution_status)
+        debug!(
+            task_uuid = %task_uuid,
+            execution_status = ?context.as_ref().map(|c| &c.execution_status),
+            "TaskFinalizer: Making decision for task"
         );
 
         // Handle nil context case
         let Some(context) = context else {
-            println!(
-                "TaskFinalizer: Task {task_uuid} - no context available, handling as unclear state"
+            debug!(
+                task_uuid = %task_uuid,
+                "TaskFinalizer: Task - no context available, handling as unclear state"
             );
             return self.handle_unclear_state(task, None).await;
         };
 
         match context.execution_status {
             ExecutionStatus::AllComplete => {
-                println!("TaskFinalizer: Task {task_uuid} - calling complete_task");
+                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - calling complete_task");
                 self.complete_task(task, Some(context)).await
             }
             ExecutionStatus::BlockedByFailures => {
-                println!("TaskFinalizer: Task {task_uuid} - calling error_task");
+                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - calling error_task");
                 self.error_task(task, Some(context)).await
             }
             ExecutionStatus::HasReadySteps => {
-                println!("TaskFinalizer: Task {task_uuid} - has ready steps, should execute them");
+                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - has ready steps, should execute them");
                 self.handle_ready_steps_state(task, Some(context)).await
             }
             ExecutionStatus::WaitingForDependencies => {
-                println!("TaskFinalizer: Task {task_uuid} - waiting for dependencies");
+                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - waiting for dependencies");
                 self.handle_waiting_state(task, Some(context)).await
             }
             ExecutionStatus::Processing => {
-                println!("TaskFinalizer: Task {task_uuid} - handling processing state");
+                debug!(task_uuid = %task_uuid, "TaskFinalizer: Task - handling processing state");
                 self.handle_processing_state(task, Some(context)).await
             }
         }
@@ -465,8 +466,10 @@ impl TaskFinalizer {
         let task_uuid = task.task_uuid;
         let ready_steps = context.as_ref().map(|c| c.ready_steps).unwrap_or(0);
 
-        println!(
-            "TaskFinalizer: Task {task_uuid} has {ready_steps} ready steps - transitioning to in_progress"
+        debug!(
+            task_uuid = %task_uuid,
+            ready_steps = ready_steps,
+            "TaskFinalizer: Task has ready steps - transitioning to in_progress"
         );
 
         // Use state machine to transition to in_progress if needed

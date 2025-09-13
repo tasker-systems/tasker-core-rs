@@ -35,7 +35,7 @@ use tasker_shared::messaging::{StepExecutionResult, TaskRequestMessage};
 use tasker_shared::models::WorkflowStep;
 use tasker_shared::{TaskerError, TaskerResult};
 
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// Type alias for command response channels
 pub type CommandResponder<T> = oneshot::Sender<TaskerResult<T>>;

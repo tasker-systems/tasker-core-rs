@@ -1943,10 +1943,11 @@ impl Task {
                 nt.name,
                 ns.name as namespace,
                 nt.version,
-                CASE WHEN t.complete THEN 'completed' ELSE 'pending' END as status
+                COALESCE(tec.execution_status, 'unknown') as status
             FROM tasker_tasks t
             INNER JOIN tasker_named_tasks nt ON t.named_task_uuid = nt.named_task_uuid
             INNER JOIN tasker_task_namespaces ns ON nt.task_namespace_uuid = ns.task_namespace_uuid
+            LEFT JOIN LATERAL get_task_execution_context(t.task_uuid) tec ON true
             WHERE t.task_uuid = $1
             "#,
             self.task_uuid

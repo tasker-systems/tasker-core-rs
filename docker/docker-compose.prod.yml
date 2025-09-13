@@ -1,0 +1,180 @@
+# =============================================================================
+# Production Compose Configuration - Deployment Ready
+# =============================================================================
+# Optimized for production deployment:
+# - Full optimization with Dockerfile.prod
+# - Minimal runtime images
+# - Production-grade health checks
+# - Security hardening
+#
+# Usage: docker-compose -f docker/compose/docker-compose.prod.yml up --build
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database with PGMQ Extension
+  # ==========================================================================
+  postgres:
+    build:
+      context: ..
+      dockerfile: docker/db/Dockerfile
+    environment:
+      POSTGRES_DB: tasker_production
+      POSTGRES_USER: ${POSTGRES_USER:-tasker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_backups:/var/lib/postgresql/backups
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-tasker} -d tasker_production",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tasker-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # ==========================================================================
+  # Orchestration Service - Production Build with Centralized Dockerfile
+  # ==========================================================================
+  orchestration:
+    build:
+      context: ..
+      dockerfile: docker/build/orchestration.prod.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tasker}:${POSTGRES_PASSWORD}@postgres:5432/tasker_production
+      TASKER_ENV: production
+      RUST_LOG: ${RUST_LOG:-info}
+      WORKER_POOL_SIZE: ${ORCHESTRATION_WORKERS:-4}
+      WORKSPACE_PATH: /app
+      TASKER_CONFIG_ROOT: /app/config
+    ports:
+      - "${ORCHESTRATION_PORT:-8080}:8080"
+    volumes:
+      - ../config/tasker:/app/config:ro
+      - orchestration_logs:/home/tasker/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - tasker-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 2G
+        reservations:
+          cpus: "1"
+          memory: 512M
+
+  # ==========================================================================
+  # Worker Service - Production Build with Centralized Dockerfile
+  # ==========================================================================
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/build/rust-worker.prod.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tasker}:${POSTGRES_PASSWORD}@postgres:5432/tasker_production
+      TASKER_ENV: production
+      RUST_LOG: ${RUST_LOG:-info}
+      WORKER_ID: ${WORKER_ID:-prod-worker-001}
+      WORKER_POOL_SIZE: ${WORKER_POOL_SIZE:-8}
+      WORKSPACE_PATH: /app
+      TASKER_CONFIG_ROOT: /app/config
+      TASK_TEMPLATE_PATH: /app/task-templates
+    ports:
+      - "${WORKER_PORT:-8081}:8081"
+    volumes:
+      - ../config/tasker:/app/config:ro
+      - ../workers/rust/config/tasks:/app/task-templates:ro
+      - worker_logs:/home/tasker/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orchestration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - tasker-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 4G
+        reservations:
+          cpus: "2"
+          memory: 1G
+      replicas: ${WORKER_REPLICAS:-2}
+
+  # ==========================================================================
+  # Monitoring and Observability (Optional)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus_config:/etc/prometheus
+      - prometheus_data:/prometheus
+    networks:
+      - tasker-prod
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - tasker-prod
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+  postgres_backups:
+  orchestration_logs:
+  worker_logs:
+  prometheus_config:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  tasker-prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

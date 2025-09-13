@@ -1,5 +1,6 @@
 use crate::database::sql_functions::StepReadinessStatus;
 use crate::models::core::task::PaginationInfo;
+use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -24,7 +25,7 @@ pub struct TaskCreationResponse {
 }
 
 /// Task details response with execution context and step readiness information
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct TaskResponse {
     pub task_uuid: String,
@@ -244,4 +245,145 @@ pub struct ResourceUtilization {
     pub error_steps: i64,
     pub retryable_error_steps: i64,
     pub exhausted_retry_steps: i64,
+}
+
+impl TaskResponse {
+    /// Convert the execution_status string to ExecutionStatus enum for type-safe handling
+    pub fn execution_status_typed(&self) -> ExecutionStatus {
+        ExecutionStatus::from(self.execution_status.clone())
+    }
+
+    /// Check if the task has completed all steps (execution status indicates all complete)
+    pub fn is_execution_complete(&self) -> bool {
+        matches!(self.execution_status_typed(), ExecutionStatus::AllComplete)
+    }
+
+    /// Check if the task is blocked by failures that cannot be retried
+    pub fn is_execution_blocked(&self) -> bool {
+        matches!(
+            self.execution_status_typed(),
+            ExecutionStatus::BlockedByFailures
+        )
+    }
+
+    /// Check if the task is currently processing (has steps in progress)
+    pub fn is_execution_processing(&self) -> bool {
+        matches!(self.execution_status_typed(), ExecutionStatus::Processing)
+    }
+
+    /// Check if the task has ready steps to execute
+    pub fn has_execution_ready_steps(&self) -> bool {
+        matches!(
+            self.execution_status_typed(),
+            ExecutionStatus::HasReadySteps
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn test_task_response_execution_status_conversion() {
+        let task_response = TaskResponse {
+            task_uuid: "test-uuid".to_string(),
+            name: "test_task".to_string(),
+            namespace: "test".to_string(),
+            version: "1.0.0".to_string(),
+            status: "pending".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            context: serde_json::json!({}),
+            initiator: "test".to_string(),
+            source_system: "test".to_string(),
+            reason: "test".to_string(),
+            priority: Some(1),
+            tags: Some(vec!["test".to_string()]),
+            total_steps: 3,
+            pending_steps: 0,
+            in_progress_steps: 0,
+            completed_steps: 3,
+            failed_steps: 0,
+            ready_steps: 0,
+            execution_status: "all_complete".to_string(),
+            recommended_action: "finalize_task".to_string(),
+            completion_percentage: 100.0,
+            health_status: "healthy".to_string(),
+            steps: vec![],
+        };
+
+        // Test conversion to ExecutionStatus enum
+        assert_eq!(
+            task_response.execution_status_typed(),
+            ExecutionStatus::AllComplete
+        );
+        assert!(task_response.is_execution_complete());
+        assert!(!task_response.is_execution_blocked());
+        assert!(!task_response.is_execution_processing());
+        assert!(!task_response.has_execution_ready_steps());
+    }
+
+    #[test]
+    fn test_task_response_execution_status_variants() {
+        let base_response = TaskResponse {
+            task_uuid: "test-uuid".to_string(),
+            name: "test_task".to_string(),
+            namespace: "test".to_string(),
+            version: "1.0.0".to_string(),
+            status: "pending".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            context: serde_json::json!({}),
+            initiator: "test".to_string(),
+            source_system: "test".to_string(),
+            reason: "test".to_string(),
+            priority: Some(1),
+            tags: Some(vec!["test".to_string()]),
+            total_steps: 3,
+            pending_steps: 2,
+            in_progress_steps: 1,
+            completed_steps: 0,
+            failed_steps: 0,
+            ready_steps: 0,
+            execution_status: "processing".to_string(),
+            recommended_action: "wait_for_completion".to_string(),
+            completion_percentage: 33.3,
+            health_status: "healthy".to_string(),
+            steps: vec![],
+        };
+
+        // Test processing status
+        assert_eq!(
+            base_response.execution_status_typed(),
+            ExecutionStatus::Processing
+        );
+        assert!(base_response.is_execution_processing());
+        assert!(!base_response.is_execution_complete());
+
+        // Test blocked by failures status
+        let blocked_response = TaskResponse {
+            execution_status: "blocked_by_failures".to_string(),
+            ..base_response.clone()
+        };
+        assert_eq!(
+            blocked_response.execution_status_typed(),
+            ExecutionStatus::BlockedByFailures
+        );
+        assert!(blocked_response.is_execution_blocked());
+
+        // Test has ready steps status
+        let ready_response = TaskResponse {
+            execution_status: "has_ready_steps".to_string(),
+            ..base_response
+        };
+        assert_eq!(
+            ready_response.execution_status_typed(),
+            ExecutionStatus::HasReadySteps
+        );
+        assert!(ready_response.has_execution_ready_steps());
+    }
 }

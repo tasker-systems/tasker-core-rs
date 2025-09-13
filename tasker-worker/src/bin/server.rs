@@ -22,8 +22,8 @@ use tasker_worker::bootstrap::{WorkerBootstrap, WorkerBootstrapConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging first
-    logging::init_structured_logging();
+    // Initialize tracing for console logging
+    logging::init_tracing();
 
     info!("🚀 Starting Tasker Worker Server with TAS-43 Event-Driven Architecture...");
     info!("   Version: {}", env!("CARGO_PKG_VERSION"));

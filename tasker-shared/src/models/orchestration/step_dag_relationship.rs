@@ -618,7 +618,7 @@ impl StepDagRelationship {
     /// assert!(orphaned_step.is_orphaned());
     ///
     /// if orphaned_step.is_orphaned() {
-    ///     eprintln!("WARNING: Step {} may be in a dependency cycle!", orphaned_step.workflow_step_uuid);
+    ///     warn!(step_uuid = %orphaned_step.workflow_step_uuid, "WARNING: Step may be in a dependency cycle!");
     ///     // Log for investigation or skip execution
     /// }
     /// ```

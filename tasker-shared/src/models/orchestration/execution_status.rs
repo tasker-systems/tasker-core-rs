@@ -53,6 +53,12 @@ impl From<String> for ExecutionStatus {
     }
 }
 
+impl From<ExecutionStatus> for String {
+    fn from(value: ExecutionStatus) -> Self {
+        value.as_str().to_string()
+    }
+}
+
 /// Recommended action returned by the SQL get_task_execution_context function
 /// Matches the recommended_action values from the SQL function
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,5 +104,11 @@ impl From<&str> for RecommendedAction {
 impl From<String> for RecommendedAction {
     fn from(value: String) -> Self {
         value.as_str().into()
+    }
+}
+
+impl From<RecommendedAction> for String {
+    fn from(value: RecommendedAction) -> Self {
+        value.as_str().to_string()
     }
 }

@@ -42,8 +42,7 @@ sysinfo = { workspace = true }
 # Logging and telemetry
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
-structured-logger = { workspace = true }
+atty = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 

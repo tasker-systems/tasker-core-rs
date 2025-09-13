@@ -11,7 +11,7 @@ use tracing::{info, warn};
 #[tokio::main]
 async fn main() -> Result<()> {
     // Use tasker-shared's structured logging initialization
-    tasker_shared::logging::init_structured_logging();
+    tasker_shared::logging::init_tracing();
 
     info!("🚀 Starting Native Rust Worker Demonstration");
     info!("✅ TAS-41: Proving tasker-worker excellence for native Rust development");

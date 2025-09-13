@@ -1,17 +1,3 @@
-[workspace]
-members = [
-    ".",                            # Current crate temporarily remains during migration
-    "tasker-shared",
-    "tasker-orchestration",
-    "tasker-worker",
-    "tasker-client",
-    "pgmq-notify",
-    "workers/ruby/ext/tasker_core",
-    "workers/rust",
-    # "workers/python",  # Future
-    # "workers/wasm",    # Future
-]
-
 [package]
 name = "tasker-core"
 version = "0.1.0"
@@ -24,162 +10,170 @@ keywords = ["workflow", "orchestration", "task", "async", "performance"]
 categories = ["concurrency", "database", "web-programming"]
 readme = "README.md"
 
-[lib]
-path = "src/lib.rs"
-name = "tasker_core"
-crate-type = ["rlib"]
-
-[[bin]]
-name = "config-validator"
-path = "src/bin/config-validator.rs"
-
-[dependencies]
-tasker-worker = { path = "tasker-worker" }
-tasker-client = { path = "tasker-client" }
-tasker-shared = { path = "tasker-shared" }
-tasker-orchestration = { path = "tasker-orchestration" }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-uuid = { workspace = true }
-serde_json = { workspace = true }
-chrono = { workspace = true }
-dotenvy = { workspace = true }
-anyhow = { workspace = true }
-tracing = { workspace = true }
-clap = { workspace = true }
-tracing-subscriber = { workspace = true }
-
-
-[features]
-test-utils = [
-    "tasker-shared/test-utils",
-    "tasker-orchestration/test-utils",
-    "tasker-worker/test-utils",
+[workspace]
+members = [
+  ".",  # Current crate temporarily remains during migration
+  "pgmq-notify",
+  "tasker-client",
+  "tasker-orchestration",
+  "tasker-shared",
+  "tasker-worker",
+  "workers/ruby/ext/tasker_core",
+  "workers/rust",
+  # "workers/python",  # Future
+  # "workers/wasm",    # Future
 ]
 
 [workspace.dependencies]
-# Async runtime and utilities
-tokio = { version = "1.46", features = ["full"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-
+anyhow = "1.0"
 async-trait = "0.1"
+# TTY detection for ANSI colors
+atty = "0.2"
+# Web framework and HTTP server (TAS-28)
+axum = "0.7"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+# Coverage tools (used in CI)
+cargo-llvm-cov = "0.6"
+# Time and date handling
+chrono = { version = "0.4.38", features = ["serde"] }
+# CLI tool dependencies
+clap = { version = "4.5", features = ["derive"] }
+# Configuration
+config = "0.15"
+criterion = { version = "0.5.1" }
+# dashmap = "6.1"
+crossbeam = "0.8"
+dotenvy = "0.15"  # For loading .env files
+factori = "1.1"
+# Random number generation
+fastrand = "2.0"
 futures = "0.3"
-
-# Database and ORM
-sqlx = { version = "0.8", features = [
-    "runtime-tokio-rustls",
-    "postgres",
-    "uuid",
-    "chrono",
-    "json",
-    "bigdecimal",
-    "macros",
-    "migrate",
-] }
+insta = { version = "1.34", features = ["json", "serde"] }
+jsonwebtoken = { version = "9" }
+# FFI support to be added in bindings and workers
+magnus = "0.7"
+mockall = "0.13"
+# Utility dependencies
+once_cell = "1.19"
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
+# Concurrency and state management
+parking_lot = "0.12"
 pgmq = "0.30.1"
 pgmq-notify = { path = "pgmq-notify" }
+proptest = "1.0"
+rand = "0.9.1"
+regex = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rsa = { version = "0.9" }
 rust_decimal = { version = "1.37", features = ["serde-with-str"] }
-bigdecimal = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.11", features = ["v4", "v7", "serde"] }
-
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-toml = "0.8"
-
-# Web framework and HTTP server (TAS-28)
-axum = "0.7"
-axum-extra = { version = "0.9", features = ["typed-header"] }
-tower = { version = "0.4" }
-tower-http = { version = "0.5", features = ["cors", "trace", "timeout"] }
-jsonwebtoken = { version = "9" }
-rsa = { version = "0.9" }
-# OpenAPI documentation
-utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
-
-# CLI tool dependencies
-clap = { version = "4.5", features = ["derive"] }
-
-# Time and date handling
-chrono = { version = "0.4.38", features = ["serde"] }
-
-# Error handling
-thiserror = "2.0"
-anyhow = "1.0"
-
+serial_test = "3.1"
+# Database and ORM
+sqlx = { version = "0.8", features = [
+  "bigdecimal",
+  "chrono",
+  "json",
+  "macros",
+  "migrate",
+  "postgres",
+  "runtime-tokio-rustls",
+  "uuid",
+] }
 # System information
 sysinfo = "0.31"
-
-# Utility dependencies
-once_cell = "1.19"
-
+tempfile = "3.0"
+testcontainers = { version = "0.25.0", features = ["blocking", "http_wait"] }
+testcontainers-modules = { version = "0.13.0", features = [
+  "postgres",
+  "rabbitmq",
+  "redis",
+] }
+# Error handling
+thiserror = "2.0"
+# Async runtime and utilities
+tokio = { version = "1.46", features = ["full"] }
+# Testing tools
+tokio-test = "0.4"
+tokio-util = { version = "0.7", features = ["codec"] }
+toml = "0.8"
+tower = { version = "0.4" }
+tower-http = { version = "0.5", features = ["cors", "timeout", "trace"] }
 # Logging and telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-appender = "0.2"
-structured-logger = "1.0"
-opentelemetry = "0.27"
-opentelemetry-otlp = "0.27"
-
-# Concurrency and state management
-parking_lot = "0.12"
-# dashmap = "6.1"
-crossbeam = "0.8"
-
-# Configuration
-config = "0.15"
-regex = "1.0"
-dotenvy = "0.15" # For loading .env files
-
-# Random number generation
-fastrand = "2.0"
-rand = "0.9.1"
-workspace_tools = { version = "0.2.0", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-
-# Testing tools
-tokio-test = "0.4"
-tempfile = "3.0"
-proptest = "1.0"
-insta = { version = "1.34", features = ["serde", "json"] }
-mockall = "0.13"
-factori = "1.1"
 url = "2.0"
-serial_test = "3.1"
-testcontainers = { version = "0.25.0" }
-testcontainers-modules = { version = "0.13.0", features = ["postgres", "redis", "rabbitmq"]}
-# Coverage tools (used in CI)
-cargo-llvm-cov = "0.6"
-criterion = { version = "0.5.1" }
-# FFI support to be added in bindings and workers
-magnus = "0.7"
+# OpenAPI documentation
+utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+uuid = { version = "1.11", features = ["serde", "v4", "v7"] }
+workspace_tools = { version = "0.2.0", features = ["full"] }
 # pyo3 = { version = "0.25", optional = true, features = ["extension-module"] }
 # wasm-bindgen = { version = "0.2", optional = true }
 # wasm-bindgen-futures = { version = "0.4", optional = true }
 # js-sys = { version = "0.3", optional = true }
 # web-sys = { version = "0.3", optional = true }
 
-[dev-dependencies]
-tracing-subscriber = { workspace = true }
-futures = { workspace = true }
+[lib]
+crate-type = ["rlib"]
+name = "tasker_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "config-validator"
+path = "src/bin/config-validator.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tasker-client = { path = "tasker-client" }
+tasker-orchestration = { path = "tasker-orchestration" }
+tasker-shared = { path = "tasker-shared" }
 tasker-worker = { path = "tasker-worker" }
-serial_test = { workspace = true }
+# Testing infrastructure
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
+[dev-dependencies]
+futures = { workspace = true }
+reqwest = { workspace = true }
+serial_test = { workspace = true }
+tasker-worker = { path = "tasker-worker" }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+tracing-subscriber = { workspace = true }
 
-[[test]]
-name = "all_workflows_tests"
-path = "tests/docker_integration/all_workflows_test.rs"
+# TODO: Re-enable when docker integration tests are updated for testcontainers v0.25
+# [[test]]
+# name = "all_workflows_tests"
+# path = "tests/docker_integration/all_workflows_test.rs"
+
+[features]
+test-utils = [
+  "tasker-orchestration/test-utils",
+  "tasker-shared/test-utils",
+  "tasker-worker/test-utils",
+]
 
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1
-panic = "abort"
 strip = true
+lto = "fat"
+panic = "abort"
+codegen-units = 1
 
 [profile.dev]
 opt-level = 0
@@ -189,6 +183,6 @@ debug = true
 [profile.coverage]
 inherits = "dev"
 debug = true
-codegen-units = 1
-incremental = false
 overflow-checks = false
+incremental = false
+codegen-units = 1

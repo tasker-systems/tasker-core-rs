@@ -29,7 +29,6 @@ async-trait = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
-structured-logger = { workspace = true }
 
 # Serde for serialization/deserialization
 serde = { workspace = true }
