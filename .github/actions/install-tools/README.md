@@ -9,6 +9,7 @@ This action provides a consistent way to install Rust development tools across a
 - Uses `cargo binstall --secure` for cargo-nextest (fast, secure)
 - Uses `cargo install` with specific flags for other tools (proven reliable)
 - Includes intelligent caching to speed up CI runs
+- Automatically checks if tools exist before installing (prevents conflicts)
 
 ## Usage
 
@@ -89,6 +90,7 @@ steps:
 - **Proven Commands**: Uses exact commands that are known to work reliably
 - **Fast & Secure**: `cargo binstall --secure` for nextest, direct install for others
 - **Intelligent Caching**: Caches installed tools to speed up subsequent runs
+- **Smart Installation**: Checks tool existence before installing to prevent conflicts
 - **Consistent Setup**: Same installation method across all workflows
 - **Reliable**: No version parameter conflicts or complex fallback logic
 
@@ -143,6 +145,15 @@ The action caches `~/.cargo/bin` with a key based on:
 - Requested tools list
 
 This provides significant speedup on cache hits while ensuring tool compatibility.
+
+### Tool Existence Checking
+
+The action automatically checks if each tool is already installed before attempting installation:
+- **Cache hits**: Tools from cache are verified and their versions displayed
+- **Cache misses**: Each tool is checked with `command -v` before installation
+- **Conflict prevention**: Avoids "already exists" errors from `cargo install`
+- **Version reporting**: Shows installed tool versions for debugging
+
 This action can save 15-30 minutes per CI run compared to traditional installation methods.
 
 ## Error Handling
@@ -182,9 +193,10 @@ For local development, you can install these same tools:
 
 ```bash
 # Install tools using the hybrid approach
-cargo binstall cargo-nextest --secure
-cargo install sqlx-cli --no-default-features --features native-tls,postgres  
-cargo install cargo-audit --locked
+# Check if already installed first to avoid conflicts
+command -v cargo-nextest || cargo binstall cargo-nextest --secure
+command -v sqlx || cargo install sqlx-cli --no-default-features --features native-tls,postgres  
+command -v cargo-audit || cargo install cargo-audit --locked
 ```
 
 ## Troubleshooting
