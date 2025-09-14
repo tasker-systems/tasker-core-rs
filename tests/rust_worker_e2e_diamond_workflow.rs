@@ -67,7 +67,7 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
     println!("\n⏱️ Monitoring diamond workflow execution...");
 
     // Wait for task completion with timeout
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 120).await?;
+    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
 
     // Verify final results
     println!("\n🔍 Verifying diamond workflow results...");
@@ -100,7 +100,7 @@ async fn test_end_to_end_diamond_workflow() -> Result<()> {
         "diamond_start",
         "diamond_branch_b",
         "diamond_branch_c",
-        "diamond_end"
+        "diamond_end",
     ];
 
     // Verify all steps completed successfully
@@ -189,7 +189,10 @@ async fn test_diamond_workflow_api_validation() -> Result<()> {
         .create_task(task_request)
         .await?;
     assert!(!task_response.task_uuid.is_empty());
-    println!("✅ Diamond workflow API creation working: {}", task_response.task_uuid);
+    println!(
+        "✅ Diamond workflow API creation working: {}",
+        task_response.task_uuid
+    );
 
     // Test 2: Task retrieval API
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
@@ -205,7 +208,10 @@ async fn test_diamond_workflow_api_validation() -> Result<()> {
         task_response.step_count >= 4,
         "Diamond workflow should have at least 4 steps (start, branch_b, branch_c, end)"
     );
-    println!("✅ Diamond workflow step count validation: {} steps", task_response.step_count);
+    println!(
+        "✅ Diamond workflow step count validation: {} steps",
+        task_response.step_count
+    );
 
     println!("\n🎉 Diamond Workflow API Validation Test PASSED!");
     println!("✅ Diamond workflow task creation: Working");

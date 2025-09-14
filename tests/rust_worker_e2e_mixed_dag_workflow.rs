@@ -70,7 +70,7 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
     println!("\n⏱️ Monitoring mixed DAG workflow execution...");
 
     // Wait for task completion with extended timeout for complex DAG
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 180).await?;
+    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
 
     // Verify final results
     println!("\n🔍 Verifying mixed DAG workflow results...");
@@ -106,7 +106,7 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
         "dag_validate",
         "dag_transform",
         "dag_analyze",
-        "dag_finalize"
+        "dag_finalize",
     ];
 
     // Verify all steps completed successfully
@@ -173,13 +173,34 @@ async fn test_end_to_end_mixed_dag_workflow() -> Result<()> {
     let finalize_step = steps.iter().find(|s| s.name == "dag_finalize");
 
     // Verify key steps exist
-    assert!(init_step.is_some(), "Mixed DAG workflow should have dag_init step");
-    assert!(process_left.is_some(), "Mixed DAG workflow should have dag_process_left step");
-    assert!(process_right.is_some(), "Mixed DAG workflow should have dag_process_right step");
-    assert!(validate_step.is_some(), "Mixed DAG workflow should have dag_validate step");
-    assert!(transform_step.is_some(), "Mixed DAG workflow should have dag_transform step");
-    assert!(analyze_step.is_some(), "Mixed DAG workflow should have dag_analyze step");
-    assert!(finalize_step.is_some(), "Mixed DAG workflow should have dag_finalize step");
+    assert!(
+        init_step.is_some(),
+        "Mixed DAG workflow should have dag_init step"
+    );
+    assert!(
+        process_left.is_some(),
+        "Mixed DAG workflow should have dag_process_left step"
+    );
+    assert!(
+        process_right.is_some(),
+        "Mixed DAG workflow should have dag_process_right step"
+    );
+    assert!(
+        validate_step.is_some(),
+        "Mixed DAG workflow should have dag_validate step"
+    );
+    assert!(
+        transform_step.is_some(),
+        "Mixed DAG workflow should have dag_transform step"
+    );
+    assert!(
+        analyze_step.is_some(),
+        "Mixed DAG workflow should have dag_analyze step"
+    );
+    assert!(
+        finalize_step.is_some(),
+        "Mixed DAG workflow should have dag_finalize step"
+    );
 
     println!("✅ Mixed DAG pattern structure verified");
 
@@ -220,7 +241,10 @@ async fn test_mixed_dag_workflow_api_validation() -> Result<()> {
         .create_task(task_request)
         .await?;
     assert!(!task_response.task_uuid.is_empty());
-    println!("✅ Mixed DAG workflow API creation working: {}", task_response.task_uuid);
+    println!(
+        "✅ Mixed DAG workflow API creation working: {}",
+        task_response.task_uuid
+    );
 
     // Test 2: Task retrieval API
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
@@ -236,7 +260,10 @@ async fn test_mixed_dag_workflow_api_validation() -> Result<()> {
         task_response.step_count >= 7,
         "Mixed DAG workflow should have at least 7 steps (init, process_left/right, validate, transform, analyze, finalize)"
     );
-    println!("✅ Mixed DAG workflow step count validation: {} steps", task_response.step_count);
+    println!(
+        "✅ Mixed DAG workflow step count validation: {} steps",
+        task_response.step_count
+    );
 
     println!("\n🎉 Mixed DAG Workflow API Validation Test PASSED!");
     println!("✅ Mixed DAG workflow task creation: Working");

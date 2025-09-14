@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};

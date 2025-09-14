@@ -31,6 +31,7 @@
 use super::{error_result, success_result, RustStepHandler, StepHandlerConfig};
 use anyhow::Result;
 use async_trait::async_trait;
+use num_bigint::{BigUint, ToBigUint};
 use serde_json::json;
 use std::collections::HashMap;
 use tasker_shared::messaging::StepExecutionResult;
@@ -608,8 +609,12 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
         };
 
         // Multiple parent logic: multiply all leaf results together, then square
-        let multiplied = leaf_d_result * leaf_e_result * leaf_f_result * leaf_g_result;
-        let result = multiplied * multiplied;
+        // Use BigUint to prevent overflow with large numbers
+        let multiplied: BigUint = leaf_d_result.to_biguint().unwrap()
+            * leaf_e_result.to_biguint().unwrap()
+            * leaf_f_result.to_biguint().unwrap()
+            * leaf_g_result.to_biguint().unwrap();
+        let result: BigUint = multiplied.clone() * multiplied.clone();
 
         info!(
             "Tree Final Convergence: ({} × {} × {} × {})² = {}² = {}",
@@ -621,8 +626,9 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
 
         // Calculate expected result: original^32
         // Path: n -> n² -> (n²)² for both branches -> 4 leaves each (n²)² -> final convergence ((n²)²)^4 squared = n^32
-        let expected = original_number.pow(32);
-        let matches = result == expected;
+        // Use i128 to prevent overflow
+        let expected: u128 = (original_number as u128).pow(32);
+        let matches = result == expected.into();
 
         info!("Tree Workflow Complete: {} -> {}", original_number, result);
         info!(
@@ -642,20 +648,20 @@ impl RustStepHandler for TreeFinalConvergenceHandler {
                 "leaf_g_result": "sequence.tree_leaf_g.result"
             }),
         );
-        metadata.insert("multiplied".to_string(), json!(multiplied));
+        metadata.insert("multiplied".to_string(), json!(multiplied.to_string())); // Convert i128 to string
         metadata.insert(
             "verification".to_string(),
             json!({
                 "original_number": original_number,
-                "expected_result": expected,
-                "actual_result": result,
+                "expected_result": expected.to_string(), // Convert i128 to string
+                "actual_result": result.to_string(),     // Convert i128 to string
                 "matches": matches
             }),
         );
 
         Ok(success_result(
             step_uuid,
-            json!(result),
+            json!(result.to_string()), // Convert u128 to string for JSON serialization
             start_time.elapsed().as_millis() as i64,
             Some(metadata),
         ))

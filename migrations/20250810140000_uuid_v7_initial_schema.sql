@@ -1740,6 +1740,7 @@ BEGIN
             'enqueued',
             'in_progress',
             'enqueued_for_orchestration',
+            'enqueued_as_error_for_orchestration',
             'complete',
             'error',
             'cancelled',
@@ -1766,6 +1767,7 @@ BEGIN
             'enqueued',
             'in_progress',
             'enqueued_for_orchestration',
+            'enqueued_as_error_for_orchestration',
             'complete',
             'error',
             'cancelled',
@@ -1851,13 +1853,13 @@ BEGIN
     -- Check for invalid workflow step to_states
     SELECT COUNT(*) INTO invalid_step_to_states
     FROM public.tasker_workflow_step_transitions
-    WHERE to_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
+    WHERE to_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'enqueued_as_error_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
 
     -- Check for invalid workflow step from_states
     SELECT COUNT(*) INTO invalid_step_from_states
     FROM public.tasker_workflow_step_transitions
     WHERE from_state IS NOT NULL
-    AND from_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
+    AND from_state NOT IN ('pending', 'enqueued', 'in_progress', 'enqueued_for_orchestration', 'enqueued_as_error_for_orchestration', 'complete', 'error', 'cancelled', 'resolved_manually');
 
     -- Check for invalid task to_states
     SELECT COUNT(*) INTO invalid_task_to_states

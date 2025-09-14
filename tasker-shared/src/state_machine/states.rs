@@ -57,10 +57,7 @@ impl TaskState {
     pub fn requires_ownership(&self) -> bool {
         matches!(
             self,
-            TaskState::Initializing
-                | TaskState::EnqueuingSteps
-                | TaskState::StepsInProcess
-                | TaskState::EvaluatingResults
+            TaskState::Initializing | TaskState::EnqueuingSteps | TaskState::EvaluatingResults
         )
     }
 
@@ -199,6 +196,8 @@ pub enum WorkflowStepState {
     InProgress,
     /// Step completed by worker, enqueued for orchestration processing
     EnqueuedForOrchestration,
+    /// Step failed by worker, enqueued for orchestration error processing
+    EnqueuedAsErrorForOrchestration,
     /// Step completed successfully (after orchestration processing)
     Complete,
     /// Step failed with an error (after orchestration processing)
@@ -233,7 +232,10 @@ impl WorkflowStepState {
     pub fn is_in_processing_pipeline(&self) -> bool {
         matches!(
             self,
-            Self::Enqueued | Self::InProgress | Self::EnqueuedForOrchestration
+            Self::Enqueued
+                | Self::InProgress
+                | Self::EnqueuedForOrchestration
+                | Self::EnqueuedAsErrorForOrchestration
         )
     }
 
@@ -254,6 +256,9 @@ impl WorkflowStepState {
             WorkflowStepState::Enqueued => "enqueued",
             WorkflowStepState::InProgress => "in_progress",
             WorkflowStepState::EnqueuedForOrchestration => "enqueued_for_orchestration",
+            WorkflowStepState::EnqueuedAsErrorForOrchestration => {
+                "enqueued_as_error_for_orchestration"
+            }
             WorkflowStepState::Complete => "complete",
             WorkflowStepState::Error => "error",
             WorkflowStepState::Cancelled => "cancelled",
@@ -283,6 +288,9 @@ impl TryFrom<&str> for WorkflowStepState {
             "enqueued" => Ok(WorkflowStepState::Enqueued),
             "in_progress" => Ok(WorkflowStepState::InProgress),
             "enqueued_for_orchestration" => Ok(WorkflowStepState::EnqueuedForOrchestration),
+            "enqueued_as_error_for_orchestration" => {
+                Ok(WorkflowStepState::EnqueuedAsErrorForOrchestration)
+            }
             "complete" => Ok(WorkflowStepState::Complete),
             "error" => Ok(WorkflowStepState::Error),
             "cancelled" => Ok(WorkflowStepState::Cancelled),

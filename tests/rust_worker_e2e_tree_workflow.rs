@@ -71,7 +71,7 @@ async fn test_end_to_end_tree_workflow() -> Result<()> {
     println!("\n⏱️ Monitoring tree workflow execution...");
 
     // Wait for task completion with extended timeout for complex tree
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 180).await?;
+    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
 
     // Verify final results
     println!("\n🔍 Verifying tree workflow results...");
@@ -108,7 +108,7 @@ async fn test_end_to_end_tree_workflow() -> Result<()> {
         "tree_leaf_e",
         "tree_leaf_f",
         "tree_leaf_g",
-        "tree_final_convergence"
+        "tree_final_convergence",
     ];
 
     // Verify all steps completed successfully
@@ -174,12 +174,30 @@ async fn test_end_to_end_tree_workflow() -> Result<()> {
     let final_convergence = steps.iter().find(|s| s.name == "tree_final_convergence");
 
     // Verify key steps exist
-    assert!(root_step.is_some(), "Tree workflow should have tree_root step");
-    assert!(branch_left.is_some(), "Tree workflow should have tree_branch_left step");
-    assert!(branch_right.is_some(), "Tree workflow should have tree_branch_right step");
-    assert!(leaf_d.is_some(), "Tree workflow should have tree_leaf_d step");
-    assert!(leaf_e.is_some(), "Tree workflow should have tree_leaf_e step");
-    assert!(final_convergence.is_some(), "Tree workflow should have tree_final_convergence step");
+    assert!(
+        root_step.is_some(),
+        "Tree workflow should have tree_root step"
+    );
+    assert!(
+        branch_left.is_some(),
+        "Tree workflow should have tree_branch_left step"
+    );
+    assert!(
+        branch_right.is_some(),
+        "Tree workflow should have tree_branch_right step"
+    );
+    assert!(
+        leaf_d.is_some(),
+        "Tree workflow should have tree_leaf_d step"
+    );
+    assert!(
+        leaf_e.is_some(),
+        "Tree workflow should have tree_leaf_e step"
+    );
+    assert!(
+        final_convergence.is_some(),
+        "Tree workflow should have tree_final_convergence step"
+    );
 
     println!("✅ Tree hierarchical structure verified");
 
@@ -219,7 +237,10 @@ async fn test_tree_workflow_api_validation() -> Result<()> {
         .create_task(task_request)
         .await?;
     assert!(!task_response.task_uuid.is_empty());
-    println!("✅ Tree workflow API creation working: {}", task_response.task_uuid);
+    println!(
+        "✅ Tree workflow API creation working: {}",
+        task_response.task_uuid
+    );
 
     // Test 2: Task retrieval API
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
@@ -235,7 +256,10 @@ async fn test_tree_workflow_api_validation() -> Result<()> {
         task_response.step_count >= 8,
         "Tree workflow should have at least 8 steps (root, 2 branches, 4 leaves, convergence)"
     );
-    println!("✅ Tree workflow step count validation: {} steps", task_response.step_count);
+    println!(
+        "✅ Tree workflow step count validation: {} steps",
+        task_response.step_count
+    );
 
     println!("\n🎉 Tree Workflow API Validation Test PASSED!");
     println!("✅ Tree workflow task creation: Working");

@@ -112,6 +112,12 @@ impl StepStateMachine {
                 WorkflowStepState::EnqueuedForOrchestration
             }
 
+            // TAS-41: EnqueuedAsErrorForOrchestration transitions
+            // Worker fails step and enqueues for orchestration error processing
+            (WorkflowStepState::InProgress, StepEvent::EnqueueAsErrorForOrchestration(_)) => {
+                WorkflowStepState::EnqueuedAsErrorForOrchestration
+            }
+
             // Orchestration processes and completes
             (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Complete(_)) => {
                 WorkflowStepState::Complete
@@ -120,6 +126,16 @@ impl StepStateMachine {
             // Orchestration processes and fails
             (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Fail(_)) => {
                 WorkflowStepState::Error
+            }
+
+            // Orchestration processes error notification
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Fail(_)) => {
+                WorkflowStepState::Error
+            }
+
+            // Allow for error recovery if orchestration determines step actually succeeded
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Complete(_)) => {
+                WorkflowStepState::Complete
             }
 
             // Complete transitions (legacy direct path, should eventually be removed)
@@ -135,6 +151,9 @@ impl StepStateMachine {
             (WorkflowStepState::Enqueued, StepEvent::Cancel) => WorkflowStepState::Cancelled,
             (WorkflowStepState::InProgress, StepEvent::Cancel) => WorkflowStepState::Cancelled,
             (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Cancel) => {
+                WorkflowStepState::Cancelled
+            }
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Cancel) => {
                 WorkflowStepState::Cancelled
             }
             (WorkflowStepState::Error, StepEvent::Cancel) => WorkflowStepState::Cancelled,

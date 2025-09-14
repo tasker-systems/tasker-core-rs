@@ -68,7 +68,7 @@ async fn test_end_to_end_linear_workflow_with_rust_worker() -> Result<()> {
     println!("\n⏱️ Step 7: Monitoring task execution...");
 
     // Wait for task completion with timeout
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 120).await?;
+    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
 
     // Step 8: Verify final results
     println!("\n🔍 Step 8: Verifying execution results...");

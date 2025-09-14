@@ -42,11 +42,11 @@ impl RustStepHandler for ValidateOrderHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract and validate customer info
-        let customer_info = match step_data.get_context_field::<serde_json::Value>("customer_info")
+        let customer_info = match step_data.get_context_field::<serde_json::Value>("customer")
         {
             Ok(value) => value,
             Err(e) => {
-                error!("Missing customer_info in task context: {}", e);
+                error!("Missing customer in task context: {}", e);
                 return Ok(error_result(
                     step_uuid,
                     "Customer information is required".to_string(),
@@ -56,7 +56,7 @@ impl RustStepHandler for ValidateOrderHandler {
                     start_time.elapsed().as_millis() as i64,
                     Some(HashMap::from([(
                         "field".to_string(),
-                        json!("customer_info"),
+                        json!("customer"),
                     )])),
                 ));
             }
@@ -94,7 +94,7 @@ impl RustStepHandler for ValidateOrderHandler {
 
         // Extract and validate order items
         let order_items =
-            match step_data.get_context_field::<Option<Vec<serde_json::Value>>>("order_items") {
+            match step_data.get_context_field::<Option<Vec<serde_json::Value>>>("items") {
                 Ok(value) => match value {
                     Some(items) => items,
                     None => {
@@ -139,13 +139,13 @@ impl RustStepHandler for ValidateOrderHandler {
         let mut total_amount = 0.0;
 
         for (index, item) in order_items.iter().enumerate() {
-            let product_id = match item.get("product_id").and_then(|v| v.as_i64()) {
-                Some(id) => id,
+            let sku = match item.get("sku").and_then(|v| v.as_str()) {
+                Some(sku_str) => sku_str,
                 None => {
                     return Ok(error_result(
                         step_uuid,
                         format!(
-                            "Invalid order item at position {}: missing product_id",
+                            "Invalid order item at position {}: missing sku",
                             index + 1
                         ),
                         Some("INVALID_ORDER_ITEM".to_string()),
@@ -162,13 +162,13 @@ impl RustStepHandler for ValidateOrderHandler {
                 Some(qty) => {
                     return Ok(error_result(
                         step_uuid,
-                        format!("Invalid quantity {} for product {}", qty, product_id),
+                        format!("Invalid quantity {} for product {}", qty, sku),
                         Some("INVALID_QUANTITY".to_string()),
                         Some("ValidationError".to_string()),
                         false,
                         start_time.elapsed().as_millis() as i64,
                         Some(HashMap::from([
-                            ("product_id".to_string(), json!(product_id)),
+                            ("sku".to_string(), json!(sku)),
                             ("quantity".to_string(), json!(qty)),
                         ])),
                     ));
@@ -194,13 +194,13 @@ impl RustStepHandler for ValidateOrderHandler {
                 Some(p) => {
                     return Ok(error_result(
                         step_uuid,
-                        format!("Invalid price {} for product {}", p, product_id),
+                        format!("Invalid price {} for product {}", p, sku),
                         Some("INVALID_PRICE".to_string()),
                         Some("ValidationError".to_string()),
                         false,
                         start_time.elapsed().as_millis() as i64,
                         Some(HashMap::from([
-                            ("product_id".to_string(), json!(product_id)),
+                            ("sku".to_string(), json!(sku)),
                             ("price".to_string(), json!(p)),
                         ])),
                     ));
@@ -222,19 +222,19 @@ impl RustStepHandler for ValidateOrderHandler {
             };
 
             // Simulate product lookup
-            let product_data = match simulate_product_lookup(product_id) {
+            let product_data = match simulate_product_lookup(sku) {
                 Ok(data) => data,
                 Err(e) => {
                     return Ok(error_result(
                         step_uuid,
-                        format!("Product {} not found", product_id),
+                        format!("Product {} not found", sku),
                         Some("PRODUCT_NOT_FOUND".to_string()),
                         Some("ValidationError".to_string()),
                         false,
                         start_time.elapsed().as_millis() as i64,
                         Some(HashMap::from([(
-                            "product_id".to_string(),
-                            json!(product_id),
+                            "sku".to_string(),
+                            json!(sku),
                         )])),
                     ));
                 }
@@ -244,7 +244,7 @@ impl RustStepHandler for ValidateOrderHandler {
             total_amount += line_total;
 
             validated_items.push(json!({
-                "product_id": product_id,
+                "sku": sku,
                 "product_name": product_data.name,
                 "quantity": quantity,
                 "unit_price": price,
@@ -282,8 +282,8 @@ impl RustStepHandler for ValidateOrderHandler {
         metadata.insert(
             "input_refs".to_string(),
             json!({
-                "customer_id": "task.context.customer_info.id",
-                "order_items": "task.context.order_items"
+                "customer_id": "task.context.customer.id",
+                "order_items": "task.context.items"
             }),
         );
 
@@ -386,7 +386,7 @@ impl RustStepHandler for ReserveInventoryHandler {
         let mut total_value = 0.0;
 
         for item in validated_items {
-            let product_id = item.get("product_id").and_then(|v| v.as_i64()).unwrap_or(0);
+            let sku = item.get("sku").and_then(|v| v.as_str()).unwrap_or("unknown");
             let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0);
             let unit_price = item
                 .get("unit_price")
@@ -403,18 +403,18 @@ impl RustStepHandler for ReserveInventoryHandler {
 
             // Simulate inventory reservation
             let reservation_result =
-                match simulate_inventory_reservation(product_id, quantity, &reservation_id) {
+                match simulate_inventory_reservation(sku, quantity, &reservation_id) {
                     Ok(result) => result,
                     Err(e) => {
                         return Ok(error_result(
                             step_uuid,
-                            format!("Insufficient stock for product {}. {}", product_id, e),
+                            format!("Insufficient stock for product {}. {}", sku, e),
                             Some("INSUFFICIENT_STOCK".to_string()),
                             Some("InventoryError".to_string()),
                             true, // Retryable - inventory might be replenished
                             start_time.elapsed().as_millis() as i64,
                             Some(HashMap::from([
-                                ("product_id".to_string(), json!(product_id)),
+                                ("sku".to_string(), json!(sku)),
                                 ("requested_quantity".to_string(), json!(quantity)),
                             ])),
                         ));
@@ -424,7 +424,7 @@ impl RustStepHandler for ReserveInventoryHandler {
             total_value += line_total;
 
             reservations.push(json!({
-                "product_id": product_id,
+                "sku": sku,
                 "product_name": product_name,
                 "quantity_requested": quantity,
                 "quantity_reserved": reservation_result.reserved_quantity,
@@ -525,7 +525,7 @@ impl RustStepHandler for ProcessPaymentHandler {
         };
 
         // Extract payment info from task context
-        let payment_info = match step_data.get_context_field::<serde_json::Value>("payment_info") {
+        let payment_info = match step_data.get_context_field::<serde_json::Value>("payment") {
             Ok(info) => info,
             Err(_) => {
                 return Ok(error_result(
@@ -645,7 +645,7 @@ impl RustStepHandler for ProcessPaymentHandler {
             json!({
                 "amount": "sequence.validate_order.result.order_total",
                 "reservation_id": "sequence.reserve_inventory.result.reservation_id",
-                "payment_info": "task.context.payment_info"
+                "payment_info": "task.context.payment"
             }),
         );
 
@@ -700,7 +700,7 @@ impl RustStepHandler for ShipOrderHandler {
             step_data.get_dependency_result_column_value::<serde_json::Value>("process_payment")?;
 
         // Extract shipping info from task context
-        let shipping_info = match step_data.get_context_field::<serde_json::Value>("shipping_info")
+        let shipping_info = match step_data.get_context_field::<serde_json::Value>("shipping")
         {
             Ok(info) => info,
             Err(_) => {
@@ -796,7 +796,7 @@ impl RustStepHandler for ShipOrderHandler {
                 "items": "sequence.validate_order.result.validated_items",
                 "reservation_id": "sequence.reserve_inventory.result.reservation_id",
                 "payment_id": "sequence.process_payment.result.payment_id",
-                "shipping_info": "task.context.shipping_info"
+                "shipping_info": "task.context.shipping"
             }),
         );
 
@@ -866,40 +866,40 @@ struct ShippingCarrierResponse {
     label_generation_time: i32,
 }
 
-fn simulate_product_lookup(product_id: i64) -> Result<ProductData, String> {
-    match product_id {
-        101 => Ok(ProductData {
+fn simulate_product_lookup(sku: &str) -> Result<ProductData, String> {
+    match sku {
+        "WIDGET-001" => Ok(ProductData {
             name: "Premium Widget A".to_string(),
             stock: 100,
             category: "widgets".to_string(),
         }),
-        102 => Ok(ProductData {
+        "WIDGET-002" => Ok(ProductData {
             name: "Deluxe Widget B".to_string(),
             stock: 50,
             category: "widgets".to_string(),
         }),
-        103 => Ok(ProductData {
+        "GADGET-002" => Ok(ProductData {
             name: "Standard Gadget C".to_string(),
             stock: 200,
             category: "gadgets".to_string(),
         }),
-        _ => Err(format!("Product {} not found", product_id)),
+        _ => Err(format!("Product {} not found", sku)),
     }
 }
 
 fn simulate_inventory_reservation(
-    product_id: i64,
+    sku: &str,
     quantity: i64,
     reservation_id: &str,
 ) -> Result<InventoryReservation, String> {
-    let (available_stock, location) = match product_id {
-        101 => (100, "WH-EAST-A1"),
-        102 => (50, "WH-WEST-B2"),
-        103 => (200, "WH-CENTRAL-C3"),
+    let (available_stock, location) = match sku {
+        "WIDGET-001" => (100, "WH-EAST-A1"),
+        "WIDGET-002" => (50, "WH-WEST-B2"),
+        "GADGET-002" => (200, "WH-CENTRAL-C3"),
         _ => {
             return Err(format!(
                 "Product {} not found in inventory system",
-                product_id
+                sku
             ))
         }
     };
@@ -914,7 +914,7 @@ fn simulate_inventory_reservation(
     Ok(InventoryReservation {
         reserved_quantity: quantity,
         location: location.to_string(),
-        reference: format!("{}-{}", reservation_id, product_id),
+        reference: format!("{}-{}", reservation_id, sku),
     })
 }
 

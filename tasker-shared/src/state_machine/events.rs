@@ -171,6 +171,8 @@ pub enum StepEvent {
     Start,
     /// Enqueue step results for orchestration processing (in_progress → enqueued_for_orchestration)
     EnqueueForOrchestration(Option<Value>),
+    /// Enqueue step error results for orchestration processing (in_progress → enqueued_as_error_for_orchestration)
+    EnqueueAsErrorForOrchestration(Option<Value>),
     /// Mark step as complete with optional results (enqueued_for_orchestration → complete)
     Complete(Option<Value>),
     /// Mark step as failed with error message (enqueued_for_orchestration → error)
@@ -190,6 +192,7 @@ impl StepEvent {
             Self::Enqueue => "enqueue",
             Self::Start => "start",
             Self::EnqueueForOrchestration(_) => "enqueue_for_orchestration",
+            Self::EnqueueAsErrorForOrchestration(_) => "enqueue_as_error_for_orchestration",
             Self::Complete(_) => "complete",
             Self::Fail(_) => "fail",
             Self::Cancel => "cancel",
@@ -211,6 +214,7 @@ impl StepEvent {
         match self {
             Self::Complete(results) => results.as_ref(),
             Self::EnqueueForOrchestration(results) => results.as_ref(),
+            Self::EnqueueAsErrorForOrchestration(results) => results.as_ref(),
             _ => None,
         }
     }

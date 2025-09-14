@@ -561,29 +561,80 @@ impl OrchestrationResultProcessor {
                 ))
             })?;
 
-            if matches!(step_state, WorkflowStepState::EnqueuedForOrchestration) {
+            if matches!(step_state, WorkflowStepState::EnqueuedForOrchestration | WorkflowStepState::EnqueuedAsErrorForOrchestration) {
                 info!(
                     step_uuid = %step_uuid,
                     original_status = %original_status,
-                    "Processing orchestration state transition for step in EnqueuedForOrchestration state"
+                    step_state = %step_state,
+                    "Processing orchestration state transition for step in notification state"
                 );
 
                 // Create state machine for the step
                 use tasker_shared::state_machine::StepStateMachine;
                 let mut state_machine = StepStateMachine::new(step.clone(), self.context.clone());
 
-                // Determine the final state based on original worker status
-                let final_event = if original_status.to_lowercase().contains("success")
-                    || original_status.to_lowercase() == "complete"
-                    || original_status.to_lowercase() == "completed"
-                {
-                    // Successful completion - pass along the existing results from the step
-                    use tasker_shared::state_machine::events::StepEvent;
-                    StepEvent::Complete(step.results.clone())
-                } else {
-                    // Failed execution
-                    use tasker_shared::state_machine::events::StepEvent;
-                    StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                // Determine the final state based on step notification state and execution result
+                use tasker_shared::state_machine::events::StepEvent;
+                let final_event = match step_state {
+                    WorkflowStepState::EnqueuedForOrchestration => {
+                        // Success pathway - deserialize StepExecutionResult to determine final state
+                        if let Some(results_json) = &step.results {
+                            match serde_json::from_value::<StepExecutionResult>(results_json.clone()) {
+                                Ok(step_execution_result) => {
+                                    if step_execution_result.success {
+                                        StepEvent::Complete(step.results.clone())
+                                    } else {
+                                        // Handle case where success path contains failure
+                                        let error_message = step_execution_result.error
+                                            .map(|e| e.message)
+                                            .unwrap_or_else(|| "Unknown error".to_string());
+                                        StepEvent::Fail(format!("Step failed: {}", error_message))
+                                    }
+                                }
+                                Err(_) => {
+                                    // Fallback to original status parsing for backward compatibility
+                                    if original_status.to_lowercase().contains("success")
+                                        || original_status.to_lowercase() == "complete"
+                                        || original_status.to_lowercase() == "completed"
+                                    {
+                                        StepEvent::Complete(step.results.clone())
+                                    } else {
+                                        StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                                    }
+                                }
+                            }
+                        } else {
+                            // No results available - use status
+                            if original_status.to_lowercase().contains("success")
+                                || original_status.to_lowercase() == "complete"
+                                || original_status.to_lowercase() == "completed"
+                            {
+                                StepEvent::Complete(None)
+                            } else {
+                                StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                            }
+                        }
+                    },
+                    WorkflowStepState::EnqueuedAsErrorForOrchestration => {
+                        // Error pathway - deserialize to get proper error message
+                        if let Some(results_json) = &step.results {
+                            match serde_json::from_value::<StepExecutionResult>(results_json.clone()) {
+                                Ok(step_execution_result) => {
+                                    let error_message = step_execution_result.error
+                                        .map(|e| e.message)
+                                        .unwrap_or_else(|| "Step execution failed".to_string());
+                                    StepEvent::Fail(error_message)
+                                }
+                                Err(_) => {
+                                    // Fallback
+                                    StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                                }
+                            }
+                        } else {
+                            StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                        }
+                    },
+                    _ => unreachable!("Already matched above")
                 };
 
                 // Execute the state transition
@@ -598,13 +649,13 @@ impl OrchestrationResultProcessor {
                 info!(
                     step_uuid = %step_uuid,
                     final_state = %final_state,
-                    "Successfully transitioned step from EnqueuedForOrchestration to final state"
+                    "Successfully transitioned step from notification state to final state"
                 );
             } else {
                 debug!(
                     step_uuid = %step_uuid,
                     current_state = %step_state,
-                    "Step not in EnqueuedForOrchestration state - skipping orchestration transition"
+                    "Step not in EnqueuedForOrchestration or EnqueuedAsErrorForOrchestration state - skipping orchestration transition"
                 );
             }
         } else {

@@ -83,11 +83,7 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     println!("     --input '<complex_order_structure>'");
 
     let order_data = create_order_fulfillment_request();
-    let task_request = create_task_request(
-        "order_fulfillment",
-        "business_workflow",
-        order_data,
-    );
+    let task_request = create_task_request("order_fulfillment", "business_workflow", order_data);
 
     let task_response = manager
         .orchestration_client
@@ -104,7 +100,7 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     println!("\n⏱️ Monitoring order fulfillment workflow execution...");
 
     // Wait for task completion with extended timeout for business workflow
-    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 240).await?;
+    wait_for_task_completion(&manager.orchestration_client, &task_response.task_uuid, 5).await?;
 
     // Verify final results
     println!("\n🔍 Verifying order fulfillment workflow results...");
@@ -127,17 +123,23 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
         .orchestration_client
         .list_task_steps(task_uuid)
         .await?;
-    println!("✅ Retrieved {} order fulfillment workflow steps", steps.len());
+    println!(
+        "✅ Retrieved {} order fulfillment workflow steps",
+        steps.len()
+    );
 
     // Verify we have the expected steps for order fulfillment pattern
-    assert!(!steps.is_empty(), "Should have order fulfillment workflow steps");
+    assert!(
+        !steps.is_empty(),
+        "Should have order fulfillment workflow steps"
+    );
 
     // Expected order fulfillment workflow steps (4 total)
     let expected_steps = vec![
         "validate_order",
         "reserve_inventory",
         "process_payment",
-        "ship_order"
+        "ship_order",
     ];
 
     // Verify all steps completed successfully
@@ -179,7 +181,10 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     // Check validate_order step results
     if let Some(validate_step) = steps.iter().find(|s| s.name == "validate_order") {
         if let Some(result_data) = &validate_step.results {
-            println!("✅ Order validation results: {}", serde_json::to_string_pretty(result_data)?);
+            println!(
+                "✅ Order validation results: {}",
+                serde_json::to_string_pretty(result_data)?
+            );
 
             // Verify validation includes expected business calculations
             if let Some(total) = result_data.get("total_amount") {
@@ -194,7 +199,10 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     // Check reserve_inventory step results
     if let Some(reserve_step) = steps.iter().find(|s| s.name == "reserve_inventory") {
         if let Some(result_data) = &reserve_step.results {
-            println!("✅ Inventory reservation results: {}", serde_json::to_string_pretty(result_data)?);
+            println!(
+                "✅ Inventory reservation results: {}",
+                serde_json::to_string_pretty(result_data)?
+            );
 
             // Verify inventory reservation includes expected data
             if let Some(reservation_id) = result_data.get("reservation_id") {
@@ -206,7 +214,10 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     // Check process_payment step results
     if let Some(payment_step) = steps.iter().find(|s| s.name == "process_payment") {
         if let Some(result_data) = &payment_step.results {
-            println!("✅ Payment processing results: {}", serde_json::to_string_pretty(result_data)?);
+            println!(
+                "✅ Payment processing results: {}",
+                serde_json::to_string_pretty(result_data)?
+            );
 
             // Verify payment processing includes expected data
             if let Some(transaction_id) = result_data.get("transaction_id") {
@@ -218,7 +229,10 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     // Check ship_order step results
     if let Some(ship_step) = steps.iter().find(|s| s.name == "ship_order") {
         if let Some(result_data) = &ship_step.results {
-            println!("✅ Shipping results: {}", serde_json::to_string_pretty(result_data)?);
+            println!(
+                "✅ Shipping results: {}",
+                serde_json::to_string_pretty(result_data)?
+            );
 
             // Verify shipping includes expected data
             if let Some(tracking_number) = result_data.get("tracking_number") {
@@ -237,10 +251,22 @@ async fn test_end_to_end_order_fulfillment_workflow() -> Result<()> {
     let ship_step = steps.iter().find(|s| s.name == "ship_order");
 
     // Verify key steps exist
-    assert!(validate_step.is_some(), "Order fulfillment workflow should have validate_order step");
-    assert!(reserve_step.is_some(), "Order fulfillment workflow should have reserve_inventory step");
-    assert!(payment_step.is_some(), "Order fulfillment workflow should have process_payment step");
-    assert!(ship_step.is_some(), "Order fulfillment workflow should have ship_order step");
+    assert!(
+        validate_step.is_some(),
+        "Order fulfillment workflow should have validate_order step"
+    );
+    assert!(
+        reserve_step.is_some(),
+        "Order fulfillment workflow should have reserve_inventory step"
+    );
+    assert!(
+        payment_step.is_some(),
+        "Order fulfillment workflow should have process_payment step"
+    );
+    assert!(
+        ship_step.is_some(),
+        "Order fulfillment workflow should have ship_order step"
+    );
 
     println!("✅ Business workflow linear execution pattern verified");
 
@@ -273,18 +299,17 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
 
     // Test 1: Valid order fulfillment workflow task creation
     let order_data = create_order_fulfillment_request();
-    let task_request = create_task_request(
-        "order_fulfillment",
-        "business_workflow",
-        order_data,
-    );
+    let task_request = create_task_request("order_fulfillment", "business_workflow", order_data);
 
     let task_response = manager
         .orchestration_client
         .create_task(task_request)
         .await?;
     assert!(!task_response.task_uuid.is_empty());
-    println!("✅ Order fulfillment workflow API creation working: {}", task_response.task_uuid);
+    println!(
+        "✅ Order fulfillment workflow API creation working: {}",
+        task_response.task_uuid
+    );
 
     // Test 2: Task retrieval API
     let task_uuid = Uuid::parse_str(&task_response.task_uuid)?;
@@ -300,7 +325,10 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
         task_response.step_count >= 4,
         "Order fulfillment workflow should have at least 4 steps (validate, reserve, payment, ship)"
     );
-    println!("✅ Order fulfillment workflow step count validation: {} steps", task_response.step_count);
+    println!(
+        "✅ Order fulfillment workflow step count validation: {} steps",
+        task_response.step_count
+    );
 
     // Test 4: Invalid order data validation (missing required fields)
     println!("\n🔧 Testing invalid order data validation...");
@@ -314,16 +342,20 @@ async fn test_order_fulfillment_api_validation() -> Result<()> {
         // Missing payment and shipping
     });
 
-    let invalid_task_request = create_task_request(
-        "order_fulfillment",
-        "business_workflow",
-        invalid_order_data,
-    );
+    let invalid_task_request =
+        create_task_request("order_fulfillment", "business_workflow", invalid_order_data);
 
     // This should either fail immediately or be created but fail during validation step
-    match manager.orchestration_client.create_task(invalid_task_request).await {
+    match manager
+        .orchestration_client
+        .create_task(invalid_task_request)
+        .await
+    {
         Ok(response) => {
-            println!("⚠️  Invalid order task created (will fail during validation): {}", response.task_uuid);
+            println!(
+                "⚠️  Invalid order task created (will fail during validation): {}",
+                response.task_uuid
+            );
             // Task creation succeeded but will fail during execution - this is acceptable
         }
         Err(e) => {

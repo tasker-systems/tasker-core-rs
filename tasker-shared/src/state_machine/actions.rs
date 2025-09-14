@@ -508,6 +508,45 @@ impl UpdateStepResultsAction {
         Ok(())
     }
 
+    pub async fn handle_move_to_enqueued_as_error_for_orchestration(
+        &self,
+        step: &WorkflowStep,
+        pool: &PgPool,
+        event: &str,
+    ) -> ActionResult<()> {
+        // Extract results from event if available for later orchestration processing
+        let results = extract_results_from_event(event)?;
+
+        // Update step to no longer be in_process since worker has completed
+        // but don't mark as processed yet - orchestration will do that
+        sqlx::query!(
+            r#"
+        UPDATE tasker_workflow_steps
+        SET in_process = false,
+            results = $2,
+            updated_at = NOW()
+        WHERE workflow_step_uuid = $1
+        "#,
+            step.workflow_step_uuid,
+            results // Already a serde_json::Value, no need to convert again
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| ActionError::DatabaseUpdateFailed {
+            entity_type: "WorkflowStep".to_string(),
+            entity_id: step.workflow_step_uuid.to_string(),
+            reason: format!("Failed to mark step as enqueued as error for orchestration: {e}"),
+        })?;
+
+        tracing::info!(
+            step_uuid = %step.workflow_step_uuid,
+            task_uuid = %step.task_uuid,
+            ?results,
+            "Step marked as enqueued as error for orchestration with results preserved"
+        );
+        Ok(())
+    }
+
     pub async fn handle_move_to_resolved_manually(
         &self,
         step: &WorkflowStep,
@@ -584,6 +623,10 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
             }
             WorkflowStepState::EnqueuedForOrchestration => {
                 self.handle_move_to_enqueued_for_orchestration(step, pool, event)
+                    .await?;
+            }
+            WorkflowStepState::EnqueuedAsErrorForOrchestration => {
+                self.handle_move_to_enqueued_as_error_for_orchestration(step, pool, event)
                     .await?;
             }
             WorkflowStepState::ResolvedManually => {
@@ -767,11 +810,13 @@ fn build_step_event_context(
 }
 
 fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
-    // Try to parse event as JSON to extract results from StepEvent::Complete or StepEvent::EnqueueForOrchestration
+    // Try to parse event as JSON to extract results from StepEvent::Complete, StepEvent::EnqueueForOrchestration, or StepEvent::EnqueueAsErrorForOrchestration
     if let Ok(event_data) = serde_json::from_str::<Value>(event) {
-        // StepEvent serializes as: {"type": "Complete", "data": { results }} or {"type": "EnqueueForOrchestration", "data": { results }}
+        // StepEvent serializes as: {"type": "Complete", "data": { results }}, {"type": "EnqueueForOrchestration", "data": { results }}, or {"type": "EnqueueAsErrorForOrchestration", "data": { results }}
         if let Some(event_type) = event_data.get("type") {
-            if event_type == "Complete" || event_type == "EnqueueForOrchestration" {
+            if event_type == "Complete"
+                || event_type == "EnqueueForOrchestration"
+                || event_type == "EnqueueAsErrorForOrchestration" {
                 // Extract the data field which contains the actual step results
                 if let Some(results) = event_data.get("data") {
                     return Ok(Some(results.clone()));

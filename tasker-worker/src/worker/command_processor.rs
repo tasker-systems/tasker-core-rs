@@ -654,11 +654,14 @@ impl WorkerProcessor {
         // 2. Use StepStateMachine for proper state transition with results persistence
         let mut state_machine = StepStateMachine::new(workflow_step, self.context.clone());
 
-        // 3. Transition using EnqueueForOrchestration to allow orchestration processing
-        // TAS-41: Worker transitions to EnqueuedForOrchestration instead of terminal states
-        // This prevents the race condition where tasks become ready before orchestration processing
-        let step_event =
-            StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?));
+        // 3. Transition using appropriate notification state based on step execution result
+        // TAS-41: Route successful vs failed steps to different notification states
+        // This enables proper error notification pathway to orchestration
+        let step_event = if step_result.success {
+            StepEvent::EnqueueForOrchestration(Some(serde_json::to_value(&step_result)?))
+        } else {
+            StepEvent::EnqueueAsErrorForOrchestration(Some(serde_json::to_value(&step_result)?))
+        };
 
         // 4. Execute atomic state transition (includes result persistence via UpdateStepResultsAction)
         let final_state = state_machine.transition(step_event).await.map_err(|e| {
