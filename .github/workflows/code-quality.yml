@@ -37,9 +37,9 @@ jobs:
         uses: ./.github/actions/setup-env
 
       - name: Install tools
-        run: |
-          cargo binstall sqlx-cli --no-default-features --features rustls,postgres -y
-          cargo binstall cargo-audit -y
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "sqlx-cli audit"
 
       - name: Setup database
         run: sqlx migrate run

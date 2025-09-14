@@ -153,6 +153,30 @@ cargo binstall sccache -y
 - Database and application (DATABASE_URL, TASKER_ENV, LOG_LEVEL)
 - Authentication (JWT keys, API_KEY)
 
+### 🔧 Install Tools (`.github/actions/install-tools/action.yml`)
+
+**Purpose**: Fast installation of Rust development tools via cargo-binstall
+
+**Features**:
+- Installs cargo-binstall automatically if not present
+- Uses pre-compiled binaries for fast installation (30s vs 10+ minutes)
+- Supports nextest, sqlx-cli, cargo-audit, cargo-llvm-cov
+- Handles PATH setup and version verification
+
+**Usage**:
+```yaml
+- name: Install development tools
+  uses: ./.github/actions/install-tools
+  with:
+    tools: "nextest sqlx-cli audit"
+```
+
+**Available Tools**:
+- `nextest` - Parallel test execution
+- `sqlx-cli` - Database migrations with PostgreSQL support
+- `audit` - Security vulnerability scanning
+- `llvm-cov` - Code coverage reporting
+
 ## Workflow Details
 
 ### 🏗️ Build Docker Images (`build-docker-images.yml`)

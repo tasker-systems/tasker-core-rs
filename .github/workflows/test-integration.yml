@@ -16,7 +16,9 @@ jobs:
         uses: ./.github/actions/setup-env
 
       - name: Install tools
-        run: cargo binstall cargo-nextest -y
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "nextest"
 
       - name: Start test services
         uses: hoverkraft-tech/compose-action@v2.0.1

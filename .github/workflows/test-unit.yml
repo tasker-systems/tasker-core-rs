@@ -41,9 +41,9 @@ jobs:
         uses: ./.github/actions/setup-env
 
       - name: Install tools
-        run: |
-          cargo binstall cargo-nextest -y
-          cargo binstall sqlx-cli --no-default-features --features rustls,postgres -y
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "nextest sqlx-cli"
 
       - name: Setup database
         run: |

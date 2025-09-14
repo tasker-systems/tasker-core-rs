@@ -80,6 +80,10 @@ TASKER_ENV=production cargo run --bin config-validator
 
 ### CI and Testing Commands
 
+# Tool Installation (fast binary installation via cargo-binstall)
+curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+cargo binstall cargo-nextest sqlx-cli cargo-audit -y  # Install common tools
+
 # Enhanced testing with nextest (parallel execution)
 cargo nextest run --profile default                # Local testing with nextest
 cargo nextest run --profile ci                     # Run CI profile tests locally
