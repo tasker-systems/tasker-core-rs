@@ -9,15 +9,15 @@
 //! - Domain-specific structured logging macros
 //! - TTY-aware ANSI color output
 
+use chrono::Utc;
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-use chrono::Utc;
 use uuid::Uuid;
 
 static TRACING_INITIALIZED: OnceLock<()> = OnceLock::new();
 
 /// Initialize tracing with console output only
-/// 
+///
 /// This function sets up structured logging that outputs to stdout/stderr,
 /// which is appropriate for containerized applications and follows modern
 /// observability practices.
@@ -25,10 +25,8 @@ pub fn init_tracing() {
     TRACING_INITIALIZED.get_or_init(|| {
         let environment = get_environment();
         let log_level = get_log_level(&environment);
-        
         // Determine if we're in a TTY for ANSI color support
         let use_ansi = atty::is(atty::Stream::Stdout);
-        
         let subscriber = tracing_subscriber::registry()
             .with(
                 fmt::layer()
@@ -54,7 +52,7 @@ pub fn init_tracing() {
 }
 
 /// Legacy alias for backward compatibility
-/// 
+///
 /// This function is deprecated and will be removed in a future version.
 /// Use `init_tracing()` instead.
 #[deprecated(since = "0.2.0", note = "Use init_tracing() instead")]

@@ -14,8 +14,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pgmq_notify::{
-    listener::PgmqEventHandler, MessageReadyEvent, PgmqNotifyConfig, PgmqNotifyEvent,
-    PgmqNotifyListener,
+    listener::PgmqEventHandler, PgmqNotifyConfig, PgmqNotifyEvent, PgmqNotifyListener,
 };
 use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 

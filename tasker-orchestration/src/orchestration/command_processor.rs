@@ -187,7 +187,6 @@ use crate::orchestration::lifecycle::result_processor::OrchestrationResultProces
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::lifecycle::task_request_processor::TaskRequestProcessor;
 use tasker_shared::messaging::{PgmqClientTrait, UnifiedPgmqClient};
-use tasker_shared::state_machine::TaskStateMachine;
 use tasker_shared::system_context::SystemContext;
 
 /// TAS-40 Command Pattern Orchestration Processor
@@ -465,6 +464,17 @@ impl OrchestrationProcessorCommandHandler {
                 task_state,
                 resp,
             } => {
+                info!(
+                    task_uuid = %task_uuid,
+                    namespace = %namespace,
+                    priority = %priority,
+                    ready_steps = %ready_steps,
+                    triggered_by = %triggered_by,
+                    step_uuid = format!("{:?}", step_uuid),
+                    step_state = format!("{:?}", step_state),
+                    task_state = format!("{:?}", task_state),
+                    "Processing task readiness for task with UUID {task_uuid} in namespace {namespace}",
+                );
                 let result = self
                     .handle_process_task_readiness(
                         task_uuid,
@@ -619,12 +629,6 @@ impl OrchestrationProcessorCommandHandler {
     }
 
     async fn handle_finalize_task(&self, task_uuid: Uuid) -> TaskerResult<TaskFinalizationResult> {
-        let task_state_machine = TaskStateMachine::for_task(
-            task_uuid,
-            self.context.database_pool().clone(),
-            self.context.processor_uuid(),
-        );
-
         // Use TaskFinalizer directly with state machine approach
         use crate::orchestration::lifecycle::task_finalizer::TaskFinalizer;
 

@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result;
 use std::sync::Arc;
 use tasker_worker::WorkerSystemHandle;
-use tracing::{info, warn};
+use tracing::info;
 
 pub fn default_config() -> WorkerBootstrapConfig {
     // Configure worker with all supported workflow namespaces

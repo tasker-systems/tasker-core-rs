@@ -2,114 +2,100 @@
 name = "tasker-shared"
 version = "0.1.0"
 edition = "2021"
-authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 description = "Shared components for tasker orchestration and worker systems"
 license = "MIT"
 
 [lib]
-name = "tasker_shared"
 crate-type = ["rlib"]
+name = "tasker_shared"
+
+[[bench]]
+harness = false
+name = "shared_benchmarks"
+required-features = ["benchmarks"]
 
 [dependencies]
-tokio = { workspace = true }
+anyhow = { workspace = true }
 async-trait = { workspace = true }
+atty = { workspace = true }
+axum = { workspace = true, optional = true }
+axum-extra = { workspace = true, optional = true }
+bigdecimal = { workspace = true }
+# Time and date handling
+chrono = { workspace = true }
+# Configuration
+config = { workspace = true }
+# Development and testing
+criterion = { workspace = true, optional = true }
+# dashmap = { workspace = true }
+crossbeam = { workspace = true }
+dotenvy = { workspace = true }  # For loading .env files
+# Random number generation
+fastrand = { workspace = true }
 futures = { workspace = true }
-
-# Database and ORM
-sqlx = { workspace = true }
+jsonwebtoken = { workspace = true, optional = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+# Concurrency and state management
+parking_lot = { workspace = true }
 pgmq = { workspace = true }
 pgmq-notify = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+# Web API testing and API Integration
+reqwest = { workspace = true }
+rsa = { workspace = true, optional = true }
 rust_decimal = { workspace = true }
-bigdecimal = { workspace = true }
-uuid = { workspace = true }
-
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-toml = { workspace = true }
-
-# Time and date handling
-chrono = { workspace = true }
-
-# Error handling
-thiserror = { workspace = true }
-anyhow = { workspace = true }
-
+# Database and ORM
+sqlx = { workspace = true }
 # System information
 sysinfo = { workspace = true }
-
+# Error handling
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
 # Logging and telemetry
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-atty = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-
-# Concurrency and state management
-parking_lot = { workspace = true }
-# dashmap = { workspace = true }
-crossbeam = { workspace = true }
-
-# Configuration
-config = { workspace = true }
-regex = { workspace = true }
-dotenvy = { workspace = true } # For loading .env files
-
-# Random number generation
-fastrand = { workspace = true }
-
-# Development and testing
-criterion = { workspace = true, optional = true }
-rand = { workspace = true }
-workspace_tools = { workspace = true }
-
-# Web API testing and API Integration
-reqwest = { workspace = true }
-
-axum = { workspace = true, optional = true }
-axum-extra = { workspace = true, optional = true }
-tower = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
-jsonwebtoken = { workspace = true, optional = true }
-rsa = { workspace = true, optional = true }
 # OpenAPI documentation
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
+uuid = { workspace = true }
+workspace_tools = { workspace = true }
 
 [dev-dependencies]
-tasker-core = { path = "../", package = "tasker-core" }
-# Testing tools
-tokio-test = { workspace = true }
-tempfile = { workspace = true }
-proptest = { workspace = true }
-insta = { workspace = true }
-mockall = { workspace = true }
-factori = { workspace = true }
-url = { workspace = true }
-serial_test = { workspace = true }
-
 # Coverage tools (used in CI)
 cargo-llvm-cov = { workspace = true }
+factori = { workspace = true }
+insta = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+serial_test = { workspace = true }
+tasker-core = { path = "../", package = "tasker-core" }
+tempfile = { workspace = true }
+# Testing tools
+tokio-test = { workspace = true }
+url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
+benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
+test-utils = []
 web-api = [
-    "axum",
-    "axum-extra",
-    "tower",
-    "tower-http",
-    "jsonwebtoken",
-    "rsa",
-    "utoipa",
-    "utoipa-swagger-ui",
+  "axum",
+  "axum-extra",
+  "jsonwebtoken",
+  "rsa",
+  "tower",
+  "tower-http",
+  "utoipa",
+  "utoipa-swagger-ui",
 ]
 
-benchmarks = ["criterion"]
-test-utils = []
-
-[[bench]]
-name = "shared_benchmarks"
-harness = false
-required-features = ["benchmarks"]

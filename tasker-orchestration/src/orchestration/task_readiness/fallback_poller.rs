@@ -34,6 +34,7 @@ impl Default for FallbackPollerConfig {
 /// Simple fallback poller that periodically processes ready tasks
 pub struct FallbackPoller {
     config: FallbackPollerConfig,
+    #[allow(dead_code)] // future need
     context: Arc<SystemContext>,
     task_claim_step_enqueuer: Arc<StepEnqueuerService>,
     poller_id: Uuid,

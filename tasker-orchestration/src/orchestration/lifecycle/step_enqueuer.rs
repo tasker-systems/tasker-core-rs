@@ -52,7 +52,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tasker_shared::config::orchestration::StepEnqueuerConfig;
-use tasker_shared::database::sql_functions::{ReadyTaskInfo, SqlFunctionExecutor};
+use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
 use tasker_shared::types::ViableStep;

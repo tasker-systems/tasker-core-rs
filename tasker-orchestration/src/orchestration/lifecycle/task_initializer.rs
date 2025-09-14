@@ -43,13 +43,11 @@
 
 use crate::orchestration::lifecycle::step_enqueuer_service::StepEnqueuerService;
 use crate::orchestration::state_manager::StateManager;
-use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::database::SqlFunctionExecutor;
 use tasker_shared::logging;
 use tasker_shared::models::core::task_template::TaskTemplate;
@@ -58,7 +56,7 @@ use tasker_shared::registry::TaskHandlerRegistry;
 use tasker_shared::state_machine::states::TaskState;
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerError;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 
 /// Result of task initialization
 #[derive(Debug, Clone, Serialize, Deserialize)]

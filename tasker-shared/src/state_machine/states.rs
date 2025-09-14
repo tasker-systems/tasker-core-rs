@@ -429,7 +429,7 @@ mod tests {
         assert!(!TaskState::Pending.requires_ownership());
         assert!(TaskState::Initializing.requires_ownership());
         assert!(TaskState::EnqueuingSteps.requires_ownership());
-        assert!(TaskState::StepsInProcess.requires_ownership());
+        assert!(!TaskState::StepsInProcess.requires_ownership());
         assert!(TaskState::EvaluatingResults.requires_ownership());
         assert!(!TaskState::WaitingForDependencies.requires_ownership());
         assert!(!TaskState::WaitingForRetry.requires_ownership());

@@ -54,7 +54,8 @@ pub struct OrchestrationEventSystem {
     /// System context
     context: Arc<SystemContext>,
 
-    /// Orchestration core
+    /// Orchestration core - future proofing
+    #[allow(dead_code)]
     orchestration_core: Arc<OrchestrationCore>,
 
     /// Command sender for orchestration operations
@@ -752,6 +753,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
                                     msg_id = %msg_id,
                                     task_uuid_completed = %task_uuid,
                                     final_status = %final_status,
+                                    completion_time = format!("{:?}", completion_time),
                                     "FinalizeTaskFromMessageEvent command completed successfully"
                                 );
 
@@ -978,7 +980,7 @@ impl OrchestrationEventSystem {
     /// Process orchestration notifications from the queue listener
     async fn process_orchestration_notification(
         notification: OrchestrationNotification,
-        context: &Arc<SystemContext>,
+        _context: &Arc<SystemContext>,
         command_sender: &mpsc::Sender<OrchestrationCommand>,
         statistics: &Arc<OrchestrationStatistics>,
     ) {

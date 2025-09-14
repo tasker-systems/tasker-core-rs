@@ -3,7 +3,6 @@ name = "tasker-worker-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Native Rust worker demonstration for tasker-worker foundation"
-authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 
 [lib]
 name = "tasker_worker_rust"

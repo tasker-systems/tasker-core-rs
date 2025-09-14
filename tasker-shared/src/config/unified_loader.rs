@@ -51,13 +51,20 @@ impl UnifiedConfigLoader {
                 "Failed to find workspace root using workspace_tools: {e}"
             ))
         })?;
-        
+
         // Load .env file from workspace root for database configuration and other env vars
         let env_file = ws.join(".env");
         if let Err(e) = dotenvy::from_path(&env_file) {
-            debug!("🔧 DOTENV: Could not load .env file from {}: {}", env_file.display(), e);
+            debug!(
+                "🔧 DOTENV: Could not load .env file from {}: {}",
+                env_file.display(),
+                e
+            );
         } else {
-            debug!("🔧 DOTENV: Successfully loaded .env file from {}", env_file.display());
+            debug!(
+                "🔧 DOTENV: Successfully loaded .env file from {}",
+                env_file.display()
+            );
         }
 
         let root = ws.join("config").join("tasker");
@@ -123,17 +130,26 @@ impl UnifiedConfigLoader {
     /// 3. Validate the merged configuration
     /// 4. Return the validated config
     pub fn load_component(&mut self, component: &str) -> ConfigResult<toml::Value> {
-        debug!("🔧 LOAD_COMPONENT: Loading component '{}' for environment '{}'", component, self.environment);
+        debug!(
+            "🔧 LOAD_COMPONENT: Loading component '{}' for environment '{}'",
+            component, self.environment
+        );
 
         // Check cache first
         if let Some(cached_config) = self.component_cache.get(component) {
-            debug!("🔧 LOAD_COMPONENT: Using cached configuration for component: {}", component);
+            debug!(
+                "🔧 LOAD_COMPONENT: Using cached configuration for component: {}",
+                component
+            );
             return Ok(cached_config.clone());
         }
 
         // 1. Load base component - this is REQUIRED, never optional
         let base_path = self.root.join("base").join(format!("{component}.toml"));
-        debug!("🔧 LOAD_COMPONENT: Loading base config from: {}", base_path.display());
+        debug!(
+            "🔧 LOAD_COMPONENT: Loading base config from: {}",
+            base_path.display()
+        );
         let mut config = self.load_toml_with_env_substitution(&base_path)?;
 
         debug!(
@@ -150,22 +166,31 @@ impl UnifiedConfigLoader {
             .join(&self.environment)
             .join(format!("{component}.toml"));
 
-        debug!("🔧 LOAD_COMPONENT: Checking for environment overrides at: {}", env_path.display());
-        
+        debug!(
+            "🔧 LOAD_COMPONENT: Checking for environment overrides at: {}",
+            env_path.display()
+        );
+
         if env_path.exists() {
             debug!(
                 "🔧 LOAD_COMPONENT: ✅ Found environment overrides at: {}",
                 env_path.display()
             );
             let overrides = self.load_toml_with_env_substitution(&env_path)?;
-            debug!("🔧 LOAD_COMPONENT: Environment overrides content: {}", overrides.to_string());
+            debug!(
+                "🔧 LOAD_COMPONENT: Environment overrides content: {}",
+                overrides.to_string()
+            );
             self.merge_toml(&mut config, overrides)?;
 
             debug!(
                 "🔧 LOAD_COMPONENT: ✅ Applied environment overrides for {} in {} environment",
                 component, self.environment
             );
-            debug!("🔧 LOAD_COMPONENT: Final merged config: {}", config.to_string());
+            debug!(
+                "🔧 LOAD_COMPONENT: Final merged config: {}",
+                config.to_string()
+            );
         } else {
             debug!(
                 "🔧 LOAD_COMPONENT: ❌ No environment overrides found at: {}",
@@ -508,30 +533,48 @@ impl UnifiedConfigLoader {
     /// Always loads .env file first to ensure environment variables are available.
     pub fn detect_environment() -> String {
         debug!("🔧 ENVIRONMENT_DETECT: Starting environment detection");
-        
+
         // Load .env file from workspace root - this ensures tests and development have proper config
         if let Ok(ws) = workspace() {
             let env_file = ws.join(".env");
-            debug!("🔧 ENVIRONMENT_DETECT: Attempting to load .env from: {}", env_file.display());
+            debug!(
+                "🔧 ENVIRONMENT_DETECT: Attempting to load .env from: {}",
+                env_file.display()
+            );
             if let Err(e) = dotenvy::from_path(&env_file) {
-                debug!("🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from {}: {}", env_file.display(), e);
+                debug!(
+                    "🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from {}: {}",
+                    env_file.display(),
+                    e
+                );
             } else {
-                debug!("🔧 ENVIRONMENT_DETECT: ✅ Successfully loaded .env file from {}", env_file.display());
+                debug!(
+                    "🔧 ENVIRONMENT_DETECT: ✅ Successfully loaded .env file from {}",
+                    env_file.display()
+                );
             }
         } else {
-            debug!("🔧 ENVIRONMENT_DETECT: Could not find workspace root, trying current directory");
+            debug!(
+                "🔧 ENVIRONMENT_DETECT: Could not find workspace root, trying current directory"
+            );
             if let Err(e) = dotenv() {
-                debug!("🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from current directory: {}", e);
+                debug!(
+                    "🔧 ENVIRONMENT_DETECT: ❌ Could not load .env file from current directory: {}",
+                    e
+                );
             } else {
                 debug!("🔧 ENVIRONMENT_DETECT: ✅ Successfully loaded .env file from current directory");
             }
         }
-        
+
         let env = env::var("TASKER_ENV")
             .unwrap_or_else(|_| "development".to_string())
             .to_lowercase();
-            
-        debug!("🔧 ENVIRONMENT_DETECT: Final detected environment: '{}'", env);
+
+        debug!(
+            "🔧 ENVIRONMENT_DETECT: Final detected environment: '{}'",
+            env
+        );
         env
     }
 

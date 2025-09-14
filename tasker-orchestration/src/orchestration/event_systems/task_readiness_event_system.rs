@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::orchestration::task_readiness::fallback_poller::{FallbackPoller, FallbackPollerConfig};

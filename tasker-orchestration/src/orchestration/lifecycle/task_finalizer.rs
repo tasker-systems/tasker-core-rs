@@ -50,7 +50,7 @@ use std::sync::Arc;
 use tasker_shared::database::sql_functions::SqlFunctionExecutor;
 use tasker_shared::events::types::{Event, OrchestrationEvent, TaskResult};
 use tasker_shared::models::orchestration::{ExecutionStatus, TaskExecutionContext};
-use tasker_shared::models::{Task, WorkflowStep};
+use tasker_shared::models::Task;
 use tasker_shared::state_machine::{TaskEvent, TaskState, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
 use tasker_shared::TaskerError;
@@ -164,7 +164,9 @@ impl TaskFinalizer {
 
         let context = self.get_task_execution_context(task_uuid).await?;
 
-        self.make_finalization_decision(task, context).await
+        let finalization_result = self.make_finalization_decision(task, context).await?;
+
+        Ok(finalization_result)
     }
 
     /// Complete a task successfully
@@ -330,65 +332,6 @@ impl TaskFinalizer {
             health_status: context.as_ref().map(|c| c.health_status.clone()),
             enqueued_steps: None,
             reason: Some("Steps in error state".to_string()),
-        })
-    }
-
-    /// Set task to pending state
-    async fn pending_task(
-        &self,
-        task: Task,
-        context: Option<TaskExecutionContext>,
-        reason: Option<String>,
-    ) -> Result<FinalizationResult, FinalizationError> {
-        let task_uuid = task.task_uuid;
-
-        // Use state machine for proper state transitions
-        let mut state_machine = self.get_state_machine_for_task(&task).await?;
-
-        // Get current state to determine appropriate transition
-        let current_state =
-            state_machine
-                .current_state()
-                .await
-                .map_err(|e| FinalizationError::StateMachine {
-                    error: format!("Failed to get current state: {e}"),
-                    task_uuid,
-                })?;
-
-        // If already pending, no need to transition
-        if current_state != TaskState::Pending {
-            // For now, we'll use Start event to get to pending state
-            // In a more complete implementation, there might be specific events for different pending reasons
-            state_machine
-                .transition(TaskEvent::Start)
-                .await
-                .map_err(|e| FinalizationError::StateMachine {
-                    error: format!("Failed to transition to pending: {e}"),
-                    task_uuid,
-                })?;
-        }
-
-        let final_reason = reason.unwrap_or_else(|| {
-            context
-                .as_ref()
-                .and_then(|c| self.determine_pending_reason(c))
-                .unwrap_or_else(|| "Unknown reason".to_string())
-        });
-
-        // Publish pending transition event
-        self.publish_task_pending_transition(task_uuid, &context, &final_reason)
-            .await?;
-
-        Ok(FinalizationResult {
-            task_uuid,
-            action: FinalizationAction::Pending,
-            completion_percentage: context
-                .as_ref()
-                .and_then(|c| c.completion_percentage.to_string().parse().ok()),
-            total_steps: context.as_ref().map(|c| c.total_steps as i32),
-            health_status: context.as_ref().map(|c| c.health_status.clone()),
-            enqueued_steps: None,
-            reason: Some(final_reason),
         })
     }
 
@@ -587,68 +530,6 @@ impl TaskFinalizer {
         self.error_task(task, context).await
     }
 
-    /// Determine reason for pending state
-    fn determine_pending_reason(&self, context: &TaskExecutionContext) -> Option<String> {
-        match context.execution_status {
-            ExecutionStatus::HasReadySteps => Some("Ready for processing".to_string()),
-            ExecutionStatus::WaitingForDependencies => Some("Waiting for dependencies".to_string()),
-            ExecutionStatus::Processing => Some("Waiting for step completion".to_string()),
-            ExecutionStatus::BlockedByFailures => Some("Blocked by failures".to_string()),
-            ExecutionStatus::AllComplete => Some("Task complete".to_string()),
-        }
-    }
-
-    // Event publishing methods - Real implementations using EventPublisher
-    async fn publish_finalization_started(
-        &self,
-        task_uuid: Uuid,
-        processed_steps: &[WorkflowStep],
-        _context: &Option<TaskExecutionContext>,
-    ) -> Result<(), FinalizationError> {
-        use serde_json::json;
-
-        // Publish generic event for task finalization started
-        self.context.event_publisher
-            .publish(
-                "task.finalization.started",
-                json!({
-                    "task_uuid": task_uuid,
-                    "processed_steps_count": processed_steps.len(),
-                    "step_uuids": processed_steps.iter().map(|s| s.workflow_step_uuid).collect::<Vec<_>>(),
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                }),
-            )
-            .await
-            .map_err(|e| FinalizationError::EventPublishing(format!("Failed to publish finalization started event: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn publish_finalization_completed(
-        &self,
-        task_uuid: Uuid,
-        processed_steps: &[WorkflowStep],
-        _context: &Option<TaskExecutionContext>,
-    ) -> Result<(), FinalizationError> {
-        use serde_json::json;
-
-        // Publish generic event for task finalization completed
-        self.context.event_publisher
-            .publish(
-                "task.finalization.completed",
-                json!({
-                    "task_uuid": task_uuid,
-                    "processed_steps_count": processed_steps.len(),
-                    "step_uuids": processed_steps.iter().map(|s| s.workflow_step_uuid).collect::<Vec<_>>(),
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                }),
-            )
-            .await
-            .map_err(|e| FinalizationError::EventPublishing(format!("Failed to publish finalization completed event: {e}")))?;
-
-        Ok(())
-    }
-
     async fn publish_task_completed(
         &self,
         task_uuid: Uuid,
@@ -731,36 +612,6 @@ impl TaskFinalizer {
             .map_err(|e| {
                 FinalizationError::EventPublishing(format!(
                     "Failed to publish task failed generic event: {e}"
-                ))
-            })?;
-
-        Ok(())
-    }
-
-    async fn publish_task_pending_transition(
-        &self,
-        task_uuid: Uuid,
-        _context: &Option<TaskExecutionContext>,
-        reason: &str,
-    ) -> Result<(), FinalizationError> {
-        use serde_json::json;
-
-        // Publish generic event for task pending transition
-        self.context
-            .event_publisher
-            .publish(
-                "task.pending_transition",
-                json!({
-                    "task_uuid": task_uuid,
-                    "status": "pending",
-                    "reason": reason,
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                }),
-            )
-            .await
-            .map_err(|e| {
-                FinalizationError::EventPublishing(format!(
-                    "Failed to publish task pending transition event: {e}"
                 ))
             })?;
 

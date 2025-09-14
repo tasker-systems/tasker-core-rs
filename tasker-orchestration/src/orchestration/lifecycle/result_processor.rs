@@ -561,7 +561,11 @@ impl OrchestrationResultProcessor {
                 ))
             })?;
 
-            if matches!(step_state, WorkflowStepState::EnqueuedForOrchestration | WorkflowStepState::EnqueuedAsErrorForOrchestration) {
+            if matches!(
+                step_state,
+                WorkflowStepState::EnqueuedForOrchestration
+                    | WorkflowStepState::EnqueuedAsErrorForOrchestration
+            ) {
                 info!(
                     step_uuid = %step_uuid,
                     original_status = %original_status,
@@ -579,13 +583,16 @@ impl OrchestrationResultProcessor {
                     WorkflowStepState::EnqueuedForOrchestration => {
                         // Success pathway - deserialize StepExecutionResult to determine final state
                         if let Some(results_json) = &step.results {
-                            match serde_json::from_value::<StepExecutionResult>(results_json.clone()) {
+                            match serde_json::from_value::<StepExecutionResult>(
+                                results_json.clone(),
+                            ) {
                                 Ok(step_execution_result) => {
                                     if step_execution_result.success {
                                         StepEvent::Complete(step.results.clone())
                                     } else {
                                         // Handle case where success path contains failure
-                                        let error_message = step_execution_result.error
+                                        let error_message = step_execution_result
+                                            .error
                                             .map(|e| e.message)
                                             .unwrap_or_else(|| "Unknown error".to_string());
                                         StepEvent::Fail(format!("Step failed: {}", error_message))
@@ -599,7 +606,10 @@ impl OrchestrationResultProcessor {
                                     {
                                         StepEvent::Complete(step.results.clone())
                                     } else {
-                                        StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                                        StepEvent::Fail(format!(
+                                            "Step failed with status: {}",
+                                            original_status
+                                        ))
                                     }
                                 }
                             }
@@ -611,30 +621,39 @@ impl OrchestrationResultProcessor {
                             {
                                 StepEvent::Complete(None)
                             } else {
-                                StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                                StepEvent::Fail(format!(
+                                    "Step failed with status: {}",
+                                    original_status
+                                ))
                             }
                         }
-                    },
+                    }
                     WorkflowStepState::EnqueuedAsErrorForOrchestration => {
                         // Error pathway - deserialize to get proper error message
                         if let Some(results_json) = &step.results {
-                            match serde_json::from_value::<StepExecutionResult>(results_json.clone()) {
+                            match serde_json::from_value::<StepExecutionResult>(
+                                results_json.clone(),
+                            ) {
                                 Ok(step_execution_result) => {
-                                    let error_message = step_execution_result.error
+                                    let error_message = step_execution_result
+                                        .error
                                         .map(|e| e.message)
                                         .unwrap_or_else(|| "Step execution failed".to_string());
                                     StepEvent::Fail(error_message)
                                 }
                                 Err(_) => {
                                     // Fallback
-                                    StepEvent::Fail(format!("Step failed with status: {}", original_status))
+                                    StepEvent::Fail(format!(
+                                        "Step failed with status: {}",
+                                        original_status
+                                    ))
                                 }
                             }
                         } else {
                             StepEvent::Fail(format!("Step failed with status: {}", original_status))
                         }
-                    },
-                    _ => unreachable!("Already matched above")
+                    }
+                    _ => unreachable!("Already matched above"),
                 };
 
                 // Execute the state transition

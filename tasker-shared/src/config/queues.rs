@@ -82,12 +82,12 @@ impl QueuesConfig {
     /// - get_queue_name("worker", "fulfillment") -> "worker_fulfillment_queue"
     pub fn get_queue_name(&self, namespace: &str, name: &str) -> String {
         // Check if the name already follows the pattern to avoid double-applying
-        
+
         // If the name already follows the pattern (starts with namespace and ends with _queue), use as-is
         if name.starts_with(&format!("{}_", namespace)) && name.ends_with("_queue") {
             return name.to_string();
         }
-        
+
         // Otherwise, apply the naming pattern
         self.naming_pattern
             .replace("{namespace}", namespace)

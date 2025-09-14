@@ -3,8 +3,8 @@
 //! This test validates that the new unified event systems configuration
 //! can be loaded successfully and provides the expected structure.
 
-use std::path::PathBuf;
 use serde::Deserialize;
+use std::path::PathBuf;
 use tasker_shared::config::EventSystemsConfig;
 
 #[derive(Deserialize)]
@@ -24,8 +24,8 @@ fn test_load_unified_event_systems_toml() {
     assert!(!toml_content.is_empty(), "TOML file should not be empty");
 
     // Test parsing the TOML into our unified structure
-    let toml_config: EventSystemsToml = toml::from_str(&toml_content)
-        .expect("Should be able to parse TOML into EventSystemsToml");
+    let toml_config: EventSystemsToml =
+        toml::from_str(&toml_content).expect("Should be able to parse TOML into EventSystemsToml");
     let event_systems_config = toml_config.event_systems;
 
     // Basic structure validation

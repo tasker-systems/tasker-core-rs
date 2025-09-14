@@ -575,32 +575,6 @@ impl StepEnqueuerService {
         }
     }
 
-    /// Log detailed performance information
-    fn log_performance_details(&self, result: &StepEnqueuerServiceResult) {
-        debug!(
-            orchestrator_id = %self.context.processor_uuid,
-            cycle_duration_ms = result.cycle_duration_ms,
-            claim_duration_ms = result.performance_metrics.claim_duration_ms,
-            discovery_duration_ms = result.performance_metrics.discovery_duration_ms,
-            enqueueing_duration_ms = result.performance_metrics.enqueueing_duration_ms,
-            release_duration_ms = result.performance_metrics.release_duration_ms,
-            steps_per_second = result.performance_metrics.steps_per_second,
-            tasks_per_second = result.performance_metrics.tasks_per_second,
-            "Detailed orchestration performance metrics"
-        );
-
-        debug!(
-            urgent_tasks = result.priority_distribution.urgent_tasks,
-            high_tasks = result.priority_distribution.high_tasks,
-            normal_tasks = result.priority_distribution.normal_tasks,
-            low_tasks = result.priority_distribution.low_tasks,
-            escalated_tasks = result.priority_distribution.escalated_tasks,
-            avg_computed_priority = result.priority_distribution.avg_computed_priority,
-            avg_task_age_hours = result.priority_distribution.avg_task_age_hours,
-            "Priority distribution analysis"
-        );
-    }
-
     /// Get current configuration
     pub fn config(&self) -> &TaskClaimStepEnqueuerConfig {
         &self.config

@@ -2,13 +2,12 @@
 name = "tasker-core"
 version = "0.1.0"
 edition = "2021"
-authors = ["Pete Taylor <pete.jc.taylor@hey.com>"]
 description = "High-performance Rust core for workflow orchestration"
-license = "MIT"
-repository = "https://github.com/tasker-systems/tasker-core"
-keywords = ["workflow", "orchestration", "task", "async", "performance"]
-categories = ["concurrency", "database", "web-programming"]
 readme = "README.md"
+repository = "https://github.com/tasker-systems/tasker-core"
+license = "MIT"
+keywords = ["async", "orchestration", "performance", "task", "workflow"]
+categories = ["concurrency", "database", "web-programming"]
 
 [workspace]
 members = [
@@ -144,7 +143,6 @@ reqwest = { workspace = true }
 serial_test = { workspace = true }
 tasker-worker = { path = "tasker-worker" }
 tracing-subscriber = { workspace = true }
-
 
 [features]
 test-utils = [

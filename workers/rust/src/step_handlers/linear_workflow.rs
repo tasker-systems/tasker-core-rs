@@ -32,6 +32,7 @@ use tracing::{error, info};
 
 /// Linear Step 1: Square the initial even number (6 -> 36)
 pub struct LinearStep1Handler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -106,6 +107,7 @@ impl RustStepHandler for LinearStep1Handler {
 
 /// Linear Step 2: Square the result from step 1 (36 -> 1296)
 pub struct LinearStep2Handler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -173,6 +175,7 @@ impl RustStepHandler for LinearStep2Handler {
 
 /// Linear Step 3: Square the result from step 2 (1296 -> 1679616)
 pub struct LinearStep3Handler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -237,6 +240,7 @@ impl RustStepHandler for LinearStep3Handler {
 
 /// Linear Step 4: Square the result from step 3 (final step with verification)
 pub struct LinearStep4Handler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 

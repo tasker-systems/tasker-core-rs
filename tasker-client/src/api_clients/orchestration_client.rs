@@ -20,7 +20,6 @@ use tasker_shared::{
             PerformanceMetrics, StepResponse, TaskCreationResponse, TaskListResponse, TaskResponse,
         },
         auth::JwtAuthenticator,
-        web::AuthConfig,
     },
 };
 

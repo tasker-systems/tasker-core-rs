@@ -40,6 +40,7 @@ use tracing::{error, info};
 
 /// Tree Root: Initial step that squares the even number (6 -> 36)
 pub struct TreeRootHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -118,6 +119,7 @@ impl RustStepHandler for TreeRootHandler {
 
 /// Tree Branch Left: Left main branch that squares the root result (36 -> 1,296)
 pub struct TreeBranchLeftHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -186,6 +188,7 @@ impl RustStepHandler for TreeBranchLeftHandler {
 
 /// Tree Branch Right: Right main branch that squares the root result (36 -> 1,296)
 pub struct TreeBranchRightHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -254,6 +257,7 @@ impl RustStepHandler for TreeBranchRightHandler {
 
 /// Tree Leaf D: Left-left leaf that squares the input from left branch (1,296 -> 1,679,616)
 pub struct TreeLeafDHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -320,6 +324,7 @@ impl RustStepHandler for TreeLeafDHandler {
 
 /// Tree Leaf E: Left-right leaf that squares the input from left branch (1,296 -> 1,679,616)
 pub struct TreeLeafEHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -386,6 +391,7 @@ impl RustStepHandler for TreeLeafEHandler {
 
 /// Tree Leaf F: Right-left leaf that squares the input from right branch (1,296 -> 1,679,616)
 pub struct TreeLeafFHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -452,6 +458,7 @@ impl RustStepHandler for TreeLeafFHandler {
 
 /// Tree Leaf G: Right-right leaf that squares the input from right branch (1,296 -> 1,679,616)
 pub struct TreeLeafGHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -518,6 +525,7 @@ impl RustStepHandler for TreeLeafGHandler {
 
 /// Tree Final Convergence: Ultimate convergence step that processes all leaf results
 pub struct TreeFinalConvergenceHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 

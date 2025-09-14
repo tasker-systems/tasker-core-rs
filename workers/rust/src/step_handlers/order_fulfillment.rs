@@ -32,6 +32,7 @@ use tracing::{error, info};
 
 /// Validate Order: Validate customer info, order items, and calculate totals
 pub struct ValidateOrderHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -42,8 +43,7 @@ impl RustStepHandler for ValidateOrderHandler {
         let step_uuid = step_data.workflow_step.workflow_step_uuid;
 
         // Extract and validate customer info
-        let customer_info = match step_data.get_context_field::<serde_json::Value>("customer")
-        {
+        let customer_info = match step_data.get_context_field::<serde_json::Value>("customer") {
             Ok(value) => value,
             Err(e) => {
                 error!("Missing customer in task context: {}", e);
@@ -54,10 +54,7 @@ impl RustStepHandler for ValidateOrderHandler {
                     Some("ValidationError".to_string()),
                     false, // Not retryable - data validation error
                     start_time.elapsed().as_millis() as i64,
-                    Some(HashMap::from([(
-                        "field".to_string(),
-                        json!("customer"),
-                    )])),
+                    Some(HashMap::from([("field".to_string(), json!("customer"))])),
                 ));
             }
         };
@@ -144,10 +141,7 @@ impl RustStepHandler for ValidateOrderHandler {
                 None => {
                     return Ok(error_result(
                         step_uuid,
-                        format!(
-                            "Invalid order item at position {}: missing sku",
-                            index + 1
-                        ),
+                        format!("Invalid order item at position {}: missing sku", index + 1),
                         Some("INVALID_ORDER_ITEM".to_string()),
                         Some("ValidationError".to_string()),
                         false,
@@ -227,15 +221,12 @@ impl RustStepHandler for ValidateOrderHandler {
                 Err(e) => {
                     return Ok(error_result(
                         step_uuid,
-                        format!("Product {} not found", sku),
+                        format!("Product {} not found, error: {}", sku, e),
                         Some("PRODUCT_NOT_FOUND".to_string()),
                         Some("ValidationError".to_string()),
                         false,
                         start_time.elapsed().as_millis() as i64,
-                        Some(HashMap::from([(
-                            "sku".to_string(),
-                            json!(sku),
-                        )])),
+                        Some(HashMap::from([("sku".to_string(), json!(sku))])),
                     ));
                 }
             };
@@ -313,6 +304,7 @@ impl RustStepHandler for ValidateOrderHandler {
 
 /// Reserve Inventory: Reserve items in warehouse with expiration times
 pub struct ReserveInventoryHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -362,11 +354,11 @@ impl RustStepHandler for ReserveInventoryHandler {
             }
         };
 
-        let customer_id = validate_order_results
+        let _customer_id = validate_order_results
             .get("customer_id")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        let order_total = validate_order_results
+        let _order_total = validate_order_results
             .get("order_total")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
@@ -386,7 +378,10 @@ impl RustStepHandler for ReserveInventoryHandler {
         let mut total_value = 0.0;
 
         for item in validated_items {
-            let sku = item.get("sku").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let sku = item
+                .get("sku")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0);
             let unit_price = item
                 .get("unit_price")
@@ -480,6 +475,7 @@ impl RustStepHandler for ReserveInventoryHandler {
 
 /// Process Payment: Charge payment method through gateway
 pub struct ProcessPaymentHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -555,7 +551,7 @@ impl RustStepHandler for ProcessPaymentHandler {
             }
         };
 
-        let payment_token = match payment_info.get("token").and_then(|v| v.as_str()) {
+        let _payment_token = match payment_info.get("token").and_then(|v| v.as_str()) {
             Some(token) => token,
             None => {
                 return Ok(error_result(
@@ -574,11 +570,11 @@ impl RustStepHandler for ProcessPaymentHandler {
             .get("order_total")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        let customer_id = validate_order_results
+        let _customer_id = validate_order_results
             .get("customer_id")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        let reservation_id = reserve_inventory_results
+        let _reservation_id = reserve_inventory_results
             .get("reservation_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -682,6 +678,7 @@ impl RustStepHandler for ProcessPaymentHandler {
 
 /// Ship Order: Create shipping labels and generate tracking numbers
 pub struct ShipOrderHandler {
+    #[allow(dead_code)] // api compatibility
     config: StepHandlerConfig,
 }
 
@@ -700,8 +697,7 @@ impl RustStepHandler for ShipOrderHandler {
             step_data.get_dependency_result_column_value::<serde_json::Value>("process_payment")?;
 
         // Extract shipping info from task context
-        let shipping_info = match step_data.get_context_field::<serde_json::Value>("shipping")
-        {
+        let shipping_info = match step_data.get_context_field::<serde_json::Value>("shipping") {
             Ok(info) => info,
             Err(_) => {
                 return Ok(error_result(
@@ -716,7 +712,7 @@ impl RustStepHandler for ShipOrderHandler {
             }
         };
 
-        let shipping_address = match shipping_info.get("address") {
+        let _shipping_address = match shipping_info.get("address") {
             Some(addr) => addr,
             None => {
                 return Ok(error_result(
@@ -740,15 +736,15 @@ impl RustStepHandler for ShipOrderHandler {
             .get("validated_items")
             .and_then(|v| v.as_array())
             .unwrap_or(&empty_items);
-        let customer_id = validate_order_results
+        let _customer_id = validate_order_results
             .get("customer_id")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        let reservation_id = reserve_inventory_results
+        let _reservation_id = reserve_inventory_results
             .get("reservation_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let payment_id = process_payment_results
+        let _payment_id = process_payment_results
             .get("payment_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -896,12 +892,7 @@ fn simulate_inventory_reservation(
         "WIDGET-001" => (100, "WH-EAST-A1"),
         "WIDGET-002" => (50, "WH-WEST-B2"),
         "GADGET-002" => (200, "WH-CENTRAL-C3"),
-        _ => {
-            return Err(format!(
-                "Product {} not found in inventory system",
-                sku
-            ))
-        }
+        _ => return Err(format!("Product {} not found in inventory system", sku)),
     };
 
     if available_stock < quantity as i32 {

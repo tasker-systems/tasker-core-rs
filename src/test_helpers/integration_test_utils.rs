@@ -2,13 +2,12 @@
 //!
 
 use anyhow::Result;
-use serde_json::json;
 use std::time::Duration;
 use tokio::time::sleep;
 use uuid::Uuid;
 
 use tasker_client::OrchestrationApiClient;
-use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
+use tasker_shared::models::core::task_request::TaskRequest;
 use tasker_shared::models::orchestration::execution_status::ExecutionStatus;
 
 /// Helper to create a TaskRequest matching CLI usage

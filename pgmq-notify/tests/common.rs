@@ -74,9 +74,7 @@ impl TestDb {
             .fetch_all(&self.pool)
             .await?;
 
-        let msg_ids: Vec<i64> = rows.iter()
-            .map(|row| row.get::<i64, usize>(0))
-            .collect();
+        let msg_ids: Vec<i64> = rows.iter().map(|row| row.get::<i64, usize>(0)).collect();
 
         Ok(msg_ids)
     }
@@ -92,6 +90,7 @@ impl TestDb {
     }
 
     /// Test namespace extraction for various queue patterns
+    #[allow(dead_code)]
     pub async fn test_namespace_extraction(
         &self,
         queue_names: Vec<&str>,
@@ -112,6 +111,7 @@ impl TestDb {
     }
 
     /// Read messages from a queue (for verification)
+    #[allow(dead_code)]
     pub async fn read_messages(
         &self,
         queue_name: &str,
@@ -198,6 +198,7 @@ impl Drop for TestDb {
 }
 
 /// Helper to create test JSON messages
+#[allow(dead_code)]
 pub fn create_test_message(msg_type: &str, data: Value) -> Value {
     json!({
         "type": msg_type,
@@ -208,6 +209,7 @@ pub fn create_test_message(msg_type: &str, data: Value) -> Value {
 }
 
 /// Helper to create workflow step messages
+#[allow(dead_code)]
 pub fn create_workflow_message(workflow: &str, step: &str, payload: Value) -> Value {
     json!({
         "workflow": workflow,
@@ -219,6 +221,7 @@ pub fn create_workflow_message(workflow: &str, step: &str, payload: Value) -> Va
 }
 
 /// Helper to create orchestration command messages
+#[allow(dead_code)]
 pub fn create_orchestration_message(command: &str, task_id: &str, additional: Value) -> Value {
     let mut message = json!({
         "command": command,

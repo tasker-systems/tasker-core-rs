@@ -10,10 +10,8 @@ use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{
-    create_task_request, wait_for_task_completion, IntegrationTestManager,
-};
-use tasker_shared::models::core::{task::TaskListQuery, task_request::TaskRequest};
+use tasker_core::test_helpers::{create_task_request, IntegrationTestManager};
+use tasker_shared::models::core::task::TaskListQuery;
 
 /// Demo of the full integration test suite with worker
 #[tokio::test]

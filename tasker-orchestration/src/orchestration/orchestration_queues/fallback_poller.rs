@@ -219,7 +219,6 @@ impl OrchestrationFallbackPoller {
             messages_processed: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             step_results_processed: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             task_requests_processed: Arc::new(AtomicU64::new(0)), // Shared counter for async task
-            messages_skipped: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             polling_errors: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             last_poll_at: self.stats.last_poll_at.clone(),
         };
@@ -421,7 +420,6 @@ struct OrchestrationPollerStatsRef {
     messages_processed: Arc<AtomicU64>,
     step_results_processed: Arc<AtomicU64>,
     task_requests_processed: Arc<AtomicU64>,
-    messages_skipped: Arc<AtomicU64>,
     polling_errors: Arc<AtomicU64>,
     last_poll_at: Arc<parking_lot::Mutex<Option<Instant>>>,
 }

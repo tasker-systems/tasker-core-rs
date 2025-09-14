@@ -816,7 +816,8 @@ fn extract_results_from_event(event: &str) -> ActionResult<Option<Value>> {
         if let Some(event_type) = event_data.get("type") {
             if event_type == "Complete"
                 || event_type == "EnqueueForOrchestration"
-                || event_type == "EnqueueAsErrorForOrchestration" {
+                || event_type == "EnqueueAsErrorForOrchestration"
+            {
                 // Extract the data field which contains the actual step results
                 if let Some(results) = event_data.get("data") {
                     return Ok(Some(results.clone()));

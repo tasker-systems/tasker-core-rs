@@ -1,10 +1,7 @@
 use chrono::Utc;
-use std::sync::Arc;
 use tasker_orchestration::orchestration::state_manager::{
-    StateEntityType, StateHealthSummary, StateManager, StateTransitionEvent, StateTransitionRequest,
+    StateEntityType, StateHealthSummary, StateTransitionEvent, StateTransitionRequest,
 };
-use tasker_shared::database::sql_functions::SqlFunctionExecutor;
-use tasker_shared::events::publisher::EventPublisher;
 use tasker_shared::state_machine::events::TaskEvent;
 use uuid::Uuid;
 

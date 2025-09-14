@@ -21,8 +21,7 @@ use tasker_shared::{system_context::SystemContext, TaskerError, TaskerResult};
 use super::{OrchestrationEventSystem, OrchestrationEventSystemConfig, TaskReadinessEventSystem};
 use crate::orchestration::{command_processor::OrchestrationCommand, OrchestrationCore};
 use tasker_shared::config::event_systems::TaskReadinessEventSystemConfig;
-use tasker_shared::DeploymentMode;
-use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
+use tasker_shared::{EventDrivenSystem, SystemStatistics};
 
 /// Unified coordinator demonstrating EventDrivenSystem pattern reuse
 ///
@@ -41,6 +40,7 @@ pub struct UnifiedEventCoordinator {
     context: Arc<SystemContext>,
 
     /// Configuration
+    #[allow(dead_code)]
     config: UnifiedCoordinatorConfig,
 }
 

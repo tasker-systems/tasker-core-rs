@@ -377,10 +377,10 @@ async fn test_namespace_extraction_edge_cases() {
         ("orchestration_priority", "orchestration"),
         ("orchestration_high", "orchestration"),
         // Edge cases
-        ("queue", "default"),             // No _queue suffix - fallback to default
-        ("_queue", "default"),            // Empty prefix - fallback to default
-        ("worker_queue", "worker"),       // Missing middle part - fallback to worker
-        ("worker__queue", "worker"),      // Empty middle part - fallback to worker
+        ("queue", "default"),        // No _queue suffix - fallback to default
+        ("_queue", "default"),       // Empty prefix - fallback to default
+        ("worker_queue", "worker"),  // Missing middle part - fallback to worker
+        ("worker__queue", "worker"), // Empty middle part - fallback to worker
         (
             "very_long_namespace_with_multiple_underscores_queue",
             "very_long_namespace_with_multiple_underscores",

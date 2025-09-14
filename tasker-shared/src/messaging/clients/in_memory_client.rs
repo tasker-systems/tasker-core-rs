@@ -22,7 +22,7 @@
 //! # async fn example() -> TaskerResult<()> {
 //! let client = UnifiedMessageClient::new_in_memory();
 //! client.initialize_namespace_queues(&["test_namespace"]).await?;
-//! 
+//!
 //! // Example of sending a message (would need actual step_message)
 //! // let step_message = SimpleStepMessage::new(...);
 //! // client.send_step_message("test_namespace", step_message).await?;
