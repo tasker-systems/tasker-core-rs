@@ -269,12 +269,12 @@ impl OrchestrationProcessor {
 
         let handle = tokio::spawn(async move {
             let handler = OrchestrationProcessorCommandHandler {
-                context: context,
-                stats: stats,
-                task_request_processor: task_request_processor,
-                result_processor: result_processor,
-                task_claim_step_enqueuer: task_claim_step_enqueuer,
-                pgmq_client: pgmq_client,
+                context,
+                stats,
+                task_request_processor,
+                result_processor,
+                task_claim_step_enqueuer,
+                pgmq_client,
             };
             while let Some(command) = command_rx.recv().await {
                 handler.process_command(command).await;
@@ -500,8 +500,7 @@ impl OrchestrationProcessorCommandHandler {
                 let _ = resp.send(result);
             }
             OrchestrationCommand::Shutdown { resp } => {
-                let _ = resp.send(Ok(()));
-                return; // Exit the processing loop
+                let _ = resp.send(Ok(())); // Exit the processing loop
             }
         }
     }
@@ -535,7 +534,7 @@ impl OrchestrationProcessorCommandHandler {
 
         Ok(TaskInitializeResult::Success {
             task_uuid,
-            message: format!("Task initialized successfully via TaskRequestProcessor delegation - ready for SQL-based discovery"),
+            message: "Task initialized successfully via TaskRequestProcessor delegation - ready for SQL-based discovery".to_string(),
         })
     }
 
@@ -1141,13 +1140,10 @@ impl OrchestrationProcessorCommandHandler {
     /// Handle health check
     async fn handle_health_check(&self) -> TaskerResult<SystemHealth> {
         // Check database connectivity
-        let database_connected = match sqlx::query("SELECT 1")
+        let database_connected = (sqlx::query("SELECT 1")
             .fetch_one(self.context.database_pool())
-            .await
-        {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+            .await)
+            .is_ok();
 
         // TODO: Add more sophisticated health checks once components are integrated
         let message_queues_healthy = true; // Placeholder

@@ -26,8 +26,8 @@ fn benchmark_task_request_creation(c: &mut Criterion) {
                 .with_initiator("benchmark_test".to_string())
                 .with_source_system("benchmarks".to_string())
                 .with_reason("Performance testing".to_string())
-                .with_priority(black_box(3))
-                .with_claim_timeout_seconds(black_box(300));
+                .with_priority(black_box(3));
+            // Note: with_claim_timeout_seconds method doesn't exist
 
             black_box(task_request)
         })

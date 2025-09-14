@@ -1,10 +1,66 @@
-//! Event types for PGMQ notifications
+//! # Event types for PGMQ notifications
+//!
+//! This module defines the event types that are emitted by PGMQ operations
+//! and can be listened to for real-time processing. Events are designed to be
+//! lightweight and contain only essential information to minimize notification overhead.
+//!
+//! ## Event Types
+//!
+//! - [`QueueCreatedEvent`] - Emitted when a new queue is created
+//! - [`MessageReadyEvent`] - Emitted when a message is enqueued and ready for processing
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use pgmq_notify::events::{PgmqNotifyEvent, MessageReadyEvent};
+//! use chrono::Utc;
+//!
+//! // Create a message ready event
+//! let event = PgmqNotifyEvent::MessageReady(MessageReadyEvent {
+//!     queue_name: "tasks_queue".to_string(),
+//!     namespace: "tasks".to_string(),
+//!     msg_id: 12345,
+//!     ready_at: Utc::now(),
+//!     metadata: Default::default(),
+//!     visibility_timeout_seconds: Some(30),
+//! });
+//!
+//! // Serialize to JSON for notification
+//! let json = serde_json::to_string(&event).unwrap();
+//! assert!(json.contains("message_ready"));
+//! ```
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Union of all possible PGMQ notification events
+///
+/// This enum represents all event types that can be emitted by PGMQ operations.
+/// Events are tagged for JSON serialization and can be pattern-matched for handling.
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::events::{PgmqNotifyEvent, QueueCreatedEvent};
+/// use chrono::Utc;
+///
+/// let event = PgmqNotifyEvent::QueueCreated(QueueCreatedEvent {
+///     queue_name: "new_queue".to_string(),
+///     namespace: "default".to_string(),
+///     created_at: Utc::now(),
+///     metadata: Default::default(),
+/// });
+///
+/// match event {
+///     PgmqNotifyEvent::QueueCreated(e) => {
+///         println!("Queue created: {}", e.queue_name);
+///     }
+///     PgmqNotifyEvent::MessageReady(e) => {
+///         println!("Message ready: {}", e.msg_id);
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
 pub enum PgmqNotifyEvent {
@@ -15,6 +71,27 @@ pub enum PgmqNotifyEvent {
 }
 
 /// Event emitted when a new PGMQ queue is created
+///
+/// This event is triggered when a new queue is created in the PGMQ system.
+/// It includes the queue name, extracted namespace, and creation timestamp.
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::events::QueueCreatedEvent;
+/// use chrono::Utc;
+/// use std::collections::HashMap;
+///
+/// let event = QueueCreatedEvent {
+///     queue_name: "orders_queue".to_string(),
+///     namespace: "orders".to_string(),
+///     created_at: Utc::now(),
+///     metadata: HashMap::new(),
+/// };
+///
+/// assert_eq!(event.queue_name, "orders_queue");
+/// assert_eq!(event.namespace, "orders");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QueueCreatedEvent {
     /// Name of the queue that was created
@@ -29,6 +106,31 @@ pub struct QueueCreatedEvent {
 }
 
 /// Event emitted when a message is ready for processing
+///
+/// This event is triggered when a message is enqueued in PGMQ and becomes
+/// available for processing by workers. It provides the message ID and queue
+/// information needed to claim and process the message.
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::events::MessageReadyEvent;
+/// use chrono::Utc;
+/// use std::collections::HashMap;
+///
+/// let event = MessageReadyEvent {
+///     msg_id: 42,
+///     queue_name: "tasks_queue".to_string(),
+///     namespace: "tasks".to_string(),
+///     ready_at: Utc::now(),
+///     metadata: HashMap::new(),
+///     visibility_timeout_seconds: Some(30),
+/// };
+///
+/// assert_eq!(event.msg_id, 42);
+/// assert_eq!(event.queue_name, "tasks_queue");
+/// assert_eq!(event.namespace, "tasks");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageReadyEvent {
     /// ID of the message that's ready

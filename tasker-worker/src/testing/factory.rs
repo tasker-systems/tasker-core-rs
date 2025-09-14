@@ -64,11 +64,10 @@ impl WorkerTestFactory {
         orchestration_url: String,
         auth_token: Option<String>,
     ) -> Result<Self, TestFactoryError> {
-        let auth = auth_token.map(|token| {
-            let mut auth_config = tasker_shared::config::WebAuthConfig::default();
-            auth_config.enabled = true;
-            auth_config.api_key = token;
-            auth_config
+        let auth = auth_token.map(|token| tasker_shared::config::WebAuthConfig {
+            enabled: true,
+            api_key: token,
+            ..Default::default()
         });
 
         let config = OrchestrationApiConfig {

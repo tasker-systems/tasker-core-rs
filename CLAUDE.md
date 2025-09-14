@@ -78,6 +78,25 @@ TASKER_ENV=development cargo run --bin config-validator
 TASKER_ENV=production cargo run --bin config-validator
 ```
 
+### CI and Testing Commands
+
+# Enhanced testing with nextest (parallel execution)
+cargo nextest run --profile default                # Local testing with nextest
+cargo nextest run --profile ci                     # Run CI profile tests locally
+cargo nextest list                                 # List available tests
+
+# Run tests for specific packages
+cargo nextest run --package tasker-shared --package tasker-orchestration
+
+# Integration testing with Docker Compose
+docker compose -f docker/docker-compose.test.yml up -d --build
+cargo nextest run --package tasker-core --test '*'
+docker compose -f docker/docker-compose.test.yml down
+
+# View test results and configuration
+cargo nextest show-config version                  # Show nextest configuration
+ls target/nextest/ci/junit.xml                    # Check JUnit output
+
 ### Coverage and Benchmarking
 ```bash
 cargo llvm-cov --all-features                      # Generate coverage report

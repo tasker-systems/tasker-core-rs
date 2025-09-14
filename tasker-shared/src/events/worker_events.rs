@@ -587,7 +587,7 @@ mod tests {
         // Receive completion event
         let received_event = receiver.recv().await.unwrap();
         assert_eq!(received_event.event_id, completion_event.event_id);
-        assert_eq!(received_event.success, true);
+        assert!(received_event.success);
     }
 
     #[tokio::test]

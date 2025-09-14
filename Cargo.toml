@@ -17,7 +17,7 @@ members = [
   "tasker-orchestration",
   "tasker-shared",
   "tasker-worker",
-  "workers/ruby/ext/tasker_core",
+  # "workers/ruby/ext/tasker_core",
   "workers/rust",
   # "workers/python",  # Future
   # "workers/wasm",    # Future
@@ -149,6 +149,11 @@ test-utils = [
   "tasker-orchestration/test-utils",
   "tasker-shared/test-utils",
   "tasker-worker/test-utils",
+]
+benchmarks = [
+  "tasker-shared/benchmarks",
+  "tasker-orchestration/benchmarks",
+  "tasker-worker/benchmarks",
 ]
 
 [profile.release]

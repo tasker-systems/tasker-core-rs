@@ -16,8 +16,8 @@
 //! - [`handlers`] - Request handlers for different endpoint groups
 //! - [`middleware`] - Authentication, error handling, operational state middleware
 //! - [`state`] - Shared application state and database pools
-//! - [`auth`] - JWT authentication and authorization
-//! - [`response_types`] - Web-specific error types and responses
+//! - JWT authentication and authorization (in middleware module)
+//! - Web-specific error types and responses (in handlers module)
 //! - [`circuit_breaker`] - Database circuit breaker implementation
 
 pub mod circuit_breaker;

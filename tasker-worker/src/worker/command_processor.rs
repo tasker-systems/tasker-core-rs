@@ -264,11 +264,10 @@ impl WorkerProcessor {
     /// Start processing worker commands with event integration
     pub async fn start_with_events(&mut self) -> TaskerResult<()> {
         // Start completion listener if event subscriber is enabled
-        let completion_receiver = if let Some(ref subscriber) = self.event_subscriber {
-            Some(subscriber.start_completion_listener())
-        } else {
-            None
-        };
+        let completion_receiver = self
+            .event_subscriber
+            .as_ref()
+            .map(|subscriber| subscriber.start_completion_listener());
 
         self.start_with_completion_receiver(completion_receiver)
             .await
@@ -644,7 +643,7 @@ impl WorkerProcessor {
         let db_pool = self.context.database_pool();
 
         // 1. Load WorkflowStep from database using tasker-shared model
-        let workflow_step = WorkflowStep::find_by_id(&db_pool, step_result.step_uuid)
+        let workflow_step = WorkflowStep::find_by_id(db_pool, step_result.step_uuid)
             .await
             .map_err(|e| TaskerError::DatabaseError(format!("Failed to lookup step: {e}")))?
             .ok_or_else(|| {
@@ -691,7 +690,7 @@ impl WorkerProcessor {
         _correlation_id: Uuid,
     ) -> TaskerResult<()> {
         // Use existing execute_step logic but with correlation ID for event publishing
-        let result = self.handle_execute_step(message, queue_name).await?;
+        self.handle_execute_step(message, queue_name).await?;
 
         // If event publisher is available, fire correlated event
         if let Some(ref _event_publisher) = self.event_publisher {
@@ -705,7 +704,7 @@ impl WorkerProcessor {
             // );
         }
 
-        Ok(result)
+        Ok(())
     }
 
     /// Process step completion event from FFI handler (event-driven architecture)

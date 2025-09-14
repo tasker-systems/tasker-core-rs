@@ -295,7 +295,7 @@ async fn handle_task_command(cmd: TaskCommands, config: &ClientConfig) -> Client
 
             let query = TaskListQuery {
                 page: 1,
-                per_page: limit as u32,
+                per_page: limit,
                 namespace,
                 status,
                 initiator: None,
@@ -573,7 +573,7 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
             orchestration,
             workers,
         } => {
-            if orchestration || (!orchestration && !workers) {
+            if orchestration || !workers {
                 println!("🔍 Checking orchestration health...");
 
                 let orchestration_config = OrchestrationApiConfig {
@@ -640,7 +640,7 @@ async fn handle_system_command(cmd: SystemCommands, config: &ClientConfig) -> Cl
                 }
             }
 
-            if workers || (!orchestration && !workers) {
+            if workers || !orchestration {
                 println!("\n🔍 Checking worker health...");
 
                 let worker_config = WorkerApiConfig {

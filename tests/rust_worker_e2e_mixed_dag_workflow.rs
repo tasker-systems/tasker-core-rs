@@ -17,7 +17,8 @@
 //! 5. Transform: Square left result again (1,296² → 1,679,616)
 //! 6. Analyze: Square right result again (1,296² → 1,679,616)
 //! 7. Finalize: Multiply validate, transform, analyze and square
-//! Final result: input^64
+//!
+//!    Final result: input^64
 
 use anyhow::Result;
 use serde_json::json;

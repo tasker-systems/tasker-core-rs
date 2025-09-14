@@ -161,7 +161,7 @@ async fn test_orchestration_api_with_docker_compose() -> Result<()> {
     // Test 4: Task listing API
     let query = TaskListQuery::default();
     let task_list = manager.orchestration_client.list_tasks(&query).await?;
-    assert!(task_list.tasks.len() >= 1);
+    assert!(!task_list.tasks.is_empty());
     println!(
         "✅ Task listing API working: {} tasks found",
         task_list.tasks.len()

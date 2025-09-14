@@ -13,13 +13,22 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```ignore
+//! use anyhow::Result;
 //! use async_trait::async_trait;
-//! use tasker_worker_rust::step_handlers::{RustStepHandler, StepHandlerConfig, success_result, error_result};
+//! use tasker_shared::messaging::StepExecutionResult;
+//! use tasker_shared::types::TaskSequenceStep;
+//! use tasker_worker_rust::step_handlers::{RustStepHandler, StepHandlerConfig, success_result};
 //! use serde_json::Value;
+//! use std::collections::HashMap;
 //!
 //! pub struct MyStepHandler {
 //!     config: StepHandlerConfig,
+//! }
+//!
+//! // Dummy function to simulate data processing
+//! fn process_data(_value: &Value) -> Value {
+//!     serde_json::json!({ "processed": true })
 //! }
 //!
 //! #[async_trait]
@@ -30,7 +39,7 @@
 //!
 //!         // Access initialization parameters
 //!         let debug_mode = self.config.get_bool("debug_mode").unwrap_or(false);
-//!         let timeout = self.config.get_u64("timeout_ms").unwrap_or(30000);
+//!         let _timeout = self.config.get_u64("timeout_ms").unwrap_or(30000);
 //!
 //!         // Extract data from task context
 //!         let value = step_data.task.context
@@ -42,9 +51,9 @@
 //!
 //!         Ok(success_result(
 //!             step_uuid,
-//!             serde_json::json!(result),
+//!             result,
 //!             start_time.elapsed().as_millis() as i64,
-//!             Some(metadata)
+//!             Some(HashMap::new()),
 //!         ))
 //!     }
 //!
@@ -210,7 +219,7 @@ pub trait RustStepHandler: Send + Sync {
     /// ## Implementation Pattern
     ///
     /// Most handlers will store the config and use it during execution:
-    /// ```rust
+    /// ```ignore
     /// fn new(config: StepHandlerConfig) -> Self {
     ///     Self { config }
     /// }

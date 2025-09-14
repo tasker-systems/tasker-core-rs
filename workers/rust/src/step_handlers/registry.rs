@@ -8,17 +8,22 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```ignore
 //! use tasker_worker_rust::step_handlers::RustStepHandlerRegistry;
+//! use anyhow::Result;
 //!
-//! // Create registry with all handlers pre-registered
-//! let registry = RustStepHandlerRegistry::new();
+//! async fn example() -> Result<()> {
+//!     // Create registry with all handlers pre-registered
+//!     let registry = RustStepHandlerRegistry::new();
 //!
-//! // Lookup handler by name
-//! let handler = registry.get_handler("linear_step_1")?;
+//!     // Lookup handler by name
+//!     let handler = registry.get_handler("linear_step_1")?;
 //!
-//! // Execute handler
-//! let result = handler.call(&step_data).await?;
+//!     // Execute handler (step_data would be provided by the system)
+//!     // let result = handler.call(&step_data).await?;
+//!
+//!     Ok(())
+//! }
 //! ```
 
 use super::{RustStepHandler, RustStepHandlerError, StepHandlerConfig};

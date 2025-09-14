@@ -33,7 +33,7 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use tasker_worker::{WorkerBootstrap, WorkerBootstrapConfig};
 //!
 //! #[tokio::main]

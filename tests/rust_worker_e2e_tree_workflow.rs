@@ -18,7 +18,8 @@
 //! 6. Leaf F: Square right branch (1,296 → 1,679,616)
 //! 7. Leaf G: Square right branch (1,296 → 1,679,616)
 //! 8. Final Convergence: Multiply all 4 leaves and square
-//! Final result: input^32
+//!
+//!    Final result: input^32
 
 use anyhow::Result;
 use serde_json::json;

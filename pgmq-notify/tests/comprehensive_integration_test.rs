@@ -19,12 +19,10 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
         .expect("Failed to connect to test database");
 
     println!("🚀 TAS-41 Integration Test: Wrapper Functions + Listener Channels");
-    println!("");
     println!("Testing the complete notification flow:");
     println!("  1. Wrapper functions send messages + notifications");
     println!("  2. Notifications are sent to correct channels based on queue patterns");
     println!("  3. Listeners can subscribe to these channels to receive real-time events");
-    println!("");
 
     // Setup: Create test queues for different patterns
     let orchestration_queue = test_db
@@ -103,7 +101,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     );
 
     // Test 2: Worker namespace messages (different patterns)
-    println!("");
     println!("=== Test 2: Worker Namespace Messages ===");
     println!("Expected channels:");
     println!("  worker_rust_queue -> pgmq_message_ready.rust + pgmq_message_ready");
@@ -176,7 +173,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     );
 
     // Test 3: Batch messages with notifications
-    println!("");
     println!("=== Test 3: Batch Messages with Notifications ===");
     println!("Expected channels: pgmq_message_ready.rust + pgmq_message_ready");
 
@@ -209,7 +205,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     }
 
     // Test 4: Verify correct namespace extraction and channel mapping
-    println!("");
     println!("=== Test 4: Namespace Extraction and Channel Mapping ===");
     println!("This shows what channels listeners should subscribe to:");
 
@@ -292,7 +287,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     }
 
     // Test 5: Verify messages are in queues
-    println!("");
     println!("=== Test 5: Message Verification ===");
     println!("Confirming messages were successfully sent to PGMQ:");
 
@@ -320,15 +314,12 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     }
 
     // Test 6: Summary and Listener Configuration Verification
-    println!("");
     println!("=== Integration Test Summary ===");
     println!("SUCCESS: All wrapper functions working with atomic notifications!");
-    println!("");
     println!("Listener Configuration Required:");
     println!("  OrchestrationQueueListener should subscribe to:");
     println!("    - pgmq_message_ready.orchestration");
     println!("    - pgmq_message_ready (global)");
-    println!("");
     println!("  WorkerQueueListener should subscribe to:");
     println!("    - pgmq_message_ready.rust");
     println!("    - pgmq_message_ready.linear_workflow");
@@ -336,7 +327,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
     println!("    - pgmq_message_ready.tree_workflow");
     println!("    - pgmq_message_ready.mixed_dag_workflow");
     println!("    - pgmq_message_ready.order_fulfillment");
-    println!("");
     println!("Expected Latency: <10ms from message send to notification delivery");
     println!("Expected Benefit: 90% reduction in database polling load");
 
@@ -350,7 +340,6 @@ async fn test_tas41_integration_wrapper_functions_and_listener_channels() {
         "order_fulfillment",
     ];
 
-    println!("");
     println!("=== Worker Listener Channel Validation ===");
     for namespace in worker_listener_namespaces {
         let channel = format!("pgmq_message_ready.{}", namespace);

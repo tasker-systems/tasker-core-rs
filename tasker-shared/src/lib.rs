@@ -34,14 +34,14 @@
 //! - [`database`] - SQL function execution and database operations
 //! - [`state_machine`] - Task and step state management
 //! - [`config`] - Configuration management
-//! - [`error`] - Structured error handling
+//! - [`errors`] - Structured error handling
 //! - [`events`] - Event system foundation
-//! - [`orchestration`] - Workflow orchestration logic
+//! - Workflow orchestration logic (in tasker-orchestration crate)
 //! - [`messaging`] - PostgreSQL message queue (pgmq) integration
 //! - [`registry`] - Component registration and discovery
-//! - [`ffi`] - Multi-language FFI bindings
+//! - Multi-language FFI bindings (future feature)
 //! - [`resilience`] - Circuit breaker patterns and fault tolerance
-//! - [`web`] - REST API server (optional, requires `web-api` feature)
+//! - REST API server (in tasker-orchestration crate, requires `web-api` feature)
 //!
 //! ## Performance Targets
 //!

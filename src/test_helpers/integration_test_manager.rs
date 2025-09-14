@@ -83,8 +83,10 @@ impl IntegrationTestManager {
     ///
     /// Use this for API-only tests that don't require a worker service.
     pub async fn setup_orchestration_only() -> Result<Self> {
-        let mut config = IntegrationConfig::default();
-        config.worker_url = None;
+        let config = IntegrationConfig {
+            worker_url: None,
+            ..Default::default()
+        };
         Self::setup_with_config(config).await
     }
 

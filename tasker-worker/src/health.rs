@@ -113,10 +113,12 @@ mod tests {
 
     #[test]
     fn test_success_rate_calculation() {
-        let mut status = WorkerHealthStatus::default();
-        status.total_messages_processed = 100;
-        status.successful_executions = 95;
-        status.failed_executions = 5;
+        let status = WorkerHealthStatus {
+            total_messages_processed: 100,
+            successful_executions: 95,
+            failed_executions: 5,
+            ..Default::default()
+        };
 
         assert_eq!(status.success_rate(), 95.0);
 

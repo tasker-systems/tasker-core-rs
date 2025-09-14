@@ -264,13 +264,13 @@ mod tests {
     async fn test_orchestration_core_lifecycle() {
         // This test will be implemented once we have proper test infrastructure
         // for the command pattern architecture
-        assert!(true, "OrchestrationCore lifecycle test placeholder");
+        // This test will be implemented once we have proper test infrastructure
     }
 
     #[tokio::test]
     async fn test_command_pattern_integration() {
         // This test will verify that the command pattern properly delegates
         // to sophisticated orchestration components
-        assert!(true, "Command pattern integration test placeholder");
+        // This test will verify that the command pattern properly delegates
     }
 }

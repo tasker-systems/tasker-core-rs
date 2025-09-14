@@ -217,12 +217,12 @@ impl TestSafetyValidator {
         self.environment.validate_test_safety()?;
 
         // Additional check: require explicit TEST_ALLOW_DESTRUCTIVE flag
-        if !self.environment.is_ci() {
-            if self.environment.get_env("TEST_ALLOW_DESTRUCTIVE") != Some("true".to_string()) {
-                return Err(TestEnvironmentError::SafetyError(
-                    "Destructive operations require TEST_ALLOW_DESTRUCTIVE=true".to_string(),
-                ));
-            }
+        if !self.environment.is_ci()
+            && self.environment.get_env("TEST_ALLOW_DESTRUCTIVE") != Some("true".to_string())
+        {
+            return Err(TestEnvironmentError::SafetyError(
+                "Destructive operations require TEST_ALLOW_DESTRUCTIVE=true".to_string(),
+            ));
         }
 
         Ok(())

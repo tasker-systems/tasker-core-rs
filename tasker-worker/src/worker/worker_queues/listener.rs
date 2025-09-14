@@ -302,7 +302,7 @@ impl WorkerEventHandler {
         } else {
             WorkerQueueEvent::Unknown {
                 queue_name: queue_name.clone(),
-                payload: format!("Unclassified worker queue event"),
+                payload: "Unclassified worker queue event".to_string(),
             }
         }
     }

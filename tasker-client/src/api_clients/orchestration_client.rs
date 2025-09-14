@@ -24,6 +24,34 @@ use tasker_shared::{
 };
 
 /// Configuration for the orchestration API client
+///
+/// This struct contains all the necessary configuration options for connecting
+/// to and communicating with the Tasker orchestration service.
+///
+/// # Examples
+///
+/// ```rust
+/// use tasker_client::OrchestrationApiConfig;
+/// use tasker_shared::config::WebAuthConfig;
+///
+/// // Basic configuration with defaults
+/// let config = OrchestrationApiConfig::default();
+/// assert_eq!(config.base_url, "http://localhost:8080");
+/// assert_eq!(config.timeout_ms, 30000);
+/// assert_eq!(config.max_retries, 3);
+///
+/// // Custom configuration with authentication
+/// let config = OrchestrationApiConfig {
+///     base_url: "https://orchestration.example.com".to_string(),
+///     timeout_ms: 60000,
+///     max_retries: 5,
+///     auth: Some(WebAuthConfig {
+///         enabled: true,
+///         api_key: "secret-key".to_string(),
+///         ..Default::default()
+///     }),
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct OrchestrationApiConfig {
     /// Base URL for the orchestration API (e.g., "http://orchestration:8080")
@@ -50,7 +78,25 @@ impl Default for OrchestrationApiConfig {
 impl OrchestrationApiConfig {
     /// Create OrchestrationApiConfig from TaskerConfig with proper configuration loading
     ///
-    /// TAS-43: This method replaces ::default() usage with configuration-driven setup
+    /// This method replaces manual configuration with values loaded from the
+    /// centralized TaskerConfig system. It properly extracts web configuration
+    /// including authentication settings and network bindings.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Reference to the loaded TaskerConfig containing orchestration settings
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use tasker_shared::config::TaskerConfig;
+    /// use tasker_client::OrchestrationApiConfig;
+    ///
+    /// let tasker_config = TaskerConfig::load_for_environment("test").unwrap();
+    /// let client_config = OrchestrationApiConfig::from_tasker_config(&tasker_config);
+    ///
+    /// assert!(client_config.base_url.starts_with("http://"));
+    /// ```
     pub fn from_tasker_config(config: &tasker_shared::config::TaskerConfig) -> Self {
         // Handle optional web configuration with sensible defaults
         let orchestration_web_config = config.orchestration.web_config();
@@ -65,6 +111,31 @@ impl OrchestrationApiConfig {
 }
 
 /// HTTP client for communicating with the orchestration system
+///
+/// This client provides methods to interact with all orchestration API endpoints
+/// including task management, workflow steps, performance analytics, and health monitoring.
+/// It handles authentication, retries, and proper error handling automatically.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tasker_client::{OrchestrationApiClient, OrchestrationApiConfig};
+/// use tasker_shared::models::core::task_request::TaskRequest;
+///
+/// let config = OrchestrationApiConfig::default();
+/// let client = OrchestrationApiClient::new(config)?;
+///
+/// // Create a new task
+/// let task_request = TaskRequest {
+///     name: "example_task".to_string(),
+///     namespace: "default".to_string(),
+///     version: "1.0.0".to_string(),
+///     context: serde_json::json!({"key": "value"}),
+/// };
+///
+/// let response = client.create_task(task_request).await?;
+/// println!("Created task with ID: {}", response.task_id);
+/// ```
 #[derive(Clone)]
 pub struct OrchestrationApiClient {
     client: Client,
@@ -74,6 +145,34 @@ pub struct OrchestrationApiClient {
 
 impl OrchestrationApiClient {
     /// Create a new orchestration API client with the given configuration
+    ///
+    /// This constructor validates the configuration, sets up HTTP client with
+    /// proper timeouts and authentication headers, and prepares the client
+    /// for making requests to the orchestration API.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration settings for the API client
+    ///
+    /// # Returns
+    ///
+    /// Returns a configured `OrchestrationApiClient` instance or an error if
+    /// the configuration is invalid (e.g., malformed base URL).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tasker_client::{OrchestrationApiClient, OrchestrationApiConfig};
+    ///
+    /// let config = OrchestrationApiConfig {
+    ///     base_url: "http://localhost:8080".to_string(),
+    ///     timeout_ms: 30000,
+    ///     max_retries: 3,
+    ///     auth: None,
+    /// };
+    ///
+    /// let client = OrchestrationApiClient::new(config).unwrap();
+    /// ```
     pub fn new(config: OrchestrationApiConfig) -> TaskerResult<Self> {
         let base_url = Url::parse(&config.base_url)
             .map_err(|e| TaskerError::ConfigurationError(format!("Invalid base URL: {}", e)))?;
@@ -118,7 +217,7 @@ impl OrchestrationApiClient {
                     && !web_auth_config.jwt_private_key.is_empty()
                 {
                     // Create JWT authenticator and generate a worker token
-                    let jwt_authenticator = JwtAuthenticator::from_config(&web_auth_config)
+                    let jwt_authenticator = JwtAuthenticator::from_config(web_auth_config)
                         .map_err(|e| {
                             TaskerError::ConfigurationError(format!(
                                 "Failed to create JWT authenticator: {}",

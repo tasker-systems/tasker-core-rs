@@ -176,10 +176,7 @@ fn validate_config(args: ValidateConfigArgs) -> Result<(), Box<dyn std::error::E
 
 fn generate_migration_sql(config: &CliConfig) -> Result<String, Box<dyn std::error::Error>> {
     // Convert regex pattern for PostgreSQL
-    let pg_pattern = config
-        .queue_naming_pattern
-        .replace("(?P<namespace>", "(")
-        .replace(")", ")");
+    let pg_pattern = config.queue_naming_pattern.replace("(?P<namespace>", "(");
 
     // Build channel names
     let queue_created_channel = match &config.channels_prefix {

@@ -402,7 +402,7 @@ impl CorrelatedCompletionListener {
                             correlation_id: event_id,
                             pending_execution: Some(pending_execution),
                             completion_event: completion_event.clone(),
-                            execution_duration_ms: execution_duration as i64,
+                            execution_duration_ms: execution_duration,
                             correlated: true,
                         }
                     }
@@ -505,7 +505,7 @@ mod tests {
 
         let step_result = result.unwrap();
         assert_eq!(step_result.step_uuid, completion_event.step_uuid);
-        assert_eq!(step_result.success, true);
+        assert!(step_result.success);
         assert_eq!(step_result.metadata.execution_time_ms, 150);
     }
 
@@ -523,7 +523,7 @@ mod tests {
 
         let step_result = result.unwrap();
         assert_eq!(step_result.step_uuid, completion_event.step_uuid);
-        assert_eq!(step_result.success, false);
+        assert!(!step_result.success);
         assert_eq!(step_result.metadata.execution_time_ms, 75);
         assert!(step_result.error.is_some());
         assert_eq!(step_result.error.unwrap().message, "Step execution failed");

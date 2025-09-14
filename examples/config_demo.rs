@@ -81,7 +81,7 @@ fn main() -> Result<()> {
             );
 
             // Let's inspect what was loaded
-            for (component_name, _config) in &validated_config.configs {
+            for component_name in validated_config.configs.keys() {
                 info!("  Component loaded: {}", component_name);
             }
 

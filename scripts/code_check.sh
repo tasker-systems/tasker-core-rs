@@ -49,7 +49,7 @@ if [ "$SHOW_HELP" = true ]; then
     echo ""
     echo "This script checks all workspace projects including SQLX preparation."
     echo "Projects: tasker-core, tasker-shared, tasker-orchestration, tasker-worker,"
-    echo "          tasker-client, pgmq-notify, workers/rust, workers/ruby/ext/tasker_core"
+    echo "          tasker-client, pgmq-notify, workers/rust"
     exit 0
 fi
 
@@ -99,7 +99,7 @@ ALL_WORKSPACE_PROJECTS=(
     "tasker-orchestration"   # Orchestration service
     "workers/rust"           # Rust worker implementation
     "."                      # Main workspace root
-    "workers/ruby/ext/tasker_core"  # Ruby extension (if it exists)
+    # "workers/ruby/ext/tasker_core"  # Ruby extension (if it exists)
 )
 
 # Projects that use SQLX and need cache preparation
@@ -191,10 +191,10 @@ for project in "${EXISTING_SQLX_PROJECTS[@]}"; do
             has_sqlx=true
         fi
     fi
-    
+
     if [[ "$has_sqlx" == "true" ]]; then
         echo -e "  ${YELLOW}→${NC} Preparing SQLX cache in ${BLUE}${project}${NC}..."
-        
+
         # For the main workspace, we need to be more specific about which packages to prepare
         if [[ "$project" == "." ]]; then
             # Prepare SQLX for all workspace members that use it
@@ -202,7 +202,7 @@ for project in "${EXISTING_SQLX_PROJECTS[@]}"; do
         else
             sqlx_cmd="cargo sqlx prepare"
         fi
-        
+
         if ! run_cargo_in_project "$project" "$sqlx_cmd" "SQLX preparation"; then
             print_warning "SQLX preparation failed in $project - this might be expected if database is not running"
             print_warning "To ensure Docker builds work, make sure to run this with a database connection"
@@ -261,12 +261,12 @@ fi
 print_step "Running Clippy linter with all features and strict warnings..."
 CLIPPY_PASSED=1
 for project in "${RUST_PROJECTS[@]}"; do
-    # Use different clippy args for Ruby extension (no all-features)
-    if [[ "$project" == "workers/ruby/ext/tasker_core" ]]; then
-        clippy_cmd="cargo clippy --all-targets -- -D warnings"
-    else
+    # # Use different clippy args for Ruby extension (no all-features)
+    # if [[ "$project" == "workers/ruby/ext/tasker_core" ]]; then
+    #     clippy_cmd="cargo clippy --all-targets -- -D warnings"
+    # else
         clippy_cmd="cargo clippy --all-targets --all-features -- -D warnings"
-    fi
+    # fi
 
     if ! run_cargo_in_project "$project" "$clippy_cmd" "linting"; then
         print_error "Clippy found linting issues in $project"

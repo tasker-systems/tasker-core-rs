@@ -134,7 +134,7 @@ impl StepClaim {
         &self,
         task_sequence_step: &TaskSequenceStep,
     ) -> TaskerResult<bool> {
-        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid.clone();
+        let step_uuid = task_sequence_step.workflow_step.workflow_step_uuid;
         debug!(
             step_uuid = %step_uuid,
             "Attempting to claim step using state machine transition"

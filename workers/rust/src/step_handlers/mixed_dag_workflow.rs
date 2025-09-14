@@ -7,16 +7,16 @@
 //!
 //! This demonstrates a complex DAG (Directed Acyclic Graph) with multiple convergence points:
 //!
-//! ```
-//! A: dag_init (n²)
-//! ├── B: dag_process_left (n⁴)
-//! │   ├── D: dag_validate (n⁴ × n⁴)² = n¹⁶  ←┐ (multiple parents)
-//! │   └── E: dag_transform (n⁴)² = n⁸        │
-//! └── C: dag_process_right (n⁴) ──────────────┘
-//!     ├── D: dag_validate (already covered)
-//!     └── F: dag_analyze (n⁴)² = n⁸
+//! ```text
+//! A: dag_init (n^2)
+//! |-- B: dag_process_left (n^4)
+//! |   |-- D: dag_validate (n^4 x n^4)^2 = n^16  <-+ (multiple parents)
+//! |   └-- E: dag_transform (n^4)^2 = n^8        |
+//! └-- C: dag_process_right (n^4) --------------+
+//!     |-- D: dag_validate (already covered)
+//!     └-- F: dag_analyze (n^4)^2 = n^8
 //!
-//! G: dag_finalize ((n¹⁶ × n⁸ × n⁸)² = (n³²)² = n⁶⁴)
+//! G: dag_finalize ((n^16 x n^8 x n^8)^2 = (n^32)^2 = n^64)
 //! ```
 //!
 //! For input=6: 6^64 = extremely large number (2^64 bits to represent)

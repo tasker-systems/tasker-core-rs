@@ -24,7 +24,7 @@ impl OrchestrationResultSender {
     /// Create new sender with PGMQ client and queue configuration
     pub fn new(pgmq_client: Arc<UnifiedPgmqClient>, queues_config: &QueuesConfig) -> Self {
         // Create queue classifier for config-driven queue naming using the new config
-        let queue_classifier = QueueClassifier::from_queues_config(&queues_config);
+        let queue_classifier = QueueClassifier::from_queues_config(queues_config);
 
         Self {
             pgmq_client,

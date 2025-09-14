@@ -1,4 +1,7 @@
-//! Configuration for pgmq-notify
+//! # Configuration for pgmq-notify
+//!
+//! This module provides configuration structures for customizing PGMQ notification
+//! behavior, including queue naming patterns, channel prefixes, and notification settings.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -7,11 +10,44 @@ use std::collections::HashSet;
 use crate::error::{PgmqNotifyError, Result};
 
 /// Configuration for PGMQ notification behavior
+///
+/// This struct controls how PGMQ notifications are generated, formatted, and delivered.
+/// It allows customization of queue naming patterns, notification channels, and
+/// automatic listening behavior.
+///
+/// # Examples
+///
+/// ```rust
+/// use pgmq_notify::config::PgmqNotifyConfig;
+/// use std::collections::HashSet;
+///
+/// // Basic configuration with defaults
+/// let config = PgmqNotifyConfig::new();
+/// assert_eq!(config.queue_naming_pattern, r"(?P<namespace>\w+)_queue");
+/// assert!(!config.enable_triggers); // Triggers disabled by default
+///
+/// // Custom configuration with namespace listening
+/// let mut namespaces = HashSet::new();
+/// namespaces.insert("orders".to_string());
+/// namespaces.insert("inventory".to_string());
+///
+/// let config = PgmqNotifyConfig {
+///     queue_naming_pattern: r"(?P<namespace>\w+)_messages".to_string(),
+///     channels_prefix: Some("prod".to_string()),
+///     enable_triggers: true,
+///     default_namespaces: namespaces,
+///     max_payload_size: 4000,
+///     include_metadata: false,
+/// };
+///
+/// assert_eq!(config.channels_prefix, Some("prod".to_string()));
+/// assert!(config.default_namespaces.contains("orders"));
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PgmqNotifyConfig {
     /// Pattern for extracting namespace from queue names
     /// Should contain a named capture group "namespace"
-    /// Default: r"(?P<namespace>\w+)_queue" matches "orders_queue" -> "orders"
+    /// Default: `r"(?P<namespace>\w+)_queue"` matches "orders_queue" -> "orders"
     pub queue_naming_pattern: String,
 
     /// Optional prefix for all notification channels to avoid conflicts

@@ -307,11 +307,11 @@ impl StepEnqueuerService {
         )
         .await
         .map_err(|err| {
-            return TaskerError::DatabaseError(format!("Failed to create state machine: {err}"));
+            TaskerError::DatabaseError(format!("Failed to create state machine: {err}"))
         })?;
 
         let current_state = state_machine.current_state().await.map_err(|err| {
-            return TaskerError::DatabaseError(format!("Failed to get current state: {err}"));
+            TaskerError::DatabaseError(format!("Failed to get current state: {err}"))
         })?;
 
         // Handle state-specific transitions using proper state machine
@@ -365,9 +365,9 @@ impl StepEnqueuerService {
                     )
                     .await?)
                 } else {
-                    Err(TaskerError::StateTransitionError(format!(
-                        "Task unable to transition to dependencies ready state"
-                    )))
+                    Err(TaskerError::StateTransitionError(
+                        "Task unable to transition to dependencies ready state".to_string(),
+                    ))
                 }
             }
 
@@ -384,9 +384,9 @@ impl StepEnqueuerService {
                         .await?,
                     ))
                 } else {
-                    Err(TaskerError::StateTransitionError(format!(
-                        "Task unable to transition to retry state"
-                    )))
+                    Err(TaskerError::StateTransitionError(
+                        "Task unable to transition to retry state".to_string(),
+                    ))
                 }
             }
 
@@ -583,6 +583,12 @@ impl StepEnqueuerService {
     /// Get processor ID (compatibility method)
     pub fn processor_uuid(&self) -> String {
         self.context.processor_uuid.to_string()
+    }
+}
+
+impl Default for ContinuousOrchestrationSummary {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

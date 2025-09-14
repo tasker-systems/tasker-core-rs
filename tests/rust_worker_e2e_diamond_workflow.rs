@@ -14,7 +14,8 @@
 //! 2. Branch B (Left): Square the start result (36 → 1,296)
 //! 3. Branch C (Right): Square the start result (36 → 1,296)
 //! 4. End: Multiply both branch results and square (1,296 × 1,296 → 1,679,616 → 2,821,109,907,456)
-//! Final result: input^16 (6^16 = 2,821,109,907,456)
+//!
+//!    Final result: input^16 (6^16 = 2,821,109,907,456)
 
 use anyhow::Result;
 use serde_json::json;

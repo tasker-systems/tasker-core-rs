@@ -164,7 +164,7 @@ impl BackoffCalculator {
                 .await
         } else {
             // Fall back to exponential backoff
-            self.apply_exponential_backoff(&step_uuid, &context).await
+            self.apply_exponential_backoff(step_uuid, &context).await
         }
     }
 

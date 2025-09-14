@@ -269,7 +269,7 @@ impl TaskInitializer {
         // First, create the task using existing method
         let initialization_result = self.create_task_from_request(task_request).await?;
 
-        let task_uuid = initialization_result.task_uuid.clone();
+        let task_uuid = initialization_result.task_uuid;
 
         info!(
             task_uuid = task_uuid.to_string(),
@@ -343,7 +343,7 @@ impl TaskInitializer {
     ) -> Result<tasker_shared::models::TaskNamespace, TaskInitializationError> {
         // Try to find existing namespace first
         if let Some(existing) = tasker_shared::models::TaskNamespace::find_by_name(
-            &self.context.database_pool(),
+            self.context.database_pool(),
             namespace_name,
         )
         .await
@@ -359,7 +359,7 @@ impl TaskInitializer {
         };
 
         let namespace = tasker_shared::models::TaskNamespace::create(
-            &self.context.database_pool(),
+            self.context.database_pool(),
             new_namespace,
         )
         .await
@@ -378,7 +378,7 @@ impl TaskInitializer {
     ) -> Result<tasker_shared::models::NamedTask, TaskInitializationError> {
         // Try to find existing named task first
         let existing_task = tasker_shared::models::NamedTask::find_by_name_version_namespace(
-            &self.context.database_pool(),
+            self.context.database_pool(),
             &task_request.name,
             &task_request.version,
             task_namespace_uuid,
@@ -402,7 +402,7 @@ impl TaskInitializer {
         };
 
         let named_task =
-            tasker_shared::models::NamedTask::create(&self.context.database_pool(), new_named_task)
+            tasker_shared::models::NamedTask::create(self.context.database_pool(), new_named_task)
                 .await
                 .map_err(|e| {
                     TaskInitializationError::Database(format!("Failed to create named task: {e}"))
@@ -440,7 +440,7 @@ impl TaskInitializer {
         for step_definition in &task_template.steps {
             // Create or find named step using transaction
             let named_steps =
-                NamedStep::find_by_name(&self.context.database_pool(), &step_definition.name)
+                NamedStep::find_by_name(self.context.database_pool(), &step_definition.name)
                     .await
                     .map_err(|e| {
                         TaskInitializationError::Database(format!(
@@ -456,7 +456,7 @@ impl TaskInitializer {
                 let system_name = "tasker_core_rust"; // Use a consistent system name for Rust core
                 NamedStep::find_or_create_by_name_with_transaction(
                     tx,
-                    &self.context.database_pool(),
+                    self.context.database_pool(),
                     &step_definition.name,
                     system_name,
                 )
@@ -710,7 +710,7 @@ impl TaskInitializer {
             .load_from_registry(task_request, self.context.task_handler_registry.clone())
             .await
         {
-            Ok(config) => return Ok(config),
+            Ok(config) => Ok(config),
             Err(e) => {
                 Err(TaskInitializationError::ConfigurationNotFound(
                     format!("Unable to load task template: {e}, request parameters: name {}, namespace {}, version {}", task_request.name, task_request.namespace, task_request.version)

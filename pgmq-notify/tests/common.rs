@@ -164,7 +164,7 @@ impl TestDb {
             middle.to_string()
         } else if clean_name.ends_with("_queue") {
             // some_namespace_queue -> some_namespace
-            let namespace = &clean_name[..clean_name.len() - 6];
+            let namespace = clean_name.strip_suffix("_queue").unwrap();
             namespace.to_string()
         } else if clean_name.starts_with("orchestration") {
             // orchestration* -> orchestration

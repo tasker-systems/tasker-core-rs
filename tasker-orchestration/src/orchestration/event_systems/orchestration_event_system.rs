@@ -97,9 +97,7 @@ impl Clone for OrchestrationStatistics {
             operations_coordinated: AtomicU64::new(
                 self.operations_coordinated.load(Ordering::Relaxed),
             ),
-            last_processing_time: std::sync::Mutex::new(
-                self.last_processing_time.lock().unwrap().clone(),
-            ),
+            last_processing_time: std::sync::Mutex::new(*self.last_processing_time.lock().unwrap()),
             processing_latencies: std::sync::Mutex::new(
                 self.processing_latencies.lock().unwrap().clone(),
             ),
@@ -510,7 +508,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 
         match event {
             OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id.clone();
+                let msg_id = message_ready_event.msg_id;
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::ProcessStepResultFromMessageEvent {
@@ -611,7 +609,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             }
 
             OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id.clone();
+                let msg_id = message_ready_event.msg_id;
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
                 let command = OrchestrationCommand::InitializeTaskFromMessageEvent {
@@ -713,7 +711,7 @@ impl EventDrivenSystem for OrchestrationEventSystem {
             }
 
             OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                let msg_id = message_ready_event.msg_id.clone();
+                let msg_id = message_ready_event.msg_id;
                 let namespace = message_ready_event.namespace.clone();
                 let (command_tx, command_rx) = tokio::sync::oneshot::channel();
 
@@ -987,7 +985,7 @@ impl OrchestrationEventSystem {
         match notification {
             OrchestrationNotification::Event(event) => match event {
                 OrchestrationQueueEvent::StepResult(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id.clone();
+                    let msg_id = message_ready_event.msg_id;
                     let namespace = message_ready_event.namespace.clone();
 
                     debug!(
@@ -1022,7 +1020,7 @@ impl OrchestrationEventSystem {
                 }
 
                 OrchestrationQueueEvent::TaskRequest(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id.clone();
+                    let msg_id = message_ready_event.msg_id;
                     let namespace = message_ready_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,
@@ -1057,7 +1055,7 @@ impl OrchestrationEventSystem {
                 }
 
                 OrchestrationQueueEvent::TaskFinalization(message_ready_event) => {
-                    let msg_id = message_ready_event.msg_id.clone();
+                    let msg_id = message_ready_event.msg_id;
                     let namespace = message_ready_event.namespace.clone();
                     debug!(
                         msg_id = %msg_id,

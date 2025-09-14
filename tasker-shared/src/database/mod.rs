@@ -12,8 +12,8 @@
 //!
 //! ## Key Components
 //!
-//! - [`connection`] - Database connection management and pooling
-//! - [`migrations`] - Schema migration system with concurrency control
+//! - Database connection management and pooling (via SQLx)
+//! - Schema migration system with concurrency control (via SQLx migrations)
 //! - [`sql_functions`] - PostgreSQL function wrappers with type safety
 //!
 //! ## SQL Function Integration

@@ -17,6 +17,12 @@ use crate::web::state::WorkerWebState;
 #[derive(Clone)]
 pub struct RequestIdMiddleware;
 
+impl Default for RequestIdMiddleware {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RequestIdMiddleware {
     /// Create a new request ID middleware instance
     pub fn new() -> Self {

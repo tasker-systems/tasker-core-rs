@@ -1,0 +1,68 @@
+name: Integration Tests
+
+on:
+  workflow_call:
+
+jobs:
+  integration:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.4
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        run: cargo binstall cargo-nextest -y
+
+      - name: Start test services
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: "./docker/docker-compose.test.yml"
+          up-flags: "--build -d"
+
+      - name: Wait for services
+        run: |
+          timeout 90 bash -c '
+            until curl -f http://localhost:8080/health 2>/dev/null; do
+              echo "Waiting for orchestration service..."
+              sleep 2
+            done
+            echo "Orchestration service is healthy"
+
+            until curl -f http://localhost:8081/health 2>/dev/null; do
+              echo "Waiting for worker service..."
+              sleep 2
+            done
+            echo "Worker service is healthy"
+          '
+
+      - name: Run integration tests
+        run: |
+          cargo nextest run \
+            --profile ci \
+            --package tasker-core \
+            --test '*' \
+            --no-fail-fast
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: target/nextest/ci/junit.xml
+
+      - name: Collect service logs
+        if: failure()
+        run: |
+          docker compose -f docker/docker-compose.test.yml logs > service-logs.txt
+
+      - name: Upload service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: service-logs.txt

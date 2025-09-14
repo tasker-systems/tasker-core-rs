@@ -334,9 +334,9 @@ impl TaskTemplateManager {
                 error!(
                     "⚠️ BOOTSTRAP: TaskTemplate discovery failed (worker will use registry-only): {e}"
                 );
-                return Err(TaskerError::ConfigurationError(format!(
+                Err(TaskerError::ConfigurationError(format!(
                     "TaskTemplate discovery failed (worker will use registry-only): {e}"
-                )));
+                )))
             }
         }
     }

@@ -7,15 +7,15 @@
 //!
 //! This demonstrates a hierarchical tree structure with complex fan-out and convergence:
 //!
-//! ```
-//! Tree Root (n²)
-//! ├── Tree Branch Left (n²)²
-//! │   ├── Tree Leaf D ((n²)²)²
-//! │   └── Tree Leaf E ((n²)²)²
-//! └── Tree Branch Right (n²)²
-//!     ├── Tree Leaf F ((n²)²)²
-//!     └── Tree Leaf G ((n²)²)²
-//! Final Convergence: ((n²)² × (n²)² × (n²)² × (n²)²)² = (n^16)² = n^32
+//! ```text
+//! Tree Root (n^2)
+//! |-- Tree Branch Left (n^2)^2
+//! |   |-- Tree Leaf D ((n^2)^2)^2
+//! |   └-- Tree Leaf E ((n^2)^2)^2
+//! └-- Tree Branch Right (n^2)^2
+//!     |-- Tree Leaf F ((n^2)^2)^2
+//!     └-- Tree Leaf G ((n^2)^2)^2
+//! Final Convergence: ((n^2)^2 x (n^2)^2 x (n^2)^2 x (n^2)^2)^2 = (n^16)^2 = n^32
 //! ```
 //!
 //! For input=6: 6^32 = 68,719,476,736 × 10^18 (approximately)

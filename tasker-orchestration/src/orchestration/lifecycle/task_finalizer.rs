@@ -250,7 +250,7 @@ impl TaskFinalizer {
                     "Task is still in Pending state when trying to complete - this indicates an initialization issue"
                 );
                 return Err(FinalizationError::StateMachine {
-                    error: format!("Task should not be in Pending state when trying to complete. This indicates the task was not properly initialized."),
+                    error: "Task should not be in Pending state when trying to complete. This indicates the task was not properly initialized.".to_string(),
                     task_uuid,
                 });
             }

@@ -1,0 +1,75 @@
+name: Unit Tests
+
+on:
+  workflow_call:
+    inputs:
+      postgres-image:
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-version: ["stable", "beta"]
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust-version }}
+      - uses: mozilla-actions/sccache-action@v0.0.4
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        run: |
+          cargo binstall cargo-nextest -y
+          cargo binstall sqlx-cli --no-default-features --features rustls,postgres -y
+
+      - name: Setup database
+        run: |
+          until pg_isready -h localhost -p 5432 -U tasker; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          sqlx migrate run
+
+      - name: Run nextest for core packages
+        run: |
+          cargo nextest run \
+            --profile ci \
+            --package tasker-shared \
+            --package tasker-orchestration \
+            --package tasker-worker \
+            --package pgmq-notify \
+            --package tasker-client \
+            --no-fail-fast
+
+      - name: Run doctests
+        run: cargo test --doc --all-packages
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.rust-version }}
+          path: target/nextest/ci/junit.xml

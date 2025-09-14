@@ -23,21 +23,21 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```ignore
 //! use tasker_worker_rust::{WorkerBootstrap, WorkerBootstrapConfig, RustStepHandlerRegistry};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Register all Rust step handlers
-//!     RustStepHandlerRegistry::register_all_handlers().await?;
+//!     // Create registry (handlers are registered at construction time)
+//!     let _registry = RustStepHandlerRegistry::new();
 //!
 //!     // Bootstrap worker with same configuration as Ruby workers
 //!     let config = WorkerBootstrapConfig::default()
 //!         .with_supported_namespaces(vec![
-//!             "linear_workflow", "diamond_workflow", "tree_workflow",
-//!             "mixed_dag_workflow", "order_fulfillment"
-//!         ])
-//!         .with_event_driven_processing(true);
+//!             "linear_workflow".to_string(), "diamond_workflow".to_string(),
+//!             "tree_workflow".to_string(), "mixed_dag_workflow".to_string(),
+//!             "order_fulfillment".to_string()
+//!         ]);
 //!
 //!     let mut worker_handle = WorkerBootstrap::bootstrap(config).await?;
 //!

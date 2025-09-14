@@ -1,0 +1,13 @@
+name: CI Success
+
+on:
+  workflow_call:
+
+jobs:
+  success:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: CI Pipeline Success
+        run: |
+          echo "✅ All CI checks passed successfully!"
+          echo "Ready to merge!"

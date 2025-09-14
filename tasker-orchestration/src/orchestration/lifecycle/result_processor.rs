@@ -114,11 +114,11 @@ impl OrchestrationResultProcessor {
 
             match step_result.status {
                 StepExecutionStatus::Failed => {
-                    self.process_orchestration_metadata(step_uuid, &metadata)
+                    self.process_orchestration_metadata(step_uuid, metadata)
                         .await?;
                 }
                 StepExecutionStatus::Timeout => {
-                    self.process_orchestration_metadata(step_uuid, &metadata)
+                    self.process_orchestration_metadata(step_uuid, metadata)
                         .await?;
                 }
                 _ => {}
@@ -193,7 +193,7 @@ impl OrchestrationResultProcessor {
             );
 
             if let Err(e) = self
-                .process_orchestration_metadata(step_uuid, &metadata)
+                .process_orchestration_metadata(step_uuid, metadata)
                 .await
             {
                 error!(
@@ -290,7 +290,7 @@ impl OrchestrationResultProcessor {
         );
 
         let workflow_step =
-            WorkflowStep::find_by_id(self.context.database_pool(), step_uuid.clone()).await?;
+            WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid).await?;
 
         match workflow_step {
             Some(workflow_step) => {
@@ -317,7 +317,7 @@ impl OrchestrationResultProcessor {
                 let should_finalize = if current_state == TaskState::StepsInProcess {
                     // We can transition with StepCompleted
                     task_state_machine
-                        .transition(TaskEvent::StepCompleted(step_uuid.clone()))
+                        .transition(TaskEvent::StepCompleted(*step_uuid))
                         .await?
                 } else if current_state == TaskState::EvaluatingResults {
                     // We're already evaluating results, need to check if we should finalize
@@ -371,7 +371,7 @@ impl OrchestrationResultProcessor {
                     );
                     return Err(OrchestrationError::DatabaseError {
                         operation: format!("TaskStateMachine.transition for {step_uuid}"),
-                        reason: format!("Failed to transition state machine"),
+                        reason: "Failed to transition state machine".to_string(),
                     });
                 }
             }
@@ -524,7 +524,7 @@ impl OrchestrationResultProcessor {
         original_status: &String,
     ) -> OrchestrationResult<()> {
         // Load the current step to check its state
-        let step = WorkflowStep::find_by_id(self.context.database_pool(), step_uuid.clone())
+        let step = WorkflowStep::find_by_id(self.context.database_pool(), *step_uuid)
             .await
             .map_err(
                 |e| tasker_shared::errors::OrchestrationError::DatabaseError {
