@@ -93,7 +93,8 @@ cargo install cargo-audit --locked                                             #
 
 # Enhanced testing with nextest (parallel execution)
 cargo nextest run --profile default                # Local testing with nextest
-cargo nextest run --profile ci                     # Run CI profile tests locally
+cargo nextest run --profile ci                     # Run CI profile tests locally (generates JUnit XML)
+cargo nextest run --profile local                  # Local development (fail-fast enabled)
 cargo nextest list                                 # List available tests
 
 # Run tests for specific packages

@@ -10,6 +10,7 @@
 //! - TTY-aware ANSI color output
 
 use chrono::Utc;
+use std::io::IsTerminal;
 use std::sync::OnceLock;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use uuid::Uuid;
@@ -26,7 +27,7 @@ pub fn init_tracing() {
         let environment = get_environment();
         let log_level = get_log_level(&environment);
         // Determine if we're in a TTY for ANSI color support
-        let use_ansi = atty::is(atty::Stream::Stdout);
+        let use_ansi = IsTerminal::is_terminal(&std::io::stdout());
         let subscriber = tracing_subscriber::registry()
             .with(
                 fmt::layer()

@@ -211,6 +211,7 @@ cargo binstall sccache -y
 - Compilation caching (sccache temporarily disabled)
 - Runs against the built PostgreSQL image
 - Installs tools via `cargo binstall` for speed
+- Generates JUnit XML artifacts for test reporting
 
 ### 🧪 Unit Tests (`test-unit.yml`)
 
@@ -382,6 +383,28 @@ Based on the current single example (`config_demo.rs`), we should add:
 - Monitor workflow duration trends
 - Track success/failure rates
 - Identify bottlenecks in the pipeline
+
+### JUnit Test Reporting
+
+All test workflows generate JUnit XML artifacts for better test result visualization:
+
+**Configuration** (`.config/nextest.toml`):
+```toml
+[profile.ci.junit]
+path = "target/nextest/ci/junit.xml"
+```
+
+**Usage in workflows**:
+- Tests run with `--profile ci` to generate JUnit XML
+- Artifacts uploaded conditionally when files exist
+- Available in GitHub Actions artifacts for download
+- Enables rich test reporting in PR comments and CI dashboards
+
+**Benefits**:
+- Visual test result reporting in GitHub UI
+- Test timing and failure analysis
+- Historical test performance tracking
+- Integration with external reporting tools
 
 ### Key Metrics to Track
 - **Total CI time**: Target < 10 minutes for typical PRs

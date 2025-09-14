@@ -50,12 +50,14 @@ jobs:
         run: |
           until pg_isready -h localhost -p 5432 -U tasker; do
             echo "Waiting for PostgreSQL..."
-            sleep 2
+            sleep 1
           done
           sqlx migrate run
 
-      - name: Run nextest for core packages
+      - name: Run tests
         run: |
+          # Ensure nextest output directory exists
+          mkdir -p target/nextest/ci
           cargo nextest run \
             --profile ci \
             --package tasker-shared \
@@ -64,6 +66,16 @@ jobs:
             --package pgmq-notify \
             --package tasker-client \
             --no-fail-fast
+
+          # Debug: Check if JUnit file was generated
+          if [ -f "target/nextest/ci/junit.xml" ]; then
+            echo "✅ JUnit XML file generated successfully"
+            ls -la target/nextest/ci/junit.xml
+          else
+            echo "❌ JUnit XML file not found"
+            echo "Directory contents:"
+            ls -la target/nextest/ || echo "nextest directory not found"
+          fi
 
       - name: Run doctests
         run: |
@@ -76,7 +88,7 @@ jobs:
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         with:
           name: test-results-${{ matrix.rust-version }}
           path: target/nextest/ci/junit.xml

@@ -27,7 +27,7 @@ members = [
 anyhow = "1.0"
 async-trait = "0.1"
 # TTY detection for ANSI colors
-atty = "0.2"
+is-terminal = "0.4"
 # Web framework and HTTP server (TAS-28)
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
@@ -98,7 +98,7 @@ tower = { version = "0.4" }
 tower-http = { version = "0.5", features = ["cors", "timeout", "trace"] }
 # Logging and telemetry
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 url = "2.0"
 # OpenAPI documentation
 utoipa = { version = "4.2", features = ["axum_extras", "chrono", "uuid"] }
