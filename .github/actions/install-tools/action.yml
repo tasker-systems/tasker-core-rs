@@ -4,9 +4,13 @@ author: "Tasker Systems"
 
 inputs:
   tools:
-    description: "Space-separated list of tools to install (nextest, sqlx-cli, audit)"
+    description: "Space-separated list of tools to install (nextest, sqlx-cli, audit, llvm-cov)"
     required: false
     default: "sqlx-cli"
+  pin-versions:
+    description: "Whether to pin tool versions for reproducible builds"
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -87,34 +91,58 @@ runs:
       run: |
         echo "🔧 Installing tools: ${{ inputs.tools }}"
 
-        # Function to install tool with error checking
+        # Function to install tool with version pinning and fallback
         install_tool() {
           local tool_name="$1"
-          local install_args="$2"
+          local versioned_args="$2"
+          local fallback_args="$3"
+
           echo "Installing $tool_name..."
-          if cargo binstall $install_args -y; then
-            echo "✅ $tool_name installed successfully"
+
+          # Try versioned install first if pin-versions is true
+          if [[ "${{ inputs.pin-versions }}" == "true" ]]; then
+            echo "  Attempting versioned install: $versioned_args"
+            if cargo binstall $versioned_args -y; then
+              echo "✅ $tool_name installed successfully (pinned version)"
+              return 0
+            else
+              echo "⚠️  Versioned install failed, trying fallback..."
+            fi
+          fi
+
+          # Fallback to latest version
+          echo "  Installing latest version: $fallback_args"
+          if cargo binstall $fallback_args -y; then
+            echo "✅ $tool_name installed successfully (latest version)"
           else
             echo "❌ Failed to install $tool_name"
             exit 1
           fi
         }
 
-        # Install tools based on input
+        # Install tools based on input with version pinning
         if echo "${{ inputs.tools }}" | grep -q "nextest"; then
-          install_tool "cargo-nextest" "cargo-nextest"
+          install_tool "cargo-nextest" \
+            "cargo-nextest@0.9.67" \
+            "cargo-nextest"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "sqlx-cli"; then
-          install_tool "sqlx-cli" "sqlx-cli --no-default-features --features rustls,postgres"
+          install_tool "sqlx-cli" \
+            "sqlx-cli@0.7.3 --no-default-features --features rustls,postgres" \
+            "sqlx-cli --no-default-features --features rustls,postgres"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "audit"; then
-          install_tool "cargo-audit" "cargo-audit"
+          install_tool "cargo-audit" \
+            "cargo-audit@0.18.3" \
+            "cargo-audit"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
-          install_tool "cargo-llvm-cov" "cargo-llvm-cov"
+          install_tool "cargo-llvm-cov" \
+            "cargo-llvm-cov@0.6.4" \
+            "cargo-llvm-cov"
         fi
 
         echo "✅ All tool installations complete"

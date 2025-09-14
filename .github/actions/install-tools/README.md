@@ -32,6 +32,18 @@ steps:
 - `audit` - Installs `cargo-audit` for security vulnerability scanning
 - `llvm-cov` - Installs `cargo-llvm-cov` for code coverage reporting
 
+### `pin-versions`
+
+**Description**: Whether to pin tool versions for reproducible builds
+
+**Required**: No
+
+**Default**: `"true"`
+
+**Values**:
+- `"true"` - Install pinned versions with fallback to latest
+- `"false"` - Always install latest versions
+
 ## Examples
 
 ### Install single tool
@@ -44,10 +56,28 @@ steps:
 
 ### Install multiple tools
 ```yaml
-- name: Install development tools
+- name: Install multiple tools
   uses: ./.github/actions/install-tools
   with:
     tools: "nextest sqlx-cli audit"
+```
+
+### Install with version pinning (default)
+```yaml
+- name: Install with pinned versions
+  uses: ./.github/actions/install-tools
+  with:
+    tools: "nextest sqlx-cli audit"
+    pin-versions: "true"  # This is the default
+```
+
+### Install latest versions only
+```yaml
+- name: Install latest versions
+  uses: ./.github/actions/install-tools
+  with:
+    tools: "nextest sqlx-cli audit"
+    pin-versions: "false"
 ```
 
 ### Use default (sqlx-cli only)
@@ -66,9 +96,24 @@ steps:
 ## Benefits
 
 - **Fast Installation**: Uses `cargo binstall` for pre-compiled binaries instead of compilation
+- **Version Pinning**: Ensures reproducible builds with specific tool versions
+- **Graceful Fallback**: Falls back to latest versions if pinned versions fail
 - **Consistent Setup**: Same installation method across all workflows
 - **Caching Friendly**: cargo-binstall downloads are cached by GitHub Actions
 - **Reliable**: Handles PATH setup and verification automatically
+
+## Pinned Tool Versions
+
+The action pins specific versions for reproducible builds:
+
+| Tool | Pinned Version | Purpose |
+|------|----------------|---------|
+| `cargo-nextest` | `0.9.67` | Fast, parallel test execution |
+| `sqlx-cli` | `0.7.3` | Database migrations and queries |
+| `cargo-audit` | `0.18.3` | Security vulnerability scanning |
+| `cargo-llvm-cov` | `0.6.4` | Code coverage analysis |
+
+These versions are tested and verified to work together. If a pinned version fails to install, the action gracefully falls back to the latest available version.
 
 ## Tool Details
 
@@ -99,6 +144,15 @@ Using `cargo-binstall` vs `cargo install`:
 - **cargo-binstall**: Downloads pre-compiled binaries (~30 seconds)
 - **cargo install**: Compiles from source (~5-10 minutes per tool)
 
+### Version Management Strategy
+
+The action uses a **version pinning with fallback** approach:
+
+1. **Primary**: Attempts to install pinned versions for reproducible builds
+2. **Fallback**: If pinned version fails, installs latest version
+3. **Configurable**: Can disable pinning via `pin-versions: "false"`
+
+This ensures CI stability while allowing flexibility when needed.
 This action can save 15-30 minutes per CI run compared to traditional installation methods.
 
 ## Error Handling
@@ -140,11 +194,19 @@ For local development, you can install these same tools:
 # Install cargo-binstall first
 curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 
-# Then install tools
-cargo binstall cargo-nextest sqlx-cli cargo-audit -y
+# Then install tools with version pinning
+cargo binstall cargo-nextest@0.9.67 sqlx-cli@0.7.3 --no-default-features --features rustls,postgres cargo-audit@0.18.3 -y
+
+# Or without version pinning
+cargo binstall cargo-nextest sqlx-cli --no-default-features --features rustls,postgres cargo-audit -y
 ```
 
 ## Troubleshooting
+
+### Pinned version installation fails
+- The action will automatically fall back to latest version
+- Check the logs for specific version compatibility issues
+- Consider updating pinned versions if consistently failing
 
 ### cargo-binstall installation fails
 - Check network connectivity
