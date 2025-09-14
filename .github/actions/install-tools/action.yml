@@ -1,61 +1,123 @@
-name: 'Install Build Tools'
-description: 'Installs cargo-binstall and common tools used across CI workflows'
-author: 'Tasker Systems'
+name: "Install Build Tools"
+description: "Installs cargo-binstall and common tools used across CI workflows"
+author: "Tasker Systems"
 
 inputs:
   tools:
-    description: 'Space-separated list of tools to install (nextest, sqlx-cli, audit)'
+    description: "Space-separated list of tools to install (nextest, sqlx-cli, audit)"
     required: false
-    default: 'sqlx-cli'
+    default: "sqlx-cli"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
+    - name: Cache cargo tools
+      uses: actions/cache@v4
+      id: cargo-tools-cache
+      with:
+        path: ~/.cargo/bin
+        key: cargo-tools-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ inputs.tools }}
+        restore-keys: |
+          cargo-tools-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
+          cargo-tools-${{ runner.os }}-
     - name: Install cargo-binstall
+      if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         echo "📦 Installing cargo-binstall..."
         # Check if cargo-binstall is already installed
         if ! command -v cargo-binstall &> /dev/null; then
-          # Install cargo-binstall using the official installer
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          # Install cargo-binstall using direct binary download
+          TEMP_DIR=$(mktemp -d)
+          cd "$TEMP_DIR"
 
-          # Add cargo bin to PATH if not already there
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          # Determine platform
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            TARGET="universal-apple-darwin"
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            TARGET="x86_64-pc-windows-msvc"
+          else
+            TARGET="x86_64-unknown-linux-musl"
+          fi
+
+          # Download and extract
+          echo "Downloading cargo-binstall for $TARGET..."
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            "https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-${TARGET}.tgz" | \
+            tar -xz
+
+          # Install to cargo bin directory
+          mkdir -p "$HOME/.cargo/bin"
+          mv cargo-binstall "$HOME/.cargo/bin/"
+          chmod +x "$HOME/.cargo/bin/cargo-binstall"
+
+          # Clean up
+          cd ..
+          rm -rf "$TEMP_DIR"
         else
           echo "cargo-binstall is already installed"
         fi
 
         # Verify installation
-        cargo binstall --version
+        if ! cargo binstall --version; then
+          echo "❌ Failed to install cargo-binstall"
+          exit 1
+        fi
+        echo "✅ cargo-binstall installed successfully"
+
+    - name: Add cargo bin to PATH
+      shell: bash
+      run: |
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Verify tools after cache restore
+      if: steps.cargo-tools-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "📋 Verifying cached tools..."
+        if ! command -v cargo-binstall &> /dev/null; then
+          echo "❌ cargo-binstall not found in cache, will need to reinstall"
+          exit 1
+        fi
+        echo "✅ cargo-binstall available from cache"
 
     - name: Install requested tools
+      if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         echo "🔧 Installing tools: ${{ inputs.tools }}"
 
+        # Function to install tool with error checking
+        install_tool() {
+          local tool_name="$1"
+          local install_args="$2"
+          echo "Installing $tool_name..."
+          if cargo binstall $install_args -y; then
+            echo "✅ $tool_name installed successfully"
+          else
+            echo "❌ Failed to install $tool_name"
+            exit 1
+          fi
+        }
+
         # Install tools based on input
         if echo "${{ inputs.tools }}" | grep -q "nextest"; then
-          echo "Installing cargo-nextest..."
-          cargo binstall cargo-nextest -y
+          install_tool "cargo-nextest" "cargo-nextest"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "sqlx-cli"; then
-          echo "Installing sqlx-cli..."
-          cargo binstall sqlx-cli --no-default-features --features rustls,postgres -y
+          install_tool "sqlx-cli" "sqlx-cli --no-default-features --features rustls,postgres"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "audit"; then
-          echo "Installing cargo-audit..."
-          cargo binstall cargo-audit -y
+          install_tool "cargo-audit" "cargo-audit"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
-          echo "Installing cargo-llvm-cov..."
-          cargo binstall cargo-llvm-cov -y
+          install_tool "cargo-llvm-cov" "cargo-llvm-cov"
         fi
 
-        echo "✅ Tool installation complete"
+        echo "✅ All tool installations complete"
 
     - name: Display installed tools
       shell: bash
