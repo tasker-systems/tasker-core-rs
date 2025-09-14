@@ -155,13 +155,13 @@ cargo binstall sccache -y
 
 ### 🔧 Install Tools (`.github/actions/install-tools/action.yml`)
 
-**Purpose**: Fast installation of Rust development tools via cargo-binstall
+**Purpose**: Fast installation of Rust development tools using a hybrid approach with proven working commands
 
 **Features**:
-- Installs cargo-binstall automatically if not present
-- Uses pre-compiled binaries for fast installation (30s vs 10+ minutes)
-- Supports nextest, sqlx-cli, cargo-audit, cargo-llvm-cov
-- Handles PATH setup and version verification
+- Uses `cargo-bins/cargo-binstall@main` for cargo-binstall installation
+- Hybrid approach: `cargo binstall --secure` for nextest, `cargo install` for others
+- Intelligent caching of `~/.cargo/bin` for faster subsequent runs
+- Proven working commands that eliminate version parameter issues
 
 **Usage**:
 ```yaml
@@ -172,10 +172,12 @@ cargo binstall sccache -y
 ```
 
 **Available Tools**:
-- `nextest` - Parallel test execution
-- `sqlx-cli` - Database migrations with PostgreSQL support
-- `audit` - Security vulnerability scanning
-- `llvm-cov` - Code coverage reporting
+- `nextest` - Uses `cargo binstall cargo-nextest --secure` (fast, secure)
+- `sqlx-cli` - Uses `cargo install` with native-tls and postgres features  
+- `audit` - Uses `cargo install cargo-audit --locked` (reproducible builds)
+- `llvm-cov` - Uses `cargo binstall cargo-llvm-cov` (fast binary install)
+
+**Benefits**: Combines speed of binstall with reliability of cargo install, includes caching
 
 ## Workflow Details
 

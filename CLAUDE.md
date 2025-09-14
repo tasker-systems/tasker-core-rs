@@ -80,20 +80,13 @@ TASKER_ENV=production cargo run --bin config-validator
 
 ### CI and Testing Commands
 
-# Tool Installation (fast binary installation via cargo-binstall)
-curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+# Tool Installation (using custom install-tools action with hybrid approach)
+# CI workflows use: .github/actions/install-tools with proven working commands
 
-# Install with pinned versions (recommended for reproducible builds)
-cargo binstall cargo-nextest@0.9.67 sqlx-cli@0.7.3 --no-default-features --features rustls,postgres cargo-audit@0.18.3 -y
-
-# Or install latest versions
-cargo binstall cargo-nextest sqlx-cli cargo-audit -y
-
-# Pinned versions used in CI:
-# - cargo-nextest: 0.9.67 (parallel test execution)
-# - sqlx-cli: 0.7.3 (PostgreSQL migrations) 
-# - cargo-audit: 0.18.3 (security scanning)
-# - cargo-llvm-cov: 0.6.4 (coverage reporting)
+# For local development, install tools using the same hybrid approach:
+cargo binstall cargo-nextest --secure                                          # Fast, secure binary install
+cargo install sqlx-cli --no-default-features --features native-tls,postgres   # Proven reliable command
+cargo install cargo-audit --locked                                             # Reproducible builds
 
 # Enhanced testing with nextest (parallel execution)
 cargo nextest run --profile default                # Local testing with nextest

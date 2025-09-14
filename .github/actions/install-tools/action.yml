@@ -7,10 +7,6 @@ inputs:
     description: "Space-separated list of tools to install (nextest, sqlx-cli, audit, llvm-cov)"
     required: false
     default: "sqlx-cli"
-  pin-versions:
-    description: "Whether to pin tool versions for reproducible builds"
-    required: false
-    default: "true"
 
 runs:
   using: "composite"
@@ -26,48 +22,7 @@ runs:
           cargo-tools-${{ runner.os }}-
     - name: Install cargo-binstall
       if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        echo "📦 Installing cargo-binstall..."
-        # Check if cargo-binstall is already installed
-        if ! command -v cargo-binstall &> /dev/null; then
-          # Install cargo-binstall using direct binary download
-          TEMP_DIR=$(mktemp -d)
-          cd "$TEMP_DIR"
-
-          # Determine platform
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            TARGET="universal-apple-darwin"
-          elif [[ "$RUNNER_OS" == "Windows" ]]; then
-            TARGET="x86_64-pc-windows-msvc"
-          else
-            TARGET="x86_64-unknown-linux-musl"
-          fi
-
-          # Download and extract
-          echo "Downloading cargo-binstall for $TARGET..."
-          curl -L --proto '=https' --tlsv1.2 -sSf \
-            "https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-${TARGET}.tgz" | \
-            tar -xz
-
-          # Install to cargo bin directory
-          mkdir -p "$HOME/.cargo/bin"
-          mv cargo-binstall "$HOME/.cargo/bin/"
-          chmod +x "$HOME/.cargo/bin/cargo-binstall"
-
-          # Clean up
-          cd ..
-          rm -rf "$TEMP_DIR"
-        else
-          echo "cargo-binstall is already installed"
-        fi
-
-        # Verify installation
-        if ! cargo binstall --version; then
-          echo "❌ Failed to install cargo-binstall"
-          exit 1
-        fi
-        echo "✅ cargo-binstall installed successfully"
+      uses: cargo-bins/cargo-binstall@main
 
     - name: Add cargo bin to PATH
       shell: bash
@@ -79,11 +34,12 @@ runs:
       shell: bash
       run: |
         echo "📋 Verifying cached tools..."
-        if ! command -v cargo-binstall &> /dev/null; then
-          echo "❌ cargo-binstall not found in cache, will need to reinstall"
-          exit 1
-        fi
-        echo "✅ cargo-binstall available from cache"
+        # List what tools we have in cache
+        for tool in cargo-nextest sqlx cargo-audit cargo-llvm-cov; do
+          if command -v "$tool" &> /dev/null; then
+            echo "✅ $tool available from cache"
+          fi
+        done
 
     - name: Install requested tools
       if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
@@ -91,58 +47,41 @@ runs:
       run: |
         echo "🔧 Installing tools: ${{ inputs.tools }}"
 
-        # Function to install tool with version pinning and fallback
-        install_tool() {
-          local tool_name="$1"
-          local versioned_args="$2"
-          local fallback_args="$3"
-
-          echo "Installing $tool_name..."
-
-          # Try versioned install first if pin-versions is true
-          if [[ "${{ inputs.pin-versions }}" == "true" ]]; then
-            echo "  Attempting versioned install: $versioned_args"
-            if cargo binstall $versioned_args -y; then
-              echo "✅ $tool_name installed successfully (pinned version)"
-              return 0
-            else
-              echo "⚠️  Versioned install failed, trying fallback..."
-            fi
-          fi
-
-          # Fallback to latest version
-          echo "  Installing latest version: $fallback_args"
-          if cargo binstall $fallback_args -y; then
-            echo "✅ $tool_name installed successfully (latest version)"
-          else
-            echo "❌ Failed to install $tool_name"
+        # Install tools using proven working commands
+        if echo "${{ inputs.tools }}" | grep -q "nextest"; then
+          echo "Installing cargo-nextest with binstall --secure..."
+          if ! cargo binstall cargo-nextest --secure -y; then
+            echo "❌ Failed to install cargo-nextest"
             exit 1
           fi
-        }
-
-        # Install tools based on input with version pinning
-        if echo "${{ inputs.tools }}" | grep -q "nextest"; then
-          install_tool "cargo-nextest" \
-            "cargo-nextest@0.9.67" \
-            "cargo-nextest"
+          echo "✅ cargo-nextest installed successfully"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "sqlx-cli"; then
-          install_tool "sqlx-cli" \
-            "sqlx-cli@0.7.3 --no-default-features --features rustls,postgres" \
-            "sqlx-cli --no-default-features --features rustls,postgres"
+          echo "Installing sqlx-cli with cargo install..."
+          if ! cargo install sqlx-cli --no-default-features --features native-tls,postgres; then
+            echo "❌ Failed to install sqlx-cli"
+            exit 1
+          fi
+          echo "✅ sqlx-cli installed successfully"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "audit"; then
-          install_tool "cargo-audit" \
-            "cargo-audit@0.18.3" \
-            "cargo-audit"
+          echo "Installing cargo-audit with cargo install --locked..."
+          if ! cargo install cargo-audit --locked; then
+            echo "❌ Failed to install cargo-audit"
+            exit 1
+          fi
+          echo "✅ cargo-audit installed successfully"
         fi
 
         if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
-          install_tool "cargo-llvm-cov" \
-            "cargo-llvm-cov@0.6.4" \
-            "cargo-llvm-cov"
+          echo "Installing cargo-llvm-cov with binstall..."
+          if ! cargo binstall cargo-llvm-cov -y; then
+            echo "❌ Failed to install cargo-llvm-cov"
+            exit 1
+          fi
+          echo "✅ cargo-llvm-cov installed successfully"
         fi
 
         echo "✅ All tool installations complete"

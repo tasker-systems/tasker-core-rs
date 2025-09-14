@@ -1,10 +1,14 @@
 # Install Tools Action
 
-A composite GitHub Action that installs `cargo-binstall` and common Rust tools used across Tasker Core CI workflows.
+A composite GitHub Action that installs common Rust tools used across Tasker Core CI workflows using a hybrid approach with proven working commands.
 
 ## Purpose
 
-This action provides a consistent way to install Rust development tools across all CI workflows. It handles the installation of `cargo-binstall` first, then uses it to quickly install other required tools.
+This action provides a consistent way to install Rust development tools across all CI workflows using proven working commands:
+- Uses `cargo-bins/cargo-binstall@main` for cargo-binstall installation
+- Uses `cargo binstall --secure` for cargo-nextest (fast, secure)
+- Uses `cargo install` with specific flags for other tools (proven reliable)
+- Includes intelligent caching to speed up CI runs
 
 ## Usage
 
@@ -32,18 +36,6 @@ steps:
 - `audit` - Installs `cargo-audit` for security vulnerability scanning
 - `llvm-cov` - Installs `cargo-llvm-cov` for code coverage reporting
 
-### `pin-versions`
-
-**Description**: Whether to pin tool versions for reproducible builds
-
-**Required**: No
-
-**Default**: `"true"`
-
-**Values**:
-- `"true"` - Install pinned versions with fallback to latest
-- `"false"` - Always install latest versions
-
 ## Examples
 
 ### Install single tool
@@ -62,22 +54,20 @@ steps:
     tools: "nextest sqlx-cli audit"
 ```
 
-### Install with version pinning (default)
+### Install for testing workflows
 ```yaml
-- name: Install with pinned versions
+- name: Install testing tools
   uses: ./.github/actions/install-tools
   with:
-    tools: "nextest sqlx-cli audit"
-    pin-versions: "true"  # This is the default
+    tools: "nextest sqlx-cli"
 ```
 
-### Install latest versions only
+### Install for code quality workflows
 ```yaml
-- name: Install latest versions
+- name: Install quality tools
   uses: ./.github/actions/install-tools
   with:
-    tools: "nextest sqlx-cli audit"
-    pin-versions: "false"
+    tools: "sqlx-cli audit"
 ```
 
 ### Use default (sqlx-cli only)
@@ -95,25 +85,23 @@ steps:
 
 ## Benefits
 
-- **Fast Installation**: Uses `cargo binstall` for pre-compiled binaries instead of compilation
-- **Version Pinning**: Ensures reproducible builds with specific tool versions
-- **Graceful Fallback**: Falls back to latest versions if pinned versions fail
+- **Hybrid Approach**: Uses the best installation method for each tool
+- **Proven Commands**: Uses exact commands that are known to work reliably
+- **Fast & Secure**: `cargo binstall --secure` for nextest, direct install for others
+- **Intelligent Caching**: Caches installed tools to speed up subsequent runs
 - **Consistent Setup**: Same installation method across all workflows
-- **Caching Friendly**: cargo-binstall downloads are cached by GitHub Actions
-- **Reliable**: Handles PATH setup and verification automatically
+- **Reliable**: No version parameter conflicts or complex fallback logic
 
-## Pinned Tool Versions
+## Installation Strategy
 
-The action pins specific versions for reproducible builds:
+The action uses different installation methods optimized for each tool:
 
-| Tool | Pinned Version | Purpose |
-|------|----------------|---------|
-| `cargo-nextest` | `0.9.67` | Fast, parallel test execution |
-| `sqlx-cli` | `0.7.3` | Database migrations and queries |
-| `cargo-audit` | `0.18.3` | Security vulnerability scanning |
-| `cargo-llvm-cov` | `0.6.4` | Code coverage analysis |
-
-These versions are tested and verified to work together. If a pinned version fails to install, the action gracefully falls back to the latest available version.
+| Tool | Method | Command | Why |
+|------|--------|---------|-----|
+| `cargo-nextest` | `cargo binstall` | `cargo binstall cargo-nextest --secure` | Fast binary install with security verification |
+| `sqlx-cli` | `cargo install` | `cargo install sqlx-cli --no-default-features --features native-tls,postgres` | Proven working combination with native-tls |
+| `cargo-audit` | `cargo install` | `cargo install cargo-audit --locked` | Reproducible builds with locked dependencies |
+| `cargo-llvm-cov` | `cargo binstall` | `cargo binstall cargo-llvm-cov` | Fast binary install for coverage tool |
 
 ## Tool Details
 
@@ -140,19 +128,21 @@ These versions are tested and verified to work together. If a pinned version fai
 
 ## Performance Impact
 
-Using `cargo-binstall` vs `cargo install`:
-- **cargo-binstall**: Downloads pre-compiled binaries (~30 seconds)
-- **cargo install**: Compiles from source (~5-10 minutes per tool)
+### Installation Method Comparison
 
-### Version Management Strategy
+| Method | Speed | Reliability | Use Case |
+|--------|-------|-------------|----------|
+| `cargo binstall` | ~30 seconds | High (with --secure) | Tools with good binary support |
+| `cargo install` | ~5-10 minutes | Very High | Tools needing specific features/flags |
 
-The action uses a **version pinning with fallback** approach:
+### Caching Strategy
 
-1. **Primary**: Attempts to install pinned versions for reproducible builds
-2. **Fallback**: If pinned version fails, installs latest version
-3. **Configurable**: Can disable pinning via `pin-versions: "false"`
+The action caches `~/.cargo/bin` with a key based on:
+- Operating system
+- Cargo.lock hash (for dependency consistency)  
+- Requested tools list
 
-This ensures CI stability while allowing flexibility when needed.
+This provides significant speedup on cache hits while ensuring tool compatibility.
 This action can save 15-30 minutes per CI run compared to traditional installation methods.
 
 ## Error Handling
@@ -191,22 +181,13 @@ fi
 For local development, you can install these same tools:
 
 ```bash
-# Install cargo-binstall first
-curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-
-# Then install tools with version pinning
-cargo binstall cargo-nextest@0.9.67 sqlx-cli@0.7.3 --no-default-features --features rustls,postgres cargo-audit@0.18.3 -y
-
-# Or without version pinning
-cargo binstall cargo-nextest sqlx-cli --no-default-features --features rustls,postgres cargo-audit -y
+# Install tools using the hybrid approach
+cargo binstall cargo-nextest --secure
+cargo install sqlx-cli --no-default-features --features native-tls,postgres  
+cargo install cargo-audit --locked
 ```
 
 ## Troubleshooting
-
-### Pinned version installation fails
-- The action will automatically fall back to latest version
-- Check the logs for specific version compatibility issues
-- Consider updating pinned versions if consistently failing
 
 ### cargo-binstall installation fails
 - Check network connectivity
