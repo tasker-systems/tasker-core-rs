@@ -10,7 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: mozilla-actions/sccache-action@v0.0.4
+      # Temporarily disabled due to GitHub Actions cache service issues
+      # - uses: mozilla-actions/sccache-action@v0.0.4
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env

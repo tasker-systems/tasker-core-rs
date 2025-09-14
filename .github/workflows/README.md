@@ -6,7 +6,7 @@ Our CI pipeline uses modular workflows for better maintainability and faster fee
 
 - **ci.yml**: Main orchestrator that calls other workflows
 - **build-docker-images.yml**: Builds and caches Docker images with GitHub Container Registry
-- **code-quality.yml**: Formatting, linting, security checks with sccache
+- **code-quality.yml**: Formatting, linting, security checks (sccache temporarily disabled)
 - **test-unit.yml**: Unit tests with nextest and parallel execution
 - **test-integration.yml**: Docker Compose integration tests
 - **ci-success.yml**: Final status check
@@ -38,9 +38,11 @@ graph TD
 - GitHub Container Registry (GHCR) caching with fallback
 - Automatic cache invalidation based on git SHA
 
-### ⚡ **Build Caching with sccache**
+### ⚡ **Build Caching with sccache** (Temporarily Disabled)
 - Mozilla sccache for Rust compilation caching
 - Dramatically reduces build times across CI runs
+- **Currently disabled** due to GitHub Actions cache service issues
+- See `docs/sccache-configuration.md` for planned configuration
 - Integrated into all workflows that compile Rust code
 
 ### 🔄 **Modular Workflow Design**
@@ -73,8 +75,8 @@ Each workflow includes:
 This action sets the following variables:
 - `CARGO_TERM_COLOR=always` - Colored Cargo output
 - `RUST_BACKTRACE=1` - Stack traces on panic
-- `RUSTC_WRAPPER=sccache` - Build caching
-- `SCCACHE_GHA_ENABLED=true` - GitHub Actions cache integration
+- ~~`RUSTC_WRAPPER=sccache`~~ - Build caching (temporarily disabled)
+- ~~`SCCACHE_GHA_ENABLED=true`~~ - GitHub Actions cache integration (temporarily disabled)
 - `DATABASE_URL=postgres://tasker:tasker@localhost:5432/tasker_rust_test`
 - `TASKER_ENV=test` - Application environment
 - `LOG_LEVEL=warn` & `RUST_LOG=warn` - Logging levels
@@ -149,7 +151,7 @@ cargo binstall sccache -y
 
 **Environment Variables Set**:
 - Core Rust settings (CARGO_TERM_COLOR, RUST_BACKTRACE, etc.)
-- Build caching (RUSTC_WRAPPER, SCCACHE_GHA_ENABLED)
+- Build caching (sccache temporarily disabled due to service issues)
 - Database and application (DATABASE_URL, TASKER_ENV, LOG_LEVEL)
 - Authentication (JWT keys, API_KEY)
 
@@ -206,7 +208,7 @@ cargo binstall sccache -y
 
 **Features**:
 - Uses shared environment setup for consistency
-- Uses sccache for fast compilation
+- Compilation caching (sccache temporarily disabled)
 - Runs against the built PostgreSQL image
 - Installs tools via `cargo binstall` for speed
 
@@ -304,7 +306,7 @@ The integration tests use the existing test compose file which includes:
 
 ### After TAS-41
 - ⚡ **10x faster tests** with nextest parallelization
-- 🚀 **50%+ faster builds** with sccache
+- 🚀 **50%+ faster builds** planned with sccache (when re-enabled)
 - 📊 **Better test reporting** with JUnit artifacts
 - 🔧 **Faster tool installation** with cargo binstall
 - 🧪 **Real integration testing** with Docker Compose
@@ -330,9 +332,10 @@ docker compose -f docker/docker-compose.test.yml logs
 - Increase timeout in nextest configuration if needed
 
 ### Build caching issues
-- sccache requires `RUSTC_WRAPPER=sccache` environment variable
-- Check sccache stats: `sccache --show-stats`
-- Clear cache if needed: `sccache --zero-stats`
+### sccache issues (currently disabled)
+- Temporarily disabled due to GitHub Actions cache service outage
+- See `docs/sccache-configuration.md` for planned re-enablement
+- When working: requires `RUSTC_WRAPPER=sccache` environment variable
 
 ### Tool installation fails
 ```bash
@@ -351,7 +354,7 @@ cargo binstall cargo-nextest -y
 - ❌ **Fixed**: `Dockerfile.postgres-extensions` → `docker/db/Dockerfile`
 - ❌ **Fixed**: `docker-compose.ci.yml` → `docker/docker-compose.test.yml`
 - ✅ **Added**: Nextest for parallel execution
-- ✅ **Added**: sccache for build caching
+- ⏸️ **Planned**: sccache for build caching (temporarily disabled)
 - ✅ **Added**: Real integration testing
 - ✅ **Added**: Modular workflow design
 - ✅ **Added**: Shared environment variables via composite action
@@ -382,7 +385,7 @@ Based on the current single example (`config_demo.rs`), we should add:
 
 ### Key Metrics to Track
 - **Total CI time**: Target < 10 minutes for typical PRs
-- **Build cache hit rate**: Target > 80% with sccache
+- **Build cache hit rate**: Target > 80% with sccache (when re-enabled)
 - **Test parallelization**: Monitor nextest performance gains
 - **Integration test stability**: Ensure consistent service startup
 

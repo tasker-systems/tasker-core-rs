@@ -19,8 +19,8 @@ steps:
 ### Core Rust Settings
 - `CARGO_TERM_COLOR=always` - Enable colored output from Cargo
 - `RUST_BACKTRACE=1` - Show stack traces on panic
-- `RUSTC_WRAPPER=sccache` - Use sccache for build caching
-- `SCCACHE_GHA_ENABLED=true` - Enable GitHub Actions cache integration
+- ~~`RUSTC_WRAPPER=sccache`~~ - Temporarily disabled due to GitHub Actions cache service issues
+- ~~`SCCACHE_GHA_ENABLED=true`~~ - Temporarily disabled due to GitHub Actions cache service issues
 
 ### Database and Application
 - `DATABASE_URL=postgres://tasker:tasker@localhost:5432/tasker_rust_test`
@@ -83,14 +83,14 @@ The action produces output like:
 ✅ Shared environment variables configured:
 - CARGO_TERM_COLOR: always
 - RUST_BACKTRACE: 1
-- RUSTC_WRAPPER: sccache
-- SCCACHE_GHA_ENABLED: true
 - DATABASE_URL: postgres://tasker:tasker@localhost:5432/tasker_rust_test
 - TASKER_ENV: test
 - LOG_LEVEL: warn
 - RUST_LOG: warn
 - API_KEY: ff3083e5...
 - JWT keys configured: ✅
+
+ℹ️ sccache variables temporarily disabled due to GitHub Actions cache service issues
 ```
 
 ## Local Development

@@ -83,6 +83,9 @@ TASKER_ENV=production cargo run --bin config-validator
 # Tool Installation (using custom install-tools action with hybrid approach)
 # CI workflows use: .github/actions/install-tools with proven working commands
 
+# NOTE: sccache temporarily disabled due to GitHub Actions cache service issues
+# See docs/sccache-configuration.md for planned sccache configuration
+
 # For local development, install tools using the same hybrid approach:
 cargo binstall cargo-nextest --secure                                          # Fast, secure binary install
 cargo install sqlx-cli --no-default-features --features native-tls,postgres   # Proven reliable command

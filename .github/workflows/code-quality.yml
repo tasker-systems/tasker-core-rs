@@ -31,7 +31,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: mozilla-actions/sccache-action@v0.0.4
+      # Temporarily disabled due to GitHub Actions cache service issues
+      # - uses: mozilla-actions/sccache-action@v0.0.4
 
       - name: Setup shared environment variables
         uses: ./.github/actions/setup-env
