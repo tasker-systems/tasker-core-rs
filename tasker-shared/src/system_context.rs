@@ -23,8 +23,8 @@ pub struct SystemContext {
     /// System instance ID
     pub processor_uuid: Uuid,
 
-    /// Configuration manager with environment-aware loading
-    pub config_manager: Arc<ConfigManager>,
+    /// Tasker Config
+    pub tasker_config: Arc<TaskerConfig>,
 
     /// Unified message queue client (PGMQ/RabbitMQ abstraction)
     pub message_client: Arc<UnifiedPgmqClient>,
@@ -46,7 +46,7 @@ impl std::fmt::Debug for SystemContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemContext")
             .field("processor_uuid", &self.processor_uuid)
-            .field("config_manager", &"Arc<ConfigManager>")
+            .field("tasker_config", &"Arc<TaskerConfig>")
             .field("message_client", &"Arc<UnifiedMessageClient>")
             .field(
                 "database_pool",
@@ -192,9 +192,11 @@ impl SystemContext {
 
         info!("✅ SystemContext components created successfully");
 
+        let tasker_config = Arc::new(config.clone());
+
         Ok(Self {
             processor_uuid: system_id,
-            config_manager,
+            tasker_config,
             message_client,
             database_pool,
             task_handler_registry,
@@ -222,7 +224,7 @@ impl SystemContext {
     pub async fn initialize_orchestration_owned_queues(&self) -> TaskerResult<()> {
         info!("🏗️ CORE: Initializing owned queues");
 
-        let queue_config = self.config_manager.config().queues.clone();
+        let queue_config = self.tasker_config.queues.clone();
 
         let orchestration_owned_queues = vec![
             queue_config.orchestration_queues.step_results.as_str(),
@@ -286,6 +288,8 @@ impl SystemContext {
             TaskerError::ConfigurationError(format!("Failed to load configuration: {e}"))
         })?;
 
+        let tasker_config = Arc::new(config_manager.config().clone());
+
         // Create standard PGMQ client (no circuit breaker for simplicity)
         let message_client = Arc::new(UnifiedPgmqClient::new_standard(
             PgmqClient::new_with_pool(database_pool.clone()).await,
@@ -298,7 +302,7 @@ impl SystemContext {
 
         Ok(Self {
             processor_uuid: system_id,
-            config_manager,
+            tasker_config,
             message_client,
             database_pool,
             task_handler_registry,

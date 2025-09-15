@@ -1,4 +1,3 @@
-use crate::config::manager::ConfigManager;
 use crate::config::TaskerConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -27,22 +26,20 @@ impl Default for StepEnqueuerConfig {
     }
 }
 
-impl StepEnqueuerConfig {
-    /// Create StepEnqueuerConfig from ConfigManager
-    pub fn from_config_manager(config_manager: Arc<ConfigManager>) -> Self {
-        let config = config_manager.config();
-
-        Self {
+impl From<&TaskerConfig> for StepEnqueuerConfig {
+    fn from(config: &TaskerConfig) -> StepEnqueuerConfig {
+        StepEnqueuerConfig {
             max_steps_per_task: config.execution.step_batch_size as usize,
             enqueue_delay_seconds: 0, // No direct mapping, keep default
             enable_detailed_logging: config.orchestration.enable_performance_logging,
             enqueue_timeout_seconds: config.execution.step_execution_timeout_seconds,
         }
     }
+}
 
-    /// Create StepEnqueuerConfig from TaskerConfig
-    pub fn from_tasker_config(config: &TaskerConfig) -> Self {
-        Self {
+impl From<Arc<TaskerConfig>> for StepEnqueuerConfig {
+    fn from(config: Arc<TaskerConfig>) -> StepEnqueuerConfig {
+        StepEnqueuerConfig {
             max_steps_per_task: config.execution.step_batch_size as usize,
             enqueue_delay_seconds: 0, // No direct mapping, keep default
             enable_detailed_logging: config.orchestration.enable_performance_logging,

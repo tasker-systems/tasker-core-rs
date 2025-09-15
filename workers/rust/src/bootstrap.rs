@@ -44,9 +44,7 @@ pub fn no_event_driven_config() -> WorkerBootstrapConfig {
     }
 }
 
-pub async fn bootstrap(
-    config: WorkerBootstrapConfig,
-) -> Result<(WorkerSystemHandle, RustEventHandler)> {
+pub async fn bootstrap() -> Result<(WorkerSystemHandle, RustEventHandler)> {
     info!("📋 Creating native Rust step handler registry...");
     let registry = Arc::new(RustStepHandlerRegistry::new());
     info!(
@@ -69,8 +67,7 @@ pub async fn bootstrap(
 
     // Bootstrap the worker using tasker-worker foundation with our global event system
     info!("🏗️  Bootstrapping worker with tasker-worker foundation...");
-    let worker_handle =
-        WorkerBootstrap::bootstrap_with_event_system(config, Some(event_system)).await?;
+    let worker_handle = WorkerBootstrap::bootstrap_with_event_system(Some(event_system)).await?;
 
     Ok((worker_handle, event_handler))
 }

@@ -62,8 +62,7 @@ pub struct OrchestrationResultProcessor {
 impl OrchestrationResultProcessor {
     /// Create a new orchestration result processor
     pub fn new(task_finalizer: TaskFinalizer, context: Arc<SystemContext>) -> Self {
-        let backoff_config =
-            BackoffCalculatorConfig::from_config_manager(context.config_manager.clone());
+        let backoff_config: BackoffCalculatorConfig = context.tasker_config.clone().into();
         let backoff_calculator =
             BackoffCalculator::new(backoff_config, context.database_pool().clone());
 

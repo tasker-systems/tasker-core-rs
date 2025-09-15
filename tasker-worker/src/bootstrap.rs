@@ -24,7 +24,7 @@ use crate::{
 };
 use tasker_client::api_clients::orchestration_client::OrchestrationApiConfig;
 use tasker_shared::{
-    config::ConfigManager,
+    config::{ConfigManager, TaskerConfig},
     errors::{TaskerError, TaskerResult},
     system_context::SystemContext,
 };
@@ -39,8 +39,6 @@ pub struct WorkerSystemHandle {
     pub shutdown_sender: Option<oneshot::Sender<()>>,
     /// Runtime handle for async operations
     pub runtime_handle: tokio::runtime::Handle,
-    /// System configuration manager
-    pub config_manager: Arc<ConfigManager>,
     /// Worker configuration
     pub worker_config: WorkerBootstrapConfig,
 }
@@ -52,7 +50,6 @@ impl WorkerSystemHandle {
         web_state: Option<Arc<WorkerWebState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
-        config_manager: Arc<ConfigManager>,
         worker_config: WorkerBootstrapConfig,
     ) -> Self {
         Self {
@@ -60,7 +57,6 @@ impl WorkerSystemHandle {
             web_state,
             shutdown_sender: Some(shutdown_sender),
             runtime_handle,
-            config_manager,
             worker_config,
         }
     }
@@ -88,7 +84,12 @@ impl WorkerSystemHandle {
     pub async fn status(&self) -> WorkerSystemStatus {
         WorkerSystemStatus {
             running: self.is_running(),
-            environment: self.config_manager.environment().to_string(),
+            environment: self
+                .worker_core
+                .context
+                .tasker_config
+                .environment()
+                .to_string(),
             worker_core_status: self.worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
             supported_namespaces: self
@@ -99,8 +100,9 @@ impl WorkerSystemHandle {
             database_pool_size: self.worker_core.context.database_pool().size(),
             database_pool_idle: self.worker_core.context.database_pool().num_idle(),
             database_url_preview: self
-                .config_manager
-                .config()
+                .worker_core
+                .context
+                .tasker_config
                 .database_url()
                 .chars()
                 .take(30)
@@ -156,15 +158,10 @@ impl Default for WorkerBootstrapConfig {
     }
 }
 
-impl WorkerBootstrapConfig {
-    /// Create WorkerBootstrapConfig from ConfigManager for configuration-driven bootstrap
-    ///
-    /// TAS-43: This method replaces ::default() usage with proper configuration loading
-    pub fn from_config_manager(config_manager: &ConfigManager, worker_id: String) -> Self {
-        let config = config_manager.config();
-
-        Self {
-            worker_id,
+impl From<&TaskerConfig> for WorkerBootstrapConfig {
+    fn from(config: &TaskerConfig) -> WorkerBootstrapConfig {
+        WorkerBootstrapConfig {
+            worker_id: format!("worker-{}", uuid::Uuid::new_v4()),
             enable_web_api: config
                 .worker
                 .as_ref()
@@ -172,9 +169,13 @@ impl WorkerBootstrapConfig {
                 .unwrap_or(true), // TAS-43: Load from worker web configuration or default to true
             web_config: WorkerWebConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
             orchestration_api_config: OrchestrationApiConfig::from_tasker_config(config), // TAS-43: Load from configuration instead of default
-            environment_override: Some(config_manager.environment().to_string()),
-            event_driven_enabled: true, // TAS-43: Enable event-driven processing for config-managed workers
-            deployment_mode_hint: Some("Hybrid".to_string()), // TAS-43: Configuration-driven workers use hybrid mode
+            environment_override: Some(config.environment().to_string()),
+            event_driven_enabled: config
+                .event_systems
+                .worker
+                .deployment_mode
+                .has_event_driven(),
+            deployment_mode_hint: Some(config.event_systems.worker.deployment_mode.to_string()),
         }
     }
 }
@@ -193,8 +194,8 @@ impl WorkerBootstrap {
     ///
     /// # Returns
     /// Handle for managing the worker system lifecycle
-    pub async fn bootstrap(config: WorkerBootstrapConfig) -> TaskerResult<WorkerSystemHandle> {
-        Self::bootstrap_with_event_system(config, None).await
+    pub async fn bootstrap() -> TaskerResult<WorkerSystemHandle> {
+        Self::bootstrap_with_event_system(None).await
     }
 
     /// Bootstrap worker system with external event system
@@ -209,7 +210,6 @@ impl WorkerBootstrap {
     /// # Returns
     /// Handle for managing the worker system lifecycle
     pub async fn bootstrap_with_event_system(
-        config: WorkerBootstrapConfig,
         event_system: Option<Arc<tasker_shared::events::WorkerEventSystem>>,
     ) -> TaskerResult<WorkerSystemHandle> {
         info!("🚀 BOOTSTRAP: Starting unified worker system bootstrap");
@@ -223,6 +223,8 @@ impl WorkerBootstrap {
             "✅ BOOTSTRAP: Configuration loaded for environment: {}",
             config_manager.environment()
         );
+
+        let config: WorkerBootstrapConfig = config_manager.config().into();
 
         // Initialize system context
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
@@ -322,7 +324,6 @@ impl WorkerBootstrap {
             web_state,
             shutdown_sender,
             runtime_handle,
-            config_manager,
             config,
         );
 

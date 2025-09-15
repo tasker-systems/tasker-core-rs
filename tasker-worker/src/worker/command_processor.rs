@@ -189,11 +189,10 @@ impl WorkerProcessor {
             "Creating WorkerProcessor with simple command pattern and database operations"
         );
 
+        let queue_config = context.tasker_config.queues.clone();
         // Create OrchestrationResultSender with centralized queues configuration
-        let orchestration_result_sender = OrchestrationResultSender::new(
-            context.message_client(),
-            &context.config_manager.config().queues,
-        );
+        let orchestration_result_sender =
+            OrchestrationResultSender::new(context.message_client(), &queue_config);
 
         let processor = Self {
             worker_id: worker_id.clone(),

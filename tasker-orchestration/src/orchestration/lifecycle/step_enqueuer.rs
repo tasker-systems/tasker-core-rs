@@ -106,13 +106,7 @@ impl StepEnqueuer {
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
         let viable_step_discovery = ViableStepDiscovery::new(context.clone());
         let state_manager = StateManager::new(context.clone());
-        let tasker_config = context.config_manager.config();
-        let config = StepEnqueuerConfig {
-            max_steps_per_task: tasker_config.execution.step_batch_size as usize,
-            enqueue_delay_seconds: 0, // No direct mapping, keep default
-            enable_detailed_logging: tasker_config.orchestration.enable_performance_logging,
-            enqueue_timeout_seconds: tasker_config.execution.step_execution_timeout_seconds,
-        };
+        let config: StepEnqueuerConfig = context.tasker_config.clone().into();
         Ok(Self {
             viable_step_discovery,
             context,

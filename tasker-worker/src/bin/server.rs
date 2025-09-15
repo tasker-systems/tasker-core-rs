@@ -18,7 +18,7 @@ use tokio::signal;
 use tracing::{error, info};
 
 use tasker_shared::logging;
-use tasker_worker::bootstrap::{WorkerBootstrap, WorkerBootstrapConfig};
+use tasker_worker::bootstrap::WorkerBootstrap;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,14 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap worker system with web API enabled
     info!("🔧 Bootstrapping worker system...");
 
-    let bootstrap_config = WorkerBootstrapConfig {
-        worker_id: format!("server-worker-{}", uuid::Uuid::new_v4()),
-        enable_web_api: true, // Always enable web API for server mode
-        environment_override,
-        ..Default::default()
-    };
-
-    let mut worker_handle = WorkerBootstrap::bootstrap(bootstrap_config)
+    let mut worker_handle = WorkerBootstrap::bootstrap()
         .await
         .map_err(|e| format!("Failed to bootstrap worker: {e}"))?;
 
@@ -66,7 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!(
         "   Environment: {}",
-        worker_handle.config_manager.environment()
+        worker_handle
+            .worker_core
+            .context
+            .tasker_config
+            .environment()
     );
     info!(
         "   Supported namespaces: {:?}",

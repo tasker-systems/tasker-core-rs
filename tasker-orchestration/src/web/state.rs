@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::sync::Arc;
 use std::time::Duration;
-use tasker_shared::config::{web::WebConfig, ConfigManager};
+use tasker_shared::config::web::WebConfig;
 use tasker_shared::types::web::{ApiError, ApiResult, DbOperationType, SystemOperationalState};
 use tasker_shared::TaskerResult;
 use tracing::{debug, info};
@@ -74,14 +74,18 @@ impl AppState {
     /// This method creates the web API's dedicated database pool while
     /// maintaining references to shared orchestration components.
     pub async fn from_orchestration_core(
-        web_config: WebConfig,
         orchestration_core: Arc<OrchestrationCore>,
-        config_manager: Arc<ConfigManager>,
     ) -> ApiResult<Self> {
         info!("Creating web API application state with dedicated database pool");
 
+        let web_config = orchestration_core
+            .context
+            .tasker_config
+            .orchestration
+            .web
+            .clone();
         // Extract database URL from orchestration configuration
-        let database_url = config_manager.config().database_url();
+        let database_url = orchestration_core.context.tasker_config.database_url();
         let pool_config = &web_config.database_pools;
 
         debug!(
@@ -122,7 +126,11 @@ impl AppState {
 
         // Extract orchestration status from OrchestrationCore (TAS-40 simplified)
         let database_pool_size = orchestration_core.context.database_pool().size();
-        let environment = config_manager.environment().to_string();
+        let environment = orchestration_core
+            .context
+            .tasker_config
+            .environment()
+            .to_string();
         let core_status = orchestration_core.status();
 
         // Convert OrchestrationCoreStatus to SystemOperationalState

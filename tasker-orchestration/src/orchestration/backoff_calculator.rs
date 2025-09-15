@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tasker_shared::config::ConfigManager;
+use tasker_shared::config::TaskerConfig;
 use uuid::Uuid;
 
 /// Configuration for backoff calculation behavior
@@ -57,11 +57,8 @@ impl Default for BackoffCalculatorConfig {
     }
 }
 
-impl BackoffCalculatorConfig {
-    /// Create BackoffCalculatorConfig from ConfigManager
-    pub fn from_config_manager(config_manager: Arc<ConfigManager>) -> Self {
-        let config = config_manager.config();
-
+impl From<Arc<TaskerConfig>> for BackoffCalculatorConfig {
+    fn from(config: Arc<TaskerConfig>) -> BackoffCalculatorConfig {
         // Use the first default backoff value as base delay, or fallback to 1 second
         let base_delay_seconds = config
             .backoff
@@ -70,7 +67,27 @@ impl BackoffCalculatorConfig {
             .copied()
             .unwrap_or(1) as u32;
 
-        Self {
+        BackoffCalculatorConfig {
+            base_delay_seconds,
+            max_delay_seconds: config.backoff.max_backoff_seconds as u32,
+            multiplier: config.backoff.backoff_multiplier,
+            jitter_enabled: config.backoff.jitter_enabled,
+            max_jitter: config.backoff.jitter_max_percentage,
+        }
+    }
+}
+
+impl From<&TaskerConfig> for BackoffCalculatorConfig {
+    fn from(config: &TaskerConfig) -> BackoffCalculatorConfig {
+        // Use the first default backoff value as base delay, or fallback to 1 second
+        let base_delay_seconds = config
+            .backoff
+            .default_backoff_seconds
+            .first()
+            .copied()
+            .unwrap_or(1) as u32;
+
+        BackoffCalculatorConfig {
             base_delay_seconds,
             max_delay_seconds: config.backoff.max_backoff_seconds as u32,
             multiplier: config.backoff.backoff_multiplier,

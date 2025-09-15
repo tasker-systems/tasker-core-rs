@@ -44,15 +44,17 @@ impl TaskReadinessEventSystem {
             if self.config.is_some() {
                 self.config.take().unwrap()
             } else {
-                let tasker_config = self.context.config_manager.config();
                 FallbackPollerConfig {
-                    enabled: tasker_config
+                    enabled: self
+                        .context
+                        .tasker_config
                         .event_systems
                         .task_readiness
                         .deployment_mode
                         .has_polling(),
                     polling_interval: Duration::from_secs(
-                        tasker_config
+                        self.context
+                            .tasker_config
                             .event_systems
                             .task_readiness
                             .timing

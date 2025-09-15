@@ -222,9 +222,8 @@ impl OrchestrationFallbackPoller {
             polling_errors: Arc::new(AtomicU64::new(0)), // Shared counter for async task
             last_poll_at: self.stats.last_poll_at.clone(),
         };
-        let classifier = tasker_shared::config::QueueClassifier::from_queues_config(
-            &self.context.config_manager.config().queues,
-        );
+        let queue_config = self.context.tasker_config.queues.clone();
+        let classifier = tasker_shared::config::QueueClassifier::from_queues_config(&queue_config);
 
         tokio::spawn(async move {
             info!(

@@ -137,14 +137,7 @@ impl TaskHandlerRegistry {
         Self {
             db_pool: context.database_pool().clone(),
             event_publisher: Some(context.event_publisher.clone()),
-            search_paths: Some(
-                context
-                    .config_manager
-                    .config()
-                    .task_templates
-                    .search_paths
-                    .clone(),
-            ),
+            search_paths: Some(context.tasker_config.task_templates.search_paths.clone()),
         }
     }
 
