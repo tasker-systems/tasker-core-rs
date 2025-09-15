@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -29,14 +29,14 @@ description: Workflow for testing identity hash generation and task deduplicatio
 metadata:
   author: TaskerCore Migration Tool
   tags:
-  - namespace:test
-  - pattern:single-step
-  - dependencies:none
-  - environments:configured
-  - migrated:handler-configuration
+    - namespace:test
+    - pattern:single-step
+    - dependencies:none
+    - environments:configured
+    - migrated:handler-configuration
   documentation_url:
-  created_at: '2025-08-17T20:18:41Z'
-  updated_at: '2025-08-17T20:18:41Z'
+  created_at: "2025-08-17T20:18:41Z"
+  updated_at: "2025-08-17T20:18:41Z"
 task_handler:
   callable: IdentityTestHandler
   initialization: {}
@@ -51,32 +51,32 @@ input_schema:
       type: string
       minLength: 1
 steps:
-- name: identity_step
-  description: Step for testing identity functionality
-  handler:
-    callable: IdentityTestStepHandler
-    initialization:
-      action: test_identity
-      generate_unique_hash: true
-  system_dependency:
-  dependencies: []
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
+  - name: identity_step
+    description: Step for testing identity functionality
+    handler:
+      callable: IdentityTestStepHandler
+      initialization:
+        action: test_identity
+        generate_unique_hash: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
 environments:
   test:
     task_handler:
     steps:
-    - name: identity_step
-      handler:
-        initialization:
-          debug_mode: true
-          log_identity_hash: true
-      timeout_seconds:
-      retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/identity_test/1.0.0.yaml"
+      - name: identity_step
+        handler:
+          initialization:
+            debug_mode: true
+            log_identity_hash: true
+        timeout_seconds:
+        retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/identity_test/1.0.0.yaml"

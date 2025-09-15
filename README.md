@@ -57,8 +57,8 @@ orchestration_step_results - Step completion results processing
 
 ```bash
 # Clone the repository
-git clone https://github.com/tasker-systems/tasker-core-rs
-cd tasker-core-rs
+git clone https://github.com/tasker-systems/tasker-core
+cd tasker-core
 
 # Set up database (PostgreSQL with PGMQ extension)
 createdb tasker_rust_development
@@ -160,7 +160,7 @@ cargo check --all-features                        # Fast compilation check
 ### Ruby Integration
 
 ```bash
-cd bindings/ruby
+cd workers/ruby
 bundle install                                     # Install dependencies
 bundle exec rake compile                           # Compile Ruby extension
 

@@ -1,0 +1,57 @@
+//! # Configuration Manager
+//!
+//! The Configuration Manager is responsible for loading and managing the configuration settings for the Tasker orchestration system.
+//! It provides a unified interface for accessing configuration values across different components of the system.
+//!
+//! Re-export shared types instead of redefining them
+pub use tasker_shared::config::orchestration::{
+    OrchestrationSystemConfig, StepEnqueuerConfig, StepResultProcessorConfig,
+    TaskClaimStepEnqueuerConfig,
+};
+
+// Re-export shared types instead of redefining them
+pub use tasker_shared::config::orchestration::OrchestrationConfig;
+pub use tasker_shared::config::{
+    BackoffConfig, ConfigManager, DatabaseConfig, DatabasePoolConfig, EngineConfig,
+    ExecutionConfig, ReenqueueDelays, SystemConfig, TaskTemplatesConfig, TaskerConfig,
+    TelemetryConfig,
+};
+// Use canonical TaskTemplate from models instead of legacy config types
+pub use tasker_shared::errors::{OrchestrationError, OrchestrationResult};
+pub use tasker_shared::models::core::task_template::{StepDefinition, TaskTemplate};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_configuration_loading() {
+        // TAS-43: Replace ::default() usage with proper configuration loading
+        let config_manager = ConfigManager::new();
+        let config = config_manager.config();
+
+        // Test basic configuration structure is loaded
+        assert!(!config.orchestration.web.auth.enabled);
+        assert!(!config.database.enable_secondary_database);
+        assert_eq!(
+            config.backoff.default_backoff_seconds,
+            vec![1, 2, 4, 8, 16, 32]
+        );
+        assert_eq!(config.backoff.max_backoff_seconds, 300);
+        assert!(config.backoff.jitter_enabled);
+
+        // TAS-43: Test that queues configuration is properly loaded
+        assert!(!config.queues.orchestration_namespace.is_empty());
+        assert!(!config.queues.worker_namespace.is_empty());
+        assert_eq!(config.queues.backend, "pgmq");
+    }
+
+    #[test]
+    fn test_configuration_manager_creation() {
+        let config_manager = ConfigManager::new();
+        // Environment can be overridden by TASKER_ENV, so just verify it's not empty
+        assert!(!config_manager.environment().is_empty());
+        let config = config_manager.config();
+        assert!(!config.orchestration.web.auth.enabled);
+    }
+}

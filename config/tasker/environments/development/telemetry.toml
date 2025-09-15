@@ -1,11 +1,15 @@
 [telemetry]
 enabled = true
-service_name = "tasker-core-rs-dev"
+service_name = "tasker-core-dev"
 sample_rate = 1.0
 
 [health]
 enabled = true
 check_interval_seconds = 30
+
+[health.alert_thresholds]
+error_rate = 0.1
+queue_depth = 100.0
 
 [events]
 batch_size = 10
@@ -21,10 +25,6 @@ max_size = 1000
 enabled = true
 cleanup_interval_seconds = 60
 memory_pressure_threshold = 0.7
-
-[health.alert_thresholds]
-error_rate = 0.1
-queue_depth = 100.0
 
 [query_cache.active_workers]
 ttl_seconds = 10

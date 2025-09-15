@@ -4,21 +4,21 @@ on:
   push:
     branches: [main]
     paths:
-      - "bindings/ruby/**"
+      - "workers/ruby/**"
       - "src/**"
       - "Cargo.toml"
       - ".github/workflows/ruby-gem.yml"
   pull_request:
     branches: [main]
     paths:
-      - "bindings/ruby/**"
+      - "workers/ruby/**"
       - "src/**"
       - "Cargo.toml"
       - ".github/workflows/ruby-gem.yml"
 
 defaults:
   run:
-    working-directory: bindings/ruby
+    working-directory: workers/ruby
 
 jobs:
   test:
@@ -67,14 +67,14 @@ jobs:
           key: ruby-gem-${{ matrix.os }}-${{ matrix.ruby }}
           workspaces: |
             . -> target
-            bindings/ruby -> target
+            workers/ruby -> target
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-          working-directory: bindings/ruby
+          working-directory: workers/ruby
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -111,7 +111,7 @@ jobs:
           done
           cd ../..
           sqlx migrate run
-          cd bindings/ruby
+          cd workers/ruby
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           TASKER_ENV: test
@@ -174,10 +174,10 @@ jobs:
   #     with:
   #       ruby-version: '3.4'
   #       bundler-cache: true
-  #       working-directory: bindings/ruby
+  #       working-directory: workers/ruby
 
   #   - name: Check for known vulnerabilities in Ruby dependencies
   #     run: |
   #       gem install bundler-audit
   #       bundle audit check --update
-  #     working-directory: bindings/ruby
+  #     working-directory: workers/ruby

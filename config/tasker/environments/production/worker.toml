@@ -1,0 +1,85 @@
+# TAS-43 Worker Configuration for Production Environment
+# Production-specific overrides for event-driven processing and deployment modes
+
+[worker]
+# Production environment worker identification
+worker_id = "prod-worker-001"
+worker_type = "production"
+
+# TAS-43 Event-Driven Processing - Production Configuration
+[worker.event_driven]
+# Enable event-driven processing for production
+enabled = true
+# Use Hybrid mode for maximum reliability in production
+deployment_mode = "Hybrid"
+# Conservative health check intervals for production stability
+health_check_interval_seconds = 60
+
+# TAS-43 Event-Driven Listener - Production Configuration
+[worker.listener]
+# Production-grade retry intervals
+retry_interval_seconds = 10
+max_retry_attempts = 5
+event_timeout_seconds = 60
+health_check_interval_seconds = 120
+batch_processing = true
+connection_timeout_seconds = 15
+
+# TAS-43 Fallback Poller - Production Configuration
+[worker.fallback_poller]
+enabled = true
+# Conservative polling for production reliability
+polling_interval_ms = 1000
+batch_size = 15
+age_threshold_seconds = 5
+max_age_hours = 24
+visibility_timeout_seconds = 60
+
+# Event system - Production Configuration
+[worker.event_system]
+# High concurrency for production throughput
+max_concurrent_processors = 20
+# Extended processing timeout for complex production workloads
+processing_timeout_seconds = 60
+
+# In-process event system for FFI integration (no TCP endpoints)
+[worker.event_system.in_process]
+# Larger buffer for production throughput
+broadcast_buffer_size = 2000
+ffi_integration_enabled = true
+# Production-specific queue names can be added here if needed
+deduplication_cache_size = 2000
+
+# Step processing - Production Configuration
+[worker.step_processing]
+# Production-grade timeouts
+claim_timeout_seconds = 600
+max_retries = 5
+retry_backoff_multiplier = 2.5
+heartbeat_interval_seconds = 60
+max_concurrent_steps = 200
+
+# Health monitoring - Production Configuration
+[worker.health_monitoring]
+# Conservative health checks for production stability
+health_check_interval_seconds = 15
+metrics_collection_enabled = true
+performance_monitoring_enabled = true
+step_processing_rate_threshold = 20.0
+error_rate_threshold = 0.02
+memory_usage_threshold_mb = 2048
+
+# Resource limits - Production Configuration
+[worker.resource_limits]
+# Full resource limits for production
+max_memory_mb = 4096
+max_cpu_percent = 85
+max_database_connections = 100
+max_queue_connections = 50
+
+# Queue configuration - Production Configuration
+[worker.queue_config]
+# Production-optimized queue processing
+visibility_timeout_seconds = 60
+batch_size = 15
+polling_interval_ms = 200

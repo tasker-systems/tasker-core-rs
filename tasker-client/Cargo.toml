@@ -1,0 +1,52 @@
+[package]
+name = "tasker-client"
+version = "0.1.0"
+edition = "2021"
+description = "Tasker API Clients"
+
+[lib]
+name = "tasker_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tasker-cli"
+path = "src/bin/tasker-cli.rs"
+
+[dependencies]
+# Error handling and utilities
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+# CLI framework
+clap = { version = "4.4", features = ["color", "derive", "env"] }
+# Configuration
+config = { workspace = true }
+dirs = "5.0"
+futures = { workspace = true }
+once_cell = { workspace = true }
+rand = { workspace = true }
+# Web API testing and API Integration
+reqwest = { workspace = true }
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Core tasker dependencies
+tasker-shared = { path = "../tasker-shared" }
+thiserror = { workspace = true }
+# Async runtime and utilities
+tokio = { workspace = true }
+toml = { workspace = true }
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# Other utilities
+uuid = { workspace = true }
+workspace_tools = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+tempfile = { workspace = true }
+# Testing utilities
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }
+

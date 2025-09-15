@@ -1,0 +1,58 @@
+[package]
+name = "pgmq-notify"
+version = "0.1.0"
+edition = "2021"
+description = "PG Notify layer for PGMQ"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+name = "pgmq_notify"
+
+[[bin]]
+name = "pgmq-notify-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+# Time handling - for timestamps in events
+chrono = { workspace = true }
+# CLI tool dependencies
+clap = { workspace = true }
+futures = { workspace = true }
+pgmq = { workspace = true }
+# Pattern matching for namespace extraction
+regex = { workspace = true }
+# Serialization - minimal for event payloads
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Database - sqlx for pg_notify support, pgmq for queue traits
+sqlx = { workspace = true }
+# Error handling
+thiserror = { workspace = true }
+# Core async runtime
+tokio = { workspace = true }
+toml = { workspace = true }
+# Logging
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+# Coverage tools (used in CI)
+cargo-llvm-cov = { workspace = true }
+dotenvy = { workspace = true }
+factori = { workspace = true }
+insta = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+# Testing tools
+tokio-test = { workspace = true }
+url = { workspace = true }
+
+[features]
+default = ["sqlx-support"]
+sqlx-support = []  # Feature for sqlx::PgListener integration
+

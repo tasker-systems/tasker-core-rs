@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -29,14 +29,14 @@ description: Workflow for testing state machine initialization and state transit
 metadata:
   author: TaskerCore Migration Tool
   tags:
-  - namespace:test
-  - pattern:single-step
-  - dependencies:none
-  - environments:configured
-  - migrated:handler-configuration
+    - namespace:test
+    - pattern:single-step
+    - dependencies:none
+    - environments:configured
+    - migrated:handler-configuration
   documentation_url:
-  created_at: '2025-08-17T20:18:41Z'
-  updated_at: '2025-08-17T20:18:41Z'
+  created_at: "2025-08-17T20:18:41Z"
+  updated_at: "2025-08-17T20:18:41Z"
 task_handler:
   callable: StateMachineTestHandler
   initialization: {}
@@ -50,36 +50,36 @@ input_schema:
     test:
       type: string
       enum:
-      - state_machine
+        - state_machine
 steps:
-- name: state_test_step
-  description: Step for testing state machine functionality
-  handler:
-    callable: StateMachineTestStepHandler
-    initialization:
-      action: test_state_transitions
-      enable_state_tracking: true
-      test_mode: true
-  system_dependency:
-  dependencies: []
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
+  - name: state_test_step
+    description: Step for testing state machine functionality
+    handler:
+      callable: StateMachineTestStepHandler
+      initialization:
+        action: test_state_transitions
+        enable_state_tracking: true
+        test_mode: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
 environments:
   test:
     task_handler:
     steps:
-    - name: state_test_step
-      handler:
-        initialization:
-          debug_mode: true
-          log_state_transitions: true
-          timeout_ms: 5000
-      timeout_seconds:
-      retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/state_machine_enabled/1.0.0.yaml"
+      - name: state_test_step
+        handler:
+          initialization:
+            debug_mode: true
+            log_state_transitions: true
+            timeout_ms: 5000
+        timeout_seconds:
+        retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/state_machine_enabled/1.0.0.yaml"

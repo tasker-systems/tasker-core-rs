@@ -1,0 +1,179 @@
+# Unified Event Systems Configuration
+#
+# This file consolidates all event system configurations across orchestration,
+# task readiness, and worker components to eliminate configuration drift and
+# provide consistent naming and structure.
+
+# ============================================================================
+# ORCHESTRATION EVENT SYSTEM
+# ============================================================================
+
+[event_systems.orchestration]
+system_id = "orchestration-event-system"
+deployment_mode = "Hybrid"
+
+# Timing configuration
+[event_systems.orchestration.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 5
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+[event_systems.orchestration.processing]
+max_concurrent_operations = 10
+batch_size = 10
+max_retries = 3
+
+[event_systems.orchestration.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+[event_systems.orchestration.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Orchestration-specific metadata
+[event_systems.orchestration.metadata]
+# Note: queues configuration populated at runtime from main queues.toml
+queues_populated_at_runtime = true
+
+# ============================================================================
+# TASK READINESS EVENT SYSTEM
+# ============================================================================
+
+[event_systems.task_readiness]
+system_id = "task-readiness-event-system"
+deployment_mode = "Hybrid"                # Empty = all namespaces
+
+# Timing configuration
+[event_systems.task_readiness.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 5
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+[event_systems.task_readiness.processing]
+max_concurrent_operations = 100
+batch_size = 50
+max_retries = 3
+
+[event_systems.task_readiness.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+[event_systems.task_readiness.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Task readiness-specific metadata
+[event_systems.task_readiness.metadata.enhanced_settings]
+startup_timeout_seconds = 30
+shutdown_timeout_seconds = 10
+metrics_enabled = true
+rollback_threshold_percent = 5.0
+
+# PostgreSQL LISTEN/NOTIFY configuration
+[event_systems.task_readiness.metadata.notification]
+global_channels = ["task_ready", "task_state_change", "namespace_created"]
+max_payload_size_bytes = 8000
+parse_timeout_ms = 100
+
+[event_systems.task_readiness.metadata.notification.namespace_patterns]
+task_ready = "task_ready.{namespace}"
+task_state_change = "task_state_change.{namespace}"
+
+[event_systems.task_readiness.metadata.notification.connection]
+max_connection_retries = 3
+connection_retry_delay_seconds = 2
+auto_reconnect = true
+
+# Event channel configuration
+[event_systems.task_readiness.metadata.event_channel]
+buffer_size = 1000
+send_timeout_ms = 1000
+
+# Task readiness coordinator configuration
+[event_systems.task_readiness.metadata.coordinator]
+instance_id_prefix = "task_readiness"
+operation_timeout_ms = 5000
+stats_interval_seconds = 60
+
+# ============================================================================
+# WORKER EVENT SYSTEM
+# ============================================================================
+
+[event_systems.worker]
+system_id = "worker-event-system"
+deployment_mode = "Hybrid"
+
+# Timing configuration
+[event_systems.worker.timing]
+health_check_interval_seconds = 30
+fallback_polling_interval_seconds = 1 # Workers need faster polling
+visibility_timeout_seconds = 30
+processing_timeout_seconds = 30
+claim_timeout_seconds = 300
+
+# Processing and concurrency configuration
+[event_systems.worker.processing]
+max_concurrent_operations = 100 # Workers handle more concurrent operations
+batch_size = 10
+max_retries = 3
+
+[event_systems.worker.processing.backoff]
+initial_delay_ms = 100
+max_delay_ms = 5000
+multiplier = 2.0
+jitter_percent = 0.1
+
+# Health monitoring configuration
+[event_systems.worker.health]
+enabled = true
+performance_monitoring_enabled = true
+max_consecutive_errors = 10
+error_rate_threshold_per_minute = 5
+
+# Worker-specific metadata
+# In-process event system (no TCP endpoints - uses broadcast channels for FFI)
+[event_systems.worker.metadata.in_process_events]
+broadcast_buffer_size = 1000
+ffi_integration_enabled = true
+deduplication_cache_size = 1000
+
+# PostgreSQL LISTEN/NOTIFY listener configuration
+[event_systems.worker.metadata.listener]
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+batch_processing = true
+connection_timeout_seconds = 10
+
+# Fallback poller configuration for reliability
+[event_systems.worker.metadata.fallback_poller]
+enabled = true
+polling_interval_ms = 500
+batch_size = 10
+age_threshold_seconds = 2
+max_age_hours = 12
+visibility_timeout_seconds = 30
+
+# Resource limits for workers
+[event_systems.worker.metadata.resource_limits]
+max_memory_mb = 2048
+max_cpu_percent = 80.0
+max_database_connections = 50
+max_queue_connections = 20

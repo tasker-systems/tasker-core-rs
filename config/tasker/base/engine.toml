@@ -2,10 +2,13 @@
 task_handler_directory = "tasks"
 task_config_directory = "tasker/tasks"
 identity_strategy = "default"
-custom_events_directories = [ "config/tasker/events",]
+custom_events_directories = ["config/tasker/events"]
 
 [task_templates]
-search_paths = [ "config/task_templates/*.{yml,yaml}", "config/tasks/*.{yml,yaml}",]
+search_paths = [
+    "config/task_templates/*.{yml,yaml}",
+    "config/tasks/*.{yml,yaml}",
+]
 
 [dependency_graph]
 max_depth = 50
@@ -23,6 +26,9 @@ ttl_seconds = 3600
 max_size = 10000
 
 [reenqueue]
-has_ready_steps = 1
+# TAS-41: New state machine states
+initializing = 2
+enqueuing_steps = 0
+steps_in_process = 2
+evaluating_results = 1
 waiting_for_dependencies = 5
-processing = 2

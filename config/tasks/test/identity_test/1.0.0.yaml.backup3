@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -79,4 +79,4 @@ environments:
           log_identity_hash: true
       timeout_seconds:
       retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/identity_test/1.0.0.yaml"
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/identity_test/1.0.0.yaml"

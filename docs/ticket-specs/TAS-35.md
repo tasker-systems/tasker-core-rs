@@ -17,10 +17,11 @@ The current Tasker system is tightly coupled to PGMQ (PostgreSQL Message Queue),
 
 1. **PostgreSQL as Source of Truth**: The database remains the authoritative data store
 2. **Simple UUID Messages**: Maintain the 3-field UUID message structure
-3. **Pull-Based Consistency**: All providers use pull model for uniform behavior
+3. **Push-First, Pull-Fallback**: All providers use push notifications (events) as primary, with pull as fallback for reliability
 4. **Provider Agnostic**: Core business logic remains independent of queue provider
-5. **Zero Downtime Migration**: Support gradual migration between providers
-6. **Test Parity**: All providers must pass the same test suite
+5. **Event-Driven by Default**: Both PGMQ (via pg_notify) and AMQP (via native streaming) support push notifications
+6. **Zero Downtime Migration**: Support gradual migration between providers
+7. **Test Parity**: All providers must pass the same test suite
 
 ## Phase 1: Core Trait Architecture (Week 1)
 
@@ -76,6 +77,29 @@ pub struct QueueStats {
     pub in_flight_count: Option<u64>,
     pub oldest_message_age_seconds: Option<i64>,
     pub dead_letter_count: Option<u64>,
+}
+
+/// Queue notification events (TAS-43 integration)
+/// Enables push-based notifications for both PGMQ and AMQP providers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueNotification {
+    pub event_type: QueueEventType,
+    pub queue_name: String,
+    pub namespace: Option<String>,
+    pub message_id: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QueueEventType {
+    /// New message enqueued (immediate processing trigger)
+    MessageReady { msg_id: String },
+    /// Queue created (coordinator spawning trigger)
+    QueueCreated,
+    /// Queue deleted (cleanup trigger)
+    QueueDeleted,
+    /// Message dead lettered (error handling trigger)
+    MessageDeadLettered { msg_id: String, reason: String },
 }
 
 /// Core messaging service trait
@@ -174,6 +198,21 @@ pub trait AmqpExtensions: MessagingService {
         &self,
         queue: &str,
     ) -> Result<Box<dyn Stream<Item = Result<QueuedMessage<Box<dyn QueueMessage>>, Self::Error>> + Send>, Self::Error>;
+
+    /// Create a push notification stream for queue events (TAS-43 integration)
+    /// This enables event-driven processing for both PGMQ (pg_notify) and AMQP (native streaming)
+    async fn create_notification_stream(
+        &self,
+        queue: &str,
+    ) -> Result<Box<dyn Stream<Item = Result<QueueNotification>, Self::Error>> + Send>, Self::Error>;
+
+    /// Check if provider supports push notifications (should always be true per TAS-43)
+    fn supports_push_notifications(&self) -> bool { true }
+
+    /// Get notification channel pattern for this provider
+    /// PGMQ: "pgmq_message_ready.{namespace}" (from pgmq-notify crate)
+    /// AMQP: Direct consumer stream
+    fn notification_channel_pattern(&self) -> &str;
 }
 
 /// PGMQ-specific extensions for PostgreSQL message queues
@@ -1850,7 +1889,7 @@ impl BaseExecutor {
 Create Ruby-side abstraction matching the Rust traits:
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/message_service.rb
+# workers/ruby/lib/tasker_core/services/message_service.rb
 module TaskerCore
   module Services
     # Base message service interface
@@ -1985,7 +2024,7 @@ end
 ### 3.2 Provider-Specific Ruby Implementations
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/pgmq_message_service.rb
+# workers/ruby/lib/tasker_core/services/pgmq_message_service.rb
 module TaskerCore
   module Services
     class PgmqMessageService < MessageService
@@ -2070,7 +2109,7 @@ end
 ```
 
 ```ruby
-# bindings/ruby/lib/tasker_core/services/rabbitmq_message_service.rb
+# workers/ruby/lib/tasker_core/services/rabbitmq_message_service.rb
 module TaskerCore
   module Services
     class RabbitMqMessageService < MessageService
@@ -2788,7 +2827,7 @@ jobs:
 
 ### Overview
 
-The integration test suite in `bindings/ruby/spec/integration/` must validate that both PGMQ and RabbitMQ messaging providers deliver identical workflow execution behavior. This section defines the comprehensive strategy for ensuring provider compatibility without duplicating test code.
+The integration test suite in `workers/ruby/spec/integration/` must validate that both PGMQ and RabbitMQ messaging providers deliver identical workflow execution behavior. This section defines the comprehensive strategy for ensuring provider compatibility without duplicating test code.
 
 ### Test Matrix Strategy
 
@@ -2968,12 +3007,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://tasker:tasker@localhost/tasker_rust_test
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake db:migrate
 
       - name: Compile Ruby Extension
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake compile
 
       - name: Run Integration Tests
@@ -2983,7 +3022,7 @@ jobs:
           RABBITMQ_URL: amqp://tasker:tasker@localhost:5672/tasker
           TASKER_ENV: test
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rspec spec/integration/${{ matrix.test-suite }}_integration_spec.rb \
             --format documentation \
             --format RspecJunitFormatter --out results/${{ matrix.messaging-provider }}-${{ matrix.test-suite }}.xml
@@ -2993,7 +3032,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: test-results-${{ matrix.messaging-provider }}-${{ matrix.test-suite }}
-          path: bindings/ruby/results/*.xml
+          path: workers/ruby/results/*.xml
 ```
 
 ### Test Implementation Patterns

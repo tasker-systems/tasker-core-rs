@@ -1,0 +1,176 @@
+# TAS-40 Worker Configuration Component (Command Pattern Architecture)
+# TAS-43 Event-Driven Processing with Deployment Mode Support
+# Controls worker system behavior using event-driven step processing
+# Replaces polling-based executor pools with command pattern
+
+[worker]
+# Worker system identification
+worker_id = "worker-001"
+worker_type = "general"
+
+# TAS-43 Event-Driven Processing Configuration
+[worker.event_driven]
+# Enable event-driven processing (vs polling-only mode)
+enabled = true
+# Deployment mode: "PollingOnly", "EventDrivenOnly", or "Hybrid" (recommended)
+deployment_mode = "Hybrid"
+# Health monitoring for event system
+health_monitoring_enabled = true
+health_check_interval_seconds = 30
+
+# Step processing configuration (command pattern)
+[worker.step_processing]
+processor_ownership_timeout_seconds = 300
+max_retries = 3
+retry_backoff_multiplier = 2.0
+heartbeat_interval_seconds = 30
+max_concurrent_steps = 100
+
+# TAS-43 Event-Driven Listener Configuration (PostgreSQL LISTEN/NOTIFY)
+[worker.listener]
+# Retry configuration for listener connection failures
+retry_interval_seconds = 5
+max_retry_attempts = 3
+event_timeout_seconds = 30
+health_check_interval_seconds = 60
+batch_processing = true
+connection_timeout_seconds = 10
+
+# TAS-43 Fallback Poller Configuration (TAS-41 updated for event-driven architecture)
+[worker.fallback_poller]
+enabled = true
+# Polling interval increased from 500ms to 45000ms (45s) due to event-driven notifications providing <10ms latency
+polling_interval_ms = 45000
+# Batch size reduced since fewer missed events expected with event-driven processing
+batch_size = 5
+# Age threshold increased from 2s to 10s to avoid race conditions with event-driven processing
+age_threshold_seconds = 10
+max_age_hours = 12
+visibility_timeout_seconds = 30
+# TAS-41: Task states that can be picked up for processing
+processable_states = ["pending", "waiting_for_dependencies", "waiting_for_retry"]
+
+# Event system configuration has been moved to config/tasker/base/event_systems.toml
+# The worker.event_system section is now managed centrally with unified configuration
+
+# Worker health monitoring
+[worker.health_monitoring]
+health_check_interval_seconds = 10
+metrics_collection_enabled = true
+performance_monitoring_enabled = true
+step_processing_rate_threshold = 10.0
+error_rate_threshold = 0.05
+memory_usage_threshold_mb = 1024
+
+# Worker resource limits
+[worker.resource_limits]
+max_memory_mb = 2048
+max_cpu_percent = 80
+max_database_connections = 50
+max_queue_connections = 20
+
+# Queue configuration for message consumption
+[worker.queue_config]
+visibility_timeout_seconds = 30
+batch_size = 10
+polling_interval_ms = 100
+
+# Worker Web API Configuration
+# Separate from orchestration web API (different port)
+[worker.web]
+enabled = true
+bind_address = "0.0.0.0:8081" # Worker uses port 8081 (orchestration uses 8080)
+request_timeout_ms = 30000
+max_request_size_mb = 16
+
+[worker.web.tls]
+enabled = false
+cert_path = ""
+key_path = ""
+# For production, set these via environment variables:
+# WORKER_WEB_TLS_ENABLED=true
+# WORKER_WEB_TLS_CERT_PATH=/path/to/cert.pem
+# WORKER_WEB_TLS_KEY_PATH=/path/to/key.pem
+
+[worker.web.database_pools]
+# Worker Web API dedicated pool configuration
+# Separate from main worker database pool to prevent resource contention
+web_api_pool_size = 5
+web_api_max_connections = 10
+web_api_connection_timeout_seconds = 15
+web_api_idle_timeout_seconds = 300
+max_total_connections_hint = 25
+
+[worker.web.cors]
+enabled = true
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+allowed_headers = ["*"]
+max_age_seconds = 86400
+
+[worker.web.auth]
+enabled = false
+jwt_issuer = "tasker-worker"
+jwt_audience = "worker-api"
+jwt_token_expiry_hours = 24
+# JWT keys should be provided via environment variables for security:
+# JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
+# JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+jwt_private_key = ""
+jwt_public_key = ""
+# API key for testing (use env var API_KEY in production)
+api_key = ""
+api_key_header = "X-API-Key"
+
+# Route-specific authentication configuration for worker endpoints
+[worker.web.auth.protected_routes]
+# Template management endpoints that should require auth by default
+"DELETE /templates/cache" = { auth_type = "bearer", required = true }
+"POST /templates/cache/maintain" = { auth_type = "bearer", required = true }
+"POST /templates/{namespace}/{name}/{version}/refresh" = { auth_type = "bearer", required = true }
+
+# Status endpoints that can be configured to require auth
+"GET /status/detailed" = { auth_type = "bearer", required = false }
+"GET /handlers" = { auth_type = "bearer", required = false }
+
+[worker.web.rate_limiting]
+enabled = false
+requests_per_minute = 500 # Lower than main API since worker has fewer endpoints
+burst_size = 50
+per_client_limit = true
+
+[worker.web.resilience]
+circuit_breaker_enabled = true
+request_timeout_seconds = 30
+max_concurrent_requests = 50   # Lower than main API for worker-specific load
+
+[worker.web.resource_monitoring]
+# Integration with worker health monitoring system
+report_pool_usage_to_health_monitor = true
+pool_usage_warning_threshold = 0.80
+pool_usage_critical_threshold = 0.95
+
+# Worker-specific endpoint configuration
+[worker.web.endpoints]
+# Health endpoints (Kubernetes-compatible)
+health_enabled = true
+health_path = "/health"
+readiness_path = "/health/ready"
+liveness_path = "/health/live"
+
+# Metrics endpoints (Prometheus-compatible)
+metrics_enabled = true
+prometheus_path = "/metrics"
+worker_metrics_path = "/metrics/worker"
+
+# Worker status endpoints
+status_enabled = true
+basic_status_path = "/status"
+detailed_status_path = "/status/detailed"
+namespace_health_path = "/status/namespaces"
+registered_handlers_path = "/handlers"
+
+# Template management endpoints
+templates_enabled = true
+templates_base_path = "/templates"
+template_cache_enabled = true

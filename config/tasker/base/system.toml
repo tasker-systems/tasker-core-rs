@@ -1,42 +1,4 @@
 [system]
 default_dependent_system = "default"
-default_queue_name = "default"
 version = "0.1.0"
 max_recursion_depth = 50
-
-[dependency_graph]
-max_depth = 50
-cycle_detection_enabled = true
-optimization_enabled = true
-
-[execution]
-processing_mode = "pgmq"
-max_concurrent_tasks = 100
-max_concurrent_steps = 1000
-default_timeout_seconds = 3600
-step_execution_timeout_seconds = 300
-environment = "production"
-max_discovery_attempts = 3
-step_batch_size = 10
-max_retries = 3
-max_workflow_steps = 1000
-connection_timeout_seconds = 10
-
-[backoff]
-default_backoff_seconds = [ 1, 2, 4, 8, 16, 32,]
-max_backoff_seconds = 300
-backoff_multiplier = 2.0
-jitter_enabled = true
-jitter_max_percentage = 0.1
-default_reenqueue_delay = 30
-buffer_seconds = 5
-
-[reenqueue]
-has_ready_steps = 1
-waiting_for_dependencies = 5
-processing = 2
-
-[backoff.reenqueue_delays]
-has_ready_steps = 0
-waiting_for_dependencies = 45
-processing = 10

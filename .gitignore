@@ -33,8 +33,6 @@ target
 .env.test
 .env.dev
 
-# let's not store our sqlx cache
-.sqlx/
 
 # don't pay attention to tmp
 tmp/
@@ -45,13 +43,13 @@ tmp/
 *.dll
 *.dylib
 *.dSYM/
-bindings/ruby/ext/*/Makefile
-bindings/ruby/ext/*/mkmf.log
-bindings/ruby/pkg/*/*.gem
-bindings/ruby/pkg/*
-bindings/ruby/*/*.gem
-bindings/ruby/*.gem
-bindings/ruby/spec/examples.txt
+workers/ruby/ext/*/Makefile
+workers/ruby/ext/*/mkmf.log
+workers/ruby/pkg/*/*.gem
+workers/ruby/pkg/*
+workers/ruby/*/*.gem
+workers/ruby/*.gem
+workers/ruby/spec/examples.txt
 
 # no rspec results
 rspec_results.json

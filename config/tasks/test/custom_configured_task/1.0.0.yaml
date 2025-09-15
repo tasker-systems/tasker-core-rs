@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -29,14 +29,14 @@ description: Task for testing custom configuration functionality
 metadata:
   author: TaskerCore Migration Tool
   tags:
-  - namespace:test
-  - pattern:single-step
-  - dependencies:none
-  - environments:configured
-  - migrated:handler-configuration
+    - namespace:test
+    - pattern:single-step
+    - dependencies:none
+    - environments:configured
+    - migrated:handler-configuration
   documentation_url:
-  created_at: '2025-08-17T20:18:41Z'
-  updated_at: '2025-08-17T20:18:41Z'
+  created_at: "2025-08-17T20:18:41Z"
+  updated_at: "2025-08-17T20:18:41Z"
 task_handler:
   callable: CustomConfiguredTaskHandler
   initialization: {}
@@ -50,24 +50,24 @@ input_schema:
     custom_config:
       type: boolean
 steps:
-- name: custom_step
-  description: Custom configuration test step
-  handler:
-    callable: CustomConfigTestStepHandler
-    initialization:
-      custom_option: true
-  system_dependency:
-  dependencies: []
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
+  - name: custom_step
+    description: Custom configuration test step
+    handler:
+      callable: CustomConfigTestStepHandler
+      initialization:
+        custom_option: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
 environments:
   test:
     task_handler:
     steps: []
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/custom_configured_task/1.0.0.yaml"
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/custom_configured_task/1.0.0.yaml"

@@ -155,6 +155,7 @@ event_metadata:
       fired_by: ["StepHandlerFactory", "TaskHandlerRegistry"]
 
 # State machine transition mappings (declarative configuration)
+# Updated for TAS-41: Richer Task States with 12 comprehensive task states
 state_machine_mappings:
   task_transitions:
     # Initial state transitions (from null/initial)
@@ -162,11 +163,6 @@ state_machine_mappings:
       to_state: "pending"
       event_constant: "task.initialize_requested"
       description: "Task initialization"
-
-    - from_state: null
-      to_state: "in_progress"
-      event_constant: "task.start_requested"
-      description: "Direct task start"
 
     - from_state: null
       to_state: "complete"
@@ -188,73 +184,188 @@ state_machine_mappings:
       event_constant: "task.resolved_manually"
       description: "Direct manual resolution"
 
-    # Normal state transitions
+    # TAS-41 Forward progression through comprehensive lifecycle
     - from_state: "pending"
-      to_state: "in_progress"
+      to_state: "initializing"
       event_constant: "task.start_requested"
-      description: "Task starts processing"
+      description: "Task starts orchestration processing"
 
+    - from_state: "initializing"
+      to_state: "enqueuing_steps"
+      event_constant: "task.steps_discovery_completed"
+      description: "Ready steps discovered and validated"
+
+    - from_state: "enqueuing_steps"
+      to_state: "steps_in_process"
+      event_constant: "task.steps_enqueued"
+      description: "Steps successfully enqueued for execution"
+
+    - from_state: "steps_in_process"
+      to_state: "evaluating_results"
+      event_constant: "task.step_results_received"
+      description: "Step execution results received for evaluation"
+
+    # Completion flow
+    - from_state: "evaluating_results"
+      to_state: "complete"
+      event_constant: "task.completed"
+      description: "All steps completed successfully"
+
+    # Waiting states transitions  
+    - from_state: "evaluating_results"
+      to_state: "waiting_for_dependencies"
+      event_constant: "task.awaiting_dependencies"
+      description: "Task waiting for step dependencies to be satisfied"
+
+    - from_state: "evaluating_results"
+      to_state: "waiting_for_retry"
+      event_constant: "task.retry_backoff_started"
+      description: "Task in retry backoff period"
+
+    - from_state: "evaluating_results"
+      to_state: "blocked_by_failures"
+      event_constant: "task.blocked_by_failures"
+      description: "Task blocked by unrecoverable step failures"
+
+    # Return to processing from waiting states
+    - from_state: "waiting_for_dependencies"
+      to_state: "enqueuing_steps"
+      event_constant: "task.dependencies_satisfied"
+      description: "Dependencies satisfied, resuming step enqueueing"
+
+    - from_state: "waiting_for_retry"
+      to_state: "enqueuing_steps"
+      event_constant: "task.retry_requested"
+      description: "Retry backoff completed, resuming processing"
+
+    # Error transitions from active states
+    - from_state: "initializing"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Task failed during initialization"
+
+    - from_state: "enqueuing_steps"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Task failed during step enqueueing"
+
+    - from_state: "steps_in_process"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Task failed during step processing"
+
+    - from_state: "evaluating_results"
+      to_state: "error"
+      event_constant: "task.failed"
+      description: "Task failed during result evaluation"
+
+    # Manual intervention transitions (possible from any non-terminal state)
     - from_state: "pending"
       to_state: "cancelled"
       event_constant: "task.cancelled"
       description: "Pending task cancelled"
 
-    - from_state: "pending"
-      to_state: "error"
-      event_constant: "task.failed"
-      description: "Pending task failed"
-
-    - from_state: "in_progress"
-      to_state: "pending"
-      event_constant: "task.initialize_requested"
-      description: "Reset task to pending"
-
-    - from_state: "in_progress"
-      to_state: "complete"
-      event_constant: "task.completed"
-      description: "Task completed successfully"
-
-    - from_state: "in_progress"
-      to_state: "error"
-      event_constant: "task.failed"
-      description: "Task failed during processing"
-
-    - from_state: "in_progress"
+    - from_state: "initializing"
       to_state: "cancelled"
       event_constant: "task.cancelled"
-      description: "Running task cancelled"
+      description: "Initializing task cancelled"
+
+    - from_state: "enqueuing_steps"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Enqueueing task cancelled"
+
+    - from_state: "steps_in_process"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Processing task cancelled"
+
+    - from_state: "evaluating_results"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Evaluating task cancelled"
+
+    - from_state: "waiting_for_dependencies"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Waiting task cancelled"
+
+    - from_state: "waiting_for_retry"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Retrying task cancelled"
+
+    - from_state: "blocked_by_failures"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Blocked task cancelled"
 
     - from_state: "error"
-      to_state: "pending"
-      event_constant: "task.retry_requested"
-      description: "Failed task retry"
+      to_state: "cancelled"
+      event_constant: "task.cancelled"
+      description: "Failed task cancelled"
+
+    # Manual resolution transitions
+    - from_state: "pending"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Pending task manually resolved"
+
+    - from_state: "initializing"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Initializing task manually resolved"
+
+    - from_state: "enqueuing_steps"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Enqueueing task manually resolved"
+
+    - from_state: "steps_in_process"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Processing task manually resolved"
+
+    - from_state: "evaluating_results"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Evaluating task manually resolved"
+
+    - from_state: "waiting_for_dependencies"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Waiting task manually resolved"
+
+    - from_state: "waiting_for_retry"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Retrying task manually resolved"
+
+    - from_state: "blocked_by_failures"
+      to_state: "resolved_manually"
+      event_constant: "task.resolved_manually"
+      description: "Blocked task manually resolved"
 
     - from_state: "error"
       to_state: "resolved_manually"
       event_constant: "task.resolved_manually"
       description: "Failed task manually resolved"
 
-    # Admin override scenarios
-    - from_state: "complete"
-      to_state: "cancelled"
-      event_constant: "task.cancelled"
-      description: "Admin cancellation override"
-
-    - from_state: "resolved_manually"
-      to_state: "cancelled"
-      event_constant: "task.cancelled"
-      description: "Manual resolution cancelled"
-
   step_transitions:
     # Initial state transitions
     - from_state: null
       to_state: "pending"
-      event_constant: "step.execution_requested"
-      description: "Step initialized for execution"
+      event_constant: "step.initialize_requested"
+      description: "Step created and initialized"
+
+    - from_state: null
+      to_state: "enqueued"
+      event_constant: "step.enqueue_requested"
+      description: "Step directly enqueued for execution"
 
     - from_state: null
       to_state: "in_progress"
-      event_constant: "step.before_handle"
+      event_constant: "step.execution_requested"
       description: "Direct step execution start"
 
     - from_state: null
@@ -267,36 +378,106 @@ state_machine_mappings:
       event_constant: "step.failed"
       description: "Direct step failure"
 
-    # Normal state transitions
-    - from_state: "pending"
-      to_state: "in_progress"
-      event_constant: "step.before_handle"
-      description: "Step starts processing"
+    - from_state: null
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Direct step cancellation"
 
+    - from_state: null
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Direct manual resolution"
+
+    # Standard lifecycle progression
+    - from_state: "pending"
+      to_state: "enqueued"
+      event_constant: "step.enqueue_requested"
+      description: "Step enqueued for worker processing"
+
+    - from_state: "enqueued"
+      to_state: "in_progress"
+      event_constant: "step.execution_requested"
+      description: "Worker claimed and started step execution"
+
+    # Worker completion flow with orchestration queue
+    - from_state: "in_progress"
+      to_state: "enqueued_for_orchestration"
+      event_constant: "step.result_submitted"
+      description: "Worker completed, result enqueued for orchestration"
+
+    - from_state: "enqueued_for_orchestration"
+      to_state: "complete"
+      event_constant: "step.completed"
+      description: "Orchestration processed successful result"
+
+    - from_state: "enqueued_for_orchestration"
+      to_state: "error"
+      event_constant: "step.failed"
+      description: "Orchestration processed failed result"
+
+    # Direct completion/failure from in_progress (backwards compatibility)
+    - from_state: "in_progress"
+      to_state: "complete"
+      event_constant: "step.completed"
+      description: "Step completed directly without orchestration queue"
+
+    - from_state: "in_progress"
+      to_state: "error"
+      event_constant: "step.failed"
+      description: "Step failed directly without orchestration queue"
+
+    # Retry transitions
+    - from_state: "error"
+      to_state: "pending"
+      event_constant: "step.retry_requested"
+      description: "Failed step queued for retry"
+
+    # Manual intervention (possible from any non-terminal state)
     - from_state: "pending"
       to_state: "cancelled"
       event_constant: "step.cancelled"
       description: "Pending step cancelled"
 
-    - from_state: "in_progress"
-      to_state: "complete"
-      event_constant: "step.completed"
-      description: "Step completed successfully"
-
-    - from_state: "in_progress"
-      to_state: "error"
-      event_constant: "step.failed"
-      description: "Step failed during processing"
+    - from_state: "enqueued"
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Enqueued step cancelled"
 
     - from_state: "in_progress"
       to_state: "cancelled"
       event_constant: "step.cancelled"
-      description: "Running step cancelled"
+      description: "Processing step cancelled"
+
+    - from_state: "enqueued_for_orchestration"
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Orchestration-queued step cancelled"
 
     - from_state: "error"
-      to_state: "pending"
-      event_constant: "step.execution_requested"
-      description: "Failed step retry"
+      to_state: "cancelled"
+      event_constant: "step.cancelled"
+      description: "Failed step cancelled"
+
+    # Manual resolution
+    - from_state: "pending"
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Pending step manually resolved"
+
+    - from_state: "enqueued"
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Enqueued step manually resolved"
+
+    - from_state: "in_progress"
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Processing step manually resolved"
+
+    - from_state: "enqueued_for_orchestration"
+      to_state: "resolved_manually"
+      event_constant: "step.resolved_manually"
+      description: "Orchestration-queued step manually resolved"
 
     - from_state: "error"
       to_state: "resolved_manually"

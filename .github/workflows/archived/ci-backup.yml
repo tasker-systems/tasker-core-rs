@@ -147,7 +147,6 @@ jobs:
       matrix:
         rust-version: ["stable", "beta"]
 
-
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
@@ -253,7 +252,6 @@ jobs:
     runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request'
 
-
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
       TASKER_ENV: test
@@ -324,7 +322,6 @@ jobs:
   validate-examples:
     name: Validate Examples and Demos
     runs-on: ubuntu-22.04
-
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -412,7 +409,6 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-22.04
-
 
     env:
       DATABASE_URL: postgres://tasker_core_test:test_password@localhost:5432/tasker_core_test
@@ -546,14 +542,14 @@ jobs:
           key: ruby-bindings
           workspaces: |
             . -> target
-            bindings/ruby -> target
+            workers/ruby -> target
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
           bundler-cache: true
-          working-directory: bindings/ruby
+          working-directory: workers/ruby
 
       - name: Install system dependencies
         run: |
@@ -570,12 +566,12 @@ jobs:
 
       - name: Build Ruby extension
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rake compile
 
       - name: Run Ruby integration tests
         run: |
-          cd bindings/ruby
+          cd workers/ruby
           bundle exec rspec spec/integration/ --format documentation
 
   # Final status check

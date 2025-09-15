@@ -1,0 +1,147 @@
+name: "Install Build Tools"
+description: "Installs cargo-binstall and common tools used across CI workflows"
+author: "Tasker Systems"
+
+inputs:
+  tools:
+    description: "Space-separated list of tools to install (nextest, sqlx-cli, audit, llvm-cov)"
+    required: false
+    default: "sqlx-cli"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache cargo tools
+      uses: actions/cache@v4
+      id: cargo-tools-cache
+      with:
+        path: ~/.cargo/bin
+        key: cargo-tools-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ inputs.tools }}
+        restore-keys: |
+          cargo-tools-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
+          cargo-tools-${{ runner.os }}-
+    - name: Install cargo-binstall
+      if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
+      uses: cargo-bins/cargo-binstall@main
+
+    - name: Add cargo bin to PATH
+      shell: bash
+      run: |
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Verify tools after cache restore
+      if: steps.cargo-tools-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "📋 Verifying cached tools..."
+
+        # Check each tool based on what was requested
+        if echo "${{ inputs.tools }}" | grep -q "nextest"; then
+          if command -v cargo-nextest &> /dev/null; then
+            echo "✅ cargo-nextest available from cache ($(cargo-nextest --version | head -n1))"
+          else
+            echo "⚠️ cargo-nextest not found in cache"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "sqlx-cli"; then
+          if command -v sqlx &> /dev/null; then
+            echo "✅ sqlx-cli available from cache ($(sqlx --version))"
+          else
+            echo "⚠️ sqlx-cli not found in cache"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "audit"; then
+          if command -v cargo-audit &> /dev/null; then
+            echo "✅ cargo-audit available from cache ($(cargo-audit --version))"
+          else
+            echo "⚠️ cargo-audit not found in cache"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
+          if command -v cargo-llvm-cov &> /dev/null; then
+            echo "✅ cargo-llvm-cov available from cache ($(cargo-llvm-cov --version))"
+          else
+            echo "⚠️ cargo-llvm-cov not found in cache"
+          fi
+        fi
+
+    - name: Install requested tools
+      if: steps.cargo-tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        echo "🔧 Installing tools: ${{ inputs.tools }}"
+
+        # Install tools using proven working commands with existence checks
+        if echo "${{ inputs.tools }}" | grep -q "nextest"; then
+          if command -v cargo-nextest &> /dev/null; then
+            echo "✅ cargo-nextest already installed ($(cargo-nextest --version | head -n1))"
+          else
+            echo "Installing cargo-nextest with binstall --secure..."
+            if ! cargo binstall cargo-nextest --secure -y; then
+              echo "❌ Failed to install cargo-nextest"
+              exit 1
+            fi
+            echo "✅ cargo-nextest installed successfully"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "sqlx-cli"; then
+          if command -v sqlx &> /dev/null; then
+            echo "✅ sqlx-cli already installed ($(sqlx --version))"
+          else
+            echo "Installing sqlx-cli with cargo install..."
+            if ! cargo install sqlx-cli --no-default-features --features native-tls,postgres; then
+              echo "❌ Failed to install sqlx-cli"
+              exit 1
+            fi
+            echo "✅ sqlx-cli installed successfully"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "audit"; then
+          if command -v cargo-audit &> /dev/null; then
+            echo "✅ cargo-audit already installed ($(cargo-audit --version))"
+          else
+            echo "Installing cargo-audit with cargo install --locked..."
+            if ! cargo install cargo-audit --locked; then
+              echo "❌ Failed to install cargo-audit"
+              exit 1
+            fi
+            echo "✅ cargo-audit installed successfully"
+          fi
+        fi
+
+        if echo "${{ inputs.tools }}" | grep -q "llvm-cov"; then
+          if command -v cargo-llvm-cov &> /dev/null; then
+            echo "✅ cargo-llvm-cov already installed ($(cargo-llvm-cov --version))"
+          else
+            echo "Installing cargo-llvm-cov with binstall..."
+            if ! cargo binstall cargo-llvm-cov -y; then
+              echo "❌ Failed to install cargo-llvm-cov"
+              exit 1
+            fi
+            echo "✅ cargo-llvm-cov installed successfully"
+          fi
+        fi
+
+        echo "✅ All tool installations complete"
+
+    - name: Display installed tools
+      shell: bash
+      run: |
+        echo "📋 Installed tool versions:"
+        if command -v cargo-nextest &> /dev/null; then
+          echo "- cargo-nextest: $(cargo nextest --version | head -n1)"
+        fi
+        if command -v sqlx &> /dev/null; then
+          echo "- sqlx-cli: $(sqlx --version)"
+        fi
+        if command -v cargo-audit &> /dev/null; then
+          echo "- cargo-audit: $(cargo audit --version)"
+        fi
+        if command -v cargo-llvm-cov &> /dev/null; then
+          echo "- cargo-llvm-cov: $(cargo llvm-cov --version)"
+        fi

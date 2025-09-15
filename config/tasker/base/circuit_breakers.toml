@@ -16,3 +16,8 @@ success_threshold = 2
 failure_threshold = 3
 timeout_seconds = 15
 success_threshold = 2
+
+[circuit_breakers.component_configs.task_readiness]
+failure_threshold = 5
+timeout_seconds = 30
+success_threshold = 2

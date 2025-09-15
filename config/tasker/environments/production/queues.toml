@@ -1,0 +1,10 @@
+# Production Environment Queue Configuration Overrides
+# Production-specific backend settings for PGMQ
+[queues.pgmq]
+poll_interval_ms = 500
+shutdown_timeout_seconds = 60
+max_retries = 5
+
+# Override universal queue settings for production
+default_visibility_timeout_seconds = 300
+default_batch_size = 20

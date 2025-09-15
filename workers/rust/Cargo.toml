@@ -1,0 +1,45 @@
+[package]
+name = "tasker-worker-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust worker demonstration for tasker-worker foundation"
+
+[lib]
+name = "tasker_worker_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-worker"
+path = "src/main.rs"
+
+[dependencies]
+# Error handling and utilities
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+num-bigint = { version = "0.4.6", features = ["rand", "serde"] }
+once_cell = { workspace = true }
+rand = { workspace = true }
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+tasker-core = { path = "../../", package = "tasker-core" }
+tasker-shared = { path = "../../tasker-shared" }
+# Core tasker dependencies
+tasker-worker = { path = "../../tasker-worker" }
+thiserror = { workspace = true }
+# Async runtime and utilities
+tokio = { workspace = true }
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# Other utilities
+uuid = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+tasker-orchestration = { path = "../../tasker-orchestration" }
+# Testing utilities
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,5 +1,5 @@
 # TaskTemplate Configuration
-# 
+#
 # This TaskTemplate uses the new self-describing structure for workflow configuration.
 # Compatible with both Ruby and Rust parsers.
 #
@@ -17,14 +17,14 @@ description: Linear workflow for integration testing with sequential dependencie
 metadata:
   author: TaskerCore Migration Tool
   tags:
-  - namespace:integration
-  - pattern:linear
-  - dependencies:simple
-  - environments:configured
-  - migrated:handler-configuration
+    - namespace:integration
+    - pattern:linear
+    - dependencies:simple
+    - environments:configured
+    - migrated:handler-configuration
   documentation_url:
-  created_at: '2025-08-17T20:18:41Z'
-  updated_at: '2025-08-17T20:18:41Z'
+  created_at: "2025-08-17T20:18:41Z"
+  updated_at: "2025-08-17T20:18:41Z"
 task_handler:
   callable: IntegrationTest::LinearWorkflowHandler
   initialization: {}
@@ -38,111 +38,111 @@ input_schema:
     workflow_type:
       type: string
       enum:
-      - linear
+        - linear
     test:
       type: string
 steps:
-- name: step_a
-  description: First step in linear workflow
-  handler:
-    callable: IntegrationTest::StepHandler::StepAHandler
-    initialization:
-      action: initialize
-      test_mode: true
-  system_dependency:
-  dependencies: []
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
-- name: step_b
-  description: Second step, depends on A
-  handler:
-    callable: IntegrationTest::StepHandler::StepBHandler
-    initialization:
-      action: process
-      test_mode: true
-  system_dependency:
-  dependencies:
-  - step_a
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
-- name: step_c
-  description: Third step, depends on B
-  handler:
-    callable: IntegrationTest::StepHandler::StepCHandler
-    initialization:
-      action: validate
-      test_mode: true
-  system_dependency:
-  dependencies:
-  - step_b
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
-- name: step_d
-  description: Fourth step, depends on C
-  handler:
-    callable: IntegrationTest::StepHandler::StepDHandler
-    initialization:
-      action: finalize
-      test_mode: true
-  system_dependency:
-  dependencies:
-  - step_c
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
+  - name: step_a
+    description: First step in linear workflow
+    handler:
+      callable: IntegrationTest::StepHandler::StepAHandler
+      initialization:
+        action: initialize
+        test_mode: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: step_b
+    description: Second step, depends on A
+    handler:
+      callable: IntegrationTest::StepHandler::StepBHandler
+      initialization:
+        action: process
+        test_mode: true
+    system_dependency:
+    dependencies:
+      - step_a
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: step_c
+    description: Third step, depends on B
+    handler:
+      callable: IntegrationTest::StepHandler::StepCHandler
+      initialization:
+        action: validate
+        test_mode: true
+    system_dependency:
+    dependencies:
+      - step_b
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
+  - name: step_d
+    description: Fourth step, depends on C
+    handler:
+      callable: IntegrationTest::StepHandler::StepDHandler
+      initialization:
+        action: finalize
+        test_mode: true
+    system_dependency:
+    dependencies:
+      - step_c
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
 environments:
   test:
     task_handler:
     steps:
-    - name: step_a
-      handler:
-        initialization:
-          debug_mode: true
-          timeout_ms: 1000
-      timeout_seconds:
-      retry:
-    - name: step_b
-      handler:
-        initialization:
-          debug_mode: true
-          timeout_ms: 1000
-      timeout_seconds:
-      retry:
-    - name: step_c
-      handler:
-        initialization:
-          debug_mode: true
-          timeout_ms: 1000
-      timeout_seconds:
-      retry:
-    - name: step_d
-      handler:
-        initialization:
-          debug_mode: true
-          timeout_ms: 1000
-      timeout_seconds:
-      retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/integration/linear_workflow/1.0.0.yaml"
+      - name: step_a
+        handler:
+          initialization:
+            debug_mode: true
+            timeout_ms: 1000
+        timeout_seconds:
+        retry:
+      - name: step_b
+        handler:
+          initialization:
+            debug_mode: true
+            timeout_ms: 1000
+        timeout_seconds:
+        retry:
+      - name: step_c
+        handler:
+          initialization:
+            debug_mode: true
+            timeout_ms: 1000
+        timeout_seconds:
+        retry:
+      - name: step_d
+        handler:
+          initialization:
+            debug_mode: true
+            timeout_ms: 1000
+        timeout_seconds:
+        retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/integration/linear_workflow/1.0.0.yaml"

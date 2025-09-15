@@ -1,0 +1,298 @@
+use super::{
+    actions::{
+        ErrorStateCleanupAction, PublishTransitionEventAction, StateAction,
+        TriggerStepDiscoveryAction, UpdateStepResultsAction,
+    },
+    errors::{StateMachineError, StateMachineResult},
+    events::StepEvent,
+    guards::{StateGuard, StepCanBeRetriedGuard, StepDependenciesMetGuard, StepNotInProgressGuard},
+    persistence::{StepTransitionPersistence, TransitionPersistence},
+    states::WorkflowStepState,
+};
+use crate::events::publisher::EventPublisher;
+use crate::models::WorkflowStep;
+use crate::system_context::SystemContext;
+use sqlx::PgPool;
+use std::sync::Arc;
+
+/// Thread-safe workflow step state machine for individual step management
+#[derive(Clone)]
+pub struct StepStateMachine {
+    step: WorkflowStep,
+    pool: PgPool,
+    event_publisher: Arc<EventPublisher>,
+    persistence: StepTransitionPersistence,
+}
+
+impl StepStateMachine {
+    /// Create a new step state machine instance
+    pub fn new(step: WorkflowStep, system_context: Arc<SystemContext>) -> Self {
+        let pool = system_context.database_pool().clone();
+        let event_publisher = system_context.event_publisher.clone();
+        let persistence = StepTransitionPersistence;
+        Self {
+            step,
+            pool,
+            event_publisher,
+            persistence,
+        }
+    }
+
+    /// Get the current state of the step
+    pub async fn current_state(&self) -> StateMachineResult<WorkflowStepState> {
+        match self
+            .persistence
+            .resolve_current_state(self.step.workflow_step_uuid, &self.pool)
+            .await?
+        {
+            Some(state_str) => state_str.parse().map_err(|_| {
+                StateMachineError::Internal(format!("Invalid state in database: {state_str}"))
+            }),
+            None => Ok(WorkflowStepState::default()), // No transitions yet, return default state
+        }
+    }
+
+    /// Attempt to transition the step state
+    pub async fn transition(&mut self, event: StepEvent) -> StateMachineResult<WorkflowStepState> {
+        let current_state = self.current_state().await?;
+        let target_state = self.determine_target_state_internal(current_state, &event)?;
+
+        // Check guards
+        self.check_guards(current_state, target_state, &event)
+            .await?;
+
+        // Persist the transition
+        let event_str = serde_json::to_string(&event)?;
+        self.persistence
+            .persist_transition(
+                &self.step,
+                Some(current_state.to_string()),
+                target_state.to_string(),
+                &event_str,
+                None,
+                &self.pool,
+            )
+            .await?;
+
+        // Execute actions
+        self.execute_actions(current_state, target_state, &event_str)
+            .await?;
+
+        Ok(target_state)
+    }
+
+    /// Determine the target state based on current state and event (for testing)
+    /// This method is exposed for integration testing purposes
+    pub fn determine_target_state(
+        &self,
+        current_state: WorkflowStepState,
+        event: &StepEvent,
+    ) -> StateMachineResult<WorkflowStepState> {
+        self.determine_target_state_internal(current_state, event)
+    }
+
+    /// Determine the target state based on current state and event (internal implementation)
+    fn determine_target_state_internal(
+        &self,
+        current_state: WorkflowStepState,
+        event: &StepEvent,
+    ) -> StateMachineResult<WorkflowStepState> {
+        let target = match (current_state, event) {
+            // TAS-32: Enqueue transitions (pending → enqueued)
+            (WorkflowStepState::Pending, StepEvent::Enqueue) => WorkflowStepState::Enqueued,
+
+            // TAS-32: Start transitions (enqueued → in_progress)
+            (WorkflowStepState::Enqueued, StepEvent::Start) => WorkflowStepState::InProgress,
+            // Legacy: Support pending → in_progress for backward compatibility during transition
+            (WorkflowStepState::Pending, StepEvent::Start) => WorkflowStepState::InProgress,
+
+            // TAS-41: EnqueuedForOrchestration transitions
+            // Worker completes step and enqueues for orchestration
+            (WorkflowStepState::InProgress, StepEvent::EnqueueForOrchestration(_)) => {
+                WorkflowStepState::EnqueuedForOrchestration
+            }
+
+            // TAS-41: EnqueuedAsErrorForOrchestration transitions
+            // Worker fails step and enqueues for orchestration error processing
+            (WorkflowStepState::InProgress, StepEvent::EnqueueAsErrorForOrchestration(_)) => {
+                WorkflowStepState::EnqueuedAsErrorForOrchestration
+            }
+
+            // Orchestration processes and completes
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Complete(_)) => {
+                WorkflowStepState::Complete
+            }
+
+            // Orchestration processes and fails
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Fail(_)) => {
+                WorkflowStepState::Error
+            }
+
+            // Orchestration processes error notification
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Fail(_)) => {
+                WorkflowStepState::Error
+            }
+
+            // Allow for error recovery if orchestration determines step actually succeeded
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Complete(_)) => {
+                WorkflowStepState::Complete
+            }
+
+            // Complete transitions (legacy direct path, should eventually be removed)
+            (WorkflowStepState::InProgress, StepEvent::Complete(_)) => WorkflowStepState::Complete,
+
+            // Failure transitions
+            (WorkflowStepState::InProgress, StepEvent::Fail(_)) => WorkflowStepState::Error,
+            (WorkflowStepState::Pending, StepEvent::Fail(_)) => WorkflowStepState::Error,
+            (WorkflowStepState::Enqueued, StepEvent::Fail(_)) => WorkflowStepState::Error,
+
+            // Cancel transitions
+            (WorkflowStepState::Pending, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+            (WorkflowStepState::Enqueued, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+            (WorkflowStepState::InProgress, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+            (WorkflowStepState::EnqueuedForOrchestration, StepEvent::Cancel) => {
+                WorkflowStepState::Cancelled
+            }
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::Cancel) => {
+                WorkflowStepState::Cancelled
+            }
+            (WorkflowStepState::Error, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+
+            // Retry transitions (from error state back to pending)
+            (WorkflowStepState::Error, StepEvent::Retry) => WorkflowStepState::Pending,
+
+            // Manual resolution
+            (_, StepEvent::ResolveManually) => WorkflowStepState::ResolvedManually,
+
+            // Invalid transitions
+            (from_state, _) => {
+                return Err(StateMachineError::InvalidTransition {
+                    from: Some(from_state.to_string()),
+                    to: format!("{event:?}"),
+                })
+            }
+        };
+
+        Ok(target)
+    }
+
+    /// Check guard conditions for the transition
+    async fn check_guards(
+        &self,
+        current_state: WorkflowStepState,
+        target_state: WorkflowStepState,
+        event: &StepEvent,
+    ) -> StateMachineResult<()> {
+        match (current_state, target_state, event) {
+            // TAS-32: Check dependencies satisfied before step enqueue
+            (WorkflowStepState::Pending, WorkflowStepState::Enqueued, StepEvent::Enqueue) => {
+                let guard = StepDependenciesMetGuard;
+                guard.check(&self.step, &self.pool).await?;
+
+                let guard = StepNotInProgressGuard;
+                guard.check(&self.step, &self.pool).await?;
+            }
+
+            // TAS-32: Check step is enqueued before starting (workers should claim enqueued steps)
+            (WorkflowStepState::Enqueued, WorkflowStepState::InProgress, StepEvent::Start) => {
+                let guard = StepNotInProgressGuard;
+                guard.check(&self.step, &self.pool).await?;
+            }
+
+            // Legacy: Check dependencies satisfied before step start (backward compatibility)
+            (WorkflowStepState::Pending, WorkflowStepState::InProgress, StepEvent::Start) => {
+                let guard = StepDependenciesMetGuard;
+                guard.check(&self.step, &self.pool).await?;
+
+                let guard = StepNotInProgressGuard;
+                guard.check(&self.step, &self.pool).await?;
+            }
+
+            // Check step can be retried (must be in error)
+            (WorkflowStepState::Error, WorkflowStepState::Pending, StepEvent::Retry) => {
+                let guard = StepCanBeRetriedGuard;
+                guard.check(&self.step, &self.pool).await?;
+            }
+
+            // No special guards for other transitions
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Execute actions after successful transition
+    async fn execute_actions(
+        &self,
+        from_state: WorkflowStepState,
+        to_state: WorkflowStepState,
+        event: &str,
+    ) -> StateMachineResult<()> {
+        let actions: Vec<Box<dyn StateAction<WorkflowStep> + Send + Sync>> = vec![
+            Box::new(PublishTransitionEventAction::new(
+                self.event_publisher.clone(),
+            )),
+            Box::new(UpdateStepResultsAction),
+            Box::new(TriggerStepDiscoveryAction::new(
+                self.event_publisher.clone(),
+            )),
+            Box::new(ErrorStateCleanupAction),
+        ];
+
+        for action in actions {
+            action
+                .execute(
+                    &self.step,
+                    Some(from_state.to_string()),
+                    to_state.to_string(),
+                    event,
+                    &self.pool,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Check if the step is in a terminal state
+    pub async fn is_terminal(&self) -> StateMachineResult<bool> {
+        let current_state = self.current_state().await?;
+        Ok(current_state.is_terminal())
+    }
+
+    /// Check if the step is currently active (being processed)
+    pub async fn is_active(&self) -> StateMachineResult<bool> {
+        let current_state = self.current_state().await?;
+        Ok(current_state.is_active())
+    }
+
+    /// Check if the step satisfies dependencies for other steps
+    pub async fn satisfies_dependencies(&self) -> StateMachineResult<bool> {
+        let current_state = self.current_state().await?;
+        Ok(current_state.satisfies_dependencies())
+    }
+
+    /// Get step information
+    pub fn step(&self) -> &WorkflowStep {
+        &self.step
+    }
+
+    /// Get step ID
+    pub fn step_uuid(&self) -> uuid::Uuid {
+        self.step.workflow_step_uuid
+    }
+
+    /// Get associated task ID
+    pub fn task_uuid(&self) -> uuid::Uuid {
+        self.step.task_uuid
+    }
+
+    /// Check if step has exceeded retry limit
+    pub fn has_exceeded_retry_limit(&self) -> bool {
+        if let (Some(attempts), Some(limit)) = (self.step.attempts, self.step.retry_limit) {
+            attempts >= limit
+        } else {
+            false
+        }
+    }
+}

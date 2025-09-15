@@ -1,18 +1,15 @@
 [orchestration]
-tasks_per_cycle = 20
-cycle_interval_ms = 500
-task_request_polling_interval_ms = 500
-task_request_visibility_timeout_seconds = 600
-task_request_batch_size = 25
-max_concurrent_orchestrators = 5
+mode = "distributed"
 enable_performance_logging = false
-default_claim_timeout_seconds = 600
-active_namespaces = [ "fulfillment", "inventory", "notifications", "payments", "analytics", "reporting", "audit", "integration",]
+active_namespaces = [
+    "diamond_workflow",
+    "mixed_dag_workflow",
+    "order_fulfillment",
+    "linear_workflow",
+    "tree_workflow",
+]
 heartbeat_interval_ms = 10000
 
-[orchestration.embedded_orchestrator]
-auto_start = false
-shutdown_timeout_seconds = 120
 
 [orchestration.queues.settings]
 visibility_timeout_seconds = 300

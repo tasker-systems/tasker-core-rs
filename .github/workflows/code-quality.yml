@@ -1,0 +1,58 @@
+name: Code Quality
+
+on:
+  workflow_call:
+    inputs:
+      postgres-image:
+        required: true
+        type: string
+
+jobs:
+  quality:
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: tasker
+          POSTGRES_PASSWORD: tasker
+          POSTGRES_DB: tasker_rust_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      # Temporarily disabled due to GitHub Actions cache service issues
+      # - uses: mozilla-actions/sccache-action@v0.0.4
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Install tools
+        uses: ./.github/actions/install-tools
+        with:
+          tools: "sqlx-cli audit"
+
+      - name: Setup database
+        run: sqlx migrate run
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Security audit
+        run: cargo audit
+
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items

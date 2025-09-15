@@ -1,0 +1,73 @@
+# TAS-43 Worker Configuration for Test Environment
+# Test-specific overrides for event-driven processing and deployment modes
+
+[worker]
+# Test environment worker identification
+worker_id = "test-worker-001"
+worker_type = "test"
+
+# TAS-43 Event-Driven Processing - Test Configuration
+[worker.event_driven]
+# Enable event-driven processing for comprehensive testing
+enabled = true
+# Use Hybrid mode for comprehensive testing coverage
+deployment_mode = "Hybrid"
+# More frequent health checks for faster test feedback
+health_check_interval_seconds = 10
+
+# TAS-43 Event-Driven Listener - Test Configuration
+[worker.listener]
+# Shorter retry intervals for faster test execution
+retry_interval_seconds = 1
+max_retry_attempts = 2
+event_timeout_seconds = 10
+health_check_interval_seconds = 20
+batch_processing = true
+connection_timeout_seconds = 5
+
+# TAS-43 Fallback Poller - Test Configuration
+[worker.fallback_poller]
+enabled = true
+# Faster polling for test responsiveness
+polling_interval_ms = 100
+batch_size = 5
+age_threshold_seconds = 1
+max_age_hours = 1
+visibility_timeout_seconds = 10
+
+# Event system configuration has been moved to config/tasker/base/event_systems.toml
+# Test environment overrides can be added in config/tasker/environments/test/event_systems.toml
+
+# Step processing - Test Configuration
+[worker.step_processing]
+# Shorter timeouts for faster test execution
+claim_timeout_seconds = 60
+max_retries = 2
+retry_backoff_multiplier = 1.5
+heartbeat_interval_seconds = 10
+max_concurrent_steps = 20
+
+# Health monitoring - Test Configuration
+[worker.health_monitoring]
+# More frequent health checks for test environments
+health_check_interval_seconds = 5
+metrics_collection_enabled = true
+performance_monitoring_enabled = true
+step_processing_rate_threshold = 5.0
+error_rate_threshold = 0.1
+memory_usage_threshold_mb = 512
+
+# Resource limits - Test Configuration
+[worker.resource_limits]
+# Lower resource limits for test environments
+max_memory_mb = 1024
+max_cpu_percent = 60
+max_database_connections = 20
+max_queue_connections = 10
+
+# Queue configuration - Test Configuration
+[worker.queue_config]
+# Faster processing for test environments
+visibility_timeout_seconds = 10
+batch_size = 5
+polling_interval_ms = 50

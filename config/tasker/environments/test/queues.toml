@@ -1,0 +1,11 @@
+# Test Environment Queue Configuration Overrides
+
+# Test-specific backend settings for PGMQ (fast testing)
+[queues.pgmq]
+poll_interval_ms = 100
+shutdown_timeout_seconds = 2
+max_retries = 1
+
+# Override universal queue settings for test
+default_visibility_timeout_seconds = 10
+default_batch_size = 1

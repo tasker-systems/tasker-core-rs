@@ -1,5 +1,5 @@
 # TaskTemplate Configuration (Migrated)
-# 
+#
 # This file has been automatically migrated from the legacy HandlerConfiguration
 # format to the new self-describing TaskTemplate format.
 #
@@ -29,14 +29,14 @@ description: Simple workflow for testing step creation functionality
 metadata:
   author: TaskerCore Migration Tool
   tags:
-  - namespace:test
-  - pattern:single-step
-  - dependencies:none
-  - environments:configured
-  - migrated:handler-configuration
+    - namespace:test
+    - pattern:single-step
+    - dependencies:none
+    - environments:configured
+    - migrated:handler-configuration
   documentation_url:
-  created_at: '2025-08-17T20:18:41Z'
-  updated_at: '2025-08-17T20:18:41Z'
+  created_at: "2025-08-17T20:18:41Z"
+  updated_at: "2025-08-17T20:18:41Z"
 task_handler:
   callable: StepCreationTestHandler
   initialization: {}
@@ -50,34 +50,34 @@ input_schema:
     test:
       type: string
       enum:
-      - step_creation
+        - step_creation
 steps:
-- name: test_step
-  description: Test step for validation
-  handler:
-    callable: TestStepHandler
-    initialization:
-      action: test
-      validation: true
-  system_dependency:
-  dependencies: []
-  retry:
-    retryable: true
-    limit: 3
-    backoff: exponential
-    backoff_base_ms: 1000
-    max_backoff_ms: 30000
-  timeout_seconds: 30
-  publishes_events: []
+  - name: test_step
+    description: Test step for validation
+    handler:
+      callable: TestStepHandler
+      initialization:
+        action: test
+        validation: true
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      limit: 3
+      backoff: exponential
+      backoff_base_ms: 1000
+      max_backoff_ms: 30000
+    timeout_seconds: 30
+    publishes_events: []
 environments:
   test:
     task_handler:
     steps:
-    - name: test_step
-      handler:
-        initialization:
-          debug_mode: true
-          timeout_ms: 5000
-      timeout_seconds:
-      retry:
-loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core-rs/config/tasks/test/step_creation_test/1.0.0.yaml"
+      - name: test_step
+        handler:
+          initialization:
+            debug_mode: true
+            timeout_ms: 5000
+        timeout_seconds:
+        retry:
+loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/config/tasks/test/step_creation_test/1.0.0.yaml"

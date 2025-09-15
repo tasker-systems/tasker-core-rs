@@ -1,0 +1,108 @@
+[package]
+name = "tasker-orchestration"
+version = "0.1.0"
+edition = "2021"
+description = "Orchestration system for tasker workflow coordination"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+name = "tasker_orchestration"
+
+# Binary targets
+[[bin]]
+name = "tasker-server"
+path = "src/bin/server.rs"
+required-features = ["web-api"]
+
+[[bench]]
+harness = false
+name = "orchestration_benchmarks"
+required-features = ["benchmarks"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+# Web framework and HTTP server (TAS-28)
+axum = { workspace = true, optional = true }
+axum-extra = { workspace = true, optional = true }
+bigdecimal = { workspace = true }
+# Time and date handling
+chrono = { workspace = true }
+# Configuration
+config = { workspace = true }
+# Development and testing
+criterion = { workspace = true, optional = true }
+# dashmap = { workspace = true }
+crossbeam = { workspace = true }
+dotenvy = { workspace = true }  # For loading .env files
+# Random number generation
+fastrand = { workspace = true }
+futures = { workspace = true }
+jsonwebtoken = { workspace = true, optional = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+# Concurrency and state management
+parking_lot = { workspace = true }
+pgmq = { workspace = true }
+pgmq-notify = { path = "../pgmq-notify" }
+rand = { workspace = true }
+regex = { workspace = true }
+# Web API testing and API Integration
+reqwest = { workspace = true }
+rsa = { workspace = true, optional = true }
+rust_decimal = { workspace = true }
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+# Database and ORM
+sqlx = { workspace = true }
+# System information
+sysinfo = { workspace = true }
+tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }
+# Error handling
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+# Logging and telemetry
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# OpenAPI documentation
+utoipa = { workspace = true, optional = true }
+utoipa-swagger-ui = { workspace = true, optional = true }
+uuid = { workspace = true }
+workspace_tools = { workspace = true }
+
+[dev-dependencies]
+# Coverage tools (used in CI)
+cargo-llvm-cov = { workspace = true }
+factori = { workspace = true }
+insta = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+serial_test = { workspace = true }
+tasker-core = { path = "../", package = "tasker-core" }
+tempfile = { workspace = true }
+# Testing tools
+tokio-test = { workspace = true }
+url = { workspace = true }
+
+[features]
+default = ["postgres", "test-utils", "web-api"]
+benchmarks = ["criterion"]
+postgres = ["sqlx/postgres"]
+test-utils = []
+web-api = [
+  "axum",
+  "axum-extra",
+  "jsonwebtoken",
+  "rsa",
+  "tower",
+  "tower-http",
+  "utoipa",
+  "utoipa-swagger-ui",
+]
+

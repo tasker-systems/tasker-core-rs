@@ -8,6 +8,7 @@ username = "tasker"
 password = "tasker"
 checkout_timeout = 10
 reaping_frequency = 10
+skip_migration_check = false
 
 [database.pool]
 max_connections = 30

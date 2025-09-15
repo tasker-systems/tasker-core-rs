@@ -1,11 +1,39 @@
 [telemetry]
 enabled = false
-service_name = "tasker-core-rs"
+service_name = "tasker-core"
 sample_rate = 1.0
 
 [health]
 enabled = true
 check_interval_seconds = 60
+
+[health.alert_thresholds]
+error_rate = 0.05
+queue_depth = 1000.0
+
+# TAS-41: Per-state metrics tracking
+[health.task_state_metrics]
+# Enable tracking of task counts per state
+enable_per_state_tracking = true
+# Track time spent in each state
+track_time_in_state = true
+# States to track individually (all TAS-41 states)
+tracked_states = [
+  "pending",
+  "initializing",
+  "enqueuing_steps",
+  "steps_in_process",
+  "evaluating_results",
+  "waiting_for_dependencies",
+  "waiting_for_retry",
+  "blocked_by_failures",
+  "complete",
+  "error",
+  "cancelled",
+  "resolved_manually",
+]
+# Alert thresholds per state
+state_alert_thresholds = { blocked_by_failures = 10, waiting_for_retry = 50 }
 
 [events]
 batch_size = 100
@@ -21,10 +49,6 @@ max_size = 10000
 enabled = true
 cleanup_interval_seconds = 300
 memory_pressure_threshold = 0.8
-
-[health.alert_thresholds]
-error_rate = 0.05
-queue_depth = 1000.0
 
 [query_cache.active_workers]
 ttl_seconds = 30

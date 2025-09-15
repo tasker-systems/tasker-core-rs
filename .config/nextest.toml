@@ -1,0 +1,21 @@
+[profile.default]
+retries = 0
+leak-timeout = { period = "500ms", result = "fail" }
+fail-fast = false
+
+[profile.ci]
+# CI-specific settings
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 2 }
+test-threads = "num-cpus"
+status-level = "pass"
+final-status-level = "slow"
+
+# Archive settings for test result uploads
+[profile.ci.junit]
+path = "target/nextest/ci/junit.xml"
+
+[profile.local]
+# Local development settings
+fail-fast = true
+status-level = "retry"

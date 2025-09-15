@@ -1,0 +1,140 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                total_tasks as \"total_tasks!: i64\",\n                pending_tasks as \"pending_tasks!: i64\",\n                initializing_tasks as \"initializing_tasks!: i64\",\n                enqueuing_steps_tasks as \"enqueuing_steps_tasks!: i64\",\n                steps_in_process_tasks as \"steps_in_process_tasks!: i64\",\n                evaluating_results_tasks as \"evaluating_results_tasks!: i64\",\n                waiting_for_dependencies_tasks as \"waiting_for_dependencies_tasks!: i64\",\n                waiting_for_retry_tasks as \"waiting_for_retry_tasks!: i64\",\n                blocked_by_failures_tasks as \"blocked_by_failures_tasks!: i64\",\n                complete_tasks as \"complete_tasks!: i64\",\n                error_tasks as \"error_tasks!: i64\",\n                cancelled_tasks as \"cancelled_tasks!: i64\",\n                resolved_manually_tasks as \"resolved_manually_tasks!: i64\",\n                total_steps as \"total_steps!: i64\",\n                pending_steps as \"pending_steps!: i64\",\n                enqueued_steps as \"enqueued_steps!: i64\",\n                running_steps as \"running_steps!: i64\",\n                complete_steps as \"complete_steps!: i64\",\n                cancelled_steps as \"cancelled_steps!: i64\",\n                failed_steps as \"failed_steps!: i64\",\n                resolved_manually_steps as \"resolved_manually_steps!: i64\"\n            FROM get_system_health_counts()\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pending_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "initializing_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "enqueuing_steps_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "steps_in_process_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "evaluating_results_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "waiting_for_dependencies_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "waiting_for_retry_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "blocked_by_failures_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "complete_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "cancelled_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "resolved_manually_tasks!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "total_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "pending_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "enqueued_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "running_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "complete_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 18,
+        "name": "cancelled_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 19,
+        "name": "failed_steps!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "resolved_manually_steps!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7ee571dcb03267dfe0798cba104693ee71ccb246b88f64b4402b0a151b68ca3f"
+}

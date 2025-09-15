@@ -1,141 +1,98 @@
-#![allow(clippy::doc_markdown)] // Allow technical terms like PostgreSQL, SQLx in docs
-#![allow(clippy::missing_errors_doc)] // Allow public functions without # Errors sections
-#![allow(clippy::must_use_candidate)] // Allow methods without must_use when context is clear
-
-//! # Tasker Core Rust
+//! # Tasker Core
 //!
-//! High-performance Rust implementation of the core workflow orchestration engine.
+//! **Tasker Core** provides essential testing infrastructure and database utilities
+//! for the Tasker workflow orchestration system. This crate is primarily focused on
+//! integration testing support and shared testing utilities across the Tasker ecosystem.
 //!
-//! ## Overview
+//! ## Features
 //!
-//! Tasker Core Rust is designed to complement the existing Ruby on Rails **Tasker** engine,
-//! leveraging Rust's memory safety, fearless parallelism, and performance characteristics
-//! to handle computationally intensive workflow orchestration, dependency resolution,
-//! and state management operations.
-//!
-//! ## Architecture
-//!
-//! The core implements a **step handler foundation** where Rust provides the complete
-//! step handler base class that frameworks (Rails, Python, Node.js) extend through
-//! subclassing with `process()` and `process_results()` hooks.
-//!
-//! ## Key Features
-//!
-//! - **Complete Model Layer**: All 18+ Rails models migrated with 100% schema parity
-//! - **High-Performance Queries**: Rails-equivalent scopes with compile-time verification
-//! - **SQL Function Integration**: Direct PostgreSQL function integration for complex operations
-//! - **Memory Safety**: Zero memory leaks with Rust's ownership model
-//! - **Type Safety**: Compile-time prevention of SQL injection and type mismatches
-//! - **SQLx Native Testing**: Automatic database isolation per test (114+ tests)
-//!
-//! ## Module Organization
-//!
-//! - [`models`] - Complete data layer with all Rails models
-//! - [`database`] - SQL function execution and database operations
-//! - [`state_machine`] - Task and step state management
-//! - [`config`] - Configuration management
-//! - [`error`] - Structured error handling
-//! - [`events`] - Event system foundation
-//! - [`orchestration`] - Workflow orchestration logic
-//! - [`messaging`] - PostgreSQL message queue (pgmq) integration
-//! - [`registry`] - Component registration and discovery
-//! - [`ffi`] - Multi-language FFI bindings
-//! - [`resilience`] - Circuit breaker patterns and fault tolerance
-//! - [`web`] - REST API server (optional, requires `web-api` feature)
-//!
-//! ## Performance Targets
-//!
-//! - **10-100x faster** than Ruby/Rails equivalents
-//! - **Sub-millisecond** atomic state changes
-//! - **Memory-safe parallelism** with better resource utilization
-//! - **Zero-cost abstractions** where possible
+//! - **Database Testing**: Simplified PostgreSQL test database setup and management
+//! - **Integration Testing**: Comprehensive integration test infrastructure with Docker support
+//! - **Environment Management**: Test environment configuration and validation
+//! - **Migration Support**: Database schema migrations for testing scenarios
 //!
 //! ## Quick Start
 //!
-//! ```rust
-//! use tasker_core::TaskerConfig;
+//! The most common use case is setting up a test database for integration tests:
 //!
-//! // Initialize configuration for tasker-core-rs
-//! let config = TaskerConfig::default();
+//! ```ignore
+//! use tasker_core::{setup_test_db, setup_test_environment};
+//! use sqlx::PgPool;
 //!
-//! // Configuration provides database settings
-//! assert_eq!(config.database.enable_secondary_database, false);
-//! assert_eq!(config.execution.max_concurrent_tasks, 100);
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Set up test environment and get database pool
+//! setup_test_environment();
+//! let pool: PgPool = setup_test_db().await;
 //!
-//! // For complete database integration examples, see tests/models/ directory
+//! // Use pool for testing...
+//! let row: (i32,) = sqlx::query_as("SELECT 1")
+//!     .fetch_one(&pool)
+//!     .await?;
+//! assert_eq!(row.0, 1);
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! ## Integration
+//! ## Architecture
 //!
-//! This Rust core serves as the foundational step handler that frameworks extend.
-//! The Rails engine provides the web interface and developer ergonomics, while this
-//! Rust core handles all performance and safety-critical workflow orchestration logic.
+//! The crate is organized into focused modules:
 //!
-//! ## Testing
+//! - [`test_helpers`] - Core testing utilities and database setup
+//! - [`test_helpers::integration_test_manager`] - Docker-based integration testing
+//! - [`test_helpers::integration_test_utils`] - Task creation and workflow testing utilities
 //!
-//! The project uses SQLx native testing with automatic database isolation:
+//! ## Environment Variables
 //!
-//! ```bash
-//! cargo test --lib    # Unit tests
-//! cargo test          # All tests (114+ tests)
+//! The following environment variables control test behavior:
+//!
+//! - `DATABASE_URL` - PostgreSQL connection string for tests
+//! - `TASKER_ENV` - Environment name (test, development, production)
+//! - `TEST_ALLOW_DESTRUCTIVE` - Allow destructive test operations
+//!
+//! ## Examples
+//!
+//! ### Basic Database Testing
+//!
+//! ```ignore
+//! use tasker_core::{get_test_database_url, setup_test_db};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Get test database URL
+//! let db_url = get_test_database_url();
+//! println!("Testing with database: {}", db_url);
+//!
+//! // Create configured test database pool
+//! let pool = setup_test_db().await;
+//!
+//! // Pool is ready for testing...
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Integration Test Management
+//!
+//! ```ignore
+//! use tasker_core::test_helpers::{IntegrationTestManager, IntegrationConfig};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let config = IntegrationConfig {
+//!     orchestration_url: "http://localhost:8080".to_string(),
+//!     worker_url: Some("http://localhost:8081".to_string()),
+//!     skip_health_check: false,
+//!     health_timeout_seconds: 30,
+//!     health_retry_interval_seconds: 2,
+//! };
+//!
+//! let manager = IntegrationTestManager::setup_with_config(config).await?;
+//!
+//! // Use manager for comprehensive integration testing
+//! let orchestration_url = &manager.orchestration_url;
+//! # Ok(())
+//! # }
 //! ```
 
-// pub mod client; // Removed - legacy code superseded by src/ffi/shared
-pub mod config;
-pub mod constants;
-pub mod database;
-pub mod error;
-pub mod events;
-pub mod execution;
-pub mod ffi;
-pub mod logging;
-pub mod messaging;
-pub mod models;
-pub mod orchestration;
-pub mod registry;
-pub mod resilience;
-pub mod scopes;
-pub mod services;
-pub mod sql_functions;
-pub mod state_machine;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
-pub mod utils;
-pub mod validation;
-#[cfg(feature = "web-api")]
-pub mod web;
+pub mod test_helpers;
 
-pub use constants::events as system_events;
-pub use constants::{
-    status_groups, system, ExecutionStatus, HealthStatus, PendingReason, RecommendedAction,
-    ReenqueueReason, WorkflowEdgeType,
-};
-pub use database::{
-    AnalyticsMetrics, DependencyLevel, FunctionRegistry, SlowestStepAnalysis, SlowestTaskAnalysis,
-    SqlFunctionExecutor, StepReadinessStatus, SystemHealthCounts, TaskExecutionContext,
-};
-pub use error::{Result, TaskerError};
-// Execution types moved to messaging module for pgmq architecture
-// pub use execution::{
-//     StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult,
-// };
-pub use messaging::{
-    BatchMessage, BatchResultMessage, PgmqClient, PgmqStepMessage, PgmqStepMessageMetadata,
-    StepBatchRequest, StepBatchResponse, StepExecutionRequest, StepExecutionResult, StepMessage,
-    StepMessageMetadata, TaskRequestMessage,
-};
-pub use orchestration::{
-    BackoffConfig, DatabaseConfig, EventConfig, ExecutionConfig, ReenqueueDelays, TaskerConfig,
-    TelemetryConfig,
-};
-pub use registry::{
-    EventSubscriber, Plugin, PluginMetadata, PluginRegistry, PluginState, PluginStats,
-    SubscriberDetail, SubscriberRegistry, SubscriberStats, TaskHandlerRegistry,
-};
-
-#[cfg(feature = "web-api")]
-pub use web::{
-    create_app,
-    response_types::{ApiError, ApiResult},
-    state::{AppState, WebServerConfig},
+pub use test_helpers::{
+    get_test_database_url, setup_test_database_url, setup_test_db, setup_test_environment, MIGRATOR,
 };

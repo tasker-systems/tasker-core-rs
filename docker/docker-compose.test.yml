@@ -1,0 +1,116 @@
+# =============================================================================
+# Test Compose Configuration - Local Integration Testing
+# =============================================================================
+# Optimized for local development and testing:
+# - Fast debug builds with Dockerfile.test
+# - Always builds from local source (no cached images)
+# - Minimal resource usage
+# - Quick startup times
+#
+# Usage: docker-compose -f docker/compose/docker-compose.test.yml up --build
+
+services:
+  # ==========================================================================
+  # PostgreSQL Database with PGMQ Extension
+  # ==========================================================================
+  postgres:
+    build:
+      context: ..
+      dockerfile: docker/db/Dockerfile
+    environment:
+      POSTGRES_DB: tasker_rust_test
+      POSTGRES_USER: tasker
+      POSTGRES_PASSWORD: tasker
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasker -d tasker_rust_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tasker-test
+
+  # ==========================================================================
+  # Orchestration Service - Test Build with Centralized Dockerfile
+  # ==========================================================================
+  orchestration:
+    build:
+      context: ..
+      dockerfile: docker/build/orchestration.test.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
+      TASKER_ENV: test
+      RUST_LOG: info
+      RUST_BACKTRACE: 1
+      PORT: 8080
+      WORKSPACE_PATH: /app
+      TASKER_CONFIG_ROOT: /app/config
+      # Migration settings
+      RUN_MIGRATIONS: "true"
+      DEPLOYMENT_MODE: standard
+      SKIP_MIGRATION_PROMPT: "true"
+      DB_MIGRATION_RETRIES: "3"
+      DB_MIGRATION_RETRY_DELAY: "5"
+      DB_MIGRATION_TIMEOUT: "120"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../config/tasker:/app/config/tasker:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - tasker-test
+
+  # ==========================================================================
+  # Rust Worker Service - Test Build with Centralized Dockerfile
+  # ==========================================================================
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/build/rust-worker.test.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
+      TASKER_ENV: test
+      RUST_LOG: info
+      RUST_BACKTRACE: 1
+      WORKER_ID: test-worker-001
+      WORKSPACE_PATH: /app
+      TASKER_CONFIG_ROOT: /app/config
+      TASK_TEMPLATE_PATH: /app/task-templates
+      PORT: 8081
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../config/tasker:/app/config/tasker:ro
+      - ../workers/rust/config/tasks:/app/task-templates:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orchestration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - tasker-test
+
+volumes:
+  postgres_data:
+
+networks:
+  tasker-test:
+    driver: bridge
