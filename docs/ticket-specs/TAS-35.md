@@ -2042,7 +2042,7 @@ module TaskerCore
         # Try a simple operation to check health
         connection.exec('SELECT 1')
         true
-      rescue => e
+      rescue StandardError => e
         logger.error("PGMQ health check failed: #{e.message}")
         false
       end
@@ -2139,7 +2139,7 @@ module TaskerCore
         @channel.prefetch(@config[:prefetch_count] || 10)
 
         true
-      rescue => e
+      rescue StandardError => e
         logger.error("Failed to initialize RabbitMQ: #{e.message}")
         false
       end
@@ -3195,7 +3195,7 @@ class ProviderHealthCheck
       pgmq.create_queue('health_check_queue')
       pgmq.send_message('health_check_queue', {test: true})
       pgmq.delete_queue('health_check_queue')
-    rescue => e
+    rescue StandardError => e
       issues << "PGMQ unhealthy: #{e.message}"
     end
 
@@ -3206,7 +3206,7 @@ class ProviderHealthCheck
       )
       rabbit.initialize_service
       raise "RabbitMQ not healthy" unless rabbit.healthy?
-    rescue => e
+    rescue StandardError => e
       issues << "RabbitMQ unhealthy: #{e.message}"
     end
 

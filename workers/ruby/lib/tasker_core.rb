@@ -40,37 +40,13 @@ rescue LoadError => e
 end
 
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
-require_relative 'tasker_core/logging/logger'            # Logging system
-require_relative 'tasker_core/config'                    # Configuration management system
-# 🎯 NEW: Utility infrastructure
-require_relative 'tasker_core/utils/path_resolver' # Centralized path resolution
-require_relative 'tasker_core/utils/template_loader' # Centralized template loading
-require_relative 'tasker_core/utils/task_template_migrator' # TaskTemplate migration utility
-
-# 🎯 NEW: Internal infrastructure (hidden from public API)
-require_relative 'tasker_core/internal/orchestration_manager' # Singleton orchestration manager
-
-require_relative 'tasker_core/types'             # TaskerCore::Types - dry-struct types for validation
-require_relative 'tasker_core/handlers'          # TaskerCore::Handlers domain
-require_relative 'tasker_core/environment'       # TaskerCore::Environment domain
-require_relative 'tasker_core/orchestration'     # TaskerCore::Orchestration domain
-require_relative 'tasker_core/execution'         # TaskerCore::Execution - step sequence and processing
-
-# 🎯 NEW: pgmq-based messaging and database access (replaces FFI performance and embedded server)
-require_relative 'tasker_core/messaging'         # TaskerCore::Messaging - pgmq client and queue workers
-require_relative 'tasker_core/database'          # TaskerCore::Database - SQL function access
-require_relative 'tasker_core/state_machine'     # TaskerCore::StateMachine - state machine for task execution
-require_relative 'tasker_core/registry'          # TaskerCore::Registry - database-backed step handler registry
-
-# Boot sequence manager (loads after all dependencies)
-require_relative 'tasker_core/boot' # Boot sequence manager
-
-# Core systems - required for domain APIs to function
-require_relative 'tasker_core/step_handler/base' # StepHandler::Base (used by Handlers domain)
-require_relative 'tasker_core/step_handler/api'  # StepHandler::API (used by Handlers domain)
-require_relative 'tasker_core/task_handler/base' # TaskHandler::Base (used by Handlers domain)
-require_relative 'tasker_core/errors' # Errors for TaskerCore
-require_relative 'tasker_core/embedded_orchestrator' # Embedded orchestration for testing
+require_relative 'tasker_core/errors'
+require_relative 'tasker_core/types'
+require_relative 'tasker_core/logging/logger'
+require_relative 'tasker_core/handlers'
+require_relative 'tasker_core/registry'
+require_relative 'tasker_core/event_bridge'
+require_relative 'tasker_core/bootstrap'
 
 module TaskerCore
   # Main access point for system health and status

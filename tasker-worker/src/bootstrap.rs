@@ -16,6 +16,7 @@
 
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -32,7 +33,7 @@ use tasker_shared::{
 /// Unified worker system handle for lifecycle management
 pub struct WorkerSystemHandle {
     /// Core worker system
-    pub worker_core: Arc<WorkerCore>,
+    pub worker_core: Arc<Mutex<WorkerCore>>,
     /// Web API state (optional)
     pub web_state: Option<Arc<WorkerWebState>>,
     /// Shutdown signal sender (Some when running, None when stopped)
@@ -46,7 +47,7 @@ pub struct WorkerSystemHandle {
 impl WorkerSystemHandle {
     /// Create new worker system handle
     pub fn new(
-        worker_core: Arc<WorkerCore>,
+        worker_core: Arc<Mutex<WorkerCore>>,
         web_state: Option<Arc<WorkerWebState>>,
         shutdown_sender: oneshot::Sender<()>,
         runtime_handle: tokio::runtime::Handle,
@@ -81,26 +82,20 @@ impl WorkerSystemHandle {
     }
 
     /// Get system status information
-    pub async fn status(&self) -> WorkerSystemStatus {
-        WorkerSystemStatus {
+    pub async fn status(&self) -> TaskerResult<WorkerSystemStatus> {
+        let worker_core = self.worker_core.lock().await;
+        let status = WorkerSystemStatus {
             running: self.is_running(),
-            environment: self
-                .worker_core
-                .context
-                .tasker_config
-                .environment()
-                .to_string(),
-            worker_core_status: self.worker_core.status().clone(),
+            environment: worker_core.context.tasker_config.environment().to_string(),
+            worker_core_status: worker_core.status().clone(),
             web_api_enabled: self.worker_config.web_config.enabled,
-            supported_namespaces: self
-                .worker_core
+            supported_namespaces: worker_core
                 .task_template_manager
                 .supported_namespaces()
                 .await,
-            database_pool_size: self.worker_core.context.database_pool().size(),
-            database_pool_idle: self.worker_core.context.database_pool().num_idle(),
-            database_url_preview: self
-                .worker_core
+            database_pool_size: worker_core.context.database_pool().size(),
+            database_pool_idle: worker_core.context.database_pool().num_idle(),
+            database_url_preview: worker_core
                 .context
                 .tasker_config
                 .database_url()
@@ -108,7 +103,8 @@ impl WorkerSystemHandle {
                 .take(30)
                 .collect::<String>()
                 + "...",
-        }
+        };
+        Ok(status)
     }
 }
 
@@ -237,6 +233,7 @@ impl WorkerBootstrap {
             )
             .await?,
         );
+        let web_worker_core = worker_core.clone();
 
         info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
@@ -252,7 +249,7 @@ impl WorkerBootstrap {
             .await
             .map_err(|e| TaskerError::WorkerError(format!("Failed to start worker core: {}", e)))?;
 
-        let worker_core = Arc::new(worker_core_owned);
+        let worker_core = Arc::new(Mutex::new(worker_core_owned));
 
         info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
 
@@ -263,8 +260,8 @@ impl WorkerBootstrap {
             let web_state = Arc::new(
                 WorkerWebState::new(
                     config.web_config.clone(),
-                    worker_core.clone(),
-                    Arc::new(worker_core.context.database_pool().clone()),
+                    web_worker_core.clone(),
+                    Arc::new(web_worker_core.context.database_pool().clone()),
                     config_manager.config().clone(),
                 )
                 .await?,

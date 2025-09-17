@@ -17,7 +17,7 @@ members = [
   "tasker-orchestration",
   "tasker-shared",
   "tasker-worker",
-  # "workers/ruby/ext/tasker_core",
+  "workers/ruby/ext/tasker_core",
   "workers/rust",
   # "workers/python",  # Future
   # "workers/wasm",    # Future
