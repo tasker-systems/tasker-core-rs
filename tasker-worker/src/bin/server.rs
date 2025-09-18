@@ -58,20 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("   Web API: Running");
     }
     info!(
-        "   Environment: {}",
-        worker_handle
-            .worker_core
-            .context
-            .tasker_config
-            .environment()
-    );
-    info!(
         "   Supported namespaces: {:?}",
-        worker_handle
-            .worker_core
-            .task_template_manager
-            .supported_namespaces()
-            .await
+        worker_handle.supported_namespaces().await
     );
     info!(
         "   Event-driven processing: {}",

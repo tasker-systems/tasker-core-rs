@@ -33,7 +33,7 @@ module TaskerCore
       attr_reader :logger, :stats
 
       def initialize
-        @logger = TaskerCore::Logging::Logger.instance
+        @logger = TaskerCore::Logger.instance
         @stats = {}
         logger.info 'StepHandlerResolver initialized for handler resolution and callable management'
       end

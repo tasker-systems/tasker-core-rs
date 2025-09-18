@@ -106,6 +106,14 @@ impl WorkerSystemHandle {
         };
         Ok(status)
     }
+
+    pub async fn supported_namespaces(&self) -> Vec<String> {
+        let worker_core = self.worker_core.lock().await;
+        worker_core
+            .task_template_manager
+            .supported_namespaces()
+            .await
+    }
 }
 
 /// Worker system status information

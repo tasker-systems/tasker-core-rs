@@ -4324,6 +4324,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "tasker-worker-rb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dotenvy",
+ "magnus",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "serde_magnus",
+ "serde_yaml",
+ "sqlx",
+ "tasker-core",
+ "tasker-shared",
+ "tasker-worker",
+ "thiserror 2.0.16",
+ "tokio",
+ "tracing",
+ "uuid",
+ "workspace_tools",
+]
+
+[[package]]
 name = "tasker-worker-rust"
 version = "0.1.0"
 dependencies = [
@@ -4347,31 +4372,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "tasker_core_rb"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dotenvy",
- "magnus",
- "once_cell",
- "serde",
- "serde_json",
- "serde_magnus",
- "serde_yaml",
- "sqlx",
- "tasker-core",
- "tasker-shared",
- "tasker-worker",
- "thiserror 2.0.16",
- "tokio",
- "tracing",
- "uuid",
- "workspace_tools",
 ]
 
 [[package]]

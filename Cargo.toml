@@ -141,7 +141,6 @@ uuid = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 serial_test = { workspace = true }
-tasker-worker = { path = "tasker-worker" }
 tracing-subscriber = { workspace = true }
 
 [features]

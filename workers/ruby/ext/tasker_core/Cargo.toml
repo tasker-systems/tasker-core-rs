@@ -1,5 +1,5 @@
 [package]
-name = "tasker_core_rb"
+name = "tasker-worker-rb"
 version = "0.1.0"
 edition = "2021"
 description = "Ruby bindings for tasker-core: High-performance workflow orchestration"
@@ -7,7 +7,7 @@ license = "MIT"
 
 [lib]
 crate-type = ["cdylib"]
-name = "tasker_core_rb"
+name = "tasker_worker_rb"
 
 [dependencies]
 anyhow = { workspace = true }

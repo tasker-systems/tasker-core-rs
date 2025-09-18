@@ -22,15 +22,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    info!(
-        "   Supported namespaces: {:?}",
-        worker_handle
-            .worker_core
-            .task_template_manager
-            .supported_namespaces()
-            .await
-    );
-
     info!("🔄 Worker running... Press Ctrl+C to shutdown gracefully");
 
     // Wait for shutdown signal

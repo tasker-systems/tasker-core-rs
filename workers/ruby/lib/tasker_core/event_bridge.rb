@@ -33,6 +33,7 @@ module TaskerCore
       def publish_step_execution(event_data)
         return unless active?
 
+        event_data = event_data.to_h.deep_symbolize_keys
         logger.debug "Publishing step execution event: #{event_data[:event_id]}"
 
         # Wrap the raw data in accessor objects for easier use
@@ -42,6 +43,7 @@ module TaskerCore
         publish('step.execution.received', wrapped_event)
 
         logger.debug "Step execution event published to #{subscriptions('step.execution.received').count} subscribers"
+        true
       rescue StandardError => e
         logger.error "Failed to publish step execution: #{e.message}"
         logger.error e.backtrace.join("\n")
@@ -49,8 +51,8 @@ module TaskerCore
       end
 
       # Subscribe to step execution events (used by StepExecutionSubscriber)
-      def subscribe_to_step_execution(&block)
-        subscribe('step.execution.received', &block)
+      def subscribe_to_step_execution(&)
+        subscribe('step.execution.received', &)
       end
 
       # Send completion event back to Rust

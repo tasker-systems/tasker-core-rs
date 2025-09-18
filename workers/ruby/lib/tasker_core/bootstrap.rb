@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'event_bridge'
-require_relative 'registry'
-require_relative 'logging/logger'
-
 module TaskerCore
   module Worker
     # Bootstrap orchestrator for Ruby worker
@@ -28,7 +24,7 @@ module TaskerCore
       def start!(config = {})
         @config = default_config.merge(config)
 
-        logger.info "🚀 Starting Ruby worker bootstrap"
+        logger.info 'Starting Ruby worker bootstrap'
         logger.info "Configuration: #{@config.inspect}"
 
         # Initialize Ruby components first

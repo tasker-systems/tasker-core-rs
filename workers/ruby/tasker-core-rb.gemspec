@@ -45,8 +45,7 @@ Gem::Specification.new do |spec|
   # Magnus and Rust compilation dependencies
   spec.add_dependency 'rb_sys', '~> 0.9.39'
 
-  spec.add_dependency 'activemodel', '~> 8.0'
-  spec.add_dependency 'activerecord', '~> 8.0'
+  spec.add_dependency 'activesupport', '~> 8.0'
 
   spec.add_dependency 'json-schema', '~> 2.4', '>= 2.4.0'
   spec.add_dependency 'logger', '~> 1.6'
@@ -58,15 +57,12 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'dotenv', '~> 2.8'
   spec.add_dependency 'faraday', '~> 2.12.2'
-  spec.add_dependency 'pg', '~> 1.5'
   # Concurrent execution support for BatchStepExecutionOrchestrator
   spec.add_dependency 'concurrent-ruby', '~> 1.3.5'
   spec.add_dependency 'concurrent-ruby-ext', '~> 1.3.5'
 
   spec.add_dependency 'opentelemetry-exporter-otlp', '~> 0.30.0'
   spec.add_dependency 'opentelemetry-sdk', '~> 1.8.0'
-
-  spec.add_dependency 'statesman', '~> 12.0.0'
 
   # Ensure we have a Rust toolchain for compilation
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'

@@ -36,7 +36,7 @@ impl RubyBridgeHandle {
         Self {
             system_handle,
             event_handler,
-            runtime: runtime,
+            runtime,
         }
     }
 

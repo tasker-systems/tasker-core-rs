@@ -33,7 +33,7 @@ end
 
 # Create the Rust makefile for the extension
 # This will compile the Rust code into a Ruby-loadable shared library
-create_rust_makefile('tasker_core_rb')
+create_rust_makefile('tasker_worker_rb')
 
 # Ensure we have the required system dependencies
 unless pkg_config('libpq')

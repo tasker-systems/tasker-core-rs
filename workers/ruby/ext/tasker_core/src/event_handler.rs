@@ -71,7 +71,10 @@ impl RubyEventHandler {
 
     async fn forward_event_to_ruby(event: StepExecutionEvent) -> TaskerResult<()> {
         // Get Ruby runtime context
-        let ruby = unsafe { Ruby::get_unchecked() };
+        let ruby = Ruby::get().map_err(|err| {
+            error!("Failed to get ruby system: {err}");
+            TaskerError::FFIError(format!("Failed to get Ruby system: {err}"))
+        })?;
 
         // Convert event to Ruby hash
         let ruby_event = convert_step_execution_event_to_ruby(event)
@@ -104,7 +107,7 @@ impl RubyEventHandler {
         event_system
             .publish_step_completion(completion)
             .await
-            .map_err(|err| return TaskerError::WorkerError(err.to_string()))?;
+            .map_err(|err| TaskerError::WorkerError(err.to_string()))?;
 
         Ok(())
     }
@@ -135,7 +138,7 @@ pub fn send_step_completion_event(completion_data: RValue) -> Result<(), MagnusE
         error!("Could not acquire WORKER_SYSTEM handle");
         MagnusError::new(
             magnus::exception::runtime_error(),
-            format!("Could not acquire WORKER_SYSTEM handle"),
+            "Could not acquire WORKER_SYSTEM handle".to_string(),
         )
     })?;
 
