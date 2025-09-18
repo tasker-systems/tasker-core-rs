@@ -23,7 +23,7 @@ begin
 rescue LoadError => e
   raise LoadError, <<~MSG
 
-    ❌ Failed to load tasker-core-rb native extension!
+    ❌ Failed to load tasker-worker-rb native extension!
 
     This usually means the Rust extension hasn't been compiled yet.
 

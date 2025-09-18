@@ -3,7 +3,7 @@
 require_relative 'lib/tasker_core/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = 'tasker-core-rb'
+  spec.name          = 'tasker-worker-rb'
   spec.version       = TaskerCore::VERSION
   spec.authors       = ['Pete Taylor']
   spec.email         = ['pete.jc.taylor@hey.com']
@@ -71,7 +71,7 @@ Gem::Specification.new do |spec|
   # Post-install message
   spec.post_install_message = <<~MSG
 
-    🦀 tasker-core-rb successfully installed!
+    🦀 tasker-worker-rb successfully installed!
 
     This gem provides high-performance Rust-powered workflow orchestration.
 

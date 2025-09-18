@@ -10,7 +10,7 @@ unless find_executable('cargo')
 
     ❌ Rust toolchain not found!
 
-    tasker-core-rb requires Rust to compile the native extension.
+    tasker-worker-rb requires Rust to compile the native extension.
 
     Please install Rust:
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -26,7 +26,7 @@ rust_version = `cargo --version`.strip
 puts "🦀 Using Rust: #{rust_version}"
 
 # Enable test-helpers feature when running tests
-if ENV['ENABLE_TEST_HELPERS'] || ENV['RAILS_ENV'] == 'test' || ENV['RACK_ENV'] == 'test'
+if ENV['ENABLE_TEST_HELPERS'] || ENV['TASKER_ENV'] == 'test'
   ENV['CARGO_FEATURE_TEST_HELPERS'] = '1'
   puts '🧪 Enabling test helpers for development/test environment'
 end
@@ -34,11 +34,5 @@ end
 # Create the Rust makefile for the extension
 # This will compile the Rust code into a Ruby-loadable shared library
 create_rust_makefile('tasker_worker_rb')
-
-# Ensure we have the required system dependencies
-unless pkg_config('libpq')
-  puts '⚠️  Warning: PostgreSQL development libraries not found via pkg-config'
-  puts '   The extension may still compile if PostgreSQL is installed in standard locations'
-end
 
 puts "✅ Configuration complete! Run 'make' to compile the extension."
