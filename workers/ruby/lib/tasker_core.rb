@@ -10,7 +10,6 @@ require 'dry-validation'
 require 'concurrent-ruby'
 require 'timeout'
 require 'dotenv'
-require 'statesman'
 
 # Pre-define TaskerCore module for Magnus
 module TaskerCore

@@ -13,7 +13,7 @@ module TaskerCore
 
       def initialize(config: {}, logger: nil)
         @config = config || {}
-        @logger = logger || TaskerCore::Logging::Logger.instance
+        @logger = logger || TaskerCore::Logger.instance
         orchestration_manager = TaskerCore::Internal::OrchestrationManager.instance
         @orchestration_system = orchestration_manager.orchestration_system
       end

@@ -10,7 +10,7 @@ module TaskerCore
       attr_reader :logger, :config
 
       def initialize
-        @logger = TaskerCore::Logging::Logger.instance
+        @logger = TaskerCore::Logger.instance
         @status = :initialized
         @shutdown_handlers = []
       end

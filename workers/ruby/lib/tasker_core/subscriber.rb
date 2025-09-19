@@ -7,7 +7,7 @@ module TaskerCore
       attr_reader :logger, :handler_registry, :stats
 
       def initialize
-        @logger = TaskerCore::Logging::Logger.instance
+        @logger = TaskerCore::Logger.instance
         @handler_registry = TaskerCore::Registry::HandlerRegistry.instance
         @stats = { processed: 0, succeeded: 0, failed: 0 }
 

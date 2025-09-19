@@ -7,7 +7,7 @@ class SharedTestLoop
     # Use concurrent-ruby thread-safe array to track both workers and their actual threads
     @test_workers = Concurrent::Array.new
     @worker_threads = Concurrent::Array.new
-    @logger = TaskerCore::Logging::Logger.instance
+    @logger = TaskerCore::Logger.instance
   end
 
   def create_workers(namespace:, num_workers: 2, poll_interval: 0.1)
