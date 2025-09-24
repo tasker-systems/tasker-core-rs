@@ -15,7 +15,7 @@ module TaskerCore
     # - First-class domain event support
     # - Enhanced environment-specific overrides
     # - JSON Schema-based input validation
-    
+
     module Types
       include Dry.Types()
     end
@@ -45,7 +45,7 @@ module TaskerCore
     class DomainEventDefinition < Dry::Struct
       attribute :name, Types::Strict::String
       attribute :description, Types::String.optional.default(nil)
-      attribute :schema, Types::Hash.optional.default(nil)  # JSON Schema
+      attribute :schema, Types::Hash.optional.default(nil) # JSON Schema
     end
 
     # Retry configuration with backoff strategies
@@ -54,7 +54,7 @@ module TaskerCore
       attribute :limit, Types::Integer.default(3)
       attribute :backoff, Types::String.default('exponential').enum('none', 'linear', 'exponential', 'fibonacci')
       attribute :backoff_base_ms, Types::Integer.optional.default(1000)
-      attribute :max_backoff_ms, Types::Integer.optional.default(30000)
+      attribute :max_backoff_ms, Types::Integer.optional.default(30_000)
     end
 
     # Individual workflow step definition
@@ -64,7 +64,7 @@ module TaskerCore
       attribute :handler, HandlerDefinition
       attribute :system_dependency, Types::String.optional.default(nil)
       attribute :dependencies, Types::Array.of(Types::String).default([].freeze)
-      attribute :retry, RetryConfiguration.default { RetryConfiguration.new }
+      attribute(:retry, RetryConfiguration.default { RetryConfiguration.new })
       attribute :timeout_seconds, Types::Integer.optional.default(nil)
       attribute :publishes_events, Types::Array.of(Types::String).default([].freeze)
 
@@ -81,7 +81,7 @@ module TaskerCore
 
     # Step override for environments
     class StepOverride < Dry::Struct
-      attribute :name, Types::Strict::String  # Step name or "ALL" for all steps
+      attribute :name, Types::Strict::String # Step name or "ALL" for all steps
       attribute :handler, HandlerOverride.optional.default(nil)
       attribute :timeout_seconds, Types::Integer.optional.default(nil)
       attribute :retry, RetryConfiguration.optional.default(nil)
@@ -107,9 +107,9 @@ module TaskerCore
       attribute :description, Types::String.optional.default(nil)
       attribute :metadata, TemplateMetadata.optional.default(nil)
       attribute :task_handler, HandlerDefinition.optional.default(nil)
-      attribute :system_dependencies, SystemDependencies.default { SystemDependencies.new }
+      attribute(:system_dependencies, SystemDependencies.default { SystemDependencies.new })
       attribute :domain_events, Types::Array.of(DomainEventDefinition).default([].freeze)
-      attribute :input_schema, Types::Hash.optional.default(nil)  # JSON Schema
+      attribute :input_schema, Types::Hash.optional.default(nil) # JSON Schema
       attribute :steps, Types::Array.of(StepDefinition).default([].freeze)
       attribute :environments, Types::Hash.map(Types::String, EnvironmentOverride).default({}.freeze)
 
@@ -143,17 +143,15 @@ module TaskerCore
       # Resolve template for specific environment
       def resolve_for_environment(environment_name)
         resolved_template = deep_dup
-        
+
         if environments[environment_name]
           env_override = environments[environment_name]
-          
+
           # Apply task handler overrides
-          if env_override.task_handler && resolved_template.task_handler
-            if env_override.task_handler.initialization
-              resolved_template.task_handler.initialization.merge!(env_override.task_handler.initialization)
-            end
+          if env_override.task_handler && resolved_template.task_handler && env_override.task_handler.initialization
+            resolved_template.task_handler.initialization.merge!(env_override.task_handler.initialization)
           end
-          
+
           # Apply step overrides
           env_override.steps.each do |step_override|
             if step_override.name == 'ALL'
@@ -166,7 +164,7 @@ module TaskerCore
             end
           end
         end
-        
+
         resolved_template
       end
 
@@ -183,7 +181,7 @@ module TaskerCore
         if step_override.handler&.initialization
           step.handler.initialization.merge!(step_override.handler.initialization)
         end
-        
+
         step.timeout_seconds = step_override.timeout_seconds if step_override.timeout_seconds
         step.retry = step_override.retry if step_override.retry
       end

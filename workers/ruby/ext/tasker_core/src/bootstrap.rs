@@ -19,10 +19,11 @@ use uuid::Uuid;
 /// This follows the same pattern as the Rust worker bootstrap but stores
 /// the handle in a global static for Ruby access.
 ///
-/// # Arguments
-/// * `config` - Ruby hash with bootstrap configuration
-pub fn bootstrap_worker() -> Result<String, Error> {
-    let worker_id = format!("ruby-worker-{}", Uuid::new_v4());
+/// Returns a handle ID that Ruby can use to reference the worker system.
+pub fn bootstrap_worker() -> Result<Value, Error> {
+    let worker_id = Uuid::new_v4();
+    let worker_id_str = format!("ruby-worker-{}", worker_id);
+
     // Check if already running
     let mut handle_guard = WORKER_SYSTEM.lock().map_err(|e| {
         error!("Failed to acquire worker system lock: {}", e);
@@ -33,7 +34,18 @@ pub fn bootstrap_worker() -> Result<String, Error> {
     })?;
 
     if handle_guard.is_some() {
-        return Ok("Worker system already running".to_string());
+        // Return existing handle info
+        let ruby = magnus::Ruby::get().map_err(|err| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Failed to get ruby system: {}", err),
+            )
+        })?;
+        let hash = ruby.hash_new();
+        hash.aset("handle_id", worker_id.to_string())?;
+        hash.aset("status", "already_running")?;
+        hash.aset("message", "Worker system already running")?;
+        return Ok(hash.as_value());
     }
 
     // Create tokio runtime
@@ -51,7 +63,7 @@ pub fn bootstrap_worker() -> Result<String, Error> {
     // Create Ruby event handler that will forward events to Ruby
     let ruby_event_handler = Arc::new(RubyEventHandler::new(
         event_system.clone(),
-        worker_id.clone(),
+        worker_id_str.clone(),
     ));
 
     // Bootstrap within runtime context
@@ -86,7 +98,20 @@ pub fn bootstrap_worker() -> Result<String, Error> {
     // Store the bridge handle
     *handle_guard = Some(RubyBridgeHandle::new(system_handle, event_handler, runtime));
 
-    Ok("Ruby worker system started successfully".to_string())
+    // Return handle info to Ruby
+    let ruby = magnus::Ruby::get().map_err(|err| {
+        Error::new(
+            magnus::exception::runtime_error(),
+            format!("Failed to get ruby system: {}", err),
+        )
+    })?;
+    let hash = ruby.hash_new();
+    hash.aset("handle_id", worker_id.to_string())?;
+    hash.aset("status", "started")?;
+    hash.aset("message", "Ruby worker system started successfully")?;
+    hash.aset("worker_id", worker_id_str)?;
+
+    Ok(hash.as_value())
 }
 
 /// Stop the worker system

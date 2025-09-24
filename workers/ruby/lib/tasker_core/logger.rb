@@ -88,9 +88,9 @@ module TaskerCore
 
     def initialize
       @logger = ::Logger.new($stdout).tap do |log|
-                  log.level = ::Logger::INFO
-                  log.formatter = method(:unified_formatter)
-                end
+        log.level = ::Logger::INFO
+        log.formatter = method(:unified_formatter)
+      end
     end
 
     private

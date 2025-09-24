@@ -41,6 +41,8 @@ end
 # Load Ruby modules after Rust extension (they depend on Rust base classes)
 require_relative 'tasker_core/errors'
 require_relative 'tasker_core/logger'
+require_relative 'tasker_core/internal'
+require_relative 'tasker_core/template_discovery'
 require_relative 'tasker_core/types'
 require_relative 'tasker_core/models'
 require_relative 'tasker_core/handlers'
@@ -56,4 +58,8 @@ end
 # Automatically boot the system when TaskerCore is loaded
 # This ensures proper initialization order for all components
 # Skip auto-boot in test mode (controlled by spec_helper) or when explicitly disabled
-TaskerCore::Worker::Bootstrap.start! unless ENV['TASKER_ENV'] == 'test' || ENV['TASKER_DISABLE_AUTO_BOOT'] == 'true'
+unless ENV['TASKER_ENV'] == 'test' || ENV['TASKER_DISABLE_AUTO_BOOT'] == 'true'
+  # Set environment to prevent example handler loading in production
+  ENV['TASKER_ENV'] ||= 'production'
+  TaskerCore::Worker::Bootstrap.start!
+end

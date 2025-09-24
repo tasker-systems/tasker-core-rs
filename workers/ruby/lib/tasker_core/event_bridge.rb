@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'models'
+
 module TaskerCore
   module Worker
     # Event bridge between Rust and Ruby using dry-events
@@ -25,7 +27,7 @@ module TaskerCore
       # Stop the event bridge
       def stop!
         @active = false
-        logger.info "Event bridge stopped"
+        logger.info 'Event bridge stopped'
       end
 
       # Called by Rust FFI when StepExecutionEvent is received
@@ -71,7 +73,7 @@ module TaskerCore
         # Also publish locally for monitoring/debugging
         publish('step.completion.sent', completion_data)
 
-        logger.debug "Step completion sent to Rust"
+        logger.debug 'Step completion sent to Rust'
       rescue StandardError => e
         logger.error "Failed to send step completion: #{e.message}"
         logger.error e.backtrace.join("\n")
@@ -92,12 +94,12 @@ module TaskerCore
           event_id: event_data[:event_id],
           task_uuid: event_data[:task_uuid],
           step_uuid: event_data[:step_uuid],
-          task_sequence_step: TaskSequenceStepWrapper.new(event_data[:task_sequence_step])
+          task_sequence_step: TaskerCore::Models::TaskSequenceStepWrapper.new(event_data[:task_sequence_step])
         }
       end
 
       def validate_completion!(completion_data)
-        required_fields = [:event_id, :task_uuid, :step_uuid, :success]
+        required_fields = %i[event_id task_uuid step_uuid success]
         missing_fields = required_fields - completion_data.keys
 
         if missing_fields.any?

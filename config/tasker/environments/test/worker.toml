@@ -71,3 +71,8 @@ max_queue_connections = 10
 visibility_timeout_seconds = 10
 batch_size = 5
 polling_interval_ms = 50
+
+# Web API Configuration - Test Environment Override
+[worker.web]
+# Disable web API for test environment and Ruby FFI integration
+enabled = false

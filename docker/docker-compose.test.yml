@@ -108,6 +108,49 @@ services:
     networks:
       - tasker-test
 
+  # ==========================================================================
+  # Ruby Worker Service - Test Build with Ruby FFI Support
+  # ==========================================================================
+  ruby-worker:
+    build:
+      context: ..
+      dockerfile: docker/build/ruby-worker.test.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://tasker:tasker@postgres:5432/tasker_rust_test
+      TASKER_ENV: test
+      RUST_LOG: info
+      RUST_BACKTRACE: 1
+      WORKER_ID: test-ruby-worker-001
+      WORKSPACE_PATH: /app
+      TASKER_CONFIG_ROOT: /app/config
+      # Ruby handler template discovery
+      TASK_TEMPLATE_PATH: /app/ruby_templates
+      RUBY_HANDLER_PATH: /app/ruby_handlers
+      # Ruby environment
+      RUBY_WORKER_ENABLED: "true"
+      BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
+      # Service configuration
+      PORT: 8082
+    ports:
+      - "8082:8081"  # Map to 8082 externally, 8081 internally (same as Rust worker)
+    volumes:
+      - ../config/tasker:/app/config/tasker:ro
+      - ../workers/ruby/spec/handlers/examples:/app/ruby_handlers:ro
+      - ../workers/ruby/spec/fixtures/templates:/app/ruby_templates:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orchestration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 25s  # Allow extra time for Ruby compilation
+    networks:
+      - tasker-test
+
 volumes:
   postgres_data:
 

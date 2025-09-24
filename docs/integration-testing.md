@@ -133,7 +133,7 @@ src/test_helpers/
 
 ```dockerfile
 # Production builds with chef for optimal layer caching
-FROM rust:1.89-bullseye AS chef
+FROM rust:1.90-bullseye AS chef
 WORKDIR /app
 RUN cargo install cargo-chef
 
@@ -152,7 +152,7 @@ RUN cargo build --release --all-features
 
 ```dockerfile
 # CI builds with sccache and GitHub cache
-FROM rust:1.89-bullseye AS ci-builder
+FROM rust:1.90-bullseye AS ci-builder
 WORKDIR /app
 
 # Install sccache for distributed caching
@@ -178,7 +178,7 @@ RUN cargo build --release --all-features
 
 ```dockerfile
 # Fast local test builds without external dependencies
-FROM rust:1.89-bullseye AS test-builder
+FROM rust:1.90-bullseye AS test-builder
 WORKDIR /app
 
 # Install minimal dependencies

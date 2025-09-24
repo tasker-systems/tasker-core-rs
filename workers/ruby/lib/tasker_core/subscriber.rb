@@ -10,10 +10,24 @@ module TaskerCore
         @logger = TaskerCore::Logger.instance
         @handler_registry = TaskerCore::Registry::HandlerRegistry.instance
         @stats = { processed: 0, succeeded: 0, failed: 0 }
+        @active = true
 
         # Subscribe to step execution events
-        TaskerCore::Worker::EventBridge.instance.subscribe_to_step_execution(self)
+        TaskerCore::Worker::EventBridge.instance.subscribe_to_step_execution do |event|
+          call(event)
+        end
         logger.info 'Step execution subscriber initialized'
+      end
+
+      # Check if subscriber is active
+      def active?
+        @active
+      end
+
+      # Stop the subscriber
+      def stop!
+        @active = false
+        logger.info 'Step execution subscriber stopped'
       end
 
       # Called by dry-events when step execution is requested
@@ -32,33 +46,37 @@ module TaskerCore
           # Resolve step handler from registry
           handler = @handler_registry.resolve_handler(step_data.step_definition.handler.callable)
 
-          unless handler
-            raise TaskerCore::Error, "No handler found for #{step_data.step_definition.handler.callable}"
-          end
+          raise TaskerCore::Error, "No handler found for #{step_data.step_definition.handler.callable}" unless handler
 
           # Execute handler with step data
           result = handler.call(
             step_data.task,
-            create_sequence_from_dependency_results(step_data.dependency_results),
+            step_data.dependency_results,
             step_data.workflow_step
           )
+
+          # Convert handler output to standardized result
+          standardized_result = TaskerCore::Types::StepHandlerCallResult.from_handler_output(result)
+
+          unless standardized_result.success?
+            raise TaskerCore::Error, "Handler returned failure: #{standardized_result.message}"
+          end
 
           # Publish successful completion
           publish_step_completion(
             event_data: event_data,
             success: true,
-            result: result.data,
+            result: standardized_result.result,
             metadata: {
               processed_at: Time.now.utc.iso8601,
               processed_by: 'ruby_worker',
               handler_class: step_data.step_definition.handler.callable,
-              duration_ms: result.metadata&.dig('duration_ms')
-            }
+              duration_ms: standardized_result.metadata&.dig('duration_ms')
+            }.merge(standardized_result.metadata || {})
           )
 
           @stats[:succeeded] += 1
-          logger.info("✅ Step execution completed successfully")
-
+          logger.info('✅ Step execution completed successfully')
         rescue StandardError => e
           logger.error("💥 Step execution failed: #{e.message}")
           logger.error("💥 #{e.backtrace.first(5).join("\n💥 ")}")
@@ -95,10 +113,6 @@ module TaskerCore
             error_message: error_message
           }
         )
-      end
-
-      def create_sequence_from_dependency_results(dependency_results)
-        TaskerCore::Types::Sequence.new(dependency_results.instance_variable_get(:@results) || {})
       end
     end
   end

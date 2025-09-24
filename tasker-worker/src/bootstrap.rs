@@ -241,11 +241,17 @@ impl WorkerBootstrap {
             )
             .await?,
         );
-        let web_worker_core = worker_core.clone();
 
         info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
+
+        // Save reference for web API if needed (before unwrapping)
+        let web_worker_core = if config.enable_web_api {
+            Some(worker_core.clone())
+        } else {
+            None
+        };
 
         // Unwrap the Arc to get ownership, start the core, then wrap in Arc again
         let mut worker_core_owned = Arc::try_unwrap(worker_core).map_err(|_| {
@@ -262,7 +268,7 @@ impl WorkerBootstrap {
         info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
 
         // Create web API state if enabled (after starting worker core)
-        let web_state = if config.enable_web_api {
+        let web_state = if let Some(web_worker_core) = web_worker_core {
             info!("BOOTSTRAP: Creating worker web API state");
 
             let web_state = Arc::new(

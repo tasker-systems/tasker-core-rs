@@ -1,0 +1,165 @@
+# TaskTemplate Configuration (Migrated)
+#
+# This file has been automatically migrated from the legacy HandlerConfiguration
+# format to the new self-describing TaskTemplate format.
+#
+# Template: diamond_workflow/parallel_computation:1.0.0
+# Migration Date: 2025-08-17T19:32:47Z
+# Migration Tool: TaskerCore::Utils::TaskTemplateMigrator v1.0.0
+#
+# Key Changes:
+# - Legacy 'step_templates' → 'steps' with enhanced structure
+# - Legacy 'handler_class' → 'handler.callable'
+# - Legacy 'handler_config' → 'handler.initialization'
+# - Added comprehensive metadata and system dependencies
+# - Enhanced retry configuration with backoff strategies
+# - Added support for domain events and improved environment overrides
+#
+# Next Steps:
+# 1. Review this migrated configuration
+# 2. Test with your workflow handlers
+# 3. Update handler classes to use new structure if needed
+# 4. Remove the original .yaml file when satisfied
+#
+---
+:name: parallel_computation
+:namespace_name: diamond_workflow
+:version: 1.0.0
+:description:
+  "Diamond pattern with parallel branches: square -> (add, multiply) ->
+  average"
+:metadata:
+  :author: TaskerCore Migration Tool
+  :tags:
+    - namespace:diamond_workflow
+    - pattern:linear
+    - dependencies:simple
+    - environments:configured
+    - migrated:handler-configuration
+  :documentation_url:
+  :created_at: "2025-08-17T19:32:47Z"
+  :updated_at: "2025-08-17T19:32:47Z"
+:task_handler:
+  :callable: DiamondWorkflow::DiamondWorkflowHandler
+  :initialization:
+    input_validation:
+      required_fields:
+        - even_number
+      even_number_constraint: must_be_even
+      value_range:
+        min: 2
+        max: 100
+    expected_results:
+      diamond_start: input²
+      diamond_branch_b: input² + 25
+      diamond_branch_c: input² × 2
+      diamond_end: "((input² + 25) + (input² × 2)) ÷ 2"
+:system_dependencies:
+  :primary: default
+  :secondary: []
+:domain_events: []
+:input_schema:
+:steps:
+  - :name: diamond_start
+    :description: Square the even number (initial step)
+    :handler:
+      :callable: DiamondWorkflow::StepHandlers::DiamondStartHandler
+      :initialization:
+        operation: square
+        description: Square the input number (n²)
+    :system_dependency:
+    :dependencies: []
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: diamond_branch_b
+    :description: Add constant (parallel branch B)
+    :handler:
+      :callable: DiamondWorkflow::StepHandlers::DiamondBranchBHandler
+      :initialization:
+        operation: add
+        constant: 25
+        description: Add 25 to the squared result
+    :system_dependency:
+    :dependencies:
+      - diamond_start
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: diamond_branch_c
+    :description: Multiply by factor (parallel branch C)
+    :handler:
+      :callable: DiamondWorkflow::StepHandlers::DiamondBranchCHandler
+      :initialization:
+        operation: multiply
+        factor: 2
+        description: Multiply the squared result by 2
+    :system_dependency:
+    :dependencies:
+      - diamond_start
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+  - :name: diamond_end
+    :description: Average results from both branches (convergence)
+    :handler:
+      :callable: DiamondWorkflow::StepHandlers::DiamondEndHandler
+      :initialization:
+        operation: average
+        description: Calculate average of both branch results
+    :system_dependency:
+    :dependencies:
+      - diamond_branch_b
+      - diamond_branch_c
+    :retry:
+      :retryable: true
+      :limit: 3
+      :backoff: exponential
+      :backoff_base_ms: 1000
+      :max_backoff_ms: 30000
+    :timeout_seconds: 30
+    :publishes_events: []
+:environments:
+  test:
+    :task_handler:
+    :steps:
+      - :name: diamond_start
+        :handler:
+          :initialization:
+            timeout_seconds: 10
+        :timeout_seconds:
+        :retry:
+      - :name: diamond_branch_b
+        :handler:
+          :initialization:
+            timeout_seconds: 10
+        :timeout_seconds:
+        :retry:
+      - :name: diamond_branch_c
+        :handler:
+          :initialization:
+            timeout_seconds: 10
+        :timeout_seconds:
+        :retry:
+      - :name: diamond_end
+        :handler:
+          :initialization:
+            timeout_seconds: 10
+        :timeout_seconds:
+        :retry:
+:loaded_from: "/Users/petetaylor/projects/tasker-systems/tasker-core/workers/ruby/spec/handlers/examples/diamond_workflow/config/diamond_workflow_handler.yaml"

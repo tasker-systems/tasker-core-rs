@@ -111,6 +111,9 @@ GEM
     google-protobuf (4.31.1-arm64-darwin)
       bigdecimal
       rake (>= 13)
+    google-protobuf (4.31.1-x86_64-linux-gnu)
+      bigdecimal
+      rake (>= 13)
     googleapis-common-protos-types (1.20.0)
       google-protobuf (>= 3.18, < 5.a)
     guard (2.19.1)

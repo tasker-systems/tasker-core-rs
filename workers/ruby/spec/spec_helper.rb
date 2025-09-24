@@ -8,10 +8,14 @@ require 'securerandom'
 require 'dotenv'
 
 def set_environment_variables
-  Dotenv.load
+  # Load test-specific environment file
+  Dotenv.load('.env.test')
   ENV['TASKER_ENV'] = 'test'
   ENV['TASKER_DISABLE_AUTO_BOOT'] = 'true'
 end
+
+# Set environment variables at load time
+set_environment_variables
 
 # Configure RSpec for domain API testing
 RSpec.configure do |config|

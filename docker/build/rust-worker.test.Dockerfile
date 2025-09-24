@@ -5,7 +5,7 @@
 # Context: workers/rust/ directory
 # Usage: docker build -f Dockerfile.test -t tasker-worker-rust:test .
 
-FROM rust:1.89-bullseye AS chef
+FROM rust:1.90-bullseye AS chef
 
 # Install cargo-chef for dependency layer caching
 RUN cargo install cargo-chef
