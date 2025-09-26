@@ -65,21 +65,30 @@ module TaskerCore
 
         registered_count = 0
 
-        # Discover handlers from YAML templates
-        discovered_handlers = discover_handlers_from_templates
+        # Check if test environment has already loaded handlers
+        if test_environment_active? && test_handlers_preloaded?
+          logger.info('🧪 Test environment detected with preloaded handlers')
+          registered_count = register_preloaded_handlers
+        end
 
-        # Load and register discovered handlers
-        discovered_handlers.each do |handler_class_name|
-          # Try to load and register the handler
-          handler_class = find_and_load_handler_class(handler_class_name)
-          if handler_class
-            register_handler(handler_class_name, handler_class)
-            registered_count += 1
-          else
-            logger.debug("⚠️ Handler class not found for: #{handler_class_name}")
+        # If no handlers registered yet, discover from templates
+        if registered_count.zero?
+          # Discover handlers from YAML templates
+          discovered_handlers = discover_handlers_from_templates
+
+          # Load and register discovered handlers
+          discovered_handlers.each do |handler_class_name|
+            # Try to load and register the handler
+            handler_class = find_and_load_handler_class(handler_class_name)
+            if handler_class
+              register_handler(handler_class_name, handler_class)
+              registered_count += 1
+            else
+              logger.debug("⚠️ Handler class not found for: #{handler_class_name}")
+            end
+          rescue StandardError => e
+            logger.warn("❌ Failed to register handler #{handler_class_name}: #{e.message}")
           end
-        rescue StandardError => e
-          logger.warn("❌ Failed to register handler #{handler_class_name}: #{e.message}")
         end
 
         # Fallback to example handlers in test/development environments if needed
@@ -226,6 +235,57 @@ module TaskerCore
         Dir.glob("#{spec_dir}/**/").each { |dir| paths << dir } if Dir.exist?(spec_dir)
 
         paths
+      end
+
+      # Check if test environment is active
+      def test_environment_active?
+        return false unless defined?(TaskerCore::TestEnvironment)
+
+        TaskerCore::TestEnvironment.loaded?
+      end
+
+      # Check if test environment has preloaded handler classes
+      def test_handlers_preloaded?
+        return false unless test_environment_active?
+
+        # Check if we have handler classes loaded in ObjectSpace
+        handler_count = 0
+        ObjectSpace.each_object(Class) do |klass|
+          if klass.name&.end_with?('Handler') &&
+             klass.ancestors.any? { |ancestor| ancestor.name&.include?('StepHandler') }
+            handler_count += 1
+            break if handler_count > 0 # We just need to know if any exist
+          end
+        rescue StandardError
+          next # Skip classes that can't be introspected
+        end
+
+        handler_count > 0
+      end
+
+      # Register preloaded handlers from test environment
+      def register_preloaded_handlers
+        return 0 unless test_environment_active?
+
+        registered_count = 0
+        handler_names = TaskerCore::TestEnvironment.handler_names
+
+        handler_names.each do |handler_class_name|
+          # Find the loaded class
+          handler_class = find_loaded_handler_class(handler_class_name.split('::').last)
+          if handler_class
+            register_handler(handler_class_name.split('::').last, handler_class)
+            registered_count += 1
+            logger.debug("✅ Registered preloaded test handler: #{handler_class_name}")
+          else
+            logger.debug("⚠️ Preloaded handler class not found: #{handler_class_name}")
+          end
+        rescue StandardError => e
+          logger.warn("❌ Failed to register preloaded handler #{handler_class_name}: #{e.message}")
+        end
+
+        logger.info("📚 Registered #{registered_count} preloaded test handlers")
+        registered_count
       end
 
       # Fallback discovery for example handlers (old hardcoded method)

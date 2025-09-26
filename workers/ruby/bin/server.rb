@@ -12,7 +12,7 @@ require 'logger'
 
 # Configure logger
 logger = TaskerCore::Logger.instance
-logger.logger.level = ENV['RUST_LOG'] == 'debug' ? Logger::DEBUG : Logger::INFO
+logger.logger.level = ENV['LOG_LEVEL'] == 'debug' ? Logger::DEBUG : Logger::INFO
 
 # Startup banner
 logger.info '=' * 60
@@ -105,7 +105,7 @@ begin
         else
           logger.warn "Health check ##{loop_count / 60}: UNHEALTHY - #{health_status[:error]}"
         end
-      rescue TaskerCore::FFIError => e
+      rescue TaskerCore::Errors::FFIError => e
         logger.error "FFI error during health check: #{e.message}"
       rescue StandardError => e
         logger.warn "Health check failed: #{e.message}"
@@ -120,7 +120,7 @@ begin
     begin
       bootstrap.shutdown!
       logger.info 'Ruby worker shutdown completed successfully'
-    rescue TaskerCore::FFIError => e
+    rescue TaskerCore::Errors::FFIError => e
       logger.error "FFI error during shutdown: #{e.message}"
       logger.error e.backtrace.join("\n") if logger.debug?
       exit(3)
@@ -135,11 +135,11 @@ begin
 
   logger.info 'Ruby Worker Server terminated gracefully'
   exit(0)
-rescue TaskerCore::ConfigurationError => e
+rescue TaskerCore::Errors::ConfigurationError => e
   logger.fatal "Configuration error: #{e.message}"
   logger.fatal 'Please check your configuration and environment variables'
   exit(2)
-rescue TaskerCore::FFIError => e
+rescue TaskerCore::Errors::FFIError => e
   logger.fatal "FFI initialization error: #{e.message}"
   logger.fatal 'Failed to bootstrap Rust foundation via FFI'
   exit(3)

@@ -4141,6 +4141,7 @@ dependencies = [
  "futures",
  "reqwest",
  "serde_json",
+ "serde_yaml",
  "serial_test",
  "sqlx",
  "tasker-client",

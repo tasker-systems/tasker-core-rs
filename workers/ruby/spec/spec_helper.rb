@@ -33,13 +33,35 @@ end
 
 # Load TaskerCore components - FAIL FAST if cannot load
 begin
-  # Load core TaskerCore module
+  # Load core TaskerCore module (test environment loading happens automatically)
   require_relative '../lib/tasker_core'
 
   puts '✅ TaskerCore loaded successfully'
+
+  # Verify test environment was loaded properly
+  if TaskerCore::TestEnvironment.loaded?
+    test_info = TaskerCore::TestEnvironment.info
+    puts "🧪 Test environment loaded: #{test_info[:handler_count]} example handlers available"
+    puts "📁 Template path: #{test_info[:template_path] || 'Not set'}"
+    puts "📄 Template files: #{test_info[:template_files] || 0}"
+
+    # Show loaded handlers for debugging
+    handler_names = TaskerCore::TestEnvironment.handler_names
+    unless handler_names.empty?
+      puts "🎯 Example handlers loaded:"
+      handler_names.first(5).each { |name| puts "   - #{name}" }
+      puts "   ... and #{handler_names.size - 5} more" if handler_names.size > 5
+    end
+  else
+    puts "⚠️  Test environment was not loaded (this is expected if TASKER_ENV != 'test')"
+  end
 rescue LoadError => e
   puts "❌ CRITICAL: Could not load TaskerCore: #{e.message}"
   puts '   TaskerCore components are required for integration tests to run.'
   puts '   Check that the Ruby FFI extension is compiled and the paths are correct.'
   raise e # Fail fast - don't continue with broken state
+rescue StandardError => e
+  puts "❌ CRITICAL: Unexpected error during TaskerCore setup: #{e.class} - #{e.message}"
+  puts e.backtrace.first(10).join("\n   ")
+  raise e
 end

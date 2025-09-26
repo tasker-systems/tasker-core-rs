@@ -261,8 +261,13 @@ BEGIN
     ),
     task_with_context AS (
         SELECT
-            tc.*,
+            tc.task_uuid,
+            tc.task_name,
+            tc.priority,
+            tc.namespace_name,
             ctx.ready_steps,
+            tc.computed_priority,
+            tc.current_state,
             ctx.execution_status
         FROM task_candidates tc
         CROSS JOIN LATERAL get_task_execution_context(tc.task_uuid) ctx

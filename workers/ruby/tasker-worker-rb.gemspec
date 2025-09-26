@@ -28,16 +28,28 @@ Gem::Specification.new do |spec|
   spec.metadata['documentation_uri'] = 'https://github.com/tasker-systems/tasker-core/blob/main/docs/RUBY.md'
   spec.metadata['bug_tracker_uri'] = 'https://github.com/tasker-systems/tasker-core/issues'
 
-  # Include all necessary files for the gem
+  # Include all necessary files for the gem, excluding test/spec files
   spec.files = Dir[
     'lib/**/*',
     'src/**/*',
     'ext/**/*',
     'Cargo.toml',
     'README.md',
+    'DEVELOPMENT.md',
     'CHANGELOG.md',
     'LICENSE'
-  ].select { |f| File.file?(f) }
+  ].select { |f| File.file?(f) }.reject do |f|
+    # Exclude test-specific files and directories from production gem
+    f.match?(%r{^spec/}) ||           # Exclude entire spec/ directory
+      f.match?(%r{test}) ||           # Exclude any test files
+      f.match?(%r{fixtures}) ||       # Exclude test fixtures
+      f.match?(%r{examples}) ||       # Exclude example code
+      f.match?(%r{\.rspec}) ||        # Exclude RSpec configuration
+      f.match?(%r{_spec\.rb$}) ||     # Exclude RSpec spec files
+      f.match?(%r{_test\.rb$}) ||     # Exclude test files
+      f.include?('spec_helper') ||    # Exclude spec helpers
+      f.include?('test_helper')       # Exclude test helpers
+  end
 
   spec.require_paths = ['lib']
   spec.extensions    = ['ext/tasker_core/extconf.rb']

@@ -26,6 +26,76 @@ jobs:
     needs: [code-quality, unit-tests]
     uses: ./.github/workflows/test-integration.yml
 
+  ruby-unit-tests:
+    needs: docker-build
+    uses: ./.github/workflows/test-ruby-unit.yml
+
+  ruby-integration-tests:
+    needs: [docker-build, ruby-unit-tests]
+    uses: ./.github/workflows/test-ruby-integration.yml
+
+  performance-analysis:
+    needs: [integration-tests, ruby-integration-tests, ruby-unit-tests]
+    runs-on: ubuntu-22.04
+    if: always()
+    steps:
+      - name: Download Ruby performance artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ruby-*-test-results*
+          merge-multiple: true
+          path: performance-data/
+        continue-on-error: true
+
+      - name: Aggregate performance metrics
+        run: |
+          echo "📊 Aggregating Ruby test performance metrics..."
+
+          # Create performance dashboard
+          cat > performance-summary.md << 'EOF'
+          # Ruby Test Performance Summary
+
+          ## Overview
+          This report summarizes performance metrics from Ruby unit and integration tests.
+
+          EOF
+
+          # Process unit test performance
+          if [ -f "performance-data/ruby-unit-perf-summary.txt" ]; then
+            echo "## Unit Test Performance" >> performance-summary.md
+            echo '```' >> performance-summary.md
+            cat performance-data/ruby-unit-perf-summary.txt >> performance-summary.md
+            echo '```' >> performance-summary.md
+            echo "" >> performance-summary.md
+          fi
+
+          # Process integration test performance
+          if [ -f "performance-data/ruby-integration-perf-summary.txt" ]; then
+            echo "## Integration Test Performance" >> performance-summary.md
+            echo '```' >> performance-summary.md
+            cat performance-data/ruby-integration-perf-summary.txt >> performance-summary.md
+            echo '```' >> performance-summary.md
+            echo "" >> performance-summary.md
+          fi
+
+          # Add Docker stats if available
+          if [ -f "performance-data/ruby-integration-docker-stats.log" ]; then
+            echo "## Docker Service Performance" >> performance-summary.md
+            echo '```' >> performance-summary.md
+            cat performance-data/ruby-integration-docker-stats.log >> performance-summary.md
+            echo '```' >> performance-summary.md
+          fi
+
+          echo "✅ Performance summary created"
+
+      - name: Upload performance analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruby-performance-analysis
+          path: |
+            performance-summary.md
+            performance-data/
+
   ci-success:
-    needs: [integration-tests]
+    needs: [integration-tests, ruby-integration-tests, performance-analysis]
     uses: ./.github/workflows/ci-success.yml

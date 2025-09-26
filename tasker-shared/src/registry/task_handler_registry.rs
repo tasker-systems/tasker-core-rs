@@ -348,7 +348,10 @@ impl TaskHandlerRegistry {
 
     /// Load a TaskTemplate from a YAML file
     /// Similar to the Ruby TaskTemplateRegistry.load_task_template_from_file method
-    async fn load_template_from_file(&self, path: &std::path::Path) -> TaskerResult<TaskTemplate> {
+    pub async fn load_template_from_file(
+        &self,
+        path: &std::path::Path,
+    ) -> TaskerResult<TaskTemplate> {
         debug!("📖 Loading TaskTemplate from file: {}", path.display());
 
         let yaml_content = tokio::fs::read_to_string(path).await.map_err(|e| {
@@ -479,7 +482,7 @@ impl TaskHandlerRegistry {
         Ok(handler_metadata)
     }
 
-    async fn get_task_template_from_registry(
+    pub async fn get_task_template_from_registry(
         &self,
         namespace: &str,
         name: &str,
@@ -532,13 +535,6 @@ impl TaskHandlerRegistry {
             task_uuid = %named_task.named_task_uuid,
             config_present = named_task.configuration.is_some(),
             "✅ Found named task in database"
-        );
-
-        info!(
-            namespace = &namespace,
-            name = &name,
-            version = &version,
-            "✅ DATABASE-FIRST: Handler resolved for task (pgmq architecture - no worker registration needed)"
         );
 
         let default_dependent_system = named_task.configuration.as_ref().and_then(|config| {

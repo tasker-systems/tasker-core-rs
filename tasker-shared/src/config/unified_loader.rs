@@ -45,34 +45,41 @@ impl UnifiedConfigLoader {
     /// * `ConfigurationError::ValidationError` - If workspace root cannot be found
     /// * `ConfigurationError::ConfigFileNotFound` - If config directory doesn't exist
     pub fn new(environment: &str) -> ConfigResult<Self> {
-        // Use workspace_tools to find root - fail explicitly if it doesn't work
-        let ws = workspace().map_err(|e| {
-            ConfigurationError::validation_error(format!(
-                "Failed to find workspace root using workspace_tools: {e}"
-            ))
-        })?;
-
-        // Load .env file from workspace root for database configuration and other env vars
-        let env_file = ws.join(".env");
-        if let Err(e) = dotenvy::from_path(&env_file) {
+        // Check if TASKER_CONFIG_ROOT environment variable is set first
+        let root = if let Ok(config_root) = std::env::var("TASKER_CONFIG_ROOT") {
+            let config_root_path = std::path::PathBuf::from(config_root);
             debug!(
-                "🔧 DOTENV: Could not load .env file from {}: {}",
-                env_file.display(),
-                e
+                "🔧 UNIFIED_CONFIG: Using TASKER_CONFIG_ROOT: {}",
+                config_root_path.display()
             );
+            config_root_path.join("tasker")
         } else {
-            debug!(
-                "🔧 DOTENV: Successfully loaded .env file from {}",
-                env_file.display()
-            );
-        }
+            // Fall back to workspace_tools to find root
+            let ws = workspace().map_err(|e| {
+                ConfigurationError::validation_error(format!(
+                    "Failed to find workspace root using workspace_tools (and TASKER_CONFIG_ROOT not set): {e}"
+                ))
+            })?;
 
-        let root = ws.join("config").join("tasker");
+            // Load .env file from workspace root for database configuration and other env vars
+            let env_file = ws.join(".env");
+            if let Err(e) = dotenvy::from_path(&env_file) {
+                debug!(
+                    "🔧 DOTENV: Could not load .env file from {}: {}",
+                    env_file.display(),
+                    e
+                );
+            } else {
+                debug!(
+                    "🔧 DOTENV: Successfully loaded .env file from {}",
+                    env_file.display()
+                );
+            }
 
-        debug!(
-            "🔧 UNIFIED_CONFIG: Using workspace config root: {}",
-            root.display()
-        );
+            ws.join("config").join("tasker")
+        };
+
+        debug!("🔧 UNIFIED_CONFIG: Using config root: {}", root.display());
 
         Self::with_root(root, environment)
     }

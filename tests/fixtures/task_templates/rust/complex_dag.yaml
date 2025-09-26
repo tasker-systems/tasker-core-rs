@@ -1,11 +1,11 @@
-# TaskTemplate Configuration - Ruby Implementation
+# TaskTemplate Configuration - Native Rust Implementation
 #
-# Mixed DAG Workflow Pattern with Ruby Step Handlers via FFI
+# Mixed DAG Workflow Pattern with Native Rust Step Handlers
 # Demonstrates complex DAG with mixed dependency patterns: linear, parallel, and convergence
 #
 # Template: mixed_dag_workflow/complex_dag:1.0.0
-# Implementation: Ruby FFI with tasker-worker-rb
-# Updated: 2025-09-24 (Fixed Template Format)
+# Implementation: Native Rust with tasker-worker-rust
+# Created: 2025-08-29 (TAS-41 Implementation)
 #
 # Complex DAG Pattern (7 steps):
 # 1. Init: Square input (6 → 36)
@@ -21,24 +21,24 @@
 name: complex_dag
 namespace_name: mixed_dag_workflow
 version: 1.0.0
-description: "Complex DAG workflow: mixed patterns with linear, parallel, and convergence operations (input^64)"
+description: "Complex DAG workflow using native Rust handlers: mixed patterns with linear, parallel, and convergence operations (input^64)"
 metadata:
-  author: Ruby FFI Implementation
+  author: TAS-41 Native Rust Implementation
   tags:
     - namespace:mixed_dag_workflow
     - pattern:complex_dag
     - dependencies:mixed_linear_parallel_convergence
-    - implementation:ruby_ffi
-    - language:ruby
-    - type_safety:runtime
+    - implementation:rust
+    - performance:native
+    - type_safety:compile_time
     - parallelism:multi_path
     - convergence:three_way
-  documentation_url:
-  created_at: "2025-09-24T00:00:00Z"
-  updated_at: "2025-09-24T00:00:00Z"
-  notes: "Ruby FFI implementation with complex mixed dependency patterns and multi-path convergence"
+  documentation_url: 
+  created_at: "2025-08-29T00:00:00Z"
+  updated_at: "2025-08-29T00:00:00Z"
+  notes: "Native Rust implementation with complex mixed dependency patterns and multi-path convergence"
 task_handler:
-  callable: MixedDagWorkflow::MixedDagWorkflowHandler
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
   initialization:
     input_validation:
       required_fields:
@@ -56,6 +56,10 @@ task_handler:
       dag_analyze: "((input²)²)²"
       dag_finalize: "(validate × transform × analyze)²"
       final_pattern: "input^64"
+    performance_notes:
+      - "Complex dependency resolution with native Rust performance"
+      - "Mixed parallel and linear execution paths"
+      - "Multi-way convergence with compile-time safety"
 system_dependencies:
   primary: default
   secondary: []
@@ -74,7 +78,7 @@ steps:
   - name: dag_init
     description: "DAG initialization: Square the input even number"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagInitHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagInitHandler
       initialization:
         operation: square
         step_type: initialization
@@ -95,7 +99,7 @@ steps:
   - name: dag_process_left
     description: "Left processing path: Square the init result"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagProcessLeftHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessLeftHandler
       initialization:
         operation: square
         step_type: parallel_processing
@@ -118,7 +122,7 @@ steps:
   - name: dag_process_right
     description: "Right processing path: Square the init result"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagProcessRightHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagProcessRightHandler
       initialization:
         operation: square
         step_type: parallel_processing
@@ -141,7 +145,7 @@ steps:
   - name: dag_validate
     description: "Validation step: Multiply both processing results and square"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagValidateHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagValidateHandler
       initialization:
         operation: multiply_and_square
         step_type: convergence_validation
@@ -166,7 +170,7 @@ steps:
   - name: dag_transform
     description: "Transform step: Square the left processing result"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagTransformHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagTransformHandler
       initialization:
         operation: square
         step_type: linear_transformation
@@ -188,7 +192,7 @@ steps:
   - name: dag_analyze
     description: "Analysis step: Square the right processing result"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagAnalyzeHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagAnalyzeHandler
       initialization:
         operation: square
         step_type: linear_analysis
@@ -210,7 +214,7 @@ steps:
   - name: dag_finalize
     description: "Final convergence: Multiply validate, transform, analyze results and square"
     handler:
-      callable: MixedDagWorkflow::StepHandlers::DagFinalizeHandler
+      callable: tasker_worker_rust::step_handlers::mixed_dag_workflow::DagFinalizeHandler
       initialization:
         operation: multiply_three_and_square
         step_type: final_convergence
@@ -239,29 +243,53 @@ environments:
     steps:
       - name: dag_init
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: dag_process_left
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: dag_process_right
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: dag_validate
         timeout_seconds: 15
-        retry:
-          limit: 2
       - name: dag_transform
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: dag_analyze
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: dag_finalize
         timeout_seconds: 20
-        retry:
-          limit: 2
+  development:
+    steps:
+      - name: dag_init
+        handler:
+          initialization:
+            debug_mode: true
+            dag_visualization: true
+      - name: dag_process_left
+        handler:
+          initialization:
+            debug_mode: true
+            path_tracking: true
+      - name: dag_process_right
+        handler:
+          initialization:
+            debug_mode: true
+            path_tracking: true
+      - name: dag_validate
+        handler:
+          initialization:
+            debug_mode: true
+            convergence_tracking: true
+      - name: dag_transform
+        handler:
+          initialization:
+            debug_mode: true
+            transformation_tracking: true
+      - name: dag_analyze
+        handler:
+          initialization:
+            debug_mode: true
+            analysis_tracking: true
+      - name: dag_finalize
+        handler:
+          initialization:
+            debug_mode: true
+            final_convergence_verification: true
+            dag_summary: true

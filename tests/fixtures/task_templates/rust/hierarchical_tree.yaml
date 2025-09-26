@@ -1,16 +1,16 @@
-# TaskTemplate Configuration - Ruby Implementation
+# TaskTemplate Configuration - Native Rust Implementation
 #
-# Tree Workflow Pattern with Ruby Step Handlers via FFI
+# Tree Workflow Pattern with Native Rust Step Handlers
 # Demonstrates complex hierarchical tree structure with multiple branches and convergence
 #
 # Template: tree_workflow/hierarchical_tree:1.0.0
-# Implementation: Ruby FFI with tasker-worker-rb
-# Updated: 2025-09-24 (Fixed Template Format)
+# Implementation: Native Rust with tasker-worker-rust
+# Created: 2025-08-29 (TAS-41 Implementation)
 #
 # Tree Pattern (8 steps):
 # 1. Root: Square input (6 → 36)
 # 2. Branch Left: Square root result (36 → 1,296)
-# 3. Branch Right: Square root result (36 → 1,296)
+# 3. Branch Right: Square root result (36 → 1,296) 
 # 4. Leaf D: Square left branch (1,296 → 1,679,616)
 # 5. Leaf E: Square left branch (1,296 → 1,679,616)
 # 6. Leaf F: Square right branch (1,296 → 1,679,616)
@@ -22,24 +22,24 @@
 name: hierarchical_tree
 namespace_name: tree_workflow
 version: 1.0.0
-description: "Complex hierarchical tree workflow: root → branches → leaves → convergence (input^32)"
+description: "Complex hierarchical tree workflow using native Rust handlers: root → branches → leaves → convergence (input^32)"
 metadata:
-  author: Ruby FFI Implementation
+  author: TAS-41 Native Rust Implementation
   tags:
     - namespace:tree_workflow
     - pattern:hierarchical_tree
     - dependencies:complex_multi_parent
-    - implementation:ruby_ffi
-    - language:ruby
-    - type_safety:runtime
+    - implementation:rust
+    - performance:native
+    - type_safety:compile_time
     - parallelism:multi_branch
     - convergence:four_way
-  documentation_url:
-  created_at: "2025-09-24T00:00:00Z"
-  updated_at: "2025-09-24T00:00:00Z"
-  notes: "Ruby FFI implementation with complex hierarchical dependency resolution"
+  documentation_url: 
+  created_at: "2025-08-29T00:00:00Z"
+  updated_at: "2025-08-29T00:00:00Z"
+  notes: "Native Rust implementation with complex hierarchical dependency resolution"
 task_handler:
-  callable: TreeWorkflow::TreeWorkflowHandler
+  callable: tasker_worker_rust::step_handlers::RustStepHandler
   initialization:
     input_validation:
       required_fields:
@@ -58,6 +58,10 @@ task_handler:
       tree_leaf_g: "((input²)²)²"
       tree_final_convergence: "(((input²)²)² × ((input²)²)² × ((input²)²)² × ((input²)²)²)²"
       final_pattern: "input^32"
+    performance_notes:
+      - "Hierarchical parallel execution with native Rust performance"
+      - "Complex dependency resolution at compile time"
+      - "Memory-efficient tree traversal patterns"
 system_dependencies:
   primary: default
   secondary: []
@@ -76,7 +80,7 @@ steps:
   - name: tree_root
     description: "Tree root: Square the input even number"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeRootHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeRootHandler
       initialization:
         operation: square
         step_type: root
@@ -97,7 +101,7 @@ steps:
   - name: tree_branch_left
     description: "Left branch: Square the root result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeBranchLeftHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeBranchLeftHandler
       initialization:
         operation: square
         step_type: branch
@@ -120,7 +124,7 @@ steps:
   - name: tree_branch_right
     description: "Right branch: Square the root result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeBranchRightHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeBranchRightHandler
       initialization:
         operation: square
         step_type: branch
@@ -143,7 +147,7 @@ steps:
   - name: tree_leaf_d
     description: "Leaf D: Square the left branch result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeLeafDHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeLeafDHandler
       initialization:
         operation: square
         step_type: leaf
@@ -164,7 +168,7 @@ steps:
   - name: tree_leaf_e
     description: "Leaf E: Square the left branch result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeLeafEHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeLeafEHandler
       initialization:
         operation: square
         step_type: leaf
@@ -185,7 +189,7 @@ steps:
   - name: tree_leaf_f
     description: "Leaf F: Square the right branch result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeLeafFHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeLeafFHandler
       initialization:
         operation: square
         step_type: leaf
@@ -206,7 +210,7 @@ steps:
   - name: tree_leaf_g
     description: "Leaf G: Square the right branch result"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeLeafGHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeLeafGHandler
       initialization:
         operation: square
         step_type: leaf
@@ -227,7 +231,7 @@ steps:
   - name: tree_final_convergence
     description: "Final convergence: Multiply all 4 leaf results and square"
     handler:
-      callable: TreeWorkflow::StepHandlers::TreeFinalConvergenceHandler
+      callable: tasker_worker_rust::step_handlers::tree_workflow::TreeFinalConvergenceHandler
       initialization:
         operation: multiply_all_and_square
         step_type: final_convergence
@@ -254,33 +258,60 @@ environments:
     steps:
       - name: tree_root
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_branch_left
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_branch_right
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_leaf_d
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_leaf_e
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_leaf_f
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_leaf_g
         timeout_seconds: 10
-        retry:
-          limit: 2
       - name: tree_final_convergence
         timeout_seconds: 20
-        retry:
-          limit: 2
+  development:
+    steps:
+      - name: tree_root
+        handler:
+          initialization:
+            debug_mode: true
+            tree_visualization: true
+      - name: tree_branch_left
+        handler:
+          initialization:
+            debug_mode: true
+            branch_tracking: true
+      - name: tree_branch_right
+        handler:
+          initialization:
+            debug_mode: true
+            branch_tracking: true
+      - name: tree_leaf_d
+        handler:
+          initialization:
+            debug_mode: true
+            leaf_tracking: true
+      - name: tree_leaf_e
+        handler:
+          initialization:
+            debug_mode: true
+            leaf_tracking: true
+      - name: tree_leaf_f
+        handler:
+          initialization:
+            debug_mode: true
+            leaf_tracking: true
+      - name: tree_leaf_g
+        handler:
+          initialization:
+            debug_mode: true
+            leaf_tracking: true
+      - name: tree_final_convergence
+        handler:
+          initialization:
+            debug_mode: true
+            convergence_verification: true
+            tree_summary: true

@@ -1,0 +1,159 @@
+name: Ruby Integration Tests
+
+on:
+  workflow_call:
+
+jobs:
+  ruby-integration:
+    runs-on: ubuntu-22.04
+
+    defaults:
+      run:
+        working-directory: workers/ruby
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: workers/ruby
+
+      - name: Setup shared environment variables
+        uses: ./.github/actions/setup-env
+
+      - name: Start all Docker services (including ruby-worker)
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: "./docker/docker-compose.test.yml"
+          up-flags: "--build -d"
+
+      - name: Aggressive health check with Ruby worker focus
+        run: |
+          timeout 180 bash -c '
+            echo "🚀 Checking services aggressively..."
+
+            # Fast check for orchestration
+            until curl -f http://localhost:8080/health 2>/dev/null; do
+              echo "⏳ Waiting for orchestration service..."
+              sleep 2
+            done
+            echo "✅ Orchestration service ready"
+
+            # Fast check for Rust worker (optional, for completeness)
+            until curl -f http://localhost:8081/health 2>/dev/null; do
+              echo "⏳ Waiting for Rust worker service..."
+              sleep 2
+            done
+            echo "✅ Rust worker ready"
+
+            # Extended check for Ruby worker (FFI bootstrap takes time)
+            echo "⏳ Waiting for Ruby worker (FFI bootstrap may take 30-60 seconds)..."
+            until curl -f http://localhost:8082/health 2>/dev/null; do
+              echo "⏳ Ruby worker still bootstrapping FFI..."
+              sleep 5
+            done
+            echo "✅ Ruby worker ready with FFI"
+
+            # Validate Ruby handler discovery
+            echo "🔍 Validating Ruby handler discovery..."
+            handler_count=$(curl -s http://localhost:8082/worker/handlers 2>/dev/null | jq length 2>/dev/null || echo "0")
+            echo "✅ Ruby handlers discovered: $handler_count handlers"
+
+            echo "🎉 All services ready for Ruby integration testing!"
+          '
+
+      - name: Create test results directory
+        run: mkdir -p ../../target
+
+      - name: Run Ruby integration tests with performance monitoring
+        run: |
+          echo "🏁 Starting Ruby integration tests with performance monitoring..."
+          START_TIME=$(date +%s)
+
+          # Run tests with timing and performance data
+          time bundle exec rspec spec/integration/ \
+            --format documentation \
+            --format RspecJunitFormatter \
+            --out ../../target/ruby-integration-results.xml \
+            2>&1 | tee ../../target/ruby-integration-output.log
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo "⏱️ Integration tests completed in ${DURATION} seconds"
+          echo "integration_test_duration_seconds=${DURATION}" >> $GITHUB_OUTPUT
+
+          # Extract performance metrics from test output
+          grep -E "(completed in|seconds|✅)" ../../target/ruby-integration-output.log > ../../target/ruby-integration-performance.log || true
+
+          echo "📊 Performance summary saved to ruby-integration-performance.log"
+
+      - name: Collect service performance metrics
+        if: always()
+        run: |
+          echo "📈 Collecting service performance metrics..."
+
+          # Get Docker container stats
+          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" \
+            > ../../target/ruby-integration-docker-stats.log 2>/dev/null || echo "Docker stats collection failed"
+
+          # Test service response times
+          echo "🔍 Testing service response times..."
+
+          # Orchestration service response time
+          START=$(date +%s%N)
+          curl -s http://localhost:8080/health >/dev/null 2>&1
+          END=$(date +%s%N)
+          ORCH_MS=$(( (END - START) / 1000000 ))
+          echo "orchestration_response_time_ms=${ORCH_MS}" >> $GITHUB_OUTPUT
+
+          # Ruby worker response time
+          START=$(date +%s%N)
+          curl -s http://localhost:8082/health >/dev/null 2>&1
+          END=$(date +%s%N)
+          RUBY_MS=$(( (END - START) / 1000000 ))
+          echo "ruby_worker_response_time_ms=${RUBY_MS}" >> $GITHUB_OUTPUT
+
+          # Create performance summary
+          cat > ../../target/ruby-integration-perf-summary.txt << EOF
+          Ruby Integration Test Performance Summary
+          ========================================
+          Test Duration: ${DURATION:-unknown} seconds
+          Orchestration Response Time: ${ORCH_MS}ms
+          Ruby Worker Response Time: ${RUBY_MS}ms
+          Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+          echo "✅ Performance metrics collected"
+
+      - name: Upload test results and performance data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ruby-integration-test-results
+          path: |
+            target/ruby-integration-results.xml
+            target/ruby-integration-output.log
+            target/ruby-integration-performance.log
+            target/ruby-integration-docker-stats.log
+            target/ruby-integration-perf-summary.txt
+
+      - name: Collect service logs on failure
+        if: failure()
+        run: |
+          mkdir -p ../../docker-logs
+          docker compose -f ../../docker/docker-compose.test.yml logs postgres > ../../docker-logs/postgres.log
+          docker compose -f ../../docker/docker-compose.test.yml logs orchestration > ../../docker-logs/orchestration.log
+          docker compose -f ../../docker/docker-compose.test.yml logs worker > ../../docker-logs/rust-worker.log
+          docker compose -f ../../docker/docker-compose.test.yml logs ruby-worker > ../../docker-logs/ruby-worker.log
+
+      - name: Upload debug logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruby-integration-debug-logs
+          path: docker-logs/
