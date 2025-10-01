@@ -9,6 +9,7 @@ pub mod command_processor;
 pub mod config;
 pub mod core;
 pub mod error_classifier;
+pub mod error_handling_service;
 pub mod errors;
 pub mod event_systems;
 pub mod lifecycle;
@@ -87,6 +88,9 @@ pub use config::{
 pub use error_classifier::{
     ErrorCategory, ErrorClassification, ErrorClassifier, ErrorClassifierConfig, ErrorContext,
     RetryStrategy, StandardErrorClassifier,
+};
+pub use error_handling_service::{
+    ErrorHandlingAction, ErrorHandlingConfig, ErrorHandlingResult, ErrorHandlingService,
 };
 
 // Use unified event publisher from events module

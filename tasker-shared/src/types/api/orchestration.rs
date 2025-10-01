@@ -1,4 +1,4 @@
-use crate::database::sql_functions::StepReadinessStatus;
+use crate::database::sql_functions::{StepReadinessStatus, SystemHealthCounts};
 use crate::models::core::task::PaginationInfo;
 use crate::models::orchestration::execution_status::ExecutionStatus;
 use chrono::{DateTime, Utc};
@@ -237,14 +237,8 @@ pub struct SlowTaskInfo {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub struct ResourceUtilization {
-    pub database_connections_active: i64,
-    pub database_connections_max: i64,
     pub database_pool_utilization: f64,
-    pub pending_steps: i64,
-    pub in_progress_steps: i64,
-    pub error_steps: i64,
-    pub retryable_error_steps: i64,
-    pub exhausted_retry_steps: i64,
+    pub system_health: SystemHealthCounts,
 }
 
 impl TaskResponse {

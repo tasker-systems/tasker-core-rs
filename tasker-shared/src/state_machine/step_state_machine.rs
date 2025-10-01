@@ -161,6 +161,27 @@ impl StepStateMachine {
             // Retry transitions (from error state back to pending)
             (WorkflowStepState::Error, StepEvent::Retry) => WorkflowStepState::Pending,
 
+            // WaitingForRetry transitions
+            // Transition to waiting for retry when error is retryable
+            (WorkflowStepState::InProgress, StepEvent::WaitForRetry(_)) => {
+                WorkflowStepState::WaitingForRetry
+            }
+            (WorkflowStepState::Enqueued, StepEvent::WaitForRetry(_)) => {
+                WorkflowStepState::WaitingForRetry
+            }
+            (WorkflowStepState::Pending, StepEvent::WaitForRetry(_)) => {
+                WorkflowStepState::WaitingForRetry
+            }
+            (WorkflowStepState::EnqueuedAsErrorForOrchestration, StepEvent::WaitForRetry(_)) => {
+                WorkflowStepState::WaitingForRetry
+            }
+
+            // Transition from waiting for retry back to pending when ready
+            (WorkflowStepState::WaitingForRetry, StepEvent::Retry) => WorkflowStepState::Pending,
+
+            // Cancel from waiting for retry
+            (WorkflowStepState::WaitingForRetry, StepEvent::Cancel) => WorkflowStepState::Cancelled,
+
             // Manual resolution
             (_, StepEvent::ResolveManually) => WorkflowStepState::ResolvedManually,
 

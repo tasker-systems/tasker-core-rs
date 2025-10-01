@@ -198,6 +198,8 @@ pub enum WorkflowStepState {
     EnqueuedForOrchestration,
     /// Step failed by worker, enqueued for orchestration error processing
     EnqueuedAsErrorForOrchestration,
+    /// Step is waiting for retry delay to expire before being re-enqueued
+    WaitingForRetry,
     /// Step completed successfully (after orchestration processing)
     Complete,
     /// Step failed with an error (after orchestration processing)
@@ -259,6 +261,7 @@ impl WorkflowStepState {
             WorkflowStepState::EnqueuedAsErrorForOrchestration => {
                 "enqueued_as_error_for_orchestration"
             }
+            WorkflowStepState::WaitingForRetry => "waiting_for_retry",
             WorkflowStepState::Complete => "complete",
             WorkflowStepState::Error => "error",
             WorkflowStepState::Cancelled => "cancelled",
@@ -291,6 +294,7 @@ impl TryFrom<&str> for WorkflowStepState {
             "enqueued_as_error_for_orchestration" => {
                 Ok(WorkflowStepState::EnqueuedAsErrorForOrchestration)
             }
+            "waiting_for_retry" => Ok(WorkflowStepState::WaitingForRetry),
             "complete" => Ok(WorkflowStepState::Complete),
             "error" => Ok(WorkflowStepState::Error),
             "cancelled" => Ok(WorkflowStepState::Cancelled),

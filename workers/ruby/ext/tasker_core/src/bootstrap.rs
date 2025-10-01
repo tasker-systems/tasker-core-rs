@@ -60,11 +60,10 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
     // Get global event system (shared singleton)
     let event_system = get_global_event_system();
 
-    // Create Ruby event handler that will forward events to Ruby
-    let ruby_event_handler = Arc::new(RubyEventHandler::new(
-        event_system.clone(),
-        worker_id_str.clone(),
-    ));
+    // Create Ruby event handler that will forward events to Ruby via channel
+    let (ruby_event_handler, event_receiver) =
+        RubyEventHandler::new(event_system.clone(), worker_id_str.clone());
+    let ruby_event_handler = Arc::new(ruby_event_handler);
 
     // Bootstrap within runtime context
     let (system_handle, event_handler) = runtime.block_on(async {
@@ -95,8 +94,13 @@ pub fn bootstrap_worker() -> Result<Value, Error> {
         Ok::<_, Error>((handle, ruby_event_handler))
     })?;
 
-    // Store the bridge handle
-    *handle_guard = Some(RubyBridgeHandle::new(system_handle, event_handler, runtime));
+    // Store the bridge handle with event receiver
+    *handle_guard = Some(RubyBridgeHandle::new(
+        system_handle,
+        event_handler,
+        event_receiver,
+        runtime,
+    ));
 
     // Return handle info to Ruby
     let ruby = magnus::Ruby::get().map_err(|err| {

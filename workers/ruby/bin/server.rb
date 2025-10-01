@@ -101,7 +101,7 @@ begin
       begin
         health_status = bootstrap.health_check
         if health_status[:healthy]
-          logger.debug "Health check ##{loop_count / 60}: OK" if logger.debug?
+          logger.debug "Health check ##{loop_count / 60}: OK"
         else
           logger.warn "Health check ##{loop_count / 60}: UNHEALTHY - #{health_status[:error]}"
         end
@@ -122,11 +122,11 @@ begin
       logger.info 'Ruby worker shutdown completed successfully'
     rescue TaskerCore::Errors::FFIError => e
       logger.error "FFI error during shutdown: #{e.message}"
-      logger.error e.backtrace.join("\n") if logger.debug?
+      logger.error e.backtrace.join("\n")
       exit(3)
     rescue StandardError => e
       logger.error "Error during shutdown: #{e.message}"
-      logger.error e.backtrace.join("\n") if logger.debug?
+      logger.error e.backtrace.join("\n")
       exit(1)
     end
   else

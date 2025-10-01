@@ -334,26 +334,21 @@ impl WorkflowStep {
     /// - **Index Usage**: Primary key lookup (O(1))
     /// - **Memory**: Updates in-memory struct to match database
     pub async fn mark_in_process(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().naive_utc();
-
+        // Only update the in_process flag - a denormalized query optimization field
+        // attempts and last_attempted_at are managed by the step claim logic
         sqlx::query!(
             r#"
             UPDATE tasker_workflow_steps
             SET in_process = true,
-                last_attempted_at = $2,
-                attempts = COALESCE(attempts, 0) + 1,
                 updated_at = NOW()
             WHERE workflow_step_uuid = $1::uuid
             "#,
-            self.workflow_step_uuid,
-            now
+            self.workflow_step_uuid
         )
         .execute(pool)
         .await?;
 
         self.in_process = true;
-        self.last_attempted_at = Some(now);
-        self.attempts = Some(self.attempts.unwrap_or(0) + 1);
 
         Ok(())
     }

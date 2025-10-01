@@ -10,6 +10,8 @@ require 'dry-validation'
 require 'concurrent-ruby'
 require 'timeout'
 require 'dotenv'
+require 'active_support'
+require 'active_support/core_ext'
 
 # Pre-define TaskerCore module for Magnus
 module TaskerCore
@@ -50,6 +52,7 @@ require_relative 'tasker_core/handlers'
 require_relative 'tasker_core/registry'
 require_relative 'tasker_core/subscriber'
 require_relative 'tasker_core/event_bridge'
+require_relative 'tasker_core/worker/event_poller'
 require_relative 'tasker_core/bootstrap'
 
 module TaskerCore

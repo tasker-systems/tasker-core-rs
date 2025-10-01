@@ -76,7 +76,8 @@ module TaskerCore
             worker_id: @rust_handle&.dig('worker_id') || @rust_handle&.dig(:worker_id),
             event_bridge_active: EventBridge.instance.active?,
             handler_registry_size: Registry::HandlerRegistry.instance.handlers.size,
-            subscriber_active: @step_subscriber&.active? || false
+            subscriber_active: @step_subscriber&.active? || false,
+            event_poller_active: EventPoller.instance.active?
           }
         }
       rescue StandardError => e
@@ -109,6 +110,7 @@ module TaskerCore
         # Stop Ruby components
         @step_subscriber&.stop!
         EventBridge.instance.stop!
+        EventPoller.instance.stop!
 
         # Stop Rust worker and clear handle
         if @rust_handle
@@ -149,6 +151,7 @@ module TaskerCore
           # Check Ruby components
           ruby_healthy = @status == :running &&
                          EventBridge.instance.active? &&
+                         EventPoller.instance.active? &&
                          Registry::HandlerRegistry.instance.handlers.any?
 
           overall_healthy = rust_running && ruby_healthy
@@ -164,7 +167,8 @@ module TaskerCore
               status: @status,
               event_bridge_active: EventBridge.instance.active?,
               handlers_registered: Registry::HandlerRegistry.instance.handlers.size,
-              subscriber_active: @step_subscriber&.active? || false
+              subscriber_active: @step_subscriber&.active? || false,
+              event_poller_active: EventPoller.instance.active?
             }
           }
         rescue StandardError => e
@@ -256,6 +260,9 @@ module TaskerCore
 
       def start_event_processing!
         logger.info 'Starting event processing...'
+
+        # Start the EventPoller to poll for events from Rust
+        EventPoller.instance.start!
 
         # Subscribe to step execution events
         EventBridge.instance.subscribe_to_step_execution do |event|

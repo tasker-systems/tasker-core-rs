@@ -647,6 +647,13 @@ impl StateAction<WorkflowStep> for UpdateStepResultsAction {
                     "Step moved to enqueued for worker processing"
                 );
             }
+            WorkflowStepState::WaitingForRetry => {
+                tracing::info!(
+                    step_uuid = %step.workflow_step_uuid,
+                    task_uuid = %step.task_uuid,
+                    "Step moved to waiting for retry - will be re-enqueued after backoff delay"
+                );
+            }
         };
 
         Ok(())

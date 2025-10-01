@@ -2,32 +2,43 @@
 //!
 //! Bridges WorkerEventSystem to Ruby dry-events without circular dependencies.
 //! Events flow: Rust → Ruby for execution, Ruby → Rust for completion.
+//!
+//! Uses MPSC channel for thread-safe communication between tokio tasks and Ruby threads.
 
 use crate::bridge;
-use crate::conversions::{convert_ruby_completion_to_rust, convert_step_execution_event_to_ruby};
-use magnus::{value::ReprValue, Error as MagnusError, Ruby, Value as RValue};
+use crate::conversions::convert_ruby_completion_to_rust;
+use magnus::{Error as MagnusError, Value as RValue};
 use std::sync::Arc;
 use tasker_shared::{
     events::{WorkerEventSubscriber, WorkerEventSystem},
     types::{StepExecutionCompletionEvent, StepExecutionEvent},
 };
 use tasker_shared::{TaskerError, TaskerResult};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 
-/// Ruby Event Handler - forwards Rust events to Ruby
+/// Ruby Event Handler - forwards Rust events to Ruby via MPSC channel
 pub struct RubyEventHandler {
     event_subscriber: Arc<WorkerEventSubscriber>,
     worker_id: String,
+    event_sender: mpsc::UnboundedSender<StepExecutionEvent>,
 }
 
 impl RubyEventHandler {
-    pub fn new(event_system: Arc<WorkerEventSystem>, worker_id: String) -> Self {
+    pub fn new(
+        event_system: Arc<WorkerEventSystem>,
+        worker_id: String,
+    ) -> (Self, mpsc::UnboundedReceiver<StepExecutionEvent>) {
         let event_subscriber = Arc::new(WorkerEventSubscriber::new((*event_system).clone()));
-        Self {
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+
+        let handler = Self {
             event_subscriber,
             worker_id,
-        }
+            event_sender,
+        };
+
+        (handler, event_receiver)
     }
 
     pub async fn start(&self) -> TaskerResult<()> {
@@ -37,6 +48,7 @@ impl RubyEventHandler {
         );
 
         let mut receiver = self.event_subscriber.subscribe_to_step_executions();
+        let event_sender = self.event_sender.clone();
 
         tokio::spawn(async move {
             loop {
@@ -45,13 +57,14 @@ impl RubyEventHandler {
                         debug!(
                             event_id = %event.event_id,
                             step_name = %event.payload.task_sequence_step.workflow_step.name,
-                            "Received step execution event - forwarding to Ruby"
+                            "Received step execution event - sending to channel for Ruby processing"
                         );
 
-                        if let Err(e) = Self::forward_event_to_ruby(event).await {
+                        // Send to channel instead of directly calling Ruby
+                        if let Err(e) = event_sender.send(event) {
                             error!(
                                 error = %e,
-                                "Failed to forward event to Ruby"
+                                "Failed to send event to Ruby channel"
                             );
                         }
                     }
@@ -69,31 +82,8 @@ impl RubyEventHandler {
         Ok(())
     }
 
-    async fn forward_event_to_ruby(event: StepExecutionEvent) -> TaskerResult<()> {
-        // Get Ruby runtime context
-        let ruby = Ruby::get().map_err(|err| {
-            error!("Failed to get ruby system: {err}");
-            TaskerError::FFIError(format!("Failed to get Ruby system: {err}"))
-        })?;
-
-        // Convert event to Ruby hash
-        let ruby_event = convert_step_execution_event_to_ruby(event)
-            .map_err(|e| TaskerError::FFIError(format!("Failed to convert event to Ruby: {e}")))?;
-
-        // Call directly into Ruby EventBridge to publish event
-        // This avoids the circular dependency of calling back through FFI
-        let event_bridge: RValue = ruby
-            .eval("TaskerCore::Worker::EventBridge.instance")
-            .map_err(|e| {
-                TaskerError::FFIError(format!("Failed to get EventBridge instance: {e}"))
-            })?;
-
-        let _published: bool = event_bridge
-            .funcall("publish_step_execution", (ruby_event,))
-            .map_err(|e| TaskerError::FFIError(format!("Failed to publish event to Ruby: {e}")))?;
-
-        Ok(())
-    }
+    // This method is no longer used - events are sent through the channel instead
+    // Ruby will poll for events using the receiver returned from new()
 
     /// Handle completion event from Ruby and forward to Rust event system
     pub async fn handle_completion(

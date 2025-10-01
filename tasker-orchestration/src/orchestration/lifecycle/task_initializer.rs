@@ -392,23 +392,12 @@ impl TaskInitializer {
             return Ok(existing);
         }
 
-        // Create new named task if not found
-        let new_named_task = tasker_shared::models::core::named_task::NewNamedTask {
-            name: task_request.name.clone(),
-            version: Some(task_request.version.clone()),
-            description: Some(format!("Auto-created task for {}", task_request.name)),
-            task_namespace_uuid,
-            configuration: None,
-        };
-
-        let named_task =
-            tasker_shared::models::NamedTask::create(self.context.database_pool(), new_named_task)
-                .await
-                .map_err(|e| {
-                    TaskInitializationError::Database(format!("Failed to create named task: {e}"))
-                })?;
-
-        Ok(named_task)
+        // Template not found - this should never happen in production
+        // Templates must be registered by workers before orchestration can use them
+        Err(TaskInitializationError::ConfigurationNotFound(format!(
+            "Task template not found: {}/{}/{}. Templates must be registered by workers before orchestration can use them.",
+            task_request.namespace, task_request.name, task_request.version
+        )))
     }
 
     /// Create workflow steps and their dependencies from task template

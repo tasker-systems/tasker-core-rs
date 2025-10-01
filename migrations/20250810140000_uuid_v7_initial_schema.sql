@@ -802,7 +802,7 @@ BEGIN
 
     -- Ready for execution
     CASE
-      WHEN COALESCE(ss.to_state, 'pending') IN ('pending', 'error')
+      WHEN COALESCE(ss.to_state, 'pending') = 'pending'
       AND (ws.processed = false OR ws.processed IS NULL)
       AND (dc.total_deps IS NULL OR dc.completed_deps = dc.total_deps)
       AND (COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3))
@@ -1051,7 +1051,7 @@ BEGIN
 
     -- Ready for execution
     CASE
-      WHEN COALESCE(ss.to_state, 'pending') IN ('pending', 'error')
+      WHEN COALESCE(ss.to_state, 'pending') = 'pending'
       AND (ws.processed = false OR ws.processed IS NULL)
       AND (dc.total_deps IS NULL OR dc.completed_deps = dc.total_deps)
       AND (COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3))

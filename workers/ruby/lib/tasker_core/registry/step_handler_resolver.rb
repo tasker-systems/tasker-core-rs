@@ -131,7 +131,7 @@ module TaskerCore
         end
       rescue StandardError => e
         @logger.error("💥 STEP_RESOLVER: Error creating handler instance for #{resolved_handler.handler_class_name}: #{e.message}")
-        raise TaskerCore::Error, "Handler instantiation failed: #{e.message}"
+        raise Errors::Error, "Handler instantiation failed: #{e.message}"
       end
 
       # Get handler instance using traditional resolution
