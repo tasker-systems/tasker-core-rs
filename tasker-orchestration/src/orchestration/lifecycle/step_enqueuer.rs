@@ -55,6 +55,10 @@ use tasker_shared::config::orchestration::StepEnqueuerConfig;
 use tasker_shared::database::sql_functions::ReadyTaskInfo;
 use tasker_shared::messaging::message::SimpleStepMessage;
 use tasker_shared::messaging::PgmqClientTrait;
+use tasker_shared::models::WorkflowStep;
+use tasker_shared::state_machine::events::StepEvent;
+use tasker_shared::state_machine::states::WorkflowStepState;
+use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::types::ViableStep;
 use tasker_shared::{SystemContext, TaskerError, TaskerResult};
 use tracing::{debug, error, info, instrument, warn};
@@ -171,14 +175,46 @@ impl StepEnqueuer {
             });
         }
 
-        // 2. Enqueue each step individually to namespace queues
+        // 2. Filter and prepare steps for enqueueing based on current state
+        // Only enqueue steps that are in valid states for enqueueing
+        let enqueuable_steps = self
+            .filter_and_prepare_enqueuable_steps(viable_steps)
+            .await?;
+
+        let enqueuable_count = enqueuable_steps.len();
+        debug!(
+            task_uuid = task_info.task_uuid.to_string(),
+            steps_discovered = steps_discovered,
+            enqueuable_steps = enqueuable_count,
+            "Filtered steps ready for enqueueing"
+        );
+
+        if enqueuable_count == 0 {
+            warn!(
+                task_uuid = task_info.task_uuid.to_string(),
+                "No enqueuable steps after state filtering - steps may be in error/waiting states"
+            );
+
+            return Ok(StepEnqueueResult {
+                task_uuid: task_info.task_uuid,
+                steps_discovered,
+                steps_enqueued: 0,
+                steps_failed: 0,
+                processing_duration_ms: start_time.elapsed().as_millis() as u64,
+                namespace_breakdown: HashMap::new(),
+                warnings: vec!["No steps in enqueuable state".to_string()],
+                step_uuids: Vec::new(),
+            });
+        }
+
+        // 3. Enqueue each step individually to namespace queues
         let mut steps_enqueued = 0;
         let mut steps_failed = 0;
         let mut namespace_breakdown: HashMap<String, NamespaceEnqueueStats> = HashMap::new();
         let mut warnings = Vec::new();
         let mut step_uuids = Vec::new();
 
-        for viable_step in viable_steps {
+        for viable_step in enqueuable_steps {
             match self.enqueue_individual_step(task_info, &viable_step).await {
                 Ok(queue_name) => {
                     steps_enqueued += 1;
@@ -285,6 +321,108 @@ impl StepEnqueuer {
         );
 
         Ok(result)
+    }
+
+    /// Filter viable steps and prepare them for enqueueing based on current state
+    ///
+    /// Handles state transitions for steps that need to move from WaitingForRetry to Pending
+    /// before they can be enqueued. Only returns steps that are in valid states for enqueueing.
+    async fn filter_and_prepare_enqueuable_steps(
+        &self,
+        viable_steps: Vec<ViableStep>,
+    ) -> TaskerResult<Vec<ViableStep>> {
+        let mut enqueuable_steps = Vec::new();
+
+        for viable_step in viable_steps {
+            // Load the full WorkflowStep from database to check current state
+            let workflow_step =
+                WorkflowStep::find_by_id(self.context.database_pool(), viable_step.step_uuid)
+                    .await
+                    .map_err(|e| {
+                        TaskerError::DatabaseError(format!(
+                            "Failed to load step {} for state check: {}",
+                            viable_step.step_uuid, e
+                        ))
+                    })?;
+
+            let Some(workflow_step) = workflow_step else {
+                warn!(
+                    step_uuid = %viable_step.step_uuid,
+                    "Step not found in database, skipping"
+                );
+                continue;
+            };
+
+            // Create state machine to check current state
+            let mut state_machine = StepStateMachine::new(workflow_step, self.context.clone());
+            let current_state = state_machine.current_state().await.map_err(|e| {
+                TaskerError::StateTransitionError(format!(
+                    "Failed to get current state for step {}: {}",
+                    viable_step.step_uuid, e
+                ))
+            })?;
+
+            match current_state {
+                WorkflowStepState::Pending => {
+                    // Ready to enqueue directly
+                    debug!(
+                        step_uuid = %viable_step.step_uuid,
+                        step_name = %viable_step.name,
+                        "Step in Pending state, ready to enqueue"
+                    );
+                    enqueuable_steps.push(viable_step);
+                }
+
+                WorkflowStepState::WaitingForRetry => {
+                    // The viable_step came from the SQL function which already checked backoff
+                    // If it's in the viable steps list and in WaitingForRetry state, backoff has expired
+                    // Transition WaitingForRetry → Pending via Retry event
+                    info!(
+                        step_uuid = %viable_step.step_uuid,
+                        step_name = %viable_step.name,
+                        "Step in WaitingForRetry with expired backoff, transitioning to Pending"
+                    );
+
+                    match state_machine.transition(StepEvent::Retry).await {
+                        Ok(_) => {
+                            debug!(
+                                step_uuid = %viable_step.step_uuid,
+                                "Successfully transitioned to Pending, ready to enqueue"
+                            );
+                            enqueuable_steps.push(viable_step);
+                        }
+                        Err(e) => {
+                            warn!(
+                                step_uuid = %viable_step.step_uuid,
+                                error = %e,
+                                "Failed to transition from WaitingForRetry to Pending, skipping"
+                            );
+                        }
+                    }
+                }
+
+                WorkflowStepState::Error => {
+                    // Defensive: Should not happen if SQL function is correct
+                    warn!(
+                        step_uuid = %viable_step.step_uuid,
+                        step_name = %viable_step.name,
+                        "Step in Error state returned as viable - should be in WaitingForRetry. Skipping."
+                    );
+                }
+
+                _ => {
+                    // Skip steps in other states (Enqueued, InProgress, Complete, etc.)
+                    debug!(
+                        step_uuid = %viable_step.step_uuid,
+                        step_name = %viable_step.name,
+                        current_state = ?current_state,
+                        "Skipping step - not in enqueueable state"
+                    );
+                }
+            }
+        }
+
+        Ok(enqueuable_steps)
     }
 
     /// Enqueue a single viable step to its namespace queue

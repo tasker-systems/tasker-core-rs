@@ -44,7 +44,7 @@ module TaskerCore
         # Publish to dry-events subscribers (Ruby handlers)
         publish('step.execution.received', wrapped_event)
 
-        logger.debug "Step execution event published to #{subscriptions('step.execution.received').count} subscribers"
+        logger.debug 'Step execution event published successfully'
         true
       rescue StandardError => e
         logger.error "Failed to publish step execution: #{e.message}"

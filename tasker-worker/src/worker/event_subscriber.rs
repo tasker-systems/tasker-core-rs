@@ -290,12 +290,21 @@ impl WorkerEventSubscriber {
                 .error_message
                 .unwrap_or_else(|| "Step execution failed in FFI handler".to_string());
 
+            // Extract retryable flag from metadata (sent by Ruby worker)
+            // Ruby sends this in the metadata hash matching StepExecutionMetadata struct
+            let retryable = completion_event
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.get("retryable"))
+                .and_then(|r| r.as_bool())
+                .unwrap_or(true); // Default to retryable if not specified
+
             Ok(StepExecutionResult::failure(
                 completion_event.step_uuid,
                 error_message,
                 None, // error_code
                 None, // error_type
-                true, // retryable (default for now)
+                retryable, // Use retryable flag from Ruby metadata
                 execution_time,
                 Some(
                     metadata

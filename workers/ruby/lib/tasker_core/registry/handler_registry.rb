@@ -271,10 +271,11 @@ module TaskerCore
         handler_names = TaskerCore::TestEnvironment.handler_names
 
         handler_names.each do |handler_class_name|
-          # Find the loaded class
-          handler_class = find_loaded_handler_class(handler_class_name.split('::').last)
+          # Find the loaded class - use the full class name from ObjectSpace
+          handler_class = find_loaded_handler_class_by_full_name(handler_class_name)
           if handler_class
-            register_handler(handler_class_name.split('::').last, handler_class)
+            # Register with FULL class name so templates can reference it properly
+            register_handler(handler_class_name, handler_class)
             registered_count += 1
             logger.debug("✅ Registered preloaded test handler: #{handler_class_name}")
           else
@@ -286,6 +287,20 @@ module TaskerCore
 
         logger.info("📚 Registered #{registered_count} preloaded test handlers")
         registered_count
+      end
+
+      # Find a handler class by its full class name (e.g., "LinearWorkflow::StepHandlers::LinearStep1Handler")
+      def find_loaded_handler_class_by_full_name(full_class_name)
+        # Try to constantize the full class name
+        full_class_name.split('::').reduce(Object) do |mod, const_name|
+          mod.const_get(const_name)
+        end
+      rescue NameError
+        # If not found by constantize, search ObjectSpace for a match
+        ObjectSpace.each_object(Class).find do |klass|
+          klass.name == full_class_name &&
+            klass < TaskerCore::StepHandler::Base
+        end
       end
 
       # Fallback discovery for example handlers (old hardcoded method)

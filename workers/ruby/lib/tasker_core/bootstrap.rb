@@ -264,10 +264,10 @@ module TaskerCore
         # Start the EventPoller to poll for events from Rust
         EventPoller.instance.start!
 
-        # Subscribe to step execution events
-        EventBridge.instance.subscribe_to_step_execution do |event|
-          @step_subscriber.call(event)
-        end
+        # Note: StepExecutionSubscriber already subscribes to step execution events
+        # in its initializer, so we don't need to subscribe again here.
+        # Duplicate subscriptions cause the same event to be processed twice,
+        # leading to double state transitions.
 
         logger.info 'Event processing started'
       end
