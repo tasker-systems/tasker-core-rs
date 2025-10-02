@@ -302,8 +302,8 @@ impl WorkerEventSubscriber {
             Ok(StepExecutionResult::failure(
                 completion_event.step_uuid,
                 error_message,
-                None, // error_code
-                None, // error_type
+                None,      // error_code
+                None,      // error_type
                 retryable, // Use retryable flag from Ruby metadata
                 execution_time,
                 Some(

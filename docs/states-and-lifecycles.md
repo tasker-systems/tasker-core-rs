@@ -162,19 +162,35 @@ if target_state.requires_ownership() {
 
 ### Step State Definitions
 
-The workflow step state machine implements 8 states for individual step execution:
+The workflow step state machine implements 9 states for individual step execution:
 
 #### Processing Pipeline States
 - **`Pending`**: Initial state when step is created
 - **`Enqueued`**: Queued for processing but not yet claimed by worker
 - **`InProgress`**: Currently being executed by a worker
 - **`EnqueuedForOrchestration`**: Worker completed, queued for orchestration processing
+- **`EnqueuedAsErrorForOrchestration`**: Worker failed, queued for orchestration error processing
+
+#### Waiting States
+- **`WaitingForRetry`**: Step failed with retryable error, waiting for backoff period before retry
 
 #### Terminal States
 - **`Complete`**: Step completed successfully (after orchestration processing)
-- **`Error`**: Step failed with an error (after orchestration processing)  
+- **`Error`**: Step failed permanently (non-retryable or max retries exceeded)
 - **`Cancelled`**: Step was cancelled
 - **`ResolvedManually`**: Step was manually resolved by operator
+
+#### State Machine Evolution (TAS-42)
+
+Prior to TAS-42, the `Error` state was used for both retryable and permanent failures. The introduction of `WaitingForRetry` created a semantic change:
+
+- **Before TAS-42**: `Error` = any failure (retryable or permanent)
+- **After TAS-42**: `Error` = permanent failure only, `WaitingForRetry` = retryable failure awaiting backoff
+
+This change required updates to:
+1. `get_step_readiness_status()` to recognize `WaitingForRetry` as a ready-eligible state
+2. `get_task_execution_context()` to properly detect blocked vs recovering tasks
+3. Error classification logic to distinguish permanent from retryable errors
 
 ### Step State Properties
 
@@ -194,42 +210,50 @@ impl WorkflowStepState {
 ```mermaid
 stateDiagram-v2
     [*] --> Pending
-    
+
     %% Main Execution Path
     Pending --> Enqueued : Enqueue
     Enqueued --> InProgress : Start (worker claims)
-    InProgress --> EnqueuedForOrchestration : EnqueueForOrchestration(results)
+    InProgress --> EnqueuedForOrchestration : EnqueueForOrchestration(success)
     EnqueuedForOrchestration --> Complete : Complete(results) [orchestration]
-    EnqueuedForOrchestration --> Error : Fail(error) [orchestration]
-    
-    %% Legacy Direct Path (being phased out)
-    InProgress --> Complete : Complete(results) [direct]
-    
+
+    %% Error Handling Path (TAS-42)
+    InProgress --> EnqueuedAsErrorForOrchestration : EnqueueForOrchestration(error)
+    EnqueuedAsErrorForOrchestration --> WaitingForRetry : WaitForRetry(error) [retryable]
+    EnqueuedAsErrorForOrchestration --> Error : Fail(error) [permanent/max retries]
+
+    %% Retry Path
+    WaitingForRetry --> Pending : Retry (after backoff)
+
+    %% Legacy Direct Path (deprecated)
+    InProgress --> Complete : Complete(results) [direct - legacy]
+    InProgress --> Error : Fail(error) [direct - legacy]
+
     %% Legacy Backward Compatibility
     Pending --> InProgress : Start [legacy]
-    
-    %% Failure Paths
-    InProgress --> Error : Fail(error)
+
+    %% Direct Failure Paths (error before worker processing)
     Pending --> Error : Fail(error)
     Enqueued --> Error : Fail(error)
-    
-    %% Retry from Error
-    Error --> Pending : Retry
-    
+
     %% Cancellation Paths
     Pending --> Cancelled : Cancel
     Enqueued --> Cancelled : Cancel
     InProgress --> Cancelled : Cancel
     EnqueuedForOrchestration --> Cancelled : Cancel
+    EnqueuedAsErrorForOrchestration --> Cancelled : Cancel
+    WaitingForRetry --> Cancelled : Cancel
     Error --> Cancelled : Cancel
-    
+
     %% Manual Resolution (from any state)
     Pending --> ResolvedManually : ResolveManually
     Enqueued --> ResolvedManually : ResolveManually
     InProgress --> ResolvedManually : ResolveManually
     EnqueuedForOrchestration --> ResolvedManually : ResolveManually
+    EnqueuedAsErrorForOrchestration --> ResolvedManually : ResolveManually
+    WaitingForRetry --> ResolvedManually : ResolveManually
     Error --> ResolvedManually : ResolveManually
-    
+
     %% Terminal States
     Complete --> [*]
     Error --> [*]
@@ -246,12 +270,13 @@ Step transitions are driven by `StepEvent` types:
 - `Start`: Begin step execution (worker claims step)
 - `EnqueueForOrchestration(results)`: Worker completes, queues for orchestration
 - `Complete(results)`: Mark step complete (from orchestration or legacy direct)
-- `Fail(error)`: Mark step as failed
+- `Fail(error)`: Mark step as permanently failed
+- `WaitForRetry(error)`: Mark step for retry after backoff (TAS-42)
 
-#### Control Events  
+#### Control Events
 - `Cancel`: Cancel step execution
 - `ResolveManually`: Manual operator resolution
-- `Retry`: Retry step from error state
+- `Retry`: Retry step from WaitingForRetry or Error state
 
 ### Step Execution Flow Integration
 

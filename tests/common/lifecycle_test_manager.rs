@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! # Lifecycle Test Manager
 //!
 //! Unified test infrastructure for framework lifecycle integration testing (TAS-42).

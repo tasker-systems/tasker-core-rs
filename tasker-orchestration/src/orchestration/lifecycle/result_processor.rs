@@ -637,7 +637,8 @@ impl OrchestrationResultProcessor {
                                 Ok(step_execution_result) => {
                                     // Check if error is marked as non-retryable in metadata
                                     // metadata.retryable is set by the Ruby worker's error classifier
-                                    let retryable_from_metadata = step_execution_result.metadata.retryable;
+                                    let retryable_from_metadata =
+                                        step_execution_result.metadata.retryable;
 
                                     if !retryable_from_metadata {
                                         info!(
@@ -694,13 +695,16 @@ impl OrchestrationResultProcessor {
                                 match serde_json::from_value::<StepExecutionResult>(
                                     results_json.clone(),
                                 ) {
-                                    Ok(step_execution_result) => {
-                                        step_execution_result
-                                            .error
-                                            .map(|e| e.message)
-                                            .unwrap_or_else(|| "Step execution failed - retryable".to_string())
-                                    }
-                                    Err(_) => format!("Step failed with status: {} - retryable", original_status)
+                                    Ok(step_execution_result) => step_execution_result
+                                        .error
+                                        .map(|e| e.message)
+                                        .unwrap_or_else(|| {
+                                            "Step execution failed - retryable".to_string()
+                                        }),
+                                    Err(_) => format!(
+                                        "Step failed with status: {} - retryable",
+                                        original_status
+                                    ),
                                 }
                             } else {
                                 format!("Step failed with status: {} - retryable", original_status)
@@ -716,13 +720,13 @@ impl OrchestrationResultProcessor {
                                 match serde_json::from_value::<StepExecutionResult>(
                                     results_json.clone(),
                                 ) {
-                                    Ok(step_execution_result) => {
-                                        step_execution_result
-                                            .error
-                                            .map(|e| e.message)
-                                            .unwrap_or_else(|| "Step execution failed".to_string())
+                                    Ok(step_execution_result) => step_execution_result
+                                        .error
+                                        .map(|e| e.message)
+                                        .unwrap_or_else(|| "Step execution failed".to_string()),
+                                    Err(_) => {
+                                        format!("Step failed with status: {}", original_status)
                                     }
-                                    Err(_) => format!("Step failed with status: {}", original_status)
                                 }
                             } else {
                                 format!("Step failed with status: {}", original_status)
