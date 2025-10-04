@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tasker_worker::testing::{WorkerTestData, WorkerTestFactory};
 
 /// Test worker workflow processing using the worker testing infrastructure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_worker_workflow_processing(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // Create worker test factory
     let factory = WorkerTestFactory::new(Arc::new(pool));
@@ -52,7 +52,7 @@ async fn test_worker_workflow_processing(pool: PgPool) -> Result<(), Box<dyn std
 }
 
 /// Test creating multiple workflow steps for a task
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_worker_multiple_steps_creation(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -131,7 +131,7 @@ async fn test_worker_multiple_steps_creation(
 }
 
 /// Test creating test step messages for worker processing
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_worker_step_message_creation(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     use uuid::Uuid;
 

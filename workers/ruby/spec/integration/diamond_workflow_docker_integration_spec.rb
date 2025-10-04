@@ -65,7 +65,7 @@ RSpec.describe 'Diamond Workflow Docker Integration', type: :integration do
       puts '   (Rust worker will call Ruby handlers via FFI for each step)'
 
       # Wait for task completion with timeout
-      task = wait_for_task_completion(manager, task_response[:task_uuid], 30)
+      task = wait_for_task_completion(manager, task_response[:task_uuid], 5)
 
       expect(task).not_to be_nil
       puts '✅ Task execution completed successfully!'
@@ -134,7 +134,7 @@ RSpec.describe 'Diamond Workflow Docker Integration', type: :integration do
       )
 
       task_response = manager.orchestration_client.create_task(task_request)
-      task = wait_for_task_completion(manager, task_response[:task_uuid], 30)
+      task = wait_for_task_completion(manager, task_response[:task_uuid], 5)
 
       expect(task).not_to be_nil
 
@@ -162,7 +162,7 @@ RSpec.describe 'Diamond Workflow Docker Integration', type: :integration do
 
       # Execute via Docker services with HTTP API communication
       task_response = manager.orchestration_client.create_task(task_request)
-      task = wait_for_task_completion(manager, task_response[:task_uuid], 30)
+      task = wait_for_task_completion(manager, task_response[:task_uuid], 5)
 
       expect(task).not_to be_nil
 

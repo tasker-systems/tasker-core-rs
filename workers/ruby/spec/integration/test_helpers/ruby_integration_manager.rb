@@ -3,6 +3,7 @@
 require 'faraday'
 require 'timeout'
 require 'json'
+require 'active_support/core_ext/hash/keys'
 
 # Ruby Integration Test Manager for Docker-based service communication
 # Mirrors the Rust IntegrationTestManager pattern but focused on Ruby worker testing
@@ -131,23 +132,37 @@ class RubyWorkerIntegrationManager
     end
 
     def create_task(task_request)
-      response = @connection.post('/tasks', task_request)
+      response = @connection.post('/v1/tasks', task_request)
       parse_response(response)
     end
 
+    # Get full task details including status and steps
+    # Returns: { task_uuid, name, namespace, version, status, execution_status, steps, ... }
     def get_task(task_uuid)
-      response = @connection.get("/tasks/#{task_uuid}")
+      response = @connection.get("/v1/tasks/#{task_uuid}")
       parse_response(response)
     end
 
-    def list_task_steps(task_uuid)
-      response = @connection.get("/tasks/#{task_uuid}/steps")
-      parse_response(response)
-    end
-
+    # Alias for compatibility - get_task returns status in the response
     def get_task_status(task_uuid)
-      response = @connection.get("/tasks/#{task_uuid}/status")
-      parse_response(response)
+      task = get_task(task_uuid)
+      {
+        task_uuid: task[:task_uuid],
+        status: task[:status],
+        execution_status: task[:execution_status],
+        total_steps: task[:total_steps],
+        completed_steps: task[:completed_steps],
+        failed_steps: task[:failed_steps],
+        pending_steps: task[:pending_steps],
+        in_progress_steps: task[:in_progress_steps],
+        completion_percentage: task[:completion_percentage]
+      }
+    end
+
+    # Alias for compatibility - get_task returns steps in the response
+    def list_task_steps(task_uuid)
+      task = get_task(task_uuid)
+      task[:steps] || []
     end
 
     private
@@ -155,9 +170,17 @@ class RubyWorkerIntegrationManager
     def parse_response(response, expect_healthy: false)
       case response.status
       when 200, 201
-        data = response.body.is_a?(Hash) ? response.body : JSON.parse(response.body, symbolize_names: true)
+        # Parse response and ensure symbolized keys
+        data = if response.body.is_a?(Hash)
+                 response.body.deep_symbolize_keys
+               elsif response.body.is_a?(String)
+                 JSON.parse(response.body, symbolize_names: true)
+               else
+                 response.body
+               end
+
         if expect_healthy
-          { healthy: %w[healthy ok].include?(data[:status]), data: data }
+          { healthy: %w[healthy ok].include?(data[:status].to_s), data: data }
         else
           data
         end
@@ -196,17 +219,18 @@ class RubyWorkerIntegrationManager
     end
 
     def worker_info
-      response = @connection.get('/worker/info')
+      # Use detailed status for comprehensive worker information
+      response = @connection.get('/status/detailed')
       parse_response(response)
     end
 
     def list_handlers
-      response = @connection.get('/worker/handlers')
+      response = @connection.get('/handlers')
       parse_response(response)
     end
 
     def supported_namespaces
-      response = @connection.get('/worker/namespaces')
+      response = @connection.get('/status/namespaces')
       parse_response(response)
     end
 
@@ -215,9 +239,17 @@ class RubyWorkerIntegrationManager
     def parse_response(response, expect_healthy: false)
       case response.status
       when 200, 201
-        data = response.body.is_a?(Hash) ? response.body : JSON.parse(response.body, symbolize_names: true)
+        # Parse response and ensure symbolized keys
+        data = if response.body.is_a?(Hash)
+                 response.body.deep_symbolize_keys
+               elsif response.body.is_a?(String)
+                 JSON.parse(response.body, symbolize_names: true)
+               else
+                 response.body
+               end
+
         if expect_healthy
-          { healthy: %w[healthy ok].include?(data[:status]), data: data }
+          { healthy: %w[healthy ok].include?(data[:status].to_s), data: data }
         else
           data
         end
@@ -236,7 +268,7 @@ end
 
 # Helper methods for integration tests
 module RubyIntegrationTestHelpers
-  def wait_for_task_completion(manager, task_uuid, timeout_seconds = 30)
+  def wait_for_task_completion(manager, task_uuid, timeout_seconds = 5)
     start_time = Time.now
 
     loop do
@@ -261,17 +293,48 @@ module RubyIntegrationTestHelpers
     end
   end
 
+  def wait_for_task_failure(manager, task_uuid, timeout_seconds = 5)
+    start_time = Time.now
+
+    loop do
+      task_status = manager.orchestration_client.get_task_status(task_uuid)
+
+      # Check for failure states
+      if task_status[:execution_status] == 'error' || task_status[:status] == 'error'
+        return manager.orchestration_client.get_task(task_uuid)
+      end
+
+      # Check for unexpected completion (should fail, not complete)
+      if task_status[:execution_status] == 'complete' || task_status[:status] == 'complete'
+        raise "Task #{task_uuid} completed successfully but was expected to fail. Status: #{task_status}"
+      end
+
+      # Check timeout
+      if Time.now - start_time > timeout_seconds
+        raise "Task #{task_uuid} did not fail within #{timeout_seconds} seconds. Status: #{task_status}"
+      end
+
+      sleep 1
+    end
+  end
+
   def create_task_request(namespace, name, context = {})
     {
       namespace: namespace,
       name: name,
       version: '1.0.0',
       context: context.merge(random_uuid: SecureRandom.uuid),
+      status: 'PENDING',
       initiator: 'ruby_integration_test',
       source_system: 'rspec_docker_integration',
       reason: "Test #{namespace}/#{name} workflow with Ruby handlers",
-      priority: 5,
-      claim_timeout_seconds: 300
+      complete: false,
+      tags: [],
+      bypass_steps: [],
+      # NaiveDateTime expects ISO 8601 format: "2025-10-02T12:34:56" (T separator, no timezone)
+      requested_at: Time.now.utc.strftime('%Y-%m-%dT%H:%M:%S'),
+      options: nil,
+      priority: 5
     }
   end
 end

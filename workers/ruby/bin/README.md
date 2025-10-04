@@ -22,7 +22,7 @@ bundle exec ruby bin/server.rb
 **Environment Variables:**
 - `TASKER_ENV` - Environment (development, test, production)
 - `DATABASE_URL` - PostgreSQL connection string
-- `TASK_TEMPLATE_PATH` - Path to task template YAML files
+- `TASKER_TEMPLATE_PATH` - Path to task template YAML files
 - `RUST_LOG` - Logging level (debug, info, warn, error)
 
 ### `health_check.rb`

@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::named_tasks_named_step::{NamedTasksNamedStep, NewNamedTasksNamedStep};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(
@@ -98,7 +98,7 @@ async fn test_named_tasks_named_step_crud(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_default_values(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies with minimal data
     let namespace = tasker_shared::models::task_namespace::TaskNamespace::create(

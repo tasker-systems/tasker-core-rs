@@ -4306,7 +4306,6 @@ dependencies = [
  "sysinfo",
  "tasker-client",
  "tasker-core",
- "tasker-orchestration",
  "tasker-shared",
  "tempfile",
  "thiserror 2.0.16",

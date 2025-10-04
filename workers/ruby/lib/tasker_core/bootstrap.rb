@@ -3,7 +3,104 @@
 module TaskerCore
   module Worker
     # Bootstrap orchestrator for Ruby worker
-    # Manages initialization of both Rust foundation and Ruby components
+    #
+    # Manages the complete initialization and lifecycle of the Ruby worker system,
+    # coordinating both Rust foundation layer and Ruby business logic components.
+    # This is the primary entry point for starting a TaskerCore worker process.
+    #
+    # The bootstrap process follows this sequence:
+    # 1. **Initialize Ruby Components**: EventBridge, HandlerRegistry, Subscribers
+    # 2. **Bootstrap Rust Foundation**: Start Rust worker via FFI
+    # 3. **Start Event Processing**: Begin EventPoller for step execution
+    # 4. **Register Shutdown Handlers**: Setup graceful termination on signals
+    #
+    # The Bootstrap class is a singleton, ensuring only one worker instance runs
+    # per process. It handles the complex coordination between Ruby and Rust,
+    # managing lifecycle transitions and providing health monitoring.
+    #
+    # @example Basic worker startup
+    #   # Start with default configuration
+    #   bootstrap = TaskerCore::Worker::Bootstrap.start!
+    #   # => Returns bootstrap instance in :running status
+    #
+    #   # Check if worker is running
+    #   bootstrap.running?
+    #   # => true
+    #
+    # @example Custom configuration
+    #   bootstrap = TaskerCore::Worker::Bootstrap.start!(
+    #     worker_id: "custom-worker-1",
+    #     enable_web_api: false,
+    #     event_driven_enabled: true,
+    #     deployment_mode: "Hybrid",  # PollingOnly, EventDrivenOnly, or Hybrid
+    #     namespaces: ["payments", "fulfillment", "notifications"]
+    #   )
+    #
+    # @example Health checking
+    #   status = TaskerCore::Worker::Bootstrap.instance.health_check
+    #   # => {
+    #   #   healthy: true,
+    #   #   status: :running,
+    #   #   rust: { running: true, worker_core_status: "processing" },
+    #   #   ruby: {
+    #   #     status: :running,
+    #   #     event_bridge_active: true,
+    #   #     handlers_registered: 12,
+    #   #     subscriber_active: true,
+    #   #     event_poller_active: true
+    #   #   }
+    #   # }
+    #
+    # @example Graceful shutdown
+    #   # Shutdown cleanly, completing in-flight work
+    #   TaskerCore::Worker::Bootstrap.instance.shutdown!
+    #   # => Stops Rust worker, Ruby components, runs shutdown handlers
+    #
+    # @example Custom shutdown handlers
+    #   bootstrap = TaskerCore::Worker::Bootstrap.instance
+    #   bootstrap.on_shutdown do
+    #     puts "Cleaning up resources..."
+    #     cleanup_database_connections
+    #     flush_metrics
+    #   end
+    #
+    # @example Getting comprehensive status
+    #   status = bootstrap.status
+    #   # => {
+    #   #   rust: { running: true, ... },
+    #   #   ruby: {
+    #   #     status: :running,
+    #   #     handle_stored: true,
+    #   #     handle_id: "550e8400-e29b-41d4-a716-446655440000",
+    #   #     worker_id: "ruby-worker-123",
+    #   #     event_bridge_active: true,
+    #   #     handler_registry_size: 12,
+    #   #     subscriber_active: true,
+    #   #     event_poller_active: true
+    #   #   }
+    #   # }
+    #
+    # Deployment Modes:
+    # - **PollingOnly**: Traditional polling-based coordination (highest latency, most reliable)
+    # - **EventDrivenOnly**: Pure event-driven using PostgreSQL LISTEN/NOTIFY (lowest latency)
+    # - **Hybrid**: Event-driven with polling fallback (recommended for production)
+    #
+    # Worker States:
+    # - **:initialized**: Created but not started
+    # - **:running**: Fully operational and processing events
+    # - **:shutting_down**: Graceful shutdown in progress
+    # - **:stopped**: Completely shut down
+    #
+    # Signal Handling:
+    # The bootstrap automatically registers signal handlers for:
+    # - **SIGINT** (Ctrl+C): Graceful shutdown
+    # - **SIGTERM**: Graceful shutdown
+    # - **at_exit**: Cleanup on process exit
+    #
+    # @see TaskerCore::Worker::EventPoller For event polling details
+    # @see TaskerCore::EventBridge For event coordination
+    # @see TaskerCore::Registry::HandlerRegistry For handler management
+    # @see TaskerCore::FFI For Rust FFI operations
     class Bootstrap
       include Singleton
 

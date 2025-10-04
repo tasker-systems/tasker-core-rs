@@ -18,7 +18,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test diamond pattern with early permanent failure (start step fails)
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_early_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Early permanent failure at start");
 
@@ -106,7 +106,7 @@ async fn test_diamond_pattern_early_permanent_failure(pool: PgPool) -> Result<()
 }
 
 /// Test diamond pattern with mid-workflow permanent failure (branch fails)
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_mid_workflow_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mid-workflow permanent failure at branch");
 
@@ -225,7 +225,7 @@ async fn test_diamond_pattern_mid_workflow_permanent_failure(pool: PgPool) -> Re
 }
 
 /// Test diamond pattern with both branches failing permanently
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_dual_branch_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Both branches fail permanently");
 
@@ -344,7 +344,7 @@ async fn test_diamond_pattern_dual_branch_permanent_failure(pool: PgPool) -> Res
 }
 
 /// Test SQL function accuracy with mixed states (complete, error, pending)
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: SQL accuracy with mixed states");
 

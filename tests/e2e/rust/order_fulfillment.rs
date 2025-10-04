@@ -21,9 +21,8 @@ use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{
-    create_task_request, wait_for_task_completion, IntegrationTestManager,
-};
+use crate::common::integration_test_manager::IntegrationTestManager;
+use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
 
 /// Helper to create a comprehensive order fulfillment request
 fn create_order_fulfillment_request() -> serde_json::Value {

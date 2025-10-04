@@ -64,32 +64,38 @@ pub async fn create_task(
         return Err(ApiError::bad_request("Version cannot be empty"));
     }
 
-    // Use circuit breaker wrapper for database operations
-    let result = execute_with_circuit_breaker(&state, || async {
-        // Set default values for any missing fields if needed
-        let mut task_request = request.clone();
+    // Check circuit breaker before attempting operation
+    if !state.is_database_healthy() {
+        return Err(ApiError::CircuitBreakerOpen);
+    }
 
-        // Ensure default status is set for web API requests
-        if task_request.status.is_empty() {
-            task_request.status = "pending".to_string();
-        }
+    // Set default values for any missing fields if needed
+    let mut task_request = request.clone();
 
-        // Set complete to false for new tasks
-        task_request.complete = false;
+    // Ensure default status is set for web API requests
+    if task_request.status.is_empty() {
+        task_request.status = "pending".to_string();
+    }
 
-        // Set requested_at to current time
-        task_request.requested_at = chrono::Utc::now().naive_utc();
+    // Set complete to false for new tasks
+    task_request.complete = false;
 
-        // Initialize task with immediate step enqueuing (TAS-41)
-        state
-            .task_initializer
-            .create_and_enqueue_task_from_request(task_request)
-            .await
-    })
-    .await;
+    // Set requested_at to current time
+    task_request.requested_at = chrono::Utc::now().naive_utc();
+
+    // Initialize task with immediate step enqueuing (TAS-41)
+    // NOTE: We do NOT wrap this in circuit breaker - we handle errors manually
+    // to distinguish between client errors (template not found) and server errors
+    let result = state
+        .task_initializer
+        .create_and_enqueue_task_from_request(task_request)
+        .await;
 
     match result {
         Ok(task_result) => {
+            // Record successful database operation for circuit breaker
+            state.record_database_success();
+
             // Convert step mapping UUIDs to strings for JSON serialization
             let step_mapping: HashMap<String, String> = task_result
                 .step_mapping
@@ -116,14 +122,48 @@ pub async fn create_task(
 
             Ok(Json(response))
         }
-        Err(api_err) => {
-            error!(
-                namespace = %request.namespace,
-                task_name = %request.name,
-                error = %api_err,
-                "Failed to create task via web API"
-            );
-            Err(api_err)
+        Err(init_error) => {
+            // Classify error type and handle appropriately
+            if init_error.is_client_error() {
+                // Client errors (template not found, invalid config) should NOT trip circuit breaker
+                // These are expected errors that don't indicate system health issues
+                error!(
+                    namespace = %request.namespace,
+                    task_name = %request.name,
+                    error = %init_error,
+                    error_type = "client_error",
+                    "Task creation failed - client error (template not found or invalid)"
+                );
+
+                // Map to appropriate HTTP status code
+                let api_error = match init_error {
+                    crate::orchestration::lifecycle::task_initializer::TaskInitializationError::ConfigurationNotFound(msg) => {
+                        ApiError::not_found(format!("Task template not found: {}", msg))
+                    }
+                    crate::orchestration::lifecycle::task_initializer::TaskInitializationError::InvalidConfiguration(msg) => {
+                        ApiError::bad_request(format!("Invalid task configuration: {}", msg))
+                    }
+                    _ => ApiError::internal_server_error(format!("Task initialization failed: {}", init_error))
+                };
+
+                Err(api_error)
+            } else {
+                // Server errors (database failures, etc.) SHOULD trip circuit breaker
+                state.record_database_failure();
+
+                error!(
+                    namespace = %request.namespace,
+                    task_name = %request.name,
+                    error = %init_error,
+                    error_type = "server_error",
+                    "Task creation failed - server error (database or system failure)"
+                );
+
+                Err(ApiError::internal_server_error(format!(
+                    "Task initialization failed: {}",
+                    init_error
+                )))
+            }
         }
     }
 }
@@ -175,7 +215,7 @@ pub async fn get_task(
             .get_task_execution_context(uuid)
             .await
             .map_err(ApiError::from)?
-            .ok_or(ApiError::NotFound)?;
+            .ok_or(ApiError::not_found("Resource not found"))?;
 
         // Get step readiness status using SQL function
         let steps = sql_executor
@@ -263,7 +303,7 @@ pub async fn get_task(
 
             Ok(Json(response))
         }
-        Ok(None) => Err(ApiError::NotFound),
+        Ok(None) => Err(ApiError::not_found("Resource not found")),
         Err(e) => {
             error!(task_uuid = %uuid, error = %e, "Failed to retrieve task with execution context");
             Err(ApiError::database_error("Failed to retrieve task"))
@@ -495,7 +535,7 @@ pub async fn cancel_task(
         let task = match task {
             Some(t) => t,
             None => {
-                return Err(ApiError::NotFound);
+                return Err(ApiError::not_found("Resource not found"));
             }
         };
 
@@ -621,7 +661,7 @@ pub async fn cancel_task(
             // Convert specific error types to appropriate API errors
             let error_str = api_err.to_string();
             if error_str.contains("Task not found") {
-                Err(ApiError::NotFound)
+                Err(ApiError::not_found("Resource not found"))
             } else if error_str.contains("Cannot cancel a completed task") {
                 Err(ApiError::bad_request("Cannot cancel a completed task"))
             } else {

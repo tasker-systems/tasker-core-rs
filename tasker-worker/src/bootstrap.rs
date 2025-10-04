@@ -233,49 +233,47 @@ impl WorkerBootstrap {
         // Initialize system context
         let system_context = Arc::new(SystemContext::from_config(config_manager.clone()).await?);
 
-        let worker_core = Arc::new(
-            WorkerCore::new_with_event_system(
-                system_context.clone(),
-                config.orchestration_api_config.clone(),
-                event_system, // Use provided event system for cross-component coordination
-            )
-            .await?,
-        );
+        // Create worker core (not wrapped in Arc yet - we need to start it first)
+        let mut worker_core = WorkerCore::new_with_event_system(
+            system_context.clone(),
+            config.orchestration_api_config.clone(),
+            event_system, // Use provided event system for cross-component coordination
+        )
+        .await?;
 
         info!("✅ BOOTSTRAP: WorkerCore initialized with WorkerEventSystem architecture",);
         info!("   - Event-driven processing enabled with deployment modes support",);
         info!("   - Fallback polling for reliability and hybrid deployment mode",);
 
-        // Save reference for web API if needed (before unwrapping)
-        let web_worker_core = if config.enable_web_api {
-            Some(worker_core.clone())
-        } else {
-            None
-        };
-
-        // Unwrap the Arc to get ownership, start the core, then wrap in Arc again
-        let mut worker_core_owned = Arc::try_unwrap(worker_core).map_err(|_| {
-            TaskerError::WorkerError("Failed to unwrap Arc for worker core start".to_string())
-        })?;
-
-        worker_core_owned
+        // Start the worker core before wrapping in Arc<Mutex<>>
+        worker_core
             .start()
             .await
             .map_err(|e| TaskerError::WorkerError(format!("Failed to start worker core: {}", e)))?;
 
-        let worker_core = Arc::new(Mutex::new(worker_core_owned));
+        // Now wrap in Arc<Mutex<>> for shared access across web API and handle
+        let worker_core = Arc::new(Mutex::new(worker_core));
 
         info!("✅ BOOTSTRAP: WorkerCore started successfully with background processing");
 
         // Create web API state if enabled (after starting worker core)
-        let web_state = if let Some(web_worker_core) = web_worker_core {
+        let web_state = if config.enable_web_api {
             info!("BOOTSTRAP: Creating worker web API state");
+
+            // Clone the Arc<Mutex<WorkerCore>> for web API
+            let web_worker_core = worker_core.clone();
+
+            // Get database pool (need to lock briefly to access context)
+            let database_pool = {
+                let core = worker_core.lock().await;
+                Arc::new(core.context.database_pool().clone())
+            };
 
             let web_state = Arc::new(
                 WorkerWebState::new(
                     config.web_config.clone(),
-                    web_worker_core.clone(),
-                    Arc::new(web_worker_core.context.database_pool().clone()),
+                    web_worker_core,
+                    database_pool,
                     config_manager.config().clone(),
                 )
                 .await?,

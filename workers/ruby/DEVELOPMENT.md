@@ -110,15 +110,15 @@ export DATABASE_URL="postgresql://localhost/tasker_rust_dev"
 #### Ruby Worker Configuration
 ```bash
 # Ruby handler discovery
-export TASK_TEMPLATE_PATH="/path/to/ruby/templates"
+export TASKER_TEMPLATE_PATH="/path/to/ruby/templates"
 export RUBY_HANDLER_PATH="/path/to/ruby/handlers"
 
 # Docker setup (automatic)
-export TASK_TEMPLATE_PATH="/app/ruby_templates"
+export TASKER_TEMPLATE_PATH="/app/ruby_templates"
 export RUBY_HANDLER_PATH="/app/ruby_handlers"
 
 # Local setup
-export TASK_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
+export TASKER_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
 export RUBY_HANDLER_PATH="$(pwd)/spec/handlers/examples"
 ```
 
@@ -263,7 +263,7 @@ cargo build --all-features --bin tasker-server
 ```bash
 cd workers/ruby
 export DATABASE_URL="postgresql://localhost/tasker_rust_dev"
-export TASK_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
+export TASKER_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
 export RUBY_HANDLER_PATH="$(pwd)/spec/handlers/examples"
 
 # Compile Ruby extension
@@ -392,7 +392,7 @@ ls -la spec/handlers/examples/
 
 # Debug handler registration
 bundle exec ruby -r ./lib/tasker_core -e "
-  puts 'Template path: ' + ENV['TASK_TEMPLATE_PATH'].to_s
+  puts 'Template path: ' + ENV['TASKER_TEMPLATE_PATH'].to_s
   puts 'Handler path: ' + ENV['RUBY_HANDLER_PATH'].to_s
 
   registry = TaskerCore::Registry::HandlerRegistry.instance
@@ -507,11 +507,11 @@ docker compose -f docker/docker-compose.test.yml up postgres -d
 #### "Handler not found" or "Template discovery failed"
 ```bash
 # Solution: Check environment variables
-echo $TASK_TEMPLATE_PATH
+echo $TASKER_TEMPLATE_PATH
 echo $RUBY_HANDLER_PATH
 
 # Set correctly for your setup
-export TASK_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
+export TASKER_TEMPLATE_PATH="$(pwd)/spec/fixtures/templates"
 export RUBY_HANDLER_PATH="$(pwd)/spec/handlers/examples"
 ```
 

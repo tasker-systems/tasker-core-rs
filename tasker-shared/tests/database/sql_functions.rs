@@ -6,7 +6,7 @@
 use tasker_shared::database::sql_functions::*;
 use uuid::Uuid;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_readiness_blocking_reason(_pool: sqlx::PgPool) -> sqlx::Result<()> {
     let named_step_uuid = Uuid::now_v7();
     let task_uuid = Uuid::now_v7();
@@ -35,7 +35,7 @@ async fn test_step_readiness_blocking_reason(_pool: sqlx::PgPool) -> sqlx::Resul
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_system_health_score_calculation(_pool: sqlx::PgPool) -> sqlx::Result<()> {
     let health = SystemHealthCounts {
         total_tasks: 100,
@@ -52,7 +52,7 @@ async fn test_system_health_score_calculation(_pool: sqlx::PgPool) -> sqlx::Resu
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result<()> {
     let task_uuid = Uuid::now_v7();
     let named_task_uuid = Uuid::now_v7();
@@ -80,7 +80,7 @@ async fn test_task_execution_context_status(_pool: sqlx::PgPool) -> sqlx::Result
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_backoff_calculation(_pool: sqlx::PgPool) -> sqlx::Result<()> {
     let task_uuid = Uuid::now_v7();
     let named_step_uuid = Uuid::now_v7();

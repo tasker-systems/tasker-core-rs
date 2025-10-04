@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test order fulfillment with validation permanent failure blocking entire workflow
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_validation_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Validation permanent failure blocks entire workflow");
 
@@ -66,7 +66,7 @@ async fn test_order_fulfillment_validation_permanent_failure(pool: PgPool) -> Re
 }
 
 /// Test order fulfillment with inventory permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_inventory_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Inventory permanent failure");
 
@@ -136,7 +136,7 @@ async fn test_order_fulfillment_inventory_permanent_failure(pool: PgPool) -> Res
 }
 
 /// Test order fulfillment with payment permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_payment_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Payment permanent failure");
 
@@ -214,7 +214,7 @@ async fn test_order_fulfillment_payment_permanent_failure(pool: PgPool) -> Resul
 }
 
 /// Test order fulfillment with mixed states and SQL accuracy
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mixed states SQL accuracy");
 

@@ -19,7 +19,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test diamond pattern with retryable error and waiting_for_retry state
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retryable error with waiting_for_retry state");
 
@@ -93,7 +93,7 @@ async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Resu
 }
 
 /// Test diamond pattern with retry limit exhaustion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion");
 
@@ -189,7 +189,7 @@ async fn test_diamond_pattern_retry_limit_exhaustion(pool: PgPool) -> Result<()>
 }
 
 /// Test diamond pattern with recovery after retryable error
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_recovery_after_retry(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Recovery after retryable error");
 
@@ -288,7 +288,7 @@ async fn test_diamond_pattern_recovery_after_retry(pool: PgPool) -> Result<()> {
 }
 
 /// Test diamond pattern with branch failure and partial completion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_branch_failure_blocks_convergence(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Branch failure blocks convergence");
 
@@ -380,7 +380,7 @@ async fn test_diamond_pattern_branch_failure_blocks_convergence(pool: PgPool) ->
 }
 
 /// Test diamond pattern with transient branch failure followed by recovery and eventual convergence
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_branch_transient_failure_eventual_convergence(
     pool: PgPool,
 ) -> Result<()> {

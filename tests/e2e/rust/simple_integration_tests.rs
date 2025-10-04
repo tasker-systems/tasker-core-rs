@@ -10,7 +10,8 @@ use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{create_task_request, IntegrationTestManager};
+use crate::common::integration_test_manager::IntegrationTestManager;
+use crate::common::integration_test_utils::create_task_request;
 use tasker_shared::models::core::task::TaskListQuery;
 
 /// Demo of the full integration test suite with worker

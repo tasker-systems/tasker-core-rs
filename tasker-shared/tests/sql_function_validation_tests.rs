@@ -92,7 +92,7 @@ async fn transition_step_to_state(
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_step_readiness_excludes_error_state(pool: PgPool) -> Result<()> {
     // Create task with steps
     let task = create_test_task(&pool, "test_error_exclusion").await?;
@@ -147,7 +147,7 @@ async fn test_step_readiness_excludes_error_state(pool: PgPool) -> Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_waiting_for_retry_backoff_calculation(pool: PgPool) -> Result<()> {
     let task = create_test_task(&pool, "test_backoff").await?;
 
@@ -191,7 +191,7 @@ async fn test_waiting_for_retry_backoff_calculation(pool: PgPool) -> Result<()> 
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_dependency_satisfaction_logic(pool: PgPool) -> Result<()> {
     let task = create_test_task(&pool, "test_dependencies").await?;
 
@@ -251,7 +251,7 @@ async fn test_dependency_satisfaction_logic(pool: PgPool) -> Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_batch_readiness_function_delegation(pool: PgPool) -> Result<()> {
     // Create multiple tasks
     let task1 = create_test_task(&pool, "batch_task_1").await?;
@@ -297,7 +297,7 @@ async fn test_batch_readiness_function_delegation(pool: PgPool) -> Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_helper_functions_via_readiness_api(pool: PgPool) -> Result<()> {
     let task = create_test_task(&pool, "test_helpers").await?;
     let step = create_test_step(&pool, task.task_uuid, "helper_test_step").await?;
@@ -361,7 +361,7 @@ async fn test_helper_functions_via_readiness_api(pool: PgPool) -> Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_retry_limit_enforcement(pool: PgPool) -> Result<()> {
     let task = create_test_task(&pool, "test_retry_limits").await?;
 
@@ -419,7 +419,7 @@ async fn test_retry_limit_enforcement(pool: PgPool) -> Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_task_execution_context_with_waiting_for_retry(pool: PgPool) -> Result<()> {
     let task = create_test_task(&pool, "test_execution_context").await?;
 

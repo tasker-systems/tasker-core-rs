@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test complex DAG workflow with init permanent failure blocking entire DAG
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_init_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Init permanent failure blocks entire DAG");
 
@@ -64,7 +64,7 @@ async fn test_complex_dag_init_permanent_failure(pool: PgPool) -> Result<()> {
 }
 
 /// Test complex DAG workflow with processing step permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_process_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Processing step permanent failure");
 
@@ -154,7 +154,7 @@ async fn test_complex_dag_process_permanent_failure(pool: PgPool) -> Result<()> 
 }
 
 /// Test complex DAG workflow with convergence step permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_convergence_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Convergence step permanent failure");
 
@@ -236,7 +236,7 @@ async fn test_complex_dag_convergence_permanent_failure(pool: PgPool) -> Result<
 }
 
 /// Test complex DAG workflow with mixed states and SQL accuracy
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mixed states SQL accuracy");
 

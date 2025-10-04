@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test linear workflow initialization and setup
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 LINEAR WORKFLOW: Initialization and setup");
 
@@ -37,7 +37,7 @@ async fn test_linear_workflow_initialization(pool: PgPool) -> Result<()> {
 }
 
 /// Test linear workflow with strict sequential dependency chain
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_dependency_chain(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 LINEAR WORKFLOW: Dependency chain validation");
 
@@ -110,7 +110,7 @@ async fn test_linear_workflow_dependency_chain(pool: PgPool) -> Result<()> {
 }
 
 /// Test complete linear workflow execution with sequential step transitions
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_complete_execution(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 LINEAR WORKFLOW: Complete execution with state transitions");
 

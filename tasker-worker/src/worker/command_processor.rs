@@ -930,7 +930,7 @@ mod tests {
     use super::*;
     use dotenvy::dotenv;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_worker_processor_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -953,7 +953,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_execute_step_with_simple_message(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -997,7 +997,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_get_worker_status(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         dotenv().ok();
         let context = Arc::new(

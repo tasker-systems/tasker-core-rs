@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 //! # Lifecycle Test Manager
 //!
+//! Access test helpers via `use crate::common::*` instead of `tasker_core::test_helpers`
+//!
 //! Unified test infrastructure for framework lifecycle integration testing (TAS-42).
 //!
 //! ## Purpose
@@ -21,7 +23,7 @@
 //! ```rust,no_run
 //! use common::lifecycle_test_manager::LifecycleTestManager;
 //!
-//! #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+//! #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 //! async fn test_example(pool: PgPool) -> Result<()> {
 //!     let manager = LifecycleTestManager::new(pool).await?;
 //!

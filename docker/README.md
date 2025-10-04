@@ -148,7 +148,7 @@ DB_MIGRATION_TIMEOUT=300
 DB_MIGRATION_RETRIES=3
 
 # Workers (no migration variables needed)
-TASK_TEMPLATE_PATH=/app/task-templates
+TASKER_TEMPLATE_PATH=/app/task-templates
 ```
 
 ## 📊 Deployment Patterns
@@ -163,7 +163,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-  
+
   worker:
     depends_on:
       orchestration:
@@ -180,7 +180,7 @@ services:
     environment:
       DEPLOYMENT_MODE: migrate-only
     restart: "no"
-  
+
   orchestration:
     environment:
       DEPLOYMENT_MODE: no-migrate
@@ -216,7 +216,7 @@ docker compose logs worker | grep "\[WORKER\]"
      RUN_MIGRATIONS: "true"
    ```
 
-2. **Migrate-Only Mode** 
+2. **Migrate-Only Mode**
    - Run migrations and exit (init containers)
    - Perfect for blue-green deployments
    ```yaml
@@ -234,14 +234,14 @@ docker compose logs worker | grep "\[WORKER\]"
 
 ### Migration Safety Features
 - **Timeout Protection**: Configurable migration timeout (default: 5 minutes)
-- **Retry Logic**: Automatic retry for transient failures  
+- **Retry Logic**: Automatic retry for transient failures
 - **PGMQ Prerequisites**: Validates PGMQ extension before migration
 - **Status Reporting**: Comprehensive migration logging with `[INFO]`, `[SUCCESS]`, `[ERROR]` tags
 
 ### Production Migration Best Practices
 
 1. **Always test migrations on staging first**
-2. **Backup database before production migrations**  
+2. **Backup database before production migrations**
 3. **Monitor migration logs during deployment**
 4. **Set appropriate timeouts for large migrations**
 5. **Use `DEPLOYMENT_MODE=migrate-only` for complex deployments**
@@ -263,7 +263,7 @@ deploy:
       cpus: "1"
       memory: 512M
 
-# Worker Service  
+# Worker Service
 deploy:
   resources:
     limits:
@@ -349,7 +349,7 @@ docker compose build --no-cache
 # Check migration status
 docker compose exec orchestration sqlx migrate info --database-url $DATABASE_URL
 
-# Manual migration run  
+# Manual migration run
 docker compose exec orchestration sqlx migrate run --database-url $DATABASE_URL
 
 # View container resource usage
@@ -368,7 +368,7 @@ Before deploying to production:
 - [ ] 🔍 **PGMQ extension available** in database
 - [ ] 📁 **Config files mounted correctly** (`/app/config/tasker`)
 - [ ] ❤️ **Health checks responding** (orchestration + workers)
-- [ ] 📊 **Log aggregation configured** 
+- [ ] 📊 **Log aggregation configured**
 - [ ] 📊 **Resource limits appropriate** for workload
 - [ ] 🔄 **Worker scaling tested** (`--scale worker=N`)
 
@@ -376,10 +376,10 @@ Before deploying to production:
 
 **Current State**: Production-ready Docker infrastructure with:
 
-✅ **Clean Service Separation**: Orchestration owns migrations, workers focus on execution  
-✅ **Zero-Conflict Scaling**: Multiple workers start without migration conflicts  
-✅ **Production Safety**: Timeout protection, retry logic, deployment modes  
-✅ **Health Monitoring**: Comprehensive health checks and structured logging  
-✅ **Resource Management**: Configurable limits and horizontal scaling  
+✅ **Clean Service Separation**: Orchestration owns migrations, workers focus on execution
+✅ **Zero-Conflict Scaling**: Multiple workers start without migration conflicts
+✅ **Production Safety**: Timeout protection, retry logic, deployment modes
+✅ **Health Monitoring**: Comprehensive health checks and structured logging
+✅ **Resource Management**: Configurable limits and horizontal scaling
 
 This infrastructure provides a **robust, scalable foundation** for the Tasker Core ecosystem with clear service boundaries and production-grade deployment capabilities. 🎆

@@ -15,10 +15,10 @@ name = "tasker-worker"
 path = "src/bin/server.rs"
 required-features = ["web-api"]
 
-[[bench]]
-harness = false
-name = "worker_benchmarks"
-required-features = ["benchmarks"]
+# [[bench]]
+# harness = false
+# name = "worker_benchmarks"
+# required-features = ["benchmarks"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -45,7 +45,7 @@ opentelemetry-otlp = { workspace = true }
 # Concurrency and state management
 parking_lot = { workspace = true }
 pgmq = { workspace = true }
-pgmq-notify = { path = "../pgmq-notify", package = "pgmq-notify" }
+pgmq-notify = { package = "pgmq-notify", path = "../pgmq-notify" }
 rand = { workspace = true }
 regex = { workspace = true }
 # Web API testing and API Integration
@@ -60,8 +60,8 @@ serde_yaml = { workspace = true }
 sqlx = { workspace = true, optional = true }
 # System information
 sysinfo = { workspace = true }
-tasker-client = { path = "../tasker-client", package = "tasker-client" }
-tasker-shared = { path = "../tasker-shared", package = "tasker-shared" }
+tasker-client = { package = "tasker-client", path = "../tasker-client" }
+tasker-shared = { package = "tasker-shared", path = "../tasker-shared" }
 # Error handling
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -85,8 +85,8 @@ insta = { workspace = true }
 mockall = { workspace = true }
 proptest = { workspace = true }
 serial_test = { workspace = true }
-tasker-core = { path = "../", package = "tasker-core" }
-tasker-orchestration = { path = "../tasker-orchestration", package = "tasker-orchestration" }
+tasker-core = { package = "tasker-core", path = "../" }
+# tasker-orchestration = { path = "../tasker-orchestration", package = "tasker-orchestration" }  # Commented out to test if actually needed
 tempfile = { workspace = true }
 # Testing tools
 tokio-test = { workspace = true }
@@ -94,7 +94,7 @@ url = { workspace = true }
 
 [features]
 default = ["postgres", "test-utils", "web-api"]
-benchmarks = ["criterion"]
+# benchmarks = ["criterion"]
 postgres = ["sqlx/postgres"]
 test-utils = []
 web-api = [
@@ -107,4 +107,3 @@ web-api = [
   "utoipa",
   "utoipa-swagger-ui",
 ]
-

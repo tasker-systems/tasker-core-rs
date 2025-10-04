@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test tree workflow with retry limit exhaustion on leaf
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion blocks convergence");
 
@@ -107,7 +107,7 @@ async fn test_tree_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow recovery after branch retry
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Recovery after branch retry");
 
@@ -267,7 +267,7 @@ async fn test_tree_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow with single leaf failure blocking convergence
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_leaf_failure_blocks_convergence(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Single leaf failure blocks convergence");
 
@@ -367,7 +367,7 @@ async fn test_tree_workflow_leaf_failure_blocks_convergence(pool: PgPool) -> Res
 }
 
 /// Test tree workflow with multiple leaf failures and recovery
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_multiple_leaf_failures(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Multiple leaf failures with recovery");
 
@@ -532,7 +532,7 @@ async fn test_tree_workflow_multiple_leaf_failures(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow with branch transient failure and eventual convergence
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_branch_transient_failure_eventual_convergence(
     pool: PgPool,
 ) -> Result<()> {

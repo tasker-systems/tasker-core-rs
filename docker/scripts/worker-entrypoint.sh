@@ -51,7 +51,7 @@ validate_basic_environment() {
         log_error "TASKER_ENV environment variable is required"
         exit 1
     fi
-    
+
     log_info "Environment validation passed: ${TASKER_ENV}"
 }
 
@@ -59,18 +59,18 @@ validate_basic_environment() {
 # Wait for orchestration service to be ready
 wait_for_orchestration() {
     log_info "Waiting for orchestration service to be ready..."
-    
+
     # Workers depend on orchestration service being available
     # The database should already be migrated by the orchestration service
     # This can be expanded to check orchestration health endpoint
-    
+
     log_info "Orchestration dependency checks completed"
 }
 
 # Perform health checks before starting
 pre_startup_health_check() {
     log_info "Performing pre-startup health checks..."
-    
+
     # Check if required directories exist
     local required_dirs=("/app")
     for dir in "${required_dirs[@]}"; do
@@ -79,22 +79,22 @@ pre_startup_health_check() {
             exit 1
         fi
     done
-    
+
     # Check if the worker binary exists
     if [[ -n "${1:-}" ]] && [[ ! -f "$1" ]] && [[ ! -x "$(command -v "$1")" ]]; then
         log_error "Worker binary not found: $1"
         exit 1
     fi
-    
+
     # Check worker-specific configuration
     if [[ -n "${TASKER_CONFIG_ROOT:-}" ]] && [[ ! -d "${TASKER_CONFIG_ROOT}" ]]; then
         log_warn "Configuration directory not found: ${TASKER_CONFIG_ROOT}"
     fi
-    
-    if [[ -n "${TASK_TEMPLATE_PATH:-}" ]] && [[ ! -d "${TASK_TEMPLATE_PATH}" ]]; then
-        log_warn "Task template directory not found: ${TASK_TEMPLATE_PATH}"
+
+    if [[ -n "${TASKER_TEMPLATE_PATH:-}" ]] && [[ ! -d "${TASKER_TEMPLATE_PATH}" ]]; then
+        log_warn "Task template directory not found: ${TASKER_TEMPLATE_PATH}"
     fi
-    
+
     log_success "Pre-startup health checks passed"
 }
 
@@ -102,17 +102,17 @@ pre_startup_health_check() {
 handle_production_deployment() {
     if [[ "${TASKER_ENV}" == "production" ]]; then
         log_info "Production deployment detected"
-        
+
         # In production, you might want to:
         # 1. Validate configuration more strictly
         # 2. Enable additional monitoring
         # 3. Set specific resource limits
         # 4. Configure logging appropriately
-        
+
         # Set production-specific environment variables
         export RUST_LOG="${RUST_LOG:-info}"
         export RUST_BACKTRACE="${RUST_BACKTRACE:-0}"  # Disable backtraces in production
-        
+
         log_info "Production configuration applied"
     fi
 }
@@ -127,18 +127,18 @@ main() {
     handle_production_deployment
     wait_for_orchestration
     pre_startup_health_check "$@"
-    
+
     log_info "=== Starting Worker Service ==="
-    
+
     # If no arguments provided, show help
     if [[ $# -eq 0 ]]; then
         log_error "No command provided to execute"
         log_info "Usage: $0 <worker-binary> [args...]"
         exit 1
     fi
-    
+
     log_info "Executing: $*"
-    
+
     # Replace the shell process with the worker
     exec "$@"
 }

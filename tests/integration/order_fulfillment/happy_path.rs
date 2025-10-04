@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test order fulfillment workflow initialization and setup
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 ORDER FULFILLMENT: Initialization and setup");
 
@@ -60,7 +60,7 @@ async fn test_order_fulfillment_initialization(pool: PgPool) -> Result<()> {
 }
 
 /// Test order fulfillment workflow with linear dependency chain
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_linear_dependency_chain(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 ORDER FULFILLMENT: Linear dependency chain validation");
 
@@ -149,7 +149,7 @@ async fn test_order_fulfillment_linear_dependency_chain(pool: PgPool) -> Result<
 }
 
 /// Test complete order fulfillment workflow execution
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_complete_execution(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 ORDER FULFILLMENT: Complete execution");
 

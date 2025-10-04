@@ -41,7 +41,7 @@ show_banner() {
     log_info "Environment: ${TASKER_ENV:-development}"
     log_info "Ruby Version: ${RUBY_VERSION:-unknown}"
     log_info "Database URL: ${DATABASE_URL:-unset}"
-    log_info "Template Path: ${TASK_TEMPLATE_PATH:-unset}"
+    log_info "Template Path: ${TASKER_TEMPLATE_PATH:-unset}"
     log_info "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
     log_info "User: $(whoami)"
     log_info "Working Directory: $(pwd)"
@@ -71,10 +71,11 @@ wait_for_database() {
 
     # Extract database host and port from DATABASE_URL
     local db_host=$(echo "$DATABASE_URL" | cut -d@ -f2 | cut -d: -f1)
-    local db_port=$(echo "$DATABASE_URL" | grep -o ":[0-9]*/" | tr -d ":/" || echo "5432")
+    local db_port=$(echo "$DATABASE_URL" | grep -o ":[0-9]*/" | tr -d ":/")
+    [[ -z "$db_port" ]] && db_port=5432
 
     timeout "$timeout" bash -c "
-        until pg_isready -h $db_host -p $db_port > /dev/null 2>&1; do
+        until pg_isready -h \"$db_host\" -p \"$db_port\" > /dev/null 2>&1; do
             sleep $retry_interval
         done
     " || {
@@ -108,8 +109,8 @@ validate_ruby_worker_environment() {
     fi
 
     # Check template path if provided
-    if [[ -n "${TASK_TEMPLATE_PATH:-}" ]] && [[ ! -d "${TASK_TEMPLATE_PATH}" ]]; then
-        log_warn "Task template directory not found: ${TASK_TEMPLATE_PATH}"
+    if [[ -n "${TASKER_TEMPLATE_PATH:-}" ]] && [[ ! -d "${TASKER_TEMPLATE_PATH}" ]]; then
+        log_warn "Task template directory not found: ${TASKER_TEMPLATE_PATH}"
         log_warn "Ruby handlers may not be discoverable"
     fi
 

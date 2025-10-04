@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(custom_config.polling_interval, Duration::from_secs(60));
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_fallback_poller_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -190,7 +190,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_fallback_poller_disabled(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

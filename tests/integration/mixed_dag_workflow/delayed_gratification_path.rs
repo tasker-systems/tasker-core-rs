@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test complex DAG workflow with init step retry exhaustion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_init_retry_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Init step retry exhaustion");
 
@@ -65,7 +65,7 @@ async fn test_complex_dag_init_retry_exhaustion(pool: PgPool) -> Result<()> {
 }
 
 /// Test complex DAG workflow with processing step retry and recovery
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_process_retry_recovery(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Processing step retry and recovery");
 
@@ -145,7 +145,7 @@ async fn test_complex_dag_process_retry_recovery(pool: PgPool) -> Result<()> {
 }
 
 /// Test complex DAG workflow with convergence step retry and backoff
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_convergence_retry_backoff(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Convergence step retry with backoff");
 
@@ -228,7 +228,7 @@ async fn test_complex_dag_convergence_retry_backoff(pool: PgPool) -> Result<()> 
 }
 
 /// Test complex DAG workflow with mid-DAG permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_mid_dag_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Mid-DAG permanent failure");
 
@@ -314,7 +314,7 @@ async fn test_complex_dag_mid_dag_permanent_failure(pool: PgPool) -> Result<()> 
 }
 
 /// Test complex DAG workflow with transient failure and eventual convergence
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_transient_failure_eventual_convergence(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Transient failure eventual convergence");
 

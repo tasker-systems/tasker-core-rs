@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test tree workflow initialization and setup
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 TREE WORKFLOW: Initialization and setup");
 
@@ -37,7 +37,7 @@ async fn test_tree_workflow_initialization(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow with hierarchical dependency structure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_hierarchical_dependencies(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 TREE WORKFLOW: Hierarchical dependency validation");
 
@@ -115,7 +115,7 @@ async fn test_tree_workflow_hierarchical_dependencies(pool: PgPool) -> Result<()
 }
 
 /// Test complete tree workflow execution with hierarchical parallelization
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_complete_execution(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 TREE WORKFLOW: Complete execution with parallelization");
 

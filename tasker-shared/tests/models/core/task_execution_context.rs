@@ -9,7 +9,7 @@ use tasker_shared::models::orchestration::task_execution_context::TaskExecutionC
 use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_task_execution_context(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies first
     let namespace = TaskNamespace::create(

@@ -99,7 +99,7 @@ TASKER_TEST_HEALTH_TIMEOUT="30"           # Health check timeout (seconds)
 TASKER_TEST_HEALTH_RETRY_INTERVAL="2"     # Health check retry interval (seconds)
 
 # Template and handler discovery
-TASK_TEMPLATE_PATH="/app/ruby_templates"   # Ruby handler template discovery
+TASKER_TEMPLATE_PATH="/app/ruby_templates"   # Ruby handler template discovery
 RUBY_HANDLER_PATH="/app/ruby_handlers"     # Ruby handler source files
 ```
 
@@ -116,7 +116,7 @@ ruby-worker:
     - ./workers/ruby/spec/handlers/examples:/app/ruby_handlers:ro
     - ./workers/ruby/spec/fixtures/templates:/app/ruby_templates:ro
   environment:
-    TASK_TEMPLATE_PATH: /app/ruby_templates
+    TASKER_TEMPLATE_PATH: /app/ruby_templates
     RUBY_WORKER_ENABLED: "true"
 ```
 

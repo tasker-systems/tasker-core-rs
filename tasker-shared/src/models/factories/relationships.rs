@@ -108,7 +108,7 @@ mod tests {
     use super::*;
     use crate::models::factories::{TaskFactory, WorkflowStepFactory};
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "crate::database::migrator::MIGRATOR")]
     async fn test_create_workflow_step_edge(pool: PgPool) -> FactoryResult<()> {
         // Create task and steps
         let task = TaskFactory::new().create(&pool).await?;

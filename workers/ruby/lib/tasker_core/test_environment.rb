@@ -88,7 +88,7 @@ module TaskerCore
         return {} unless @loaded
 
         {
-          template_path: ENV['TASK_TEMPLATE_PATH'],
+          template_path: ENV['TASKER_TEMPLATE_PATH'],
           fixtures_path: @template_fixtures_path,
           fixtures_exist: Dir.exist?(@template_fixtures_path),
           template_files: Dir.exist?(@template_fixtures_path) ? Dir.glob("#{@template_fixtures_path}/*.yaml").count : 0,
@@ -126,10 +126,10 @@ module TaskerCore
 
       def setup_test_template_path!
         # Override template path to use test fixtures if not already set
-        unless ENV['TASK_TEMPLATE_PATH']
+        unless ENV['TASKER_TEMPLATE_PATH']
           if Dir.exist?(@template_fixtures_path)
-            ENV['TASK_TEMPLATE_PATH'] = @template_fixtures_path
-            log_debug("📁 Set TASK_TEMPLATE_PATH to: #{@template_fixtures_path}")
+            ENV['TASKER_TEMPLATE_PATH'] = @template_fixtures_path
+            log_debug("📁 Set TASKER_TEMPLATE_PATH to: #{@template_fixtures_path}")
           else
             log_warn("⚠️  Test template fixtures directory not found: #{@template_fixtures_path}")
           end
@@ -161,11 +161,11 @@ module TaskerCore
 
       def verify_test_setup!
         # Verify template path is set correctly
-        template_path = ENV['TASK_TEMPLATE_PATH']
+        template_path = ENV['TASKER_TEMPLATE_PATH']
         if template_path.nil?
-          log_warn('⚠️  TASK_TEMPLATE_PATH not set, template discovery may fail')
+          log_warn('⚠️  TASKER_TEMPLATE_PATH not set, template discovery may fail')
         elsif !Dir.exist?(template_path)
-          log_warn("⚠️  TASK_TEMPLATE_PATH directory does not exist: #{template_path}")
+          log_warn("⚠️  TASKER_TEMPLATE_PATH directory does not exist: #{template_path}")
         else
           yaml_files = Dir.glob("#{template_path}/*.yaml").count
           log_debug("📄 Found #{yaml_files} YAML template files in #{template_path}")

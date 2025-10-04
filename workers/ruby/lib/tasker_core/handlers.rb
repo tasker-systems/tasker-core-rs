@@ -3,8 +3,83 @@
 module TaskerCore
   # Clean Handlers Domain API
   #
-  # This provides a clean namespace for all handler functionality
-  # while preserving critical method signatures for step and task handlers.
+  # This module provides the primary public interface for working with TaskerCore handlers.
+  # It's organized into two main namespaces: Steps and Tasks, mirroring the Rails engine
+  # architecture while providing a clean Ruby interface with enhanced type safety.
+  #
+  # The Handlers namespace serves as the recommended entry point for handler operations,
+  # abstracting the underlying implementation details while preserving method signatures
+  # that developers familiar with the Rails engine will recognize.
+  #
+  # @example Creating and using a step handler
+  #   # Define a handler class
+  #   class ProcessPaymentHandler < TaskerCore::Handlers::Steps::Base
+  #     def call(task, sequence, step)
+  #       # Access task context
+  #       amount = task.context['amount']
+  #       currency = task.context['currency']
+  #
+  #       # Process payment logic
+  #       result = charge_payment(amount, currency)
+  #
+  #       # Return results to be stored in step.results
+  #       { payment_id: result.id, status: "succeeded" }
+  #     end
+  #   end
+  #
+  #   # Create instance with configuration
+  #   handler = TaskerCore::Handlers::Steps.create(
+  #     ProcessPaymentHandler,
+  #     config: { timeout: 30, retry_limit: 3 }
+  #   )
+  #
+  # @example Validating handler implementation
+  #   validation = TaskerCore::Handlers::Steps.validate(ProcessPaymentHandler)
+  #   # => {
+  #   #   valid: true,
+  #   #   missing_required: [],
+  #   #   optional_implemented: [:process_results],
+  #   #   handler_class: "ProcessPaymentHandler"
+  #   # }
+  #
+  #   if validation[:valid]
+  #     puts "Handler implements all required methods"
+  #   else
+  #     puts "Missing: #{validation[:missing_required].join(', ')}"
+  #   end
+  #
+  # @example Using API handlers for HTTP operations
+  #   class FetchUserHandler < TaskerCore::Handlers::Steps::API
+  #     def call(task, sequence, step)
+  #       user_id = task.context['user_id']
+  #
+  #       # Automatic error classification and retry logic
+  #       response = get("/users/#{user_id}")
+  #
+  #       response.body # Stored in step.results
+  #     end
+  #   end
+  #
+  # @example Task-level handler for workflow coordination
+  #   # Task handlers coordinate multiple steps
+  #   result = TaskerCore::Handlers::Tasks.handle(task_uuid: "123-456")
+  #   # => Orchestrates all steps for the task
+  #
+  # Architecture:
+  # - **Steps**: Individual business logic units (payment processing, API calls, etc.)
+  # - **Tasks**: Workflow orchestration and step coordination
+  # - **API**: Specialized step handlers for HTTP operations with automatic retry
+  #
+  # Method Signature Preservation:
+  # This namespace preserves Rails engine method signatures for compatibility:
+  # - `call(task, sequence, step)` - Primary handler execution
+  # - `process(task, sequence, step)` - Alias for call (Rails compatibility)
+  # - `process_results(task, sequence, step)` - Optional results processing hook
+  #
+  # @see TaskerCore::Handlers::Steps For step-level business logic
+  # @see TaskerCore::Handlers::Tasks For task-level orchestration
+  # @see TaskerCore::StepHandler::Base For low-level step handler implementation
+  # @see TaskerCore::StepHandler::Api For HTTP-based handlers
   module Handlers
     # Step Handler API with preserved method signatures
     module Steps

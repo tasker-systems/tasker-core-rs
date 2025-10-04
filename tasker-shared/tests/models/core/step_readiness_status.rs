@@ -8,7 +8,7 @@ use tasker_shared::models::orchestration::step_readiness_status::StepReadinessSt
 use tasker_shared::models::task::{NewTask, Task};
 use tasker_shared::models::task_namespace::{NewTaskNamespace, TaskNamespace};
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies first
     let namespace = TaskNamespace::create(
@@ -71,7 +71,7 @@ async fn test_get_step_readiness_status(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_readiness_summary(pool: PgPool) -> sqlx::Result<()> {
     // Create test dependencies
     let namespace = TaskNamespace::create(

@@ -89,3 +89,88 @@ pub async fn wait_for_task_completion(
         max_wait_seconds
     ))
 }
+
+/// Wait for task to fail (reach error or blocked state)
+///
+/// This is useful for testing error scenarios where we expect the task to fail.
+/// Returns Ok(()) when task reaches BlockedByFailures state.
+pub async fn wait_for_task_failure(
+    client: &OrchestrationApiClient,
+    task_uuid: &str,
+    max_wait_seconds: u64,
+) -> Result<()> {
+    let start_time = std::time::Instant::now();
+    let max_duration = Duration::from_secs(max_wait_seconds);
+
+    println!(
+        "⏳ Waiting for task {} to fail (max {}s)...",
+        task_uuid, max_wait_seconds
+    );
+
+    while start_time.elapsed() < max_duration {
+        let uuid = Uuid::parse_str(task_uuid)?;
+        match client.get_task(uuid).await {
+            Ok(task_response) => {
+                let execution_status = task_response.execution_status_typed();
+                println!(
+                    "   Task execution status: {} ({})",
+                    task_response.execution_status, task_response.status
+                );
+
+                match execution_status {
+                    ExecutionStatus::BlockedByFailures => {
+                        println!("✅ Task failed as expected (blocked by failures)!");
+                        return Ok(());
+                    }
+                    ExecutionStatus::AllComplete => {
+                        return Err(anyhow::anyhow!(
+                            "Task completed successfully but was expected to fail"
+                        ));
+                    }
+                    ExecutionStatus::HasReadySteps
+                    | ExecutionStatus::Processing
+                    | ExecutionStatus::WaitingForDependencies => {
+                        // Still processing, continue polling
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            }
+            Err(e) => {
+                println!("   Error polling task status: {}", e);
+                sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Task did not fail within {}s",
+        max_wait_seconds
+    ))
+}
+
+/// Create a task request with bypass_steps support
+///
+/// This allows selective step execution for testing specific scenarios.
+pub fn create_task_request_with_bypass(
+    namespace: &str,
+    name: &str,
+    input_context: serde_json::Value,
+    bypass_steps: Vec<String>,
+) -> TaskRequest {
+    TaskRequest {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+        version: "1.0.0".to_string(),
+        context: input_context,
+        status: "PENDING".to_string(),
+        initiator: "integration-test".to_string(),
+        source_system: "test".to_string(),
+        reason: "Integration test execution with bypass steps".to_string(),
+        complete: false,
+        tags: vec!["integration-test".to_string()],
+        bypass_steps,
+        requested_at: chrono::Utc::now().naive_utc(),
+        options: None,
+        priority: Some(5),
+    }
+}

@@ -5,6 +5,100 @@ require 'singleton'
 module TaskerCore
   module Registry
     # Simplified handler registry for pure business logic handlers
+    #
+    # Manages the discovery, registration, and instantiation of step handlers
+    # throughout the worker lifecycle. The registry supports multiple discovery
+    # modes to handle different deployment scenarios and environments.
+    #
+    # Discovery Modes (in priority order):
+    # 1. **Preloaded Handlers**: Test environment handlers loaded at startup
+    # 2. **Template-Driven Discovery**: YAML templates defining workflow handlers
+    #
+    # The registry automatically bootstraps on initialization, discovering and
+    # registering all available handlers based on the current environment and
+    # configuration.
+    #
+    # @example Resolving a handler by class name
+    #   registry = TaskerCore::Registry::HandlerRegistry.instance
+    #   handler = registry.resolve_handler("ValidateOrderHandler")
+    #   # => Instance of ValidateOrderHandler or nil if not found
+    #
+    #   if handler
+    #     result = handler.call(task, sequence, step)
+    #   else
+    #     raise "Handler not found: ValidateOrderHandler"
+    #   end
+    #
+    # @example Checking handler availability
+    #   registry.handler_available?("ProcessPaymentHandler")
+    #   # => true/false
+    #
+    #   if registry.handler_available?("ProcessPaymentHandler")
+    #     puts "Payment processing is available"
+    #   end
+    #
+    # @example Getting list of registered handlers
+    #   handlers = registry.registered_handlers
+    #   # => ["LinearStep1Handler", "LinearStep2Handler", "ValidateOrderHandler", ...]
+    #
+    #   puts "Available handlers:"
+    #   handlers.each { |name| puts "  - #{name}" }
+    #
+    # @example Debugging template discovery
+    #   info = registry.template_discovery_info
+    #   # => {
+    #   #   template_path: "/app/config/tasker/tasks",
+    #   #   template_files: ["linear_workflow.yml", "order_fulfillment.yml"],
+    #   #   discovered_handlers: ["ValidateOrderHandler", "ProcessPaymentHandler", ...],
+    #   #   handlers_by_namespace: {
+    #   #     "payments" => ["ProcessPaymentHandler", "RefundHandler"],
+    #   #     "fulfillment" => ["ValidateOrderHandler", "ShipOrderHandler"]
+    #   #   },
+    #   #   environment: "production",
+    #   #   fallback_enabled: false
+    #   # }
+    #
+    #   puts "Template path: #{info[:template_path]}"
+    #   puts "Discovered #{info[:discovered_handlers].size} handlers"
+    #
+    # @example Manual handler registration
+    #   # Register a custom handler at runtime
+    #   registry.register_handler("CustomHandler", CustomHandlerClass)
+    #   # => Logs: "✅ Registered handler: CustomHandler"
+    #
+    # Discovery Priority Explained:
+    #
+    # 1. **Test Environment Preloaded Handlers** (TASKER_ENV=test):
+    #    - Checks if TaskerCore::TestEnvironment has loaded handlers
+    #    - Uses ObjectSpace to find loaded handler classes
+    #    - Fastest discovery, no file I/O needed
+    #
+    # 2. **YAML Template-Driven Discovery**:
+    #    - Scans template directory for YAML files
+    #    - Extracts handler_class from step definitions
+    #    - Loads handler files and registers classes
+    #
+    # Template Path Resolution (in priority order):
+    # 1. **TASKER_TEMPLATE_PATH**: Explicit override (highest priority)
+    # 2. **TASKER_ENV=test**: Defaults to spec/fixtures/templates
+    # 3. **Production/Development**: Uses standard config/tasker/tasks discovery
+    #
+    # Environment Variables:
+    # - **TASKER_ENV**: Current environment (test/development/production)
+    # - **RAILS_ENV**: Rails environment (fallback for TASKER_ENV)
+    # - **TASKER_TEMPLATE_PATH**: Explicit template directory override
+    #
+    # Handler Search Paths:
+    # - app/handlers/
+    # - lib/handlers/
+    # - handlers/
+    # - app/tasker/handlers/
+    # - lib/tasker/handlers/
+    # - spec/handlers/examples/ (test environment only)
+    #
+    # @see TaskerCore::TemplateDiscovery For template discovery implementation
+    # @see TaskerCore::TestEnvironment For test environment integration
+    # @see TaskerCore::StepHandler::Base For handler base class
     class HandlerRegistry
       include Singleton
 
@@ -53,8 +147,7 @@ module TaskerCore
           template_files: template_path ? TaskerCore::TemplateDiscovery::TemplatePath.discover_template_files(template_path) : [],
           discovered_handlers: template_path ? TaskerCore::TemplateDiscovery::HandlerDiscovery.discover_all_handlers(template_path) : [],
           handlers_by_namespace: template_path ? TaskerCore::TemplateDiscovery::HandlerDiscovery.discover_handlers_by_namespace(template_path) : {},
-          environment: ENV['TASKER_ENV'] || ENV['RAILS_ENV'] || 'development',
-          fallback_enabled: fallback_to_examples?
+          environment: ENV['TASKER_ENV'] || ENV['RAILS_ENV'] || 'development'
         }
       end
 
@@ -91,13 +184,6 @@ module TaskerCore
           end
         end
 
-        # Fallback to example handlers in test/development environments if needed
-        if registered_count.zero? && fallback_to_examples?
-          logger.info('📚 No handlers found from templates, falling back to example handlers')
-          load_example_handlers_fallback!
-          registered_count = load_example_handlers_from_discovery
-        end
-
         logger.info("✅ Handler registry bootstrapped with #{registered_count} handlers")
       end
 
@@ -116,13 +202,7 @@ module TaskerCore
 
       # Discover handlers from YAML templates using the template discovery system
       def discover_handlers_from_templates
-        template_path = get_template_path_override || TaskerCore::TemplateDiscovery::TemplatePath.find_template_config_directory
-
-        # In test environments, also check for spec fixtures if no other path found
-        if template_path.nil? && (ENV['TASKER_ENV'] == 'test' || ENV['RAILS_ENV'] == 'test')
-          fixtures_path = File.expand_path('../../../spec/fixtures/templates', __dir__)
-          template_path = fixtures_path if Dir.exist?(fixtures_path)
-        end
+        template_path = determine_template_path
 
         if template_path
           logger.debug("🔍 Discovering handlers from template path: #{template_path}")
@@ -131,6 +211,26 @@ module TaskerCore
           logger.warn('⚠️ No template directory found, no handlers will be discovered')
           []
         end
+      end
+
+      # Determine the template path based on environment and configuration
+      def determine_template_path
+        # 1. Explicit override takes highest priority
+        return ENV['TASKER_TEMPLATE_PATH'] if ENV['TASKER_TEMPLATE_PATH']
+
+        # 2. Test environment: default to spec/fixtures/templates
+        if test_environment?
+          fixtures_path = File.expand_path('../../../spec/fixtures/templates', __dir__)
+          return fixtures_path if Dir.exist?(fixtures_path)
+        end
+
+        # 3. Production/development: use standard discovery
+        TaskerCore::TemplateDiscovery::TemplatePath.find_template_config_directory
+      end
+
+      # Check if we're in a test environment
+      def test_environment?
+        ENV['TASKER_ENV'] == 'test' || ENV['RAILS_ENV'] == 'test'
       end
 
       # Find and dynamically load handler class by name
@@ -179,41 +279,6 @@ module TaskerCore
         false
       end
 
-      # Get template path override for testing
-      def get_template_path_override
-        # Support both test-specific override and general override
-        ENV['TASKER_TEST_TEMPLATE_PATH'] || ENV.fetch('TASK_TEMPLATE_PATH_OVERRIDE', nil)
-      end
-
-      # Determine if we should fallback to example handlers
-      def fallback_to_examples?
-        # Always fallback if explicitly enabled for tests
-        return true if ENV['TASKER_FORCE_EXAMPLE_HANDLERS'] == 'true'
-
-        # Only fallback in test or development environments
-        %w[test development].include?(ENV['TASKER_ENV'] || ENV['RAILS_ENV'] || 'development')
-      end
-
-      # Load example handlers as fallback (for tests/development)
-      def load_example_handlers_fallback!
-        load_example_handlers!
-      end
-
-      # Load example handlers using the old discovery method
-      def load_example_handlers_from_discovery
-        registered_count = 0
-        discover_handler_classes_fallback.each do |handler_class_name, module_name|
-          handler_class = Object.const_get("#{module_name}::StepHandlers::#{handler_class_name}")
-          register_handler(handler_class_name, handler_class)
-          registered_count += 1
-        rescue NameError
-          logger.debug("⚠️ Handler class not found: #{module_name}::StepHandlers::#{handler_class_name}")
-        rescue StandardError => e
-          logger.warn("❌ Failed to register handler #{handler_class_name}: #{e.message}")
-        end
-        registered_count
-      end
-
       # Get search paths for handler files
       def handler_search_paths
         paths = []
@@ -230,9 +295,11 @@ module TaskerCore
           paths << full_path if Dir.exist?(full_path)
         end
 
-        # Add example handlers for fallback
-        spec_dir = File.expand_path('../../../spec/handlers/examples', __dir__)
-        Dir.glob("#{spec_dir}/**/").each { |dir| paths << dir } if Dir.exist?(spec_dir)
+        # In test environment, add spec/handlers/examples for test fixtures
+        if test_environment?
+          spec_dir = File.expand_path('../../../spec/handlers/examples', __dir__)
+          Dir.glob("#{spec_dir}/**/").each { |dir| paths << dir } if Dir.exist?(spec_dir)
+        end
 
         paths
       end
@@ -303,23 +370,6 @@ module TaskerCore
         end
       end
 
-      # Fallback discovery for example handlers (old hardcoded method)
-      def discover_handler_classes_fallback
-        [
-          %w[LinearStep1Handler LinearWorkflow],
-          %w[LinearStep2Handler LinearWorkflow],
-          %w[LinearStep3Handler LinearWorkflow],
-          %w[LinearStep4Handler LinearWorkflow],
-          %w[DiamondStartHandler DiamondWorkflow],
-          %w[DiamondBranchBHandler DiamondWorkflow],
-          %w[DiamondBranchCHandler DiamondWorkflow],
-          %w[DiamondEndHandler DiamondWorkflow],
-          %w[ValidateOrderHandler OrderFulfillment],
-          %w[ReserveInventoryHandler OrderFulfillment],
-          %w[ProcessPaymentHandler OrderFulfillment],
-          %w[ShipOrderHandler OrderFulfillment]
-        ]
-      end
     end
   end
 end

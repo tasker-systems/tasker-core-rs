@@ -45,6 +45,7 @@
 //! # }
 //! ```
 
+pub mod migrator;
 pub mod sql_functions;
 
 pub use sql_functions::{

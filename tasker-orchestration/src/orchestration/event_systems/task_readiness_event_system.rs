@@ -132,7 +132,7 @@ impl TaskReadinessEventSystem {
 mod tests {
     use super::*;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_task_readiness_system_creation(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -143,7 +143,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_task_readiness_system_disabled(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

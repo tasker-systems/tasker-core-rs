@@ -5,7 +5,7 @@
 use sqlx::PgPool;
 use tasker_shared::models::orchestration::step_dag_relationship::StepDagRelationship;
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_step_dag_relationships(pool: PgPool) -> sqlx::Result<()> {
     // Test getting all DAG relationships
     let relationships = StepDagRelationship::get_all(&pool)
@@ -28,7 +28,7 @@ async fn test_get_step_dag_relationships(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_by_task(pool: PgPool) -> sqlx::Result<()> {
     // Test with a hypothetical task ID
     let relationships = StepDagRelationship::get_by_task(&pool, 999999)
@@ -41,7 +41,7 @@ async fn test_get_by_task(pool: PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_get_root_and_leaf_steps(pool: PgPool) -> sqlx::Result<()> {
     // Test with a hypothetical task ID
     let root_steps = StepDagRelationship::get_root_steps(&pool, 999999)

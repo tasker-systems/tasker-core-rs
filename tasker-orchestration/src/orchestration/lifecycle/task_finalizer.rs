@@ -309,13 +309,14 @@ impl TaskFinalizer {
         // Use state machine for proper state transitions
         let mut state_machine = self.get_state_machine_for_task(&task).await?;
 
-        // Transition to error state using state machine
+        // Transition to BlockedByFailures state using PermanentFailure event
+        // This is the correct event from EvaluatingResults state
         let error_message = "Steps in error state".to_string();
         state_machine
-            .transition(TaskEvent::Fail(error_message.clone()))
+            .transition(TaskEvent::PermanentFailure(error_message.clone()))
             .await
             .map_err(|e| FinalizationError::StateMachine {
-                error: format!("Failed to transition to error: {e}"),
+                error: format!("Failed to transition to blocked state: {e}"),
                 task_uuid,
             })?;
 

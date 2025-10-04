@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test linear workflow with early failure at step 1
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_early_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Early failure blocks entire workflow");
 
@@ -82,7 +82,7 @@ async fn test_linear_workflow_early_failure(pool: PgPool) -> Result<()> {
 }
 
 /// Test linear workflow with mid-workflow permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_mid_workflow_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mid-workflow permanent failure");
 
@@ -191,7 +191,7 @@ async fn test_linear_workflow_mid_workflow_permanent_failure(pool: PgPool) -> Re
 }
 
 /// Test linear workflow with late failure at final step
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_late_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Late failure at final step");
 
@@ -287,7 +287,7 @@ async fn test_linear_workflow_late_failure(pool: PgPool) -> Result<()> {
 }
 
 /// Test linear workflow with mixed states and SQL accuracy
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mixed states SQL accuracy");
 

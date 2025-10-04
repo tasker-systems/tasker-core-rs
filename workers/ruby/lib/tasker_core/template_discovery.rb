@@ -11,8 +11,8 @@ module TaskerCore
         # Find the template configuration directory using the same logic as Rust
         # Returns path to directory containing .yaml template files
         def find_template_config_directory
-          # First try TASK_TEMPLATE_PATH environment variable
-          return ENV['TASK_TEMPLATE_PATH'] if ENV['TASK_TEMPLATE_PATH'] && Dir.exist?(ENV['TASK_TEMPLATE_PATH'])
+          # First try TASKER_TEMPLATE_PATH environment variable
+          return ENV['TASKER_TEMPLATE_PATH'] if ENV['TASKER_TEMPLATE_PATH'] && Dir.exist?(ENV['TASKER_TEMPLATE_PATH'])
 
           # Try WORKSPACE_PATH environment variable (for compatibility)
           if ENV['WORKSPACE_PATH']

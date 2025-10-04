@@ -26,8 +26,6 @@ members = [
 [workspace.dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-# TTY detection for ANSI colors
-is-terminal = "0.4"
 # Web framework and HTTP server (TAS-28)
 axum = "0.7"
 axum-extra = { version = "0.9", features = ["typed-header"] }
@@ -49,6 +47,8 @@ factori = "1.1"
 fastrand = "2.0"
 futures = "0.3"
 insta = { version = "1.34", features = ["json", "serde"] }
+# TTY detection for ANSI colors
+is-terminal = "0.4"
 jsonwebtoken = { version = "9" }
 # FFI support to be added in bindings and workers
 magnus = "0.7"
@@ -116,18 +116,27 @@ crate-type = ["rlib"]
 name = "tasker_core"
 path = "src/lib.rs"
 
-[[bin]]
-name = "config-validator"
-path = "src/bin/config-validator.rs"
-
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+# Root crate has no library code - all dependencies moved to dev-dependencies
+# This prevents circular dependencies and keeps workspace crates independent
+
+[dev-dependencies]
+# Test utilities
 anyhow = { workspace = true }
 chrono = { workspace = true }
+# Keep bin/config-validator dependencies
 clap = { workspace = true }
 dotenvy = { workspace = true }
+futures = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+serial_test = { workspace = true }
 sqlx = { workspace = true }
+# E2E tests need workspace crates
 tasker-client = { path = "tasker-client" }
 tasker-orchestration = { path = "tasker-orchestration" }
 tasker-shared = { path = "tasker-shared" }
@@ -137,24 +146,21 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
-[dev-dependencies]
-futures = { workspace = true }
-reqwest = { workspace = true }
-serial_test = { workspace = true }
-serde_yaml = { workspace = true }
-tracing-subscriber = { workspace = true }
-
 [features]
+benchmarks = [
+  # "tasker-orchestration/benchmarks",
+  # "tasker-shared/benchmarks",
+  # "tasker-worker/benchmarks",
+]
 test-utils = [
   "tasker-orchestration/test-utils",
   "tasker-shared/test-utils",
   "tasker-worker/test-utils",
 ]
-benchmarks = [
-  "tasker-shared/benchmarks",
-  "tasker-orchestration/benchmarks",
-  "tasker-worker/benchmarks",
-]
+
+[profile.dev]
+opt-level = 0
+debug = true
 
 [profile.release]
 opt-level = 3
@@ -162,10 +168,6 @@ strip = true
 lto = "fat"
 panic = "abort"
 codegen-units = 1
-
-[profile.dev]
-opt-level = 0
-debug = true
 
 # Coverage profile (matches CI)
 [profile.coverage]

@@ -106,7 +106,7 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 /// Set up test database pool with migrations applied
 ///
-/// Alternative to #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")] macro for cases where you need manual setup.
+/// Alternative to #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")] macro for cases where you need manual setup.
 pub async fn setup_test_db() -> PgPool {
     // Load .env file for tests
     dotenv().ok();

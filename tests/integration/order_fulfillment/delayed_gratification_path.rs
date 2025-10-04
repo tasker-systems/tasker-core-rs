@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test order fulfillment with validation retry exhaustion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_validation_retry_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Validation retry exhaustion");
 
@@ -67,7 +67,7 @@ async fn test_order_fulfillment_validation_retry_exhaustion(pool: PgPool) -> Res
 }
 
 /// Test order fulfillment with inventory reservation retry and recovery
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_inventory_retry_recovery(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Inventory reservation retry and recovery");
 
@@ -157,7 +157,7 @@ async fn test_order_fulfillment_inventory_retry_recovery(pool: PgPool) -> Result
 }
 
 /// Test order fulfillment with payment retry and backoff
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_payment_retry_backoff(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Payment retry with backoff");
 
@@ -230,7 +230,7 @@ async fn test_order_fulfillment_payment_retry_backoff(pool: PgPool) -> Result<()
 }
 
 /// Test order fulfillment with mid-workflow permanent failure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_mid_workflow_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Mid-workflow permanent failure");
 
@@ -301,7 +301,7 @@ async fn test_order_fulfillment_mid_workflow_permanent_failure(pool: PgPool) -> 
 }
 
 /// Test order fulfillment with transient failure and eventual completion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_order_fulfillment_transient_failure_eventual_completion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Transient failure eventual completion");
 

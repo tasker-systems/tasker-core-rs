@@ -21,8 +21,8 @@ use utoipa::ToSchema;
 #[derive(Error, Debug)]
 #[cfg_attr(feature = "web-api", derive(ToSchema))]
 pub enum ApiError {
-    #[error("Resource not found")]
-    NotFound,
+    #[error("Resource not found: {message}")]
+    NotFound { message: String },
 
     #[error("Access denied")]
     Forbidden,
@@ -62,6 +62,13 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    /// Create a NotFound error with a custom message
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::NotFound {
+            message: message.into(),
+        }
+    }
+
     /// Create a BadRequest error with a custom message
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest {
@@ -103,7 +110,9 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status_code, error_code, message) = match &self {
-            ApiError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found"),
+            ApiError::NotFound { message: msg } => {
+                (StatusCode::NOT_FOUND, "NOT_FOUND", msg.as_str())
+            }
 
             ApiError::Forbidden => (StatusCode::FORBIDDEN, "FORBIDDEN", "Access denied"),
 
@@ -177,7 +186,7 @@ impl IntoResponse for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
         match err {
-            sqlx::Error::RowNotFound => ApiError::NotFound,
+            sqlx::Error::RowNotFound => ApiError::not_found("Database record not found"),
             sqlx::Error::Database(_) => ApiError::database_error("Database operation failed"),
             sqlx::Error::PoolTimedOut => ApiError::Timeout,
             _ => ApiError::database_error("Database error"),

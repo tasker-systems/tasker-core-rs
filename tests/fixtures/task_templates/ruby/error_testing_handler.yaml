@@ -1,0 +1,64 @@
+---
+name: error_testing
+namespace_name: test_errors
+version: 1.0.0
+task_handler_class: ErrorTestingHandler
+default_dependent_system: "test_system"
+
+description: "Error scenario testing workflows for validation of failure handling patterns"
+
+schema:
+  type: object
+  properties:
+    scenario_type:
+      type: string
+      enum: ['permanent', 'retryable', 'intermittent', 'retry_once']
+      description: "Type of error scenario to test"
+    test_context:
+      type: object
+      description: "Additional context for error testing"
+
+step_templates:
+  # Permanent Error - Should fail immediately without retries
+  - name: permanent_error_step
+    description: Permanent error that should not be retried
+    handler_class: PermanentErrorHandler
+    default_retryable: false
+    default_retry_limit: 0
+    handler_config:
+      timeout_seconds: 10
+
+  # Retryable Error - Should retry up to limit then fail
+  - name: retryable_error_step
+    description: Retryable error that exhausts retry limit
+    handler_class: RetryableErrorHandler
+    default_retryable: true
+    default_retry_limit: 3
+    handler_config:
+      timeout_seconds: 15
+
+  # Intermittent Failure - Should succeed after 2 failures
+  - name: intermittent_failure_step
+    description: Intermittent failure that eventually succeeds
+    handler_class: IntermittentFailureHandler
+    default_retryable: true
+    default_retry_limit: 5  # More than needed, should succeed before exhaustion
+    handler_config:
+      timeout_seconds: 20
+
+  # Success After Retry - Should fail once then succeed
+  - name: success_after_retry_step
+    description: Simple retry pattern - fail once then succeed
+    handler_class: SuccessAfterRetryHandler
+    default_retryable: true
+    default_retry_limit: 2  # Only need 1 retry
+    handler_config:
+      timeout_seconds: 10
+
+  # Success Step - For testing mixed workflows
+  - name: success_step
+    description: Always succeeds - for workflow composition
+    handler_class: SuccessHandler
+    default_retryable: false
+    handler_config:
+      timeout_seconds: 5

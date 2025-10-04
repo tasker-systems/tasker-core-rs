@@ -346,7 +346,7 @@ impl TaskTemplateManager {
     fn find_template_config_directory(&self) -> TaskerResult<String> {
         use workspace_tools::workspace;
 
-        if let Ok(template_dir) = std::env::var("TASK_TEMPLATE_PATH") {
+        if let Ok(template_dir) = std::env::var("TASKER_TEMPLATE_PATH") {
             if std::path::Path::new(&template_dir).exists() {
                 return Ok(template_dir);
             }

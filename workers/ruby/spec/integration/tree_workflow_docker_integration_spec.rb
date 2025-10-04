@@ -66,7 +66,7 @@ RSpec.describe 'Tree Workflow Docker Integration', type: :integration do
       puts "\n⏳ Waiting for hierarchical tree workflow completion..."
       puts '   Expected order: root -> branches (parallel) -> leaves (parallel within branches) -> convergence'
 
-      completed_task = wait_for_task_completion(manager, task_uuid, 45)
+      completed_task = wait_for_task_completion(manager, task_uuid, 12)
 
       expect(completed_task).to be_a(Hash)
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -141,7 +141,7 @@ RSpec.describe 'Tree Workflow Docker Integration', type: :integration do
 
       # Monitor execution timing to verify parallel processing
       start_time = Time.now
-      completed_task = wait_for_task_completion(manager, task_uuid, 45)
+      completed_task = wait_for_task_completion(manager, task_uuid, 12)
       total_time = Time.now - start_time
 
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -187,7 +187,7 @@ RSpec.describe 'Tree Workflow Docker Integration', type: :integration do
 
       # The task should either complete successfully or handle the edge case gracefully
       begin
-        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 30)
+        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 5)
         puts "   ✅ Edge case handled successfully: #{completed_task[:status]}"
       rescue StandardError => e
         puts "   ℹ️  Edge case resulted in expected behavior: #{e.message}"

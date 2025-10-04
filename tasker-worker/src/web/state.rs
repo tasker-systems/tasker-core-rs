@@ -70,7 +70,8 @@ impl WorkerWebConfig {
 #[derive(Clone)]
 pub struct WorkerWebState {
     /// Worker core reference for health checks and status
-    pub worker_core: Arc<crate::worker::core::WorkerCore>,
+    /// Wrapped in Arc<Mutex<>> for thread-safe shared access
+    pub worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
 
     /// Database connection pool
     pub database_pool: Arc<PgPool>,
@@ -89,13 +90,16 @@ pub struct WorkerWebState {
 
     /// Worker system configuration
     pub system_config: TaskerConfig,
+
+    /// Cached worker ID (to avoid locking mutex on every status check)
+    worker_id: String,
 }
 
 impl WorkerWebState {
     /// Create new worker web state with all required components
     pub async fn new(
         config: WorkerWebConfig,
-        worker_core: Arc<crate::worker::core::WorkerCore>,
+        worker_core: Arc<tokio::sync::Mutex<crate::worker::core::WorkerCore>>,
         database_pool: Arc<PgPool>,
         system_config: TaskerConfig,
     ) -> TaskerResult<Self> {
@@ -104,6 +108,14 @@ impl WorkerWebState {
             bind_address = %config.bind_address,
             "Initializing worker web state"
         );
+
+        // Cache the worker_id by locking once during initialization
+        let worker_id = {
+            let core = worker_core.lock().await;
+            format!("worker-{}", core.core_id())
+        };
+
+        info!(worker_id = %worker_id, "Worker ID cached for web state");
 
         // Create unified message client using the shared database pool
         let message_client =
@@ -121,6 +133,7 @@ impl WorkerWebState {
             config,
             start_time: Instant::now(),
             system_config,
+            worker_id,
         })
     }
 
@@ -140,8 +153,11 @@ impl WorkerWebState {
     }
 
     /// Get worker identifier for status reporting
+    ///
+    /// Returns the cached worker ID that was set during initialization.
+    /// This avoids needing to lock the mutex on every status check.
     pub fn worker_id(&self) -> String {
-        format!("worker-{}", self.worker_core.core_id())
+        self.worker_id.clone()
     }
 
     /// Get worker type classification

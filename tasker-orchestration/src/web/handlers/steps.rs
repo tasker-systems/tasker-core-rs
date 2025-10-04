@@ -183,12 +183,12 @@ pub async fn get_step(
             Some(step) => {
                 // Verify the step belongs to the specified task
                 if step.task_uuid != task_uuid {
-                    return Err(ApiError::NotFound);
+                    return Err(ApiError::not_found("Resource not found"));
                 }
                 step
             }
             None => {
-                return Err(ApiError::NotFound);
+                return Err(ApiError::not_found("Resource not found"));
             }
         };
 
@@ -267,7 +267,7 @@ pub async fn get_step(
     .map_err(|e| {
         let error_str = e.to_string();
         if error_str.contains("Step not found") {
-            ApiError::NotFound
+            ApiError::not_found("Resource not found")
         } else {
             e
         }
@@ -321,12 +321,12 @@ pub async fn resolve_step_manually(
             Some(step) => {
                 // Verify the step belongs to the specified task
                 if step.task_uuid != task_uuid {
-                    return Err(ApiError::NotFound);
+                    return Err(ApiError::not_found("Resource not found"));
                 }
                 step
             }
             None => {
-                return Err(ApiError::NotFound);
+                return Err(ApiError::not_found("Resource not found"));
             }
         };
 
@@ -351,7 +351,7 @@ pub async fn resolve_step_manually(
                 let updated_step = WorkflowStep::find_by_id(db_pool, step_uuid)
                     .await
                     .map_err(ApiError::from)?
-                    .ok_or(ApiError::NotFound)?;
+                    .ok_or(ApiError::not_found("Resource not found"))?;
 
                 // Get step readiness status after resolution
                 let sql_executor = SqlFunctionExecutor::new(db_pool.clone());
@@ -467,7 +467,7 @@ pub async fn resolve_step_manually(
     .map_err(|e| {
         let error_str = e.to_string();
         if error_str.contains("Step not found") {
-            ApiError::NotFound
+            ApiError::not_found("Resource not found")
         } else if error_str.contains("Cannot manually resolve")
             || error_str.contains("Manual resolution failed")
         {

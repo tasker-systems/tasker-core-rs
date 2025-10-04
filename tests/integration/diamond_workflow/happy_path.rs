@@ -28,7 +28,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test diamond pattern initialization and initial SQL function validation
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DIAMOND PATTERN: Initialization and SQL validation");
 
@@ -106,7 +106,7 @@ async fn test_diamond_pattern_initialization(pool: PgPool) -> Result<()> {
 }
 
 /// Test diamond pattern with detailed dependency analysis
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_dependency_structure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DIAMOND PATTERN: Dependency structure validation");
 
@@ -171,7 +171,7 @@ async fn test_diamond_pattern_dependency_structure(pool: PgPool) -> Result<()> {
 }
 
 /// Test complete diamond workflow execution with step transitions
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_diamond_pattern_complete_execution(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DIAMOND PATTERN: Complete execution with state transitions");
 

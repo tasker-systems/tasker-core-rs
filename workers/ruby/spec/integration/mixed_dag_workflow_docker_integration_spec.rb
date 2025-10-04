@@ -67,7 +67,7 @@ RSpec.describe 'Mixed DAG Workflow Docker Integration', type: :integration do
       puts "\n⏳ Waiting for mixed DAG workflow completion..."
       puts '   Expected flow: init -> parallel processing -> convergence validation -> final parallel -> convergence'
 
-      completed_task = wait_for_task_completion(manager, task_uuid, 60)
+      completed_task = wait_for_task_completion(manager, task_uuid, 10)
 
       expect(completed_task).to be_a(Hash)
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -141,7 +141,7 @@ RSpec.describe 'Mixed DAG Workflow Docker Integration', type: :integration do
 
       # Monitor execution with focus on timing
       start_time = Time.now
-      completed_task = wait_for_task_completion(manager, task_uuid, 60)
+      completed_task = wait_for_task_completion(manager, task_uuid, 10)
       total_time = Time.now - start_time
 
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -179,7 +179,7 @@ RSpec.describe 'Mixed DAG Workflow Docker Integration', type: :integration do
       task_response = manager.orchestration_client.create_task(task_request)
       task_uuid = task_response[:task_uuid]
 
-      completed_task = wait_for_task_completion(manager, task_uuid, 60)
+      completed_task = wait_for_task_completion(manager, task_uuid, 10)
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
 
       steps = manager.orchestration_client.list_task_steps(task_uuid)
@@ -222,7 +222,7 @@ RSpec.describe 'Mixed DAG Workflow Docker Integration', type: :integration do
 
       # The DAG should handle edge cases gracefully
       begin
-        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 45)
+        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 12)
         puts "   ✅ Edge case handled successfully: #{completed_task[:status]}"
 
         # Verify all DAG nodes still executed properly

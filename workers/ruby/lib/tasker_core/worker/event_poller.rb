@@ -3,13 +3,93 @@
 module TaskerCore
   module Worker
     # EventPoller polls for step execution events from Rust via FFI
-    # This solves the cross-thread communication issue by running in the main Ruby thread
+    #
+    # Solves the cross-thread communication issue between Rust and Ruby by
+    # actively polling the Rust worker for pending events. Events are forwarded
+    # to EventBridge for normal processing.
+    #
+    # The poller runs in a dedicated background thread, continuously checking
+    # for new events from the Rust worker at a configurable interval (default 10ms).
+    # This approach allows Ruby to control the thread context and safely process
+    # events without running into Ruby's Global Interpreter Lock (GIL) limitations.
+    #
+    # @example Starting the poller
+    #   poller = TaskerCore::Worker::EventPoller.instance
+    #   poller.start!
+    #   # => Spawns polling thread with 10ms interval
+    #
+    #   # Check if poller started successfully
+    #   if poller.active?
+    #     puts "Event poller is running"
+    #   end
+    #
+    # @example Checking poller status
+    #   poller.active?
+    #   # => true/false
+    #
+    #   if poller.active? && poller.polling_thread&.alive?
+    #     puts "Poller thread is healthy"
+    #   end
+    #
+    # @example Stopping the poller
+    #   poller.stop!
+    #   # => Gracefully stops polling thread (max 5 second wait)
+    #
+    #   # Poller will wait for current poll to complete
+    #   # and then cleanly shutdown
+    #
+    # Threading Model:
+    # - **Main Thread**: Ruby application, handler execution
+    # - **Polling Thread**: Dedicated background thread for event polling
+    # - **Rust Threads**: Rust worker runtime (separate from Ruby)
+    #
+    # The polling thread:
+    # 1. Calls `TaskerCore::FFI.poll_step_events` to check for events
+    # 2. If event found, forwards to EventBridge for processing
+    # 3. If no event, sleeps for POLL_INTERVAL
+    # 4. On error, logs and sleeps for 10x POLL_INTERVAL
+    #
+    # Why Polling is Necessary:
+    #
+    # Ruby's GIL prevents Rust from directly calling Ruby methods from Rust threads.
+    # Direct FFI callbacks from Rust to Ruby would either:
+    # - Cause segfaults (unsafe thread access)
+    # - Block indefinitely (GIL contention)
+    # - Require complex unsafe code
+    #
+    # Polling allows:
+    # - Ruby to control thread context
+    # - Safe event processing in Ruby thread
+    # - Simple, reliable cross-language communication
+    # - Predictable performance characteristics
+    #
+    # Performance Characteristics:
+    # - **Poll Interval**: 10ms (0.01 seconds) - configurable via POLL_INTERVAL
+    # - **Max Latency**: ~10ms from event generation to processing start
+    # - **CPU Usage**: Minimal (yields during sleep)
+    # - **Error Recovery**: Automatic with exponential backoff (10x interval)
+    #
+    # Event Flow:
+    # 1. Rust worker detects step ready for execution
+    # 2. Rust queues event in internal event queue
+    # 3. EventPoller calls poll_step_events via FFI
+    # 4. Rust returns next event (or nil if queue empty)
+    # 5. EventPoller forwards event to EventBridge
+    # 6. EventBridge publishes to Ruby subscribers
+    # 7. StepExecutionSubscriber executes handler
+    #
+    # @see TaskerCore::Worker::EventBridge For event processing
+    # @see TaskerCore::FFI For Rust FFI operations
+    # @see POLL_INTERVAL For polling frequency configuration
     class EventPoller
       include Singleton
 
       attr_reader :logger, :active, :polling_thread
 
-      POLL_INTERVAL = 0.01 # 10ms polling interval
+      # Polling interval in seconds (10ms)
+      # Lower values reduce latency but increase CPU usage
+      # Higher values reduce CPU usage but increase latency
+      POLL_INTERVAL = 0.01
 
       def initialize
         @logger = TaskerCore::Logger.instance

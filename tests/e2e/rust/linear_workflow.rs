@@ -16,9 +16,8 @@ use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{
-    create_task_request, wait_for_task_completion, IntegrationTestManager,
-};
+use crate::common::integration_test_manager::IntegrationTestManager;
+use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
 use tasker_shared::models::core::task::TaskListQuery;
 
 #[tokio::test]

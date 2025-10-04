@@ -415,7 +415,7 @@ impl TriggerTestSuite {
 mod tests {
     use super::*;
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_all_triggers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let test_suite = TriggerTestSuite::new(pool);
 
@@ -427,7 +427,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
     async fn test_database_context_utilities(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test linear workflow with retry limit exhaustion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion blocks workflow");
 
@@ -98,7 +98,7 @@ async fn test_linear_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()>
 }
 
 /// Test linear workflow recovery after retry
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Recovery after retry");
 
@@ -214,7 +214,7 @@ async fn test_linear_workflow_recovery_after_retry(pool: PgPool) -> Result<()> {
 }
 
 /// Test linear workflow with retryable error and backoff calculation
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_retryable_error_with_backoff(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retryable error with backoff");
 
@@ -340,7 +340,7 @@ async fn test_linear_workflow_retryable_error_with_backoff(pool: PgPool) -> Resu
 }
 
 /// Test linear workflow where mid-chain failure permanently blocks downstream steps
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_mid_chain_failure_blocks_downstream(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Mid-chain failure blocks downstream");
 
@@ -438,7 +438,7 @@ async fn test_linear_workflow_mid_chain_failure_blocks_downstream(pool: PgPool) 
 }
 
 /// Test linear workflow with transient failure followed by eventual completion
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_linear_workflow_transient_failure_eventual_completion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Transient failure with eventual completion");
 

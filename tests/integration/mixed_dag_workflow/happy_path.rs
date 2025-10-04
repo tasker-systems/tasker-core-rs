@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test complex DAG workflow initialization and setup
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_initialization(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 COMPLEX DAG: Initialization and setup");
 
@@ -37,7 +37,7 @@ async fn test_complex_dag_initialization(pool: PgPool) -> Result<()> {
 }
 
 /// Test complex DAG workflow with mixed dependency structure
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_mixed_dependency_structure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 COMPLEX DAG: Mixed dependency validation");
 
@@ -145,7 +145,7 @@ async fn test_complex_dag_mixed_dependency_structure(pool: PgPool) -> Result<()>
 }
 
 /// Test complete complex DAG workflow execution with mixed parallelization
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_complex_dag_complete_execution(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 COMPLEX DAG: Complete execution with mixed parallelization");
 

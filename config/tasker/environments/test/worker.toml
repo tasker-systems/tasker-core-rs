@@ -11,7 +11,7 @@ worker_type = "test"
 # Enable event-driven processing for comprehensive testing
 enabled = true
 # Use Hybrid mode for comprehensive testing coverage
-deployment_mode = "Hybrid"
+deployment_mode = "EventDrivenOnly"
 # More frequent health checks for faster test feedback
 health_check_interval_seconds = 10
 
@@ -74,5 +74,5 @@ polling_interval_ms = 50
 
 # Web API Configuration - Test Environment Override
 [worker.web]
-# Disable web API for test environment and Ruby FFI integration
-enabled = false
+enabled = true
+bind_address = "0.0.0.0:8081"  # Match docker-compose port mapping (8081:8081)

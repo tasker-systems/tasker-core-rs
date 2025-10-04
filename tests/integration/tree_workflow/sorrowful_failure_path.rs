@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test tree workflow with root failure blocking entire tree
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_root_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Root failure blocks entire tree");
 
@@ -65,7 +65,7 @@ async fn test_tree_workflow_root_failure(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow with branch permanent failure blocking leaves
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_branch_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Branch permanent failure blocks leaves");
 
@@ -136,7 +136,7 @@ async fn test_tree_workflow_branch_permanent_failure(pool: PgPool) -> Result<()>
 }
 
 /// Test tree workflow with leaf permanent failure blocking convergence
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_leaf_permanent_failure(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Leaf permanent failure blocks convergence");
 
@@ -217,7 +217,7 @@ async fn test_tree_workflow_leaf_permanent_failure(pool: PgPool) -> Result<()> {
 }
 
 /// Test tree workflow with mixed states and SQL accuracy
-#[sqlx::test(migrator = "tasker_core::test_helpers::MIGRATOR")]
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
 async fn test_tree_workflow_mixed_states_sql_accuracy(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 SORROWFUL FAILURE: Mixed states SQL accuracy");
 

@@ -91,8 +91,5 @@
 //! # }
 //! ```
 
-pub mod test_helpers;
-
-pub use test_helpers::{
-    get_test_database_url, setup_test_database_url, setup_test_db, setup_test_environment, MIGRATOR,
-};
+// Test helpers moved to tests/support/ to avoid circular dependencies
+// and keep them out of the public library API

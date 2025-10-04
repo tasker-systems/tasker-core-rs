@@ -95,7 +95,7 @@ RSpec.describe 'Order Fulfillment Docker Integration', type: :integration do
       puts "\n⏳ Waiting for order fulfillment workflow completion..."
       puts '   Expected sequence: validate -> reserve -> payment -> shipping'
 
-      completed_task = wait_for_task_completion(manager, task_uuid, 45)
+      completed_task = wait_for_task_completion(manager, task_uuid, 12)
 
       expect(completed_task).to be_a(Hash)
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -176,7 +176,7 @@ RSpec.describe 'Order Fulfillment Docker Integration', type: :integration do
 
       # Monitor business process timing
       start_time = Time.now
-      completed_task = wait_for_task_completion(manager, task_uuid, 30)
+      completed_task = wait_for_task_completion(manager, task_uuid, 5)
       total_time = Time.now - start_time
 
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
@@ -233,7 +233,7 @@ RSpec.describe 'Order Fulfillment Docker Integration', type: :integration do
 
       # The workflow should handle validation gracefully
       begin
-        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 30)
+        completed_task = wait_for_task_completion(manager, task_response[:task_uuid], 5)
 
         # Check if the task completed (business rules may allow it) or failed gracefully
         if completed_task[:status] == 'complete' || completed_task[:status] == 'Complete'
@@ -275,7 +275,7 @@ RSpec.describe 'Order Fulfillment Docker Integration', type: :integration do
       task_response = manager.orchestration_client.create_task(task_request)
       task_uuid = task_response[:task_uuid]
 
-      completed_task = wait_for_task_completion(manager, task_uuid, 30)
+      completed_task = wait_for_task_completion(manager, task_uuid, 5)
       expect(completed_task[:status]).to eq('complete').or eq('Complete')
 
       steps = manager.orchestration_client.list_task_steps(task_uuid)
@@ -319,7 +319,7 @@ RSpec.describe 'Order Fulfillment Docker Integration', type: :integration do
       completed_orders = 0
       order_tasks.each do |order|
         begin
-          completed_task = wait_for_task_completion(manager, order[:uuid], 30)
+          completed_task = wait_for_task_completion(manager, order[:uuid], 5)
           if completed_task[:status] == 'complete' || completed_task[:status] == 'Complete'
             completed_orders += 1
             puts "   ✅ Order completed: #{order[:uuid]} (#{order[:customer_tier]})"

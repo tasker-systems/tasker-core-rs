@@ -13,8 +13,12 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libpq-dev \
     build-essential \
+    libclang-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Set libclang path for bindgen (Debian Bullseye uses LLVM 11)
+ENV LIBCLANG_PATH=/usr/lib/llvm-11/lib
 
 WORKDIR /app
 
@@ -22,19 +26,31 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/ ./.cargo/
 COPY src/ ./src/
-COPY tasker-orchestration/ ./tasker-orchestration/
 COPY tasker-shared/ ./tasker-shared/
+COPY tasker-worker/ ./tasker-worker/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
-COPY tasker-worker/ ./tasker-worker/
-COPY workers/ ./workers/
-COPY migrations/ ./migrations/
 COPY .sqlx/ ./.sqlx/
 
-# Build Ruby FFI extensions in release mode for production
+# Copy minimal workspace structure for crates we don't actually need
+# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
+# We don't copy source code - just enough to satisfy workspace validation
+RUN mkdir -p tasker-orchestration/src && \
+    echo "pub fn main() {}" > tasker-orchestration/src/lib.rs
+COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn main() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
+
+# Copy Ruby worker source code to proper workspace location
+COPY workers/ruby/ ./workers/ruby/
+COPY migrations/ ./migrations/
+
+# Build Ruby FFI extensions (not the binary worker)
 WORKDIR /app/workers/ruby
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --all-features  # Build optimized FFI libraries
+RUN cargo build --release --all-features --package tasker-shared --package tasker-client --package tasker-worker --package pgmq-notify # Build optimized FFI libraries
 
 # =============================================================================
 # Ruby Builder - Compile Ruby FFI extensions with both Ruby and Rust available
@@ -48,6 +64,7 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     libssl-dev \
     libpq-dev \
+    libclang-dev \
     libyaml-dev \
     zlib1g-dev \
     ca-certificates \
@@ -56,21 +73,50 @@ RUN apt-get update && apt-get install -y \
 # Install Rust toolchain for FFI compilation
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+# Set libclang path for bindgen (Debian Bullseye uses LLVM 11)
+ENV LIBCLANG_PATH=/usr/lib/llvm-11/lib
 
-WORKDIR /app/ruby_worker
+WORKDIR /app
 
-# Copy Ruby worker source code
-COPY workers/ruby/ ./
+# Copy workspace root files for Cargo workspace resolution
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo/ ./.cargo/
+# Note: src/ is empty now (no library code), but keep for workspace structure
 
-# Copy compiled Rust FFI libraries from rust_builder (release build)
-COPY --from=rust_builder /app/workers/ruby/target ./target/
+# Copy workspace crates needed by Ruby FFI extension
+COPY tasker-shared/ ./tasker-shared/
+COPY tasker-worker/ ./tasker-worker/
+COPY tasker-client/ ./tasker-client/
+COPY pgmq-notify/ ./pgmq-notify/
+COPY .sqlx/ ./.sqlx/
 
-# Install Ruby dependencies for production
+# Copy minimal workspace structure for crates we don't actually need
+# Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
+# We don't copy source code - just enough to satisfy workspace validation
+RUN mkdir -p tasker-orchestration/src && \
+    echo "pub fn main() {}" > tasker-orchestration/src/lib.rs
+COPY tasker-orchestration/Cargo.toml ./tasker-orchestration/
+
+RUN mkdir -p workers/rust/src && \
+    echo "pub fn main() {}" > workers/rust/src/lib.rs
+COPY workers/rust/Cargo.toml ./workers/rust/
+
+# Copy Ruby worker source code to proper workspace location
+COPY workers/ruby/ ./workers/ruby/
+
+# Copy compiled Rust FFI libraries from rust_builder
+COPY --from=rust_builder /app/target ./target/
+COPY migrations/ ./migrations/
+
+# Install Ruby dependencies
+WORKDIR /app/workers/ruby
 RUN bundle config set --local deployment 'true'
-RUN bundle config set --local without 'development test'
+RUN bundle config set --local without 'development'
 RUN bundle install
 
-# Compile Ruby FFI extensions (links against optimized Rust libraries)
+ENV SQLX_OFFLINE=true
+ENV RB_SYS_CARGO_PROFILE=release
+# Compile Ruby FFI extensions (links against pre-built Rust libraries)
 # This stage has both Ruby and Rust toolchain available
 RUN bundle exec rake compile
 
@@ -85,7 +131,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libssl1.1 \
     libpq5 \
-    libffi8 \
+    postgresql-client \
+    libffi7 \
     libyaml-0-2 \
     zlib1g \
     ca-certificates \
@@ -118,7 +165,7 @@ ENV TASKER_ENV=production
 ENV RUBY_ENV=production
 
 # Template discovery paths for Ruby handlers
-ENV TASK_TEMPLATE_PATH=/app/ruby_templates
+ENV TASKER_TEMPLATE_PATH=/app/ruby_templates
 ENV RUBY_HANDLER_PATH=/app/ruby_handlers
 
 # Production performance optimizations

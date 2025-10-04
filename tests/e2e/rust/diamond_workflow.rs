@@ -21,9 +21,8 @@ use anyhow::Result;
 use serde_json::json;
 use uuid::Uuid;
 
-use tasker_core::test_helpers::{
-    create_task_request, wait_for_task_completion, IntegrationTestManager,
-};
+use crate::common::integration_test_manager::IntegrationTestManager;
+use crate::common::integration_test_utils::{create_task_request, wait_for_task_completion};
 
 #[tokio::test]
 async fn test_end_to_end_diamond_workflow() -> Result<()> {
