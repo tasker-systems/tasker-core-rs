@@ -13,31 +13,37 @@ The main orchestrator that runs all CI checks in parallel where possible.
 **Job Flow**:
 ```
 docker-build
-    ├─→ code-quality
-    ├─→ unit-tests
-    ├─→ ruby-unit-tests
+    ├─→ code-quality (parallel)
+    └─→ comprehensive-tests (parallel)
+
+comprehensive-tests
+    ├─→ doctests
     └─→ ruby-framework-tests
 
-code-quality + unit-tests
-    └─→ e2e-tests (all workers)
-
-e2e-tests + ruby-framework-tests + ruby-unit-tests
+comprehensive-tests + ruby-framework-tests
     └─→ performance-analysis
 
-performance-analysis
+code-quality + comprehensive-tests + doctests + ruby-framework-tests + performance-analysis
     └─→ ci-success
 ```
+
+**Key Improvements**:
+- Code quality and comprehensive tests run in parallel for faster CI
+- Single comprehensive test suite covers unit + integration + E2E (all 482 tests)
+- Ruby framework tests run after comprehensive tests (workers already shut down)
+- Doctests run separately with sqlx offline mode
 
 ---
 
 ## Test Workflows
 
-### E2E Tests (`test-e2e.yml`)
+### Comprehensive Tests (`test-e2e.yml`)
 
-**Purpose**: Unified end-to-end testing for all workers
+**Purpose**: Complete test suite covering unit + integration + E2E testing
 
 **Runs**:
-- Rust integration tests (`tests/integration/`)
+- Unit tests (all packages)
+- Integration tests (`tests/integration/`)
 - Rust worker E2E tests (`tests/e2e/rust/`)
 - Ruby worker E2E tests (`tests/e2e/ruby/`)
 
@@ -45,15 +51,56 @@ performance-analysis
 - Docker Compose with all services (postgres, orchestration, rust-worker, ruby-worker)
 - Extended timeout for Ruby worker FFI bootstrap (30-60s)
 
-**Command**: `cargo nextest run --test '*' --profile ci`
+**Command**:
+```bash
+cargo nextest run \
+  --profile ci \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client \
+  --package tasker-core \
+  --no-fail-fast
+```
+
+**Test Count**: 482 tests
 
 **Duration**: ~10-15 minutes
 
 **Key Features**:
-- Single Docker startup for all tests (~71 tests total)
+- Single Docker startup for all tests
 - Health checks for all services before testing
 - Handler discovery validation
 - Comprehensive service logs on failure
+- JUnit XML output for CI reporting
+
+---
+
+### Doctests
+
+**Purpose**: Validate documentation examples compile correctly
+
+**Runs**:
+```bash
+cargo test --doc --all-features \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client \
+  --package tasker-core
+```
+
+**Requirements**:
+- SQLX_OFFLINE=true (no database needed)
+
+**Duration**: ~1 minute
+
+**Key Features**:
+- Ensures documentation examples are valid across all packages
+- Runs after comprehensive tests complete
+- No external dependencies required
 
 ---
 
@@ -73,32 +120,15 @@ performance-analysis
 
 **Command**: `bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb`
 
+**Test Count**: 77 tests
+
 **Duration**: ~1-2 minutes
 
 **Key Features**:
 - Fast feedback (no Docker overhead)
 - Validates Ruby FFI bindings
 - Tests Ruby-specific framework logic
-
----
-
-### Unit Tests (`test-unit.yml`)
-
-**Purpose**: Rust unit tests with PostgreSQL integration
-
-**Runs**: `cargo nextest run --lib --bins`
-
-**Duration**: ~3-5 minutes
-
----
-
-### Ruby Unit Tests (`test-ruby-unit.yml`)
-
-**Purpose**: Ruby unit tests (no Docker)
-
-**Runs**: `bundle exec rspec spec/unit/` (if unit tests exist)
-
-**Duration**: ~1 minute
+- Runs after comprehensive tests (workers already shut down)
 
 ---
 
@@ -181,7 +211,7 @@ workers/ruby/spec/
 
 ## Running Tests Locally
 
-### E2E Tests
+### Comprehensive Tests
 
 ```bash
 # Start Docker services
@@ -192,51 +222,78 @@ curl http://localhost:8080/health  # Orchestration
 curl http://localhost:8081/health  # Rust worker
 curl http://localhost:8082/health  # Ruby worker (may take 60s)
 
-# Run all E2E tests
-cargo nextest run --test '*' --profile ci
+# Run comprehensive test suite (all 482 tests)
+cargo nextest run \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client \
+  --package tasker-core \
+  --no-fail-fast
 
 # Cleanup
 docker compose -f docker/docker-compose.test.yml down -v
 ```
 
+### Doctests
+
+```bash
+# Run doctests (no Docker needed)
+SQLX_OFFLINE=true cargo test --doc --all-features \
+  --package tasker-shared \
+  --package tasker-orchestration \
+  --package tasker-worker \
+  --package pgmq-notify \
+  --package tasker-client \
+  --package tasker-core
+```
+
 ### Ruby Framework Tests
 
 ```bash
+# Ensure Docker services are stopped first
+docker compose -f docker/docker-compose.test.yml down
+
 cd workers/ruby
 bundle install
 bundle exec rake compile
 bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
 ```
 
-### Unit Tests
-
-```bash
-# Rust unit tests
-cargo nextest run --lib --bins
-
-# Ruby unit tests (if they exist)
-cd workers/ruby
-bundle exec rspec spec/unit/
-```
-
 ---
 
 ## Adding New Tests
 
-### Adding E2E Test
+### Adding Integration or E2E Test
 
-1. Create test file in `tests/e2e/rust/` or `tests/e2e/ruby/`
-2. Use `DockerIntegrationManager` for setup
-3. Test runs automatically via `cargo nextest run --test '*'`
+1. Create test file in appropriate location:
+   - Integration: `tests/integration/{workflow_type}/`
+   - E2E (Rust): `tests/e2e/rust/`
+   - E2E (Ruby): `tests/e2e/ruby/`
+2. Use `IntegrationTestManager` or `LifecycleTestManager` for setup
+3. Test runs automatically via comprehensive test suite
 4. No CI changes needed
 
-**Example**:
+**Example (Integration Test)**:
+```rust
+// tests/integration/my_workflow/happy_path.rs
+use crate::common::lifecycle_test_manager::LifecycleTestManager;
+
+#[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+async fn test_my_workflow(pool: PgPool) -> Result<()> {
+    let manager = LifecycleTestManager::new(pool).await?;
+    // ... test logic ...
+    Ok(())
+}
+```
+
+**Example (E2E Test)**:
 ```rust
 // tests/e2e/ruby/my_new_test.rs
 use crate::common::integration_test_manager::IntegrationTestManager;
 
 #[tokio::test]
-#[ignore]  // Run only when Docker services available
 async fn test_my_scenario() -> anyhow::Result<()> {
     let manager = IntegrationTestManager::setup().await?;
     // ... test logic ...
@@ -244,7 +301,7 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 }
 ```
 
-### Adding Framework Test
+### Adding Ruby Framework Test
 
 1. Create test file in `workers/ruby/spec/{ffi,types,worker}/`
 2. No Docker dependencies
@@ -255,14 +312,37 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 
 ## Debugging CI Failures
 
-### E2E Test Failures
+### Comprehensive Test Failures
 
-1. **Check service logs**: Download `e2e-service-logs` artifact
+1. **Check service logs**: Download `e2e-service-logs` artifact (if Docker-related)
 2. **Check test output**: Download `e2e-test-results` artifact (JUnit XML)
 3. **Reproduce locally**:
    ```bash
-   docker compose -f docker/docker-compose.test.yml up --build
-   cargo nextest run --test '*' --nocapture
+   docker compose -f docker/docker-compose.test.yml up --build -d
+   cargo nextest run \
+     --package tasker-shared \
+     --package tasker-orchestration \
+     --package tasker-worker \
+     --package pgmq-notify \
+     --package tasker-client \
+     --package tasker-core \
+     --no-fail-fast \
+     -- --nocapture
+   ```
+
+### Doctest Failures
+
+1. **Check compilation errors** in CI logs
+2. **Reproduce locally**:
+   ```bash
+   SQLX_OFFLINE=true cargo test --doc --all-features \
+     --package tasker-shared \
+     --package tasker-orchestration \
+     --package tasker-worker \
+     --package pgmq-notify \
+     --package tasker-client \
+     --package tasker-core \
+     -- --nocapture
    ```
 
 ### Ruby Framework Test Failures
@@ -272,7 +352,7 @@ async fn test_my_scenario() -> anyhow::Result<()> {
    ```bash
    cd workers/ruby
    bundle exec rake compile
-   bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb
+   bundle exec rspec spec/ --exclude-pattern spec/integration/**/*_spec.rb --format documentation
    ```
 
 ### Common Issues
@@ -296,27 +376,42 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 
 ## CI Performance Targets
 
-| Workflow | Target Duration | Actual |
-|----------|----------------|--------|
-| E2E Tests | < 15 minutes | ~10-15 min |
-| Ruby Framework | < 2 minutes | ~1-2 min |
-| Unit Tests | < 5 minutes | ~3-5 min |
-| Code Quality | < 3 minutes | ~2-3 min |
-| **Total CI** | **< 20 minutes** | **~15-20 min** |
+| Workflow | Target Duration | Actual | Test Count |
+|----------|----------------|--------|------------|
+| Docker Build | < 5 minutes | ~3-5 min | N/A |
+| Code Quality | < 3 minutes | ~2-3 min | N/A |
+| Comprehensive Tests | < 15 minutes | ~10-15 min | 482 tests |
+| Doctests | < 2 minutes | ~1 min | 3 examples |
+| Ruby Framework | < 2 minutes | ~1-2 min | 77 tests |
+| **Total CI** | **< 20 minutes** | **~15-18 min** | **562 tests** |
+
+**Key Optimizations**:
+- Code quality and comprehensive tests run in parallel (not sequential)
+- Single Docker startup for all integration and E2E tests
+- Doctests use sqlx offline mode (no database needed)
+- Ruby framework tests leverage already-shut-down workers
 
 ---
 
 ## Migration from Old Structure
 
-**Previous**: Separate `test-integration.yml` and `test-ruby-integration.yml`
+**Previous**: Separate `test-unit.yml`, `test-integration.yml`, and `test-ruby-integration.yml`
 
-**Now**: Unified `test-e2e.yml` + separate `test-ruby-framework.yml`
+**Now**: Unified `test-e2e.yml` (comprehensive) + `doctests` + `test-ruby-framework.yml`
 
 **Changes**:
-- ✅ Consolidated E2E testing (single Docker startup)
+- ✅ Consolidated all Rust tests into single comprehensive suite (482 tests)
+- ✅ Added separate doctest job with sqlx offline mode
+- ✅ Code quality and comprehensive tests run in parallel for faster CI
+- ✅ Ruby framework tests run after comprehensive tests (workers already shut down)
 - ✅ Removed duplicate test infrastructure
-- ✅ Separated framework tests (fast, no Docker)
 - ✅ Removed `workers/ruby/spec/integration/` (migrated to `tests/e2e/ruby/`)
+- ✅ Removed redundant `test-unit.yml` and `test-ruby-unit.yml` workflows
+
+**Performance Impact**:
+- Total CI time reduced from ~20 minutes to ~15-18 minutes
+- 562 total tests (482 Rust + 77 Ruby + 3 doctests)
+- Single Docker startup for all integration and E2E tests
 
 ---
 
@@ -328,4 +423,4 @@ async fn test_my_scenario() -> anyhow::Result<()> {
 
 ---
 
-**Last Updated**: 2025-10-06 (TAS-42 Phase 6 completion)
+**Last Updated**: 2025-10-06 (TAS-42 CI workflow restructure)
