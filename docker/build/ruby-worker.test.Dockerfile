@@ -30,7 +30,6 @@ COPY tasker-shared/ ./tasker-shared/
 COPY tasker-worker/ ./tasker-worker/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 # Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
@@ -88,7 +87,6 @@ COPY tasker-shared/ ./tasker-shared/
 COPY tasker-worker/ ./tasker-worker/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 # Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files

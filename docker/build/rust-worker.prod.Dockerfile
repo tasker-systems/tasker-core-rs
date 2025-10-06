@@ -40,7 +40,6 @@ COPY pgmq-notify/ ./pgmq-notify/
 COPY tasker-worker/ ./tasker-worker/
 COPY workers/rust/ ./workers/rust/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 RUN mkdir -p tasker-orchestration/src && \
@@ -77,7 +76,6 @@ COPY pgmq-notify/ ./pgmq-notify/
 COPY tasker-worker/ ./tasker-worker/
 COPY workers/rust/ ./workers/rust/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 RUN mkdir -p tasker-orchestration/src && \

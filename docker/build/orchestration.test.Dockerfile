@@ -33,12 +33,12 @@ COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
 # Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
 COPY tasker-orchestration/ ./tasker-orchestration/
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 # Cargo validates ALL workspace members even if unused, so we need their Cargo.toml files
@@ -72,12 +72,12 @@ COPY .cargo/ ./.cargo/
 COPY src/ ./src/
 
 # Copy workspace crates needed by orchestration
+# Note: Each package contains its own .sqlx/ directory with query metadata
 COPY tasker-orchestration/ ./tasker-orchestration/
 COPY tasker-shared/ ./tasker-shared/
 COPY tasker-client/ ./tasker-client/
 COPY pgmq-notify/ ./pgmq-notify/
 COPY migrations/ ./migrations/
-COPY .sqlx/ ./.sqlx/
 
 # Copy minimal workspace structure for crates we don't actually need
 RUN mkdir -p tasker-worker/src && \
