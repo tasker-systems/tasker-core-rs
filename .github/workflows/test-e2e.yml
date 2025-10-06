@@ -24,11 +24,39 @@ jobs:
         with:
           tools: "nextest"
 
-      - name: Start all Docker services
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: "./docker/docker-compose.test.yml"
-          up-flags: "--build -d"
+      - name: Free up disk space
+        run: |
+          echo "🧹 Freeing up disk space before Docker builds..."
+          echo "📊 Disk usage before cleanup:"
+          df -h
+
+          # Remove unnecessary tools and packages
+          docker system prune -af --volumes
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          echo "📊 Disk usage after cleanup:"
+          df -h
+
+      - name: Build and start Docker services sequentially
+        run: |
+          echo "🐳 Building Docker services sequentially to manage disk space..."
+
+          # Build and start postgres first
+          docker compose -f docker/docker-compose.test.yml build postgres
+          docker compose -f docker/docker-compose.test.yml up -d postgres
+
+          # Build remaining services one at a time
+          docker compose -f docker/docker-compose.test.yml build orchestration
+          docker compose -f docker/docker-compose.test.yml build worker
+          docker compose -f docker/docker-compose.test.yml build ruby-worker
+
+          # Start all services
+          docker compose -f docker/docker-compose.test.yml up -d
+
+          echo "✅ All services started"
 
       - name: Wait for services with health checks
         run: |
