@@ -117,7 +117,7 @@ mod tests {
             // Update step with retry information
             sqlx::query!(
                 "UPDATE tasker_workflow_steps
-                 SET attempts = 1, retry_limit = 3, retryable = true,
+                 SET attempts = 1, max_attempts = 3, retryable = true,
                      last_attempted_at = NOW() - INTERVAL '30 seconds'
                  WHERE workflow_step_uuid = $1",
                 first_step_uuid
@@ -194,7 +194,7 @@ mod tests {
 
                 sqlx::query!(
                     "UPDATE tasker_workflow_steps
-                     SET attempts = 1, retry_limit = 3
+                     SET attempts = 1, max_attempts = 3
                      WHERE workflow_step_uuid = $1",
                     first_step
                 )

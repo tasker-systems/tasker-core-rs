@@ -1,0 +1,52 @@
+---
+name: retryable_error_only
+namespace_name: test_errors
+version: 1.0.0
+description: "Retryable error scenario for testing retry exhaustion"
+metadata:
+  author: "Test Infrastructure"
+  tags:
+    - namespace:test_errors
+    - pattern:retryable_error
+    - implementation:ruby_ffi
+    - language:ruby
+task_handler:
+  callable: ErrorScenarios::RetryableErrorOnlyHandler
+  initialization:
+    error_tracking_enabled: true
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
+  type: object
+  properties:
+    scenario_type:
+      type: string
+      description: "Type of test scenario"
+steps:
+  - name: retryable_error_step
+    description: "Retryable error that exhausts retry limit quickly"
+    handler:
+      callable: ErrorScenarios::RetryableErrorHandler
+      initialization:
+        error_type: retryable
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 500
+    timeout_seconds: 5
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: retryable_error_step
+        timeout_seconds: 5
+        retry:
+          max_attempts: 2
+          backoff_base_ms: 50
+          max_backoff_ms: 200

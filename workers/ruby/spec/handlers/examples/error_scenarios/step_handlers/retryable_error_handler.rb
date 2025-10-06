@@ -9,7 +9,7 @@ module ErrorScenarios
   # - Rate limiting
   #
   # Expected behavior:
-  # - Step should retry up to configured retry_limit
+  # - Step should retry up to configured max_attempts
   # - Exponential backoff should be applied
   # - Eventually should transition to 'error' state after retry exhaustion
   class RetryableErrorHandler < TaskerCore::StepHandler::Base

@@ -2,63 +2,101 @@
 name: error_testing
 namespace_name: test_errors
 version: 1.0.0
-task_handler_class: ErrorTestingHandler
-default_dependent_system: "test_system"
-
-description: "Error scenario testing workflows for validation of failure handling patterns"
-
-schema:
+description: "Simplified error scenario testing for core failure patterns"
+metadata:
+  author: "Test Infrastructure"
+  tags:
+    - namespace:test_errors
+    - pattern:error_scenarios
+    - implementation:ruby_ffi
+    - language:ruby
+  created_at: "2025-10-02T00:00:00Z"
+  updated_at: "2025-10-03T00:00:00Z"
+task_handler:
+  callable: ErrorScenarios::ErrorTestingHandler
+  initialization:
+    error_tracking_enabled: true
+system_dependencies:
+  primary: test_system
+  secondary: []
+domain_events: []
+input_schema:
   type: object
   properties:
     scenario_type:
       type: string
-      enum: ['permanent', 'retryable', 'intermittent', 'retry_once']
+      enum: ['success', 'permanent_failure', 'retryable_failure']
       description: "Type of error scenario to test"
     test_context:
       type: object
       description: "Additional context for error testing"
-
-step_templates:
-  # Permanent Error - Should fail immediately without retries
-  - name: permanent_error_step
-    description: Permanent error that should not be retried
-    handler_class: PermanentErrorHandler
-    default_retryable: false
-    default_retry_limit: 0
-    handler_config:
-      timeout_seconds: 10
-
-  # Retryable Error - Should retry up to limit then fail
-  - name: retryable_error_step
-    description: Retryable error that exhausts retry limit
-    handler_class: RetryableErrorHandler
-    default_retryable: true
-    default_retry_limit: 3
-    handler_config:
-      timeout_seconds: 15
-
-  # Intermittent Failure - Should succeed after 2 failures
-  - name: intermittent_failure_step
-    description: Intermittent failure that eventually succeeds
-    handler_class: IntermittentFailureHandler
-    default_retryable: true
-    default_retry_limit: 5  # More than needed, should succeed before exhaustion
-    handler_config:
-      timeout_seconds: 20
-
-  # Success After Retry - Should fail once then succeed
-  - name: success_after_retry_step
-    description: Simple retry pattern - fail once then succeed
-    handler_class: SuccessAfterRetryHandler
-    default_retryable: true
-    default_retry_limit: 2  # Only need 1 retry
-    handler_config:
-      timeout_seconds: 10
-
-  # Success Step - For testing mixed workflows
+steps:
+  # Happy Path - Always succeeds immediately
   - name: success_step
-    description: Always succeeds - for workflow composition
-    handler_class: SuccessHandler
-    default_retryable: false
-    handler_config:
-      timeout_seconds: 5
+    description: "Always succeeds - validates happy path execution"
+    handler:
+      callable: ErrorScenarios::SuccessHandler
+      initialization:
+        scenario: success
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 0
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 1000
+    timeout_seconds: 5
+    publishes_events: []
+
+  # Permanent Failure - Fails immediately without retries
+  - name: permanent_error_step
+    description: "Permanent error that should not be retried"
+    handler:
+      callable: ErrorScenarios::PermanentErrorHandler
+      initialization:
+        error_type: permanent
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 0
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 1000
+    timeout_seconds: 5
+    publishes_events: []
+
+  # Retryable Failure - Always fails, retries with minimal backoff
+  - name: retryable_error_step
+    description: "Retryable error that exhausts retry limit quickly"
+    handler:
+      callable: ErrorScenarios::RetryableErrorHandler
+      initialization:
+        error_type: retryable
+    system_dependency:
+    dependencies: []
+    retry:
+      retryable: true
+      max_attempts: 2
+      backoff: exponential
+      backoff_base_ms: 100
+      max_backoff_ms: 500
+    timeout_seconds: 5
+    publishes_events: []
+environments:
+  test:
+    steps:
+      - name: success_step
+        timeout_seconds: 5
+        retry:
+          backoff_base_ms: 50
+          max_backoff_ms: 200
+      - name: permanent_error_step
+        timeout_seconds: 5
+      - name: retryable_error_step
+        timeout_seconds: 5
+        retry:
+          max_attempts: 2
+          backoff_base_ms: 50
+          max_backoff_ms: 200

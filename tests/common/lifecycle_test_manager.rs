@@ -263,7 +263,7 @@ impl LifecycleTestManager {
         let step_readiness = sqlx::query!(
             "SELECT workflow_step_uuid, name, current_state, dependencies_satisfied,
                     ready_for_execution, total_parents, completed_parents,
-                    retry_eligible, attempts, retry_limit, next_retry_at
+                    retry_eligible, attempts, max_attempts, next_retry_at
              FROM get_step_readiness_status($1)",
             task_uuid
         )
@@ -282,7 +282,7 @@ impl LifecycleTestManager {
                 completed_parents: row.completed_parents.unwrap_or(0),
                 retry_eligible: row.retry_eligible.unwrap_or(false),
                 attempts: row.attempts.unwrap_or(0),
-                retry_limit: row.retry_limit.unwrap_or(3),
+                max_attempts: row.max_attempts.unwrap_or(3),
                 next_retry_at: row.next_retry_at,
             })
             .collect();
@@ -626,6 +626,6 @@ pub struct StepReadiness {
     pub completed_parents: i32,
     pub retry_eligible: bool,
     pub attempts: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub next_retry_at: Option<chrono::NaiveDateTime>,
 }

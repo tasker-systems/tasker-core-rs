@@ -160,8 +160,8 @@ pub struct RetryConfiguration {
     #[serde(default = "default_retryable")]
     pub retryable: bool,
 
-    #[serde(default = "default_retry_limit")]
-    pub limit: u32,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: u32,
 
     #[serde(default)]
     pub backoff: BackoffStrategy,
@@ -174,7 +174,7 @@ impl Default for RetryConfiguration {
     fn default() -> Self {
         Self {
             retryable: true,
-            limit: 3,
+            max_attempts: 3,
             backoff: BackoffStrategy::Exponential,
             backoff_base_ms: Some(1000),
             max_backoff_ms: Some(30000),
@@ -185,7 +185,7 @@ impl Default for RetryConfiguration {
 fn default_retryable() -> bool {
     true
 }
-fn default_retry_limit() -> u32 {
+fn default_max_attempts() -> u32 {
     3
 }
 

@@ -87,13 +87,15 @@ services:
       WORKER_ID: test-worker-001
       WORKSPACE_PATH: /app
       TASKER_CONFIG_ROOT: /app/config
-      TASKER_TEMPLATE_PATH: /app/task-templates
+      # Point to centralized E2E test templates for Rust handlers
+      TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/rust
       PORT: 8081
     ports:
       - "8081:8081"
     volumes:
       - ../config/tasker:/app/config/tasker:ro
-      - ../workers/rust/config/tasks:/app/task-templates:ro
+      # Mount centralized test templates
+      - ../tests/fixtures/task_templates/rust:/app/tests/fixtures/task_templates/rust:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,9 +125,8 @@ services:
       WORKER_ID: test-ruby-worker-001
       WORKSPACE_PATH: /app
       TASKER_CONFIG_ROOT: /app/config
-      # Ruby handler template discovery
-      # Mount full spec directory so relative paths work
-      TASKER_TEMPLATE_PATH: /app/workers/ruby/spec/fixtures/templates
+      # Point to centralized E2E test templates for Ruby handlers
+      TASKER_TEMPLATE_PATH: /app/tests/fixtures/task_templates/ruby
       # Ruby environment
       RUBY_WORKER_ENABLED: "true"
       BUNDLE_GEMFILE: /app/ruby_worker/Gemfile
@@ -135,8 +136,10 @@ services:
       - "8082:8081" # Map to 8082 externally, 8081 internally (same as Rust worker)
     volumes:
       - ../config/tasker:/app/config/tasker:ro
-      # Mount full spec directory to preserve relative path structure
-      - ../workers/ruby/spec:/app/workers/ruby/spec:ro
+      # Mount centralized test templates
+      - ../tests/fixtures/task_templates/ruby:/app/tests/fixtures/task_templates/ruby:ro
+      # Mount handler source code for discovery
+      - ../workers/ruby/spec/handlers:/app/handlers:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -242,7 +242,7 @@ mod production_validation_tests {
         // Set retry information with proper backoff timing
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 1, retry_limit = 3, retryable = true,
+             SET attempts = 1, max_attempts = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
@@ -513,7 +513,7 @@ mod production_validation_tests {
         // Exhaust retries
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 3, retry_limit = 3, retryable = false
+             SET attempts = 3, max_attempts = 3, retryable = false
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
         )
@@ -601,7 +601,7 @@ mod production_validation_tests {
         // Set retry with backoff
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 1, retry_limit = 3, retryable = true,
+             SET attempts = 1, max_attempts = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
              WHERE workflow_step_uuid = $1",
             step_uuids[2]

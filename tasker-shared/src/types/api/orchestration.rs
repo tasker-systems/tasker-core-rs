@@ -96,7 +96,7 @@ pub struct StepResponse {
     pub total_parents: i32,
     pub completed_parents: i32,
     pub attempts: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub last_failure_at: Option<String>,
     pub next_retry_at: Option<String>,
     pub last_attempted_at: Option<String>,

@@ -35,11 +35,6 @@
 //!
 //! ## Architecture
 //!
-//! The crate is organized into focused modules:
-//!
-//! - [`test_helpers`] - Core testing utilities and database setup
-//! - [`test_helpers::integration_test_manager`] - Docker-based integration testing
-//! - [`test_helpers::integration_test_utils`] - Task creation and workflow testing utilities
 //!
 //! ## Environment Variables
 //!

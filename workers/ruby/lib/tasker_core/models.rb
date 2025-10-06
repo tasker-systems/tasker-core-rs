@@ -121,7 +121,7 @@ module TaskerCore
     # @example Checking step state
     #   step.name              # => "linear_step_1"
     #   step.attempts          # => 1
-    #   step.retry_limit       # => 3
+    #   step.max_attempts       # => 3
     #   step.in_process        # => false
     class WorkflowStepWrapper
       # @return [String] UUID v7 of the workflow step instance
@@ -142,7 +142,7 @@ module TaskerCore
       # @return [Time] When step was created
       # @return [Time] When step was last updated
       attr_reader :workflow_step_uuid, :task_uuid, :named_step_uuid, :name,
-                  :retryable, :retry_limit, :in_process, :processed, :processed_at,
+                  :retryable, :max_attempts, :in_process, :processed, :processed_at,
                   :attempts, :last_attempted_at, :backoff_request_seconds,
                   :inputs, :results, :skippable, :created_at, :updated_at
 
@@ -155,7 +155,7 @@ module TaskerCore
         @named_step_uuid = step_data[:named_step_uuid]
         @name = step_data[:name]
         @retryable = step_data[:retryable]
-        @retry_limit = step_data[:retry_limit]
+        @max_attempts = step_data[:max_attempts]
         @in_process = step_data[:in_process]
         @processed = step_data[:processed]
         @processed_at = step_data[:processed_at]

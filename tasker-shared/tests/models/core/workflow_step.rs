@@ -80,7 +80,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
         task_uuid: task.task_uuid,
         named_step_uuid: named_step.named_step_uuid,
         retryable: Some(true),
-        retry_limit: Some(5),
+        max_attempts: Some(5),
         inputs: Some(json!({"param1": "value1", "param2": 42})),
         skippable: Some(false),
     };
@@ -89,7 +89,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(created.task_uuid, task.task_uuid);
     assert_eq!(created.named_step_uuid, named_step.named_step_uuid);
     assert!(created.retryable);
-    assert_eq!(created.retry_limit, Some(5));
+    assert_eq!(created.max_attempts, Some(5));
     assert!(!created.processed);
     assert!(!created.in_process);
 
@@ -117,7 +117,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
     assert_eq!(step_to_process.results, Some(results));
 
     // Test retry logic
-    assert!(!step_to_process.has_exceeded_retry_limit());
+    assert!(!step_to_process.has_exceeded_max_attempts());
     assert!(!step_to_process.is_processing_eligible()); // Already processed
 
     // Test inputs update
@@ -136,7 +136,7 @@ async fn test_workflow_step_crud(pool: PgPool) -> sqlx::Result<()> {
 }
 
 #[test]
-fn test_retry_limit_logic() {
+fn test_max_attempts_logic() {
     let task_uuid = Uuid::now_v7();
     let workflow_step_uuid = Uuid::now_v7();
     let named_step_uuid = Uuid::now_v7();
@@ -146,7 +146,7 @@ fn test_retry_limit_logic() {
         task_uuid,
         named_step_uuid,
         retryable: true,
-        retry_limit: Some(3),
+        max_attempts: Some(3),
         in_process: false,
         processed: false,
         processed_at: None,
@@ -161,12 +161,12 @@ fn test_retry_limit_logic() {
     };
 
     // Not exceeded yet
-    assert!(!step.has_exceeded_retry_limit());
+    assert!(!step.has_exceeded_max_attempts());
     assert!(step.is_processing_eligible());
 
     // Exceed limit
     step.attempts = Some(3);
-    assert!(step.has_exceeded_retry_limit());
+    assert!(step.has_exceeded_max_attempts());
 
     // In backoff - set both backoff_request_seconds and last_attempted_at to create valid backoff state
     step.attempts = Some(1);

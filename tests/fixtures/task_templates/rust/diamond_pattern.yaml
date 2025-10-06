@@ -83,7 +83,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -103,7 +103,7 @@ steps:
       - diamond_start
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -123,7 +123,7 @@ steps:
       - diamond_start
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -145,7 +145,7 @@ steps:
       - diamond_branch_c
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -157,19 +157,19 @@ environments:
       - name: diamond_start
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: diamond_branch_b
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: diamond_branch_c
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: diamond_end
         timeout_seconds: 15
         retry:
-          limit: 2
+          max_attempts: 2
   development:
     steps:
       - name: diamond_start

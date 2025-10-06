@@ -5,7 +5,7 @@ use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test linear workflow with retry limit exhaustion
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_linear_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
+async fn test_linear_workflow_max_attempts_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion blocks workflow");
 
     let manager = LifecycleTestManager::new(pool.clone()).await?;
@@ -50,7 +50,7 @@ async fn test_linear_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()>
         .unwrap();
     assert_eq!(step_2.current_state.as_deref(), Some("error"));
     assert_eq!(step_2.attempts, 3, "Should have 3 attempts");
-    assert_eq!(step_2.retry_limit, 3, "Retry limit should be 3");
+    assert_eq!(step_2.max_attempts, 3, "Retry limit should be 3");
     assert!(
         !step_2.retry_eligible,
         "Should NOT be retry eligible after 3 attempts"

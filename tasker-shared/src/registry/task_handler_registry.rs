@@ -360,6 +360,10 @@ impl TaskHandlerRegistry {
             }
         }
 
+        // Deduplicate discovered namespaces
+        result.discovered_namespaces.sort();
+        result.discovered_namespaces.dedup();
+
         info!(
             "📊 Template discovery complete: {} files, {} successful, {} failed",
             result.total_files, result.successful_registrations, result.failed_registrations

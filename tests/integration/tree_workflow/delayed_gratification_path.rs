@@ -5,7 +5,7 @@ use crate::common::lifecycle_test_manager::LifecycleTestManager;
 
 /// Test tree workflow with retry limit exhaustion on leaf
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_tree_workflow_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
+async fn test_tree_workflow_max_attempts_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion blocks convergence");
 
     let manager = LifecycleTestManager::new(pool.clone()).await?;

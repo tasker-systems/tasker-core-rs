@@ -90,7 +90,7 @@ pub struct ViableStep {
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
     pub attempts: u32,
-    pub retry_limit: u32,
+    pub max_attempts: u32,
     pub last_failure_at: Option<DateTime<Utc>>,
     pub next_retry_at: Option<DateTime<Utc>>,
 }

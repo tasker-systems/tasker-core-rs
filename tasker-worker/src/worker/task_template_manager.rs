@@ -328,6 +328,17 @@ impl TaskTemplateManager {
                         discovery_result.discovered_templates
                     );
                 }
+
+                // Update config with discovered namespaces
+                if !discovery_result.discovered_namespaces.is_empty() {
+                    let mut config = self.config.write().await;
+                    config.supported_namespaces = discovery_result.discovered_namespaces.clone();
+                    info!(
+                        "✅ BOOTSTRAP: Updated supported namespaces: {:?}",
+                        config.supported_namespaces
+                    );
+                }
+
                 Ok(discovery_result)
             }
             Err(e) => {

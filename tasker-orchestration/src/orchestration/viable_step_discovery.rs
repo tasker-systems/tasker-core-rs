@@ -109,7 +109,7 @@ impl ViableStepDiscovery {
                     dependencies_satisfied: status.dependencies_satisfied,
                     retry_eligible: status.retry_eligible,
                     attempts: status.attempts,
-                    retry_limit: status.retry_limit,
+                    max_attempts: status.max_attempts,
                     last_failure_at: status.last_failure_at,
                     next_retry_at: status.next_retry_at,
                 }
@@ -134,7 +134,7 @@ impl ViableStepDiscovery {
                 dependencies_satisfied: step.dependencies_satisfied,
                 retry_eligible: step.retry_eligible,
                 attempts: step.attempts as u32,
-                retry_limit: step.retry_limit as u32,
+                max_attempts: step.max_attempts as u32,
                 last_failure_at: step.last_failure_at.map(|dt| dt.and_utc()),
                 next_retry_at: step.next_retry_at.map(|dt| dt.and_utc()),
             })
@@ -415,7 +415,7 @@ impl ViableStepDiscovery {
                 previous_results,
                 metadata: StepRequestMetadata {
                     attempt: step.attempts,
-                    retry_limit: step.retry_limit,
+                    max_attempts: step.max_attempts,
                     timeout_ms: timeout_ms as i64,
                     created_at: chrono::Utc::now(),
                 },

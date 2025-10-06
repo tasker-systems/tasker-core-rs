@@ -92,7 +92,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -115,7 +115,7 @@ steps:
       - tree_root
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -138,7 +138,7 @@ steps:
       - tree_root
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -159,7 +159,7 @@ steps:
       - tree_branch_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -180,7 +180,7 @@ steps:
       - tree_branch_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -201,7 +201,7 @@ steps:
       - tree_branch_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -222,7 +222,7 @@ steps:
       - tree_branch_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -247,7 +247,7 @@ steps:
       - tree_leaf_g
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000

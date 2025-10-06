@@ -78,7 +78,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -98,7 +98,7 @@ steps:
       - linear_step_1
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -118,7 +118,7 @@ steps:
       - linear_step_2
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -139,7 +139,7 @@ steps:
       - linear_step_3
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -151,19 +151,19 @@ environments:
       - name: linear_step_1
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: linear_step_2
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: linear_step_3
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: linear_step_4
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
   development:
     steps:
       - name: linear_step_1

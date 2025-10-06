@@ -37,7 +37,7 @@ pub struct ViableStep {
     pub dependencies_satisfied: bool,
     pub retry_eligible: bool,
     pub attempts: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub last_failure_at: Option<chrono::NaiveDateTime>,
     pub next_retry_at: Option<chrono::NaiveDateTime>,
 }

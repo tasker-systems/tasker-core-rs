@@ -90,7 +90,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -113,7 +113,7 @@ steps:
       - dag_init
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -136,7 +136,7 @@ steps:
       - dag_init
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -161,7 +161,7 @@ steps:
       - dag_process_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -183,7 +183,7 @@ steps:
       - dag_process_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -205,7 +205,7 @@ steps:
       - dag_process_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -232,7 +232,7 @@ steps:
       - dag_analyze
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000

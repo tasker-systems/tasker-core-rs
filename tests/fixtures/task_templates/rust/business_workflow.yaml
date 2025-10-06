@@ -156,7 +156,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -183,7 +183,7 @@ steps:
       - validate_order
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -212,7 +212,7 @@ steps:
       - reserve_inventory
     retry:
       retryable: true
-      limit: 2
+      max_attempts: 2
       backoff: exponential
       backoff_base_ms: 2000
       max_backoff_ms: 30000
@@ -242,7 +242,7 @@ steps:
       - process_payment
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000

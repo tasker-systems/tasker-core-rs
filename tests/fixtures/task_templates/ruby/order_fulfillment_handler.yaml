@@ -152,7 +152,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -179,7 +179,7 @@ steps:
       - validate_order
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -208,7 +208,7 @@ steps:
       - reserve_inventory
     retry:
       retryable: true
-      limit: 2
+      max_attempts: 2
       backoff: exponential
       backoff_base_ms: 2000
       max_backoff_ms: 30000
@@ -238,7 +238,7 @@ steps:
       - process_payment
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -250,16 +250,16 @@ environments:
       - name: validate_order
         timeout_seconds: 20
         retry:
-          limit: 2
+          max_attempts: 2
       - name: reserve_inventory
         timeout_seconds: 30
         retry:
-          limit: 2
+          max_attempts: 2
       - name: process_payment
         timeout_seconds: 45
         retry:
-          limit: 1
+          max_attempts: 1
       - name: ship_order
         timeout_seconds: 30
         retry:
-          limit: 2
+          max_attempts: 2

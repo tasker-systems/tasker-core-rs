@@ -44,7 +44,7 @@ fn create_test_step() -> WorkflowStep {
         task_uuid: Uuid::now_v7(),
         named_step_uuid: Uuid::now_v7(),
         retryable: true,
-        retry_limit: Some(3),
+        max_attempts: Some(3),
         in_process: false,
         processed: false,
         processed_at: None,

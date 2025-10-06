@@ -699,7 +699,7 @@ impl StateManager {
             })?;
 
         // Check if step has retries remaining
-        if !step_state_machine.has_exceeded_retry_limit() {
+        if !step_state_machine.has_exceeded_max_attempts() {
             // Transition back to pending for retry
             let retry_event = StepEvent::Retry;
             step_state_machine

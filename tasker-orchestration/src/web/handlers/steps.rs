@@ -92,7 +92,7 @@ pub async fn list_task_steps(
                     total_parents: readiness.total_parents,
                     completed_parents: readiness.completed_parents,
                     attempts: readiness.attempts,
-                    retry_limit: readiness.retry_limit,
+                    max_attempts: readiness.max_attempts,
                     last_failure_at: readiness
                         .last_failure_at
                         .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
@@ -124,7 +124,7 @@ pub async fn list_task_steps(
                     total_parents: 0,
                     completed_parents: 0,
                     attempts: step.attempts.unwrap_or(0),
-                    retry_limit: step.retry_limit.unwrap_or(3),
+                    max_attempts: step.max_attempts.unwrap_or(3),
                     last_failure_at: None,
                     next_retry_at: None,
                     last_attempted_at: step
@@ -220,7 +220,7 @@ pub async fn get_step(
                 total_parents: readiness.total_parents,
                 completed_parents: readiness.completed_parents,
                 attempts: readiness.attempts,
-                retry_limit: readiness.retry_limit,
+                max_attempts: readiness.max_attempts,
                 last_failure_at: readiness
                     .last_failure_at
                     .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
@@ -252,7 +252,7 @@ pub async fn get_step(
                 total_parents: 0,
                 completed_parents: 0,
                 attempts: step.attempts.unwrap_or(0),
-                retry_limit: step.retry_limit.unwrap_or(3),
+                max_attempts: step.max_attempts.unwrap_or(3),
                 last_failure_at: None,
                 next_retry_at: None,
                 last_attempted_at: step
@@ -387,7 +387,7 @@ pub async fn resolve_step_manually(
                         total_parents: readiness.total_parents,
                         completed_parents: readiness.completed_parents,
                         attempts: readiness.attempts,
-                        retry_limit: readiness.retry_limit,
+                        max_attempts: readiness.max_attempts,
                         last_failure_at: readiness
                             .last_failure_at
                             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()),
@@ -425,7 +425,7 @@ pub async fn resolve_step_manually(
                         total_parents: 0,
                         completed_parents: 0,
                         attempts: updated_step.attempts.unwrap_or(0),
-                        retry_limit: updated_step.retry_limit.unwrap_or(3),
+                        max_attempts: updated_step.max_attempts.unwrap_or(3),
                         last_failure_at: None,
                         next_retry_at: None,
                         last_attempted_at: updated_step

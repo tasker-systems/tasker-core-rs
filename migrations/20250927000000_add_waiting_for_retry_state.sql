@@ -148,7 +148,7 @@ RETURNS TABLE(
     total_parents integer,
     completed_parents integer,
     attempts integer,
-    retry_limit integer,
+    max_attempts integer,
     backoff_request_seconds integer,
     last_attempted_at timestamp without time zone
 )
@@ -191,7 +191,7 @@ RETURNS TABLE(
     total_parents integer,
     completed_parents integer,
     attempts integer,
-    retry_limit integer,
+    max_attempts integer,
     backoff_request_seconds integer,
     last_attempted_at timestamp without time zone
 )
@@ -263,7 +263,7 @@ BEGIN
     SELECT
       ws.workflow_step_uuid,
       (dc.total_deps IS NULL OR dc.completed_deps = dc.total_deps) as dependencies_satisfied,
-      (COALESCE(ws.attempts, 0) < COALESCE(ws.retry_limit, 3)) as retry_eligible
+      (COALESCE(ws.attempts, 0) < COALESCE(ws.max_attempts, 3)) as retry_eligible
     FROM tasker_workflow_steps ws
     INNER JOIN steps_for_tasks sft ON sft.workflow_step_uuid = ws.workflow_step_uuid
     LEFT JOIN dependency_counts dc ON dc.to_step_uuid = ws.workflow_step_uuid
@@ -302,7 +302,7 @@ BEGIN
     COALESCE(dc.total_deps, 0)::INTEGER as total_parents,
     COALESCE(dc.completed_deps, 0)::INTEGER as completed_parents,
     COALESCE(ws.attempts, 0)::INTEGER as attempts,
-    COALESCE(ws.retry_limit, 3) as retry_limit,
+    COALESCE(ws.max_attempts, 3) as max_attempts,
     ws.backoff_request_seconds,
     ws.last_attempted_at
 

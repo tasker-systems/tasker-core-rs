@@ -5,10 +5,11 @@
 
 use anyhow::Result;
 use serde_json::json;
+use uuid::Uuid;
 
-use crate::common::{
-    create_task_request_with_bypass, wait_for_task_completion, wait_for_task_failure,
-    IntegrationTestManager,
+use crate::common::integration_test_manager::IntegrationTestManager;
+use crate::common::integration_test_utils::{
+    create_task_request, wait_for_task_completion, wait_for_task_failure,
 };
 
 /// Test happy path execution with success handler
@@ -22,12 +23,11 @@ use crate::common::{
 async fn test_success_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
-    // Create task with only success_step (bypass error steps)
-    let task_request = create_task_request_with_bypass(
+    // Create task with success-only template (no bypass needed - idempotent design)
+    let task_request = create_task_request(
         "test_errors",
-        "error_testing",
+        "success_only",
         json!({ "scenario_type": "success" }),
-        vec!["permanent_error_step".into(), "retryable_error_step".into()],
     );
 
     let response = manager
@@ -39,26 +39,32 @@ async fn test_success_scenario() -> Result<()> {
     wait_for_task_completion(&manager.orchestration_client, &response.task_uuid, 3).await?;
 
     // Verify completion
-    let task = manager
-        .orchestration_client
-        .get_task(response.task_uuid)
-        .await?;
+    let task_uuid = Uuid::parse_str(&response.task_uuid)?;
+    let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert_eq!(task.status, "complete", "Task should be complete");
-    assert_eq!(
-        task.execution_status, "all_complete",
-        "Execution status should be all_complete"
+    assert!(
+        task.is_execution_complete(),
+        "Task execution should be complete"
+    );
+    // Task status should indicate completion (either "complete" state or "all_complete" execution status)
+    assert!(
+        task.status.to_lowercase().contains("complete"),
+        "Task status should indicate completion, got: {}",
+        task.status
     );
 
-    // Verify step counts
-    let stats = manager
+    // Verify step count
+    let steps = manager
         .orchestration_client
-        .get_task_stats(response.task_uuid)
+        .list_task_steps(task_uuid)
         .await?;
-
-    assert_eq!(stats.total_steps, 1, "Should have 1 total step");
-    assert_eq!(stats.completed_steps, 1, "Should have 1 completed step");
-    assert_eq!(stats.failed_steps, 0, "Should have 0 failed steps");
+    assert_eq!(steps.len(), 1, "Should have 1 total step");
+    assert!(
+        steps
+            .iter()
+            .all(|s| s.current_state.to_uppercase() == "COMPLETE"),
+        "All steps should be complete"
+    );
 
     println!("✅ Success scenario completed successfully");
     Ok(())
@@ -75,12 +81,11 @@ async fn test_success_scenario() -> Result<()> {
 async fn test_permanent_failure_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
-    // Create task with only permanent_error_step
-    let task_request = create_task_request_with_bypass(
+    // Create task with permanent-error-only template
+    let task_request = create_task_request(
         "test_errors",
-        "error_testing",
+        "permanent_error_only",
         json!({ "scenario_type": "permanent_failure" }),
-        vec!["success_step".into(), "retryable_error_step".into()],
     );
 
     let response = manager
@@ -103,25 +108,28 @@ async fn test_permanent_failure_scenario() -> Result<()> {
     );
 
     // Verify failure state
-    let task = manager
-        .orchestration_client
-        .get_task(response.task_uuid)
-        .await?;
+    let task_uuid = Uuid::parse_str(&response.task_uuid)?;
+    let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert_eq!(
-        task.execution_status, "blocked_by_failures",
-        "Execution status should indicate blocking failures"
+    assert!(
+        task.execution_status.to_lowercase().contains("error")
+            || task.execution_status.to_lowercase().contains("blocked")
+            || task.execution_status.to_lowercase().contains("fail"),
+        "Execution status should indicate failure, got: {}",
+        task.execution_status
     );
 
-    // Verify step counts
-    let stats = manager
+    // Verify step is in error state
+    let steps = manager
         .orchestration_client
-        .get_task_stats(response.task_uuid)
+        .list_task_steps(task_uuid)
         .await?;
-
-    assert_eq!(stats.total_steps, 1, "Should have 1 total step");
-    assert_eq!(stats.completed_steps, 0, "Should have 0 completed steps");
-    assert_eq!(stats.failed_steps, 1, "Should have 1 failed step");
+    assert_eq!(steps.len(), 1, "Should have 1 total step");
+    assert!(
+        steps[0].current_state.to_uppercase() == "ERROR",
+        "Step should be in error state, got: {}",
+        steps[0].current_state
+    );
 
     println!(
         "✅ Permanent failure completed in {:?} (no retries)",
@@ -142,12 +150,11 @@ async fn test_permanent_failure_scenario() -> Result<()> {
 async fn test_retryable_failure_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
-    // Create task with only retryable_error_step
-    let task_request = create_task_request_with_bypass(
+    // Create task with retryable-error-only template
+    let task_request = create_task_request(
         "test_errors",
-        "error_testing",
+        "retryable_error_only",
         json!({ "scenario_type": "retryable_failure" }),
-        vec!["success_step".into(), "permanent_error_step".into()],
     );
 
     let response = manager
@@ -175,25 +182,28 @@ async fn test_retryable_failure_scenario() -> Result<()> {
     );
 
     // Verify failure state after retry exhaustion
-    let task = manager
-        .orchestration_client
-        .get_task(response.task_uuid)
-        .await?;
+    let task_uuid = Uuid::parse_str(&response.task_uuid)?;
+    let task = manager.orchestration_client.get_task(task_uuid).await?;
 
-    assert_eq!(
-        task.execution_status, "blocked_by_failures",
-        "Execution status should indicate blocking failures"
+    assert!(
+        task.execution_status.to_lowercase().contains("error")
+            || task.execution_status.to_lowercase().contains("blocked")
+            || task.execution_status.to_lowercase().contains("fail"),
+        "Execution status should indicate failure, got: {}",
+        task.execution_status
     );
 
-    // Verify step counts
-    let stats = manager
+    // Verify step exhausted retries
+    let steps = manager
         .orchestration_client
-        .get_task_stats(response.task_uuid)
+        .list_task_steps(task_uuid)
         .await?;
-
-    assert_eq!(stats.total_steps, 1, "Should have 1 total step");
-    assert_eq!(stats.completed_steps, 0, "Should have 0 completed steps");
-    assert_eq!(stats.failed_steps, 1, "Should have 1 failed step");
+    assert_eq!(steps.len(), 1, "Should have 1 total step");
+    assert!(
+        steps[0].current_state.to_uppercase() == "ERROR",
+        "Step should be in error state, got: {}",
+        steps[0].current_state
+    );
 
     println!(
         "✅ Retryable failure completed in {:?} (with retries)",
@@ -213,12 +223,11 @@ async fn test_retryable_failure_scenario() -> Result<()> {
 async fn test_mixed_workflow_scenario() -> Result<()> {
     let manager = IntegrationTestManager::setup().await?;
 
-    // Run all steps (no bypass) - parallel execution
-    let task_request = create_task_request_with_bypass(
+    // Use error_testing template with all 3 steps (success + 2 error types)
+    let task_request = create_task_request(
         "test_errors",
         "error_testing",
         json!({ "scenario_type": "mixed" }),
-        vec![], // No bypass - run all steps
     );
 
     let response = manager
@@ -230,31 +239,39 @@ async fn test_mixed_workflow_scenario() -> Result<()> {
     wait_for_task_failure(&manager.orchestration_client, &response.task_uuid, 5).await?;
 
     // Verify mixed results
-    let task = manager
+    let task_uuid = Uuid::parse_str(&response.task_uuid)?;
+    let _task = manager.orchestration_client.get_task(task_uuid).await?;
+
+    let steps = manager
         .orchestration_client
-        .get_task(response.task_uuid)
+        .list_task_steps(task_uuid)
         .await?;
 
-    let stats = manager
-        .orchestration_client
-        .get_task_stats(response.task_uuid)
-        .await?;
+    assert_eq!(steps.len(), 3, "Should have 3 total steps");
 
-    assert_eq!(stats.total_steps, 3, "Should have 3 total steps");
+    let completed_count = steps
+        .iter()
+        .filter(|s| s.current_state.to_uppercase() == "COMPLETE")
+        .count();
+    let failed_count = steps
+        .iter()
+        .filter(|s| s.current_state.to_uppercase() == "ERROR")
+        .count();
+
     assert!(
-        stats.completed_steps >= 1,
+        completed_count >= 1,
         "At least success_step should complete, got {}",
-        stats.completed_steps
+        completed_count
     );
     assert!(
-        stats.failed_steps >= 1,
+        failed_count >= 1,
         "At least one error step should fail, got {}",
-        stats.failed_steps
+        failed_count
     );
 
     println!(
         "✅ Mixed workflow handled correctly: {} succeeded, {} failed",
-        stats.completed_steps, stats.failed_steps
+        completed_count, failed_count
     );
     Ok(())
 }

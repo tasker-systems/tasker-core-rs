@@ -8,8 +8,8 @@
 -- Background:
 -- When a worker encounters a permanent error (e.g., missing handler, configuration
 -- error), it marks the step as non-retryable in the metadata. However, the
--- get_task_execution_context function was only checking if attempts >= retry_limit,
--- which didn't catch steps where retry_limit > 0 but the error is non-retryable.
+-- get_task_execution_context function was only checking if attempts >= max_attempts,
+-- which didn't catch steps where max_attempts > 0 but the error is non-retryable.
 --
 -- This caused tasks to be marked as "waiting_for_dependencies" instead of
 -- "blocked_by_failures", leading to confusing error messages.
@@ -62,7 +62,7 @@ BEGIN
       COUNT(CASE WHEN sd.ready_for_execution = true THEN 1 END) as ready_steps,
       -- FIXED: Count permanently blocked steps - either exhausted retries OR marked as not retry_eligible
       COUNT(CASE WHEN sd.current_state = 'error'
-                  AND (sd.attempts >= sd.retry_limit OR sd.retry_eligible = false) THEN 1 END) as permanently_blocked_steps
+                  AND (sd.attempts >= sd.max_attempts OR sd.retry_eligible = false) THEN 1 END) as permanently_blocked_steps
     FROM step_data sd
   )
   SELECT

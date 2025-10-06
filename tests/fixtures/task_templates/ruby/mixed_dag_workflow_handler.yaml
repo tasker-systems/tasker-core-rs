@@ -86,7 +86,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -109,7 +109,7 @@ steps:
       - dag_init
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -132,7 +132,7 @@ steps:
       - dag_init
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -157,7 +157,7 @@ steps:
       - dag_process_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -179,7 +179,7 @@ steps:
       - dag_process_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -201,7 +201,7 @@ steps:
       - dag_process_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -228,7 +228,7 @@ steps:
       - dag_analyze
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -240,28 +240,28 @@ environments:
       - name: dag_init
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_process_left
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_process_right
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_validate
         timeout_seconds: 15
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_transform
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_analyze
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: dag_finalize
         timeout_seconds: 20
         retry:
-          limit: 2
+          max_attempts: 2

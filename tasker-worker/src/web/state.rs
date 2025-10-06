@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use std::{sync::Arc, time::Instant};
 use tasker_shared::{
     config::TaskerConfig, errors::TaskerResult, messaging::clients::UnifiedMessageClient,
-    registry::TaskHandlerRegistry, types::base::CacheStats,
+    types::base::CacheStats,
 };
 use tracing::info;
 
@@ -121,9 +121,16 @@ impl WorkerWebState {
         let message_client =
             Arc::new(UnifiedMessageClient::new_pgmq_with_pool((*database_pool).clone()).await);
 
-        // Create task handler registry and task template manager
-        let task_handler_registry = Arc::new(TaskHandlerRegistry::new((*database_pool).clone()));
-        let task_template_manager = Arc::new(TaskTemplateManager::new(task_handler_registry));
+        // Extract task template manager from WorkerCore (shares same instance that was updated during discovery)
+        let task_template_manager = {
+            let core = worker_core.lock().await;
+            core.task_template_manager.clone()
+        };
+
+        info!(
+            namespaces = ?task_template_manager.supported_namespaces().await,
+            "WorkerWebState using shared TaskTemplateManager with discovered namespaces"
+        );
 
         Ok(Self {
             worker_core,

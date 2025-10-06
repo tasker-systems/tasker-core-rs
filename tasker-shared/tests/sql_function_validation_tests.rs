@@ -308,7 +308,7 @@ async fn test_helper_functions_via_readiness_api(pool: PgPool) -> Result<()> {
         UPDATE tasker_workflow_steps
         SET
             attempts = 2,
-            retry_limit = 5,
+            max_attempts = 5,
             backoff_request_seconds = 2,
             last_attempted_at = NOW() - INTERVAL '10 seconds'
         WHERE workflow_step_uuid = $1
@@ -362,13 +362,13 @@ async fn test_helper_functions_via_readiness_api(pool: PgPool) -> Result<()> {
 }
 
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_retry_limit_enforcement(pool: PgPool) -> Result<()> {
-    let task = create_test_task(&pool, "test_retry_limits").await?;
+async fn test_max_attempts_enforcement(pool: PgPool) -> Result<()> {
+    let task = create_test_task(&pool, "test_max_attemptss").await?;
 
     // Create step at retry limit
     let step_exhausted = create_test_step(&pool, task.task_uuid, "exhausted_retries").await?;
     sqlx::query!(
-        "UPDATE tasker_workflow_steps SET attempts = 3, retry_limit = 3 WHERE workflow_step_uuid = $1",
+        "UPDATE tasker_workflow_steps SET attempts = 3, max_attempts = 3 WHERE workflow_step_uuid = $1",
         step_exhausted.workflow_step_uuid
     )
     .execute(&pool)
@@ -378,7 +378,7 @@ async fn test_retry_limit_enforcement(pool: PgPool) -> Result<()> {
     // Create step under retry limit
     let step_retryable = create_test_step(&pool, task.task_uuid, "can_retry").await?;
     sqlx::query!(
-        "UPDATE tasker_workflow_steps SET attempts = 2, retry_limit = 5 WHERE workflow_step_uuid = $1",
+        "UPDATE tasker_workflow_steps SET attempts = 2, max_attempts = 5 WHERE workflow_step_uuid = $1",
         step_retryable.workflow_step_uuid
     )
     .execute(&pool)

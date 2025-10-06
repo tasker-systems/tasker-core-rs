@@ -30,7 +30,7 @@ module TaskerCore
   #   # Create instance with configuration
   #   handler = TaskerCore::Handlers::Steps.create(
   #     ProcessPaymentHandler,
-  #     config: { timeout: 30, retry_limit: 3 }
+  #     config: { timeout: 30, max_attempts: 3 }
   #   )
   #
   # @example Validating handler implementation

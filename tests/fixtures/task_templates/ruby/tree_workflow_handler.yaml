@@ -88,7 +88,7 @@ steps:
     dependencies: []
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -111,7 +111,7 @@ steps:
       - tree_root
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -134,7 +134,7 @@ steps:
       - tree_root
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -155,7 +155,7 @@ steps:
       - tree_branch_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -176,7 +176,7 @@ steps:
       - tree_branch_left
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -197,7 +197,7 @@ steps:
       - tree_branch_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -218,7 +218,7 @@ steps:
       - tree_branch_right
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -243,7 +243,7 @@ steps:
       - tree_leaf_g
     retry:
       retryable: true
-      limit: 3
+      max_attempts: 3
       backoff: exponential
       backoff_base_ms: 1000
       max_backoff_ms: 30000
@@ -255,32 +255,32 @@ environments:
       - name: tree_root
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_branch_left
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_branch_right
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_leaf_d
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_leaf_e
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_leaf_f
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_leaf_g
         timeout_seconds: 10
         retry:
-          limit: 2
+          max_attempts: 2
       - name: tree_final_convergence
         timeout_seconds: 20
         retry:
-          limit: 2
+          max_attempts: 2

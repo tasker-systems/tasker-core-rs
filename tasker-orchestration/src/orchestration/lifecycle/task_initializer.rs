@@ -477,7 +477,7 @@ impl TaskInitializer {
                 task_uuid,
                 named_step_uuid: named_step.named_step_uuid,
                 retryable: Some(step_definition.retry.retryable),
-                retry_limit: Some(step_definition.retry.limit as i32),
+                max_attempts: Some(step_definition.retry.max_attempts as i32),
                 inputs,
                 skippable: None, // Not available in new TaskTemplate - could be added if needed
             };

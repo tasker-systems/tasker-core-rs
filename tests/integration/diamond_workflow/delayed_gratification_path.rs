@@ -10,7 +10,7 @@
 //! - SQL function validation of retry eligibility and backoff timing
 //! - Exponential backoff calculation accuracy
 //! - Custom backoff configuration via backoff_request_seconds
-//! - Retry limit exhaustion (attempts >= retry_limit)
+//! - Retry limit exhaustion (attempts >= max_attempts)
 //! - Recovery after retry delays
 
 use anyhow::Result;
@@ -55,7 +55,7 @@ async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Resu
     assert_eq!(start_step.attempts, 1, "Should have 1 attempt recorded");
     assert!(
         start_step.retry_eligible,
-        "Step should be eligible for retry (attempts < retry_limit)"
+        "Step should be eligible for retry (attempts < max_attempts)"
     );
     assert!(
         !start_step.ready_for_execution,
@@ -80,8 +80,11 @@ async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Resu
     tracing::info!("✅ Task context reflects error state correctly");
 
     // **PHASE 3**: Validate SQL functions show retry eligibility
-    // The step should be retry_eligible=true because attempts (1) < retry_limit (3)
-    assert_eq!(start_step.retry_limit, 3, "Default retry limit should be 3");
+    // The step should be retry_eligible=true because attempts (1) < max_attempts (3)
+    assert_eq!(
+        start_step.max_attempts, 3,
+        "Default retry limit should be 3"
+    );
     assert!(
         start_step.retry_eligible,
         "Step should be eligible for retry"
@@ -94,7 +97,7 @@ async fn test_diamond_pattern_retryable_error_with_backoff(pool: PgPool) -> Resu
 
 /// Test diamond pattern with retry limit exhaustion
 #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
-async fn test_diamond_pattern_retry_limit_exhaustion(pool: PgPool) -> Result<()> {
+async fn test_diamond_pattern_max_attempts_exhaustion(pool: PgPool) -> Result<()> {
     tracing::info!("🔍 DELAYED GRATIFICATION: Retry limit exhaustion");
 
     let manager = LifecycleTestManager::new(pool.clone()).await?;
@@ -129,10 +132,10 @@ async fn test_diamond_pattern_retry_limit_exhaustion(pool: PgPool) -> Result<()>
             .unwrap();
 
         tracing::info!(
-            "Attempt {}: attempts={}, retry_limit={}, retry_eligible={}",
+            "Attempt {}: attempts={}, max_attempts={}, retry_eligible={}",
             attempt,
             start_step.attempts,
-            start_step.retry_limit,
+            start_step.max_attempts,
             start_step.retry_eligible
         );
 
@@ -163,10 +166,10 @@ async fn test_diamond_pattern_retry_limit_exhaustion(pool: PgPool) -> Result<()>
         "Step should be in error state"
     );
     assert_eq!(start_step.attempts, 3, "Should have 3 attempts");
-    assert_eq!(start_step.retry_limit, 3, "Retry limit is 3");
+    assert_eq!(start_step.max_attempts, 3, "Retry limit is 3");
     assert!(
         !start_step.retry_eligible,
-        "Should NOT be retry eligible (attempts >= retry_limit)"
+        "Should NOT be retry eligible (attempts >= max_attempts)"
     );
     assert!(
         !start_step.ready_for_execution,

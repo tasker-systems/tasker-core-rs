@@ -25,7 +25,7 @@ async fn test_step_readiness_blocking_reason(_pool: sqlx::PgPool) -> sqlx::Resul
         total_parents: 2,
         completed_parents: 1,
         attempts: 0,
-        retry_limit: 3,
+        max_attempts: 3,
         backoff_request_seconds: None,
         last_attempted_at: None,
     };
@@ -99,7 +99,7 @@ async fn test_step_backoff_calculation(_pool: sqlx::PgPool) -> sqlx::Result<()> 
         total_parents: 0,
         completed_parents: 0,
         attempts: 3,
-        retry_limit: 5,
+        max_attempts: 5,
         backoff_request_seconds: None,
         last_attempted_at: None,
     };

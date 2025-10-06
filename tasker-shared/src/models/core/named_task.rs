@@ -295,7 +295,7 @@ impl NamedTask {
             NamedTaskStepAssociation,
             r#"
             SELECT ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                   default_retry_limit, created_at, updated_at
+                   default_max_attempts, created_at, updated_at
             FROM tasker_named_tasks_named_steps
             WHERE named_task_uuid = $1::uuid
             ORDER BY created_at
@@ -318,10 +318,10 @@ impl NamedTask {
             NamedTaskStepAssociation,
             r#"
             INSERT INTO tasker_named_tasks_named_steps
-            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_retry_limit, created_at, updated_at)
+            (named_task_uuid, named_step_uuid, skippable, default_retryable, default_max_attempts, created_at, updated_at)
             VALUES ($1::uuid, $2::uuid, false, true, 3, NOW(), NOW())
             RETURNING ntns_uuid, named_task_uuid, named_step_uuid, skippable, default_retryable,
-                      default_retry_limit, created_at, updated_at
+                      default_max_attempts, created_at, updated_at
             "#,
             self.named_task_uuid,
             named_step_uuid

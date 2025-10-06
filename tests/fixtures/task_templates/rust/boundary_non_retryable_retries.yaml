@@ -1,0 +1,27 @@
+---
+name: boundary_non_retryable_retries
+namespace_name: test_sql
+version: 1.0.0
+description: "Boundary test: retryable=false blocks retry attempts after first"
+metadata:
+  author: "Test Infrastructure"
+  tags:
+    - namespace:test_sql
+    - pattern:boundary_testing
+task_handler:
+  callable: TestHandlers::BoundaryTestHandler
+system_dependencies:
+  primary: test_system
+  secondary: []
+steps:
+  - name: boundary_test_step
+    description: "Test step with retryable=false and max_attempts=3"
+    handler:
+      callable: TestHandlers::NoOpHandler
+    dependencies: []
+    retry:
+      retryable: false
+      max_attempts: 3
+      backoff: exponential
+      backoff_base_ms: 100
+    timeout_seconds: 5

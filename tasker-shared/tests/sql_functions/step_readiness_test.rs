@@ -211,7 +211,7 @@ mod tests {
         // Update retry information
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 1, retry_limit = 3, retryable = true,
+             SET attempts = 1, max_attempts = 3, retryable = true,
                  last_attempted_at = NOW() - INTERVAL '30 seconds'
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
@@ -241,7 +241,7 @@ mod tests {
         assert!(error_step.retry_eligible);
         assert!(error_step.ready_for_execution); // Ready to retry
         assert_eq!(error_step.attempts, 1);
-        assert_eq!(error_step.retry_limit, 3);
+        assert_eq!(error_step.max_attempts, 3);
 
         Ok(())
     }
@@ -267,7 +267,7 @@ mod tests {
         // Update to exhaust retries
         sqlx::query!(
             "UPDATE tasker_workflow_steps
-             SET attempts = 3, retry_limit = 3, retryable = true
+             SET attempts = 3, max_attempts = 3, retryable = true
              WHERE workflow_step_uuid = $1",
             step_uuids[1]
         )
@@ -286,7 +286,7 @@ mod tests {
         assert!(!error_step.retry_eligible); // No more retries
         assert!(!error_step.ready_for_execution); // Cannot execute
         assert_eq!(error_step.attempts, 3);
-        assert_eq!(error_step.retry_limit, 3);
+        assert_eq!(error_step.max_attempts, 3);
 
         Ok(())
     }

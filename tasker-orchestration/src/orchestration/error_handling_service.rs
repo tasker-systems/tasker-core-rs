@@ -58,7 +58,7 @@ pub struct ErrorHandlingConfig {
     /// Whether to transition to WaitingForRetry state
     pub use_waiting_for_retry_state: bool,
     /// Default retry limit if not specified on step
-    pub default_retry_limit: u32,
+    pub default_max_attempts: u32,
 }
 
 impl Default for ErrorHandlingConfig {
@@ -66,7 +66,7 @@ impl Default for ErrorHandlingConfig {
         Self {
             use_error_classification: true,
             use_waiting_for_retry_state: true,
-            default_retry_limit: 3,
+            default_max_attempts: 3,
         }
     }
 }
@@ -267,8 +267,8 @@ impl ErrorHandlingService {
     ) -> Result<ErrorContext, TaskerError> {
         let attempts = step.attempts.unwrap_or(0) as u32;
         let max_attempts = step
-            .retry_limit
-            .unwrap_or(self.config.default_retry_limit as i32) as u32;
+            .max_attempts
+            .unwrap_or(self.config.default_max_attempts as i32) as u32;
 
         Ok(ErrorContext {
             step_uuid: step.workflow_step_uuid,

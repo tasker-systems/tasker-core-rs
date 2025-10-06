@@ -55,7 +55,7 @@ async fn test_diamond_pattern_early_permanent_failure(pool: PgPool) -> Result<()
         .unwrap();
     assert_eq!(start_step.current_state.as_deref(), Some("error"));
     assert_eq!(start_step.attempts, 3);
-    assert_eq!(start_step.retry_limit, 3);
+    assert_eq!(start_step.max_attempts, 3);
     assert!(!start_step.retry_eligible, "Retries exhausted");
     assert!(!start_step.ready_for_execution, "Cannot execute");
 

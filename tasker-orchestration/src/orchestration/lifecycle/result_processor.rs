@@ -648,14 +648,14 @@ impl OrchestrationResultProcessor {
                                         false
                                     } else {
                                         // Check retry limits from template
-                                        let retry_limit = step.retry_limit.unwrap_or(0);
+                                        let max_attempts = step.max_attempts.unwrap_or(0);
                                         let current_attempts = step.attempts.unwrap_or(0);
 
-                                        if current_attempts >= retry_limit {
+                                        if current_attempts >= max_attempts {
                                             info!(
                                                 step_uuid = %step_uuid,
                                                 current_attempts = current_attempts,
-                                                retry_limit = retry_limit,
+                                                max_attempts = max_attempts,
                                                 "Step has exceeded retry limit from template"
                                             );
                                             false
@@ -663,7 +663,7 @@ impl OrchestrationResultProcessor {
                                             info!(
                                                 step_uuid = %step_uuid,
                                                 current_attempts = current_attempts,
-                                                retry_limit = retry_limit,
+                                                max_attempts = max_attempts,
                                                 "Step is retryable with attempts remaining"
                                             );
                                             true
@@ -672,16 +672,16 @@ impl OrchestrationResultProcessor {
                                 }
                                 Err(_) => {
                                     // Can't deserialize results - default to checking retry limit only
-                                    let retry_limit = step.retry_limit.unwrap_or(0);
+                                    let max_attempts = step.max_attempts.unwrap_or(0);
                                     let current_attempts = step.attempts.unwrap_or(0);
-                                    current_attempts < retry_limit
+                                    current_attempts < max_attempts
                                 }
                             }
                         } else {
                             // No results - check retry limit only
-                            let retry_limit = step.retry_limit.unwrap_or(0);
+                            let max_attempts = step.max_attempts.unwrap_or(0);
                             let current_attempts = step.attempts.unwrap_or(0);
-                            current_attempts < retry_limit
+                            current_attempts < max_attempts
                         };
 
                         // Determine which event to use based on retryability

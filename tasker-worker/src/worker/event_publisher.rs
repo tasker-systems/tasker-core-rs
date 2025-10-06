@@ -289,7 +289,7 @@ mod tests {
                 named_step_uuid: uuid::Uuid::new_v4(),
                 name: step_name.to_string(),
                 retryable: false,
-                retry_limit: None,
+                max_attempts: None,
                 in_process: false,
                 processed: false,
                 processed_at: None,
@@ -315,7 +315,7 @@ mod tests {
                 timeout_seconds: Some(30),
                 retry: RetryConfiguration {
                     retryable: false,
-                    limit: 1,
+                    max_attempts: 1,
                     backoff: BackoffStrategy::None,
                     backoff_base_ms: None,
                     max_backoff_ms: None,

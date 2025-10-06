@@ -309,8 +309,8 @@ impl StepStateMachine {
     }
 
     /// Check if step has exceeded retry limit
-    pub fn has_exceeded_retry_limit(&self) -> bool {
-        if let (Some(attempts), Some(limit)) = (self.step.attempts, self.step.retry_limit) {
+    pub fn has_exceeded_max_attempts(&self) -> bool {
+        if let (Some(attempts), Some(limit)) = (self.step.attempts, self.step.max_attempts) {
             attempts >= limit
         } else {
             false

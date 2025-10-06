@@ -704,7 +704,7 @@ mod tests {
             dependencies_satisfied: true,
             retry_eligible: true,
             attempts: 0,
-            retry_limit: 3,
+            max_attempts: 3,
             last_failure_at: None,
             next_retry_at: None,
         }];

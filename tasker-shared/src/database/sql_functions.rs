@@ -397,7 +397,7 @@ pub struct StepReadinessStatus {
     pub total_parents: i32,
     pub completed_parents: i32,
     pub attempts: i32,
-    pub retry_limit: i32,
+    pub max_attempts: i32,
     pub backoff_request_seconds: Option<i32>,
     pub last_attempted_at: Option<chrono::NaiveDateTime>,
 }

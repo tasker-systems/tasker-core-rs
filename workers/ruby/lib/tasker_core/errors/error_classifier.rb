@@ -53,7 +53,7 @@ module TaskerCore
         return true if RETRYABLE_ERROR_CLASSES.any? { |klass| error.is_a?(klass) }
 
         # Default: StandardError and subclasses are retryable unless explicitly marked permanent
-        # This is a safe default - worst case, we retry until retry_limit is hit
+        # This is a safe default - worst case, we retry until max_attempts is hit
         true
       end
     end

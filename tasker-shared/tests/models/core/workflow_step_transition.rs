@@ -89,7 +89,7 @@ async fn test_workflow_step_transition_crud(pool: PgPool) -> sqlx::Result<()> {
             task_uuid: task.task_uuid,
             named_step_uuid: named_step.named_step_uuid,
             retryable: Some(true),
-            retry_limit: Some(3),
+            max_attempts: Some(3),
             inputs: None,
             skippable: Some(false),
         },
